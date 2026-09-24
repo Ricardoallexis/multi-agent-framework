@@ -24,4 +24,5 @@ jobs:
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m pip install -e . --no-deps --no-build-isolation
       - run: python -m pytest -q
+      - run: python examples/python_quickstart.py
       - run: multiagent --version

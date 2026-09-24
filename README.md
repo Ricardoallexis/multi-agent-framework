@@ -6,14 +6,14 @@
 
 **Status:** Alpha / backend-first
 
-Multi-Agent Framework is a Python orchestration framework for hybrid human/AI workflows. The backend coordinates specialized agents, local and cloud models, structured contracts, human checkpoints, persistence, and traceability. A graphical user interface is not part of the current public baseline yet.
+Multi-Agent Framework is a Python orchestration framework for hybrid human/AI workflows, evolving into a configurable runtime for teams of intelligent capabilities. The current baseline executes sequential social-content workflows with local/cloud models, structured contracts, human checkpoints, persistence, and traceability. RAVC is a private reference use case; a generic preset/Team system and graphical interface are not yet implemented.
 
 > **Alpha notice:** public APIs, workflow contracts, prompts, migrations, and configuration may still change while the project evolves toward a stable release.
 
 ## What is included
 
 - Deterministic YAML workflow orchestration.
-- Specialized agents for research, strategy, content creation, branding, and visual pre-production.
+- Example agent definitions for research, strategy, content creation, branding, and visual pre-production; capabilities are currently descriptive metadata.
 - Ollama, Gemini, and OpenAI adapters.
 - `auto`, `local`, `cloud`, and `human_guided` execution modes.
 - Human-in-the-loop review, approval, revision, rejection, and externally executed steps.
@@ -42,6 +42,8 @@ Contracts / Store / Artifacts / Assets
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for more detail.
+
+The [architecture review](docs/ARCHITECTURE_REVIEW.md) documents current coupling and limitations; the [roadmap](ROADMAP.md) separates NOW, NEXT, LATER, and FUTURE work.
 
 ## Requirements
 
@@ -95,6 +97,18 @@ Start the backend with:
 ```bash
 python main.py
 ```
+
+## Direct Python quickstart
+
+After the editable installation above, run the same Core without starting a server:
+
+```powershell
+& .\.venv\Scripts\python.exe .\examples\python_quickstart.py
+```
+
+On Linux/macOS: `.venv/bin/python examples/python_quickstart.py`.
+
+This uses FakeAdapter and the existing three-step social-content workflow, produces three artifacts, and stops at human review. The default workspace is temporary. See [Python quickstart](docs/PYTHON_QUICKSTART.md) for retained artifacts, direct imports, and verification outside the checkout. The current standalone wheel is incomplete; use the documented requirements plus editable installation until packaging is fixed.
 
 ## Local inference with Ollama
 
@@ -186,6 +200,10 @@ See [`docs/VERSIONING.md`](docs/VERSIONING.md).
 - [`ROADMAP.md`](ROADMAP.md) — planned project direction.
 - [`CHANGELOG.md`](CHANGELOG.md) — public release history.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components and execution flow.
+- [`docs/ARCHITECTURE_REVIEW.md`](docs/ARCHITECTURE_REVIEW.md) — verified baseline and answers to the architecture inspection questions.
+- [`docs/ARCHITECTURE_DECISIONS.md`](docs/ARCHITECTURE_DECISIONS.md) — proposed boundaries and incremental implementation tradeoffs.
+- [`docs/PYTHON_QUICKSTART.md`](docs/PYTHON_QUICKSTART.md) — same-Core Mock execution from Python.
+- [`docs/PRIVATE_PRESETS.md`](docs/PRIVATE_PRESETS.md) — public-base/private-overlay strategy and current private pilot recipe.
 - [`docs/VERSIONING.md`](docs/VERSIONING.md) — versioning rules.
 - [`docs/LOCAL_WORKSPACE.md`](docs/LOCAL_WORKSPACE.md) — public-code/private-data separation.
 - [`docs/OLLAMA.md`](docs/OLLAMA.md) — local Ollama setup, diagnostics, and execution.

@@ -6,7 +6,16 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Added
 
-- Reserved for changes after the first public alpha release.
+- Verified architecture review of `cdc52b7`, a classified gap analysis, and proposed architectural decision records.
+- Public-base/private-overlay strategy and a limited private reference implementation recipe using existing Python interfaces.
+- Executable three-step Python Mock example using the same Core, with temporary or explicitly retained runtime data and no automatic approval.
+- Python quickstart smoke command in the existing Python 3.12/3.13 CI matrix.
+
+### Changed
+
+- Roadmap organized into NOW, NEXT, LATER, and FUTURE / EXPERIMENTAL with explicit compatibility and verification gates.
+- Architecture and README now distinguish existing social-content behavior from the target generic runtime, including current capability, concurrency, observability, and packaging limits.
+- No runtime, schema, contract, dependency, or release-version changes; this increment contains documentation, example code, and its CI smoke command.
 
 ## [M1-B01-F00-alpha] - 2026-09-23
 

@@ -2,26 +2,22 @@
 
 ## Purpose
 
-Multi-Agent Framework coordinates workflows composed of specialized agents and combines local execution, cloud providers, and human participation without coupling workflow logic to a specific model provider.
+Multi-Agent Framework is evolving into a configurable runtime for teams of intelligent capabilities. The current baseline coordinates sequential social-content workflows with local/cloud models and human participation. Provider adapters are separated, but requests, context, some routing, and validation still contain domain assumptions.
+
+See the [verified architecture review](ARCHITECTURE_REVIEW.md), [proposed decisions](ARCHITECTURE_DECISIONS.md), and [ordered roadmap](../ROADMAP.md) for the distinction between implemented behavior and target architecture.
 
 ## Main components
 
-```text
-main.py
-  -> FastAPI app
-      -> RunService
-          -> WorkflowEngine
-              -> ModelRouter
-                  -> adapters/
-                     - Ollama
-                     - Gemini
-                     - OpenAI
-              -> Prompt loader
-              -> Contracts
-              -> Store / Database
-              -> Artifact & Asset services
-              -> Human checkpoints
+```mermaid
+flowchart TD
+    Clients["Python / CLI / API"] --> Bootstrap["build_system"]
+    Bootstrap --> Services["RunService / WorkflowEngine"]
+    Services --> Routing["ModelRouter / adapters / Mock"]
+    Services --> Human["Human requests / review"]
+    Services --> State["Contracts / Store / artifacts"]
 ```
+
+This is the same Core for every client. Direct Python use does not require a running FastAPI server; see the [Python quickstart](PYTHON_QUICKSTART.md).
 
 ### `multiagent/api.py`
 
@@ -41,7 +37,7 @@ Selects the preferred model and optional fallback according to workflow bindings
 
 ### `multiagent/adapters/`
 
-Isolates provider-specific behavior. Workflows depend on capabilities and structured contracts rather than provider SDK details.
+Isolates provider-specific behavior behind `LLMAdapter.generate_structured`. Workflows declare model bindings and output contracts. Agent capabilities are currently descriptive YAML metadata and do not drive dispatch. `FakeAdapter` uses the same engine and contracts with fixed example outputs.
 
 ### `workflows/`
 
@@ -61,8 +57,10 @@ Provides SQLite persistence, migrations, and access to run state, artifacts, pro
 
 ## Local persistence
 
-Runtime data is not part of the source tree. By default it is stored under `.local/data/`. This separation keeps public checkouts clean and allows private development data to coexist with the repository without being versioned.
+Runtime data is not versioned source. By default it is stored under `.local/data/`; `LOCAL_DIR` can place it outside the checkout. A private implementation can explicitly load an external `.env` through Python Settings. Public definition directories are still checkout-relative; a preset overlay loader is not implemented. See the [private implementation strategy](PRIVATE_PRESETS.md).
+
+Run state and human waits survive process restarts, but definitions are reloaded from YAML and step persistence is not one atomic operation. The current queue worker supports one local consumer. `LocalWorker` is not an AgentDefinition-derived WorkerInstance.
 
 ## Frontend
 
-The current `F00` release does not include a UI. A future frontend should consume the public API rather than access SQLite or internal engine implementations directly.
+The current `F00` release does not include a UI. A future frontend should consume the public API and structured runtime events rather than access SQLite or parse text logs. Runtime observability must be UI-agnostic: live and historical projections share persisted facts, while colors, layouts, and animations belong to clients. The existing event records need stronger identity/correlation semantics before they can power a reliable Communication Graph or Live Topology.
