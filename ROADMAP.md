@@ -1,153 +1,119 @@
 # Roadmap
 
-This roadmap captures the capabilities and directions discussed for Multi-Agent Framework. It is intentionally not tied to delivery dates, milestones, or commitments. Priorities may change as the architecture, model ecosystem, hardware requirements, and contributor feedback evolve.
+Multi-Agent Framework is evolving into a **configurable runtime for teams of intelligent capabilities**. RAVC is a private reference implementation built on the framework. Domain-specific roles, marketing workflows, and provider choices belong in configuration or extensions.
 
-## Current baseline — `M1-B01-F00-alpha`
+This roadmap has no promised delivery dates. **NOW is an ordered queue, not a request to implement every item together.** Each slice needs a concrete acceptance condition and compatibility evidence.
 
-The first public baseline is backend-first and provides the foundation for the rest of the project:
+Reviewed baseline: `M1-B01-F00-alpha` / `cdc52b7`, verified on 2026-09-24. See the [code audit](docs/ARCHITECTURE_REVIEW.md), [architectural decisions](docs/ARCHITECTURE_DECISIONS.md), and [private implementation strategy](docs/PRIVATE_PRESETS.md).
 
-- [x] Deterministic multi-agent workflow engine.
-- [x] Declarative YAML workflows.
-- [x] Specialized agents for research, strategy, content creation, branding, and visual pre-production.
-- [x] Model routing with preferred models and fallbacks.
-- [x] Ollama support for local inference.
-- [x] Gemini and OpenAI adapters for optional cloud execution.
-- [x] `auto`, `local`, `cloud`, and `human_guided` execution modes.
-- [x] Human-in-the-loop review, approval, revision, rejection, and externally executed steps.
-- [x] Structured Pydantic contracts between workflow steps.
-- [x] SQLite persistence for projects, runs, artifacts, assets, publications, telemetry, and brand profiles.
-- [x] CLI and FastAPI API.
-- [x] Cancellation, checkpoints, worker recovery, and execution budgets.
-- [x] Private `.local/` workspace for secrets and runtime data.
-- [x] Public code, documentation, prompts, examples, fixtures, and identifiers standardized in English.
-- [x] Automated tests and GitHub Actions CI.
+## Current baseline — verified, with limits
 
-## Orchestration and agent runtime
+| Available | Current boundary |
+| --- | --- |
+| Declarative workflows, contracts, artifacts, SQLite state | Sequential social-content workflows; hardcoded context/validation and quick/full selection remain. |
+| Agent roles and capabilities in YAML | Raw metadata; no typed AgentDefinition, capability dispatch, or agent lifecycle. |
+| Ollama, Gemini, OpenAI, primary/fallback bindings | Model-centric automatic execution with static routing; no dynamic model routing. |
+| Human Bridge, review/revision/rejection, external submissions | Human-specific waiting/request interfaces; terminal review checkpoints, not generic interrupt/resume. |
+| Cancellation, budgets, recovery, events, telemetry | Single local queue consumer; no atomic claim, definition snapshot, or complete interaction lineage. |
+| FakeAdapter and CLI dry-run | Same Core and existing domain contracts; no generic mock registry or Colab notebook. |
+| Python factory, CLI, FastAPI | Editable checkout works; standalone wheel lacks runtime resources and dependency metadata. |
+| Private external runtime storage | No public/private preset composition loader; default environment-file lookup stays checkout-relative. |
+| 55 tests and Ubuntu Python 3.12/3.13 CI | Public synthetic cases; actual RAVC, native Windows, Colab, and live inference are separate checks. |
 
-- [ ] Expand the workflow engine so new agents and workflows can be added with minimal changes to the core runtime.
-- [ ] Support richer conditional routing, branching, retries, dependencies, and reusable workflow fragments.
-- [ ] Improve agent-to-agent context management while preserving explicit contracts and traceability.
-- [ ] Add stronger validation for workflow definitions before execution.
-- [ ] Improve cancellation, pause/resume, recovery, idempotency, and long-running execution behavior.
-- [ ] Support multiple workers and controlled concurrency.
-- [ ] Formalize compatibility rules for workflows, contracts, prompts, migrations, and provider adapters.
-- [ ] Provide a clearer plugin/extension model for custom agents, tools, skills, providers, and workflows.
+## NOW — establish and verify the foundation
 
-## Intelligent model routing
+### 1. Python usability and reproducible distribution
 
-The framework is intended to use the orchestrator to choose the most appropriate model for each task rather than relying on one model for every capability.
+- [x] Select and document a same-Core Python quickstart using the existing three-step Mock flow, without a server or API key.
+- [ ] Package runtime dependencies and catalog/workflow/prompt/skill/migration resources correctly.
+- [ ] Make default resource discovery work from an installed wheel, independently of the current directory; keep writable runtime data separate.
+- [ ] Verify a clean wheel/sdist install outside the checkout and preserve the editable Windows/Linux path.
 
-- [ ] Expand routing based on task type, model strengths, latency, context size, privacy, availability, and cost.
-- [ ] Allow explicit priority rules so text, research, image, and video tasks are routed only to suitable models.
-- [ ] Add model health checks, capability discovery, and automatic fallback policies.
-- [ ] Track per-model quality, latency, failures, and usage to inform future routing decisions.
-- [ ] Support configurable local-first, cloud-first, offline-only, and hybrid execution policies.
-- [ ] Improve token/context budgeting and prevent avoidable context overflow.
+The [quickstart](docs/PYTHON_QUICKSTART.md) added with this review deliberately uses the existing social-content example. A domain-neutral demo remains work to do.
 
-## Local and offline AI
+### 2. Validate definitions and preserve sequential correctness
 
-Reducing dependence on paid cloud inference is a core direction of the project.
+- [ ] Validate agent/contract references, unique step IDs, conditions, prompt references, and supported checkpoint placement before execution.
+- [ ] Handle workflow-load failures without leaving a run falsely running.
+- [ ] Specify intermediate review approval as continuation where appropriate, preserving existing final review behavior.
+- [ ] Record the resolved workflow/configuration identity before generalizing resume.
+- [ ] Define consistent step/output/cursor persistence and document recovery guarantees. Keep one queue consumer until claiming and lease semantics are implemented.
 
-- [ ] Evaluate and integrate additional downloadable local language models.
-- [ ] Start with a small set of complementary local models and expand gradually as their roles become clear.
-- [ ] Assign local models according to their strengths instead of using one model indiscriminately.
-- [ ] Support local research/synthesis models where practical.
-- [ ] Evaluate local image-generation models and providers.
-- [ ] Evaluate local video-generation models and providers as the ecosystem matures.
-- [ ] Add local embedding and retrieval options for private knowledge workflows.
-- [ ] Improve GPU/VRAM-aware model selection and runtime diagnostics.
-- [ ] Make offline workflows usable without cloud credentials when all required capabilities are available locally.
+### 3. Separate domain rules from generic execution
 
-## Research and knowledge workflows
+- [ ] Introduce a minimal generic run input and explicit contract registration while retaining `SocialPostRequest` compatibility.
+- [ ] Move social-content context bindings, validation, workflow selection, and brand/provider assumptions behind a preset or extension boundary.
+- [ ] Formalize AgentDefinition fields and capabilities independently of role, prompt, model, and tools; validate references before adding capability-based selection.
+- [ ] Keep Python imports and the existing public dry-run green at every extraction.
 
-- [ ] Expand research workflows beyond social-content use cases.
-- [ ] Add stronger source tracking, evidence normalization, contradiction handling, and freshness metadata.
-- [ ] Support human-supplied research as a first-class input when automated web access is unavailable or undesirable.
-- [ ] Add retrieval over project files and private knowledge sources.
-- [ ] Build reusable research outputs that can feed multiple downstream agents without repeating the same work.
-- [ ] Improve separation between verified facts, inference, uncertainty, and editorial interpretation.
+### 4. Establish observability facts
 
-## Content, branding, and production
+- [ ] Define a versioned, backward-compatible event envelope with run/event/step/attempt identity, source/target references where meaningful, correlation, timestamps, and status.
+- [ ] Record enough executor/agent provenance to answer who executed what without consulting mutable YAML.
+- [ ] Introduce interaction started/completed/failed records with shared correlation and defined cancellation/interruption handling.
+- [ ] Specify event/hook ordering and failure semantics before exposing middleware. No visualization implementation is needed.
 
-- [ ] Expand content workflows for additional formats and channels.
-- [ ] Improve reusable brand profiles, brand assets, tone constraints, and project-level context.
-- [ ] Add richer strategy, editorial planning, SEO, and campaign workflows.
-- [ ] Connect visual briefs to image-generation providers while preserving human approval points.
-- [ ] Add video pre-production workflows such as concepts, scripts, shot lists, storyboards, and generation prompts.
-- [ ] Support iterative review loops between strategy, copy, design, and human reviewers.
-- [ ] Keep factual research, brand guidance, and generated creative content clearly separated in the data model.
+### 5. Start private dogfooding
 
-## Human-in-the-loop
+- [ ] Run a small RAVC workload with external runtime storage and current private request instructions/brand data.
+- [ ] Record where existing inputs are insufficient before selecting the first external prompt/config composition change.
+- [ ] Maintain two explicit regression gates: public synthetic demo and confidential private reference workload. The private gate is pending owner-side evidence.
 
-Human control is intended to remain a first-class part of the architecture rather than an exception path.
+No RAVC-specific roles, secrets, business rules, or real outputs should enter Core or public fixtures.
 
-- [ ] Improve review queues and actionable human-step requests.
-- [ ] Support approval policies per workflow, step, risk level, or project.
-- [ ] Allow humans to replace an agent step with externally produced output while preserving validation and traceability.
-- [ ] Add clearer revision history and comparisons between attempts.
-- [ ] Add comments, reviewer notes, and structured feedback that can be passed safely into subsequent attempts.
-- [ ] Improve audit trails showing what was produced by a model, a deterministic tool, or a human.
+## NEXT — generalize one boundary at a time
 
-## Frontend / UI
+| Slice | Scope and exit condition |
+| --- | --- |
+| Execution strategy boundary | Wrap existing LLM adapters and add one deterministic/mock executor. All paths use the same input/output contracts, validation, state, and provenance. Keep LLM metrics specific to LLM calls. |
+| Generic external input | Define request/run/step/correlation/expected-contract semantics; adapt Human Bridge without breaking existing human APIs, submissions, or stored status values. |
+| Context propagation | Start with explicit `none` and `selected` inputs/artifact references; prepare `summary`, `artifacts`, and `full`. Do not automatically give every worker the full history. |
+| Artifact lineage | Preserve current IDs/files, add producer identity, parent/source references and metadata sufficient to trace a final output through intermediate results. No knowledge graph. |
+| Minimal preset composition | Use `defaults < public < private < runtime`, stable IDs and explicit merge rules, validation, and resolved-config identity. Begin with a real private customization; avoid duplicated team trees. |
+| Public Mock + Colab | Add a small domain-neutral workflow with about three configured agents and a Run All notebook using the same packaged Core. Zero-key execution first; optional providers via Colab secrets later. |
+| Early execution policies | Extract explicit timeout/retry/fallback/privacy/budget choices from step-name branches. Keep defaults simple; dynamic optimization is deferred. |
+| Workflow evolution | Preserve sequential behavior, then add controlled parallel work and generic conditions once state/claiming/budget/cancellation tests exist. |
 
-`F00` intentionally ships without a graphical interface. The future UI should use the public API rather than access the database or engine internals directly.
+A provider, agent, or tool is not required to use an API or an LLM. Supervisor/leader roles stay optional. Execution strategy and model selection can vary across tasks without changing an agent's identity.
 
-- [ ] Define the frontend architecture and stable API boundary.
-- [ ] Dashboard for projects, workflows, active runs, queued work, and system health.
-- [ ] Visual workflow execution and status timeline.
-- [ ] Human review, approval, rejection, revision, and manual-step completion from the UI.
-- [ ] Project, workflow, provider, model, and routing configuration.
-- [ ] Brand-profile and asset management.
-- [ ] Artifact previews and revision comparisons.
-- [ ] Usage, latency, cost, routing, and error visualization.
-- [ ] Local-model availability and hardware status views.
-- [ ] Administrative views for workers, migrations, diagnostics, and recovery.
+## LATER — preserve compatibility, implement when needed
 
-## Memory, context, and project knowledge
+These are design boundaries to keep open, not current APIs.
 
-- [ ] Add explicit project-scoped memory/context that does not depend on hidden model memory.
-- [ ] Support reusable knowledge packs and structured project context.
-- [ ] Add retrieval and summarization strategies for large project histories.
-- [ ] Define retention, privacy, provenance, and invalidation rules for stored context.
-- [ ] Allow workflows to request only the context they need instead of loading all available history.
+| Direction | Prepared concept | Trigger for implementation |
+| --- | --- | --- |
+| AgentDefinition / WorkerInstance | Reusable definition versus temporary task execution; one definition can have several workers. Separate IDs, scoped context, timestamps, results. | A concrete bounded parallel workflow needs multiple executions of one definition. |
+| Worker lifecycle and policies | Created, ready, running, waiting, completed, failed, cancelled; waiting reason and bounded concurrency separate from role. | Scheduler and durable transitions can support those states reliably. |
+| Multi-Team organization | Workspace/project with multiple optional teams, scoped references and controlled interfaces. | More than one reusable team must be composed in a real use case. |
+| Team entrypoint / Team-to-Team | Expose an agent or workflow; no mandatory leader and no unrestricted all-to-all communication. Derived team status. | Contracted cross-team work exists. |
+| Workflow patterns | Fan-out/fan-in, subflows, event-driven work, optional map/reduce. Executor/verifier, hierarchical, and consensus are presets. | Simple sequential/parallel/conditional mechanisms no longer suffice. |
+| Communication Graph | Counts, durations, requests/responses, shared artifacts, costs/tokens, loops, bottlenecks from Core events. | Event identities/lifecycles are stable and complete enough. |
+| Live Execution Topology | Active/waiting workers, teams, communications, tools and external waits; grouped views as needed. | A UI consumer exists. Rendering choices remain outside Core. |
+| Historical Trace | Preserve completed workers, transitions, interactions and artifacts even after live-view removal. | Always preserve recorded history; add richer projections with richer runtime entities. |
+| Tools and permissions | Generic deterministic tool interface; read/write/external/destructive/requires_approval metadata. | The first real tool adapter needs policy and audit boundaries. |
+| Local models and knowledge | A small complementary set for text/reasoning/research, then images, embeddings/retrieval and multimodal workloads as justified. | Hardware, privacy, capability, and quality requirements are measured. |
+| Evaluation and diagnostics | Contract-based datasets, prompt/model regressions, quality/latency/cost comparisons, hardware/context checks. | Specific runtime/model changes need measured comparisons. |
+| Shareable presets | Generic public base plus private implementation, optional public-validation command. | An actual second user's preset confirms the composition rules. |
 
-## Tools and external integrations
+Domain work such as editorial planning, SEO, campaigns, brand assets, image/video pre-production, publication metrics, and iterative content review remains valuable **as presets/extensions**, not as mandatory Core behavior.
 
-- [ ] Define a generic tool interface separate from model-provider adapters.
-- [ ] Allow agents to call approved deterministic tools and external services through controlled contracts.
-- [ ] Add capability and permission declarations for tools.
-- [ ] Support project-specific integrations without coupling them to the core framework.
-- [ ] Record tool calls and outputs in the same traceability model used for agents and human steps.
+## FUTURE / EXPERIMENTAL — not implementation work now
 
-## Observability, quality, and evaluation
+- Dynamic model/executor routing by capability, quality, latency, cost, privacy, availability, and local preference.
+- Dynamic exploration: divide, explore independently, produce artifacts, synthesize, verify, and promote promising branches. The lesson is controlled exploration, not a target worker count.
+- Dynamic resource allocation, large fan-out, and extensive consensus/research loops.
+- Replay, fork, retry from a checkpoint, and executor changes during suspended work, after definition snapshots and transition guarantees.
+- MCP for external tools/services and A2A for remote agents/systems, as optional adapters.
+- More advanced local image/video/research/multimodal execution, training, and substantial retrieval infrastructure.
+- Full visual workflow editors, administrative dashboards, complex organizations, multi-tenancy, and sophisticated permission engines.
+- Distributed runtime, Redis, Kubernetes, enterprise observability, and complex vector databases only when a measured deployment need justifies them.
 
-- [ ] Expand telemetry for execution time, retries, routing decisions, token estimates, and provider usage.
-- [ ] Add structured evaluation datasets for agents, prompts, and workflows.
-- [ ] Compare local and cloud model performance on the same contracts and tasks.
-- [ ] Track regressions when prompts, models, workflows, or providers change.
-- [ ] Add richer diagnostics for model availability, context limits, GPU resources, and dependency health.
-- [ ] Provide exportable run reports for debugging and audit purposes.
+## Delivery and compatibility gates
 
-## Security and privacy
+1. Pick one bounded slice and explain alternatives, tradeoffs, and acceptance evidence.
+2. Preserve or explicitly migrate Python/CLI/API contracts, YAML, prompts, IDs, events, and persisted state.
+3. Run the public test suite and same-Core demo. Run the private reference check when affected; report when it was unavailable.
+4. Keep public material in English and private content outside Git. Never rewrite a published tag.
+5. Record unreleased work in the changelog. Increment backend/frontend versions when their distributable behavior changes; examples and architecture documentation alone do not change the release version.
 
-- [ ] Continue enforcing the separation between public source code and private runtime data.
-- [ ] Improve secret-management options beyond local `.env` files.
-- [ ] Add configurable policies for sensitive workloads and local-only execution.
-- [ ] Review uploaded assets, external tool inputs, and generated artifacts for safe handling boundaries.
-- [ ] Add dependency, secret, and static-analysis checks to CI where appropriate.
-- [ ] Define responsible defaults for logging and telemetry so confidential content is not exposed unintentionally.
-
-## Developer experience and distribution
-
-- [ ] Make clean installation reproducible on supported environments.
-- [ ] Improve cross-platform support beyond the current Windows-first helper scripts.
-- [ ] Evaluate containerized deployment for the backend and supporting services.
-- [ ] Provide clearer examples and starter workflows for contributors.
-- [ ] Publish a stable public API reference and developer documentation.
-- [ ] Improve migration tooling for databases, configuration, prompts, and workflows.
-- [ ] Establish contribution conventions for agents, adapters, workflows, skills, and tests.
-- [ ] Prepare package/release automation when the project reaches an appropriate level of stability.
-
-## Long-term architecture
-
-A future `M2` generation is reserved for changes that are intentionally incompatible with `M1`, such as a major redesign of the runtime, public contracts, persistence model, distributed execution architecture, or backend/frontend boundary. A new generation should be created only when compatibility cannot reasonably be preserved through normal `B` and `F` revisions.
+An incompatible M2 generation is an option only when compatibility cannot reasonably be maintained. It is not a prerequisite for the incremental backbone above.
