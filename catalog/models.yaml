@@ -1,0 +1,80 @@
+models:
+  local_default:
+    provider: ollama
+    model: qwen3:8b
+    tier: local
+    structured_output: true
+    web: false
+    num_ctx: 4096
+    keep_alive: 15m
+    thinking: false
+    input_cost_per_million: 0.0
+    output_cost_per_million: 0.0
+    free_tier_eligible: true
+
+  local_reasoning:
+    provider: ollama
+    model: qwen3:8b
+    tier: local
+    structured_output: true
+    web: false
+    num_ctx: 4096
+    keep_alive: 15m
+    thinking: true
+    input_cost_per_million: 0.0
+    output_cost_per_million: 0.0
+    free_tier_eligible: true
+
+  cloud_fast:
+    provider: gemini
+    model: gemini-3.5-flash-lite
+    tier: cloud
+    structured_output: true
+    web: false
+    thinking: minimal
+    input_cost_per_million: 0.0
+    output_cost_per_million: 0.0
+    free_tier_eligible: true
+
+  cloud_advanced:
+    provider: gemini
+    model: gemini-3.6-flash
+    tier: cloud
+    structured_output: true
+    web: false
+    thinking: low
+    input_cost_per_million: 0.0
+    output_cost_per_million: 0.0
+    free_tier_eligible: true
+
+  gemini_grounded:
+    provider: gemini
+    model: gemini-3.5-flash
+    tier: cloud
+    structured_output: true
+    web: true
+    thinking: minimal
+    input_cost_per_million: 0.0
+    output_cost_per_million: 0.0
+    free_tier_eligible: true
+
+  gemini_fast:
+    provider: gemini
+    model: gemini-3.5-flash-lite
+    tier: cloud
+    structured_output: true
+    web: false
+    thinking: minimal
+    input_cost_per_million: 0.0
+    output_cost_per_million: 0.0
+    free_tier_eligible: true
+
+  openai_optional:
+    provider: openai
+    model: configure-me
+    tier: cloud
+    structured_output: true
+    web: false
+    input_cost_per_million: 0.0
+    output_cost_per_million: 0.0
+    free_tier_eligible: false

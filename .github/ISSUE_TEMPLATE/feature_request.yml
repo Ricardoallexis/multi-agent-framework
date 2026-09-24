@@ -1,0 +1,53 @@
+name: Feature request
+description: Propose a new capability or improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem would this solve, and for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed direction
+      description: Describe the capability or behavior you would like to see.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - Orchestration / workflow engine
+        - Model routing / providers
+        - Local / offline AI
+        - Research / knowledge
+        - Content / branding / production
+        - Human-in-the-loop
+        - Frontend / UI
+        - Memory / context
+        - Tools / integrations
+        - Observability / evaluation
+        - Security / privacy
+        - Developer experience / distribution
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or additional context
+      description: Include tradeoffs, prior art, or implementation considerations if useful.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I checked the roadmap and existing issues for similar proposals.
+          required: true
+        - label: I did not include confidential or third-party restricted information.
+          required: true

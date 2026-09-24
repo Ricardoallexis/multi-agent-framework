@@ -1,0 +1,60 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Multi-Agent Framework
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include API keys, private runtime data, customer material, or exploitable security details.
+  - type: input
+    id: release
+    attributes:
+      label: Release / commit
+      description: Product release, package version, or commit SHA where the issue occurs.
+      placeholder: M1-B01-F00-alpha / 0.1.0a1
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Python version, and relevant provider/model.
+      placeholder: Windows 11, Python 3.12, Ollama qwen3:8b
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reproducible sequence you can.
+      placeholder: |
+        1. Run ...
+        2. Execute ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or output
+      description: Redact secrets, personal data, private prompts, and customer content before posting.
+      render: shell
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for duplicates.
+          required: true
+        - label: I removed secrets and private data from the report.
+          required: true
+        - label: This is not a security vulnerability requiring private disclosure.
+          required: true

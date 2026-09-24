@@ -1,0 +1,10 @@
+{
+  "name": "Example Technology Studio",
+  "core": {
+    "purpose": {"value": "REPLACE WITH HUMAN ANSWER", "source": "ai_proposed"}
+  },
+  "voice": {},
+  "visual": {},
+  "strategy": {},
+  "assets": []
+}

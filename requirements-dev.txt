@@ -1,0 +1,4 @@
+-r requirements.txt
+setuptools>=75
+wheel
+pytest==9.0.2

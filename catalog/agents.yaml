@@ -1,0 +1,41 @@
+agents:
+  researcher:
+    role: Technical and factual research
+    active: true
+    capabilities:
+      research: PRIMARY
+      synthesis: STRONG
+      sourcing: PRIMARY
+      normalization: STRONG
+  strategist:
+    role: Content strategy
+    active: true
+    capabilities:
+      strategy: PRIMARY
+      audience: STRONG
+      planning: PRIMARY
+  creator:
+    role: Copywriting and content creation
+    active: true
+    capabilities:
+      copywriting: PRIMARY
+      storytelling: PRIMARY
+      seo: STRONG
+      social_media: STRONG
+  designer:
+    role: Visual and video pre-production; creates briefs and prompts rather than requiring direct generation
+    active: true
+    capabilities:
+      visual_direction: PRIMARY
+      production_brief: PRIMARY
+      technical_prompt: PRIMARY
+  branding:
+    role: Structures brand identity from human input and available assets
+    active: true
+    capabilities:
+      brand_strategy: PRIMARY
+      brand_voice: PRIMARY
+      brand_traceability: PRIMARY
+  analyst:
+    role: Future capability for interpreting deterministic calculations when sufficient metrics are available
+    active: false

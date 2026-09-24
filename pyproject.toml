@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multi-agent-framework"
+dynamic = ["version"]
+description = "Hybrid human/AI multi-agent orchestration framework with local and cloud model adapters"
+authors = [{ name = "Ricardo A." }]
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["multi-agent", "ai-agents", "orchestration", "llm", "ollama", "human-in-the-loop", "fastapi"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+requires-python = ">=3.12,<3.14"
+
+[project.scripts]
+multiagent = "multiagent.cli:main"
+
+[tool.setuptools]
+packages = ["multiagent", "multiagent.adapters", "multiagent.db"]
+
+[tool.setuptools.dynamic]
+version = {attr = "multiagent.version.__package_version__"}
+
+[project.urls]
+Homepage = "https://github.com/Ricardoallexis/multi-agent-framework"
+Repository = "https://github.com/Ricardoallexis/multi-agent-framework"
+Issues = "https://github.com/Ricardoallexis/multi-agent-framework/issues"
+Documentation = "https://github.com/Ricardoallexis/multi-agent-framework/tree/main/docs"
+Changelog = "https://github.com/Ricardoallexis/multi-agent-framework/blob/main/CHANGELOG.md"

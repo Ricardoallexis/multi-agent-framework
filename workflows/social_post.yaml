@@ -1,0 +1,27 @@
+id: social_post
+max_iterations: 2
+steps:
+  - id: research
+    agent: researcher
+    prompt_id: researcher/research
+    prompt_version: 2
+    skills: []
+    contract: ResearchOutput
+    preferred_model: gemini_grounded
+    fallback_model: null
+    requires_web: true
+    when: requires_web
+    checkpoint_after: false
+
+  - id: create
+    agent: creator
+    prompt_id: creator/social_post
+    prompt_version: 2
+    skills:
+      - social_media
+    contract: ContentOutput
+    preferred_model: local_default
+    fallback_model: cloud_fast
+    requires_web: false
+    when: null
+    checkpoint_after: true
