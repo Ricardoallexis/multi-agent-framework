@@ -20,7 +20,7 @@ Multi-Agent Framework is a Python orchestration framework for hybrid human/AI wo
 - Pydantic contracts and structured output validation.
 - SQLite persistence for runs, artifacts, assets, publications, and brand profiles.
 - CLI and FastAPI API.
-- A private `.local/` workspace for secrets, databases, runs, and assets.
+- A private writable workspace for secrets, databases, runs, and assets.
 - 55 automated tests in the current baseline.
 
 ## Architecture at a glance
@@ -38,7 +38,7 @@ Model Router
    |
 Contracts / Store / Artifacts / Assets
    |
-.local/  (private runtime data; never versioned)
+Private workspace (runtime data; never versioned)
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for more detail.
@@ -96,6 +96,21 @@ Start the backend with:
 python main.py
 ```
 
+## Python quickstart and standalone installation
+
+Run the current three-step Mock workflow through the same Core without a server
+or API key. It produces three artifacts and waits for human review:
+
+```powershell
+& .\.venv\Scripts\python.exe .\examples\python_quickstart.py
+```
+
+On Linux/macOS: `.venv/bin/python examples/python_quickstart.py`. Use
+`--local-dir PATH` to retain the run in a private location; otherwise its
+workspace is temporary. The wheel includes the public definitions and declares
+its core dependencies. Gemini and OpenAI SDKs are optional extras. See the
+[Python quickstart](docs/PYTHON_QUICKSTART.md) for a clean wheel installation.
+
 ## Local inference with Ollama
 
 Ollama can be used as the local inference provider without configuring a cloud API key. The default `.env.example` expects Ollama at `http://127.0.0.1:11434` with `qwen3:8b`, and both values are configurable.
@@ -128,7 +143,8 @@ A `dry-run` does not need to consume real provider APIs. It is intended to valid
 
 ## Private data and secrets
 
-Local runtime data belongs in `.local/`, which is excluded by `.gitignore`:
+Editable checkouts store runtime data in `.local/`, which is excluded by
+`.gitignore`:
 
 ```text
 .local/

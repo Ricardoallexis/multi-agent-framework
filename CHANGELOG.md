@@ -6,7 +6,13 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Added
 
-- Reserved for changes after the first public alpha release.
+- Declare core runtime dependencies and optional Gemini/OpenAI extras in package metadata.
+- Bundle public catalog, workflow, prompt, skill, and migration resources in the wheel and sdist.
+- Add a direct Python Mock example and an isolated-wheel smoke check for CI.
+
+### Changed
+
+- Resolve read-only definitions from the installed package and writable data from a user-owned directory when installed from a wheel.
 
 ## [M1-B01-F00-alpha] - 2026-09-23
 

@@ -17,12 +17,48 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 requires-python = ">=3.12,<3.14"
+dependencies = [
+  "fastapi==0.128.2",
+  "uvicorn==0.48.0",
+  "pydantic==2.13.4",
+  "pydantic-settings==2.14.1",
+  "httpx==0.28.1",
+  "PyYAML==6.0.3",
+]
+
+[project.optional-dependencies]
+gemini = ["google-genai==2.13.0"]
+openai = ["openai==2.46.0"]
 
 [project.scripts]
 multiagent = "multiagent.cli:main"
 
 [tool.setuptools]
-packages = ["multiagent", "multiagent.adapters", "multiagent.db"]
+packages = [
+  "multiagent",
+  "multiagent.adapters",
+  "multiagent.db",
+  "multiagent._resources",
+  "multiagent._resources.catalog",
+  "multiagent._resources.workflows",
+  "multiagent._resources.prompts",
+  "multiagent._resources.skills",
+  "multiagent._resources.migrations",
+]
+
+[tool.setuptools.package-dir]
+"multiagent._resources.catalog" = "catalog"
+"multiagent._resources.workflows" = "workflows"
+"multiagent._resources.prompts" = "prompts"
+"multiagent._resources.skills" = "skills"
+"multiagent._resources.migrations" = "migrations"
+
+[tool.setuptools.package-data]
+"multiagent._resources.catalog" = ["*.yaml"]
+"multiagent._resources.workflows" = ["*.yaml"]
+"multiagent._resources.prompts" = ["*/*.md"]
+"multiagent._resources.skills" = ["*.md", "*/*.md"]
+"multiagent._resources.migrations" = ["*.sql"]
 
 [tool.setuptools.dynamic]
 version = {attr = "multiagent.version.__package_version__"}

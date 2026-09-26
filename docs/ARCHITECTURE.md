@@ -61,7 +61,10 @@ Provides SQLite persistence, migrations, and access to run state, artifacts, pro
 
 ## Local persistence
 
-Runtime data is not part of the source tree. By default it is stored under `.local/data/`. This separation keeps public checkouts clean and allows private development data to coexist with the repository without being versioned.
+Runtime data is not part of the versioned source tree. Editable checkouts use
+`.local/data/` by default; installed distributions use a directory beneath
+`~/.multi-agent-framework/`. Public definitions resolve from the checkout in
+editable mode and from bundled package resources in an installed wheel.
 
 ## Frontend
 

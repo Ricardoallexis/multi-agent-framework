@@ -2,9 +2,9 @@
 
 The repository deliberately separates public source code from private runtime data.
 
-## `.local/`
+## Writable workspace
 
-By default the framework uses:
+An editable checkout uses the ignored `.local/` directory by default:
 
 ```text
 .local/
@@ -16,6 +16,10 @@ By default the framework uses:
 ```
 
 The entire directory is ignored by Git.
+
+A normal wheel installation defaults to `~/.multi-agent-framework/` instead.
+Read-only catalog, workflow, prompt, skill, and migration files come from the
+installed package. Neither mode writes runtime data to those resource files.
 
 ## What belongs there
 
@@ -29,7 +33,9 @@ The entire directory is ignored by Git.
 
 ## Changing the location
 
-Set `LOCAL_DIR` in `.local/.env` to move the entire workspace outside the checkout:
+Set `LOCAL_DIR` in `.local/.env` for an editable checkout, or in
+`~/.multi-agent-framework/.env` for a wheel installation, to move the writable
+workspace:
 
 ```dotenv
 LOCAL_DIR=D:\multiagent-private

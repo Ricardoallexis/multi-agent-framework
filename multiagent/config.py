@@ -7,17 +7,27 @@ from typing import Optional
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-LOCAL_ROOT = PROJECT_ROOT / ".local"
+PACKAGE_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = PACKAGE_ROOT.parent
+BUNDLED_ROOT = PACKAGE_ROOT / "_resources"
+IN_CHECKOUT = (
+    (PROJECT_ROOT / "pyproject.toml").is_file()
+    and (PROJECT_ROOT / "catalog" / "agents.yaml").is_file()
+)
+LOCAL_ROOT = PROJECT_ROOT / ".local" if IN_CHECKOUT else Path.home() / ".multi-agent-framework"
+
+
+def _resource_dir(name: str) -> Path:
+    return (PROJECT_ROOT if IN_CHECKOUT else BUNDLED_ROOT) / name
 
 
 class Settings(BaseSettings):
     """Central framework configuration.
 
-    Public code and configuration live in the repository. Secrets, databases,
-    runs, and assets are stored under ``.local/`` by default, and Git ignores
-    that directory. ``LOCAL_DIR`` can redirect the full workspace elsewhere
-    without changing source code.
+    Public code and configuration live in the repository or installed package.
+    Runtime data uses the checkout's ``.local/`` directory in editable mode
+    and a user-owned directory for installed distributions. ``LOCAL_DIR`` can
+    redirect the workspace without changing source code.
     """
 
     model_config = SettingsConfigDict(
@@ -70,23 +80,23 @@ class Settings(BaseSettings):
 
     @property
     def catalog_dir(self) -> Path:
-        return PROJECT_ROOT / "catalog"
+        return _resource_dir("catalog")
 
     @property
     def workflows_dir(self) -> Path:
-        return PROJECT_ROOT / "workflows"
+        return _resource_dir("workflows")
 
     @property
     def prompts_dir(self) -> Path:
-        return PROJECT_ROOT / "prompts"
+        return _resource_dir("prompts")
 
     @property
     def skills_dir(self) -> Path:
-        return PROJECT_ROOT / "skills"
+        return _resource_dir("skills")
 
     @property
     def migrations_dir(self) -> Path:
-        return PROJECT_ROOT / "migrations"
+        return _resource_dir("migrations")
 
     def ensure_directories(self) -> None:
         for p in [self.local_dir, self.data_dir, self.runs_dir, self.assets_dir, self.assets_dir / "inbox"]:
