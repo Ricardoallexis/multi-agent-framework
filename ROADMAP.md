@@ -2,6 +2,8 @@
 
 This roadmap captures the capabilities and directions discussed for Multi-Agent Framework. It is intentionally not tied to delivery dates, milestones, or commitments. Priorities may change as the architecture, model ecosystem, hardware requirements, and contributor feedback evolve.
 
+**Guiding principle:** reuse mature, stable components behind adapters instead of rebuilding them. [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) (the successor of AutoGen) is the main candidate for graph execution, MCP, A2A, AG-UI, and OpenTelemetry. It is planned as an **optional** execution backend: the framework's configuration, runs, contracts, Human Bridge, and artifacts stay independent of any backend, and the default backend keeps working without it.
+
 ## Current baseline — `M1-B01-F00-alpha`
 
 The first public baseline is backend-first and provides the foundation for the rest of the project:
@@ -25,11 +27,13 @@ The first public baseline is backend-first and provides the foundation for the r
 ## Orchestration and agent runtime
 
 - [ ] Expand the workflow engine so new agents and workflows can be added with minimal changes to the core runtime.
-- [ ] Support richer conditional routing, branching, retries, dependencies, and reusable workflow fragments.
+  - [x] Load definition bundles (workflows, agents, prompts, and contracts) from outside the package, validate them, and run them through a generic request from Python.
+- [ ] Introduce an execution backend abstraction: native (default), mock, and an optional Microsoft Agent Framework backend.
+- [ ] Support richer conditional routing, branching, retries, dependencies, and reusable workflow fragments by compiling workflow definitions to the optional Microsoft Agent Framework backend instead of building a separate graph engine.
 - [ ] Improve agent-to-agent context management while preserving explicit contracts and traceability.
-- [ ] Add stronger validation for workflow definitions before execution.
+- [x] Add stronger validation for workflow definitions before execution.
 - [ ] Improve cancellation, pause/resume, recovery, idempotency, and long-running execution behavior.
-- [ ] Support multiple workers and controlled concurrency.
+- [ ] Support multiple workers and controlled concurrency, bounded by a resource-aware scheduler (CPU, RAM, GPU/VRAM, and provider limits) that works with any backend.
 - [ ] Formalize compatibility rules for workflows, contracts, prompts, migrations, and provider adapters.
 - [ ] Provide a clearer plugin/extension model for custom agents, tools, skills, providers, and workflows.
 
@@ -81,6 +85,7 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 
 Human control is intended to remain a first-class part of the architecture rather than an exception path.
 
+- [x] Allow a human review after any step and resume from the next step without repeating approved work.
 - [ ] Improve review queues and actionable human-step requests.
 - [ ] Support approval policies per workflow, step, risk level, or project.
 - [ ] Allow humans to replace an agent step with externally produced output while preserving validation and traceability.
@@ -93,6 +98,7 @@ Human control is intended to remain a first-class part of the architecture rathe
 `F00` intentionally ships without a graphical interface. The future UI should use the public API rather than access the database or engine internals directly.
 
 - [ ] Define the frontend architecture and stable API boundary.
+- [ ] Evaluate AG-UI as the event transport between the framework's domain events and a future UI.
 - [ ] Dashboard for projects, workflows, active runs, queued work, and system health.
 - [ ] Visual workflow execution and status timeline.
 - [ ] Human review, approval, rejection, revision, and manual-step completion from the UI.
@@ -109,11 +115,13 @@ Human control is intended to remain a first-class part of the architecture rathe
 - [ ] Support reusable knowledge packs and structured project context.
 - [ ] Add retrieval and summarization strategies for large project histories.
 - [ ] Define retention, privacy, provenance, and invalidation rules for stored context.
-- [ ] Allow workflows to request only the context they need instead of loading all available history.
+- [ ] Allow workflows to request only the context they need instead of loading all available history (context propagation policies such as none, selected, summary, artifacts, and full).
 
 ## Tools and external integrations
 
 - [ ] Define a generic tool interface separate from model-provider adapters.
+- [ ] Connect MCP tools through Microsoft Agent Framework's MCP support behind the framework's tool abstraction; do not implement a custom MCP protocol.
+- [ ] Consume and expose remote agents through A2A, behind an adapter, when a concrete need appears.
 - [ ] Allow agents to call approved deterministic tools and external services through controlled contracts.
 - [ ] Add capability and permission declarations for tools.
 - [ ] Support project-specific integrations without coupling them to the core framework.
@@ -122,6 +130,7 @@ Human control is intended to remain a first-class part of the architecture rathe
 ## Observability, quality, and evaluation
 
 - [ ] Expand telemetry for execution time, retries, routing decisions, token estimates, and provider usage.
+- [ ] Emit OpenTelemetry traces and metrics (GenAI semantic conventions) alongside the framework's own domain events.
 - [ ] Add structured evaluation datasets for agents, prompts, and workflows.
 - [ ] Compare local and cloud model performance on the same contracts and tasks.
 - [ ] Track regressions when prompts, models, workflows, or providers change.
@@ -143,6 +152,7 @@ Human control is intended to remain a first-class part of the architecture rathe
 - [ ] Improve cross-platform support beyond the current Windows-first helper scripts.
 - [ ] Evaluate containerized deployment for the backend and supporting services.
 - [ ] Provide clearer examples and starter workflows for contributors.
+- [ ] Document concept equivalences for developers coming from Microsoft Agent Framework.
 - [ ] Publish a stable public API reference and developer documentation.
 - [ ] Improve migration tooling for databases, configuration, prompts, and workflows.
 - [ ] Establish contribution conventions for agents, adapters, workflows, skills, and tests.

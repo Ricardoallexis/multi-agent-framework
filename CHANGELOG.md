@@ -9,9 +9,14 @@ Notable changes to the public project are documented here. The project uses `M-B
 - Declare core runtime dependencies and optional Gemini/OpenAI extras in package metadata.
 - Bundle public catalog, workflow, prompt, skill, and migration resources in the wheel and sdist.
 - Add a direct Python Mock example and an isolated-wheel smoke check for CI.
+- Validate workflow definitions before a run is created or executed: structure, identifiers, conditions, and references to agents, contracts, models, prompts, and skills, reported together with stable issue codes.
+- Resume a run after an intermediate human review: approvals target the exact reviewed attempt, and changes to the definition while a run waits are detected before continuing.
+- Load definition bundles (workflows, agents, prompts, contracts, and sample outputs) from outside the package and run them through `RunRequest` from Python.
+- Document how the project differs from other multi-agent frameworks (`docs/COMPARISON.md`).
 
 ### Changed
 
+- Checkpoints are no longer limited to the final workflow step.
 - Resolve read-only definitions from the installed package and writable data from a user-owned directory when installed from a wheel.
 
 ## [M1-B01-F00-alpha] - 2026-09-23

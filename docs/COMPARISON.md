@@ -1,6 +1,6 @@
 # How Multi-Agent Framework differs
 
-There are many open-source frameworks for building multi-agent systems. Before and during development we reviewed several of them, including MetaGPT, AutoGen, CrewAI, LangGraph, AgentScope, OpenAI's multi-agent work, and smaller community projects. We did not copy code from them. This page explains the design choices that make this project different, so you can decide whether it fits your use case.
+There are many open-source frameworks for building multi-agent systems. Before and during development we reviewed several of them, including Microsoft Agent Framework (the successor of AutoGen), MetaGPT, AutoGen, CrewAI, LangGraph, AgentScope, OpenAI's multi-agent work, and smaller community projects. We did not copy code from them. This page explains the design choices that make this project different, so you can decide whether it fits your use case.
 
 It compares **design priorities, not benchmarks**. The descriptions of other projects are deliberately general and may be out of date; please check their own documentation before choosing.
 
@@ -37,10 +37,14 @@ These are open directions in the [roadmap](../ROADMAP.md), not current features:
 
 | If you mainly need… | Consider… |
 | --- | --- |
-| Agents that plan and talk to each other with little upfront structure | Conversation-oriented frameworks such as AutoGen or AgentScope |
-| Graph-shaped control flow with branches and cycles | Graph orchestration libraries such as LangGraph |
+| Agents that plan and talk to each other with little upfront structure | Microsoft Agent Framework orchestrations (group chat, handoff, Magentic) or AgentScope |
+| Graph-shaped control flow with branches and cycles | Microsoft Agent Framework workflows or LangGraph |
 | Quick role-based "crews" with minimal configuration | Role-based frameworks such as CrewAI |
 | Simulating a full software team with predefined roles | MetaGPT |
 | Predictable steps, strict contracts, human review at any point, local-first models and a persistent audit trail | **This project** |
+
+## Relationship with Microsoft Agent Framework
+
+Microsoft Agent Framework is a mature, MIT-licensed runtime with graph workflows, checkpoints, MCP, A2A, AG-UI, and OpenTelemetry. Instead of reimplementing those pieces, this project plans to use it as an **optional execution backend**. It is not a fork or a rigid wrapper: workflow definitions, validation, contracts, runs, the Human Bridge, and artifacts remain this project's own, and everything keeps working with the default backend when Microsoft Agent Framework is not installed. Only its stable packages are considered for that backend; beta and experimental features stay behind explicit adapters.
 
 Corrections are welcome: if a description here is inaccurate for a project you know well, please open an issue.

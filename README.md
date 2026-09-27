@@ -18,10 +18,13 @@ Multi-Agent Framework is a Python orchestration framework for hybrid human/AI wo
 - `auto`, `local`, `cloud`, and `human_guided` execution modes.
 - Human-in-the-loop review, approval, revision, rejection, and externally executed steps.
 - Pydantic contracts and structured output validation.
+- Validation of workflow definitions before any run starts, with stable error codes.
+- Human review after any step, resuming from the next step without repeating approved work.
+- Definition bundles and generic run requests from Python for workflows outside the bundled social-content use case.
 - SQLite persistence for runs, artifacts, assets, publications, and brand profiles.
 - CLI and FastAPI API.
 - A private writable workspace for secrets, databases, runs, and assets.
-- 55 automated tests in the current baseline.
+- 237 automated tests.
 
 ## How it differs
 
