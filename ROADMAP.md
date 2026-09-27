@@ -29,7 +29,8 @@ The order follows technical dependencies and changes as the project learns (see 
 7. Planning and delegation: manual first, then semi-automatic and automatic.
 8. Interoperability: MCP server, shared-folder channel, MCP client, desktop bridge, application gateway, and external application adapters.
 9. Replanning, dynamic teams, preset sharing, a plugin ecosystem, and optional UI automation.
-10. Reference tool stacks: well-known open-source tools as examples for the most common team presets. The research can start earlier because it does not block the core.
+10. Advanced operator interface: live topology and high-volume telemetry, once OpenTelemetry events, MCP tool access, and planning with concurrent agents exist, because it visualizes them. Its low-cost foundations (ordered events with resynchronization, strict rendering of generated content, and accessibility baselines) are added earlier, while the stage 0 UI grows.
+11. Reference tool stacks: well-known open-source tools as examples for the most common team presets. The research can start earlier because it does not block the core.
 
 ## First public baseline — `M1-B01-F00-alpha`
 
@@ -71,7 +72,7 @@ The first public baseline is backend-first and provides the foundation for the r
 
 ## Intelligent model routing
 
-**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
 
 The framework is intended to use the orchestrator to choose the most appropriate model for each task rather than relying on one model for every capability.
 
@@ -80,6 +81,7 @@ The framework is intended to use the orchestrator to choose the most appropriate
 - [ ] Add model health checks, capability discovery, and automatic fallback policies.
 - [ ] Track per-model quality, latency, failures, and usage to inform future routing decisions.
 - [ ] Support configurable local-first, cloud-first, offline-only, and hybrid execution policies.
+- [ ] Evaluate optional external structured-decision providers (for example Jev, a commercial service) behind a provider-neutral interface. The native implementation stays the default, any external provider requires an explicit opt-in, and no provider becomes a required dependency. This is a possible evaluation, not an adoption decision.
 - [ ] Improve token/context budgeting and prevent avoidable context overflow.
 
 ## Local and offline AI
@@ -131,7 +133,7 @@ Human control is intended to remain a first-class part of the architecture rathe
 - [ ] Improve review queues and actionable human-step requests.
 - [ ] Improve the human-guided external model flow (copy the prompt, use any external chat or application, import the response, and validate it against the contract) across the CLI, the API, and the UI, as a feature for human control, interoperability, provider independence, and transparency.
 - [ ] Support approval policies per workflow, step, risk level, or project.
-- [ ] Allow humans to replace an agent step with externally produced output while preserving validation and traceability.
+- [ ] Allow humans to replace an agent step with externally produced output while preserving validation and traceability. Reuse the pattern of the external-delivery importer in `tools/seguimiento/importar-paquete-nube.ps1` (manifest, integrity hashes, allowlisted paths, preview, explicit human confirmation, and an auditable receipt) as a design reference only; that tool is specific to this project's workflow and is not part of the runtime. A hash proves integrity, not authorship: a human confirms who produced the output.
 - [ ] Add clearer revision history and comparisons between attempts.
 - [ ] Add comments, reviewer notes, and structured feedback that can be passed safely into subsequent attempts.
 - [ ] Improve audit trails showing what was produced by a model, a deterministic tool, or a human.
@@ -219,15 +221,15 @@ Research which well-known open-source tools make good examples for the most comm
 
 ## Frontend / UI
 
-**Progress:** `░░░░░░░░░░` 0/15 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/18 · 0% <!-- progress -->
 
 `F00` ships without a graphical interface. A minimal UI arrives early as a development, testing, and operator interface rather than as the final product. It is one more client of the public API, like the CLI, with no business logic, persistence, or orchestration of its own, and it works with the mock backend so no API keys are needed. Its technology is chosen at that milestone, and each later area of the roadmap adds UI only where it clearly improves validation, operation, or experience.
 
-- [ ] Stage 0, right after the application services and HTTP parity: start a run from an available workflow (mock by default), follow its status and events, handle the pending human action (approve, request changes, regenerate, reject, cancel, or paste an external model's response and see validation errors), and inspect artifacts.
+- [ ] Stage 0, right after the application services and HTTP parity: start a run from an available workflow (mock by default), follow its status and events, handle the pending human action (approve, request changes, regenerate, reject, cancel, or paste an external model's response and see validation errors), and inspect artifacts. Its review and confirmation step for externally produced output can follow the same human-confirmation pattern as the external-delivery importer (`tools/seguimiento/`).
 - [ ] Stage 1: agent and workflow configuration, once agent, tool, and capability contracts are stable.
 - [ ] Stage 2: teams, plans, and tasks, to inspect and approve generated plans and follow task execution.
 - [ ] Stage 3: tools and interoperability, including pending permissions, channels, MCP, and artifacts.
-- [ ] Stage 4: a more complete experience, including live topology over domain events.
+- [ ] Stage 4: a more complete experience, including live topology over domain events (see [Advanced operator interface](#advanced-operator-interface)).
 - [ ] Define the frontend architecture and stable API boundary.
 - [ ] Evaluate AG-UI as the event transport between the framework's domain events and a future UI.
 - [ ] Dashboard for projects, workflows, active runs, queued work, and system health.
@@ -238,6 +240,33 @@ Research which well-known open-source tools make good examples for the most comm
 - [ ] Usage, latency, cost, routing, and error visualization.
 - [ ] Local-model availability and hardware status views.
 - [ ] Administrative views for workers, migrations, diagnostics, and recovery.
+- [ ] Give run events a monotonic sequence number so clients detect gaps, duplicates, and out-of-order delivery, and resynchronize from a run snapshot instead of guessing state.
+- [ ] Treat all model output, artifacts, and raw payloads as untrusted in every UI: render them as text by default, sanitize any rich rendering (Markdown or HTML) with a strict allowlist sanitizer, and serve the UI with a restrictive Content Security Policy.
+- [ ] Status and alerts never depend on color alone (text, icon, or shape as well), with WCAG 2.2 AA contrast as the baseline.
+
+## Advanced operator interface
+
+**Progress:** `░░░░░░░░░░` 0/15 · 0% <!-- progress -->
+
+A later evolution of the operator UI for large or long-running teams: many agents, tools, and nested tasks running at once, followed live without freezing the browser. It stays a client of the public API and of standard event streams, with no inference, prompts, provider calls, or orchestration in the browser, and it keeps only the current session's state in memory.
+
+It depends on OpenTelemetry events, MCP tool access, and planning with concurrent agents, and is built after them (see the development order). The technologies named below are candidates to evaluate in an architecture decision, not commitments.
+
+- [ ] Record an architecture decision for the advanced UI: rendering stack, build toolchain, state management, and how it coexists with the stage 0 UI that needs no build step.
+- [ ] Measurable performance targets before building: events per second ingested, frames per second while panning and zooming, main-thread load, and memory over multi-day runs.
+- [ ] Ingest events in a background worker (Web Workers over WebSocket or SSE) so the main thread only renders. Zero-copy transfer (`SharedArrayBuffer`) is optional, because it requires cross-origin isolation headers.
+- [ ] Client-side state machines (for example XState) for agents, tools, and teams that mirror the lifecycle published by the core and reject impossible transitions. The core stays the source of truth: the UI resynchronizes from a snapshot and never decides transitions itself.
+- [ ] Tolerate out-of-order and late events, such as a completion arriving before the last streamed tokens, with buffering by sequence number.
+- [ ] Macro view: a force-directed graph of agents and clusters rendered with WebGL or Canvas (optionally in `OffscreenCanvas`).
+- [ ] Meso view: the run's task graph over time (a DAG library such as React Flow), reached by zooming in.
+- [ ] Semantic zoom: a smooth transition from the macro view to structured, interactive nodes.
+- [ ] A detail panel per agent or step with progressive disclosure: summary, trace (reasoning only where the provider exposes it and logging policies allow it), metrics, and raw payload.
+- [ ] Lightweight live indicators (sparklines) instead of spinners.
+- [ ] Virtualize long logs, timelines, and graphs so runs lasting days do not exhaust browser memory.
+- [ ] Map OpenTelemetry GenAI traces (parent-child spans, tokens, cost, latency) into the views with provider-neutral schemas; no view assumes a specific provider.
+- [ ] Show MCP tool access: which agent used which tool, with what permission and result.
+- [ ] Render pending human actions from a standard payload that tells the UI which fields and actions to offer (approve, reject, request changes with feedback, or replace the output).
+- [ ] An accessible, mostly achromatic design system with design tokens, evaluated with APCA in addition to the WCAG 2.2 AA baseline, with muted red and amber reserved for alerts.
 
 ## Memory, context, and project knowledge
 
@@ -261,7 +290,7 @@ The core works with generic concepts (tool, capability, provider, channel, permi
 - [ ] Allow agents to call approved deterministic tools and external services through controlled contracts.
 - [ ] Expose the framework as an MCP server through the same application services as the API (list agents and workflows, create and inspect runs, handle pending human steps, and read artifacts) without exposing internals.
 - [ ] Connect MCP tools as a client, through Microsoft Agent Framework's MCP support or the official MCP SDK, behind the framework's tool abstraction; do not implement a custom MCP protocol.
-- [ ] Add a shared-folder channel: structured requests, responses, and artifacts exchanged through files, with correlation to runs and steps, atomic writes, timeouts, duplicate handling, permissions, and an audit trail, for applications that cannot or should not be automated otherwise.
+- [ ] Add a shared-folder channel: structured requests, responses, and artifacts exchanged through files, with correlation to runs and steps, atomic writes, timeouts, duplicate handling, permissions, and an audit trail, for applications that cannot or should not be automated otherwise. Its request/response envelope can follow the external-delivery importer's pattern (`tools/seguimiento/importar-paquete-nube.ps1`): a structured manifest, integrity hashes, file and path limits, deduplication, and an auditable receipt.
 - [ ] Add an assisted desktop bridge that prepares the prompt, uses the clipboard, opens or activates an application, and imports the response, with the user in control.
 - [ ] Add an application gateway and launcher that keep launching or opening an application separate from controlling it, each with its own permission.
 - [ ] Build integrations with external applications (design, CAD/BIM, 3D, media, office, and development tools) as independent adapters or plugins, preferring official APIs or SDKs, then MCP, CLI or IPC, official plugin systems, shared files, and UI automation last.

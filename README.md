@@ -190,6 +190,18 @@ To return to provider inference, stop the server, set `MOCK_MODE=false`, and
 restart it with your provider configuration. This server mode is separate from
 the standalone `dry-run` command below, which does not need the HTTP server.
 
+## Stage 0 local run console
+
+This checkout includes a browser UI for creating and following Runs, reviewing
+outputs, using Human Bridge, and inspecting artifacts. After installation, run
+`multiagent ui` in the activated environment, or `run_ui_windows.bat` on Windows.
+The launcher enables Mock by default and opens `http://127.0.0.1:8000/ui/` with
+the default settings. Keep its terminal open; use Ctrl+C to stop the server.
+
+See [Stage 0 operation](docs/UI0.md) for bundles, provider mode, human actions,
+recovery, and current limits. This describes the checkout implementation;
+publication and acceptance validation are separate steps.
+
 ## Python quickstart and standalone installation
 
 Run the current three-step Mock workflow through the same Core without a server

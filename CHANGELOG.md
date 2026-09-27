@@ -33,6 +33,10 @@ Notable changes to the public project are documented here. The project uses `M-B
 - Add the autonomy principle (autonomous orchestration within declared organizational constraints) and state the limits planners work within.
 - Add **Team design from a prompt**: generate or formalize a team (roles, rules, organization chart, and recommended but never mandatory model bindings) as a validated, human-approved team definition. Roles are not tied to models, and one model can switch between roles.
 - Add **Reference tool stacks for team presets**: research well-known open-source tools as examples for the five most common team types (for example Tailwind CSS for web design). They are examples in presets, never core dependencies.
+- Record the external-delivery importer (`tools/seguimiento/`) as a design reference for externally produced output, the Stage 0 review step, and the future shared-folder channel. It is not runtime code.
+- Add an optional evaluation of external structured-decision providers (for example Jev, commercial) behind a provider-neutral interface. It requires explicit opt-in, the native implementation remains the default, and it is not an adoption decision.
+- Add **Advanced operator interface**: live topology and high-volume telemetry for large or long-running teams (background event ingestion, client state machines that mirror the core, macro and meso views with semantic zoom, virtualization, OpenTelemetry and MCP views, and an accessible design system). It is placed after OpenTelemetry, MCP, and planning, and its technologies are candidates for an architecture decision.
+- Add near-term UI foundations: sequence-numbered run events with resynchronization, untrusted rendering of model output with sanitization and a Content Security Policy, and status that never depends on color alone.
 
 ## [M1-B02-F00-alpha] - 2026-09-27
 

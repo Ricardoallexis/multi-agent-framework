@@ -11,7 +11,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | --- | --- | --- |
 | First public baseline — `M1-B01-F00-alpha` | `██████████` 100% | 15 of 15 |
 | Orchestration and agent runtime | `███░░░░░░░` 27% | 3 of 11 |
-| Intelligent model routing | `░░░░░░░░░░` 0% | 0 of 6 |
+| Intelligent model routing | `░░░░░░░░░░` 0% | 0 of 7 |
 | Local and offline AI | `░░░░░░░░░░` 0% | 0 of 9 |
 | Research and knowledge workflows | `░░░░░░░░░░` 0% | 0 of 6 |
 | Content, branding, and production | `░░░░░░░░░░` 0% | 0 of 7 |
@@ -21,14 +21,15 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Team design from a prompt | `░░░░░░░░░░` 0% | 0 of 7 |
 | Preset sharing and community catalog | `░░░░░░░░░░` 0% | 0 of 6 |
 | Reference tool stacks for team presets | `░░░░░░░░░░` 0% | 0 of 5 |
-| Frontend / UI | `░░░░░░░░░░` 0% | 0 of 15 |
+| Frontend / UI | `░░░░░░░░░░` 0% | 0 of 18 |
+| Advanced operator interface | `░░░░░░░░░░` 0% | 0 of 15 |
 | Memory, context, and project knowledge | `░░░░░░░░░░` 0% | 0 of 5 |
 | Tools, interoperability, and external applications | `░░░░░░░░░░` 0% | 0 of 13 |
 | Observability, quality, and evaluation | `░░░░░░░░░░` 0% | 0 of 7 |
 | Security and privacy | `░░░░░░░░░░` 0% | 0 of 6 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **13%** | **21 of 167** |
+| **All roadmap items** | **11%** | **21 of 186** |
 <!-- progress:table:end -->
 
 ## Current stage — runtime foundations
