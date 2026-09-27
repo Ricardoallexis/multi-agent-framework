@@ -23,6 +23,10 @@ Multi-Agent Framework is a Python orchestration framework for hybrid human/AI wo
 - A private writable workspace for secrets, databases, runs, and assets.
 - 55 automated tests in the current baseline.
 
+## How it differs
+
+Unlike conversation-driven agent frameworks, workflows here are declared and deterministic: each step's output is validated against a strict contract, a human can review or take over any step, runs are persisted and resumable, and local models come first. See [`docs/COMPARISON.md`](docs/COMPARISON.md) for the design choices, what the project deliberately does not do yet, and when another framework may fit better.
+
 ## Architecture at a glance
 
 ```text
@@ -202,6 +206,7 @@ See [`docs/VERSIONING.md`](docs/VERSIONING.md).
 - [`ROADMAP.md`](ROADMAP.md) — planned project direction.
 - [`CHANGELOG.md`](CHANGELOG.md) — public release history.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components and execution flow.
+- [`docs/COMPARISON.md`](docs/COMPARISON.md) — how this project differs from other multi-agent frameworks.
 - [`docs/VERSIONING.md`](docs/VERSIONING.md) — versioning rules.
 - [`docs/LOCAL_WORKSPACE.md`](docs/LOCAL_WORKSPACE.md) — public-code/private-data separation.
 - [`docs/OLLAMA.md`](docs/OLLAMA.md) — local Ollama setup, diagnostics, and execution.
