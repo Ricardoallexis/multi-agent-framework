@@ -26,12 +26,14 @@ from .contracts import (
     WaitingReason,
 )
 from .db.store import Store
-from .errors import BudgetExceeded, HumanSubmissionError, ValidationFailed
+from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition, ValidationFailed
 from .model_router import ModelBinding, ModelRouter
 from .prompts import PromptManager
 from .schema_utils import estimate_tokens_conservative
 from .workflows import WorkflowCatalog, WorkflowDefinition, WorkflowStep, condition_is_true
-from .workflow_validation import WorkflowDefinitionError, validate_workflow_definition
+from .workflow_validation import (
+    WorkflowDefinitionError, validate_resume_point, validate_workflow_definition,
+)
 
 
 class WorkflowEngine:
@@ -65,6 +67,57 @@ class WorkflowEngine:
         )
         return definition
 
+    def validate_waiting_step(self, run: dict[str, Any], saved: dict[str, Any], *,
+                              definition: WorkflowDefinition | None = None,
+                              current_step: int | None = None) -> WorkflowDefinition:
+        """Check durable step identity before accepting a human decision."""
+        definition = definition or self.preflight(run["workflow_id"])
+        index = run["current_step"] if current_step is None else current_step
+        validate_resume_point(
+            definition, current_step=index, step_id=saved["step_id"],
+            expected_contract=saved.get("expected_contract", saved.get("kind")),
+        )
+        step = definition.steps[index]
+        if (step.prompt_id != saved["prompt_id"]
+                or step.prompt_version != saved["prompt_version"]):
+            raise InvalidStateTransition("The paused step prompt or version changed")
+        if not condition_is_true(step.when, run["request"]):
+            raise InvalidStateTransition("The paused step is no longer enabled for this request")
+        if type(saved["attempt"]) is not int or saved["attempt"] < 1:
+            raise InvalidStateTransition("The paused step has an invalid attempt")
+        return definition
+
+    def review_point(self, run: dict[str, Any]) -> tuple[WorkflowDefinition, dict[str, Any]]:
+        """Resolve the exact result under review; legacy waits must be unambiguous."""
+        try:
+            definition = self.preflight(run["workflow_id"])
+            budget = bool(run["budget_exhausted"]) or run["waiting_reason"] == WaitingReason.BUDGET_EXHAUSTED.value
+            step_id, attempt = run["waiting_step"], run["waiting_attempt"]
+            if step_id and type(attempt) is int and attempt > 0:
+                artifact = self.store.review_artifact(run["id"], step_id=step_id, attempt=attempt)
+            elif not step_id and attempt is None and budget:
+                artifact = self.store.review_artifact(run["id"])
+            elif (not step_id and attempt is None and not run["waiting_reason"]
+                  and run["current_step"] == len(definition.steps) - 1):
+                # Before durable wait metadata, only terminal checkpoints existed.
+                last = definition.steps[-1]
+                artifact = self.store.review_artifact(run["id"], step_id=last.id)
+            else:
+                raise InvalidStateTransition("The review has incomplete step or attempt metadata")
+            index = run["current_step"]
+            if budget:
+                # A budget may expire before a later step, leaving a previous result.
+                index = next((i for i, step in enumerate(definition.steps)
+                              if step.id == artifact["step_id"]), -1)
+            self.validate_waiting_step(run, artifact, definition=definition, current_step=index)
+            if not budget:
+                if artifact["approved"] or self.store.latest_step_attempt(run["id"], artifact["step_id"]) != artifact["attempt"]:
+                    raise InvalidStateTransition("The review does not identify the current unapproved attempt")
+            return definition, artifact
+        except (KeyError, WorkflowDefinitionError) as err:
+            message = err.to_payload()["error"] if isinstance(err, WorkflowDefinitionError) else str(err)
+            raise InvalidStateTransition(message) from err
+
     # ---------- public execution ----------
     def process_run(self, run_id: str) -> dict[str, Any]:
         run = self.store.get_run(run_id)
@@ -75,7 +128,12 @@ class WorkflowEngine:
         started_mono = time.monotonic()
         try:
             self._check_cancel(run_id)
-            definition = self.preflight(run["workflow_id"])
+            try:
+                definition = self.preflight(run["workflow_id"])
+            except (KeyError, WorkflowDefinitionError) as exc:
+                payload = exc.to_payload() if isinstance(exc, WorkflowDefinitionError) else {}
+                self.store.fail_active_run(run_id, exc, issues=payload.get("issues"), message=payload.get("error"))
+                return self._finalize_return(run_id)
             index = int(run["current_step"])
             if not 0 <= index <= len(definition.steps):
                 raise ValidationFailed("current_step is outside the workflow")
@@ -252,7 +310,7 @@ class WorkflowEngine:
                         waiting_step=step.id,
                         waiting_attempt=attempt,
                     )
-                    self.store.db.log_event(run_id, "checkpoint", {"step_id": step.id})
+                    self.store.db.log_event(run_id, "checkpoint", {"step_id": step.id, "attempt": attempt})
                     return self._finalize_return(run_id)
 
                 index += 1
@@ -274,27 +332,20 @@ class WorkflowEngine:
             return self._finalize_return(run_id)
         except BudgetExceeded as exc:
             if self.store.artifact_count(run_id) > 0:
+                artifact = self.store.review_artifact(run_id)
                 self.store.update_run(
                     run_id,
                     status=RunStatus.WAITING_HUMAN.value,
                     error=str(exc),
                     budget_exhausted=1,
                     waiting_reason=WaitingReason.BUDGET_EXHAUSTED.value,
+                    waiting_step=artifact["step_id"],
+                    waiting_attempt=artifact["attempt"],
                 )
                 self.store.db.log_event(run_id, "budget_exhausted", {"error": str(exc), "actionable_artifact": True})
             else:
                 self.store.update_run(run_id, status=RunStatus.FAILED.value, error=str(exc), budget_exhausted=1)
                 self.store.db.log_event(run_id, "workflow_failed", {"error": str(exc), "type": type(exc).__name__})
-            return self._finalize_return(run_id)
-        except (KeyError, WorkflowDefinitionError) as exc:
-            issues = None
-            if isinstance(exc, WorkflowDefinitionError):
-                issues = [
-                    {"code": issue.code, "location": issue.location,
-                     "step_id": issue.step_id, "message": issue.message}
-                    for issue in exc.issues
-                ]
-            self.store.fail_active_run(run_id, exc, issues=issues)
             return self._finalize_return(run_id)
         except Exception as exc:
             self.store.fail_active_run(run_id, exc)
@@ -318,11 +369,17 @@ class WorkflowEngine:
         if not pending:
             raise HumanSubmissionError("No pending HumanStepRequest exists")
 
-        definition = self.workflows.load(run["workflow_id"])
-        index = int(run["current_step"])
+        try:
+            definition = self.validate_waiting_step(run, pending)
+            if (run["cancel_requested"] or run["waiting_step"] != pending["step_id"]
+                    or run["waiting_attempt"] != pending["attempt"]
+                    or self.store.latest_step_attempt(run_id, pending["step_id"]) != pending["attempt"]):
+                raise InvalidStateTransition("The pending HumanStepRequest does not match the persisted wait")
+        except (KeyError, WorkflowDefinitionError, InvalidStateTransition) as err:
+            message = err.to_payload()["error"] if isinstance(err, WorkflowDefinitionError) else str(err)
+            raise HumanSubmissionError(message) from err
+        index = run["current_step"]
         step = definition.steps[index]
-        if step.id != pending["step_id"]:
-            raise HumanSubmissionError("The pending HumanStepRequest does not match current_step")
         output_schema = OUTPUT_SCHEMAS[pending["expected_contract"]]
         raw = submission.raw_response
         raw_path = self.artifacts.write_human_raw(
@@ -421,7 +478,7 @@ class WorkflowEngine:
                 waiting_step=step.id,
                 waiting_attempt=int(pending["attempt"]),
             )
-            self.store.db.log_event(run_id, "checkpoint", {"step_id": step.id})
+            self.store.db.log_event(run_id, "checkpoint", {"step_id": step.id, "attempt": pending["attempt"]})
         else:
             self.store.update_run(
                 run_id,

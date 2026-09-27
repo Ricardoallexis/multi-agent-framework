@@ -176,16 +176,18 @@ class Store:
             conn.commit()
 
     def fail_active_run(self, run_id: str, error: Exception, *,
-                        issues: list[dict[str, Any]] | None = None) -> bool:
+                        issues: list[dict[str, Any]] | None = None,
+                        message: str | None = None) -> bool:
         """Atomically record failure without overwriting a settled run state."""
-        payload: dict[str, Any] = {"error": str(error), "type": type(error).__name__}
+        message = str(error) if message is None else message
+        payload: dict[str, Any] = {"error": message, "type": type(error).__name__}
         if issues is not None:
             payload["issues"] = issues
         with self.db.tx() as conn:
             changed = conn.execute(
                 """UPDATE runs SET status=?,error=?,waiting_reason='',waiting_step='',
                    waiting_attempt=NULL,updated_at=? WHERE id=? AND status IN (?,?)""",
-                (RunStatus.FAILED.value, str(error), utcnow(), run_id,
+                (RunStatus.FAILED.value, message, utcnow(), run_id,
                  RunStatus.QUEUED.value, RunStatus.RUNNING.value),
             ).rowcount
             if changed:
@@ -300,12 +302,92 @@ class Store:
             conn.commit()
             return aid
 
-    def approve_latest_artifact(self, run_id: str) -> None:
+    def review_artifact(self, run_id: str, *, step_id: str = "",
+                        attempt: int | None = None) -> dict[str, Any]:
+        """Read a completed artifact and its prompt identity without changing it.
+
+        An omitted step is reserved for a budget stop; insertion order identifies
+        the last saved result even when timestamps have equal precision.
+        """
+        clauses = ["a.run_id=?", "s.status='completed'"]
+        params: list[Any] = [run_id]
+        if step_id:
+            clauses.append("a.step_id=?")
+            params.append(step_id)
+        if attempt is not None:
+            clauses.append("a.attempt=?")
+            params.append(attempt)
         with self.db.connect() as conn:
-            row = conn.execute("SELECT id FROM artifacts WHERE run_id=? ORDER BY created_at DESC LIMIT 1", (run_id,)).fetchone()
-            if row:
-                conn.execute("UPDATE artifacts SET approved=1 WHERE id=?", (row["id"],))
-                conn.commit()
+            rows = conn.execute(
+                """SELECT a.*,s.prompt_id,s.prompt_version FROM artifacts a
+                   JOIN run_steps s ON s.run_id=a.run_id AND s.step_id=a.step_id
+                     AND s.attempt=a.attempt WHERE """ + " AND ".join(clauses) +
+                " ORDER BY a.rowid DESC", params,
+            ).fetchall()
+        if not rows or (attempt is not None and len(rows) != 1):
+            raise InvalidStateTransition("The review has no unique completed artifact")
+        return dict(rows[0])
+
+    def finish_review(self, run: dict[str, Any], artifact: dict[str, Any], *,
+                      approve: bool, current_step: int, completed: bool = False,
+                      feedback: str = "", regenerate: bool = False) -> None:
+        """Commit the artifact decision, cursor and events together.
+
+        Compare the persisted wait again inside the transaction. This rejects an
+        immediate duplicate or a cancellation after the caller read the run.
+        It is not a token for a late retry arriving at a different checkpoint.
+        """
+        run_id = run["id"]
+        with self.db.tx() as conn:
+            fresh = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            fields = ("status", "current_step", "waiting_reason", "waiting_step",
+                      "waiting_attempt", "budget_exhausted", "cancel_requested")
+            if (fresh is None or fresh["status"] != RunStatus.WAITING_HUMAN.value
+                    or fresh["cancel_requested"]
+                    or any(fresh[key] != run[key] for key in fields)):
+                raise InvalidStateTransition("The persisted review changed; read the run again")
+            saved = conn.execute(
+                """SELECT a.*,s.prompt_id,s.prompt_version FROM artifacts a
+                   JOIN run_steps s ON s.run_id=a.run_id AND s.step_id=a.step_id
+                     AND s.attempt=a.attempt
+                   WHERE a.id=? AND a.run_id=? AND s.status='completed'""",
+                (artifact["id"], run_id),
+            ).fetchone()
+            if saved is None or dict(saved) != artifact:
+                raise InvalidStateTransition("The reviewed artifact changed; read the run again")
+            if not fresh["budget_exhausted"] and fresh["waiting_reason"] != "budget_exhausted":
+                latest = conn.execute(
+                    """SELECT MAX(attempt) FROM (
+                         SELECT attempt FROM run_steps WHERE run_id=? AND step_id=?
+                         UNION ALL
+                         SELECT attempt FROM human_step_requests WHERE run_id=? AND step_id=?)""",
+                    (run_id, artifact["step_id"], run_id, artifact["step_id"]),
+                ).fetchone()[0]
+                if saved["approved"] or latest != artifact["attempt"]:
+                    raise InvalidStateTransition("The review no longer identifies the current unapproved attempt")
+            if approve:
+                conn.execute("UPDATE artifacts SET approved=1 WHERE id=?", (artifact["id"],))
+            status = RunStatus.COMPLETED.value if completed else RunStatus.QUEUED.value
+            conn.execute(
+                """UPDATE runs SET status=?,current_step=?,revision_feedback=?,
+                   waiting_reason='',waiting_step='',waiting_attempt=NULL,updated_at=?
+                   WHERE id=?""",
+                (status, current_step, feedback, utcnow(), run_id),
+            )
+            payload = {"step_id": artifact["step_id"], "attempt": artifact["attempt"],
+                       "artifact_id": artifact["id"]}
+            if not approve:
+                payload.update(mode="regenerate" if regenerate else "revise", feedback=feedback)
+            conn.execute(
+                "INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                (run_id, utcnow(), "human_approved" if approve else "human_revision",
+                 json.dumps(payload, ensure_ascii=False)),
+            )
+            if completed:
+                conn.execute(
+                    "INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                    (run_id, utcnow(), "workflow_completed", "{}"),
+                )
 
     def increment_llm_calls(self, run_id: str) -> int:
         with self.db.connect() as conn:

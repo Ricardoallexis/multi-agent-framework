@@ -24,7 +24,6 @@ as a :class:`WorkflowIssue` with a stable ``code``:
 ``workflow_id_mismatch``  The declared ``id`` differs from the requested one.
 ``duplicate_step_id``     Two steps share an id.
 ``unsupported_condition`` ``when`` is not null, ``requires_web`` or ``not_requires_web``.
-``checkpoint_not_terminal`` ``checkpoint_after`` is set on a step that is not last.
 ``invalid_reference``     A prompt or skill reference is not a relative ``a/b`` path.
 ``unknown_agent``         The agent is not in the catalog.
 ``inactive_agent``        The agent is marked ``active: false`` in the catalog.
@@ -34,6 +33,15 @@ as a :class:`WorkflowIssue` with a stable ``code``:
 ``prompt_not_found``      No ``<prompt_id>.v<prompt_version>.md`` in the prompts directory.
 ``skill_not_found``       No ``<skill>.md`` in the skills directory.
 ========================  =====================================================
+
+:func:`validate_resume_point` checks that a run paused on a step can still
+resume on the current definition, and raises the same error with:
+
+============================  =================================================
+``resume_cursor_out_of_range``  The stored cursor is not a step of the workflow.
+``resume_step_mismatch``        Another step (or none) now sits at the cursor.
+``resume_contract_mismatch``    The paused step now declares another contract.
+============================  =================================================
 """
 from __future__ import annotations
 
@@ -130,6 +138,50 @@ def validate_workflow_definition(
         raise WorkflowDefinitionError(str(definition.id), issues)
 
 
+def validate_resume_point(
+    definition: WorkflowDefinition,
+    *,
+    current_step: int,
+    step_id: str,
+    expected_contract: str | None = None,
+) -> None:
+    """Raise ``WorkflowDefinitionError`` unless a run paused on ``step_id`` can resume here.
+
+    ``current_step``, ``step_id`` and ``expected_contract`` are what the run stored
+    when it paused. The definition may have been edited while the run waited, so
+    this compares them with the step now at the cursor. Call it after
+    ``validate_workflow_definition``; it reads nothing from disk.
+    """
+    steps = definition.steps
+    issues: list[WorkflowIssue] = []
+    if not _is_int(current_step) or not 0 <= current_step < len(steps):
+        issues.append(WorkflowIssue(
+            "resume_cursor_out_of_range", "current_step",
+            f"The run paused at cursor {current_step!r}, but the workflow has {len(steps)} steps",
+            step_id,
+        ))
+    else:
+        step = steps[current_step]
+        location = f"steps[{current_step}]"
+        if step.id != step_id:
+            moved_to = next((index for index, other in enumerate(steps) if other.id == step_id), None)
+            where = (f"; that step is now steps[{moved_to}]" if moved_to is not None
+                     else "; the workflow no longer has that step")
+            issues.append(WorkflowIssue(
+                "resume_step_mismatch", f"{location}.id",
+                f"The run paused at step {step_id!r}, but {location} is now {step.id!r}{where}",
+                step_id,
+            ))
+        elif expected_contract is not None and step.contract != expected_contract:
+            issues.append(WorkflowIssue(
+                "resume_contract_mismatch", f"{location}.contract",
+                f"The run paused expecting contract {expected_contract!r}, but the step now declares {step.contract!r}",
+                step_id,
+            ))
+    if issues:
+        raise WorkflowDefinitionError(str(definition.id), issues)
+
+
 def require_safe_workflow_id(workflow_id: Any) -> None:
     """Reject requested ids that could address a file outside the workflows directory."""
     if not isinstance(workflow_id, str) or not IDENTIFIER.fullmatch(workflow_id):
@@ -217,7 +269,6 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
         return issues
 
     seen: dict[str, int] = {}
-    last = len(steps) - 1
     for index, step in enumerate(steps):
         location = f"steps[{index}]"
         if not isinstance(step, WorkflowStep):
@@ -264,12 +315,9 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
             add("unsupported_condition", "when",
                 f"Unsupported condition {step.when!r}; use null, {', '.join(repr(c) for c in SUPPORTED_CONDITIONS)}")
 
+        # Any step may request a review: approving an intermediate one resumes at the next step.
         if not isinstance(step.checkpoint_after, bool):
             add("invalid_type", "checkpoint_after", f"Expected true or false; got {_kind(step.checkpoint_after)}")
-        elif step.checkpoint_after and index != last:
-            add("checkpoint_not_terminal", "checkpoint_after",
-                "checkpoint_after is only supported on the final step: approving a review currently "
-                "completes the whole run, so the remaining steps would never execute")
     return issues
 
 

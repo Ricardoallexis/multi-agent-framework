@@ -12,7 +12,9 @@ import yaml
 from multiagent.catalog import Catalog
 from multiagent.config import Settings
 from multiagent.contracts import OUTPUT_SCHEMAS
-from multiagent.workflow_validation import WorkflowDefinitionError, validate_workflow_definition
+from multiagent.workflow_validation import (
+    WorkflowDefinitionError, validate_resume_point, validate_workflow_definition,
+)
 from multiagent.workflows import WorkflowCatalog, WorkflowDefinition, WorkflowStep
 
 VALID = {
@@ -177,14 +179,14 @@ def test_missing_steps_and_unknown_root_field(settings, workflows_dir):
 
 
 def test_unknown_field_does_not_hide_value_problems(settings, workflows_dir):
-    raw = with_step(0, when="sometimes", checkpoint_after=True)
+    raw = with_step(0, when="sometimes", requires_web="maybe")
     raw["max_iteration"] = 3
     raw["steps"][1]["notes"] = "draft"
     assert codes(load_error(settings, workflows_dir, raw)) == {
         ("unknown_field", "max_iteration"),
         ("unknown_field", "steps[1].notes"),
         ("unsupported_condition", "steps[0].when"),
-        ("checkpoint_not_terminal", "steps[0].checkpoint_after"),
+        ("invalid_value", "steps[0].requires_web"),
     }
 
 
@@ -267,10 +269,10 @@ def test_max_iterations_must_be_a_non_negative_integer(settings, workflows_dir, 
     assert codes(load_error(settings, workflows_dir, definition_from(max_iterations=value))) == {(code, "max_iterations")}
 
 
-def test_intermediate_checkpoint_is_rejected_explicitly(settings, workflows_dir):
-    error = load_error(settings, workflows_dir, with_step(0, checkpoint_after=True))
-    assert codes(error) == {("checkpoint_not_terminal", "steps[0].checkpoint_after")}
-    assert "final step" in str(error)
+def test_intermediate_checkpoint_is_accepted(settings, workflows_dir):
+    definition = load_raw(settings, workflows_dir, with_step(0, checkpoint_after=True))
+    validate(definition, settings)
+    assert [step.checkpoint_after for step in definition.steps] == [True, True]
 
 
 def test_error_lists_every_problem_with_step_context(settings, workflows_dir):
@@ -320,8 +322,7 @@ def test_python_built_definition_gets_structural_checks_too(settings):
     definition = WorkflowDefinition(id="sample", max_iterations=2, steps=[step, step])
     with pytest.raises(WorkflowDefinitionError) as info:
         validate(definition, settings)
-    assert ("duplicate_step_id", "steps[1].id") in codes(info.value)
-    assert ("checkpoint_not_terminal", "steps[0].checkpoint_after") in codes(info.value)
+    assert codes(info.value) == {("duplicate_step_id", "steps[1].id")}
 
 
 # ---------- public serialization ----------
@@ -341,7 +342,7 @@ def test_issue_without_step_serializes_null_step_id(settings, workflows_dir):
 
 
 def test_payload_is_json_ready_and_omits_the_local_source_path(settings, workflows_dir):
-    error = load_error(settings, workflows_dir, with_step(0, when="sometimes", checkpoint_after=True))
+    error = load_error(settings, workflows_dir, with_step(0, when="sometimes", requires_web="maybe"))
     assert error.source is not None and str(error.source) in str(error)
     payload = error.to_payload()
     assert json.loads(json.dumps(payload)) == payload
@@ -352,3 +353,99 @@ def test_payload_is_json_ready_and_omits_the_local_source_path(settings, workflo
         "workflow_id": "sample",
         "issues": [issue.to_dict() for issue in error.issues],
     }
+
+
+# ---------- resuming a paused run on the current definition ----------
+
+def resume_error(definition: WorkflowDefinition, **paused) -> WorkflowDefinitionError:
+    with pytest.raises(WorkflowDefinitionError) as info:
+        validate_resume_point(definition, **paused)
+    return info.value
+
+
+def test_resume_point_accepts_the_unchanged_step(settings, workflows_dir):
+    definition = load_raw(settings, workflows_dir, VALID)
+    validate_resume_point(definition, current_step=1, step_id="create", expected_contract="ContentOutput")
+    validate_resume_point(definition, current_step=0, step_id="research")
+
+
+@pytest.mark.parametrize("cursor", [-1, 2, True, "1"])
+def test_resume_cursor_outside_the_workflow(settings, workflows_dir, cursor):
+    error = resume_error(load_raw(settings, workflows_dir, VALID), current_step=cursor, step_id="create")
+    assert codes(error) == {("resume_cursor_out_of_range", "current_step")}
+    assert error.issues[0].step_id == "create"
+
+
+def test_resume_rejects_a_renamed_or_removed_step(settings, workflows_dir):
+    definition = load_raw(settings, workflows_dir, with_step(1, id="draft"))
+    error = resume_error(definition, current_step=1, step_id="create")
+    assert codes(error) == {("resume_step_mismatch", "steps[1].id")}
+    assert "no longer has that step" in str(error)
+
+
+def test_resume_reports_where_a_moved_step_went(settings, workflows_dir):
+    error = resume_error(load_raw(settings, workflows_dir, VALID), current_step=0, step_id="create")
+    assert codes(error) == {("resume_step_mismatch", "steps[0].id")}
+    assert "now steps[1]" in str(error)
+
+
+def test_resume_rejects_a_changed_contract(settings, workflows_dir):
+    definition = load_raw(settings, workflows_dir, VALID)
+    error = resume_error(definition, current_step=1, step_id="create", expected_contract="StrategyOutput")
+    assert codes(error) == {("resume_contract_mismatch", "steps[1].contract")}
+    assert "'StrategyOutput'" in str(error) and "'ContentOutput'" in str(error)
+    assert error.to_payload()["issues"][0]["step_id"] == "create"
+
+
+# ---------- G2 fixtures shared with the run lifecycle tests ----------
+
+FIXTURES = Path(__file__).parent / "fixtures" / "workflows"
+# Each scenario folder holds social_post_full.yaml, the id a "full" request resolves to.
+SCENARIOS = {
+    "g2_intermediate": {"strategy", "design"},
+    "g2_every_step": {"strategy", "create", "design"},
+    "g2_conditional_checkpoint": {"research", "design"},
+    "g2_skipped_tail": {"strategy", "design"},
+}
+# Edits of g2_intermediate made while a run waits for the strategy review at steps[1].
+CHANGED = {
+    "step_renamed": "resume_step_mismatch",
+    "step_removed": "resume_step_mismatch",
+    "step_moved": "resume_step_mismatch",
+    "contract_changed": "resume_contract_mismatch",
+    "checkpoint_removed": None,
+    "later_step_changed": None,
+}
+
+
+def load_fixture(settings: Settings, scenario: str) -> WorkflowDefinition:
+    return WorkflowCatalog(settings, workflows_dir=FIXTURES / scenario).load("social_post_full")
+
+
+def test_every_fixture_folder_is_covered():
+    folders = {path.parent.relative_to(FIXTURES).as_posix() for path in FIXTURES.rglob("*.yaml")}
+    assert folders == set(SCENARIOS) | {f"g2_changed/{name}" for name in CHANGED}
+
+
+@pytest.mark.parametrize("scenario,reviewed", SCENARIOS.items())
+def test_g2_scenarios_are_valid_and_review_the_intended_steps(settings, scenario, reviewed):
+    definition = load_fixture(settings, scenario)
+    validate(definition, settings)
+    assert [step.id for step in definition.steps] == ["research", "strategy", "create", "design"]
+    assert {step.id for step in definition.steps if step.checkpoint_after} == reviewed
+
+
+def test_skipped_tail_leaves_only_conditional_steps_after_the_review(settings):
+    steps = load_fixture(settings, "g2_skipped_tail").steps
+    assert [step.when for step in steps[2:]] == ["requires_web", "requires_web"]
+
+
+@pytest.mark.parametrize("variant,code", CHANGED.items())
+def test_definition_changed_during_the_strategy_review(settings, variant, code):
+    definition = load_fixture(settings, f"g2_changed/{variant}")
+    validate(definition, settings)
+    paused = {"current_step": 1, "step_id": "strategy", "expected_contract": "StrategyOutput"}
+    if code is None:
+        validate_resume_point(definition, **paused)
+    else:
+        assert {issue.code for issue in resume_error(definition, **paused).issues} == {code}

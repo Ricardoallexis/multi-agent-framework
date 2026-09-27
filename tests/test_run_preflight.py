@@ -47,8 +47,6 @@ def invalid_workflow(system, tmp_path, kind):
         raw["steps"][-1]["id"] = raw["steps"][1]["id"]
     elif kind == "unsupported_condition":
         raw["steps"][-1]["when"] = "sometimes"
-    elif kind == "checkpoint_not_terminal":
-        raw["steps"][1]["checkpoint_after"] = True
     definitions = tmp_path / "definitions"
     definitions.mkdir(exist_ok=True)
     if kind != "missing":
@@ -58,7 +56,7 @@ def invalid_workflow(system, tmp_path, kind):
 
 
 INVALID_KINDS = ["missing", "yaml_invalid", "unknown_agent", "unknown_contract", "prompt_not_found",
-                 "duplicate_step_id", "unsupported_condition", "checkpoint_not_terminal"]
+                 "duplicate_step_id", "unsupported_condition"]
 
 
 @pytest.mark.parametrize("kind", INVALID_KINDS)

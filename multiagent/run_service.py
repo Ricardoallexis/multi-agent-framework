@@ -40,17 +40,16 @@ class RunService:
             WaitingReason.REVIEW.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
         }:
             raise InvalidStateTransition("A run can only be approved while waiting for human review")
-        self.store.approve_latest_artifact(run_id)
-        self.store.update_run(
-            run_id,
-            status=RunStatus.COMPLETED.value,
-            revision_feedback="",
-            waiting_reason="",
-            waiting_step="",
-            waiting_attempt=None,
+        if self.engine is None:
+            raise RuntimeError("RunService has no WorkflowEngine attached")
+        definition, artifact = self.engine.review_point(run)
+        budget = bool(run["budget_exhausted"]) or run["waiting_reason"] == WaitingReason.BUDGET_EXHAUSTED.value
+        next_step = run["current_step"] + 1
+        completed = budget or next_step == len(definition.steps)
+        self.store.finish_review(
+            run, artifact, approve=True, completed=completed,
+            current_step=len(definition.steps) if completed else next_step,
         )
-        self.store.db.log_event(run_id, "human_approved", {})
-        self.store.db.log_event(run_id, "workflow_completed", {})
         return self.store.get_run(run_id)
 
     def changes(self, run_id: str, feedback: str, *, regenerate: bool = False) -> dict[str, Any]:
@@ -59,22 +58,17 @@ class RunService:
             WaitingReason.REVIEW.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
         }:
             raise InvalidStateTransition("Revisions can only be requested in WAITING_HUMAN/review")
-        if run.get("budget_exhausted"):
+        if run.get("budget_exhausted") or run.get("waiting_reason") == WaitingReason.BUDGET_EXHAUSTED.value:
             raise BudgetExceeded("The budget is exhausted; only the existing artifact can be approved or rejected")
         if not feedback.strip() and not regenerate:
             raise ValueError("Feedback is required for revise")
-        current_step = max(0, int(run["current_step"]))
-        self.store.update_run(
-            run_id,
-            status=RunStatus.QUEUED.value,
-            revision_feedback="" if regenerate else feedback.strip(),
-            current_step=current_step,
-            waiting_reason="",
-            waiting_step="",
-            waiting_attempt=None,
+        if self.engine is None:
+            raise RuntimeError("RunService has no WorkflowEngine attached")
+        _, artifact = self.engine.review_point(run)
+        self.store.finish_review(
+            run, artifact, approve=False, current_step=run["current_step"],
+            feedback="" if regenerate else feedback.strip(), regenerate=regenerate,
         )
-        mode = "regenerate" if regenerate else "revise"
-        self.store.db.log_event(run_id, "human_revision", {"mode": mode, "feedback": feedback})
         return self.store.get_run(run_id)
 
     def reject(self, run_id: str, feedback: str = "") -> dict[str, Any]:
