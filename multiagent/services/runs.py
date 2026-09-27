@@ -32,7 +32,7 @@ from ..run_request import RunRequest
 from ..run_service import RunService
 from ..worker import LocalWorker
 from ..workflow_engine import WorkflowEngine
-from .errors import HUMAN_STEP_UNAVAILABLE, NOT_FOUND, ServiceError, service_errors
+from .errors import HUMAN_STEP_UNAVAILABLE, INVALID_REQUEST, NOT_FOUND, ServiceError, service_errors
 
 if TYPE_CHECKING:
     from . import ApplicationServices
@@ -208,3 +208,17 @@ class RunServices:
     def artifacts(self, run_id: str) -> list[dict[str, Any]]:
         """Artifacts of the run, oldest first."""
         return self.get(run_id)["artifacts"]
+
+    @service_errors
+    def events(self, run_id: str, *, after: int = 0) -> list[dict[str, Any]]:
+        """Events of the run whose ``seq`` is greater than ``after``, oldest first.
+
+        ``seq`` numbers a run's events 1, 2, 3... without gaps, so a client that
+        sees a gap, a repeat, or a lower number than it already has knows its
+        copy is stale and reloads the run.
+        Errors: ``not_found``, ``invalid_request`` (``after`` is not an integer >= 0).
+        """
+        if isinstance(after, bool) or not isinstance(after, int) or after < 0:
+            raise ServiceError(INVALID_REQUEST, "after must be an integer >= 0", status=422,
+                               details={"after": repr(after)})
+        return [event for event in self.get(run_id)["events"] if event["seq"] > after]

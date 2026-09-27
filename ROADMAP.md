@@ -221,7 +221,7 @@ Research which well-known open-source tools make good examples for the most comm
 
 ## Frontend / UI
 
-**Progress:** `█░░░░░░░░░` 1/18 · 6% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 2/18 · 11% <!-- progress -->
 
 `F00` ships without a graphical interface. A minimal UI arrives early as a development, testing, and operator interface rather than as the final product. It is one more client of the public API, like the CLI, with no business logic, persistence, or orchestration of its own, and it works with the mock backend so no API keys are needed. Its technology is chosen at that milestone, and each later area of the roadmap adds UI only where it clearly improves validation, operation, or experience.
 
@@ -240,7 +240,7 @@ Research which well-known open-source tools make good examples for the most comm
 - [ ] Usage, latency, cost, routing, and error visualization.
 - [ ] Local-model availability and hardware status views.
 - [ ] Administrative views for workers, migrations, diagnostics, and recovery.
-- [ ] Give run events a monotonic sequence number so clients detect gaps, duplicates, and out-of-order delivery, and resynchronize from a run snapshot instead of guessing state.
+- [x] Give run events a monotonic sequence number so clients detect gaps, duplicates, and out-of-order delivery, and resynchronize from a run snapshot instead of guessing state.
 - [ ] Treat all model output, artifacts, and raw payloads as untrusted in every UI: render them as text by default, sanitize any rich rendering (Markdown or HTML) with a strict allowlist sanitizer, and serve the UI with a restrictive Content Security Policy.
 - [ ] Status and alerts never depend on color alone (text, icon, or shape as well), with WCAG 2.2 AA contrast as the baseline.
 

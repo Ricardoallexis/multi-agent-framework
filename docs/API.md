@@ -22,7 +22,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | Service | Operations |
 | --- | --- |
 | `services.definitions` | `list_workflows`, `get_workflow`, `list_agents`, `list_bundles`, `validate_bundle` |
-| `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_submit`, `artifacts` |
+| `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_submit`, `artifacts`, `events` |
 
 For example, create a built-in social-post run:
 
@@ -85,6 +85,7 @@ and bundle-worker shutdown through its application lifespan.
 | `GET` | `/api/v1/runs` | List runs; optional `limit` (1–500), `status`, and `project` query parameters. |
 | `GET` | `/api/v1/runs/{run_id}` | Get a run with its events and artifacts. |
 | `GET` | `/api/v1/runs/{run_id}/artifacts` | List the run's artifacts. |
+| `GET` | `/api/v1/runs/{run_id}/events` | List the run's events; optional `after` (integer ≥ 0) returns only events with a greater `seq`. |
 | `POST` | `/api/v1/runs/{run_id}/approve` | Approve the current human review. |
 | `POST` | `/api/v1/runs/{run_id}/changes` | Request changes with `{"feedback": "..."}`. |
 | `POST` | `/api/v1/runs/{run_id}/regenerate` | Regenerate the item under review. |
@@ -117,6 +118,21 @@ For a human response, send a JSON object with a non-empty `raw_response` string;
 `provider`, `model`, `prompt_used`, and `notes` are optional. The review and
 human-response endpoints validate their request bodies and return the same
 structured error format as other routes.
+
+### Event sequence
+
+Every run event carries `seq`, which numbers that run's events 1, 2, 3… in
+order, without gaps. Events are never changed or removed, so an event keeps its
+`seq`. A client that already shows events up to `seq` N can ask only for newer
+ones with `GET /api/v1/runs/{run_id}/events?after=N`, `services.runs.events(run_id, after=N)`,
+or `multiagent events <run_id> --after N`.
+
+If a client sees a gap, a repeated number, or a copy that ends before events it
+already has, its copy is inconsistent, for example because responses arrived out
+of order. It should reload the run (`GET /api/v1/runs/{run_id}`) instead of
+guessing its state. The Stage 0 run view does this and shows a notice while it
+reloads. `seq` is additive: existing fields, including the event `id`, keep
+their meaning. An `after` below 0 or not an integer returns 422 `invalid_request`.
 
 ## Structured errors
 

@@ -196,6 +196,11 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def run_artifacts(run_id: str):
         return services.runs.artifacts(run_id)
 
+    @app.get("/api/v1/runs/{run_id}/events")
+    def run_events(run_id: str, after: int = Query(0, ge=0)):
+        """Events with ``seq`` greater than ``after`` (0 returns all)."""
+        return services.runs.events(run_id, after=after)
+
     @app.post("/api/v1/runs/{run_id}/approve")
     def approve(run_id: str):
         return services.runs.approve(run_id)

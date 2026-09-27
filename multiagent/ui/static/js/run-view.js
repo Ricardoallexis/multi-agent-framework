@@ -66,6 +66,20 @@ function listOf(value) {
   return Array.isArray(value) ? value : [];
 }
 
+// The API numbers a run's events 1, 2, 3... (seq). A gap, a repeat, a lower number, or a
+// missing seq means this copy is inconsistent; the view then reloads the run instead of guessing.
+export function checkEventSequence(events) {
+  let expected = 1;
+  for (const event of listOf(events)) {
+    const seq = Number(event?.seq);
+    if (!Number.isInteger(seq) || seq < 1) return { ok: false, lastSeq: expected - 1, problem: "an event has no sequence number" };
+    if (seq < expected) return { ok: false, lastSeq: expected - 1, problem: `event ${seq} is repeated or out of order` };
+    if (seq > expected) return { ok: false, lastSeq: expected - 1, problem: `events ${expected}–${seq - 1} are missing` };
+    expected = seq + 1;
+  }
+  return { ok: true, lastSeq: expected - 1, problem: "" };
+}
+
 function apiPathForRun(runId) {
   return `/runs/${encodeURIComponent(runId)}`;
 }
@@ -79,6 +93,8 @@ export function mount(container, context = {}) {
   const title = container.querySelector("#run-view-title") || element("h2", {}, "Run");
   const status = element("p", { className: "notice", role: "status", "aria-live": "polite" }, "No run selected. Create a run to see its API state here.");
   const errors = element("div", { "aria-live": "polite" });
+  const sequenceNotice = element("p", { className: "notice", role: "status" });
+  sequenceNotice.hidden = true;
   const controls = element("div", { className: "form-actions" });
   const refreshButton = element("button", { type: "button", className: "secondary" }, "Refresh run");
   const artifactButton = element("button", { type: "button", className: "secondary" }, "Refresh artifacts");
@@ -91,7 +107,7 @@ export function mount(container, context = {}) {
   controls.append(refreshButton, artifactButton);
   eventsSection.append(eventsTitle);
   artifactsSection.append(artifactsTitle);
-  container.replaceChildren(title, status, errors, controls, details, stepInfo, eventsSection, artifactsSection);
+  container.replaceChildren(title, status, errors, sequenceNotice, controls, details, stepInfo, eventsSection, artifactsSection);
 
   let selectedRunId = "";
   let pollTimer = 0;
@@ -101,6 +117,8 @@ export function mount(container, context = {}) {
   let workflowCacheKey = "";
   let workflowSteps = [];
   let workflowLoadFailed = false;
+  let lastSeq = 0;
+  let resyncPending = false;
 
   function showError(error) {
     const box = element("div", { className: "error", role: "alert" });
@@ -115,7 +133,36 @@ export function mount(container, context = {}) {
     errors.replaceChildren();
   }
 
+  // Accept a run only when its events are consistent and not older than what is shown.
+  // Otherwise reload it once from the API; if the reloaded copy is still inconsistent,
+  // show it as received with a warning rather than reloading in a loop.
+  function acceptSequence(run) {
+    const check = checkEventSequence(run.events);
+    const stale = check.ok && check.lastSeq < lastSeq;
+    if (check.ok && !stale) {
+      lastSeq = check.lastSeq;
+      resyncPending = false;
+      sequenceNotice.hidden = true;
+      return true;
+    }
+    const problem = stale ? `this copy ends at event ${check.lastSeq}, older than event ${lastSeq} already shown` : check.problem;
+    if (!resyncPending) {
+      resyncPending = true;
+      sequenceNotice.textContent = `Run events are inconsistent (${problem}); reloading the run from the API.`;
+      sequenceNotice.hidden = false;
+      window.setTimeout(() => void refreshRun(), 0);
+      return false;
+    }
+    if (stale) return false;
+    resyncPending = false;
+    lastSeq = check.lastSeq;
+    sequenceNotice.textContent = `Warning: run events are still inconsistent after reloading (${problem}). They are shown as the API returned them.`;
+    sequenceNotice.hidden = false;
+    return true;
+  }
+
   function renderRun(run) {
+    if (!acceptSequence(run)) return;
     context.run = run;
     setDetails(run);
     setEvents(run);
@@ -184,7 +231,8 @@ export function mount(container, context = {}) {
     const list = element("ol");
     for (const event of events) {
       const item = element("li");
-      const heading = element("p", {}, `${safeText(event.event_type || "Event")} · ${timestamp(event.ts)}`);
+      const number = Number.isInteger(Number(event.seq)) ? `#${Number(event.seq)} · ` : "";
+      const heading = element("p", {}, `${number}${safeText(event.event_type || "Event")} · ${timestamp(event.ts)}`);
       item.append(heading);
       if (event.payload !== undefined && event.payload !== null) {
         item.append(element("pre", {}, jsonText(event.payload)));
@@ -300,6 +348,9 @@ export function mount(container, context = {}) {
     workflowSteps = [];
     workflowLoadFailed = false;
     lastAnnouncement = "";
+    lastSeq = 0;
+    resyncPending = false;
+    sequenceNotice.hidden = true;
     context.run = run;
     status.textContent = `Selected run ${safeText(run.id)}; loading its API state…`;
     status.className = "notice";

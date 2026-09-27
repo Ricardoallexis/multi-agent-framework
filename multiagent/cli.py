@@ -128,6 +128,11 @@ def cmd_artifacts(args) -> None:
     pretty(_api_json("GET", f"/api/v1/runs/{run_id}/artifacts"))
 
 
+def cmd_events(args) -> None:
+    run_id = quote(args.run_id, safe="")
+    pretty(_api_json("GET", f"/api/v1/runs/{run_id}/events", params={"after": args.after}))
+
+
 def cmd_run(args) -> None:
     if args.workflow:
         if (args.objective is not None or args.topic is not None or args.web
@@ -409,6 +414,9 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("name"); x.set_defaults(func=cmd_bundle_validate)
     x = sub.add_parser("artifacts", help="List artifacts for a run")
     x.add_argument("run_id"); x.set_defaults(func=cmd_artifacts)
+    x = sub.add_parser("events", help="List a run's events, optionally only those after a sequence number")
+    x.add_argument("run_id"); x.add_argument("--after", type=int, default=0, help="Only events with seq greater than this")
+    x.set_defaults(func=cmd_events)
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)

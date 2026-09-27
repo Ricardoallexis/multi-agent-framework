@@ -42,3 +42,29 @@ Only perform this check if a separately configured non-Mock server is available;
 
 - [ ] The page labels the server as non-Mock and requires explicit confirmation before creating a run.
 - [ ] Without confirmation, submission is blocked; with confirmation, the UI sends only the selected workflow inputs to the API.
+
+## Status meaning, keyboard use, and contrast
+
+Statuses and alerts must remain understandable without color. Confirm the visible wording in the page and panels; do not use color as the only status cue:
+
+- [ ] Mock and non-Mock modes are named in text. Run state is labeled as API state, and waiting reasons, cancellation requests, success messages, validation errors, and request errors are written out.
+- [ ] Error messages are announced as alerts; changing status and action feedback is announced as status text. Confirm focus remains visible while navigating and after validation errors.
+- [ ] In a grayscale view, the status, alert, and error messages remain distinguishable from their text and structure.
+
+The following foreground/background pairs were calculated from the CSS tokens using the WCAG relative-luminance contrast formula and rounded to two decimals. Normal text meets 4.5:1; component boundaries and focus indicators meet 3:1. The border token applies to input/control and panel boundaries; the accent token is also used for the visible keyboard focus outline.
+
+| Pair | Light | Dark | Requirement |
+| --- | ---: | ---: | --- |
+| Text / page background | 15.28:1 | 14.77:1 | 4.5:1 |
+| Text / surface | 16.40:1 | 13.43:1 | 4.5:1 |
+| Muted text / page background | 5.49:1 | 8.48:1 | 4.5:1 |
+| Muted text / surface | 5.90:1 | 7.72:1 | 4.5:1 |
+| Success text / surface | 7.28:1 | 9.55:1 | 4.5:1 |
+| Success text / success surface | 6.60:1 | 8.25:1 | 4.5:1 |
+| Error text / surface | 7.51:1 | 8.10:1 | 4.5:1 |
+| Error text / error surface | 6.78:1 | 7.66:1 | 4.5:1 |
+| Button text / accent background | 6.66:1 | 7.95:1 | 4.5:1 |
+| Focus outline / surface | 6.66:1 | 7.27:1 | 3:1 |
+| Text / notice surface | 15.25:1 | 10.98:1 | 4.5:1 |
+| Control/panel border / surface | 4.25:1 | 3.25:1 | 3:1 |
+| Control/panel border / page background | 3.96:1 | 3.58:1 | 3:1 |

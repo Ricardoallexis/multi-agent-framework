@@ -119,9 +119,12 @@ class Store:
                 item["data"] = json.loads(item.pop("data_json"))
                 artifacts.append(item)
             events: list[dict[str, Any]] = []
-            for erow in conn.execute("SELECT * FROM run_events WHERE run_id=? ORDER BY id", (run_id,)):
+            # Events are append-only, so their position is a stable per-run sequence: 1, 2, 3...
+            rows = conn.execute("SELECT * FROM run_events WHERE run_id=? ORDER BY id", (run_id,))
+            for seq, erow in enumerate(rows, start=1):
                 item = dict(erow)
                 item["payload"] = json.loads(item.pop("payload_json"))
+                item["seq"] = seq
                 events.append(item)
             result["artifacts"] = artifacts
             result["events"] = events
