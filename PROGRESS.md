@@ -18,7 +18,9 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Human-in-the-loop | `█░░░░░░░░░` 12% | 1 of 8 |
 | Collaborative agent teams | `░░░░░░░░░░` 0% | 0 of 14 |
 | Planning, delegation, and team orchestration | `░░░░░░░░░░` 0% | 0 of 12 |
+| Team design from a prompt | `░░░░░░░░░░` 0% | 0 of 7 |
 | Preset sharing and community catalog | `░░░░░░░░░░` 0% | 0 of 6 |
+| Reference tool stacks for team presets | `░░░░░░░░░░` 0% | 0 of 5 |
 | Frontend / UI | `░░░░░░░░░░` 0% | 0 of 15 |
 | Memory, context, and project knowledge | `░░░░░░░░░░` 0% | 0 of 5 |
 | Tools, interoperability, and external applications | `░░░░░░░░░░` 0% | 0 of 13 |
@@ -26,7 +28,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Security and privacy | `░░░░░░░░░░` 0% | 0 of 6 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **14%** | **21 of 155** |
+| **All roadmap items** | **13%** | **21 of 167** |
 <!-- progress:table:end -->
 
 ## Current stage — runtime foundations

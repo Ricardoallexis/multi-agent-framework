@@ -68,9 +68,11 @@ Whatever the degree of autonomy, the core keeps contracts, validation, persisten
 | Humans | Impact-based permissions and policy-driven gates | 🧭 | On top of the existing human-in-the-loop |
 | Definitions | Definition bundles outside the package | ✅ | Workflows, agents, prompts, contracts, and sample outputs in a folder |
 | Definitions | Team and organization definitions (members, relationships) | 🧭 | Teams and relationships as data |
+| Definitions | Team design from a prompt (roles, rules, organization chart, recommended model bindings) | 🧭 | Output is a validated, human-approved team definition; roles are not tied to models |
 | Definitions | Capabilities on agents | 🟡 | Declared in the agent catalog; not yet used to select agents |
 | Definitions | Presets (teams, workflows, agents, prompts, checks) | 🟡 | Bundles are the foundation; team presets are planned |
 | Definitions | Community catalog of presets | 🧭 | Packaging, install, validation, and trust rules planned |
+| Definitions | Reference tool stacks for common teams (for example Tailwind CSS for web design) | 🔬 | Research: examples inside presets, never core dependencies |
 | Interfaces | Python API (application services) | ✅ | `multiagent.services`: one facade with structured errors |
 | Interfaces | HTTP API with parity | ✅ | Generic and bundle runs, definitions, artifacts, structured errors |
 | Interfaces | CLI | ✅ | Uses the same HTTP API |
@@ -128,7 +130,8 @@ These are roadmap items, not design limits. Each will arrive when its turn in th
 - parallel steps, graphs with cycles, and several workers;
 - generic tool contracts, the MCP server and client, A2A, and integrations with external applications;
 - intelligent routing, more local models, and retrieval over large knowledge bases;
-- presets as installable packages and a community catalog.
+- presets as installable packages and a community catalog;
+- team design from a prompt, and reference tool stacks for common teams.
 
 The first public baseline also ships a social-content example workflow and branding services inside the package. They are an example of what can be built, not a direction of the core.
 

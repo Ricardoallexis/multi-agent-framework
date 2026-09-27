@@ -31,6 +31,8 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 - Mark application services and HTTP parity as done; the minimal operator UI (stage 0) is next.
 - Add the autonomy principle (autonomous orchestration within declared organizational constraints) and state the limits planners work within.
+- Add **Team design from a prompt**: generate or formalize a team (roles, rules, organization chart, and recommended but never mandatory model bindings) as a validated, human-approved team definition. Roles are not tied to models, and one model can switch between roles.
+- Add **Reference tool stacks for team presets**: research well-known open-source tools as examples for the five most common team types (for example Tailwind CSS for web design). They are examples in presets, never core dependencies.
 
 ## [M1-B02-F00-alpha] - 2026-09-27
 

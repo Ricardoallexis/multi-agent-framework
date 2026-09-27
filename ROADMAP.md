@@ -25,10 +25,11 @@ The order follows technical dependencies and changes as the project learns (see 
 3. A minimal operator UI (stage 0) over that API, working with the mock backend.
 4. The execution backend abstraction (native, mock, and optional Microsoft Agent Framework).
 5. Agent, tool, and capability contracts, impact-based permissions on the existing human-in-the-loop, and deterministic function steps.
-6. Team relationships as data.
+6. Team relationships as data, then team design from a prompt: roles, rules, an organization chart, and recommended (never mandatory) model bindings generated as a validated team definition.
 7. Planning and delegation: manual first, then semi-automatic and automatic.
 8. Interoperability: MCP server, shared-folder channel, MCP client, desktop bridge, application gateway, and external application adapters.
 9. Replanning, dynamic teams, preset sharing, a plugin ecosystem, and optional UI automation.
+10. Reference tool stacks: well-known open-source tools as examples for the most common team presets. The research can start earlier because it does not block the core.
 
 ## First public baseline — `M1-B01-F00-alpha`
 
@@ -154,7 +155,7 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 - [ ] A resumable status snapshot (stage, milestones, and next action for each member) and human-readable views of communication, progress, and pending decisions.
 - [ ] Team presets as examples: a software development team (resources are files, change sets are patches, checks are test suites, and stages end in a commit), plus examples for other domains such as design reviews or financial reporting.
 - [ ] Let users extend presets or create their own (roles, resources, message types, checks, gates, and modes) without changing the core.
-- [ ] A guided setup in which agents help a user design their team, scopes, rules, and mode, and adjust them as the work evolves.
+- [ ] A guided setup in which agents help a user design their team, scopes, rules, and mode, and adjust them as the work evolves (built on [team design from a prompt](#team-design-from-a-prompt)).
 
 ## Planning, delegation, and team orchestration
 
@@ -175,6 +176,22 @@ Turn a high-level objective into an executable plan for a team the user has defi
 - [ ] Propose temporary teams from a catalog of available agents for the user to approve or modify, once assignment on user-defined teams is stable.
 - [ ] Honor plan constraints: call, cost, and time budgets, local-only or offline execution, allowed or prohibited providers, and required approvals.
 
+## Team design from a prompt
+
+**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
+
+Describe what you need in one prompt and get a working team: the agents it recommends, their instructions and responsibilities, and an organization chart. If the prompt already defines the team, the generator formalizes it instead of redesigning it. The result is data — a team definition that is validated, reviewed by a human, and versioned like any bundle or preset — never code in the core.
+
+Roles are not tied to models. A **role** holds rules, skills, contracts, capabilities, and permissions. A **member** is whoever executes: a model, a provider's agent, an external agent, or a human. An **assignment** links them. Recommended bindings (for example a designer on one provider, a researcher on another) are only suggestions from the capability catalog. A single model can play several roles and switch between them, loading each role's rules when a step needs that role.
+
+- [ ] Define the team definition as data: roles (purpose, rules, skills, contracts, capabilities, permissions), members, assignments, relationships (the organization chart), and working rules, reusing the relationship model of the planning area.
+- [ ] Generate a team definition from a prompt with a meta-workflow that runs on the existing engine: (a) from an objective alone, recommending roles with a short rationale; (b) from a team the user already described, formalizing it and asking about gaps instead of redesigning it.
+- [ ] Validate generated teams with the same rules as bundles (references, contracts, capabilities, least-privilege permissions) and require human approval before any team is created or changed, reusing the human-in-the-loop.
+- [ ] Recommend model or provider bindings per role from the capability catalog and the model router, as editable suggestions; never hard-code vendors in the core, and allow any available member, or a human, to take any role.
+- [ ] Let one member switch roles at runtime: each step declares its role, the runtime loads that role's rules and context, keeps role contexts separated, and records the role and the member in the trace.
+- [ ] Render the organization chart from the relationships (for example as a Mermaid diagram) in docs and, later, in the UI (stage 2).
+- [ ] Regenerate a team as a reviewable diff against the current definition, and save accepted teams as presets.
+
 ## Preset sharing and community catalog
 
 **Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
@@ -187,6 +204,18 @@ Presets (teams, workflows, agents, prompts, contracts, and checks) should be eas
 - [ ] Treat presets that include executable code (such as contract models or tools) as untrusted until the user approves them: show what will run, verify checksums or signatures, prefer data-only presets, and allow sandboxing.
 - [ ] Customize a shared preset with a private overlay instead of copying it (defaults < public preset < private overlay < runtime overrides), so updates to the shared preset can still be applied.
 - [ ] Offer a searchable catalog with descriptions, examples, domains, and compatibility information, and keep private presets out of it unless the user publishes them.
+
+## Reference tool stacks for team presets
+
+**Progress:** `░░░░░░░░░░` 0/5 · 0% <!-- progress -->
+
+Research which well-known open-source tools make good examples for the most common teams, so presets show realistic setups. The tools are examples inside presets and adapters, never dependencies of the core. Candidates to evaluate, not decisions: a web design team with Tailwind CSS and Vite; a software development team with Git, pytest, and Ruff; a data and research team with Jupyter, pandas, and DuckDB; a documentation team with Pandoc and MkDocs; a design and media team with Inkscape, GIMP, and Blender.
+
+- [ ] Choose the top five team types by expected use, with a short justification for each.
+- [ ] Define the evaluation criteria: license compatible with Apache-2.0 use, maturity and maintenance, community size, a stable integration path (CLI, API, SDK, or MCP), Windows/Linux/macOS support, and offline use.
+- [ ] For each team type, list three to five reference tools with the role they serve and how an agent would use them.
+- [ ] Publish the result as a reference page and link it from the matching team presets.
+- [ ] Review the list periodically and record changes in the changelog.
 
 ## Frontend / UI
 
