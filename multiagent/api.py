@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.datastructures import MutableHeaders
 
 from .bootstrap import build_system
 from .contracts import HumanReviewRequest, HumanStepSubmission, SocialPostRequest
@@ -73,6 +74,36 @@ class LocalAPISecurityMiddleware:
         await self.app(scope, receive, send)
 
 
+class UISecurityHeadersMiddleware:
+    """Apply the operator UI policy to documents, assets, redirects, and errors."""
+
+    policy = (
+        "default-src 'self'; script-src 'self'; style-src 'self'; "
+        "connect-src 'self'; img-src 'self'; font-src 'self'; "
+        "object-src 'none'; frame-src 'none'; frame-ancestors 'none'; "
+        "base-uri 'none'; form-action 'self'"
+    )
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "")
+        if scope["type"] != "http" or not (path == "/ui" or path.startswith("/ui/")):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["Content-Security-Policy"] = self.policy
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["Referrer-Policy"] = "no-referrer"
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
 def create_app(system=None, *, services: ApplicationServices | None = None,
                bundles: Mapping[str, str | Path] | None = None) -> FastAPI:
     """HTTP API over the application services; every route goes through the facade.
@@ -96,6 +127,7 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
 
     app = FastAPI(title="Multi-Agent Framework API", version=__version__, lifespan=lifespan)
     app.add_middleware(LocalAPISecurityMiddleware, allowed_hosts=system_obj.settings.api_allowed_hosts)
+    app.add_middleware(UISecurityHeadersMiddleware)
     app.state.services = services
 
     @app.exception_handler(ServiceError)

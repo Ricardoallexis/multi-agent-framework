@@ -205,6 +205,27 @@ loses the selection. To inspect a saved Run, use the API or CLI, for example
 `multiagent status RUN_ID` and `multiagent artifacts RUN_ID` while its server is
 running. With a custom port, set the CLI's `API_BASE_URL` accordingly.
 
+## Untrusted content and browser policy
+
+Model responses, artifacts, event payloads, errors, and user input are untrusted
+content. The UI displays them using text nodes or form values; it does not
+interpret their HTML, execute scripts, or turn their URLs into active links.
+Any future rich Markdown or HTML renderer must sanitize its output with a
+strict allowlist before inserting it into the document. Keep script execution,
+event-handler attributes, and unsafe URL schemes disabled.
+
+The server sends a Content Security Policy on `/ui` and `/ui/` resources,
+including redirects and ordinary error responses. Scripts, styles, API requests,
+images, and fonts are restricted to the same origin. Inline scripts/styles and
+`eval` are not allowed. Object embeds, frames, framing the UI, and document base
+URLs are disabled. The UI also sends `X-Content-Type-Options: nosniff` and
+`Referrer-Policy: no-referrer`. Its bootstrap is an external JavaScript module.
+
+This policy supplements safe rendering; it does not sanitize content or provide
+authentication. API and interactive API documentation routes retain their own
+behavior. New UI modules must preserve these restrictions rather than relaxing
+the policy with `unsafe-inline` or `unsafe-eval`.
+
 ## Scope and verification
 
 Stage 0 supports one operator's workflow loop. It has no cross-tab coordination,
