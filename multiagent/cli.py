@@ -315,6 +315,63 @@ def cmd_dry_run(args) -> None:
         pretty(_run_dry_run(args, settings))
 
 
+def _parse_ui_bundles(values: list[str] | None) -> dict[str, Path]:
+    bundles: dict[str, Path] = {}
+    for value in values or []:
+        name, separator, folder = value.partition("=")
+        if not separator or not name.strip() or not folder.strip():
+            raise ValueError("--bundle uses the format name=folder")
+        path = Path(folder.strip()).expanduser()
+        if not path.is_dir():
+            raise ValueError(f"Bundle folder not found: {path}")
+        bundles[name.strip()] = path
+    return bundles
+
+
+def _check_port_free(host: str, port: int) -> None:
+    import socket
+
+    with socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind((host, port))
+        except OSError as exc:
+            raise RuntimeError(
+                f"Port {port} on {host} is already in use. Stop the other server or choose another port with --port."
+            ) from exc
+
+
+def cmd_ui(args) -> None:
+    """Start the API with the Stage 0 UI, in Mock mode unless --real, and open the browser."""
+    import os
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from .api import create_app
+
+    if not args.real:
+        os.environ["MOCK_MODE"] = "true"  # synthetic fixtures, no model calls or API keys
+    settings = Settings()
+    settings.ensure_directories()
+    host = settings.app_host
+    port = args.port or settings.app_port
+    bundles = _parse_ui_bundles(args.bundle)
+    _check_port_free(host, port)
+    app = create_app(build_system(settings), bundles=bundles)
+
+    url = f"http://{f'[{host}]' if ':' in host else host}:{port}/ui/"
+    mode = "REAL models (provider calls may cost money)" if args.real else "Mock (synthetic results, no API keys)"
+    print(f"Multi-Agent Framework UI: {url}")
+    print(f"Mode: {mode}")
+    if bundles:
+        print(f"Bundles: {', '.join(sorted(bundles))}")
+    print("Press Ctrl+C to stop.")
+    if not args.no_browser:
+        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="multiagent", description=f"Multi-Agent Framework {__version__} — Hybrid Human/AI Orchestration")
     p.add_argument("--version", action="version", version=__version__)
@@ -323,6 +380,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     x = sub.add_parser("init"); x.set_defaults(func=cmd_init)
     x = sub.add_parser("doctor"); x.add_argument("--deep", action="store_true"); x.set_defaults(func=cmd_doctor)
+    x = sub.add_parser("ui", help="Start the API with the Stage 0 UI (Mock mode unless --real) and open the browser")
+    x.add_argument("--real", action="store_true", help="Use the configured model providers instead of Mock mode")
+    x.add_argument("--port", type=int, help="Port to listen on (default: APP_PORT, 8000)")
+    x.add_argument("--bundle", action="append", metavar="NAME=FOLDER", help="Register a trusted definition bundle; repeatable")
+    x.add_argument("--no-browser", action="store_true", help="Do not open the browser")
+    x.set_defaults(func=cmd_ui)
 
     x = sub.add_parser("run")
     x.add_argument("--project", required=True); x.add_argument("--objective"); x.add_argument("--topic")

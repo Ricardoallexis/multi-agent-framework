@@ -38,6 +38,8 @@ packages = [
   "multiagent",
   "multiagent.adapters",
   "multiagent.db",
+  "multiagent.services",
+  "multiagent.ui",
   "multiagent._resources",
   "multiagent._resources.catalog",
   "multiagent._resources.workflows",
@@ -54,6 +56,7 @@ packages = [
 "multiagent._resources.migrations" = "migrations"
 
 [tool.setuptools.package-data]
+"multiagent.ui" = ["static/*.html", "static/*.css", "static/js/*.js"]
 "multiagent._resources.catalog" = ["*.yaml"]
 "multiagent._resources.workflows" = ["*.yaml"]
 "multiagent._resources.prompts" = ["*/*.md"]

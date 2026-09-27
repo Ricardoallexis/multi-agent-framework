@@ -41,3 +41,5 @@ jobs:
           "$demo_dir/venv/bin/python" -m pip check
           PYTHONPATH= "$demo_dir/venv/bin/python" -c 'import multiagent, sys; from pathlib import Path; from multiagent.config import Settings; assert Path(multiagent.__file__).resolve().is_relative_to(Path(sys.prefix).resolve()); assert (Settings(_env_file=None).catalog_dir / "agents.yaml").is_file()'
           PYTHONPATH= "$demo_dir/venv/bin/python" "$GITHUB_WORKSPACE/examples/python_quickstart.py"
+          # Every package and the Stage 0 UI assets must ship in the wheel.
+          PYTHONPATH= "$demo_dir/venv/bin/python" -c 'import multiagent.api, multiagent.services, multiagent.ui as ui; assert (ui.STATIC_DIR / "index.html").is_file(); assert (ui.STATIC_DIR / "js" / "api.js").is_file()'

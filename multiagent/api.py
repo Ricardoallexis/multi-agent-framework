@@ -14,6 +14,7 @@ from .contracts import HumanReviewRequest, HumanStepSubmission, SocialPostReques
 from .run_request import RunRequest
 from .services import ApplicationServices, ServiceError
 from .services.errors import INVALID_REQUEST
+from .ui import mount_ui
 from .version import __version__
 
 
@@ -191,4 +192,5 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def human_submit(run_id: str, submission: HumanStepSubmission):
         return services.runs.human_submit(run_id, submission)
 
+    mount_ui(app)  # Stage 0 UI at /ui: static files only, a client of the routes above
     return app
