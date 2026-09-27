@@ -18,6 +18,14 @@ class RunService:
         self.engine = engine
 
     def create_social_post(self, request: SocialPostRequest) -> dict[str, Any]:
+        existing = self.store.find_idempotent_run(request)
+        if existing is not None:
+            return existing
+        if self.engine is None:
+            raise RuntimeError("RunService has no WorkflowEngine attached")
+        # Loading/validation errors propagate with their original type and issues.
+        # No project or run is persisted until the entire definition is valid.
+        self.engine.preflight(self.store.workflow_id_for(request))
         return self.store.create_run(request, self.settings.max_llm_calls, self.settings.max_run_seconds)
 
     def get(self, run_id: str) -> dict[str, Any]:

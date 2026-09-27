@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import uuid
+
+
+logger = logging.getLogger(__name__)
 
 
 class LocalWorker:
@@ -30,8 +34,12 @@ class LocalWorker:
             self._thread.join(timeout=3)
 
     def _process(self, run: dict) -> None:
-        self.store.mark_worker_start(run["id"], self.worker_id)
-        self.engine.process_run(run["id"])
+        try:
+            self.store.mark_worker_start(run["id"], self.worker_id)
+            self.engine.process_run(run["id"])
+        except Exception as exc:
+            self.store.fail_active_run(run["id"], exc)
+            logger.exception("Run %s raised an unhandled execution error", run["id"])
 
     def _loop(self) -> None:
         while not self._stop.is_set():

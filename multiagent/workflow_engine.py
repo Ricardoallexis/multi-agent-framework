@@ -30,7 +30,8 @@ from .errors import BudgetExceeded, HumanSubmissionError, ValidationFailed
 from .model_router import ModelBinding, ModelRouter
 from .prompts import PromptManager
 from .schema_utils import estimate_tokens_conservative
-from .workflows import WorkflowCatalog, WorkflowStep, condition_is_true
+from .workflows import WorkflowCatalog, WorkflowDefinition, WorkflowStep, condition_is_true
+from .workflow_validation import WorkflowDefinitionError, validate_workflow_definition
 
 
 class WorkflowEngine:
@@ -51,6 +52,19 @@ class WorkflowEngine:
         self.artifacts = artifacts
         self.settings = settings
 
+    def preflight(self, workflow_id: str) -> WorkflowDefinition:
+        """Load and validate every step before creating or executing a run.
+
+        Preserve KeyError and WorkflowDefinitionError for callers, including
+        the validator's structured issues. No provider work occurs here.
+        """
+        definition = self.workflows.load(workflow_id)
+        validate_workflow_definition(
+            definition, catalog=self.catalog, settings=self.settings,
+            output_schemas=OUTPUT_SCHEMAS,
+        )
+        return definition
+
     # ---------- public execution ----------
     def process_run(self, run_id: str) -> dict[str, Any]:
         run = self.store.get_run(run_id)
@@ -59,21 +73,23 @@ class WorkflowEngine:
 
         base_active = float(run.get("active_seconds") or 0.0)
         started_mono = time.monotonic()
-        self.store.update_run(
-            run_id,
-            status=RunStatus.RUNNING.value,
-            error="",
-            waiting_reason="",
-            waiting_step="",
-            waiting_attempt=None,
-            heartbeat_at=self._now(),
-        )
-        self.store.db.log_event(run_id, "run_started", {})
-        definition = self.workflows.load(run["workflow_id"])
-        request = run["request"]
-
         try:
+            self._check_cancel(run_id)
+            definition = self.preflight(run["workflow_id"])
             index = int(run["current_step"])
+            if not 0 <= index <= len(definition.steps):
+                raise ValidationFailed("current_step is outside the workflow")
+            request = run["request"]
+            self.store.update_run(
+                run_id,
+                status=RunStatus.RUNNING.value,
+                error="",
+                waiting_reason="",
+                waiting_step="",
+                waiting_attempt=None,
+                heartbeat_at=self._now(),
+            )
+            self.store.db.log_event(run_id, "run_started", {})
             while index < len(definition.steps):
                 self._check_cancel(run_id)
                 self._check_active_budget(run_id, base_active, started_mono)
@@ -270,9 +286,18 @@ class WorkflowEngine:
                 self.store.update_run(run_id, status=RunStatus.FAILED.value, error=str(exc), budget_exhausted=1)
                 self.store.db.log_event(run_id, "workflow_failed", {"error": str(exc), "type": type(exc).__name__})
             return self._finalize_return(run_id)
+        except (KeyError, WorkflowDefinitionError) as exc:
+            issues = None
+            if isinstance(exc, WorkflowDefinitionError):
+                issues = [
+                    {"code": issue.code, "location": issue.location,
+                     "step_id": issue.step_id, "message": issue.message}
+                    for issue in exc.issues
+                ]
+            self.store.fail_active_run(run_id, exc, issues=issues)
+            return self._finalize_return(run_id)
         except Exception as exc:
-            self.store.update_run(run_id, status=RunStatus.FAILED.value, error=str(exc))
-            self.store.db.log_event(run_id, "workflow_failed", {"error": str(exc), "type": type(exc).__name__})
+            self.store.fail_active_run(run_id, exc)
             return self._finalize_return(run_id)
         finally:
             try:

@@ -42,7 +42,12 @@ class Store:
             conn.commit()
             return pid
 
-    def create_run(self, req: SocialPostRequest, max_llm_calls: int, max_run_seconds: int) -> dict[str, Any]:
+    @staticmethod
+    def workflow_id_for(req: SocialPostRequest) -> str:
+        return "social_post_full" if req.pipeline_mode.value == "full" else "social_post"
+
+    def find_idempotent_run(self, req: SocialPostRequest) -> dict[str, Any] | None:
+        """Resolve an existing request before preflight, without creating a run."""
         fingerprint = _canonical_request_fingerprint(req)
         if req.idempotency_key:
             with self.db.connect() as conn:
@@ -59,12 +64,19 @@ class Store:
                         "The idempotency_key already exists for a different request"
                     )
 
+        return None
+
+    def create_run(self, req: SocialPostRequest, max_llm_calls: int, max_run_seconds: int) -> dict[str, Any]:
+        existing = self.find_idempotent_run(req)
+        if existing is not None:
+            return existing
+        fingerprint = _canonical_request_fingerprint(req)
         run_id = uuid.uuid4().hex
         project_id = self.get_or_create_project(req.project_name)
         brand_version = self.active_brand_version() if req.use_brand_context else None
         brand_profile_id = (self.active_brand_id() or "") if req.use_brand_context else ""
         now = utcnow()
-        workflow_id = "social_post_full" if req.pipeline_mode.value == "full" else "social_post"
+        workflow_id = self.workflow_id_for(req)
         with self.db.connect() as conn:
             conn.execute(
                 """INSERT INTO runs(
@@ -162,6 +174,26 @@ class Store:
         with self.db.connect() as conn:
             conn.execute(f"UPDATE runs SET {sets} WHERE id=?", values)
             conn.commit()
+
+    def fail_active_run(self, run_id: str, error: Exception, *,
+                        issues: list[dict[str, Any]] | None = None) -> bool:
+        """Atomically record failure without overwriting a settled run state."""
+        payload: dict[str, Any] = {"error": str(error), "type": type(error).__name__}
+        if issues is not None:
+            payload["issues"] = issues
+        with self.db.tx() as conn:
+            changed = conn.execute(
+                """UPDATE runs SET status=?,error=?,waiting_reason='',waiting_step='',
+                   waiting_attempt=NULL,updated_at=? WHERE id=? AND status IN (?,?)""",
+                (RunStatus.FAILED.value, str(error), utcnow(), run_id,
+                 RunStatus.QUEUED.value, RunStatus.RUNNING.value),
+            ).rowcount
+            if changed:
+                conn.execute(
+                    "INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                    (run_id, utcnow(), "workflow_failed", json.dumps(payload, ensure_ascii=False)),
+                )
+        return bool(changed)
 
     def mark_worker_start(self, run_id: str, worker_id: str) -> None:
         now = utcnow()

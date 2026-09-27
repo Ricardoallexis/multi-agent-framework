@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from .config import Settings
 
 
@@ -32,19 +30,36 @@ class WorkflowDefinition:
 
 
 class WorkflowCatalog:
-    def __init__(self, settings: Settings):
+    """Loads workflow definitions by id from a single directory.
+
+    ``workflows_dir`` defaults to the bundled resources; an explicit directory
+    lets callers keep their own definitions outside the package.
+    """
+
+    def __init__(self, settings: Settings, *, workflows_dir: Path | None = None):
         self.settings = settings
+        self.workflows_dir = Path(workflows_dir) if workflows_dir is not None else settings.workflows_dir
 
     def load(self, workflow_id: str) -> WorkflowDefinition:
-        path = self.settings.workflows_dir / f"{workflow_id}.yaml"
-        if not path.exists():
+        """Return a structurally valid definition.
+
+        Raises ``KeyError`` when no such workflow exists and
+        ``WorkflowDefinitionError`` when the id or the document is invalid.
+        Catalog, prompt, skill and contract references are checked separately
+        by ``validate_workflow_definition``.
+        """
+        # Imported here because the validation module builds these dataclasses.
+        from .workflow_validation import parse_workflow_document, require_safe_workflow_id
+
+        require_safe_workflow_id(workflow_id)
+        path = self.workflows_dir / f"{workflow_id}.yaml"
+        if not path.is_file():
             raise KeyError(f"Workflow not found: {workflow_id}")
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-        return WorkflowDefinition(
-            id=raw["id"],
-            max_iterations=int(raw.get("max_iterations", 2)),
-            steps=[WorkflowStep(**step) for step in raw["steps"]],
-        )
+        return parse_workflow_document(path.read_bytes(), workflow_id=workflow_id, source=path)
+
+
+# Values of WorkflowStep.when that condition_is_true understands; null means "always".
+SUPPORTED_CONDITIONS = ("requires_web", "not_requires_web")
 
 
 def condition_is_true(condition: str | None, request: dict[str, Any]) -> bool:
