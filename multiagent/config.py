@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     max_run_seconds: int = Field(default=300, ge=30)
     worker_poll_seconds: float = Field(default=0.75, gt=0.05)
     worker_enabled: bool = True
+    mock_mode: bool = False
 
     @model_validator(mode="after")
     def _resolve_paths(self):

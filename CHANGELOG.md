@@ -4,6 +4,26 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ## [Unreleased]
 
+### Added
+
+- Add application services (`multiagent.services`): one Python facade, `ApplicationServices`. It covers definitions (workflows, agents, and bundles) and runs, and the HTTP API and CLI use it. Failures raise `ServiceError` with a stable `code`, a `message`, an HTTP-like `status`, and JSON-ready `details`.
+- Run definition bundles through the facade, each with its own store and worker. Bundles are registered by name in Python and are never exposed by path.
+- Add HTTP routes for workflows, agents, bundles, bundle validation, and run artifacts. `POST /api/v1/runs` accepts a generic `RunRequest` (optionally with `?bundle=`) as well as the social-post request.
+- Add CLI commands `workflows`, `agents`, `bundle-validate`, and `artifacts`, and generic runs with `run --workflow ... --input name=value [--bundle ...]`.
+- Add Mock mode: with `MOCK_MODE=true`, the server and CLI run with synthetic fixtures and no model API keys. `/api/v1/health` reports `dry_run`.
+- Add `docs/API.md` (facade, endpoints, error format, and Mock mode) and a README quick start with Mock.
+- Add parity tests across the Python facade, HTTP, and the CLI.
+
+### Changed
+
+- API errors now answer `{"detail": {"code", "message", "details"}}` with the same HTTP statuses as before, and invalid request bodies use the same format. Creating a run for an invalid workflow answers 422 instead of 500. Clients that read `detail` as text must read `detail.message`.
+- Clarify the autonomy model in `docs/COMPARISON.md`, `README.md`, `ROADMAP.md`, and `PROGRESS.md`. The runtime currently executes declared workflows. The roadmap target is governed autonomy: planning, delegation, and dynamic routing within declared roles, permissions, contracts, budgets, gates, and policies, with escalation to a human. It is not unrestricted agent conversation.
+
+### Roadmap
+
+- Mark application services and HTTP parity as done; the minimal operator UI (stage 0) is next.
+- Add the autonomy principle (autonomous orchestration within declared organizational constraints) and state the limits planners work within.
+
 ## [M1-B02-F00-alpha] - 2026-09-27
 
 Python package: `0.2.0a1`.

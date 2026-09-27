@@ -6,13 +6,13 @@ It compares **design priorities, not benchmarks**. The descriptions of other pro
 
 ## In one sentence
 
-Multi-Agent Framework is a **deterministic, contract-first runtime for human/AI workflows**. You declare the steps, each step's output is validated against a strict schema, a human can review or take over any step, and every run is persisted and traceable. It runs locally first, and a real LLM is optional.
+Multi-Agent Framework is a **deterministic, contract-first runtime for human/AI workflows**. You declare the steps, each step's output is validated against a strict schema, a human can review or take over any step, and every run is persisted and traceable. It runs locally first, and a real LLM is optional. The roadmap extends it towards teams of agents with **governed autonomy**: they will plan, delegate, and route work themselves, within limits the user declares.
 
 ## Design choices that set it apart
 
 | Choice | What it means in practice |
 | --- | --- |
-| **Declared workflows, not autonomous conversations** | Steps, their order and their conditions live in YAML files. The model produces each step's content; it does not decide which agent runs next. Runs are predictable and repeatable. |
+| **Declared workflows today, governed autonomy as the goal** | Today, steps, their order and their conditions live in YAML files. The model produces each step's content; it does not choose the next agent or reorganize the flow at runtime. Runs are predictable and repeatable. Autonomy is planned, but always within declared limits, never as unrestricted conversation (see [Autonomy](#autonomy-current-state-and-target)). |
 | **Validation before execution** | A workflow is checked before a run is created: YAML structure, duplicate steps, unknown agents, contracts, models, prompts and skills, and unsupported conditions. Every problem is reported at once with a stable code and its location, and an invalid definition never leaves a half-started run behind. |
 | **Strict contracts between steps** | Every step declares a Pydantic output contract. Model output, and output pasted by a human, must satisfy it before the next step sees it. |
 | **Human-in-the-loop as a first-class path** | Any step can pause for review. A reviewer approves the exact attempt they saw, asks for changes, regenerates, or rejects, and approved steps are never repeated. A step can also be executed outside the framework (for example, in any chat tool): the framework hands out the prompt and validates the pasted answer against the same contract. |
@@ -23,15 +23,30 @@ Multi-Agent Framework is a **deterministic, contract-first runtime for human/AI 
 | **Traceability** | Each attempt records the prompt id, version and hash, the model or human who produced it, telemetry, and the resulting artifact. |
 | **Small operational footprint** | Plain Python, SQLite, a CLI and an optional FastAPI server. There is no separate orchestration server or cloud service to run. |
 
+## Autonomy: current state and target
+
+**Current state.** The runtime executes declared workflows. Steps, their order, and their main conditions are defined before a run starts, and models produce the content of each step. Agents do not yet choose the next agent or reorganize the flow at runtime.
+
+**Target architecture (planned).** The [roadmap](../ROADMAP.md) moves towards agent teams with governed autonomy. A planner or orchestrator will be able to:
+
+- break an objective into tasks;
+- assign and delegate those tasks;
+- consult specialists and request reviews;
+- replan;
+- choose routes dynamically.
+
+That autonomy is bounded by what the user declares: the organization and its roles, capabilities, permissions, contracts, budgets, gates, scoped workspaces, and policies, with escalation to a human. The goal is an autonomous and traceable organization working within declared limits, not a group of agents conversing without restrictions.
+
+In short, *autonomous execution of declared workflows* evolves into *autonomous orchestration within declared organizational constraints*. The declarative structure stays but changes its role. Instead of declaring every conversation or exact transition, it defines the limits, relationships, permissions, capabilities, policies, and contracts within which agents make decisions. None of this is implemented yet; see the roadmap sections on collaborative agent teams and on planning and delegation.
+
 ## What it deliberately does not do (yet)
 
 These are open directions in the [roadmap](../ROADMAP.md), not current features:
 
-- Agents that converse freely or choose the next agent at runtime (dynamic routing).
+- Dynamic routing, delegation, and replanning at runtime. They are planned as governed autonomy (see above). Agents conversing without declared limits is not a goal.
 - Parallel steps, graphs with cycles, or several workers competing for one queue.
 - A graphical interface. The API is the intended boundary for a future UI.
 - Retrieval over large knowledge bases, tool calling beyond model providers, and MCP/A2A integrations.
-- `RunRequest` and definition bundles are available from the Python interface; the CLI and REST API still use the social-content request.
 
 ## When another framework may fit better
 

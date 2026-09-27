@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 
@@ -40,7 +41,15 @@ def _detail(response: httpx.Response) -> str:
     try:
         body = response.json()
         if isinstance(body, dict):
-            return str(body.get("detail") or body.get("error") or body)
+            detail = body.get("detail") or body.get("error") or body
+            if isinstance(detail, dict) and "message" in detail:
+                message = str(detail["message"])
+                if detail.get("code"):
+                    message = f"{detail['code']}: {message}"
+                if detail.get("details"):
+                    message += "\n" + json.dumps(detail["details"], ensure_ascii=False, indent=2, default=str)
+                return message
+            return str(detail)
         return str(body)
     except Exception:
         return response.text.strip() or response.reason_phrase
@@ -81,7 +90,66 @@ def cmd_doctor(args) -> None:
     raise SystemExit(0 if ok else 1)
 
 
+def _parse_inputs(values: list[str] | None) -> dict[str, str]:
+    inputs: dict[str, str] = {}
+    for item in values or []:
+        if "=" not in item:
+            raise ValueError("--input uses the format name=value")
+        name, value = item.split("=", 1)
+        name = name.strip()
+        if not name or name in inputs:
+            raise ValueError("--input names must be nonempty and unique")
+        inputs[name] = value
+    return inputs
+
+
+def _bundle_params(args) -> dict[str, str]:
+    return {"bundle": args.bundle} if args.bundle else {}
+
+
+def cmd_workflows(args) -> None:
+    path = "/api/v1/workflows"
+    if args.workflow_id:
+        path += "/" + quote(args.workflow_id, safe="")
+    pretty(_api_json("GET", path, params=_bundle_params(args)))
+
+
+def cmd_agents(args) -> None:
+    pretty(_api_json("GET", "/api/v1/agents", params=_bundle_params(args)))
+
+
+def cmd_bundle_validate(args) -> None:
+    name = quote(args.name, safe="")
+    pretty(_api_json("POST", f"/api/v1/bundles/{name}/validate"))
+
+
+def cmd_artifacts(args) -> None:
+    run_id = quote(args.run_id, safe="")
+    pretty(_api_json("GET", f"/api/v1/runs/{run_id}/artifacts"))
+
+
 def cmd_run(args) -> None:
+    if args.workflow:
+        if (args.objective is not None or args.topic is not None or args.web
+                or args.no_brand or args.audience or args.instructions
+                or args.platform != "Instagram" or args.pipeline != "quick"
+                or args.research_mode != "human_bridge"):
+            raise ValueError("Generic workflows use --input name=value for domain inputs")
+        payload = {
+            "workflow_id": args.workflow,
+            "project_name": args.project,
+            "inputs": _parse_inputs(args.input),
+            "idempotency_key": args.idempotency_key,
+            "execution_mode": args.mode,
+            "step_modes": _parse_step_modes(args.step_mode),
+            "sensitive": args.sensitive,
+        }
+        pretty(_api_json("POST", "/api/v1/runs", json_body=payload, params=_bundle_params(args)))
+        return
+    if args.bundle or args.input:
+        raise ValueError("--bundle and --input require --workflow")
+    if args.objective is None or args.topic is None:
+        raise ValueError("Social-post runs require --objective and --topic")
     payload = {
         "project_name": args.project,
         "objective": args.objective,
@@ -257,7 +325,10 @@ def build_parser() -> argparse.ArgumentParser:
     x = sub.add_parser("doctor"); x.add_argument("--deep", action="store_true"); x.set_defaults(func=cmd_doctor)
 
     x = sub.add_parser("run")
-    x.add_argument("--project", required=True); x.add_argument("--objective", required=True); x.add_argument("--topic", required=True)
+    x.add_argument("--project", required=True); x.add_argument("--objective"); x.add_argument("--topic")
+    x.add_argument("--workflow", help="Workflow ID for a generic run")
+    x.add_argument("--bundle", help="Bundle name registered on the server; requires --workflow")
+    x.add_argument("--input", action="append", help="Generic workflow input name=value; repeat for each input")
     x.add_argument("--platform", default="Instagram"); x.add_argument("--audience", default=""); x.add_argument("--instructions", default="")
     x.add_argument("--web", action="store_true"); x.add_argument("--no-brand", action="store_true"); x.add_argument("--idempotency-key", default="")
     x.add_argument("--mode", choices=[m.value for m in ExecutionMode], default="auto")
@@ -266,6 +337,15 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--step-mode", action="append", help="Override per step, e.g. strategy=human_guided")
     x.add_argument("--sensitive", action="store_true", help="Force local routing in AUTO and add a warning to Human Guided prompts")
     x.set_defaults(func=cmd_run)
+
+    x = sub.add_parser("workflows", help="List workflows or inspect one workflow")
+    x.add_argument("workflow_id", nargs="?"); x.add_argument("--bundle"); x.set_defaults(func=cmd_workflows)
+    x = sub.add_parser("agents", help="List agent definitions")
+    x.add_argument("--bundle"); x.set_defaults(func=cmd_agents)
+    x = sub.add_parser("bundle-validate", help="Validate a bundle registered on the server")
+    x.add_argument("name"); x.set_defaults(func=cmd_bundle_validate)
+    x = sub.add_parser("artifacts", help="List artifacts for a run")
+    x.add_argument("run_id"); x.set_defaults(func=cmd_artifacts)
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)

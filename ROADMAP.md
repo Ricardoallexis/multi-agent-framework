@@ -6,12 +6,18 @@ This roadmap is a **living document**: it is updated whenever priorities, findin
 
 **Guiding principle:** reuse mature, stable components behind adapters instead of rebuilding them. [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) (the successor of AutoGen) is the main candidate for graph execution, MCP, A2A, AG-UI, and OpenTelemetry. It is planned as an **optional** execution backend: the framework's configuration, runs, contracts, Human Bridge, and artifacts stay independent of any backend, and the default backend keeps working without it.
 
+**Autonomy principle:** today the runtime executes declared workflows. Steps, order, and main conditions are defined before a run starts, and models produce each step's content.
+
+The target is governed autonomy, reached through the team, planning, and routing areas below. A planner or orchestrator will decompose objectives, assign and delegate tasks, consult specialists, request reviews, replan, and choose routes dynamically. It will act within the organization, roles, capabilities, permissions, contracts, budgets, gates, scoped workspaces, and policies the user declares, and escalate to a human when needed.
+
+The declarative structure stays, but it defines limits and relationships instead of every transition. The goal is autonomous orchestration within declared organizational constraints, not unrestricted conversation between agents.
+
 ## Development order
 
 The order follows technical dependencies and changes as the project learns (see the changelog):
 
 1. Stable core ✅: validation before execution, review after any step, and definition bundles.
-2. Application services and HTTP parity: one public Python layer used by the CLI, the HTTP API, a UI, and an MCP server, with generic run requests and structured errors over HTTP.
+2. Application services and HTTP parity ✅: one public Python layer used by the CLI, the HTTP API, a UI, and an MCP server, with generic run requests and structured errors over HTTP.
 3. A minimal operator UI (stage 0) over that API, working with the mock backend.
 4. The execution backend abstraction (native, mock, and optional Microsoft Agent Framework).
 5. Agent, tool, and capability contracts, impact-based permissions on the existing human-in-the-loop, and deterministic function steps.
@@ -44,11 +50,11 @@ The first public baseline is backend-first and provides the foundation for the r
 
 ## Orchestration and agent runtime
 
-**Progress:** `██░░░░░░░░` 2/11 · 18% <!-- progress -->
+**Progress:** `███░░░░░░░` 3/11 · 27% <!-- progress -->
 
 - [ ] Expand the workflow engine so new agents and workflows can be added with minimal changes to the core runtime.
-  - [x] Load definition bundles (workflows, agents, prompts, and contracts) from outside the package, validate them, and run them through a generic request from Python.
-- [ ] Provide one public application-services layer in Python, used by the CLI, the HTTP API, a future UI, and an MCP server, including generic run requests and structured validation errors over HTTP.
+  - [x] Load definition bundles (workflows, agents, prompts, and contracts) from outside the package, validate them, and run them through a generic request from Python, the HTTP API, and the CLI.
+- [x] Provide one public application-services layer in Python, used by the CLI, the HTTP API, a future UI, and an MCP server, including generic run requests and structured validation errors over HTTP.
 - [ ] Introduce an execution backend abstraction: native (default), mock, and an optional Microsoft Agent Framework backend.
 - [ ] Support richer conditional routing, branching, retries, dependencies, and reusable workflow fragments by compiling workflow definitions to the optional Microsoft Agent Framework backend instead of building a separate graph engine.
 - [ ] Improve agent-to-agent context management while preserving explicit contracts and traceability.
@@ -150,7 +156,7 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 
 **Progress:** `░░░░░░░░░░` 0/12 · 0% <!-- progress -->
 
-Turn a high-level objective into an executable plan for a team the user has defined: understand the objective, decompose the work, find the required capabilities, assign specialists, coordinate execution, request revisions, and integrate the final result. The core stays domain-neutral; industries appear only in presets and examples.
+Turn a high-level objective into an executable plan for a team the user has defined: understand the objective, decompose the work, find the required capabilities, assign specialists, coordinate execution, request revisions, and integrate the final result. Planners and orchestrators act only within the limits the user declares (roles, capabilities, permissions, contracts, budgets, gates, and policies) and escalate to a human when needed; every decision stays traceable. The core stays domain-neutral; industries appear only in presets and examples.
 
 - [ ] Represent a plan as data (tasks, subtasks, dependencies, required capabilities, expected outputs and contracts, assignments, parallel groups, review and integration steps) and execute it through the existing workflow engine and backends instead of a second engine.
 - [ ] Make planners pluggable: manual, deterministic, LLM-based, a custom plugin, or an external planner.
