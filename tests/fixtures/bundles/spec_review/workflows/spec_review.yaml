@@ -1,0 +1,40 @@
+# G3 fixture: review a software specification. Step ids, agents, prompts and contracts
+# all belong to this bundle; nothing about this domain lives in the multiagent package.
+id: spec_review
+max_iterations: 2
+steps:
+  - id: extract_requirements
+    agent: requirements_analyst
+    prompt_id: spec/extract_requirements
+    prompt_version: 1
+    skills: []
+    contract: RequirementsList
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+
+  - id: assess_risks
+    agent: risk_reviewer
+    prompt_id: spec/assess_risks
+    prompt_version: 1
+    skills: []
+    contract: RiskAssessment
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true
+
+  - id: draft_test_plan
+    agent: test_planner
+    prompt_id: spec/draft_test_plan
+    prompt_version: 1
+    skills: []
+    contract: TestPlan
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

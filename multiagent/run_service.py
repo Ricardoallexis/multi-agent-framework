@@ -6,6 +6,7 @@ from .config import Settings
 from .contracts import HumanStepSubmission, RunStatus, SocialPostRequest, WaitingReason
 from .db.store import Store
 from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition
+from .run_request import RunRequest
 
 
 class RunService:
@@ -18,6 +19,10 @@ class RunService:
         self.engine = engine
 
     def create_social_post(self, request: SocialPostRequest) -> dict[str, Any]:
+        return self.create_run(request)
+
+    def create_run(self, request: RunRequest | SocialPostRequest) -> dict[str, Any]:
+        """Validate and persist a named workflow, preserving social request compatibility."""
         existing = self.store.find_idempotent_run(request)
         if existing is not None:
             return existing

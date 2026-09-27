@@ -4,11 +4,12 @@ import hashlib
 import json
 import re
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any, Mapping
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from .adapters.base import LLMResponse
+from .adapters.fake import FakeAdapter
 from .artifacts import ArtifactWriter
 from .catalog import Catalog
 from .contracts import (
@@ -36,6 +37,10 @@ from .workflow_validation import (
 )
 
 
+if TYPE_CHECKING:
+    from .bundles import DefinitionBundle
+
+
 class WorkflowEngine:
     """Deterministic workflow orchestrator.
 
@@ -45,7 +50,8 @@ class WorkflowEngine:
 
     def __init__(self, *, store: Store, catalog: Catalog, prompts: PromptManager,
                  workflows: WorkflowCatalog, router: ModelRouter,
-                 artifacts: ArtifactWriter, settings):
+                 artifacts: ArtifactWriter, settings,
+                 output_schemas: Mapping[str, type[BaseModel]] | None = None):
         self.store = store
         self.catalog = catalog
         self.prompts = prompts
@@ -53,6 +59,28 @@ class WorkflowEngine:
         self.router = router
         self.artifacts = artifacts
         self.settings = settings
+        self.output_schemas = dict(OUTPUT_SCHEMAS if output_schemas is None else output_schemas)
+
+    @classmethod
+    def from_bundle(cls, bundle: DefinitionBundle, *, store: Store,
+                    artifacts: ArtifactWriter, settings, adapters: Mapping[str, Any],
+                    dry_run: bool = False) -> WorkflowEngine:
+        """Wire a trusted definition bundle into a runtime without changing defaults.
+
+        Callers keep ownership of adapter lifetimes and the worker. Each engine
+        uses one bundle; use a dedicated worker/store for that bundle's queue.
+        """
+        configured_adapters = dict(adapters)
+        if dry_run:
+            configured_adapters["fake"] = FakeAdapter(
+                sample_outputs=bundle.sample_outputs, output_schemas=bundle.output_schemas,
+            )
+        router = ModelRouter(bundle.catalog, configured_adapters, dry_run=dry_run)
+        return cls(
+            store=store, catalog=bundle.catalog, prompts=bundle.prompts,
+            workflows=bundle.workflows, router=router, artifacts=artifacts,
+            settings=settings, output_schemas=bundle.output_schemas,
+        )
 
     def preflight(self, workflow_id: str) -> WorkflowDefinition:
         """Load and validate every step before creating or executing a run.
@@ -63,7 +91,7 @@ class WorkflowEngine:
         definition = self.workflows.load(workflow_id)
         validate_workflow_definition(
             definition, catalog=self.catalog, settings=self.settings,
-            output_schemas=OUTPUT_SCHEMAS,
+            output_schemas=self.output_schemas, prompts=self.prompts,
         )
         return definition
 
@@ -168,10 +196,12 @@ class WorkflowEngine:
                 if int(fresh["llm_calls"]) >= int(fresh["max_llm_calls"]) and self._step_execution_mode(fresh, step) != ExecutionMode.HUMAN_GUIDED:
                     raise BudgetExceeded("max_llm_calls reached")
 
-                output_schema = OUTPUT_SCHEMAS[step.contract]
+                output_schema = self.output_schemas[step.contract]
                 requires_web = bool(request.get("requires_web")) if step.requires_web == "from_request" else bool(step.requires_web)
                 context = self._context_for_step(
-                    run_id, step.id, request, fresh.get("revision_feedback", ""), brand_version=fresh.get("brand_version")
+                    run_id, step.id, request, fresh.get("revision_feedback", ""),
+                    brand_version=fresh.get("brand_version"),
+                    prior_step_ids=[item.id for item in definition.steps[:index]],
                 )
                 prompt = self.prompts.render(step.prompt_id, step.prompt_version, **context)
                 skill_text = "\n\n".join(self.prompts.skill_text(skill) for skill in step.skills)
@@ -380,7 +410,7 @@ class WorkflowEngine:
             raise HumanSubmissionError(message) from err
         index = run["current_step"]
         step = definition.steps[index]
-        output_schema = OUTPUT_SCHEMAS[pending["expected_contract"]]
+        output_schema = self.output_schemas[pending["expected_contract"]]
         raw = submission.raw_response
         raw_path = self.artifacts.write_human_raw(
             run_id=run_id,
@@ -576,7 +606,21 @@ class WorkflowEngine:
         self.store.db.log_event(run_id, "step_completed", {"step_id": step.id, "attempt": attempt, "artifact_path": str(relative_path)})
 
     def _context_for_step(self, run_id: str, step_id: str, request: dict[str, Any], revision_feedback: str,
-                          *, brand_version: int | None) -> dict[str, str]:
+                          *, brand_version: int | None,
+                          prior_step_ids: list[str] | None = None) -> dict[str, str]:
+        if "workflow_id" in request:
+            context = dict(request["inputs"])
+            for prior_id in prior_step_ids or []:
+                output = self.store.latest_step_output(run_id, prior_id)
+                context[f"{prior_id}_output"] = (
+                    json.dumps(output, ensure_ascii=False, indent=2) if output is not None else ""
+                )
+            previous = self.store.latest_step_output(run_id, step_id)
+            context["previous_output"] = (
+                json.dumps(previous, ensure_ascii=False, indent=2) if previous is not None else ""
+            )
+            context["revision_feedback"] = revision_feedback
+            return context
         brand_sections = ["core", "voice"]
         if step_id == "design":
             brand_sections = ["core", "voice", "visual"]

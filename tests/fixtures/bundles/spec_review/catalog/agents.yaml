@@ -1,0 +1,16 @@
+agents:
+  requirements_analyst:
+    role: Turns a specification into atomic, prioritized requirements
+    active: true
+    capabilities:
+      requirements_analysis: PRIMARY
+  risk_reviewer:
+    role: Assesses delivery and quality risks for each requirement
+    active: true
+    capabilities:
+      risk_assessment: PRIMARY
+  test_planner:
+    role: Designs acceptance tests that cover the requirements and their risks
+    active: true
+    capabilities:
+      test_design: PRIMARY

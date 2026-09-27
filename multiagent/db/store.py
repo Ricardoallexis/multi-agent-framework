@@ -18,9 +18,10 @@ from ..contracts import (
     SocialPostRequest,
 )
 from ..errors import IdempotencyConflict, InvalidStateTransition
+from ..run_request import RunRequest
 
 
-def _canonical_request_fingerprint(req: SocialPostRequest) -> str:
+def _canonical_request_fingerprint(req: SocialPostRequest | RunRequest) -> str:
     payload = req.model_dump(mode="json")
     payload.pop("idempotency_key", None)
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -43,10 +44,12 @@ class Store:
             return pid
 
     @staticmethod
-    def workflow_id_for(req: SocialPostRequest) -> str:
+    def workflow_id_for(req: SocialPostRequest | RunRequest) -> str:
+        if isinstance(req, RunRequest):
+            return req.workflow_id
         return "social_post_full" if req.pipeline_mode.value == "full" else "social_post"
 
-    def find_idempotent_run(self, req: SocialPostRequest) -> dict[str, Any] | None:
+    def find_idempotent_run(self, req: SocialPostRequest | RunRequest) -> dict[str, Any] | None:
         """Resolve an existing request before preflight, without creating a run."""
         fingerprint = _canonical_request_fingerprint(req)
         if req.idempotency_key:
@@ -66,15 +69,17 @@ class Store:
 
         return None
 
-    def create_run(self, req: SocialPostRequest, max_llm_calls: int, max_run_seconds: int) -> dict[str, Any]:
+    def create_run(self, req: SocialPostRequest | RunRequest, max_llm_calls: int, max_run_seconds: int) -> dict[str, Any]:
         existing = self.find_idempotent_run(req)
         if existing is not None:
             return existing
         fingerprint = _canonical_request_fingerprint(req)
         run_id = uuid.uuid4().hex
         project_id = self.get_or_create_project(req.project_name)
-        brand_version = self.active_brand_version() if req.use_brand_context else None
-        brand_profile_id = (self.active_brand_id() or "") if req.use_brand_context else ""
+        social = isinstance(req, SocialPostRequest)
+        use_brand = social and req.use_brand_context
+        brand_version = self.active_brand_version() if use_brand else None
+        brand_profile_id = (self.active_brand_id() or "") if use_brand else ""
         now = utcnow()
         workflow_id = self.workflow_id_for(req)
         with self.db.connect() as conn:
@@ -90,7 +95,8 @@ class Store:
                     run_id, project_id, workflow_id, RunStatus.QUEUED.value,
                     req.model_dump_json(), brand_version, 0, "", 0, req.idempotency_key or None,
                     max_llm_calls, max_run_seconds, 0, now, now, "", brand_profile_id,
-                    req.execution_mode.value, req.research_mode.value, req.pipeline_mode.value,
+                    req.execution_mode.value, req.research_mode.value if social else "none",
+                    req.pipeline_mode.value if social else "custom",
                     json.dumps({k: v.value for k, v in req.step_modes.items()}, ensure_ascii=False),
                     fingerprint, "", "", None, "", "", "", 0.0, 0, 0,
                 ),
@@ -501,7 +507,9 @@ class Store:
             updates: dict[str, Any] = {}
             if not row["request_fingerprint"]:
                 try:
-                    req = SocialPostRequest.model_validate(json.loads(row["request_json"]))
+                    payload = json.loads(row["request_json"])
+                    request_type = RunRequest if "workflow_id" in payload else SocialPostRequest
+                    req = request_type.model_validate(payload)
                     updates["request_fingerprint"] = _canonical_request_fingerprint(req)
                 except Exception:
                     pass

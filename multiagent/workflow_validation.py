@@ -60,6 +60,7 @@ from .workflows import SUPPORTED_CONDITIONS, WorkflowDefinition, WorkflowStep
 if TYPE_CHECKING:
     from .catalog import Catalog
     from .config import Settings
+    from .prompts import PromptManager
 
 IDENTIFIER = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*")
 # Prompt and skill references are relative paths built only from identifier segments,
@@ -129,11 +130,20 @@ def validate_workflow_definition(
     catalog: Catalog,
     settings: Settings,
     output_schemas: Mapping[str, type],
+    prompts: PromptManager | None = None,
 ) -> None:
-    """Raise ``WorkflowDefinitionError`` unless every step can be executed as defined."""
+    """Raise ``WorkflowDefinitionError`` unless every step can be executed as defined.
+
+    Prompts and skills are looked up where ``prompts`` reads them, or in the
+    bundled directories of ``settings`` when it is omitted.
+    """
     issues = structural_issues(definition)
     if not issues:
-        issues = _reference_issues(definition, catalog=catalog, settings=settings, output_schemas=output_schemas)
+        issues = _reference_issues(
+            definition, catalog=catalog, output_schemas=output_schemas,
+            prompts_dir=prompts.prompts_dir if prompts is not None else settings.prompts_dir,
+            skills_dir=prompts.skills_dir if prompts is not None else settings.skills_dir,
+        )
     if issues:
         raise WorkflowDefinitionError(str(definition.id), issues)
 
@@ -321,7 +331,7 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
     return issues
 
 
-def _reference_issues(definition: WorkflowDefinition, *, catalog: Catalog, settings: Settings,
+def _reference_issues(definition: WorkflowDefinition, *, catalog: Catalog, prompts_dir: Path, skills_dir: Path,
                       output_schemas: Mapping[str, type]) -> list[WorkflowIssue]:
     issues: list[WorkflowIssue] = []
     for index, step in enumerate(definition.steps):
@@ -354,12 +364,12 @@ def _reference_issues(definition: WorkflowDefinition, *, catalog: Catalog, setti
                     f"Model {model_id!r} has no web access, but the step sets requires_web: true")
 
         prompt_file = f"{step.prompt_id}.v{step.prompt_version}.md"
-        if not _resource_file_exists(settings.prompts_dir, prompt_file):
+        if not _resource_file_exists(prompts_dir, prompt_file):
             add("prompt_not_found", "prompt_id",
                 f"Prompt {step.prompt_id!r} version {step.prompt_version} not found; "
                 f"expected {prompt_file} in the prompts directory")
         for skill in step.skills:
-            if not _resource_file_exists(settings.skills_dir, f"{skill}.md"):
+            if not _resource_file_exists(skills_dir, f"{skill}.md"):
                 add("skill_not_found", "skills", f"Skill {skill!r} not found; expected {skill}.md in the skills directory")
     return issues
 

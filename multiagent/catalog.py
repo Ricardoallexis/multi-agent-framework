@@ -26,10 +26,13 @@ class ModelSpec:
 
 
 class Catalog:
-    def __init__(self, settings: Settings):
+    """Agents and models from ``catalog_dir`` (the bundled catalog by default)."""
+
+    def __init__(self, settings: Settings, *, catalog_dir: Path | None = None):
         self.settings = settings
-        self.agents = self._load_yaml(settings.catalog_dir / "agents.yaml").get("agents", {})
-        raw_models = self._load_yaml(settings.catalog_dir / "models.yaml").get("models", {})
+        self.catalog_dir = Path(catalog_dir) if catalog_dir is not None else settings.catalog_dir
+        self.agents = self._load_yaml(self.catalog_dir / "agents.yaml").get("agents", {})
+        raw_models = self._load_yaml(self.catalog_dir / "models.yaml").get("models", {})
         self.models: dict[str, ModelSpec] = {}
         for model_id, raw in raw_models.items():
             raw = dict(raw)

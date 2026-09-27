@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+from copy import deepcopy
+from typing import Any, Mapping
 from pydantic import BaseModel
 
 from .base import LLMAdapter, LLMResponse
@@ -14,8 +15,21 @@ from ..contracts import (
 class FakeAdapter(LLMAdapter):
     provider = "fake"
 
+    def __init__(self, *, sample_outputs: Mapping[str, dict[str, Any]] | None = None,
+                 output_schemas: Mapping[str, type[BaseModel]] | None = None):
+        """Accept samples by contract name, resolving aliases through the registry."""
+        self.sample_outputs = deepcopy(dict(sample_outputs or {}))
+        self.output_schemas = dict(output_schemas) if output_schemas is not None else None
+
     def generate_structured(self, *, spec: ModelSpec, prompt: str, output_schema: type[BaseModel], requires_web: bool = False) -> LLMResponse:
-        if output_schema is ResearchOutput:
+        names = ([name for name, schema in self.output_schemas.items() if schema is output_schema]
+                 if self.output_schemas is not None else [output_schema.__name__])
+        samples = [self.sample_outputs[name] for name in names if name in self.sample_outputs]
+        if len(samples) > 1:
+            raise ValueError(f"Multiple samples identify the same schema {output_schema.__name__}")
+        if samples:
+            parsed = output_schema.model_validate(deepcopy(samples[0]))
+        elif output_schema is ResearchOutput:
             parsed = ResearchOutput(
                 objective="Simulated research",
                 executive_summary="Simulated summary used to validate the research flow.",

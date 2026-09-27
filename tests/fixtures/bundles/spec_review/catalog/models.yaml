@@ -1,0 +1,13 @@
+models:
+  local_default:
+    provider: ollama
+    model: qwen3:8b
+    tier: local
+    structured_output: true
+    web: false
+    num_ctx: 4096
+    keep_alive: 15m
+    thinking: false
+    input_cost_per_million: 0.0
+    output_cost_per_million: 0.0
+    free_tier_eligible: true
