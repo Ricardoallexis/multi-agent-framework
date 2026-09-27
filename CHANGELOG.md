@@ -13,6 +13,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 - Resume a run after an intermediate human review: approvals target the exact reviewed attempt, and changes to the definition while a run waits are detected before continuing.
 - Load definition bundles (workflows, agents, prompts, contracts, and sample outputs) from outside the package and run them through `RunRequest` from Python.
 - Document how the project differs from other multi-agent frameworks (`docs/COMPARISON.md`).
+- Show progress by area in `ROADMAP.md` and `PROGRESS.md`, generated from the roadmap checkboxes by `scripts/update_progress.py` and checked in CI.
 
 ### Changed
 

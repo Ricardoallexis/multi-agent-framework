@@ -207,6 +207,7 @@ See [`docs/VERSIONING.md`](docs/VERSIONING.md).
 ## Documentation
 
 - [`ROADMAP.md`](ROADMAP.md) — planned project direction.
+- [`PROGRESS.md`](PROGRESS.md) — progress by area and what each finished feature enables.
 - [`CHANGELOG.md`](CHANGELOG.md) — public release history.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components and execution flow.
 - [`docs/COMPARISON.md`](docs/COMPARISON.md) — how this project differs from other multi-agent frameworks.

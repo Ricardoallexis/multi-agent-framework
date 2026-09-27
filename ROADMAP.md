@@ -6,6 +6,8 @@ This roadmap captures the capabilities and directions discussed for Multi-Agent 
 
 ## Current baseline — `M1-B01-F00-alpha`
 
+**Progress:** `██████████` 15/15 · 100% <!-- progress -->
+
 The first public baseline is backend-first and provides the foundation for the rest of the project:
 
 - [x] Deterministic multi-agent workflow engine.
@@ -26,6 +28,8 @@ The first public baseline is backend-first and provides the foundation for the r
 
 ## Orchestration and agent runtime
 
+**Progress:** `██░░░░░░░░` 2/10 · 20% <!-- progress -->
+
 - [ ] Expand the workflow engine so new agents and workflows can be added with minimal changes to the core runtime.
   - [x] Load definition bundles (workflows, agents, prompts, and contracts) from outside the package, validate them, and run them through a generic request from Python.
 - [ ] Introduce an execution backend abstraction: native (default), mock, and an optional Microsoft Agent Framework backend.
@@ -39,6 +43,8 @@ The first public baseline is backend-first and provides the foundation for the r
 
 ## Intelligent model routing
 
+**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
+
 The framework is intended to use the orchestrator to choose the most appropriate model for each task rather than relying on one model for every capability.
 
 - [ ] Expand routing based on task type, model strengths, latency, context size, privacy, availability, and cost.
@@ -49,6 +55,8 @@ The framework is intended to use the orchestrator to choose the most appropriate
 - [ ] Improve token/context budgeting and prevent avoidable context overflow.
 
 ## Local and offline AI
+
+**Progress:** `░░░░░░░░░░` 0/9 · 0% <!-- progress -->
 
 Reducing dependence on paid cloud inference is a core direction of the project.
 
@@ -64,6 +72,8 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 
 ## Research and knowledge workflows
 
+**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
+
 - [ ] Expand research workflows beyond social-content use cases.
 - [ ] Add stronger source tracking, evidence normalization, contradiction handling, and freshness metadata.
 - [ ] Support human-supplied research as a first-class input when automated web access is unavailable or undesirable.
@@ -72,6 +82,8 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 - [ ] Improve separation between verified facts, inference, uncertainty, and editorial interpretation.
 
 ## Content, branding, and production
+
+**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
 
 - [ ] Expand content workflows for additional formats and channels.
 - [ ] Improve reusable brand profiles, brand assets, tone constraints, and project-level context.
@@ -82,6 +94,8 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 - [ ] Keep factual research, brand guidance, and generated creative content clearly separated in the data model.
 
 ## Human-in-the-loop
+
+**Progress:** `█░░░░░░░░░` 1/7 · 14% <!-- progress -->
 
 Human control is intended to remain a first-class part of the architecture rather than an exception path.
 
@@ -94,6 +108,8 @@ Human control is intended to remain a first-class part of the architecture rathe
 - [ ] Improve audit trails showing what was produced by a model, a deterministic tool, or a human.
 
 ## Frontend / UI
+
+**Progress:** `░░░░░░░░░░` 0/11 · 0% <!-- progress -->
 
 `F00` intentionally ships without a graphical interface. The future UI should use the public API rather than access the database or engine internals directly.
 
@@ -111,6 +127,8 @@ Human control is intended to remain a first-class part of the architecture rathe
 
 ## Memory, context, and project knowledge
 
+**Progress:** `░░░░░░░░░░` 0/5 · 0% <!-- progress -->
+
 - [ ] Add explicit project-scoped memory/context that does not depend on hidden model memory.
 - [ ] Support reusable knowledge packs and structured project context.
 - [ ] Add retrieval and summarization strategies for large project histories.
@@ -118,6 +136,8 @@ Human control is intended to remain a first-class part of the architecture rathe
 - [ ] Allow workflows to request only the context they need instead of loading all available history (context propagation policies such as none, selected, summary, artifacts, and full).
 
 ## Tools and external integrations
+
+**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
 
 - [ ] Define a generic tool interface separate from model-provider adapters.
 - [ ] Connect MCP tools through Microsoft Agent Framework's MCP support behind the framework's tool abstraction; do not implement a custom MCP protocol.
@@ -129,6 +149,8 @@ Human control is intended to remain a first-class part of the architecture rathe
 
 ## Observability, quality, and evaluation
 
+**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
+
 - [ ] Expand telemetry for execution time, retries, routing decisions, token estimates, and provider usage.
 - [ ] Emit OpenTelemetry traces and metrics (GenAI semantic conventions) alongside the framework's own domain events.
 - [ ] Add structured evaluation datasets for agents, prompts, and workflows.
@@ -139,6 +161,8 @@ Human control is intended to remain a first-class part of the architecture rathe
 
 ## Security and privacy
 
+**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
+
 - [ ] Continue enforcing the separation between public source code and private runtime data.
 - [ ] Improve secret-management options beyond local `.env` files.
 - [ ] Add configurable policies for sensitive workloads and local-only execution.
@@ -147,6 +171,8 @@ Human control is intended to remain a first-class part of the architecture rathe
 - [ ] Define responsible defaults for logging and telemetry so confidential content is not exposed unintentionally.
 
 ## Developer experience and distribution
+
+**Progress:** `░░░░░░░░░░` 0/9 · 0% <!-- progress -->
 
 - [ ] Make clean installation reproducible on supported environments.
 - [ ] Improve cross-platform support beyond the current Windows-first helper scripts.
