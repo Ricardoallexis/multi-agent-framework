@@ -79,6 +79,8 @@ Do not disclose exploitable security details or secrets in a public issue. Follo
 
 By submitting a contribution for inclusion in this project, you represent that you have the right to submit it and agree that it may be distributed under the Apache License, Version 2.0, unless you explicitly state otherwise in writing before the contribution is accepted.
 
+New source files start with the header `# Copyright 2026 Ricardoallexis and contributors` followed by `# SPDX-License-Identifier: Apache-2.0`. See [`docs/LICENSING.md`](docs/LICENSING.md).
+
 AI-assisted contributions are allowed, but the contributor is responsible for reviewing, testing, and validating the submitted material and for ensuring that no confidential or third-party restricted content is included.
 
 ## Community expectations

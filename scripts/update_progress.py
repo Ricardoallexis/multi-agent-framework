@@ -1,3 +1,5 @@
+# Copyright 2026 Ricardoallexis and contributors
+# SPDX-License-Identifier: Apache-2.0
 """Keep the progress shown in ROADMAP.md and PROGRESS.md in sync with the roadmap checkboxes.
 
 Progress is counted, not estimated: every ``- [x]`` / ``- [ ]`` item under a ``## `` section of

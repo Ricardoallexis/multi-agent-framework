@@ -12,7 +12,7 @@ body:
     attributes:
       label: Release / commit
       description: Product release, package version, or commit SHA where the issue occurs.
-      placeholder: M1-B01-F00-alpha / 0.1.0a1
+      placeholder: M1-B02-F00-alpha / 0.2.0a1
     validations:
       required: true
   - type: input

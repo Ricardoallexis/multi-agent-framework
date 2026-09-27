@@ -46,9 +46,9 @@ M1-B05-F03-alpha -> M1-B06-F04-alpha
 Python packaging tools require PEP 440 versions, so the package keeps a separate technical version. For example:
 
 ```text
-Current baseline:
-Product: M1-B01-F00-alpha
-Python:  0.1.0a1
+Current release:
+Product: M1-B02-F00-alpha
+Python:  0.2.0a1
 ```
 
 The single source of truth is `multiagent/version.py`.

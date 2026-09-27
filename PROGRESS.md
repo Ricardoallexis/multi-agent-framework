@@ -10,24 +10,28 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Area | Progress | Items |
 | --- | --- | --- |
 | Current baseline — `M1-B01-F00-alpha` | `██████████` 100% | 15 of 15 |
-| Orchestration and agent runtime | `██░░░░░░░░` 20% | 2 of 10 |
+| Orchestration and agent runtime | `██░░░░░░░░` 18% | 2 of 11 |
 | Intelligent model routing | `░░░░░░░░░░` 0% | 0 of 6 |
 | Local and offline AI | `░░░░░░░░░░` 0% | 0 of 9 |
 | Research and knowledge workflows | `░░░░░░░░░░` 0% | 0 of 6 |
 | Content, branding, and production | `░░░░░░░░░░` 0% | 0 of 7 |
-| Human-in-the-loop | `█░░░░░░░░░` 14% | 1 of 7 |
-| Frontend / UI | `░░░░░░░░░░` 0% | 0 of 11 |
+| Human-in-the-loop | `█░░░░░░░░░` 12% | 1 of 8 |
+| Collaborative agent teams | `░░░░░░░░░░` 0% | 0 of 14 |
+| Planning, delegation, and team orchestration | `░░░░░░░░░░` 0% | 0 of 12 |
+| Preset sharing and community catalog | `░░░░░░░░░░` 0% | 0 of 6 |
+| Frontend / UI | `░░░░░░░░░░` 0% | 0 of 15 |
 | Memory, context, and project knowledge | `░░░░░░░░░░` 0% | 0 of 5 |
-| Tools and external integrations | `░░░░░░░░░░` 0% | 0 of 7 |
+| Tools, interoperability, and external applications | `░░░░░░░░░░` 0% | 0 of 13 |
 | Observability, quality, and evaluation | `░░░░░░░░░░` 0% | 0 of 7 |
 | Security and privacy | `░░░░░░░░░░` 0% | 0 of 6 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
-| **All roadmap items** | **17%** | **18 of 105** |
+| Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
+| **All roadmap items** | **13%** | **20 of 155** |
 <!-- progress:table:end -->
 
-## Current stage — runtime foundations (`B02`, in progress)
+## Current stage — runtime foundations
 
-Goal: make the existing runtime reliable and general before adding larger capabilities, so new agents, teams, and backends can be added without rewriting the core.
+The first four features below were released in `M1-B02-F00-alpha`. Goal: make the existing runtime reliable and general before adding larger capabilities, so new agents, teams, and backends can be added without rewriting the core.
 
 | Feature | Status | What it lets you do |
 | --- | --- | --- |
@@ -35,16 +39,20 @@ Goal: make the existing runtime reliable and general before adding larger capabi
 | Validation before execution | ✅ Done | Catch a broken workflow (bad YAML, duplicate steps, unknown agents, contracts, models, prompts, or skills) **before** any model call, with every problem reported at once and a stable code for each. An invalid workflow never leaves a half-started run. |
 | Review after any step | ✅ Done | Ask for a human review at any step, approve the exact attempt you saw, and continue from the next step without repeating approved work. Edits to a workflow while a run waits are detected before continuing. |
 | Workflows outside the core | ✅ Done | Keep a complete team (workflows, agents, prompts, and contracts) in its own folder, even outside this repository, validate it, and run it from Python with a generic request. The first example reviews a software specification. |
-| Execution backend abstraction | 🔄 Next | Run the same workflow with the built-in engine, a mock, or an optional [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) backend (graphs, MCP, OpenTelemetry) without making the core depend on it. |
+| Application services and HTTP parity | 🔄 Next | One public Python layer used by the CLI, the HTTP API, a UI, and an MCP server; generic runs and clear validation errors over HTTP. |
+| Minimal operator UI | ⏳ Planned | Start runs, follow their state, answer human steps (including pasting an external model's response), and inspect results without the command line, using the mock backend. |
+| Execution backend abstraction | ⏳ Planned | Run the same workflow with the built-in engine, a mock, or an optional [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) backend (graphs, MCP, OpenTelemetry) without making the core depend on it. |
 
 Later candidates, chosen by need: deterministic Python steps, a generic human bridge, provenance, context policies, correlated events with OpenTelemetry, and layered configuration.
+
+Longer term, the roadmap adds **collaborative agent teams**: a domain-neutral core for two or more agents working on shared resources, with scoped workspaces, inboxes with read receipts, reviewed change proposals, gates, and a supervised or autonomous mode. Software development is the first preset; design, finance, and other domains use the same core through their own presets. Presets will be shareable: packaged with a manifest, installed from a file, a Git repository, or a community catalog, validated before use, and customized through private overlays.
 
 ## Milestones
 
 | Date | Milestone |
 | --- | --- |
 | 2026-09-23 | `M1-B01-F00-alpha` — first public baseline. |
-| 2026-09-26 | Installable package, validation before execution, review after any step, and definition bundles (unreleased; see the changelog). |
-| 2026-09-26 | Microsoft Agent Framework chosen as a future optional backend; roadmap updated. |
+| 2026-09-27 | `M1-B02-F00-alpha` — installable package, validation before execution, review after any step, and definition bundles. |
+| 2026-09-26 | Microsoft Agent Framework chosen as a future optional backend; collaborative agent teams and preset sharing added to the roadmap. |
 
 Legend: ✅ done · 🔄 in progress or next · ⏳ planned

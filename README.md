@@ -1,8 +1,8 @@
 # Multi-Agent Framework
 
-**Current release:** `M1-B01-F00-alpha`
+**Current release:** `M1-B02-F00-alpha`
 
-**Python package:** `0.1.0a1`
+**Python package:** `0.2.0a1`
 
 **Status:** Alpha / backend-first
 
@@ -166,6 +166,8 @@ Never store API keys, production databases, private model outputs, customer logo
 
 See [`docs/LOCAL_WORKSPACE.md`](docs/LOCAL_WORKSPACE.md).
 
+The framework sends no telemetry and contacts only the model providers and services that you configure.
+
 ## Tests
 
 Windows:
@@ -197,7 +199,7 @@ M<generation>-B<backend>-F<frontend>-<stage>
 The current release is:
 
 ```text
-M1-B01-F00-alpha
+M1-B02-F00-alpha
 ```
 
 `B` changes when the backend/runtime/API changes. `F` changes when the UI changes. The Python package keeps a separate PEP 440 version for packaging compatibility.
@@ -211,6 +213,8 @@ See [`docs/VERSIONING.md`](docs/VERSIONING.md).
 - [`CHANGELOG.md`](CHANGELOG.md) — public release history.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components and execution flow.
 - [`docs/COMPARISON.md`](docs/COMPARISON.md) — how this project differs from other multi-agent frameworks.
+- [`docs/LICENSING.md`](docs/LICENSING.md) — license, attribution, and no-telemetry policy.
+- [`TRADEMARKS.md`](TRADEMARKS.md) — use of the project name.
 - [`docs/VERSIONING.md`](docs/VERSIONING.md) — versioning rules.
 - [`docs/LOCAL_WORKSPACE.md`](docs/LOCAL_WORKSPACE.md) — public-code/private-data separation.
 - [`docs/OLLAMA.md`](docs/OLLAMA.md) — local Ollama setup, diagnostics, and execution.
@@ -226,4 +230,4 @@ See [`NOTICE`](NOTICE) for the project notice.
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See [`LICENSE`](LICENSE).
+Copyright 2026 Ricardoallexis and contributors. Licensed under the Apache License, Version 2.0, with no additional restrictions on commercial use. See [`LICENSE`](LICENSE), [`NOTICE`](NOTICE), [`docs/LICENSING.md`](docs/LICENSING.md), and [`TRADEMARKS.md`](TRADEMARKS.md).
