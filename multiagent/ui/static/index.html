@@ -1,0 +1,54 @@
+<!-- Copyright 2026 Ricardoallexis and contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Multi-Agent Framework · Stage 0</title>
+    <link rel="stylesheet" href="/ui/static/app.css">
+  </head>
+  <body>
+    <header class="page-header">
+      <p class="eyebrow">Multi-Agent Framework</p>
+      <h1>Run console</h1>
+      <p>Choose a workflow, provide its inputs, and create a run.</p>
+      <p id="server-mode" class="mode-status" role="status" aria-live="polite">Checking API mode…</p>
+    </header>
+
+    <main>
+      <section id="catalog" aria-labelledby="catalog-title"></section>
+      <section id="run-view" aria-labelledby="run-view-title">
+        <h2 id="run-view-title">Run</h2>
+        <p class="muted">A created run will appear here.</p>
+      </section>
+      <section id="human-actions" aria-labelledby="human-actions-title">
+        <h2 id="human-actions-title">Human actions</h2>
+        <p class="muted">Human review and Human Bridge controls are not part of this module.</p>
+      </section>
+    </main>
+    <script type="module">
+      import { mount as mountCreateRun } from "/ui/static/js/create-run.js";
+
+      const context = {};
+      mountCreateRun(document.querySelector("#catalog"), context);
+
+      for (const [id, path, label] of [
+        ["run-view", "/ui/static/js/run-view.js", "Run view"],
+        ["human-actions", "/ui/static/js/human-actions.js", "Human actions"],
+      ]) {
+        try {
+          const module = await import(path);
+          module.mount(document.querySelector(`#${id}`), context);
+        } catch {
+          const status = document.createElement("p");
+          status.className = "muted";
+          status.setAttribute("role", "status");
+          status.textContent = `${label} is unavailable. Reload when its UI module has been delivered.`;
+          document.querySelector(`#${id}`).append(status);
+        }
+      }
+    </script>
+  </body>
+</html>
