@@ -144,13 +144,23 @@ function Get-StageClosure([string]$stageName, [string]$stageText, [object[]]$tas
         if ($task.State -ne 'integrada') {
             return [pscustomobject]@{ Status = 'unknown'; Reason = "La tarea $($task.Id) no está integrada."; Commit = $closeCommit; Report = ''; Stage = $stageName }
         }
+        # A task that states it has no patch (for example an analysis delivered in the channel)
+        # has nothing to integrate; an empty Parche field is not enough.
+        if ($task.Patch.Trim() -and -not (Test-TaskPatchRequired $task.Patch)) { continue }
         $taskCommit = Get-CommitToken $task.Commit
         if (-not $taskCommit) {
             return [pscustomobject]@{ Status = 'unknown'; Reason = "La tarea $($task.Id) no tiene un commit válido."; Commit = $closeCommit; Report = ''; Stage = $stageName }
         }
+        # A stage is usually integrated over several commits: each task commit must be contained
+        # in the closing commit (the same commit or an earlier one in its history).
         $resolvedTaskCommit = Resolve-IntegrationCommit $taskCommit
-        if (-not $resolvedTaskCommit -or $resolvedTaskCommit -ne $resolvedCloseCommit) {
-            return [pscustomobject]@{ Status = 'unknown'; Reason = "El commit de $($task.Id) no coincide con el commit de cierre."; Commit = $closeCommit; Report = ''; Stage = $stageName }
+        $contained = $false
+        if ($resolvedTaskCommit) {
+            git -C $repoRoot merge-base --is-ancestor $resolvedTaskCommit $resolvedCloseCommit 2>$null
+            $contained = $LASTEXITCODE -eq 0
+        }
+        if (-not $contained) {
+            return [pscustomobject]@{ Status = 'unknown'; Reason = "El commit de $($task.Id) no está contenido en el commit de cierre."; Commit = $closeCommit; Report = ''; Stage = $stageName }
         }
     }
 
@@ -528,7 +538,9 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 }
             } elseif ($record.State -eq 'integrada') {
                 $commit = Get-CommitToken $record.Commit
-                $commitLabel = if ($commit) { "<div class=""meta"">Commit <code>$(Encode $commit)</code></div>" } else { '<div class="meta">Commit no registrado</div>' }
+                $commitLabel = if ($commit) { "<div class=""meta"">Commit <code>$(Encode $commit)</code></div>" }
+                    elseif ($record.Patch.Trim() -and -not (Test-TaskPatchRequired $record.Patch)) { '<div class="meta">Sin parche que integrar</div>' }
+                    else { '<div class="meta">Commit no registrado</div>' }
                 $date = if ($record.IntegratedDate) { "<div class=""meta"">Integrada $(Encode $record.IntegratedDate)</div>" } else { '<div class="meta">Fecha de integración no registrada</div>' }
                 "<span class=""state s-integrada"">Integración registrada</span>$commitLabel$date"
             } else {
