@@ -52,7 +52,7 @@ def run_snapshot(run: dict) -> dict:
 
 def test_workflow_lists_match_between_facade_and_http(tmp_path):
     services = make_services(tmp_path / "services")
-    with TestClient(create_app(services=services)) as client:
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
         assert client.get("/api/v1/workflows").json() == services.definitions.list_workflows()
         assert client.get("/api/v1/workflows", params={"bundle": "team"}).json() == (
             services.definitions.list_workflows(bundle="team")
@@ -66,7 +66,7 @@ def test_mock_run_creation_and_approval_match_between_facade_and_http(tmp_path):
     assert http_services.system.engine.router.dry_run
 
     facade_run = facade_services.runs.create(RunRequest(**GENERIC), bundle="team")
-    with TestClient(create_app(services=http_services)) as client:
+    with TestClient(create_app(services=http_services), base_url="http://localhost") as client:
         response = client.post("/api/v1/runs", params={"bundle": "team"}, json=GENERIC)
         assert response.status_code == 202
         http_run = response.json()
@@ -98,7 +98,7 @@ def test_mock_run_creation_and_approval_match_between_facade_and_http(tmp_path):
 
 def test_invalid_workflow_error_matches_between_facade_and_http(tmp_path):
     services = make_services(tmp_path / "services")
-    with TestClient(create_app(services=services)) as client:
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
         with pytest.raises(ServiceError) as error:
             services.definitions.get_workflow("bad.id")
 

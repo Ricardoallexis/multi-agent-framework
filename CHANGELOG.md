@@ -17,6 +17,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Changed
 
+- Protect the local API from other web pages in the same browser. Requests whose `Host` is not in `API_ALLOWED_HOSTS` (default `127.0.0.1`, `localhost`) answer 400 `invalid_host`, which blocks DNS rebinding. State-changing requests with an `Origin` from another site, or a cross-site `Sec-Fetch-Site`, answer 403 `forbidden_origin`. The CLI and other clients that send no `Origin` keep working. This is not authentication: do not expose the server to a network.
 - Rewrite `docs/COMPARISON.md` around the target scope, with a status marker per capability (available, partial, planned, optional backend or adapter, under evaluation). It also separates what is not implemented in the current alpha from what stays intentionally outside the core, and compares scope with other frameworks.
 - Describe the project as a domain-neutral, configurable runtime for teams of AI agents, humans, models, and tools. `README.md` and `ROADMAP.md` separate what works today, what is planned, and the long-term direction.
 - Rename the roadmap section for `M1-B01-F00-alpha` to "First public baseline", so it is not mistaken for the current release.

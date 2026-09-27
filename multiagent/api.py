@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Mapping, Union
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -14,6 +15,61 @@ from .run_request import RunRequest
 from .services import ApplicationServices, ServiceError
 from .services.errors import INVALID_REQUEST
 from .version import __version__
+
+
+def _origin_tuple(value: str) -> tuple[str, str, int] | None:
+    """Accept a serialized HTTP origin, never credentials, paths or opaque origins."""
+    if not value or any(char.isspace() or ord(char) < 32 for char in value):
+        return None
+    try:
+        url = urlsplit(value)
+        if (url.scheme not in {"http", "https"} or not url.hostname
+                or url.username is not None or url.password is not None
+                or url.path or url.query or url.fragment
+                or "?" in value or "#" in value or "\\" in value
+                or url.netloc.endswith(":")):
+            return None
+        port = url.port
+        if port is not None and port < 1:
+            return None
+        return url.scheme, url.hostname.lower(), port or (443 if url.scheme == "https" else 80)
+    except ValueError:
+        return None
+
+
+class LocalAPISecurityMiddleware:
+    """Guard local HTTP requests; this is not authentication for network exposure."""
+
+    def __init__(self, app, *, allowed_hosts: list[str]):
+        self.app = app
+        self.allowed_hosts = frozenset(allowed_hosts)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = scope.get("headers", [])
+        hosts = [value.decode("latin-1") for key, value in headers if key.lower() == b"host"]
+        origin = _origin_tuple(f"{scope['scheme']}://{hosts[0]}") if len(hosts) == 1 else None
+        if origin is None or origin[1] not in self.allowed_hosts:
+            response = JSONResponse(status_code=400, content={"detail": {
+                "code": "invalid_host", "message": "Host is not allowed", "details": {},
+            }})
+            await response(scope, receive, send)
+            return
+        if scope["method"] not in {"GET", "HEAD", "OPTIONS"}:
+            origins = [value.decode("latin-1") for key, value in headers if key.lower() == b"origin"]
+            sites = [value.decode("latin-1") for key, value in headers if key.lower() == b"sec-fetch-site"]
+            # Origin-less httpx clients remain supported. Browser cross-site requests do not.
+            invalid = (len(origins) > 1 or (bool(origins) and _origin_tuple(origins[0]) != origin)
+                       or len(sites) > 1 or (bool(sites) and sites[0] not in {"same-origin", "none"}))
+            if invalid:
+                response = JSONResponse(status_code=403, content={"detail": {
+                    "code": "forbidden_origin", "message": "Request origin is not allowed", "details": {},
+                }})
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 def create_app(system=None, *, services: ApplicationServices | None = None,
@@ -38,6 +94,7 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         system_obj.worker.stop()
 
     app = FastAPI(title="Multi-Agent Framework API", version=__version__, lifespan=lifespan)
+    app.add_middleware(LocalAPISecurityMiddleware, allowed_hosts=system_obj.settings.api_allowed_hosts)
     app.state.services = services
 
     @app.exception_handler(ServiceError)

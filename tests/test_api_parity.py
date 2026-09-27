@@ -28,7 +28,7 @@ def services(tmp_path: Path) -> ApplicationServices:
 
 @pytest.fixture
 def client(services):
-    with TestClient(create_app(services=services)) as client:
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
         yield client
 
 

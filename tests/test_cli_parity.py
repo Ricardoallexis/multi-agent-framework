@@ -70,7 +70,7 @@ def process_bundle_run(services: ApplicationServices) -> None:
 
 def test_cli_workflow_listing_matches_http(monkeypatch, capsys, tmp_path):
     services = make_services(tmp_path / "local")
-    with TestClient(create_app(services=services)) as client:
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
         expected = client.get("/api/v1/workflows", params={"bundle": "team"})
         assert expected.status_code == 200
 
@@ -87,7 +87,7 @@ def test_cli_workflow_listing_matches_http(monkeypatch, capsys, tmp_path):
 
 def test_cli_mock_run_matches_http(monkeypatch, capsys, tmp_path):
     services = make_services(tmp_path / "local")
-    with TestClient(create_app(services=services)) as client:
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
         assert client.get("/api/v1/health").json()["dry_run"] is True
 
         cli_run = json.loads(invoke_cli(monkeypatch, capsys, client, GENERIC_RUN))
@@ -123,7 +123,7 @@ def test_cli_mock_run_matches_http(monkeypatch, capsys, tmp_path):
 
 def test_cli_validation_error_matches_http(monkeypatch, capsys, tmp_path):
     services = make_services(tmp_path / "local")
-    with TestClient(create_app(services=services)) as client:
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
         response = client.get("/api/v1/workflows/bad.id")
         assert response.status_code == 422
         detail = response.json()["detail"]
