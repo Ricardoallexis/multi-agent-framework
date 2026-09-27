@@ -12,6 +12,8 @@ Notable changes to the public project are documented here. The project uses `M-B
 - Add CLI commands `workflows`, `agents`, `bundle-validate`, and `artifacts`, and generic runs with `run --workflow ... --input name=value [--bundle ...]`.
 - Add Mock mode: with `MOCK_MODE=true`, the server and CLI run with synthetic fixtures and no model API keys. `/api/v1/health` reports `dry_run`.
 - Add `docs/API.md` (facade, endpoints, error format, and Mock mode) and a README quick start with Mock.
+- Add the Stage 0 run console: a local browser UI at `/ui/`, started with `multiagent ui` (or `run_ui_windows.bat`) in Mock mode by default, with `--real` for configured providers. It selects a workflow or bundle, creates a run, follows its status, current step, pending action, and events, handles human review (approve, request changes, regenerate, reject, cancel), runs the Human Bridge (copy the prompt, paste an external response, see validation errors), and shows artifacts. It is static HTML and JavaScript modules served by FastAPI, with no build step, and uses only the public HTTP API. See `docs/UI0.md`.
+- Add Mock acceptance tests for the Stage 0 console and a manual checklist (`tests/ui0/CHECKLIST.md`).
 - Add parity tests across the Python facade, HTTP, and the CLI.
 - Add `scripts/check_version_consistency.py`. It checks that every current version declaration (README header, newest changelog release, latest milestone, `pyproject.toml`, and the tag on tag builds) matches `multiagent/version.py`, and that the product stage and the Python pre-release agree. CI and `run_tests_windows.bat` run it before the tests.
 
@@ -29,7 +31,8 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Roadmap
 
-- Mark application services and HTTP parity as done; the minimal operator UI (stage 0) is next.
+- Mark application services and HTTP parity as done.
+- Mark the minimal operator UI (stage 0) as done; the execution backend abstraction is next.
 - Add the autonomy principle (autonomous orchestration within declared organizational constraints) and state the limits planners work within.
 - Add **Team design from a prompt**: generate or formalize a team (roles, rules, organization chart, and recommended but never mandatory model bindings) as a validated, human-approved team definition. Roles are not tied to models, and one model can switch between roles.
 - Add **Reference tool stacks for team presets**: research well-known open-source tools as examples for the five most common team types (for example Tailwind CSS for web design). They are examples in presets, never core dependencies.

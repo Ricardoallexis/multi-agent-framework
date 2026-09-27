@@ -24,6 +24,7 @@ Multi-Agent Framework is a domain-neutral, configurable runtime for building and
 - SQLite persistence for runs, artifacts, assets, publications, and brand profiles.
 - Python application-services facade, CLI, and FastAPI API.
 - Server Mock mode for synthetic runs without model API keys.
+- A Stage 0 browser console (`multiagent ui`) to create and follow runs, handle human review and the Human Bridge, and inspect artifacts, in Mock mode by default.
 - A private writable workspace for secrets, databases, runs, and assets.
 - An automated test suite, run in CI on every push and pull request.
 

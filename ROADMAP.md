@@ -22,7 +22,7 @@ The order follows technical dependencies and changes as the project learns (see 
 
 1. Stable core ✅: validation before execution, review after any step, and definition bundles.
 2. Application services and HTTP parity ✅: one public Python layer used by the CLI, the HTTP API, a UI, and an MCP server, with generic run requests and structured errors over HTTP.
-3. A minimal operator UI (stage 0) over that API, working with the mock backend.
+3. A minimal operator UI (stage 0) over that API, working with the mock backend ✅.
 4. The execution backend abstraction (native, mock, and optional Microsoft Agent Framework).
 5. Agent, tool, and capability contracts, impact-based permissions on the existing human-in-the-loop, and deterministic function steps.
 6. Team relationships as data, then team design from a prompt: roles, rules, an organization chart, and recommended (never mandatory) model bindings generated as a validated team definition.
@@ -221,11 +221,11 @@ Research which well-known open-source tools make good examples for the most comm
 
 ## Frontend / UI
 
-**Progress:** `░░░░░░░░░░` 0/18 · 0% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 1/18 · 6% <!-- progress -->
 
 `F00` ships without a graphical interface. A minimal UI arrives early as a development, testing, and operator interface rather than as the final product. It is one more client of the public API, like the CLI, with no business logic, persistence, or orchestration of its own, and it works with the mock backend so no API keys are needed. Its technology is chosen at that milestone, and each later area of the roadmap adds UI only where it clearly improves validation, operation, or experience.
 
-- [ ] Stage 0, right after the application services and HTTP parity: start a run from an available workflow (mock by default), follow its status and events, handle the pending human action (approve, request changes, regenerate, reject, cancel, or paste an external model's response and see validation errors), and inspect artifacts. Its review and confirmation step for externally produced output can follow the same human-confirmation pattern as the external-delivery importer (`tools/seguimiento/`).
+- [x] Stage 0, right after the application services and HTTP parity: start a run from an available workflow (mock by default), follow its status and events, handle the pending human action (approve, request changes, regenerate, reject, cancel, or paste an external model's response and see validation errors), and inspect artifacts. Its review and confirmation step for externally produced output can follow the same human-confirmation pattern as the external-delivery importer (`tools/seguimiento/`).
 - [ ] Stage 1: agent and workflow configuration, once agent, tool, and capability contracts are stable.
 - [ ] Stage 2: teams, plans, and tasks, to inspect and approve generated plans and follow task execution.
 - [ ] Stage 3: tools and interoperability, including pending permissions, channels, MCP, and artifacts.

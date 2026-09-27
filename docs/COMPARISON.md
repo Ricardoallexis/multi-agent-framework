@@ -60,7 +60,7 @@ Whatever the degree of autonomy, the core keeps contracts, validation, persisten
 | Execution | Structured contracts between steps | ✅ | Pydantic output contracts for model and human output |
 | Execution | Durable, resumable runs (SQLite) | ✅ | Resume after review, restarts, idempotent requests, call and time budgets |
 | Execution | Traceability | ✅ | Prompt id, version, and hash; model or human; telemetry; artifacts |
-| Execution | Execution backend abstraction (native, mock, optional backends) | 🧭 | Next after the minimal UI in the development order |
+| Execution | Execution backend abstraction (native, mock, optional backends) | 🧭 | Next in the development order |
 | Execution | Microsoft Agent Framework as optional backend | 🔌 | Never a required dependency of the core |
 | Execution | Parallel steps and several workers | 🧭 | Today one local worker processes a queue |
 | Humans | Human-in-the-loop review at any step | ✅ | Approve the exact attempt, request changes, regenerate, reject, cancel |
@@ -77,7 +77,7 @@ Whatever the degree of autonomy, the core keeps contracts, validation, persisten
 | Interfaces | HTTP API with parity | ✅ | Generic and bundle runs, definitions, artifacts, structured errors |
 | Interfaces | CLI | ✅ | Uses the same HTTP API |
 | Interfaces | Mock mode without API keys | ✅ | Synthetic fixtures through the same engine and contracts |
-| Interfaces | Graphical UI | 🧭 | Stage 0 (operator UI over the API) is next |
+| Interfaces | Graphical UI | 🟡 | Stage 0 run console over the public API (runs, human review, Human Bridge, artifacts); configuration, teams, and plans come in later stages |
 | Models | Local models (Ollama) | ✅ | Text generation; sensitive runs can stay local |
 | Models | Cloud providers (Gemini, OpenAI) | ✅ | Optional |
 | Models | Routing by preferred model and fallback | ✅ | Static per step and execution mode |
@@ -123,7 +123,7 @@ Microsoft Agent Framework is a mature, MIT-licensed runtime. Instead of reimplem
 
 These are roadmap items, not design limits. Each will arrive when its turn in the development order comes:
 
-- a graphical interface (stage 0 is next);
+- graphical interfaces beyond the Stage 0 run console (configuration, teams, plans, tools, and live topology);
 - the execution backend abstraction and the optional Microsoft Agent Framework backend;
 - team and organization definitions, relationships, and capability-based assignment;
 - planning (manual, semi-automatic, automatic), delegation, replanning, and dynamic teams;

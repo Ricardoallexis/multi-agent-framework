@@ -316,9 +316,28 @@ function Get-IdeasHtml {
             }
         }
         $cards = foreach ($item in $items) {
+            $statusLabel, $statusClass = switch ($item.Status) {
+                'pendiente_revision' { @('Sin revisar', 's-unknown') }
+                'revisada_pendiente' { @('Revisada · pendiente', 's-pendiente') }
+                'completada' { @('Completada', 's-integrada') }
+                default { @('Estado no reconocido', 's-unknown') }
+            }
+            $reviewMeta = if ($item.StatusActor -and $item.StatusUpdatedUtc) {
+                $updated = [DateTimeOffset]::Parse(
+                    $item.StatusUpdatedUtc,
+                    [System.Globalization.CultureInfo]::InvariantCulture,
+                    [System.Globalization.DateTimeStyles]::RoundtripKind
+                ).ToLocalTime().ToString('yyyy-MM-dd HH:mm')
+                "<p class=""meta"">Estado registrado por $(Encode $item.StatusActor) · $(Encode $updated)</p>"
+            } else { '' }
+            $reviewNote = if ($item.StatusNote) {
+                "<p class=""idea-review-note"">$(Encode $item.StatusNote)</p>"
+            } else { '' }
             @"
 <article class="panel idea-card">
-  <h3>$(Encode $item.Title)</h3>
+  <div class="idea-title"><h3>$(Encode $item.Title)</h3><span class="state $statusClass">$statusLabel</span></div>
+  $reviewNote
+  $reviewMeta
 </article>
 "@
         }
@@ -332,6 +351,7 @@ function Get-IdeasHtml {
     }
     @"
 <p class="meta">Cada prompt puede quedar abierto a cualquier agente, dirigido a un agente local registrado o marcado para un agente cloud. Esto solo indica el destinatario: no inicia trabajo, reserva archivos, notifica agentes ni envía contenido a la nube. La preparación cloud sigue separada y manual.</p>
+<p class="meta idea-status-legend"><strong>Estado de ideas:</strong> Sin revisar = aún no evaluada; Revisada · pendiente = evaluada, con trabajo pendiente indicado debajo; Completada = la nota resume el resultado. La fecha es la del registro de este estado, no necesariamente la fecha en que se realizó el trabajo.</p>
 $button
 <p id="ideas-status" class="meta" role="status" aria-live="polite"></p>
 $contents
@@ -946,7 +966,10 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
 .idea-group { margin:16px 0; }
 .idea-group h2 { font-size:18px; border-bottom:1px solid var(--line); padding-bottom:5px; }
 .idea-card { margin:8px 0; }
+.idea-title { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
 .idea-card h3 { margin:0 0 8px; font-size:16px; }
+.idea-review-note { margin:8px 0 0; }
+.idea-card .meta { margin:6px 0 0; }
 .cloud-panel h2 { margin-top:0; }
 </style>
 </head>
