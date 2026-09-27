@@ -13,8 +13,15 @@ Notable changes to the public project are documented here. The project uses `M-B
 - Add Mock mode: with `MOCK_MODE=true`, the server and CLI run with synthetic fixtures and no model API keys. `/api/v1/health` reports `dry_run`.
 - Add `docs/API.md` (facade, endpoints, error format, and Mock mode) and a README quick start with Mock.
 - Add parity tests across the Python facade, HTTP, and the CLI.
+- Add `scripts/check_version_consistency.py`. It checks that every current version declaration (README header, newest changelog release, latest milestone, `pyproject.toml`, and the tag on tag builds) matches `multiagent/version.py`, and that the product stage and the Python pre-release agree. CI and `run_tests_windows.bat` run it before the tests.
 
 ### Changed
+
+- Rewrite `docs/COMPARISON.md` around the target scope, with a status marker per capability (available, partial, planned, optional backend or adapter, under evaluation). It also separates what is not implemented in the current alpha from what stays intentionally outside the core, and compares scope with other frameworks.
+- Describe the project as a domain-neutral, configurable runtime for teams of AI agents, humans, models, and tools. `README.md` and `ROADMAP.md` separate what works today, what is planned, and the long-term direction.
+- Rename the roadmap section for `M1-B01-F00-alpha` to "First public baseline", so it is not mistaken for the current release.
+- Mark the current version lines in `README.md` so they are checked, and document the release procedure in `docs/VERSIONING.md`.
+- `multiagent/version.py` omits the stage suffix for stable releases instead of producing a trailing `-`.
 
 - API errors now answer `{"detail": {"code", "message", "details"}}` with the same HTTP statuses as before, and invalid request bodies use the same format. Creating a run for an invalid workflow answers 422 instead of 500. Clients that read `detail` as text must read `detail.message`.
 - Clarify the autonomy model in `docs/COMPARISON.md`, `README.md`, `ROADMAP.md`, and `PROGRESS.md`. The runtime currently executes declared workflows. The roadmap target is governed autonomy: planning, delegation, and dynamic routing within declared roles, permissions, contracts, budgets, gates, and policies, with escalation to a human. It is not unrestricted agent conversation.

@@ -9,7 +9,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 <!-- progress:table:start -->
 | Area | Progress | Items |
 | --- | --- | --- |
-| Current baseline — `M1-B01-F00-alpha` | `██████████` 100% | 15 of 15 |
+| First public baseline — `M1-B01-F00-alpha` | `██████████` 100% | 15 of 15 |
 | Orchestration and agent runtime | `███░░░░░░░` 27% | 3 of 11 |
 | Intelligent model routing | `░░░░░░░░░░` 0% | 0 of 6 |
 | Local and offline AI | `░░░░░░░░░░` 0% | 0 of 9 |
@@ -31,7 +31,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 
 ## Current stage — runtime foundations
 
-The first four features below were released in `M1-B02-F00-alpha`. Goal: make the existing runtime reliable and general before adding larger capabilities, so new agents, teams, and backends can be added without rewriting the core.
+The first four features below were released in `M1-B02-F00-alpha`. Application services and HTTP parity are done in the repository and will ship in the next release (see `[Unreleased]` in the changelog). Goal: make the existing runtime reliable and general before adding larger capabilities, so new agents, teams, and backends can be added without rewriting the core.
 
 | Feature | Status | What it lets you do |
 | --- | --- | --- |

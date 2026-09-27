@@ -4,6 +4,10 @@ This roadmap captures the capabilities and directions discussed for Multi-Agent 
 
 This roadmap is a **living document**: it is updated whenever priorities, findings, or architecture decisions change, and each release lists the roadmap changes it publishes in the [changelog](CHANGELOG.md).
 
+**How to read it:** checked items (`[x]`) work today; unchecked items are planned and not implemented. The long-term direction is described by the principles below. [`docs/COMPARISON.md`](docs/COMPARISON.md) gives the status of each capability in one table, and the current release is shown at the top of [`README.md`](README.md).
+
+**Domain neutrality:** the core stays domain-neutral. Software development, architecture and engineering, research, design, finance, operations, or media production are implemented through configuration, presets, plugins, adapters, workflows, or projects built on the framework, without domain-specific logic in the core.
+
 **Guiding principle:** reuse mature, stable components behind adapters instead of rebuilding them. [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) (the successor of AutoGen) is the main candidate for graph execution, MCP, A2A, AG-UI, and OpenTelemetry. It is planned as an **optional** execution backend: the framework's configuration, runs, contracts, Human Bridge, and artifacts stay independent of any backend, and the default backend keeps working without it.
 
 **Autonomy principle:** today the runtime executes declared workflows. Steps, order, and main conditions are defined before a run starts, and models produce each step's content.
@@ -26,7 +30,7 @@ The order follows technical dependencies and changes as the project learns (see 
 8. Interoperability: MCP server, shared-folder channel, MCP client, desktop bridge, application gateway, and external application adapters.
 9. Replanning, dynamic teams, preset sharing, a plugin ecosystem, and optional UI automation.
 
-## Current baseline — `M1-B01-F00-alpha`
+## First public baseline — `M1-B01-F00-alpha`
 
 **Progress:** `██████████` 15/15 · 100% <!-- progress -->
 

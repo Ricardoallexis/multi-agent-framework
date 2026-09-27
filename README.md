@@ -1,19 +1,19 @@
 # Multi-Agent Framework
 
-**Current release:** `M1-B02-F00-alpha`
+**Current release:** `M1-B02-F00-alpha` <!-- version:release -->
 
-**Python package:** `0.2.0a1`
+**Python package:** `0.2.0a1` <!-- version:package -->
 
 **Status:** Alpha / backend-first
 
-Multi-Agent Framework is a Python orchestration framework for hybrid human/AI workflows. The backend coordinates specialized agents, local and cloud models, structured contracts, human checkpoints, persistence, and traceability. A graphical user interface is not part of the current public baseline yet.
+Multi-Agent Framework is a domain-neutral, configurable runtime for building and operating teams of AI agents, humans, models, and tools. Today it runs declared workflows with specialized agents, local and cloud models, structured contracts, human checkpoints, persistence, and traceability. Over time, users will define their own agents, capabilities, relationships, workflows, and execution policies, and the same core will support everything from deterministic and human-guided execution to progressively more dynamic planning and delegation. A graphical user interface is not part of the current public baseline yet.
 
 > **Alpha notice:** public APIs, workflow contracts, prompts, migrations, and configuration may still change while the project evolves toward a stable release.
 
 ## What is included
 
 - Deterministic YAML workflow orchestration.
-- Specialized agents for research, strategy, content creation, branding, and visual pre-production.
+- A bundled example workflow with specialized agents for research, strategy, content creation, branding, and visual pre-production.
 - Ollama, Gemini, and OpenAI adapters.
 - `auto`, `local`, `cloud`, and `human_guided` execution modes.
 - Human-in-the-loop review, approval, revision, rejection, and externally executed steps.
@@ -25,20 +25,24 @@ Multi-Agent Framework is a Python orchestration framework for hybrid human/AI wo
 - Python application-services facade, CLI, and FastAPI API.
 - Server Mock mode for synthetic runs without model API keys.
 - A private writable workspace for secrets, databases, runs, and assets.
-- 237 automated tests.
+- An automated test suite, run in CI on every push and pull request.
 
 ## How it differs
 
-Unlike conversation-driven agent frameworks, workflows here are currently declared and deterministic. Each step's output is validated against a strict contract, a human can review or take over any step, runs are persisted and resumable, and local models come first.
+**Today:** workflows are declared and deterministic. Each step's output is validated against a strict contract, a human can review or take over any step, runs are persisted and resumable, and local models come first. This is a strength of the current baseline, and the framework will keep supporting this mode.
 
-The roadmap moves towards agent teams with governed autonomy: agents will plan, delegate, and route work within declared roles, permissions, contracts, budgets, and gates, escalating to a human when needed. It does not aim for unrestricted conversation.
+**Planned:** configurable teams of agents, planning and delegation, and modes with different degrees of autonomy, from manual and human-guided to automatic planning. Autonomy is always governed: agents act within the roles, capabilities, permissions, contracts, budgets, and policies the user declares, and escalate to a human when needed. The project does not aim for unrestricted conversation between agents.
 
-See [`docs/COMPARISON.md`](docs/COMPARISON.md) for the design choices, the current and target autonomy model, what the project deliberately does not do yet, and when another framework may fit better.
+The core stays domain-neutral. Software development, engineering, research, design, finance, operations, or media production are built on it through configuration, presets, plugins, adapters, and workflows.
+
+See [`docs/COMPARISON.md`](docs/COMPARISON.md) for the target scope with a status for each capability, how it compares with other frameworks, and what stays intentionally outside the core.
 
 ## Architecture at a glance
 
 ```text
-CLI / API
+CLI / HTTP API / Python
+   |
+Application services (multiagent.services)
    |
 Run Service
    |
@@ -279,15 +283,11 @@ Public releases use a component-aware version:
 M<generation>-B<backend>-F<frontend>-<stage>
 ```
 
-The current release is:
-
-```text
-M1-B02-F00-alpha
-```
+The current release and Python package version are shown at the top of this file. Both come from `multiagent/version.py`, the single source of truth, and CI checks that every current declaration matches it (`scripts/check_version_consistency.py`).
 
 `B` changes when the backend/runtime/API changes. `F` changes when the UI changes. The Python package keeps a separate PEP 440 version for packaging compatibility.
 
-See [`docs/VERSIONING.md`](docs/VERSIONING.md).
+See [`docs/VERSIONING.md`](docs/VERSIONING.md), including the release procedure.
 
 ## Documentation
 
