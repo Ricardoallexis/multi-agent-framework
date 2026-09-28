@@ -85,6 +85,34 @@ function Get-CommitToken([string]$value) {
     elseif ($value -match '^\s*([0-9a-f]{7,40})(?:\s|$)') { $Matches[1].ToLowerInvariant() }
     else { '' }
 }
+# "Tokens" field of a task card: "Claude: total N = entrada a + cacheados b + salida c (medido); Copilot: no disponible".
+function Get-TokenEntries([string]$value) {
+    foreach ($part in ($value -split ';')) {
+        if ($part -match '^\s*([A-Za-z]+):\s*total\s+(\d+)\s*=\s*entrada\s+(\d+)\s*\+\s*cacheados\s+(\d+)\s*\+\s*salida\s+(\d+)\s*\(([^)]+)\)') {
+            [pscustomobject]@{ Agent = $Matches[1]; Total = [long]$Matches[2]; Input = [long]$Matches[3]; Cached = [long]$Matches[4]; Output = [long]$Matches[5]; Source = $Matches[6].Trim() }
+        } elseif ($part -match '^\s*([A-Za-z]+):\s*(.+?)\s*$') {
+            [pscustomobject]@{ Agent = $Matches[1]; Total = $null; Input = $null; Cached = $null; Output = $null; Source = $Matches[2] }
+        }
+    }
+}
+function Format-TokenCount([long]$value) {
+    if ($value -ge 1000000) { '{0:0.0} M' -f ($value / 1000000) }
+    elseif ($value -ge 1000) { '{0:0} k' -f ($value / 1000) }
+    else { "$value" }
+}
+function Get-TokensHtml([string]$value) {
+    $entries = @(Get-TokenEntries $value)
+    if (-not $entries) { return '<span class="meta">Sin registro</span>' }
+    $items = foreach ($entry in $entries) {
+        if ($null -eq $entry.Total) {
+            "<div>$(Encode $entry.Agent): <span class=""meta"">$(Encode $entry.Source)</span></div>"
+        } else {
+            $detail = "Entrada $($entry.Input) · cacheados $($entry.Cached) · salida $($entry.Output) · $($entry.Source)"
+            "<div title=""$(Encode $detail)"">$(Encode $entry.Agent): <strong>$(Format-TokenCount $entry.Total)</strong> <span class=""meta"">(salida $(Format-TokenCount $entry.Output))</span></div>"
+        }
+    }
+    $items -join ''
+}
 function Get-TaskSection([string]$text, [string]$heading) {
     $pattern = "(?s)##\s*$([regex]::Escape($heading))\s*(.+?)(?=\r?\n##\s|\z)"
     if ($text -match $pattern) { $Matches[1].Trim() } else { '' }
@@ -244,6 +272,7 @@ function Get-AgentBoardData {
                 State = $state
                 Agent = $agent
                 Missing = Safe-Snippet (Get-TaskSection $text 'Qué falta')
+                Tokens = Get-Field $text 'Tokens'
             }
             $tasks.Add($task)
             if ($state -in @('en curso', 'pendiente') -and $agent -notin $registered) {
@@ -484,6 +513,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 Patch = Get-Field $text 'Parche'
                 Agent = Get-Field $text 'Agente'
                 Preferred = Get-Field $text 'Preferente'
+                Tokens = Get-Field $text 'Tokens'
                 Workers = @($history -split "`r?`n" | ForEach-Object {
                     # Same rule as tareas.ps1: authors took or finished the task.
                     if ($_ -match '^\|\s*\d{4}-[^|]*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|' -and $Matches[2].Trim() -in 'tomada', 'terminada') { $Matches[1] }
@@ -557,7 +587,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $rowHtml = "<tr><td><a href=""$($record.Href)"">$(Encode $record.Title)</a>$($record.LeftHtml)</td>" +
             "<td><span class=""state $stateClass"">$(Encode $record.State)</span></td>" +
             "<td>$(Inline $record.Agent)</td><td>$(Inline $record.Preferred)</td>" +
-            "<td>$dependencyHtml</td><td>$integrationHtml</td><td>$(Inline $record.Patch)</td><td>$(Encode $record.Workers)</td></tr>"
+            "<td>$dependencyHtml</td><td>$integrationHtml</td><td>$(Inline $record.Patch)</td><td>$(Encode $record.Workers)</td><td>$(Get-TokensHtml $record.Tokens)</td></tr>"
             $taskRows.Add([pscustomobject]@{ Id = $record.Code; State = $record.State; Patch = $record.Patch; Html = $rowHtml })
         }
         $closure = if ($stageReadFailed) {
@@ -569,7 +599,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         $closure | Add-Member -NotePropertyName ClaimsClosed -NotePropertyValue $claimsClosed
         $stageIndex[$stage.Name.ToLowerInvariant()] = $closure
         $pct = if ($total) { [int](100 * $done / $total) } else { 0 }
-        $tableHeader = '<table><tr><th>Tarea</th><th>Estado</th><th>Agente</th><th>Preferente</th><th>Dependencias y estado</th><th>Integración</th><th>Parche</th><th>Trabajaron</th></tr>'
+        $tableHeader = '<table><tr><th>Tarea</th><th>Estado</th><th>Agente</th><th>Preferente</th><th>Dependencias y estado</th><th>Integración</th><th>Parche</th><th>Trabajaron</th><th>Tokens</th></tr>'
         $phaseDefinitions = @(Get-StagePhases $stageText)
         $taskGroups = ''
         if ($phaseDefinitions.Count) {
@@ -850,10 +880,25 @@ $agentCards = foreach ($name in @('Claude', 'Codex', 'Copilot')) {
     } else {
         '<p class="meta">Sin asignaciones cloud activas registradas para seguimiento.</p>'
     }
+    # Tokens this agent used on board tasks (field "Tokens" of the cards; measured or reported).
+    $tokenEntries = @($agentBoard.Tasks | ForEach-Object { Get-TokenEntries $_.Tokens } | Where-Object Agent -ieq $name)
+    $counted = @($tokenEntries | Where-Object { $null -ne $_.Total })
+    $tokensHtml = if ($counted.Count) {
+        $sum = ($counted | Measure-Object -Property Total -Sum).Sum
+        $out = ($counted | Measure-Object -Property Output -Sum).Sum
+        $missing = $tokenEntries.Count - $counted.Count
+        $note = if ($missing) { " · $missing sin dato" } else { '' }
+        "<p><strong>$(Format-TokenCount $sum)</strong> en $($counted.Count) tarea(s) · salida $(Format-TokenCount $out)$note</p><p class=""meta"">Incluye el contexto cacheado que se relee en cada llamada; la salida es lo que el agente generó.</p>"
+    } elseif ($tokenEntries.Count) {
+        '<p class="meta">Sin datos de uso disponibles para este agente.</p>'
+    } else {
+        '<p class="meta">Ninguna tarea tiene tokens registrados todavía.</p>'
+    }
     @"
 <section class="panel agent-card">
   <div class="card-head"><h2>$(Encode $name)</h2><span class="state $statusClass">$(Encode $status)</span></div>
   <div class="agent-current"><h3>Tarea actual según el tablero</h3>$current</div>
+  <div class="agent-current"><h3>Tokens en tareas</h3>$tokensHtml</div>
   <div class="agent-current"><h3>Seguimiento de asignaciones cloud</h3>$cloudContext</div>
   $(Get-AlignmentHtml $name)
   $lastActivity
