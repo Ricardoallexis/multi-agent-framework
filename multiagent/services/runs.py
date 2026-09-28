@@ -28,6 +28,7 @@ from ..contracts import HumanStepSubmission, SocialPostRequest
 from ..db.database import Database
 from ..db.store import Store
 from ..errors import HumanSubmissionError
+from ..observability.usage import read_usage, summarize_usage
 from ..run_request import RunRequest
 from ..run_service import RunService
 from ..worker import LocalWorker
@@ -222,3 +223,21 @@ class RunServices:
             raise ServiceError(INVALID_REQUEST, "after must be an integer >= 0", status=422,
                                details={"after": repr(after)})
         return [event for event in self.get(run_id)["events"] if event["seq"] > after]
+
+    @service_errors
+    def usage(self, run_id: str) -> dict[str, Any]:
+        """Token usage of the run: every record plus totals per run, agent and step.
+
+        Tokens a provider did not report stay ``None`` and are counted in
+        ``records_without_usage`` instead of adding 0. Costs are estimates from
+        the model catalog, never billed amounts. Error: ``not_found``.
+        """
+        runtime = self._find(run_id)
+        records = read_usage(runtime.store, run_id)
+        return {
+            "run_id": run_id,
+            "bundle": runtime.bundle,
+            "cost_is_estimate": True,
+            "records": records,
+            "totals": summarize_usage(records),
+        }

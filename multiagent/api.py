@@ -201,6 +201,11 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         """Events with ``seq`` greater than ``after`` (0 returns all)."""
         return services.runs.events(run_id, after=after)
 
+    @app.get("/api/v1/runs/{run_id}/usage")
+    def run_usage(run_id: str):
+        """Token usage records and totals per run, agent and step (cost is an estimate)."""
+        return services.runs.usage(run_id)
+
     @app.post("/api/v1/runs/{run_id}/approve")
     def approve(run_id: str):
         return services.runs.approve(run_id)

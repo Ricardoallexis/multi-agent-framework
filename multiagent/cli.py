@@ -133,6 +133,16 @@ def cmd_events(args) -> None:
     pretty(_api_json("GET", f"/api/v1/runs/{run_id}/events", params={"after": args.after}))
 
 
+def cmd_usage(args) -> None:
+    run_id = quote(args.run_id, safe="")
+    usage = _api_json("GET", f"/api/v1/runs/{run_id}/usage")
+    if not args.jsonl:
+        pretty(usage)
+        return
+    for record in usage["records"]:
+        print(json.dumps({"run_id": usage["run_id"], **record}, ensure_ascii=False, default=str))
+
+
 def cmd_run(args) -> None:
     if args.workflow:
         if (args.objective is not None or args.topic is not None or args.web
@@ -417,6 +427,9 @@ def build_parser() -> argparse.ArgumentParser:
     x = sub.add_parser("events", help="List a run's events, optionally only those after a sequence number")
     x.add_argument("run_id"); x.add_argument("--after", type=int, default=0, help="Only events with seq greater than this")
     x.set_defaults(func=cmd_events)
+    x = sub.add_parser("usage", help="Show a run's token usage with totals per run, agent and step (cost is an estimate)")
+    x.add_argument("run_id"); x.add_argument("--jsonl", action="store_true", help="One JSON line per usage record")
+    x.set_defaults(func=cmd_usage)
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)
