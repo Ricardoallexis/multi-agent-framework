@@ -18,19 +18,17 @@ The declarative structure stays, but it defines limits and relationships instead
 
 ## Development order
 
-The order follows technical dependencies and changes as the project learns (see the changelog):
+The order follows technical dependencies and changes as the project learns (see the changelog). The [stage plan](docs/ROADMAP_STAGES.md) breaks each stage into sub-stages and tasks with their dependencies, and shows which work can run in parallel.
 
-1. Stable core ✅: validation before execution, review after any step, and definition bundles.
-2. Application services and HTTP parity ✅: one public Python layer used by the CLI, the HTTP API, a UI, and an MCP server, with generic run requests and structured errors over HTTP.
-3. A minimal operator UI (stage 0) over that API, working with the mock backend ✅.
-4. The execution backend abstraction (native, mock, and optional Microsoft Agent Framework).
-5. Agent, tool, and capability contracts, impact-based permissions on the existing human-in-the-loop, and deterministic function steps.
-6. Team relationships as data, then team design from a prompt: roles, rules, an organization chart, and recommended (never mandatory) model bindings generated as a validated team definition.
-7. Planning and delegation: manual first, then semi-automatic and automatic.
-8. Interoperability: MCP server, shared-folder channel, MCP client, desktop bridge, application gateway, and external application adapters.
-9. Replanning, dynamic teams, preset sharing, a plugin ecosystem, and optional UI automation.
-10. Advanced operator interface: live topology and high-volume telemetry, once OpenTelemetry events, MCP tool access, and planning with concurrent agents exist, because it visualizes them. Its low-cost foundations (ordered events with resynchronization, strict rendering of generated content, and accessibility baselines) are added earlier, while the stage 0 UI grows.
-11. Reference tool stacks: well-known open-source tools as examples for the most common team presets. The research can start earlier because it does not block the core.
+1. **S0–S3 ✅** Stable core; application services and HTTP parity; operator UI stage 0; local usage telemetry.
+2. **S4** Execution backend abstraction (native, mock, and optional Microsoft Agent Framework), in parallel with **S5** tool and capability contracts.
+3. **S6** Team definitions and team design from a prompt, then **S7** collaborative team primitives.
+4. **S8** Planning and delegation: manual first, then semi-automatic and automatic.
+5. **S9** Interoperability. The MCP server can start at any time; channels and clients follow the tool contracts.
+6. **S10–S13** Observability and evaluation, routing and local AI, memory and context, and human-in-the-loop improvements. They advance in parallel lanes when their dependencies are met.
+7. **S14–S15** Operator UI stages 1–3, then the advanced operator interface once OpenTelemetry, MCP, and concurrent planning exist.
+8. **S16** Presets, examples, and catalog, including reference tool stacks. The research and examples can start early because they do not block the core.
+9. **S17** Security, developer experience, and releases, continuously; **S18** a future M2 generation only if compatibility cannot be kept.
 
 ## First public baseline — `M1-B01-F00-alpha`
 
@@ -113,7 +111,7 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 
 ## Content, branding, and production
 
-**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/8 · 0% <!-- progress -->
 
 - [ ] Expand content workflows for additional formats and channels.
 - [ ] Improve reusable brand profiles, brand assets, tone constraints, and project-level context.
@@ -122,10 +120,11 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 - [ ] Add video pre-production workflows such as concepts, scripts, shot lists, storyboards, and generation prompts.
 - [ ] Support iterative review loops between strategy, copy, design, and human reviewers.
 - [ ] Keep factual research, brand guidance, and generated creative content clearly separated in the data model.
+- [ ] *(proposed)* Move the branding and asset domain out of the core package into a preset, so the core stays domain-neutral.
 
 ## Human-in-the-loop
 
-**Progress:** `█░░░░░░░░░` 1/8 · 12% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 1/9 · 11% <!-- progress -->
 
 Human control is intended to remain a first-class part of the architecture rather than an exception path.
 
@@ -137,10 +136,11 @@ Human control is intended to remain a first-class part of the architecture rathe
 - [ ] Add clearer revision history and comparisons between attempts.
 - [ ] Add comments, reviewer notes, and structured feedback that can be passed safely into subsequent attempts.
 - [ ] Improve audit trails showing what was produced by a model, a deterministic tool, or a human.
+- [ ] *(proposed)* A register of proposals and decisions with their state and validity.
 
 ## Collaborative agent teams
 
-**Progress:** `░░░░░░░░░░` 0/14 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/16 · 0% <!-- progress -->
 
 A domain-neutral core for coordinating two or more agents, and the humans who supervise them, on shared work. Software development is one application; the same primitives should serve design, finance, research, operations, or any other domain. Domain-specific behavior lives in team presets and examples that users can extend, and agents can help a user design their own team setup. The protocol is the framework's own and runs on its runs, events, and Human Bridge; A2A or Microsoft Agent Framework may carry messages, but they do not define it.
 
@@ -149,6 +149,8 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 - [ ] A team log and member inboxes: an append-only log plus a per-member inbox where reading a message acknowledges it, so members process only unread messages and never poll.
 - [ ] Structured messages and handoffs (delivery, proposal, question, answer, decision, result) that state the baseline, what changed, what was not verified, and what is requested from whom.
 - [ ] Change proposals: members deliver reviewable change sets in an ordered queue, with dependencies and held drafts, and a supervisor applies them rather than their authors.
+- [ ] *(proposed)* Task reservation with declared resources: taking a task reserves its resources and rejects overlapping work.
+- [ ] *(proposed)* A dependency-aware integration gate: a change waits until its task is finished and its dependencies are applied and verified.
 - [ ] Review and gates: cross-review between members, and stages that close only when shared checks pass and a supervisor approves.
 - [ ] Check results with visibility rules: a member's own checks stay private to it, shared checks are visible to the team, and one designated reader summarizes each report.
 - [ ] Workspace synchronization after each approved stage, only with each member's confirmation and without losing unfinished work.
@@ -196,7 +198,7 @@ Roles are not tied to models. A **role** holds rules, skills, contracts, capabil
 
 ## Preset sharing and community catalog
 
-**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
 
 Presets (teams, workflows, agents, prompts, contracts, and checks) should be easy to share, so that one user's setup for design reviews, financial reporting, or software development can be downloaded and used by others. This builds on the existing definition bundles and stays domain-neutral.
 
@@ -206,6 +208,7 @@ Presets (teams, workflows, agents, prompts, contracts, and checks) should be eas
 - [ ] Treat presets that include executable code (such as contract models or tools) as untrusted until the user approves them: show what will run, verify checksums or signatures, prefer data-only presets, and allow sandboxing.
 - [ ] Customize a shared preset with a private overlay instead of copying it (defaults < public preset < private overlay < runtime overrides), so updates to the shared preset can still be applied.
 - [ ] Offer a searchable catalog with descriptions, examples, domains, and compatibility information, and keep private presets out of it unless the user publishes them.
+- [ ] *(proposed)* A library of objectives or requests to start runs from, if it proves useful.
 
 ## Reference tool stacks for team presets
 
@@ -221,7 +224,7 @@ Research which well-known open-source tools make good examples for the most comm
 
 ## Frontend / UI
 
-**Progress:** `█░░░░░░░░░` 2/18 · 11% <!-- progress -->
+**Progress:** `██░░░░░░░░` 4/20 · 20% <!-- progress -->
 
 `F00` ships without a graphical interface. A minimal UI arrives early as a development, testing, and operator interface rather than as the final product. It is one more client of the public API, like the CLI, with no business logic, persistence, or orchestration of its own, and it works with the mock backend so no API keys are needed. Its technology is chosen at that milestone, and each later area of the roadmap adds UI only where it clearly improves validation, operation, or experience.
 
@@ -241,8 +244,10 @@ Research which well-known open-source tools make good examples for the most comm
 - [ ] Local-model availability and hardware status views.
 - [ ] Administrative views for workers, migrations, diagnostics, and recovery.
 - [x] Give run events a monotonic sequence number so clients detect gaps, duplicates, and out-of-order delivery, and resynchronize from a run snapshot instead of guessing state.
-- [ ] Treat all model output, artifacts, and raw payloads as untrusted in every UI: render them as text by default, sanitize any rich rendering (Markdown or HTML) with a strict allowlist sanitizer, and serve the UI with a restrictive Content Security Policy.
-- [ ] Status and alerts never depend on color alone (text, icon, or shape as well), with WCAG 2.2 AA contrast as the baseline.
+- [x] Treat model output, artifacts, and raw payloads as untrusted in the stage 0 UI: render them as text and serve the UI with a restrictive Content Security Policy.
+- [ ] Sanitize any future rich rendering (Markdown or HTML) with a strict allowlist sanitizer, in every UI.
+- [x] In the stage 0 UI, status and alerts never depend on color alone (text, icon, or shape as well), with WCAG 2.2 AA contrast as the baseline.
+- [ ] Keep the same accessibility baseline in every later UI stage.
 
 ## Advanced operator interface
 
@@ -270,13 +275,14 @@ It depends on OpenTelemetry events, MCP tool access, and planning with concurren
 
 ## Memory, context, and project knowledge
 
-**Progress:** `░░░░░░░░░░` 0/5 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
 
 - [ ] Add explicit project-scoped memory/context that does not depend on hidden model memory.
 - [ ] Support reusable knowledge packs and structured project context.
 - [ ] Add retrieval and summarization strategies for large project histories.
 - [ ] Define retention, privacy, provenance, and invalidation rules for stored context.
 - [ ] Allow workflows to request only the context they need instead of loading all available history (context propagation policies such as none, selected, summary, artifacts, and full).
+- [ ] *(proposed)* Per-task context packages with a fingerprint for invalidation that carry only what changed since the last package.
 
 ## Tools, interoperability, and external applications
 

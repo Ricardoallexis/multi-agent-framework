@@ -14,22 +14,22 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Intelligent model routing | `░░░░░░░░░░` 0% | 0 of 7 |
 | Local and offline AI | `░░░░░░░░░░` 0% | 0 of 9 |
 | Research and knowledge workflows | `░░░░░░░░░░` 0% | 0 of 6 |
-| Content, branding, and production | `░░░░░░░░░░` 0% | 0 of 7 |
-| Human-in-the-loop | `█░░░░░░░░░` 12% | 1 of 8 |
-| Collaborative agent teams | `░░░░░░░░░░` 0% | 0 of 14 |
+| Content, branding, and production | `░░░░░░░░░░` 0% | 0 of 8 |
+| Human-in-the-loop | `█░░░░░░░░░` 11% | 1 of 9 |
+| Collaborative agent teams | `░░░░░░░░░░` 0% | 0 of 16 |
 | Planning, delegation, and team orchestration | `░░░░░░░░░░` 0% | 0 of 12 |
 | Team design from a prompt | `░░░░░░░░░░` 0% | 0 of 7 |
-| Preset sharing and community catalog | `░░░░░░░░░░` 0% | 0 of 6 |
+| Preset sharing and community catalog | `░░░░░░░░░░` 0% | 0 of 7 |
 | Reference tool stacks for team presets | `░░░░░░░░░░` 0% | 0 of 5 |
-| Frontend / UI | `█░░░░░░░░░` 11% | 2 of 18 |
+| Frontend / UI | `██░░░░░░░░` 20% | 4 of 20 |
 | Advanced operator interface | `░░░░░░░░░░` 0% | 0 of 15 |
-| Memory, context, and project knowledge | `░░░░░░░░░░` 0% | 0 of 5 |
+| Memory, context, and project knowledge | `░░░░░░░░░░` 0% | 0 of 6 |
 | Tools, interoperability, and external applications | `░░░░░░░░░░` 0% | 0 of 13 |
 | Observability, quality, and evaluation | `█░░░░░░░░░` 12% | 1 of 8 |
 | Security and privacy | `░░░░░░░░░░` 0% | 0 of 6 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **13%** | **24 of 187** |
+| **All roadmap items** | **13%** | **26 of 195** |
 <!-- progress:table:end -->
 
 ## Current stage — runtime foundations

@@ -33,6 +33,9 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Roadmap
 
+- Add a stage plan (`docs/ROADMAP_STAGES.md`): stages S0–S18 with sub-stages, tasks, dependencies, and parallel lanes, classified as Core, Extension, or Example, with objectives, acceptance criteria, and examples. The development order now follows these stages.
+- Mark the stage 0 UI's untrusted rendering, Content Security Policy, and color-independent status as done, keeping rich-rendering sanitization and accessibility in later UI stages as planned.
+- Add proposed items from the project inventory: task reservation and a dependency-aware integration gate for teams, per-task context packages, a register of proposals and decisions, moving the branding domain to a preset, and a library of requests.
 - Mark application services and HTTP parity as done.
 - Mark the minimal operator UI (stage 0) as done; the execution backend abstraction is next.
 - Add the autonomy principle (autonomous orchestration within declared organizational constraints) and state the limits planners work within.
