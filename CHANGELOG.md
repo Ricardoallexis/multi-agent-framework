@@ -16,6 +16,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 - Add Mock acceptance tests for the Stage 0 console and a manual checklist (`tests/ui0/CHECKLIST.md`).
 - Number each run's events with `seq` (1, 2, 3… without gaps) and read only newer events with `GET /api/v1/runs/{run_id}/events?after=N`, `services.runs.events(run_id, after=N)`, or `multiagent events <run_id> --after N`. The Stage 0 run view detects gaps, repeats, and out-of-order copies and reloads the run instead of guessing its state.
 - Add parity tests across the Python facade, HTTP, and the CLI.
+- Record provider-reported token usage locally per run, agent, step, and attempt, including elapsed duration and failed attempts. Read records and totals through Python, HTTP, and CLI (including JSONL export); missing provider usage stays null, and telemetry write failures do not stop execution. See `docs/TELEMETRY.md`.
 - Add `scripts/check_version_consistency.py`. It checks that every current version declaration (README header, newest changelog release, latest milestone, `pyproject.toml`, and the tag on tag builds) matches `multiagent/version.py`, and that the product stage and the Python pre-release agree. CI and `run_tests_windows.bat` run it before the tests.
 
 ### Changed
@@ -41,6 +42,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 - Add an optional evaluation of external structured-decision providers (for example Jev, commercial) behind a provider-neutral interface. It requires explicit opt-in, the native implementation remains the default, and it is not an adoption decision.
 - Add **Advanced operator interface**: live topology and high-volume telemetry for large or long-running teams (background event ingestion, client state machines that mirror the core, macro and meso views with semantic zoom, virtualization, OpenTelemetry and MCP views, and an accessible design system). It is placed after OpenTelemetry, MCP, and planning, and its technologies are candidates for an architecture decision.
 - Add near-term UI foundations: sequence-numbered run events with resynchronization, untrusted rendering of model output with sanitization and a Content Security Policy, and status that never depends on color alone.
+- Mark provider-reported token-usage telemetry as delivered; retry counts, routing decisions, and token estimates remain planned.
 
 ## [M1-B02-F00-alpha] - 2026-09-27
 

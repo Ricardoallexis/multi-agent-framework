@@ -300,9 +300,10 @@ The core works with generic concepts (tool, capability, provider, channel, permi
 
 ## Observability, quality, and evaluation
 
-**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 1/8 · 12% <!-- progress -->
 
-- [ ] Expand telemetry for execution time, retries, routing decisions, token estimates, and provider usage.
+- [x] Record provider-reported token usage per run, agent, step, and attempt, including elapsed duration and failed attempts.
+- [ ] Add retry counts, routing-decision telemetry, and token estimates.
 - [ ] Emit OpenTelemetry traces and metrics (GenAI semantic conventions) alongside the framework's own domain events.
 - [ ] Add structured evaluation datasets for agents, prompts, and workflows.
 - [ ] Compare local and cloud model performance on the same contracts and tasks.

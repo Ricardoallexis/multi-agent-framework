@@ -25,11 +25,11 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Advanced operator interface | `░░░░░░░░░░` 0% | 0 of 15 |
 | Memory, context, and project knowledge | `░░░░░░░░░░` 0% | 0 of 5 |
 | Tools, interoperability, and external applications | `░░░░░░░░░░` 0% | 0 of 13 |
-| Observability, quality, and evaluation | `░░░░░░░░░░` 0% | 0 of 7 |
+| Observability, quality, and evaluation | `█░░░░░░░░░` 12% | 1 of 8 |
 | Security and privacy | `░░░░░░░░░░` 0% | 0 of 6 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **12%** | **23 of 186** |
+| **All roadmap items** | **13%** | **24 of 187** |
 <!-- progress:table:end -->
 
 ## Current stage — runtime foundations
