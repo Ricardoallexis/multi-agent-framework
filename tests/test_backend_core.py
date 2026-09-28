@@ -34,7 +34,7 @@ def settings_for(tmp_path: Path) -> Settings:
 
 def test_migrations_and_wal(tmp_path):
     s = settings_for(tmp_path); system = build_system(s, dry_run=True)
-    assert system.db.schema_version() == 2
+    assert system.db.schema_version() == 3
     with system.db.connect() as conn:
         assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
 

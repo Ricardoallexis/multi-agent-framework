@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Callable
 
 from pydantic import BaseModel
@@ -98,6 +99,7 @@ class ModelRouter:
             retries = binding.max_retries if candidate_index == 0 else 0
             for retry in range(retries + 1):
                 try:
+                    started = time.perf_counter()
                     if before_call:
                         before_call()
                     response = adapter.generate_structured(spec=spec, prompt=prompt, output_schema=output_schema,
@@ -113,7 +115,11 @@ class ModelRouter:
                 except _ROUTABLE_ERRORS as exc:
                     last_exc = exc
                     failure = {"model": model_id, "provider": spec.provider, "ok": False, "retry": retry,
-                               "error": str(exc), "error_type": type(exc).__name__}
+                               "error": str(exc), "error_type": type(exc).__name__,
+                               "duration_ms": int((time.perf_counter() - started) * 1000),
+                               "tokens_in": getattr(exc, "tokens_in", None),
+                               "tokens_out": getattr(exc, "tokens_out", None),
+                               "num_ctx": getattr(exc, "num_ctx", None)}
                     attempts.append(failure)
                     if on_failed_attempt:
                         on_failed_attempt(failure)

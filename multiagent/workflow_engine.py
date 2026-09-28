@@ -29,6 +29,7 @@ from .contracts import (
 from .db.store import Store
 from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition, ValidationFailed
 from .model_router import ModelBinding, ModelRouter
+from .observability import TokenUsageRecord, UsageRecorder
 from .prompts import PromptManager
 from .schema_utils import estimate_tokens_conservative
 from .workflows import WorkflowCatalog, WorkflowDefinition, WorkflowStep, condition_is_true
@@ -60,6 +61,7 @@ class WorkflowEngine:
         self.artifacts = artifacts
         self.settings = settings
         self.output_schemas = dict(OUTPUT_SCHEMAS if output_schemas is None else output_schemas)
+        self.usage_recorder = UsageRecorder(store)
 
     @classmethod
     def from_bundle(cls, bundle: DefinitionBundle, *, store: Store,
@@ -280,24 +282,26 @@ class WorkflowEngine:
                     )
 
                 def record_failed_attempt(failure: dict[str, Any]) -> None:
-                    self.store.record_telemetry(
+                    self.usage_recorder.record(TokenUsageRecord(
                         run_id=run_id,
                         step_id=step.id,
+                        agent_id=step.agent,
+                        attempt=attempt,
                         provider=failure.get("provider", ""),
                         model=failure.get("model", ""),
-                        model_digest="",
+                        model_digest=failure.get("model_digest", ""),
                         prompt_id=step.prompt_id,
                         prompt_version=step.prompt_version,
                         prompt_sha256=prompt_sha256,
                         brand_version=fresh.get("brand_version"),
-                        tokens_in=0,
-                        tokens_out=0,
-                        num_ctx=0,
-                        latency_ms=0,
-                        estimated_cost_usd=0.0,
-                        success=0,
+                        tokens_in=failure.get("tokens_in"),
+                        tokens_out=failure.get("tokens_out"),
+                        num_ctx=failure.get("num_ctx"),
+                        duration_ms=failure.get("duration_ms"),
+                        estimated_cost_usd=failure.get("estimated_cost_usd"),
+                        success=False,
                         error_type=failure.get("error_type", "UnknownError"),
-                    )
+                    ))
                     self.store.db.log_event(run_id, "model_attempt_failed", {"step_id": step.id, **failure})
 
                 response, attempts = self.router.execute(
@@ -468,6 +472,25 @@ class WorkflowEngine:
             prompt_id=pending["prompt_id"],
             prompt_version=int(pending["prompt_version"]),
         )
+        self.usage_recorder.record(TokenUsageRecord(
+            run_id=run_id,
+            step_id=step.id,
+            agent_id=step.agent,
+            attempt=int(pending["attempt"]),
+            provider="human",
+            model=submission.model or "",
+            model_digest="",
+            prompt_id=pending["prompt_id"],
+            prompt_version=int(pending["prompt_version"]),
+            prompt_sha256=pending["prompt_sha256"],
+            brand_version=run.get("brand_version"),
+            tokens_in=None,
+            tokens_out=None,
+            num_ctx=None,
+            duration_ms=None,
+            estimated_cost_usd=None,
+            success=True,
+        ))
         path = self.artifacts.write(
             run_id=run_id,
             step_index=index,
@@ -576,9 +599,11 @@ class WorkflowEngine:
         path = self.artifacts.write(run_id=run_id, step_index=index, step_id=step.id, attempt=attempt, data=data)
         relative_path = path.relative_to(self.settings.data_dir)
         self.store.add_artifact(run_id=run_id, step_id=step.id, attempt=attempt, kind=step.contract, path=str(relative_path), data=data)
-        self.store.record_telemetry(
+        self.usage_recorder.record(TokenUsageRecord(
             run_id=run_id,
             step_id=step.id,
+            agent_id=step.agent,
+            attempt=attempt,
             provider=response.provider,
             model=response.model,
             model_digest=response.model_digest,
@@ -586,14 +611,14 @@ class WorkflowEngine:
             prompt_version=step.prompt_version,
             prompt_sha256=prompt_sha256,
             brand_version=fresh.get("brand_version"),
-            tokens_in=response.tokens_in,
-            tokens_out=response.tokens_out,
-            num_ctx=int(response.metadata.get("num_ctx") or 0),
-            latency_ms=response.latency_ms,
+            tokens_in=response.tokens_in if response.tokens_in > 0 else None,
+            tokens_out=response.tokens_out if response.tokens_out > 0 else None,
+            num_ctx=int(response.metadata.get("num_ctx") or 0) or None,
+            duration_ms=response.latency_ms,
             estimated_cost_usd=self._estimate_cost(response.metadata.get("catalog_model_id", step.preferred_model), response.tokens_in, response.tokens_out),
-            success=1,
+            success=True,
             error_type="",
-        )
+        ))
         self.store.db.log_event(run_id, "model_selected", {
             "step_id": step.id,
             "provider": response.provider,
