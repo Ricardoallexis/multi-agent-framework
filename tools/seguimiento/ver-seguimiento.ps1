@@ -425,8 +425,29 @@ $readsText = if (Test-Path -LiteralPath $integrationReads -PathType Leaf) {
     }
 } else { '' }
 
+# Publication is derived, never hand-kept: a verified stage is public when its closing commit is
+# contained in the public branch as this machine last saw it (the remote-tracking ref that push and
+# fetch update; no network access here). <canal>\repositorio-publico.txt names the public checkout
+# (line 1) and, optionally, the ref (line 2, default origin/main). Without it, stages stay "local".
+$publicRepo = ''
+$publicRef = 'origin/main'
+$publicConfig = Join-Path $channel 'repositorio-publico.txt'
+if (Test-Path -LiteralPath $publicConfig -PathType Leaf) {
+    $publicLines = @(Get-Content -LiteralPath $publicConfig | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
+    if ($publicLines.Count -ge 1 -and (Test-Path -LiteralPath $publicLines[0] -PathType Container)) {
+        $publicRepo = (Resolve-Path -LiteralPath $publicLines[0]).Path
+    }
+    if ($publicLines.Count -ge 2) { $publicRef = $publicLines[1] }
+}
+function Test-CommitPublished([string]$commit) {
+    if (-not $publicRepo -or $commit -notmatch '^(?i)[0-9a-f]{7,40}$') { return $false }
+    # Exit 1 = not contained; 128 = commit or ref unknown there (for example, rewritten hashes).
+    git -C $publicRepo merge-base --is-ancestor $commit $publicRef 2>$null
+    $LASTEXITCODE -eq 0
+}
+
 # These legacy milestones predate the task board and were explicitly confirmed by the user as
-# verified and present in the public repository. New stages remain local until publication is confirmed.
+# verified and present in the public repository.
 $publicVerifiedEvidence = [ordered]@{
     G1 = [pscustomobject]@{ Goal = 'Validar antes de ejecutar'; Commit = 'e887bf3'; Report = '2026-09-26_1935_integracion.md' }
     G2 = [pscustomobject]@{ Goal = 'Revisión humana a mitad del workflow'; Commit = '27b3e1e'; Report = '2026-09-26_2020_integracion.md' }
@@ -677,14 +698,25 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $stageHref = ([uri]$stageFile).AbsoluteUri
             $reportHref = ([uri](Join-Path $integrationDir $closure.Report)).AbsoluteUri
             $stageAnchor = "history-$($stage.Name.ToLowerInvariant())"
-            $archiveLinks.Add("<div class=""history-summary""><strong>$(Encode $stageTitle)</strong><span class=""state s-integrada"">Cerrada · local</span><div class=""meta"">Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#$stageAnchor"">Historial</a> &middot; <a href=""$stageHref"">Ficha de etapa</a></div></div>")
-            $archiveBoards += @"
+            if (Test-CommitPublished $closure.Commit) {
+                $archiveLinks.Add("<div class=""history-summary""><strong>$(Encode $stageTitle)</strong><span class=""state s-integrada"">Verificada · pública</span><div class=""meta"">Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#$stageAnchor"">Historial</a> &middot; <a href=""$stageHref"">Ficha de etapa</a></div></div>")
+                $publicVerifiedBoards.Add(@"
+<section class="panel archive-stage" id="$stageAnchor">
+  <div class="card-head"><h2>$(Encode $stageTitle)</h2><span class="state s-integrada">Verificada y publicada</span></div>
+  <p class="meta">Commit de cierre <code>$(Encode $closure.Commit)</code>, contenido en <code>$(Encode $publicRef)</code> del repositorio público &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="$reportHref">Reporte de integración OK</a></p>
+  <details><summary>Ver tareas integradas ($total)</summary>$boardHtml</details>
+</section>
+"@)
+            } else {
+                $archiveLinks.Add("<div class=""history-summary""><strong>$(Encode $stageTitle)</strong><span class=""state s-integrada"">Cerrada · local</span><div class=""meta"">Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#$stageAnchor"">Historial</a> &middot; <a href=""$stageHref"">Ficha de etapa</a></div></div>")
+                $archiveBoards += @"
 <section class="panel archive-stage" id="$stageAnchor">
   <div class="card-head"><h2>$(Encode $stageTitle)</h2><span class="state s-integrada">Cierre verificado localmente · publicación no confirmada</span></div>
   <p class="meta">Commit de cierre: <code>$(Encode $closure.Commit)</code> &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="$reportHref">Reporte de integración OK</a></p>
   <details><summary>Ver tareas integradas ($total)</summary>$boardHtml</details>
 </section>
 "@
+            }
         } elseif ($closure.Status -eq 'unknown') {
             if ($closure.ClaimsClosed) {
                 $stageHref = ([uri]$stageFile).AbsoluteUri
@@ -1087,7 +1119,7 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
     $cloudAssignmentPanel
   </div>
   <div class="tab" id="historico">
-    <p class="meta">Archivo de visualización de solo lectura. Los cierres locales se derivan de ETAPA.md, fichas de tareas, commits Git y reportes; la publicación pública requiere confirmación explícita. No mueve ni modifica las fuentes.</p>
+    <p class="meta">Archivo de visualización de solo lectura. Los cierres se derivan de ETAPA.md, fichas de tareas, commits Git y reportes. Una etapa es pública cuando su commit de cierre está en $(if ($publicRepo) { "<code>$(Encode $publicRef)</code> del repositorio público (según el último push o fetch)" } else { 'la rama pública, pero falta <code>repositorio-publico.txt</code> en el canal' }). No mueve ni modifica las fuentes.</p>
     <section class="panel todo"><h2>Verificadas y presentes en el repositorio público</h2>$($publicVerifiedBoards -join "`n")</section>
     <section class="panel todo"><h2>Cerradas e integradas localmente; publicación no confirmada</h2>$(if ($archiveBoards) { $archiveBoards } else { '<section class="panel">No hay cierres verificados localmente.</section>' })</section>
     <section class="todo"><h2>Cierres pendientes de verificación</h2>$uncertainBoards</section>
@@ -1185,6 +1217,11 @@ function Get-Stamp {
     $files += @(Get-ChildItem -LiteralPath $pendingPatchesDir -Filter '*.patch' -File -ErrorAction SilentlyContinue)
     $headLog = Join-Path $repoRoot '.git\logs\HEAD'
     if (Test-Path -LiteralPath $headLog -PathType Leaf) { $files += Get-Item -LiteralPath $headLog }
+    # A push or fetch moves the public tracking ref, which can publish a closed stage.
+    if ($publicRepo) {
+        $publicRefLog = Join-Path $publicRepo ".git\logs\refs\remotes\$($publicRef -replace '/', '\')"
+        if (Test-Path -LiteralPath $publicRefLog -PathType Leaf) { $files += Get-Item -LiteralPath $publicRefLog }
+    }
     $channelRegistry = Join-Path $channel 'CANAL.md'
     if (Test-Path -LiteralPath $channelRegistry -PathType Leaf) { $files += Get-Item -LiteralPath $channelRegistry }
     if (Test-Path $tasksDir) { $files += Get-ChildItem $tasksDir -Recurse -Filter '*.md' }
