@@ -38,6 +38,7 @@ packages = [
   "multiagent",
   "multiagent.adapters",
   "multiagent.db",
+  "multiagent.observability",
   "multiagent.services",
   "multiagent.ui",
   "multiagent._resources",
