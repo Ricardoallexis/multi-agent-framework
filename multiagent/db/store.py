@@ -119,9 +119,12 @@ class Store:
                 item["data"] = json.loads(item.pop("data_json"))
                 artifacts.append(item)
             events: list[dict[str, Any]] = []
-            for erow in conn.execute("SELECT * FROM run_events WHERE run_id=? ORDER BY id", (run_id,)):
+            # Events are append-only, so their position is a stable per-run sequence: 1, 2, 3...
+            rows = conn.execute("SELECT * FROM run_events WHERE run_id=? ORDER BY id", (run_id,))
+            for seq, erow in enumerate(rows, start=1):
                 item = dict(erow)
                 item["payload"] = json.loads(item.pop("payload_json"))
+                item["seq"] = seq
                 events.append(item)
             result["artifacts"] = artifacts
             result["events"] = events
@@ -527,9 +530,9 @@ class Store:
     # -------- telemetry --------
     def record_telemetry(self, **data) -> None:
         fields = [
-            "run_id","step_id","provider","model","model_digest","prompt_id","prompt_version",
-            "prompt_sha256","brand_version","tokens_in","tokens_out","num_ctx","latency_ms",
-            "estimated_cost_usd","success","error_type","created_at"
+            "run_id","step_id","agent_id","attempt","provider","model","model_digest","prompt_id",
+            "prompt_version","prompt_sha256","brand_version","tokens_in","tokens_out","num_ctx",
+            "latency_ms","duration_ms","estimated_cost_usd","success","error_type","created_at"
         ]
         values = [data.get(k) for k in fields[:-1]] + [utcnow()]
         with self.db.connect() as conn:

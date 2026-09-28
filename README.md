@@ -1,39 +1,49 @@
 # Multi-Agent Framework
 
-**Current release:** `M1-B02-F00-alpha`
+**Current release:** `M1-B02-F00-alpha` <!-- version:release -->
 
-**Python package:** `0.2.0a1`
+**Python package:** `0.2.0a1` <!-- version:package -->
 
 **Status:** Alpha / backend-first
 
-Multi-Agent Framework is a Python orchestration framework for hybrid human/AI workflows. The backend coordinates specialized agents, local and cloud models, structured contracts, human checkpoints, persistence, and traceability. A graphical user interface is not part of the current public baseline yet.
+Multi-Agent Framework is a domain-neutral, configurable runtime for building and operating teams of AI agents, humans, models, and tools. Today it runs declared workflows with specialized agents, local and cloud models, structured contracts, human checkpoints, persistence, and traceability. Over time, users will define their own agents, capabilities, relationships, workflows, and execution policies, and the same core will support everything from deterministic and human-guided execution to progressively more dynamic planning and delegation. A graphical user interface is not part of the current public baseline yet.
 
 > **Alpha notice:** public APIs, workflow contracts, prompts, migrations, and configuration may still change while the project evolves toward a stable release.
 
 ## What is included
 
 - Deterministic YAML workflow orchestration.
-- Specialized agents for research, strategy, content creation, branding, and visual pre-production.
+- A bundled example workflow with specialized agents for research, strategy, content creation, branding, and visual pre-production.
 - Ollama, Gemini, and OpenAI adapters.
 - `auto`, `local`, `cloud`, and `human_guided` execution modes.
 - Human-in-the-loop review, approval, revision, rejection, and externally executed steps.
 - Pydantic contracts and structured output validation.
 - Validation of workflow definitions before any run starts, with stable error codes.
 - Human review after any step, resuming from the next step without repeating approved work.
-- Definition bundles and generic run requests from Python for workflows outside the bundled social-content use case.
+- Definition bundles and generic run requests through Python, HTTP, and the CLI for workflows outside the bundled social-content use case.
 - SQLite persistence for runs, artifacts, assets, publications, and brand profiles.
-- CLI and FastAPI API.
+- Python application-services facade, CLI, and FastAPI API.
+- Server Mock mode for synthetic runs without model API keys.
+- A Stage 0 browser console (`multiagent ui`) to create and follow runs, handle human review and the Human Bridge, and inspect artifacts, in Mock mode by default.
 - A private writable workspace for secrets, databases, runs, and assets.
-- 237 automated tests.
+- An automated test suite, run in CI on every push and pull request.
 
 ## How it differs
 
-Unlike conversation-driven agent frameworks, workflows here are declared and deterministic: each step's output is validated against a strict contract, a human can review or take over any step, runs are persisted and resumable, and local models come first. See [`docs/COMPARISON.md`](docs/COMPARISON.md) for the design choices, what the project deliberately does not do yet, and when another framework may fit better.
+**Today:** workflows are declared and deterministic. Each step's output is validated against a strict contract, a human can review or take over any step, runs are persisted and resumable, and local models come first. This is a strength of the current baseline, and the framework will keep supporting this mode.
+
+**Planned:** configurable teams of agents, planning and delegation, and modes with different degrees of autonomy, from manual and human-guided to automatic planning. Autonomy is always governed: agents act within the roles, capabilities, permissions, contracts, budgets, and policies the user declares, and escalate to a human when needed. The project does not aim for unrestricted conversation between agents.
+
+The core stays domain-neutral. Software development, engineering, research, design, finance, operations, or media production are built on it through configuration, presets, plugins, adapters, and workflows.
+
+See [`docs/COMPARISON.md`](docs/COMPARISON.md) for the target scope with a status for each capability, how it compares with other frameworks, and what stays intentionally outside the core.
 
 ## Architecture at a glance
 
 ```text
-CLI / API
+CLI / HTTP API / Python
+   |
+Application services (multiagent.services)
    |
 Run Service
    |
@@ -102,6 +112,96 @@ Start the backend with:
 ```bash
 python main.py
 ```
+
+## API and CLI quick start with Mock
+
+After installation, start the server in Mock mode to try the workflow without
+model API keys or a running Ollama model. Mock outputs are synthetic fixtures,
+not real model results. Runs and artifacts are saved in the configured workspace.
+
+Windows PowerShell, from the repository root:
+
+```powershell
+$env:MOCK_MODE = "true"
+.\.venv\Scripts\python.exe main.py
+```
+
+Linux / macOS:
+
+```bash
+MOCK_MODE=true .venv/bin/python main.py
+```
+
+Leave that terminal running. In a second PowerShell terminal, inspect the
+definitions and create a social-post run:
+
+```powershell
+.\.venv\Scripts\multiagent.exe workflows
+.\.venv\Scripts\multiagent.exe workflows social_post
+.\.venv\Scripts\multiagent.exe agents
+.\.venv\Scripts\multiagent.exe run --project "API demo" --objective "Explain workflow automation" --topic "Human review" --platform LinkedIn --no-brand
+```
+
+On Linux/macOS, replace `.\.venv\Scripts\multiagent.exe` with
+`.venv/bin/multiagent`. The CLI connects to `http://127.0.0.1:8000` by default;
+set `API_BASE_URL` in the client environment if the server uses another address.
+
+Copy the returned run `id` into these commands in place of `RUN_ID`:
+
+```powershell
+.\.venv\Scripts\multiagent.exe status RUN_ID
+.\.venv\Scripts\multiagent.exe artifacts RUN_ID
+```
+
+Creation queues the run; the server worker processes it asynchronously. Check
+status again until it reaches `waiting_human`, then approve it:
+
+```powershell
+.\.venv\Scripts\multiagent.exe approve RUN_ID
+.\.venv\Scripts\multiagent.exe status RUN_ID
+```
+
+The built-in quick social-post workflow completes after that approval. Other
+workflows can have intermediate reviews that resume processing. HTTP clients
+use the same operations under `/api/v1`; the interactive API reference is at
+`http://127.0.0.1:8000/docs`.
+
+### Generic workflows and registered bundles
+
+Use `run --workflow WORKFLOW_ID` with repeated `--input name=value` options for
+generic workflows. Add `--bundle BUNDLE_NAME` for a bundle registered by the
+server. Bundle names select trusted server configuration, not client filesystem
+paths. The default server does not register custom bundles automatically.
+
+After your server operator registers a bundle, replace the names and inputs
+below with those required by its workflow:
+
+```powershell
+.\.venv\Scripts\multiagent.exe workflows --bundle BUNDLE_NAME
+.\.venv\Scripts\multiagent.exe bundle-validate BUNDLE_NAME
+.\.venv\Scripts\multiagent.exe run --project "Bundle demo" --workflow WORKFLOW_ID --bundle BUNDLE_NAME --input "INPUT_NAME=example value"
+```
+
+Generic runs use `--input` for domain data instead of social-post options such
+as `--objective` and `--topic`. HTTP errors appear in the CLI with their code,
+message, and available details. See [Python and HTTP API](docs/API.md) for the
+facade, bundle registration contract, endpoints, and error format.
+
+To return to provider inference, stop the server, set `MOCK_MODE=false`, and
+restart it with your provider configuration. This server mode is separate from
+the standalone `dry-run` command below, which does not need the HTTP server.
+
+## Stage 0 local run console
+
+This checkout includes a browser UI for creating and following Runs, reviewing
+outputs, using Human Bridge, and inspecting artifacts. After installation, run
+`multiagent ui` in the activated environment, or `run_ui_windows.bat` on Windows.
+The launcher enables Mock by default and opens `http://127.0.0.1:8000/ui/` with
+the default settings. Keep its terminal open; use Ctrl+C to stop the server.
+
+See [Stage 0 operation](docs/UI0.md) for bundles, provider mode, human actions,
+recovery, and current limits. This describes the checkout implementation;
+publication and acceptance validation are separate steps.
 
 ## Python quickstart and standalone installation
 
@@ -196,21 +296,18 @@ Public releases use a component-aware version:
 M<generation>-B<backend>-F<frontend>-<stage>
 ```
 
-The current release is:
-
-```text
-M1-B02-F00-alpha
-```
+The current release and Python package version are shown at the top of this file. Both come from `multiagent/version.py`, the single source of truth, and CI checks that every current declaration matches it (`scripts/check_version_consistency.py`).
 
 `B` changes when the backend/runtime/API changes. `F` changes when the UI changes. The Python package keeps a separate PEP 440 version for packaging compatibility.
 
-See [`docs/VERSIONING.md`](docs/VERSIONING.md).
+See [`docs/VERSIONING.md`](docs/VERSIONING.md), including the release procedure.
 
 ## Documentation
 
 - [`ROADMAP.md`](ROADMAP.md) — planned project direction.
 - [`PROGRESS.md`](PROGRESS.md) — progress by area and what each finished feature enables.
 - [`CHANGELOG.md`](CHANGELOG.md) — public release history.
+- [`docs/API.md`](docs/API.md) — Python facade, HTTP endpoints, structured errors, and Mock mode.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components and execution flow.
 - [`docs/COMPARISON.md`](docs/COMPARISON.md) — how this project differs from other multi-agent frameworks.
 - [`docs/LICENSING.md`](docs/LICENSING.md) — license, attribution, and no-telemetry policy.

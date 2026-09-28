@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 
@@ -40,7 +41,15 @@ def _detail(response: httpx.Response) -> str:
     try:
         body = response.json()
         if isinstance(body, dict):
-            return str(body.get("detail") or body.get("error") or body)
+            detail = body.get("detail") or body.get("error") or body
+            if isinstance(detail, dict) and "message" in detail:
+                message = str(detail["message"])
+                if detail.get("code"):
+                    message = f"{detail['code']}: {message}"
+                if detail.get("details"):
+                    message += "\n" + json.dumps(detail["details"], ensure_ascii=False, indent=2, default=str)
+                return message
+            return str(detail)
         return str(body)
     except Exception:
         return response.text.strip() or response.reason_phrase
@@ -81,7 +90,81 @@ def cmd_doctor(args) -> None:
     raise SystemExit(0 if ok else 1)
 
 
+def _parse_inputs(values: list[str] | None) -> dict[str, str]:
+    inputs: dict[str, str] = {}
+    for item in values or []:
+        if "=" not in item:
+            raise ValueError("--input uses the format name=value")
+        name, value = item.split("=", 1)
+        name = name.strip()
+        if not name or name in inputs:
+            raise ValueError("--input names must be nonempty and unique")
+        inputs[name] = value
+    return inputs
+
+
+def _bundle_params(args) -> dict[str, str]:
+    return {"bundle": args.bundle} if args.bundle else {}
+
+
+def cmd_workflows(args) -> None:
+    path = "/api/v1/workflows"
+    if args.workflow_id:
+        path += "/" + quote(args.workflow_id, safe="")
+    pretty(_api_json("GET", path, params=_bundle_params(args)))
+
+
+def cmd_agents(args) -> None:
+    pretty(_api_json("GET", "/api/v1/agents", params=_bundle_params(args)))
+
+
+def cmd_bundle_validate(args) -> None:
+    name = quote(args.name, safe="")
+    pretty(_api_json("POST", f"/api/v1/bundles/{name}/validate"))
+
+
+def cmd_artifacts(args) -> None:
+    run_id = quote(args.run_id, safe="")
+    pretty(_api_json("GET", f"/api/v1/runs/{run_id}/artifacts"))
+
+
+def cmd_events(args) -> None:
+    run_id = quote(args.run_id, safe="")
+    pretty(_api_json("GET", f"/api/v1/runs/{run_id}/events", params={"after": args.after}))
+
+
+def cmd_usage(args) -> None:
+    run_id = quote(args.run_id, safe="")
+    usage = _api_json("GET", f"/api/v1/runs/{run_id}/usage")
+    if not args.jsonl:
+        pretty(usage)
+        return
+    for record in usage["records"]:
+        print(json.dumps({"run_id": usage["run_id"], **record}, ensure_ascii=False, default=str))
+
+
 def cmd_run(args) -> None:
+    if args.workflow:
+        if (args.objective is not None or args.topic is not None or args.web
+                or args.no_brand or args.audience or args.instructions
+                or args.platform != "Instagram" or args.pipeline != "quick"
+                or args.research_mode != "human_bridge"):
+            raise ValueError("Generic workflows use --input name=value for domain inputs")
+        payload = {
+            "workflow_id": args.workflow,
+            "project_name": args.project,
+            "inputs": _parse_inputs(args.input),
+            "idempotency_key": args.idempotency_key,
+            "execution_mode": args.mode,
+            "step_modes": _parse_step_modes(args.step_mode),
+            "sensitive": args.sensitive,
+        }
+        pretty(_api_json("POST", "/api/v1/runs", json_body=payload, params=_bundle_params(args)))
+        return
+    if args.bundle or args.input:
+        raise ValueError("--bundle and --input require --workflow")
+    if args.objective is None or args.topic is None:
+        raise ValueError("Social-post runs require --objective and --topic")
     payload = {
         "project_name": args.project,
         "objective": args.objective,
@@ -247,6 +330,63 @@ def cmd_dry_run(args) -> None:
         pretty(_run_dry_run(args, settings))
 
 
+def _parse_ui_bundles(values: list[str] | None) -> dict[str, Path]:
+    bundles: dict[str, Path] = {}
+    for value in values or []:
+        name, separator, folder = value.partition("=")
+        if not separator or not name.strip() or not folder.strip():
+            raise ValueError("--bundle uses the format name=folder")
+        path = Path(folder.strip()).expanduser()
+        if not path.is_dir():
+            raise ValueError(f"Bundle folder not found: {path}")
+        bundles[name.strip()] = path
+    return bundles
+
+
+def _check_port_free(host: str, port: int) -> None:
+    import socket
+
+    with socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind((host, port))
+        except OSError as exc:
+            raise RuntimeError(
+                f"Port {port} on {host} is already in use. Stop the other server or choose another port with --port."
+            ) from exc
+
+
+def cmd_ui(args) -> None:
+    """Start the API with the Stage 0 UI, in Mock mode unless --real, and open the browser."""
+    import os
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from .api import create_app
+
+    if not args.real:
+        os.environ["MOCK_MODE"] = "true"  # synthetic fixtures, no model calls or API keys
+    settings = Settings()
+    settings.ensure_directories()
+    host = settings.app_host
+    port = args.port or settings.app_port
+    bundles = _parse_ui_bundles(args.bundle)
+    _check_port_free(host, port)
+    app = create_app(build_system(settings), bundles=bundles)
+
+    url = f"http://{f'[{host}]' if ':' in host else host}:{port}/ui/"
+    mode = "REAL models (provider calls may cost money)" if args.real else "Mock (synthetic results, no API keys)"
+    print(f"Multi-Agent Framework UI: {url}")
+    print(f"Mode: {mode}")
+    if bundles:
+        print(f"Bundles: {', '.join(sorted(bundles))}")
+    print("Press Ctrl+C to stop.")
+    if not args.no_browser:
+        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="multiagent", description=f"Multi-Agent Framework {__version__} — Hybrid Human/AI Orchestration")
     p.add_argument("--version", action="version", version=__version__)
@@ -255,9 +395,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     x = sub.add_parser("init"); x.set_defaults(func=cmd_init)
     x = sub.add_parser("doctor"); x.add_argument("--deep", action="store_true"); x.set_defaults(func=cmd_doctor)
+    x = sub.add_parser("ui", help="Start the API with the Stage 0 UI (Mock mode unless --real) and open the browser")
+    x.add_argument("--real", action="store_true", help="Use the configured model providers instead of Mock mode")
+    x.add_argument("--port", type=int, help="Port to listen on (default: APP_PORT, 8000)")
+    x.add_argument("--bundle", action="append", metavar="NAME=FOLDER", help="Register a trusted definition bundle; repeatable")
+    x.add_argument("--no-browser", action="store_true", help="Do not open the browser")
+    x.set_defaults(func=cmd_ui)
 
     x = sub.add_parser("run")
-    x.add_argument("--project", required=True); x.add_argument("--objective", required=True); x.add_argument("--topic", required=True)
+    x.add_argument("--project", required=True); x.add_argument("--objective"); x.add_argument("--topic")
+    x.add_argument("--workflow", help="Workflow ID for a generic run")
+    x.add_argument("--bundle", help="Bundle name registered on the server; requires --workflow")
+    x.add_argument("--input", action="append", help="Generic workflow input name=value; repeat for each input")
     x.add_argument("--platform", default="Instagram"); x.add_argument("--audience", default=""); x.add_argument("--instructions", default="")
     x.add_argument("--web", action="store_true"); x.add_argument("--no-brand", action="store_true"); x.add_argument("--idempotency-key", default="")
     x.add_argument("--mode", choices=[m.value for m in ExecutionMode], default="auto")
@@ -266,6 +415,21 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--step-mode", action="append", help="Override per step, e.g. strategy=human_guided")
     x.add_argument("--sensitive", action="store_true", help="Force local routing in AUTO and add a warning to Human Guided prompts")
     x.set_defaults(func=cmd_run)
+
+    x = sub.add_parser("workflows", help="List workflows or inspect one workflow")
+    x.add_argument("workflow_id", nargs="?"); x.add_argument("--bundle"); x.set_defaults(func=cmd_workflows)
+    x = sub.add_parser("agents", help="List agent definitions")
+    x.add_argument("--bundle"); x.set_defaults(func=cmd_agents)
+    x = sub.add_parser("bundle-validate", help="Validate a bundle registered on the server")
+    x.add_argument("name"); x.set_defaults(func=cmd_bundle_validate)
+    x = sub.add_parser("artifacts", help="List artifacts for a run")
+    x.add_argument("run_id"); x.set_defaults(func=cmd_artifacts)
+    x = sub.add_parser("events", help="List a run's events, optionally only those after a sequence number")
+    x.add_argument("run_id"); x.add_argument("--after", type=int, default=0, help="Only events with seq greater than this")
+    x.set_defaults(func=cmd_events)
+    x = sub.add_parser("usage", help="Show a run's token usage with totals per run, agent and step (cost is an estimate)")
+    x.add_argument("run_id"); x.add_argument("--jsonl", action="store_true", help="One JSON line per usage record")
+    x.set_defaults(func=cmd_usage)
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)

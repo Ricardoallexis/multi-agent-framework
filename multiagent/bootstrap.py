@@ -52,7 +52,7 @@ def build_system(settings: Settings | None = None, *, dry_run: bool = False, ada
     }
     if adapter_overrides:
         adapters.update(adapter_overrides)
-    router = ModelRouter(catalog, adapters, dry_run=dry_run)
+    router = ModelRouter(catalog, adapters, dry_run=dry_run or settings.mock_mode)
     engine = WorkflowEngine(
         store=store, catalog=catalog, prompts=prompts, workflows=WorkflowCatalog(settings),
         router=router, artifacts=ArtifactWriter(settings), settings=settings,

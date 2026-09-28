@@ -71,6 +71,8 @@ English is the canonical language for public code identifiers, documentation, pr
 
 Documentation-only or maintenance changes that do not alter a distributable release do not require a version increment. Record relevant changes under `Unreleased` until the next release.
 
+Versions are defined only in `multiagent/version.py`. When preparing a release, follow the procedure in [`docs/VERSIONING.md`](docs/VERSIONING.md#preparing-a-release). CI fails if a current version declaration does not match. You can run the same check locally with `python scripts/check_version_consistency.py`, or run `run_tests_windows.bat` on Windows, which runs it before the tests.
+
 ## Security reports
 
 Do not disclose exploitable security details or secrets in a public issue. Follow [`SECURITY.md`](SECURITY.md) for responsible reporting.

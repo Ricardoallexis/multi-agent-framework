@@ -2,14 +2,16 @@
 
 ## Purpose
 
-Multi-Agent Framework coordinates workflows composed of specialized agents and combines local execution, cloud providers, and human participation without coupling workflow logic to a specific model provider.
+Multi-Agent Framework is a domain-neutral runtime for teams of AI agents, humans, models, and tools. Today it coordinates declared workflows composed of specialized agents, and combines local execution, cloud providers, and human participation without coupling workflow logic to a specific model provider. The planned evolution (teams, planning, delegation, optional backends) is described in [`COMPARISON.md`](COMPARISON.md) and the [roadmap](../ROADMAP.md). This page describes the current code.
 
 ## Main components
 
 ```text
-main.py
-  -> FastAPI app
-      -> RunService
+main.py / CLI / Python callers
+  -> FastAPI app (HTTP API)
+  -> ApplicationServices (multiagent/services/)
+      -> definitions (workflows, agents, bundles)
+      -> runs -> RunService (one per bundle runtime)
           -> WorkflowEngine
               -> ModelRouter
                   -> adapters/
@@ -23,9 +25,13 @@ main.py
               -> Human checkpoints
 ```
 
+### `multiagent/services/`
+
+The public Python layer (`ApplicationServices`) used by the HTTP API and, through it, the CLI. It lists and validates definitions, creates and steers runs (including definition bundles, each with its own store and worker), and reports failures as `ServiceError` with stable codes. See [`API.md`](API.md).
+
 ### `multiagent/api.py`
 
-Exposes the HTTP API for creating and querying runs, approving or rejecting artifacts, requesting revisions, cancelling runs, and completing externally executed human-guided steps.
+Exposes the HTTP API over the application services: definitions, runs, reviews, cancellation, externally executed human-guided steps, and artifacts, with structured errors.
 
 ### `multiagent/cli.py`
 

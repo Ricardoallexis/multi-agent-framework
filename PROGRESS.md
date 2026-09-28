@@ -9,43 +9,46 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 <!-- progress:table:start -->
 | Area | Progress | Items |
 | --- | --- | --- |
-| Current baseline — `M1-B01-F00-alpha` | `██████████` 100% | 15 of 15 |
-| Orchestration and agent runtime | `██░░░░░░░░` 18% | 2 of 11 |
-| Intelligent model routing | `░░░░░░░░░░` 0% | 0 of 6 |
+| First public baseline — `M1-B01-F00-alpha` | `██████████` 100% | 15 of 15 |
+| Orchestration and agent runtime | `███░░░░░░░` 27% | 3 of 11 |
+| Intelligent model routing | `░░░░░░░░░░` 0% | 0 of 7 |
 | Local and offline AI | `░░░░░░░░░░` 0% | 0 of 9 |
 | Research and knowledge workflows | `░░░░░░░░░░` 0% | 0 of 6 |
-| Content, branding, and production | `░░░░░░░░░░` 0% | 0 of 7 |
-| Human-in-the-loop | `█░░░░░░░░░` 12% | 1 of 8 |
-| Collaborative agent teams | `░░░░░░░░░░` 0% | 0 of 14 |
+| Content, branding, and production | `░░░░░░░░░░` 0% | 0 of 8 |
+| Human-in-the-loop | `█░░░░░░░░░` 11% | 1 of 9 |
+| Collaborative agent teams | `░░░░░░░░░░` 0% | 0 of 16 |
 | Planning, delegation, and team orchestration | `░░░░░░░░░░` 0% | 0 of 12 |
-| Preset sharing and community catalog | `░░░░░░░░░░` 0% | 0 of 6 |
-| Frontend / UI | `░░░░░░░░░░` 0% | 0 of 15 |
-| Memory, context, and project knowledge | `░░░░░░░░░░` 0% | 0 of 5 |
+| Team design from a prompt | `░░░░░░░░░░` 0% | 0 of 7 |
+| Preset sharing and community catalog | `░░░░░░░░░░` 0% | 0 of 7 |
+| Reference tool stacks for team presets | `░░░░░░░░░░` 0% | 0 of 5 |
+| Frontend / UI | `██░░░░░░░░` 20% | 4 of 20 |
+| Advanced operator interface | `░░░░░░░░░░` 0% | 0 of 15 |
+| Memory, context, and project knowledge | `░░░░░░░░░░` 0% | 0 of 6 |
 | Tools, interoperability, and external applications | `░░░░░░░░░░` 0% | 0 of 13 |
-| Observability, quality, and evaluation | `░░░░░░░░░░` 0% | 0 of 7 |
+| Observability, quality, and evaluation | `█░░░░░░░░░` 12% | 1 of 8 |
 | Security and privacy | `░░░░░░░░░░` 0% | 0 of 6 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **13%** | **20 of 155** |
+| **All roadmap items** | **13%** | **26 of 195** |
 <!-- progress:table:end -->
 
 ## Current stage — runtime foundations
 
-The first four features below were released in `M1-B02-F00-alpha`. Goal: make the existing runtime reliable and general before adding larger capabilities, so new agents, teams, and backends can be added without rewriting the core.
+The first four features below were released in `M1-B02-F00-alpha`. Application services and HTTP parity are done in the repository and will ship in the next release (see `[Unreleased]` in the changelog). Goal: make the existing runtime reliable and general before adding larger capabilities, so new agents, teams, and backends can be added without rewriting the core.
 
 | Feature | Status | What it lets you do |
 | --- | --- | --- |
 | Installable package | ✅ Done | Install from a wheel and run the Python example outside the repository. Reproducible installation on every platform is still planned. |
 | Validation before execution | ✅ Done | Catch a broken workflow (bad YAML, duplicate steps, unknown agents, contracts, models, prompts, or skills) **before** any model call, with every problem reported at once and a stable code for each. An invalid workflow never leaves a half-started run. |
 | Review after any step | ✅ Done | Ask for a human review at any step, approve the exact attempt you saw, and continue from the next step without repeating approved work. Edits to a workflow while a run waits are detected before continuing. |
-| Workflows outside the core | ✅ Done | Keep a complete team (workflows, agents, prompts, and contracts) in its own folder, even outside this repository, validate it, and run it from Python with a generic request. The first example reviews a software specification. |
-| Application services and HTTP parity | 🔄 Next | One public Python layer used by the CLI, the HTTP API, a UI, and an MCP server; generic runs and clear validation errors over HTTP. |
-| Minimal operator UI | ⏳ Planned | Start runs, follow their state, answer human steps (including pasting an external model's response), and inspect results without the command line, using the mock backend. |
+| Workflows outside the core | ✅ Done | Keep a complete team (workflows, agents, prompts, and contracts) in its own folder, even outside this repository, validate it, and run it with a generic request from Python, the HTTP API, or the CLI. The first example reviews a software specification. |
+| Application services and HTTP parity | ✅ Done | One public Python layer used by the CLI and the HTTP API, and ready for a UI and an MCP server. It runs generic and bundle workflows, gives clear errors with stable codes, and has a Mock mode that needs no API keys. |
+| Minimal operator UI | 🔄 Next | Start runs, follow their state, answer human steps (including pasting an external model's response), and inspect results without the command line, using the mock backend. |
 | Execution backend abstraction | ⏳ Planned | Run the same workflow with the built-in engine, a mock, or an optional [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) backend (graphs, MCP, OpenTelemetry) without making the core depend on it. |
 
 Later candidates, chosen by need: deterministic Python steps, a generic human bridge, provenance, context policies, correlated events with OpenTelemetry, and layered configuration.
 
-Longer term, the roadmap adds **collaborative agent teams**: a domain-neutral core for two or more agents working on shared resources, with scoped workspaces, inboxes with read receipts, reviewed change proposals, gates, and a supervised or autonomous mode. Software development is the first preset; design, finance, and other domains use the same core through their own presets. Presets will be shareable: packaged with a manifest, installed from a file, a Git repository, or a community catalog, validated before use, and customized through private overlays.
+Longer term, the roadmap adds **collaborative agent teams**: a domain-neutral core for two or more agents working on shared resources, with scoped workspaces, inboxes with read receipts, reviewed change proposals, gates, and a supervised or autonomous mode. Autonomy is governed: agents plan, delegate, and route within declared roles, permissions, contracts, budgets, and gates, and escalate to a human when needed. Software development is the first preset; design, finance, and other domains use the same core through their own presets. Presets will be shareable: packaged with a manifest, installed from a file, a Git repository, or a community catalog, validated before use, and customized through private overlays.
 
 ## Milestones
 

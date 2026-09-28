@@ -4,6 +4,49 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ## [Unreleased]
 
+### Added
+
+- Add application services (`multiagent.services`): one Python facade, `ApplicationServices`. It covers definitions (workflows, agents, and bundles) and runs, and the HTTP API and CLI use it. Failures raise `ServiceError` with a stable `code`, a `message`, an HTTP-like `status`, and JSON-ready `details`.
+- Run definition bundles through the facade, each with its own store and worker. Bundles are registered by name in Python and are never exposed by path.
+- Add HTTP routes for workflows, agents, bundles, bundle validation, and run artifacts. `POST /api/v1/runs` accepts a generic `RunRequest` (optionally with `?bundle=`) as well as the social-post request.
+- Add CLI commands `workflows`, `agents`, `bundle-validate`, and `artifacts`, and generic runs with `run --workflow ... --input name=value [--bundle ...]`.
+- Add Mock mode: with `MOCK_MODE=true`, the server and CLI run with synthetic fixtures and no model API keys. `/api/v1/health` reports `dry_run`.
+- Add `docs/API.md` (facade, endpoints, error format, and Mock mode) and a README quick start with Mock.
+- Add the Stage 0 run console: a local browser UI at `/ui/`, started with `multiagent ui` (or `run_ui_windows.bat`) in Mock mode by default, with `--real` for configured providers. It selects a workflow or bundle, creates a run, follows its status, current step, pending action, and events, handles human review (approve, request changes, regenerate, reject, cancel), runs the Human Bridge (copy the prompt, paste an external response, see validation errors), and shows artifacts. It is static HTML and JavaScript modules served by FastAPI, with no build step, and uses only the public HTTP API. See `docs/UI0.md`.
+- Add Mock acceptance tests for the Stage 0 console and a manual checklist (`tests/ui0/CHECKLIST.md`).
+- Number each run's events with `seq` (1, 2, 3… without gaps) and read only newer events with `GET /api/v1/runs/{run_id}/events?after=N`, `services.runs.events(run_id, after=N)`, or `multiagent events <run_id> --after N`. The Stage 0 run view detects gaps, repeats, and out-of-order copies and reloads the run instead of guessing its state.
+- Add parity tests across the Python facade, HTTP, and the CLI.
+- Record provider-reported token usage locally per run, agent, step, and attempt, including elapsed duration and failed attempts. Read records and totals through Python, HTTP, and CLI (including JSONL export); missing provider usage stays null, and telemetry write failures do not stop execution. See `docs/TELEMETRY.md`.
+- Add `scripts/check_version_consistency.py`. It checks that every current version declaration (README header, newest changelog release, latest milestone, `pyproject.toml`, and the tag on tag builds) matches `multiagent/version.py`, and that the product stage and the Python pre-release agree. CI and `run_tests_windows.bat` run it before the tests.
+
+### Changed
+
+- Protect the local API from other web pages in the same browser. Requests whose `Host` is not in `API_ALLOWED_HOSTS` (default `127.0.0.1`, `localhost`) answer 400 `invalid_host`, which blocks DNS rebinding. State-changing requests with an `Origin` from another site, or a cross-site `Sec-Fetch-Site`, answer 403 `forbidden_origin`. The CLI and other clients that send no `Origin` keep working. This is not authentication: do not expose the server to a network.
+- Rewrite `docs/COMPARISON.md` around the target scope, with a status marker per capability (available, partial, planned, optional backend or adapter, under evaluation). It also separates what is not implemented in the current alpha from what stays intentionally outside the core, and compares scope with other frameworks.
+- Describe the project as a domain-neutral, configurable runtime for teams of AI agents, humans, models, and tools. `README.md` and `ROADMAP.md` separate what works today, what is planned, and the long-term direction.
+- Rename the roadmap section for `M1-B01-F00-alpha` to "First public baseline", so it is not mistaken for the current release.
+- Mark the current version lines in `README.md` so they are checked, and document the release procedure in `docs/VERSIONING.md`.
+- `multiagent/version.py` omits the stage suffix for stable releases instead of producing a trailing `-`.
+
+- API errors now answer `{"detail": {"code", "message", "details"}}` with the same HTTP statuses as before, and invalid request bodies use the same format. Creating a run for an invalid workflow answers 422 instead of 500. Clients that read `detail` as text must read `detail.message`.
+- Clarify the autonomy model in `docs/COMPARISON.md`, `README.md`, `ROADMAP.md`, and `PROGRESS.md`. The runtime currently executes declared workflows. The roadmap target is governed autonomy: planning, delegation, and dynamic routing within declared roles, permissions, contracts, budgets, gates, and policies, with escalation to a human. It is not unrestricted agent conversation.
+
+### Roadmap
+
+- Add a stage plan (`docs/ROADMAP_STAGES.md`): stages S0–S18 with sub-stages, tasks, dependencies, and parallel lanes, classified as Core, Extension, or Example, with objectives, acceptance criteria, and examples. The development order now follows these stages.
+- Mark the stage 0 UI's untrusted rendering, Content Security Policy, and color-independent status as done, keeping rich-rendering sanitization and accessibility in later UI stages as planned.
+- Add proposed items from the project inventory: task reservation and a dependency-aware integration gate for teams, per-task context packages, a register of proposals and decisions, moving the branding domain to a preset, and a library of requests.
+- Mark application services and HTTP parity as done.
+- Mark the minimal operator UI (stage 0) as done; the execution backend abstraction is next.
+- Add the autonomy principle (autonomous orchestration within declared organizational constraints) and state the limits planners work within.
+- Add **Team design from a prompt**: generate or formalize a team (roles, rules, organization chart, and recommended but never mandatory model bindings) as a validated, human-approved team definition. Roles are not tied to models, and one model can switch between roles.
+- Add **Reference tool stacks for team presets**: research well-known open-source tools as examples for the five most common team types (for example Tailwind CSS for web design). They are examples in presets, never core dependencies.
+- Record the external-delivery importer (`tools/seguimiento/`) as a design reference for externally produced output, the Stage 0 review step, and the future shared-folder channel. It is not runtime code.
+- Add an optional evaluation of external structured-decision providers (for example Jev, commercial) behind a provider-neutral interface. It requires explicit opt-in, the native implementation remains the default, and it is not an adoption decision.
+- Add **Advanced operator interface**: live topology and high-volume telemetry for large or long-running teams (background event ingestion, client state machines that mirror the core, macro and meso views with semantic zoom, virtualization, OpenTelemetry and MCP views, and an accessible design system). It is placed after OpenTelemetry, MCP, and planning, and its technologies are candidates for an architecture decision.
+- Add near-term UI foundations: sequence-numbered run events with resynchronization, untrusted rendering of model output with sanitization and a Content Security Policy, and status that never depends on color alone.
+- Mark provider-reported token-usage telemetry as delivered; retry counts, routing decisions, and token estimates remain planned.
+
 ## [M1-B02-F00-alpha] - 2026-09-27
 
 Python package: `0.2.0a1`.

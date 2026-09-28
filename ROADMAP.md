@@ -4,23 +4,33 @@ This roadmap captures the capabilities and directions discussed for Multi-Agent 
 
 This roadmap is a **living document**: it is updated whenever priorities, findings, or architecture decisions change, and each release lists the roadmap changes it publishes in the [changelog](CHANGELOG.md).
 
+**How to read it:** checked items (`[x]`) work today; unchecked items are planned and not implemented. The long-term direction is described by the principles below. [`docs/COMPARISON.md`](docs/COMPARISON.md) gives the status of each capability in one table, and the current release is shown at the top of [`README.md`](README.md).
+
+**Domain neutrality:** the core stays domain-neutral. Software development, architecture and engineering, research, design, finance, operations, or media production are implemented through configuration, presets, plugins, adapters, workflows, or projects built on the framework, without domain-specific logic in the core.
+
 **Guiding principle:** reuse mature, stable components behind adapters instead of rebuilding them. [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) (the successor of AutoGen) is the main candidate for graph execution, MCP, A2A, AG-UI, and OpenTelemetry. It is planned as an **optional** execution backend: the framework's configuration, runs, contracts, Human Bridge, and artifacts stay independent of any backend, and the default backend keeps working without it.
+
+**Autonomy principle:** today the runtime executes declared workflows. Steps, order, and main conditions are defined before a run starts, and models produce each step's content.
+
+The target is governed autonomy, reached through the team, planning, and routing areas below. A planner or orchestrator will decompose objectives, assign and delegate tasks, consult specialists, request reviews, replan, and choose routes dynamically. It will act within the organization, roles, capabilities, permissions, contracts, budgets, gates, scoped workspaces, and policies the user declares, and escalate to a human when needed.
+
+The declarative structure stays, but it defines limits and relationships instead of every transition. The goal is autonomous orchestration within declared organizational constraints, not unrestricted conversation between agents.
 
 ## Development order
 
-The order follows technical dependencies and changes as the project learns (see the changelog):
+The order follows technical dependencies and changes as the project learns (see the changelog). The [stage plan](docs/ROADMAP_STAGES.md) breaks each stage into sub-stages and tasks with their dependencies, and shows which work can run in parallel.
 
-1. Stable core ✅: validation before execution, review after any step, and definition bundles.
-2. Application services and HTTP parity: one public Python layer used by the CLI, the HTTP API, a UI, and an MCP server, with generic run requests and structured errors over HTTP.
-3. A minimal operator UI (stage 0) over that API, working with the mock backend.
-4. The execution backend abstraction (native, mock, and optional Microsoft Agent Framework).
-5. Agent, tool, and capability contracts, impact-based permissions on the existing human-in-the-loop, and deterministic function steps.
-6. Team relationships as data.
-7. Planning and delegation: manual first, then semi-automatic and automatic.
-8. Interoperability: MCP server, shared-folder channel, MCP client, desktop bridge, application gateway, and external application adapters.
-9. Replanning, dynamic teams, preset sharing, a plugin ecosystem, and optional UI automation.
+1. **S0–S3 ✅** Stable core; application services and HTTP parity; operator UI stage 0; local usage telemetry.
+2. **S4** Execution backend abstraction (native, mock, and optional Microsoft Agent Framework), in parallel with **S5** tool and capability contracts.
+3. **S6** Team definitions and team design from a prompt, then **S7** collaborative team primitives.
+4. **S8** Planning and delegation: manual first, then semi-automatic and automatic.
+5. **S9** Interoperability. The MCP server can start at any time; channels and clients follow the tool contracts.
+6. **S10–S13** Observability and evaluation, routing and local AI, memory and context, and human-in-the-loop improvements. They advance in parallel lanes when their dependencies are met.
+7. **S14–S15** Operator UI stages 1–3, then the advanced operator interface once OpenTelemetry, MCP, and concurrent planning exist.
+8. **S16** Presets, examples, and catalog, including reference tool stacks. The research and examples can start early because they do not block the core.
+9. **S17** Security, developer experience, and releases, continuously; **S18** a future M2 generation only if compatibility cannot be kept.
 
-## Current baseline — `M1-B01-F00-alpha`
+## First public baseline — `M1-B01-F00-alpha`
 
 **Progress:** `██████████` 15/15 · 100% <!-- progress -->
 
@@ -44,11 +54,11 @@ The first public baseline is backend-first and provides the foundation for the r
 
 ## Orchestration and agent runtime
 
-**Progress:** `██░░░░░░░░` 2/11 · 18% <!-- progress -->
+**Progress:** `███░░░░░░░` 3/11 · 27% <!-- progress -->
 
 - [ ] Expand the workflow engine so new agents and workflows can be added with minimal changes to the core runtime.
-  - [x] Load definition bundles (workflows, agents, prompts, and contracts) from outside the package, validate them, and run them through a generic request from Python.
-- [ ] Provide one public application-services layer in Python, used by the CLI, the HTTP API, a future UI, and an MCP server, including generic run requests and structured validation errors over HTTP.
+  - [x] Load definition bundles (workflows, agents, prompts, and contracts) from outside the package, validate them, and run them through a generic request from Python, the HTTP API, and the CLI.
+- [x] Provide one public application-services layer in Python, used by the CLI, the HTTP API, a future UI, and an MCP server, including generic run requests and structured validation errors over HTTP.
 - [ ] Introduce an execution backend abstraction: native (default), mock, and an optional Microsoft Agent Framework backend.
 - [ ] Support richer conditional routing, branching, retries, dependencies, and reusable workflow fragments by compiling workflow definitions to the optional Microsoft Agent Framework backend instead of building a separate graph engine.
 - [ ] Improve agent-to-agent context management while preserving explicit contracts and traceability.
@@ -60,7 +70,7 @@ The first public baseline is backend-first and provides the foundation for the r
 
 ## Intelligent model routing
 
-**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
 
 The framework is intended to use the orchestrator to choose the most appropriate model for each task rather than relying on one model for every capability.
 
@@ -69,6 +79,7 @@ The framework is intended to use the orchestrator to choose the most appropriate
 - [ ] Add model health checks, capability discovery, and automatic fallback policies.
 - [ ] Track per-model quality, latency, failures, and usage to inform future routing decisions.
 - [ ] Support configurable local-first, cloud-first, offline-only, and hybrid execution policies.
+- [ ] Evaluate optional external structured-decision providers (for example Jev, a commercial service) behind a provider-neutral interface. The native implementation stays the default, any external provider requires an explicit opt-in, and no provider becomes a required dependency. This is a possible evaluation, not an adoption decision.
 - [ ] Improve token/context budgeting and prevent avoidable context overflow.
 
 ## Local and offline AI
@@ -100,7 +111,7 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 
 ## Content, branding, and production
 
-**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/8 · 0% <!-- progress -->
 
 - [ ] Expand content workflows for additional formats and channels.
 - [ ] Improve reusable brand profiles, brand assets, tone constraints, and project-level context.
@@ -109,10 +120,11 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 - [ ] Add video pre-production workflows such as concepts, scripts, shot lists, storyboards, and generation prompts.
 - [ ] Support iterative review loops between strategy, copy, design, and human reviewers.
 - [ ] Keep factual research, brand guidance, and generated creative content clearly separated in the data model.
+- [ ] *(proposed)* Move the branding and asset domain out of the core package into a preset, so the core stays domain-neutral.
 
 ## Human-in-the-loop
 
-**Progress:** `█░░░░░░░░░` 1/8 · 12% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 1/9 · 11% <!-- progress -->
 
 Human control is intended to remain a first-class part of the architecture rather than an exception path.
 
@@ -120,14 +132,15 @@ Human control is intended to remain a first-class part of the architecture rathe
 - [ ] Improve review queues and actionable human-step requests.
 - [ ] Improve the human-guided external model flow (copy the prompt, use any external chat or application, import the response, and validate it against the contract) across the CLI, the API, and the UI, as a feature for human control, interoperability, provider independence, and transparency.
 - [ ] Support approval policies per workflow, step, risk level, or project.
-- [ ] Allow humans to replace an agent step with externally produced output while preserving validation and traceability.
+- [ ] Allow humans to replace an agent step with externally produced output while preserving validation and traceability. Reuse the pattern of the external-delivery importer in `tools/seguimiento/importar-paquete-nube.ps1` (manifest, integrity hashes, allowlisted paths, preview, explicit human confirmation, and an auditable receipt) as a design reference only; that tool is specific to this project's workflow and is not part of the runtime. A hash proves integrity, not authorship: a human confirms who produced the output.
 - [ ] Add clearer revision history and comparisons between attempts.
 - [ ] Add comments, reviewer notes, and structured feedback that can be passed safely into subsequent attempts.
 - [ ] Improve audit trails showing what was produced by a model, a deterministic tool, or a human.
+- [ ] *(proposed)* A register of proposals and decisions with their state and validity.
 
 ## Collaborative agent teams
 
-**Progress:** `░░░░░░░░░░` 0/14 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/16 · 0% <!-- progress -->
 
 A domain-neutral core for coordinating two or more agents, and the humans who supervise them, on shared work. Software development is one application; the same primitives should serve design, finance, research, operations, or any other domain. Domain-specific behavior lives in team presets and examples that users can extend, and agents can help a user design their own team setup. The protocol is the framework's own and runs on its runs, events, and Human Bridge; A2A or Microsoft Agent Framework may carry messages, but they do not define it.
 
@@ -136,6 +149,8 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 - [ ] A team log and member inboxes: an append-only log plus a per-member inbox where reading a message acknowledges it, so members process only unread messages and never poll.
 - [ ] Structured messages and handoffs (delivery, proposal, question, answer, decision, result) that state the baseline, what changed, what was not verified, and what is requested from whom.
 - [ ] Change proposals: members deliver reviewable change sets in an ordered queue, with dependencies and held drafts, and a supervisor applies them rather than their authors.
+- [ ] *(proposed)* Task reservation with declared resources: taking a task reserves its resources and rejects overlapping work.
+- [ ] *(proposed)* A dependency-aware integration gate: a change waits until its task is finished and its dependencies are applied and verified.
 - [ ] Review and gates: cross-review between members, and stages that close only when shared checks pass and a supervisor approves.
 - [ ] Check results with visibility rules: a member's own checks stay private to it, shared checks are visible to the team, and one designated reader summarizes each report.
 - [ ] Workspace synchronization after each approved stage, only with each member's confirmation and without losing unfinished work.
@@ -144,13 +159,13 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 - [ ] A resumable status snapshot (stage, milestones, and next action for each member) and human-readable views of communication, progress, and pending decisions.
 - [ ] Team presets as examples: a software development team (resources are files, change sets are patches, checks are test suites, and stages end in a commit), plus examples for other domains such as design reviews or financial reporting.
 - [ ] Let users extend presets or create their own (roles, resources, message types, checks, gates, and modes) without changing the core.
-- [ ] A guided setup in which agents help a user design their team, scopes, rules, and mode, and adjust them as the work evolves.
+- [ ] A guided setup in which agents help a user design their team, scopes, rules, and mode, and adjust them as the work evolves (built on [team design from a prompt](#team-design-from-a-prompt)).
 
 ## Planning, delegation, and team orchestration
 
 **Progress:** `░░░░░░░░░░` 0/12 · 0% <!-- progress -->
 
-Turn a high-level objective into an executable plan for a team the user has defined: understand the objective, decompose the work, find the required capabilities, assign specialists, coordinate execution, request revisions, and integrate the final result. The core stays domain-neutral; industries appear only in presets and examples.
+Turn a high-level objective into an executable plan for a team the user has defined: understand the objective, decompose the work, find the required capabilities, assign specialists, coordinate execution, request revisions, and integrate the final result. Planners and orchestrators act only within the limits the user declares (roles, capabilities, permissions, contracts, budgets, gates, and policies) and escalate to a human when needed; every decision stays traceable. The core stays domain-neutral; industries appear only in presets and examples.
 
 - [ ] Represent a plan as data (tasks, subtasks, dependencies, required capabilities, expected outputs and contracts, assignments, parallel groups, review and integration steps) and execute it through the existing workflow engine and backends instead of a second engine.
 - [ ] Make planners pluggable: manual, deterministic, LLM-based, a custom plugin, or an external planner.
@@ -165,9 +180,25 @@ Turn a high-level objective into an executable plan for a team the user has defi
 - [ ] Propose temporary teams from a catalog of available agents for the user to approve or modify, once assignment on user-defined teams is stable.
 - [ ] Honor plan constraints: call, cost, and time budgets, local-only or offline execution, allowed or prohibited providers, and required approvals.
 
+## Team design from a prompt
+
+**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
+
+Describe what you need in one prompt and get a working team: the agents it recommends, their instructions and responsibilities, and an organization chart. If the prompt already defines the team, the generator formalizes it instead of redesigning it. The result is data — a team definition that is validated, reviewed by a human, and versioned like any bundle or preset — never code in the core.
+
+Roles are not tied to models. A **role** holds rules, skills, contracts, capabilities, and permissions. A **member** is whoever executes: a model, a provider's agent, an external agent, or a human. An **assignment** links them. Recommended bindings (for example a designer on one provider, a researcher on another) are only suggestions from the capability catalog. A single model can play several roles and switch between them, loading each role's rules when a step needs that role.
+
+- [ ] Define the team definition as data: roles (purpose, rules, skills, contracts, capabilities, permissions), members, assignments, relationships (the organization chart), and working rules, reusing the relationship model of the planning area.
+- [ ] Generate a team definition from a prompt with a meta-workflow that runs on the existing engine: (a) from an objective alone, recommending roles with a short rationale; (b) from a team the user already described, formalizing it and asking about gaps instead of redesigning it.
+- [ ] Validate generated teams with the same rules as bundles (references, contracts, capabilities, least-privilege permissions) and require human approval before any team is created or changed, reusing the human-in-the-loop.
+- [ ] Recommend model or provider bindings per role from the capability catalog and the model router, as editable suggestions; never hard-code vendors in the core, and allow any available member, or a human, to take any role.
+- [ ] Let one member switch roles at runtime: each step declares its role, the runtime loads that role's rules and context, keeps role contexts separated, and records the role and the member in the trace.
+- [ ] Render the organization chart from the relationships (for example as a Mermaid diagram) in docs and, later, in the UI (stage 2).
+- [ ] Regenerate a team as a reviewable diff against the current definition, and save accepted teams as presets.
+
 ## Preset sharing and community catalog
 
-**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
 
 Presets (teams, workflows, agents, prompts, contracts, and checks) should be easy to share, so that one user's setup for design reviews, financial reporting, or software development can be downloaded and used by others. This builds on the existing definition bundles and stays domain-neutral.
 
@@ -177,18 +208,31 @@ Presets (teams, workflows, agents, prompts, contracts, and checks) should be eas
 - [ ] Treat presets that include executable code (such as contract models or tools) as untrusted until the user approves them: show what will run, verify checksums or signatures, prefer data-only presets, and allow sandboxing.
 - [ ] Customize a shared preset with a private overlay instead of copying it (defaults < public preset < private overlay < runtime overrides), so updates to the shared preset can still be applied.
 - [ ] Offer a searchable catalog with descriptions, examples, domains, and compatibility information, and keep private presets out of it unless the user publishes them.
+- [ ] *(proposed)* A library of objectives or requests to start runs from, if it proves useful.
+
+## Reference tool stacks for team presets
+
+**Progress:** `░░░░░░░░░░` 0/5 · 0% <!-- progress -->
+
+Research which well-known open-source tools make good examples for the most common teams, so presets show realistic setups. The tools are examples inside presets and adapters, never dependencies of the core. Candidates to evaluate, not decisions: a web design team with Tailwind CSS and Vite; a software development team with Git, pytest, and Ruff; a data and research team with Jupyter, pandas, and DuckDB; a documentation team with Pandoc and MkDocs; a design and media team with Inkscape, GIMP, and Blender.
+
+- [ ] Choose the top five team types by expected use, with a short justification for each.
+- [ ] Define the evaluation criteria: license compatible with Apache-2.0 use, maturity and maintenance, community size, a stable integration path (CLI, API, SDK, or MCP), Windows/Linux/macOS support, and offline use.
+- [ ] For each team type, list three to five reference tools with the role they serve and how an agent would use them.
+- [ ] Publish the result as a reference page and link it from the matching team presets.
+- [ ] Review the list periodically and record changes in the changelog.
 
 ## Frontend / UI
 
-**Progress:** `░░░░░░░░░░` 0/15 · 0% <!-- progress -->
+**Progress:** `██░░░░░░░░` 4/20 · 20% <!-- progress -->
 
 `F00` ships without a graphical interface. A minimal UI arrives early as a development, testing, and operator interface rather than as the final product. It is one more client of the public API, like the CLI, with no business logic, persistence, or orchestration of its own, and it works with the mock backend so no API keys are needed. Its technology is chosen at that milestone, and each later area of the roadmap adds UI only where it clearly improves validation, operation, or experience.
 
-- [ ] Stage 0, right after the application services and HTTP parity: start a run from an available workflow (mock by default), follow its status and events, handle the pending human action (approve, request changes, regenerate, reject, cancel, or paste an external model's response and see validation errors), and inspect artifacts.
+- [x] Stage 0, right after the application services and HTTP parity: start a run from an available workflow (mock by default), follow its status and events, handle the pending human action (approve, request changes, regenerate, reject, cancel, or paste an external model's response and see validation errors), and inspect artifacts. Its review and confirmation step for externally produced output can follow the same human-confirmation pattern as the external-delivery importer (`tools/seguimiento/`).
 - [ ] Stage 1: agent and workflow configuration, once agent, tool, and capability contracts are stable.
 - [ ] Stage 2: teams, plans, and tasks, to inspect and approve generated plans and follow task execution.
 - [ ] Stage 3: tools and interoperability, including pending permissions, channels, MCP, and artifacts.
-- [ ] Stage 4: a more complete experience, including live topology over domain events.
+- [ ] Stage 4: a more complete experience, including live topology over domain events (see [Advanced operator interface](#advanced-operator-interface)).
 - [ ] Define the frontend architecture and stable API boundary.
 - [ ] Evaluate AG-UI as the event transport between the framework's domain events and a future UI.
 - [ ] Dashboard for projects, workflows, active runs, queued work, and system health.
@@ -199,16 +243,46 @@ Presets (teams, workflows, agents, prompts, contracts, and checks) should be eas
 - [ ] Usage, latency, cost, routing, and error visualization.
 - [ ] Local-model availability and hardware status views.
 - [ ] Administrative views for workers, migrations, diagnostics, and recovery.
+- [x] Give run events a monotonic sequence number so clients detect gaps, duplicates, and out-of-order delivery, and resynchronize from a run snapshot instead of guessing state.
+- [x] Treat model output, artifacts, and raw payloads as untrusted in the stage 0 UI: render them as text and serve the UI with a restrictive Content Security Policy.
+- [ ] Sanitize any future rich rendering (Markdown or HTML) with a strict allowlist sanitizer, in every UI.
+- [x] In the stage 0 UI, status and alerts never depend on color alone (text, icon, or shape as well), with WCAG 2.2 AA contrast as the baseline.
+- [ ] Keep the same accessibility baseline in every later UI stage.
+
+## Advanced operator interface
+
+**Progress:** `░░░░░░░░░░` 0/15 · 0% <!-- progress -->
+
+A later evolution of the operator UI for large or long-running teams: many agents, tools, and nested tasks running at once, followed live without freezing the browser. It stays a client of the public API and of standard event streams, with no inference, prompts, provider calls, or orchestration in the browser, and it keeps only the current session's state in memory.
+
+It depends on OpenTelemetry events, MCP tool access, and planning with concurrent agents, and is built after them (see the development order). The technologies named below are candidates to evaluate in an architecture decision, not commitments.
+
+- [ ] Record an architecture decision for the advanced UI: rendering stack, build toolchain, state management, and how it coexists with the stage 0 UI that needs no build step.
+- [ ] Measurable performance targets before building: events per second ingested, frames per second while panning and zooming, main-thread load, and memory over multi-day runs.
+- [ ] Ingest events in a background worker (Web Workers over WebSocket or SSE) so the main thread only renders. Zero-copy transfer (`SharedArrayBuffer`) is optional, because it requires cross-origin isolation headers.
+- [ ] Client-side state machines (for example XState) for agents, tools, and teams that mirror the lifecycle published by the core and reject impossible transitions. The core stays the source of truth: the UI resynchronizes from a snapshot and never decides transitions itself.
+- [ ] Tolerate out-of-order and late events, such as a completion arriving before the last streamed tokens, with buffering by sequence number.
+- [ ] Macro view: a force-directed graph of agents and clusters rendered with WebGL or Canvas (optionally in `OffscreenCanvas`).
+- [ ] Meso view: the run's task graph over time (a DAG library such as React Flow), reached by zooming in.
+- [ ] Semantic zoom: a smooth transition from the macro view to structured, interactive nodes.
+- [ ] A detail panel per agent or step with progressive disclosure: summary, trace (reasoning only where the provider exposes it and logging policies allow it), metrics, and raw payload.
+- [ ] Lightweight live indicators (sparklines) instead of spinners.
+- [ ] Virtualize long logs, timelines, and graphs so runs lasting days do not exhaust browser memory.
+- [ ] Map OpenTelemetry GenAI traces (parent-child spans, tokens, cost, latency) into the views with provider-neutral schemas; no view assumes a specific provider.
+- [ ] Show MCP tool access: which agent used which tool, with what permission and result.
+- [ ] Render pending human actions from a standard payload that tells the UI which fields and actions to offer (approve, reject, request changes with feedback, or replace the output).
+- [ ] An accessible, mostly achromatic design system with design tokens, evaluated with APCA in addition to the WCAG 2.2 AA baseline, with muted red and amber reserved for alerts.
 
 ## Memory, context, and project knowledge
 
-**Progress:** `░░░░░░░░░░` 0/5 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
 
 - [ ] Add explicit project-scoped memory/context that does not depend on hidden model memory.
 - [ ] Support reusable knowledge packs and structured project context.
 - [ ] Add retrieval and summarization strategies for large project histories.
 - [ ] Define retention, privacy, provenance, and invalidation rules for stored context.
 - [ ] Allow workflows to request only the context they need instead of loading all available history (context propagation policies such as none, selected, summary, artifacts, and full).
+- [ ] *(proposed)* Per-task context packages with a fingerprint for invalidation that carry only what changed since the last package.
 
 ## Tools, interoperability, and external applications
 
@@ -222,7 +296,7 @@ The core works with generic concepts (tool, capability, provider, channel, permi
 - [ ] Allow agents to call approved deterministic tools and external services through controlled contracts.
 - [ ] Expose the framework as an MCP server through the same application services as the API (list agents and workflows, create and inspect runs, handle pending human steps, and read artifacts) without exposing internals.
 - [ ] Connect MCP tools as a client, through Microsoft Agent Framework's MCP support or the official MCP SDK, behind the framework's tool abstraction; do not implement a custom MCP protocol.
-- [ ] Add a shared-folder channel: structured requests, responses, and artifacts exchanged through files, with correlation to runs and steps, atomic writes, timeouts, duplicate handling, permissions, and an audit trail, for applications that cannot or should not be automated otherwise.
+- [ ] Add a shared-folder channel: structured requests, responses, and artifacts exchanged through files, with correlation to runs and steps, atomic writes, timeouts, duplicate handling, permissions, and an audit trail, for applications that cannot or should not be automated otherwise. Its request/response envelope can follow the external-delivery importer's pattern (`tools/seguimiento/importar-paquete-nube.ps1`): a structured manifest, integrity hashes, file and path limits, deduplication, and an auditable receipt.
 - [ ] Add an assisted desktop bridge that prepares the prompt, uses the clipboard, opens or activates an application, and imports the response, with the user in control.
 - [ ] Add an application gateway and launcher that keep launching or opening an application separate from controlling it, each with its own permission.
 - [ ] Build integrations with external applications (design, CAD/BIM, 3D, media, office, and development tools) as independent adapters or plugins, preferring official APIs or SDKs, then MCP, CLI or IPC, official plugin systems, shared files, and UI automation last.
@@ -232,9 +306,10 @@ The core works with generic concepts (tool, capability, provider, channel, permi
 
 ## Observability, quality, and evaluation
 
-**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 1/8 · 12% <!-- progress -->
 
-- [ ] Expand telemetry for execution time, retries, routing decisions, token estimates, and provider usage.
+- [x] Record provider-reported token usage per run, agent, step, and attempt, including elapsed duration and failed attempts.
+- [ ] Add retry counts, routing-decision telemetry, and token estimates.
 - [ ] Emit OpenTelemetry traces and metrics (GenAI semantic conventions) alongside the framework's own domain events.
 - [ ] Add structured evaluation datasets for agents, prompts, and workflows.
 - [ ] Compare local and cloud model performance on the same contracts and tasks.

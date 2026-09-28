@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import ipaddress
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
@@ -39,6 +41,7 @@ class Settings(BaseSettings):
 
     app_host: str = "127.0.0.1"
     app_port: int = 8000
+    api_allowed_hosts: list[str] = Field(default_factory=lambda: ["127.0.0.1", "localhost"])
     api_base_url: str = "http://127.0.0.1:8000"
 
     local_dir: Path = LOCAL_ROOT
@@ -68,6 +71,27 @@ class Settings(BaseSettings):
     max_run_seconds: int = Field(default=300, ge=30)
     worker_poll_seconds: float = Field(default=0.75, gt=0.05)
     worker_enabled: bool = True
+    mock_mode: bool = False
+
+    @field_validator("api_allowed_hosts")
+    @classmethod
+    def _validate_api_hosts(cls, values: list[str]) -> list[str]:
+        if not values:
+            raise ValueError("api_allowed_hosts must not be empty")
+        normalized = []
+        for value in values:
+            host = value.lower()
+            try:
+                ipaddress.ip_address(host)
+            except ValueError:
+                labels = host.split(".")
+                if len(host) > 253 or any(
+                    not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                    for label in labels
+                ):
+                    raise ValueError("api_allowed_hosts requires exact hostnames or IP addresses, without ports or wildcards")
+            normalized.append(host)
+        return list(dict.fromkeys(normalized))
 
     @model_validator(mode="after")
     def _resolve_paths(self):

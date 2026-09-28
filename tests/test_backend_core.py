@@ -34,7 +34,7 @@ def settings_for(tmp_path: Path) -> Settings:
 
 def test_migrations_and_wal(tmp_path):
     s = settings_for(tmp_path); system = build_system(s, dry_run=True)
-    assert system.db.schema_version() == 2
+    assert system.db.schema_version() == 3
     with system.db.connect() as conn:
         assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
 
@@ -163,7 +163,7 @@ def test_asset_ingest_sha256_and_duplicate(tmp_path):
 def test_api_create_get_approve(tmp_path):
     s = settings_for(tmp_path); system = build_system(s, dry_run=True)
     app = create_app(system)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost") as client:
         r = client.post("/api/v1/runs", json={"project_name":"api-demo","objective":"Create an educational post","topic":"KNX"})
         assert r.status_code == 202
         run_id = r.json()["id"]
