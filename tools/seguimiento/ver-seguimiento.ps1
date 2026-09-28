@@ -1,9 +1,11 @@
-# Renders SEGUIMIENTO.md, the task board, and integration evidence as a friendly HTML page.
+# Renders the task board, integration evidence, agents, and roadmap as a friendly HTML page. Every
+# tab is derived from live sources (task cards, RESUMEN.md, pending patches, integration reports,
+# PROGRESS.md and docs/ROADMAP_STAGES.md of the repository), never from a hand-kept status file.
 # The page reloads itself every 30 s, so a browser refresh always shows the last generated version.
 # Completed stages are archived in the view only; source files are never moved or rewritten.
 #
 # Normal use: double-click Seguimiento.cmd. The page opens in its own Edge window (separate profile)
-# and a hidden watcher regenerates it whenever SEGUIMIENTO.md or RESUMEN.md change. Closing that
+# and a hidden watcher regenerates it whenever one of its sources changes. Closing that
 # window ends the watcher. Only one watcher runs at a time. Nothing is installed.
 #
 #   ver-seguimiento.ps1              regenerate, open the window, watch until it is closed
@@ -20,8 +22,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $channel = (Resolve-Path -LiteralPath $ChannelPath).Path
 $repoRoot = (Resolve-Path -LiteralPath $RepoPath).Path
-$source = Join-Path $channel 'SEGUIMIENTO.md'
 $summary = Join-Path $channel 'RESUMEN.md'
+$pendingPatchesDir = Join-Path $channel 'parches\pendientes'
+$repoProgress = Join-Path $repoRoot 'PROGRESS.md'
+$repoStagePlan = Join-Path $repoRoot 'docs\ROADMAP_STAGES.md'
 $roadmap = Join-Path $channel 'ROADMAP_VISTA.md'
 $output = Join-Path $channel 'SEGUIMIENTO.html'
 
@@ -412,8 +416,6 @@ function Get-AlignmentHtml([string]$name) {
 }
 
 function Build-Page {
-$markdown = Get-Content -Path $source -Raw -Encoding utf8
-$body = (ConvertFrom-Markdown -InputObject $markdown).Html
 $agentBoard = Get-AgentBoardData
 $readsText = if (Test-Path -LiteralPath $integrationReads -PathType Leaf) {
     try { Get-Content -LiteralPath $integrationReads -Raw -Encoding utf8 -ErrorAction Stop }
@@ -423,28 +425,14 @@ $readsText = if (Test-Path -LiteralPath $integrationReads -PathType Leaf) {
     }
 } else { '' }
 
-# Progress cards: every stage row that states "done/total hitos = NN%".
-$progressRecords = foreach ($line in ($markdown -split "`r?`n")) {
-    if ($line -match '^\|\s*\*\*(G\d+[A-Za-z0-9]*)[^|]*\|\s*([^|]*)\|\s*([^|]*)\|\s*([^|]*)\|') {
-        $gate = $Matches[1]; $goal = $Matches[2].Trim(); $state = $Matches[3].Trim() -replace '\*', ''
-        $progress = $Matches[4]
-        if ($progress -match '(\d+)\s*/\s*(\d+)\s*hitos\s*=\s*(\d+)%') {
-            $done = [int]$Matches[1]; $total = [int]$Matches[2]; $pct = [int]$Matches[3]
-            $code = if ($progress -match '(\d+)/(\d+) entregas publicadas, (\d+)/(\d+) revisadas') {
-                "Codigo: $($Matches[1])/$($Matches[2]) entregas publicadas, $($Matches[3])/$($Matches[4]) revisadas"
-            } else { '' }
-            [pscustomobject]@{ Stage = $gate; Goal = $goal; State = $state; Done = $done; Total = $total; Percent = $pct; Code = $code }
-        }
-    }
+# These legacy milestones predate the task board and were explicitly confirmed by the user as
+# verified and present in the public repository. New stages remain local until publication is confirmed.
+$publicVerifiedEvidence = [ordered]@{
+    G1 = [pscustomobject]@{ Goal = 'Validar antes de ejecutar'; Commit = 'e887bf3'; Report = '2026-09-26_1935_integracion.md' }
+    G2 = [pscustomobject]@{ Goal = 'Revisión humana a mitad del workflow'; Commit = '27b3e1e'; Report = '2026-09-26_2020_integracion.md' }
+    G3 = [pscustomobject]@{ Goal = 'Un caso fuera de marketing (bundles)'; Commit = '2682b3e'; Report = '2026-09-26_2031_integracion.md' }
 }
-
-# These legacy milestones were explicitly confirmed by the user as verified and present
-# in the public repository. New stages remain local until publication is confirmed.
-$publicVerifiedEvidence = @{
-    G1 = [pscustomobject]@{ Commit = 'e887bf3'; Report = '2026-09-26_1935_integracion.md' }
-    G2 = [pscustomobject]@{ Commit = '27b3e1e'; Report = '2026-09-26_2020_integracion.md' }
-    G3 = [pscustomobject]@{ Commit = '2682b3e'; Report = '2026-09-26_2031_integracion.md' }
-}
+$activeCards = [System.Collections.Generic.List[string]]::new()
 
 $boards = ''
 $archiveBoards = ''
@@ -514,6 +502,11 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 Agent = Get-Field $text 'Agente'
                 Preferred = Get-Field $text 'Preferente'
                 Tokens = Get-Field $text 'Tokens'
+                # Rule 27: probar.ps1 writes "probada" / "prueba fallida" after a delivery; a new
+                # delivery, reopening, or retake clears the verdict, so only the latest of these rows counts.
+                Verdict = @($history -split "`r?`n" | ForEach-Object {
+                    if ($_ -match '^\|\s*\d{4}-[^|]*\|\s*[^|]+?\s*\|\s*(terminada|probada|prueba fallida|reabierta|retomada|tomada)\s*\|') { $Matches[1] }
+                } | Select-Object -Last 1) -replace '^(terminada|reabierta|retomada|tomada)$', ''
                 Workers = @($history -split "`r?`n" | ForEach-Object {
                     # Same rule as tareas.ps1: authors took or finished the task.
                     if ($_ -match '^\|\s*\d{4}-[^|]*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|' -and $Matches[2].Trim() -in 'tomada', 'terminada') { $Matches[1] }
@@ -559,8 +552,13 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 "<span class=""state s-requiere-cambios"">Bloqueada · requiere cambios</span><div class=""meta"">Parche en espera: $(Inline $record.Patch)</div>"
             } elseif ($record.State -eq 'terminada') {
                 $date = if ($record.DeliveredDate) { "<div class=""meta"">Entrega registrada $(Encode $record.DeliveredDate)</div>" } else { '' }
+                $verdict = switch ($record.Verdict) {
+                    'probada' { '<div><span class="state s-integrada">Probada · libera dependientes</span></div>' }
+                    'prueba fallida' { '<div><span class="state s-requiere-cambios">Prueba fallida · no libera dependientes</span></div>' }
+                    default { '<div class="meta">Sin veredicto de prueba todavía (regla 27)</div>' }
+                }
                 if (Test-TaskPatchRequired $record.Patch) {
-                    "<span class=""state s-pendiente"">Requiere integración · pendiente</span>$date<div class=""meta"">Parche: $(Inline $record.Patch)</div>"
+                    "<span class=""state s-pendiente"">Requiere integración · pendiente</span>$verdict$date<div class=""meta"">Parche: $(Inline $record.Patch)</div>"
                 } elseif ($record.Patch.Trim()) {
                     "<span class=""state s-idle"">Sin parche que integrar</span>$date"
                 } else {
@@ -599,7 +597,25 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         $closure | Add-Member -NotePropertyName ClaimsClosed -NotePropertyValue $claimsClosed
         $stageIndex[$stage.Name.ToLowerInvariant()] = $closure
         $pct = if ($total) { [int](100 * $done / $total) } else { 0 }
-        $tableHeader = '<table><tr><th>Tarea</th><th>Estado</th><th>Agente</th><th>Preferente</th><th>Dependencias y estado</th><th>Integración</th><th>Parche</th><th>Trabajaron</th><th>Tokens</th></tr>'
+        # Summary card for every stage that is not verified as closed, built from its task cards.
+        if ($closure.Status -ne 'complete') {
+            $count = { param($states) @($taskRecords | Where-Object { $_.State -in $states }).Count }
+            $integrated = & $count @('integrada')
+            $working = @($taskRecords | Where-Object { $_.State -eq 'en curso' } | ForEach-Object { "$($_.Code) ($($_.Agent))" })
+            $blocked = & $count @('pendiente', 'requiere cambios', 'reabierta')
+            $available = & $count @('disponible', 'liberada')
+            $workingText = if ($working) { "En curso: $(Encode ($working -join ', '))" } else { 'Nadie trabajando ahora' }
+            $activeCards.Add(@"
+<div class="card">
+  <div class="card-head"><span class="gate">$(Encode $stage.Name)</span><span class="pct">$pct%</span></div>
+  <div class="bar"><div class="fill" style="width:$pct%"></div></div>
+  <div class="meta">$done de $total terminadas o integradas &middot; $integrated integradas &middot; $available disponibles$(if ($blocked) { " &middot; $blocked en espera o con cambios" })</div>
+  <div class="goal">$(Encode ($stageTitle -replace '^\S+\s*·\s*', ''))</div>
+  <div class="meta">$workingText</div>
+</div>
+"@)
+        }
+        $tableHeader ='<table><tr><th>Tarea</th><th>Estado</th><th>Agente</th><th>Preferente</th><th>Dependencias y estado</th><th>Integración</th><th>Parche</th><th>Trabajaron</th><th>Tokens</th></tr>'
         $phaseDefinitions = @(Get-StagePhases $stageText)
         $taskGroups = ''
         if ($phaseDefinitions.Count) {
@@ -692,58 +708,45 @@ if (-not $archiveBoards) { $archiveBoards = '<section class="panel">No hay cierr
 if (-not $publicVerifiedBoards.Count) { $publicVerifiedBoards.Add('<section class="panel">No hay otras etapas con publicación pública confirmada.</section>') }
 if (-not $uncertainBoards) { $uncertainBoards = '<section class="panel">No hay cierres pendientes de verificación.</section>' }
 
-$cards = [System.Collections.Generic.List[string]]::new()
+# Resumen: one live card per stage that is not verified as closed (built with the board above).
+$cards = $activeCards
 $reportedClosedNotVerified = [System.Collections.Generic.List[string]]::new()
-foreach ($record in $progressRecords) {
-    $stageKey = $record.Stage.ToLowerInvariant()
-    $closure = if ($publicVerifiedEvidence.ContainsKey($record.Stage)) {
-        [pscustomobject]@{
-            Status = 'public-verified'
-            Commit = $publicVerifiedEvidence[$record.Stage].Commit
-            Report = $publicVerifiedEvidence[$record.Stage].Report
-        }
-    } else { $stageIndex[$stageKey] }
-    $reportedClosed = $record.State -match '^(?i)cerrad[oa]\b'
-    if ($reportedClosed -and $closure -and $closure.Status -in @('complete', 'public-verified')) {
-        if ($closure.Status -eq 'public-verified') {
-            $reportPath = Join-Path $integrationDir $closure.Report
-            $report = if (Test-Path -LiteralPath $reportPath -PathType Leaf) {
-                "<a href=""$([uri]$reportPath)"">Reporte registrado: $(Encode $closure.Report)</a>"
-            } else {
-                "Reporte registrado: $(Encode $closure.Report) (no disponible localmente)"
-            }
-            $stageTitle = "$(Encode $record.Stage) · $(Encode $record.Goal)"
-            $publicVerifiedBoards.Add(@"
+foreach ($gate in $publicVerifiedEvidence.Keys) {
+    $evidence = $publicVerifiedEvidence[$gate]
+    $reportPath = Join-Path $integrationDir $evidence.Report
+    $report = if (Test-Path -LiteralPath $reportPath -PathType Leaf) {
+        "<a href=""$([uri]$reportPath)"">Reporte registrado: $(Encode $evidence.Report)</a>"
+    } else {
+        "Reporte registrado: $(Encode $evidence.Report) (no disponible localmente)"
+    }
+    $stageTitle = "$(Encode $gate) · $(Encode $evidence.Goal)"
+    $publicVerifiedBoards.Add(@"
 <section class="panel archive-stage">
   <div class="card-head"><h2>$stageTitle</h2><span class="state s-integrada">Verificada y publicada</span></div>
-  <p class="meta">Verificación y presencia en el repositorio público confirmadas por el usuario. Commit <code>$(Encode $closure.Commit)</code> &middot; $report</p>
+  <p class="meta">Verificación y presencia en el repositorio público confirmadas por el usuario. Commit <code>$(Encode $evidence.Commit)</code> &middot; $report</p>
 </section>
 "@)
-            $archiveLinks.Add("<div class=""history-summary""><strong>$stageTitle</strong><span class=""state s-integrada"">Verificada · pública</span><div class=""meta"">Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#historico"">Historial</a></div></div>")
-        }
-        continue
-    }
-    $cardHtml = @"
-<div class="card">
-  <div class="card-head"><span class="gate">$(Encode $record.Stage)</span><span class="pct">$($record.Percent)%</span></div>
-  <div class="bar"><div class="fill" style="width:$($record.Percent)%"></div></div>
-  <div class="meta">$($record.Done) de $($record.Total) hitos &middot; $(Encode $record.State)</div>
-  <div class="goal">$(Encode $record.Goal)</div>
-  $(if ($record.Code) { "<div class=""meta"">$(Encode $record.Code)</div>" })
-</div>
-"@
-    if ($reportedClosed) {
-        $reason = if ($closure) { $closure.Reason } else { 'No existe una ficha ETAPA.md y un conjunto de tareas que permita verificar el cierre.' }
-        $reportedCommit = if ($record.State -match '(?i)\bcommit\s+([0-9a-f]{7,40})\b') { "<span>Commit reportado <code>$(Encode $Matches[1])</code></span>" } else { '' }
-        $reportedClosedNotVerified.Add(@"
-<div class="history-summary"><strong>$(Encode $record.Stage) · $(Encode $record.Goal)</strong><span class="state s-unknown">Cierre no verificado</span><div class="meta">$reportedCommit $(Encode $reason) &middot; <a href="#detalle">Consultar seguimiento detallado</a></div></div>
-"@)
-        continue
-    }
-    $cards.Add($cardHtml)
+    $archiveLinks.Add("<div class=""history-summary""><strong>$stageTitle</strong><span class=""state s-integrada"">Verificada · pública</span><div class=""meta"">Commit <code>$(Encode $evidence.Commit)</code> &middot; <a href=""#historico"">Historial</a></div></div>")
 }
 
-$stop = if ($markdown -match '(?s)### Punto de parada actual\s*(.+?)\s*$') { $Matches[1].Trim() -replace '\*\*', '' } else { '' }
+# Resumen: integration state from the channel and the repository, never from a hand-kept file.
+$pendingPatches = @(Get-ChildItem -LiteralPath $pendingPatchesDir -Filter '*.patch' -File -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object Name)
+$lastReport = @($readsText -split "`r?`n" | Where-Object { $_ -match '^\|\s*\d{4}-\d{2}-\d{2}_\d{4}_integracion\.md\s*\|' }) | Select-Object -Last 1
+$lastReportHtml = if ($lastReport) {
+    $columns = @($lastReport.Trim().Trim('|').Split('|') | ForEach-Object { $_.Trim() })
+    $resultClass = if ($columns[1] -eq 'OK') { 's-integrada' } else { 's-requiere-cambios' }
+    $passed = if ($columns[2] -match '(\d+\s+passed[^=]*?)(?:\s+in\s|\s*=|$)') { $Matches[1].Trim() } else { $columns[2] -replace '=+', '' }
+    "<span class=""state $resultClass"">$(Encode $columns[1])</span> $(Encode ($columns[0] -replace '_integracion\.md$', '')) &middot; $(Encode $passed)"
+} else { '<span class="meta">Sin reportes registrados.</span>' }
+# ASCII separator from git, joined here, so the console encoding cannot garble it.
+$lastCommit = try { ((git -C $repoRoot log -1 --format='%h|%s' 2>$null) -replace '^([0-9a-f]+)\|', '$1 · ') } catch { '' }
+$integrationPanel = @"
+<section class="panel todo"><h2>Integración</h2>
+  <p><strong>Parches por aplicar:</strong> $(if ($pendingPatches) { "$($pendingPatches.Count) &middot; " + (($pendingPatches | ForEach-Object { "<code>$(Encode $_)</code>" }) -join ', ') } else { 'ninguno' })</p>
+  <p><strong>Última prueba de integración:</strong> $lastReportHtml</p>
+  <p><strong>Último commit de integración:</strong> $(if ($lastCommit) { "<code>$(Encode $lastCommit)</code>" } else { '<span class="meta">no disponible</span>' })</p>
+</section>
+"@
 
 $todo = ''
 if (Test-Path $summary) {
@@ -754,17 +757,28 @@ if (Test-Path $summary) {
     }
 }
 
-# ROADMAP_VISTA.md: "## Etapas y features" and "## Roadmap completo" become their own tabs.
+# "Plan de etapas": the Spanish summary in ROADMAP_VISTA.md ("## Etapas y features").
+# "Roadmap": generated from the repository itself (PROGRESS.md and docs/ROADMAP_STAGES.md), so it
+# never goes stale; the Mermaid block is left out because the page does not render diagrams.
 $features = ''; $fullRoadmap = ''
 if (Test-Path $roadmap) {
     $roadmapText = Get-Content -Path $roadmap -Raw -Encoding utf8
     if ($roadmapText -match '(?sm)## Etapas y features\s*(.+?)\s*(?=^## |\z)') {
         $features = (ConvertFrom-Markdown -InputObject $Matches[1]).Html
     }
-    if ($roadmapText -match '(?sm)## Roadmap completo\s*(.+?)\s*(?=^## |\z)') {
-        $fullRoadmap = (ConvertFrom-Markdown -InputObject $Matches[1]).Html
-    }
 }
+$roadmapParts = @()
+if (Test-Path -LiteralPath $repoProgress -PathType Leaf) {
+    $roadmapParts += (Get-Content -LiteralPath $repoProgress -Raw -Encoding utf8)
+}
+if (Test-Path -LiteralPath $repoStagePlan -PathType Leaf) {
+    $planText = Get-Content -LiteralPath $repoStagePlan -Raw -Encoding utf8
+    $roadmapParts += [regex]::Replace($planText, '(?s)```mermaid.*?```\s*', '')
+}
+$fullRoadmap = if ($roadmapParts) {
+    '<p class="meta">Generado desde <code>PROGRESS.md</code> y <code>docs/ROADMAP_STAGES.md</code> del repositorio de integración (en inglés, como el repositorio público).</p>' +
+        (ConvertFrom-Markdown -InputObject ($roadmapParts -join "`n`n---`n`n")).Html
+} else { '<section class="panel">No se encontraron PROGRESS.md ni docs/ROADMAP_STAGES.md en el repositorio.</section>' }
 
 $cloudAssignments = @()
 $cloudAssignmentsError = ''
@@ -928,7 +942,6 @@ $cloudTrackingButton = if ($flowListener -and $cloudTrackingToken) {
     '<button id="manage-cloud-assignments" class="action-button" type="button" disabled title="Abre el visualizador con Seguimiento.cmd">Actualizar seguimiento de asignaciones</button>'
 }
 
-$updated = (Get-Item $source).LastWriteTime.ToString('yyyy-MM-dd HH:mm')
 $html = @"
 <!doctype html>
 <html lang="es">
@@ -1033,7 +1046,7 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
 <body>
 <header>
   <h1>Seguimiento del proyecto &mdash; Multi-Agent Framework</h1>
-  <p>Generado desde SEGUIMIENTO.md (modificado $updated) y ROADMAP_VISTA.md a las $(Get-Date -Format 'HH:mm:ss'). Se recarga sola cada 30 s mientras la ventana de Seguimiento.cmd siga abierta.</p>
+  <p>Generado desde el tablero de tareas, el canal y el repositorio de integración a las $(Get-Date -Format 'HH:mm:ss'). Se recarga sola cada 30 s mientras la ventana de Seguimiento.cmd siga abierta.</p>
 </header>
 <nav>
   <button data-tab="resumen">Resumen</button>
@@ -1042,19 +1055,18 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
   <button data-tab="ideas">Ideas</button>
   <button data-tab="cloud">Agente cloud</button>
   <button data-tab="historico">Etapas completadas</button>
-  <button data-tab="etapas">Etapas y features</button>
-  <button data-tab="roadmap">Roadmap completo</button>
-  <button data-tab="detalle">Seguimiento detallado</button>
+  <button data-tab="etapas">Plan de etapas</button>
+  <button data-tab="roadmap">Roadmap</button>
   $(if ($flowListener) { "<button id=""run-flow"" type=""button"" aria-label=""Abrir el ciclo global de integración"">Abrir ciclo de integración</button>" } else { '<button id="run-flow" type="button" disabled title="El puente local no está activo; inicia el visor con Seguimiento.cmd">Abrir ciclo de integración</button>' })
 </nav>
 <p id="flow-status" class="meta" role="status" aria-live="polite" style="max-width:1100px;margin:6px auto;padding:0 16px"></p>
 <main>
   <div class="tab" id="resumen">
-    $(if ($cards.Count) { "<section class=""cards"">$($cards -join "`n")</section>" })
+    $(if ($todo) { "<section class=""panel todo""><h2>Qué tienes que hacer ahora</h2>$todo</section>" })
+    <h2>Etapas activas</h2>
+    $(if ($cards.Count) { "<section class=""cards"">$($cards -join "`n")</section>" } else { '<section class="panel">No hay etapas activas en el tablero.</section>' })
+    $integrationPanel
     $(if ($archiveLinks.Count) { "<section class=""panel todo""><h2>Etapas completadas</h2>$($archiveLinks -join "`n")</section>" })
-    $(if ($reportedClosedNotVerified.Count) { "<section class=""history-warning""><h2>Cierres pendientes de verificación</h2><p class=""meta"">No se archivan como completos porque falta evidencia canónica suficiente. Consulta el <a href=""#historico"">histórico y sus motivos</a>.</p>$($reportedClosedNotVerified -join "`n")</section>" })
-    $(if ($stop) { "<div class=""stop""><strong>Punto de parada actual</strong>$(Encode $stop)</div>" })
-    $(if ($todo) { "<section class=""panel todo""><h2>Que tienes que hacer ahora</h2>$todo</section>" })
   </div>
   <div class="tab" id="tareas">$($boards -join "`n")</div>
   <div class="tab" id="agentes">$agentsView</div>
@@ -1083,7 +1095,6 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
   </div>
   <div class="tab" id="etapas"><section class="panel doc features">$features</section></div>
   <div class="tab" id="roadmap"><section class="panel doc">$fullRoadmap</section></div>
-  <div class="tab" id="detalle"><section class="panel doc">$body</section></div>
 </main>
 <script>
   // The selected tab lives in the URL hash so the periodic reload keeps it.
@@ -1169,7 +1180,11 @@ Set-Content -Path $output -Value $html -Encoding utf8
 }
 
 function Get-Stamp {
-    $files = @($source, $summary, $roadmap | Where-Object { Test-Path $_ } | Get-Item)
+    $files = @($summary, $roadmap, $repoProgress, $repoStagePlan | Where-Object { Test-Path $_ } | Get-Item)
+    # Pending patches and new integration commits change the Resumen tab.
+    $files += @(Get-ChildItem -LiteralPath $pendingPatchesDir -Filter '*.patch' -File -ErrorAction SilentlyContinue)
+    $headLog = Join-Path $repoRoot '.git\logs\HEAD'
+    if (Test-Path -LiteralPath $headLog -PathType Leaf) { $files += Get-Item -LiteralPath $headLog }
     $channelRegistry = Join-Path $channel 'CANAL.md'
     if (Test-Path -LiteralPath $channelRegistry -PathType Leaf) { $files += Get-Item -LiteralPath $channelRegistry }
     if (Test-Path $tasksDir) { $files += Get-ChildItem $tasksDir -Recurse -Filter '*.md' }
