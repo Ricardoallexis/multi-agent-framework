@@ -22,7 +22,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | Service | Operations |
 | --- | --- |
 | `services.definitions` | `list_workflows`, `get_workflow`, `list_agents`, `list_bundles`, `validate_bundle` |
-| `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_submit`, `artifacts`, `events` |
+| `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_submit`, `artifacts`, `events`, `usage` |
 
 For example, create a built-in social-post run:
 
@@ -86,6 +86,7 @@ and bundle-worker shutdown through its application lifespan.
 | `GET` | `/api/v1/runs/{run_id}` | Get a run with its events and artifacts. |
 | `GET` | `/api/v1/runs/{run_id}/artifacts` | List the run's artifacts. |
 | `GET` | `/api/v1/runs/{run_id}/events` | List the run's events; optional `after` (integer ≥ 0) returns only events with a greater `seq`. |
+| `GET` | `/api/v1/runs/{run_id}/usage` | List local token-usage records and totals by run, agent, and step; costs are estimates. |
 | `POST` | `/api/v1/runs/{run_id}/approve` | Approve the current human review. |
 | `POST` | `/api/v1/runs/{run_id}/changes` | Request changes with `{"feedback": "..."}`. |
 | `POST` | `/api/v1/runs/{run_id}/regenerate` | Regenerate the item under review. |
@@ -113,6 +114,9 @@ The run endpoint accepts either a `SocialPostRequest` or a generic
 To run a bundle workflow, send a generic `RunRequest` and provide the registered
 bundle name in the `bundle` query parameter. Bundle filesystem paths are
 configured by the server, not supplied by API clients.
+
+See [`TELEMETRY.md`](TELEMETRY.md) for the local-only usage model, CLI
+export, nullable token semantics, and the future OpenTelemetry mapping.
 
 For a human response, send a JSON object with a non-empty `raw_response` string;
 `provider`, `model`, `prompt_used`, and `notes` are optional. The review and
