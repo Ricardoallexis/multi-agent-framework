@@ -182,7 +182,7 @@ Turn a high-level objective into an executable plan for a team the user has defi
 
 ## Team design from a prompt
 
-**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
+**Progress:** `░░░░░░░░░░` 0/9 · 0% <!-- progress -->
 
 Describe what you need in one prompt and get a working team: the agents it recommends, their instructions and responsibilities, and an organization chart. If the prompt already defines the team, the generator formalizes it instead of redesigning it. The result is data — a team definition that is validated, reviewed by a human, and versioned like any bundle or preset — never code in the core.
 
@@ -194,6 +194,8 @@ Roles are not tied to models. A **role** holds rules, skills, contracts, capabil
 - [ ] Recommend model or provider bindings per role from the capability catalog and the model router, as editable suggestions; never hard-code vendors in the core, and allow any available member, or a human, to take any role.
 - [ ] Let one member switch roles at runtime: each step declares its role, the runtime loads that role's rules and context, keeps role contexts separated, and records the role and the member in the trace.
 - [ ] Render the organization chart from the relationships (for example as a Mermaid diagram) in docs and, later, in the UI (stage 2).
+- [ ] Expose the organization chart as a model through the application services (Python, HTTP, and CLI): each position shows its role, who holds it (agent, human, or model), who it reports to, and its status, validated for cycles and roots.
+- [ ] Show that model in the UI as an accessible organization chart with position cards, without extra dependencies.
 - [ ] Regenerate a team as a reviewable diff against the current definition, and save accepted teams as presets.
 
 ## Preset sharing and community catalog

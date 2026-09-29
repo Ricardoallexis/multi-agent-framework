@@ -167,6 +167,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S6.A3 | Human approval before a team is created or changed. | S6.A2 |
 | **S6.B — Views** | | |
 | S6.B1 | Render the organization chart (for example Mermaid) from relationships. | S6.A1 |
+| S6.B2 | Organization chart model: a service that returns the tree of positions (role, who holds it, reports) with status, through Python, HTTP, and CLI; validated (no cycles, one root or an explicit forest). | S6.A1 |
 | **S6.C — Runtime roles** | | |
 | S6.C1 | Role switching per step: load the role's rules and context, keep contexts separate, record role and member. | S6.A1, S4.A2 |
 | **S6.D — Team design from a prompt** | | |
@@ -174,7 +175,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S6.D2 | Recommended (never mandatory) model bindings per role from the capability catalog and router. | S6.D1, S11.A1 |
 | S6.D3 | Regenerate as a reviewable diff and save accepted teams as presets. | S6.D1, S16.A1 |
 
-**Parallel:** S6.B1 and S6.C1 after S6.A1; S6.D after S6.A3.
+**Parallel:** S6.B1, S6.B2, and S6.C1 after S6.A1; S6.D after S6.A3.
 **Acceptance:** a team file validates, is approved by a human, and runs with role switching recorded in the trace.
 **Example:** "a research team of three with a reviewer" becomes a team definition and an org chart for approval.
 
@@ -369,6 +370,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S14.6 | Usage, latency, cost, routing, and hardware views. | S10.A1, S14.1 |
 | S14.7 | Administrative views for workers, migrations, diagnostics, and recovery. | S4.D1, S14.1 |
 | S14.8 | Sanitized rich rendering (Markdown or HTML) for any future UI. | S14.1 |
+| S14.9 | Organization chart view: position cards (role above, holder below: agent, human, or model, with a status shown as text and shape, not color alone), drawn with no dependencies from S6.B2, keyboard accessible, and within the Content Security Policy. If S14.1 chooses another frontend, it follows that decision. | S6.B2, S14.1, S14.2 |
 
 **Parallel:** S14.5, S14.6, and S14.8 after S14.1, alongside the UI stages.
 
