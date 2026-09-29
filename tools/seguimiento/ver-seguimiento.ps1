@@ -92,9 +92,9 @@ function Get-CommitToken([string]$value) {
 # "Tokens" field of a task card: "Claude: total N = entrada a + cacheados b + salida c (medido); Copilot: no disponible".
 function Get-TokenEntries([string]$value) {
     foreach ($part in ($value -split ';')) {
-        if ($part -match '^\s*([A-Za-z]+):\s*total\s+(\d+)\s*=\s*entrada\s+(\d+)\s*\+\s*cacheados\s+(\d+)\s*\+\s*salida\s+(\d+)\s*\(([^)]+)\)') {
+        if ($part -match '^\s*([A-Za-z0-9-]+):\s*total\s+(\d+)\s*=\s*entrada\s+(\d+)\s*\+\s*cacheados\s+(\d+)\s*\+\s*salida\s+(\d+)\s*\(([^)]+)\)') {
             [pscustomobject]@{ Agent = $Matches[1]; Total = [long]$Matches[2]; Input = [long]$Matches[3]; Cached = [long]$Matches[4]; Output = [long]$Matches[5]; Source = $Matches[6].Trim() }
-        } elseif ($part -match '^\s*([A-Za-z]+):\s*(.+?)\s*$') {
+        } elseif ($part -match '^\s*([A-Za-z0-9-]+):\s*(.+?)\s*$') {
             [pscustomobject]@{ Agent = $Matches[1]; Total = $null; Input = $null; Cached = $null; Output = $null; Source = $Matches[2] }
         }
     }
@@ -222,8 +222,24 @@ function Get-StageClosure([string]$stageName, [string]$stageText, [object[]]$tas
     [pscustomobject]@{ Status = 'complete'; Reason = ''; Commit = $closeCommit; Report = $reportName; Stage = $stageName }
 }
 
+# Agent registry of the channel (AGENTES.md, rule 28): name, application and state. Without the file
+# (a checkout without the private channel) the three founding names are assumed active.
+function Get-RegisteredAgents {
+    $path = Join-Path $channel 'AGENTES.md'
+    $rows = @()
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        foreach ($line in [IO.File]::ReadAllLines($path)) {
+            if ($line -match '^\|\s*([A-Za-z0-9-]+)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(ACTIVO|PAUSADO)\s*\|') {
+                $rows += [pscustomobject]@{ Name = $Matches[1]; Application = ($Matches[1] -split '-', 2)[0]; State = $Matches[4] }
+            }
+        }
+    }
+    if (-not $rows) { $rows = @('Claude', 'Codex', 'Copilot') | ForEach-Object { [pscustomobject]@{ Name = $_; Application = $_; State = 'ACTIVO' } } }
+    $rows
+}
+
 function Get-AgentBoardData {
-    $registered = @('Claude', 'Codex', 'Copilot')
+    $registered = @((Get-RegisteredAgents).Name)
     $tasks = [System.Collections.Generic.List[object]]::new()
     $history = [System.Collections.Generic.List[object]]::new()
     $issues = 0
@@ -401,11 +417,15 @@ $contents
 "@
 }
 
-# realinear\ESTADO.md (written by realinear.ps1): one row per agent with its realignment state.
-function Get-AlignmentHtml([string]$name) {
+# realinear\ESTADO.md (written by realinear.ps1): one row per worktree. Worktrees belong to the application
+# (rule 28), so a name like Claude-Fable falls back to the row of its application (Claude).
+function Get-AlignmentHtml([string]$name, [string]$application = '') {
     $path = Join-Path $channel 'realinear\ESTADO.md'
-    $row = if (Test-Path -LiteralPath $path) {
-        Get-Content -LiteralPath $path -Encoding utf8 | Where-Object { $_ -match "^\|\s*$name\s*\|" } | Select-Object -First 1
+    $lines = if (Test-Path -LiteralPath $path) { @(Get-Content -LiteralPath $path -Encoding utf8) } else { @() }
+    $row = $null
+    foreach ($key in @($name, $application) | Where-Object { $_ }) {
+        $row = $lines | Where-Object { $_ -match "^\|\s*$([regex]::Escape($key))\s*\|" } | Select-Object -First 1
+        if ($row) { break }
     }
     if (-not $row) { return '<p class="meta">Realineación: sin revisar todavía (paso 4 de Flujo.cmd).</p>' }
     $cells = @($row.Trim('|').Split('|') | ForEach-Object { $_.Trim() })
@@ -852,7 +872,9 @@ $cloudAssignmentPanel = if ($cloudAssignmentsError) {
 } else {
     '<section class="panel">No hay asignaciones cloud activas registradas.</section>'
 }
-$agentCards = foreach ($name in @('Claude', 'Codex', 'Copilot')) {
+$registeredAgents = @(Get-RegisteredAgents)
+$agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq 'ACTIVO')) {
+    $name = $agentRow.Name
     if (-not $agentBoard.Available) {
         $status = 'Estado no disponible'
         $statusClass = 's-unknown'
@@ -946,10 +968,19 @@ $agentCards = foreach ($name in @('Claude', 'Codex', 'Copilot')) {
   <div class="agent-current"><h3>Tarea actual según el tablero</h3>$current</div>
   <div class="agent-current"><h3>Tokens en tareas</h3>$tokensHtml</div>
   <div class="agent-current"><h3>Seguimiento de asignaciones cloud</h3>$cloudContext</div>
-  $(Get-AlignmentHtml $name)
+  $(Get-AlignmentHtml $name $agentRow.Application)
   $lastActivity
 </section>
 "@
+}
+# Retired names (PAUSADO, e.g. the generic Claude replaced by Claude-<Model>) stay folded, only if the board mentions them.
+$retired = @($registeredAgents | Where-Object { $_.State -eq 'PAUSADO' -and @($agentBoard.History | Where-Object Agent -ieq $_.Name).Count })
+if ($retired) {
+    $retiredItems = foreach ($r in $retired) {
+        $count = @($agentBoard.History | Where-Object Agent -ieq $r.Name).Count
+        "<li><strong>$(Encode $r.Name)</strong> · $count acción(es) en el historial del tablero</li>"
+    }
+    $agentCards = @($agentCards) + "<details class=""panel""><summary>Nombres anteriores (PAUSADO)</summary><ul>$($retiredItems -join "`n")</ul><p class=""meta"">Sus entregas no se renombran; ya no leen ni registran en el canal.</p></details>"
 }
 $agentNotice = if (-not $agentBoard.Available) {
     'La fuente del tablero no está disponible; no se infiere que los agentes estén inactivos.'
