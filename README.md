@@ -62,7 +62,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for more detail.
 
 ## Requirements
 
-- Python `>=3.12,<3.14` (Python 3.12 and 3.13 are tested in CI).
+- Python `>=3.12,<3.15` (Python 3.12, 3.13, and 3.14 are tested in CI).
 - Git for cloning and contributing.
 - Ollama is optional for local inference.
 - Gemini and OpenAI are optional cloud providers.

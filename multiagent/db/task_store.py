@@ -50,6 +50,9 @@ class StaleRevision(Exception):
 def _group(row: sqlite3.Row) -> dict[str, Any]:
     item = dict(row)
     item["authorized"] = bool(item["authorized"])
+    # Migration 005 adds the group's default gate; decode it like the task JSON columns.
+    if "default_gate_json" in item:
+        item["default_gate"] = json.loads(item.pop("default_gate_json"))
     return item
 
 

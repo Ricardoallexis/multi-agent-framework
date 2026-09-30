@@ -10,7 +10,7 @@ that Stage 0 has been published in the release named in the README.
 ## Install and start
 
 Use the [repository installation instructions](../README.md#installation)
-with Python 3.12 or 3.13. The UI uses static HTML and JavaScript modules; there is
+with Python 3.12, 3.13, or 3.14. The UI uses static HTML and JavaScript modules; there is
 no separate frontend build or Node installation.
 
 From the repository root on Windows:

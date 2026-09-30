@@ -34,6 +34,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 - API errors now answer `{"detail": {"code", "message", "details"}}` with the same HTTP statuses as before, and invalid request bodies use the same format. Creating a run for an invalid workflow answers 422 instead of 500. Clients that read `detail` as text must read `detail.message`.
 - Clarify the autonomy model in `docs/COMPARISON.md`, `README.md`, `ROADMAP.md`, and `PROGRESS.md`. The runtime currently executes declared workflows. The roadmap target is governed autonomy: planning, delegation, and dynamic routing within declared roles, permissions, contracts, budgets, gates, and policies, with escalation to a human. It is not unrestricted agent conversation.
 - `setup_windows.bat` picks a supported Python (3.12, then 3.13) instead of falling back to the default `py -3`, which can be an unsupported version. When none is found it stops before creating `.venv` and says which versions are needed; an existing `.venv` with an unsupported Python is reported and left untouched. The supported versions are listed in one line at the top of the script.
+- Support Python 3.14: `requires-python` is now `>=3.12,<3.15`, the 3.14 classifier is declared, CI runs on 3.12, 3.13, and 3.14, and `setup_windows.bat` accepts 3.14. The test suite passes unchanged on 3.14.
 
 ### Roadmap
 

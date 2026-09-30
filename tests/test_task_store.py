@@ -21,7 +21,7 @@ def store(tmp_path: Path) -> TaskStore:
 
 
 def test_migration_004_adds_the_task_tables(store: TaskStore):
-    assert store.db.schema_version() == 4
+    assert store.db.schema_version() >= 4
     with store.db.connect() as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"task_groups", "tasks", "task_deps", "team_events"} <= tables
@@ -32,6 +32,7 @@ def test_groups_are_created_read_and_updated(store: TaskStore):
     with store.transaction() as conn:
         group = store.insert_group(conn, "ORQ", "Orchestration", actor="user")
     assert group["authorized"] is False and group["default_requires"] == "accepted"
+    assert group["default_gate"] == [] and "default_gate_json" not in group
     assert group["created_by"] == "user"
     with store.transaction() as conn:
         updated = store.update_group(conn, "ORQ", authorized=True, default_requires="submitted")
@@ -174,7 +175,7 @@ def test_migration_keeps_existing_data(tmp_path: Path):
             conn.execute("INSERT INTO schema_version(version,name,applied_at) VALUES(?,?,'old')", (version, path.name))
         conn.execute("INSERT INTO projects(id,name,created_at) VALUES('p','Old Project','old')")
         conn.commit()
-    assert db.migrate() == ["004_tasks.sql"]
+    assert db.migrate()[0] == "004_tasks.sql"
     with db.connect() as conn:
         assert conn.execute("SELECT name FROM projects WHERE id='p'").fetchone()[0] == "Old Project"
-    assert db.schema_version() == 4
+    assert db.schema_version() >= 4

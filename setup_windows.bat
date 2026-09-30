@@ -8,7 +8,7 @@ echo ================================================
 
 rem Supported Python versions, in order of preference, separated by spaces.
 rem Keep this list in sync with requires-python in pyproject.toml.
-set "SUPPORTED_PYTHON=3.12 3.13"
+set "SUPPORTED_PYTHON=3.12 3.13 3.14"
 
 where py >nul 2>nul
 if errorlevel 1 (

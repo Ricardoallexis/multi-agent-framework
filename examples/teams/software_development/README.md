@@ -72,7 +72,7 @@ runs steps again and uses more calls, so a higher value such as `10` leaves room
 
 ## Run it in Mock mode
 
-Requirements: Python 3.12 or newer and this repository installed
+Requirements: Python 3.12 to 3.14 and this repository installed
 (`python -m pip install -e .` inside a virtual environment).
 
 ### With the browser console
