@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.datastructures import MutableHeaders
 
 from .bootstrap import build_system
@@ -102,6 +103,56 @@ class UISecurityHeadersMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
+
+
+# Request bodies of the task routes. Field rules live in services.tasks; these only fix the shape.
+class _Body(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class TaskGroupCreate(_Body):
+    id: str
+    title: str
+    actor: str
+    authorized: bool = False
+    default_requires: str = "accepted"
+
+
+class TaskGroupUpdate(_Body):
+    actor: str
+    title: str | None = None
+    authorized: bool | None = None
+    default_requires: str | None = None
+
+
+class TaskDependencyRef(_Body):
+    task_id: str
+    requires: str | None = None
+
+
+class TaskCreate(_Body):
+    group_id: str
+    id: str
+    title: str
+    actor: str
+    objective: str = ""
+    depends_on: list[Union[str, TaskDependencyRef]] = Field(default_factory=list)
+    file_scope: list[str] = Field(default_factory=list)
+    requirements: list[str] = Field(default_factory=list)
+    preferred: str = ""
+
+
+class TaskDependencyCreate(_Body):
+    depends_on_id: str
+    actor: str
+    requires: str | None = None
+
+
+class TaskTransitionRequest(_Body):
+    action: str
+    actor: str
+    cause: str = ""
+    expected_revision: int | None = None
 
 
 def create_app(system=None, *, services: ApplicationServices | None = None,
@@ -233,6 +284,66 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/runs/{run_id}/human-submit")
     def human_submit(run_id: str, submission: HumanStepSubmission):
         return services.runs.human_submit(run_id, submission)
+
+    # --- tasks (ORQ-1) --------------------------------------------------------
+
+    @app.get("/api/v1/task-groups")
+    def list_task_groups():
+        return services.tasks.list_groups()
+
+    @app.post("/api/v1/task-groups", status_code=201)
+    def create_task_group(body: TaskGroupCreate):
+        return services.tasks.create_group(body.id, body.title, actor=body.actor, authorized=body.authorized,
+                                           default_requires=body.default_requires)
+
+    @app.get("/api/v1/task-groups/{group_id}")
+    def get_task_group(group_id: str):
+        return services.tasks.get_group(group_id)
+
+    @app.patch("/api/v1/task-groups/{group_id}")
+    def update_task_group(group_id: str, body: TaskGroupUpdate):
+        return services.tasks.update_group(group_id, actor=body.actor, title=body.title,
+                                           authorized=body.authorized, default_requires=body.default_requires)
+
+    @app.get("/api/v1/tasks")
+    def list_tasks(group: str | None = None, status: str | None = None, assignee: str | None = None):
+        return services.tasks.list_tasks(group_id=group, status=status, assignee=assignee)
+
+    @app.post("/api/v1/tasks", status_code=201)
+    def create_task(body: TaskCreate):
+        depends_on = [item if isinstance(item, str) else item.model_dump(exclude_none=True) for item in body.depends_on]
+        return services.tasks.create_task(body.group_id, body.id, body.title, actor=body.actor, objective=body.objective,
+                                          depends_on=depends_on, file_scope=body.file_scope,
+                                          requirements=body.requirements, preferred=body.preferred)
+
+    @app.get("/api/v1/tasks/ready")
+    def ready_tasks(group: str | None = None):
+        """Ready tasks of authorized groups (declared before ``/tasks/{task_id}``)."""
+        return services.tasks.ready_tasks(group_id=group)
+
+    @app.get("/api/v1/tasks/{task_id}")
+    def get_task(task_id: str):
+        return services.tasks.get_task(task_id)
+
+    @app.post("/api/v1/tasks/{task_id}/dependencies")
+    def add_task_dependency(task_id: str, body: TaskDependencyCreate):
+        return services.tasks.add_dependency(task_id, body.depends_on_id, actor=body.actor, requires=body.requires)
+
+    @app.delete("/api/v1/tasks/{task_id}/dependencies/{depends_on_id}")
+    def remove_task_dependency(task_id: str, depends_on_id: str, actor: str = Query(...)):
+        return services.tasks.remove_dependency(task_id, depends_on_id, actor=actor)
+
+    @app.post("/api/v1/tasks/{task_id}/transitions")
+    def transition_task(task_id: str, body: TaskTransitionRequest):
+        """The single state-change route: ``{action, actor, cause?, expected_revision?}``."""
+        return services.tasks.transition(task_id, body.action, actor=body.actor, cause=body.cause,
+                                         expected_revision=body.expected_revision)
+
+    @app.get("/api/v1/team-events")
+    def team_events(after: int = Query(0, ge=0), group: str | None = None, task: str | None = None,
+                    limit: int = Query(500, ge=1, le=1000)):
+        """Team events with ``seq`` greater than ``after``, oldest first."""
+        return services.tasks.events(after=after, group_id=group, task_id=task, limit=limit)
 
     mount_ui(app)  # Stage 0 UI at /ui: static files only, a client of the routes above
     return app

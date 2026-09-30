@@ -133,6 +133,95 @@ def cmd_events(args) -> None:
     pretty(_api_json("GET", f"/api/v1/runs/{run_id}/events", params={"after": args.after}))
 
 
+# --- tasks (ORQ-1): every command calls the task routes of the HTTP API ---------
+
+def _segment(value: str) -> str:
+    return quote(value, safe="")
+
+
+def _parse_depends_on(values: list[str] | None) -> list:
+    result: list = []
+    for item in values or []:
+        task_id, _, requires = item.partition(":")
+        result.append({"task_id": task_id, "requires": requires} if requires else task_id)
+    return result
+
+
+def cmd_task_groups(args) -> None:
+    pretty(_api_json("GET", "/api/v1/task-groups"))
+
+
+def cmd_task_group_show(args) -> None:
+    pretty(_api_json("GET", f"/api/v1/task-groups/{_segment(args.group_id)}"))
+
+
+def cmd_task_group_create(args) -> None:
+    pretty(_api_json("POST", "/api/v1/task-groups", json_body={
+        "id": args.group_id, "title": args.title, "actor": args.actor,
+        "authorized": args.authorized, "default_requires": args.requires,
+    }))
+
+
+def cmd_task_group_update(args) -> None:
+    body = {"actor": args.actor}
+    if args.title is not None:
+        body["title"] = args.title
+    if args.authorized is not None:
+        body["authorized"] = args.authorized
+    if args.requires is not None:
+        body["default_requires"] = args.requires
+    pretty(_api_json("PATCH", f"/api/v1/task-groups/{_segment(args.group_id)}", json_body=body))
+
+
+def cmd_tasks(args) -> None:
+    if args.ready:
+        params = {"group": args.group} if args.group else None
+        pretty(_api_json("GET", "/api/v1/tasks/ready", params=params))
+        return
+    params = {key: value for key, value in (("group", args.group), ("status", args.status), ("assignee", args.assignee)) if value}
+    pretty(_api_json("GET", "/api/v1/tasks", params=params or None))
+
+
+def cmd_task_show(args) -> None:
+    pretty(_api_json("GET", f"/api/v1/tasks/{_segment(args.task_id)}"))
+
+
+def cmd_task_create(args) -> None:
+    pretty(_api_json("POST", "/api/v1/tasks", json_body={
+        "group_id": args.group_id, "id": args.task_id, "title": args.title, "actor": args.actor,
+        "objective": args.objective, "depends_on": _parse_depends_on(args.depends_on),
+        "file_scope": args.file or [], "requirements": args.requirement or [], "preferred": args.preferred,
+    }))
+
+
+def cmd_task_dep(args) -> None:
+    task = _segment(args.task_id)
+    if args.operation == "add":
+        body = {"depends_on_id": args.depends_on_id, "actor": args.actor}
+        if args.requires:
+            body["requires"] = args.requires
+        pretty(_api_json("POST", f"/api/v1/tasks/{task}/dependencies", json_body=body))
+    else:
+        pretty(_api_json("DELETE", f"/api/v1/tasks/{task}/dependencies/{_segment(args.depends_on_id)}",
+                         params={"actor": args.actor}))
+
+
+def cmd_task_do(args) -> None:
+    body = {"action": args.action, "actor": args.actor, "cause": args.cause}
+    if args.revision is not None:
+        body["expected_revision"] = args.revision
+    pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/transitions", json_body=body))
+
+
+def cmd_team_events(args) -> None:
+    params = {"after": args.after, "limit": args.limit}
+    if args.group:
+        params["group"] = args.group
+    if args.task:
+        params["task"] = args.task
+    pretty(_api_json("GET", "/api/v1/team-events", params=params))
+
+
 def cmd_usage(args) -> None:
     run_id = quote(args.run_id, safe="")
     usage = _api_json("GET", f"/api/v1/runs/{run_id}/usage")
@@ -430,6 +519,41 @@ def build_parser() -> argparse.ArgumentParser:
     x = sub.add_parser("usage", help="Show a run's token usage with totals per run, agent and step (cost is an estimate)")
     x.add_argument("run_id"); x.add_argument("--jsonl", action="store_true", help="One JSON line per usage record")
     x.set_defaults(func=cmd_usage)
+
+    # Tasks, dependencies and the team event log (ORQ-1).
+    requires_choices = ["accepted", "submitted"]
+    x = sub.add_parser("task-groups", help="List task groups with their task counts")
+    x.set_defaults(func=cmd_task_groups)
+    group = sub.add_parser("task-group", help="Show, create or update a task group").add_subparsers(dest="group_command", required=True)
+    x = group.add_parser("show"); x.add_argument("group_id"); x.set_defaults(func=cmd_task_group_show)
+    x = group.add_parser("create"); x.add_argument("group_id"); x.add_argument("--title", required=True)
+    x.add_argument("--authorized", action="store_true"); x.add_argument("--requires", choices=requires_choices, default="accepted")
+    x.add_argument("--actor", required=True); x.set_defaults(func=cmd_task_group_create)
+    x = group.add_parser("update"); x.add_argument("group_id"); x.add_argument("--title")
+    x.add_argument("--authorized", dest="authorized", action="store_true", default=None)
+    x.add_argument("--not-authorized", dest="authorized", action="store_false")
+    x.add_argument("--requires", choices=requires_choices); x.add_argument("--actor", required=True)
+    x.set_defaults(func=cmd_task_group_update)
+    x = sub.add_parser("tasks", help="List tasks, or only ready tasks of authorized groups with --ready")
+    x.add_argument("--group"); x.add_argument("--status"); x.add_argument("--assignee"); x.add_argument("--ready", action="store_true")
+    x.set_defaults(func=cmd_tasks)
+    task = sub.add_parser("task", help="Show, create, link or change a task").add_subparsers(dest="task_command", required=True)
+    x = task.add_parser("show"); x.add_argument("task_id"); x.set_defaults(func=cmd_task_show)
+    x = task.add_parser("create"); x.add_argument("group_id"); x.add_argument("task_id"); x.add_argument("--title", required=True)
+    x.add_argument("--objective", default=""); x.add_argument("--depends-on", action="append", metavar="ID[:requires]")
+    x.add_argument("--file", action="append", help="A path or folder the task will change; repeatable")
+    x.add_argument("--requirement", action="append"); x.add_argument("--preferred", default="")
+    x.add_argument("--actor", required=True); x.set_defaults(func=cmd_task_create)
+    x = task.add_parser("dep", help="Add or remove a dependency")
+    x.add_argument("operation", choices=["add", "remove"]); x.add_argument("task_id"); x.add_argument("depends_on_id")
+    x.add_argument("--requires", choices=requires_choices); x.add_argument("--actor", required=True); x.set_defaults(func=cmd_task_dep)
+    x = task.add_parser("do", help="Apply one action: claim, unclaim, start, pause, resume, submit, accept, request_changes, fail, cancel")
+    x.add_argument("task_id"); x.add_argument("action"); x.add_argument("--actor", required=True)
+    x.add_argument("--cause", default=""); x.add_argument("--revision", type=int, help="Fail unless the task is still at this revision")
+    x.set_defaults(func=cmd_task_do)
+    x = sub.add_parser("team-events", help="List team events, optionally only those after a sequence number")
+    x.add_argument("--after", type=int, default=0); x.add_argument("--group"); x.add_argument("--task")
+    x.add_argument("--limit", type=int, default=500); x.set_defaults(func=cmd_team_events)
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)
