@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from . import ApplicationServices
 
 # Stored states; "blocked" and "ready" are computed for "open" tasks only.
-STATES = ("open", "claimed", "running", "paused", "submitted", "needs_changes",
+STATES = ("open", "claimed", "running", "paused", "submitted", "validating", "needs_changes",
           "accepted", "failed", "cancelled")
 TERMINAL_STATES = ("accepted", "failed", "cancelled")
 STATUSES = ("blocked", "ready") + STATES[1:]
@@ -67,6 +67,13 @@ TRANSITIONS: dict[str, tuple[tuple[str, ...], str]] = {
     "fail": (("claimed", "running", "paused", "needs_changes"), "failed"),
     "cancel": (("blocked", "ready", "claimed", "running", "paused", "submitted", "needs_changes"), "cancelled"),
 }
+# Gate actions (ORQ-2): used only by services.gates through the same function; the public API refuses them.
+GATE_TRANSITIONS: dict[str, tuple[tuple[str, ...], str]] = {
+    "gate_start": (("submitted",), "validating"),
+    "gate_pass": (("validating",), "accepted"),
+    "gate_fail": (("validating",), "needs_changes"),
+    "gate_return": (("validating",), "submitted"),
+}
 # Only the assignee may run these actions on its task.
 ASSIGNEE_ONLY = ("start", "pause", "resume", "submit")
 _EVENT_OF_ACTION = {
@@ -75,7 +82,7 @@ _EVENT_OF_ACTION = {
     "request_changes": "task.changes_requested", "fail": "task.failed", "cancel": "task.cancelled",
 }
 # Stored states whose file_scope is locked against other assignees.
-_LOCKING_STATES = ("claimed", "running", "paused", "needs_changes")
+_LOCKING_STATES = ("claimed", "running", "paused", "validating", "needs_changes")
 
 EVENT_TYPES = (
     "group.created", "group.updated", "task.created", "dependency.added", "dependency.removed",
@@ -466,56 +473,77 @@ class TaskServices:
         cause = _text("cause", cause, maximum=500, required=False)
         if expected_revision is not None and (isinstance(expected_revision, bool) or not isinstance(expected_revision, int)):
             raise _invalid("expected_revision", "expected_revision must be an integer")
-        allowed, target = TRANSITIONS[action]
         with self.store.transaction() as conn:
-            tasks, deps = self._snapshot(conn)
-            if task_id not in tasks:
-                raise _missing("Task", task_id)
-            task = tasks[task_id]
-            before = self._states(tasks)
-            status = graph.effective_status(task_id, before, deps)
-            if expected_revision is not None and expected_revision != task["revision"]:
-                raise _conflict(f"Task {task_id} is at revision {task['revision']}", task_id=task_id,
-                                expected_revision=expected_revision, revision=task["revision"])
-            if status not in allowed:
-                raise _conflict(f"Cannot {action} a task that is {status}", task_id=task_id, status=status,
-                                action=action, allowed=list(allowed))
-            if action in ASSIGNEE_ONLY and actor != task["assignee"]:
-                raise _conflict(f"Only the assignee ({task['assignee'] or 'none'}) can {action} {task_id}",
-                                task_id=task_id, assignee=task["assignee"], actor=actor)
-            assignee = task["assignee"]
-            attempt = task["attempt"]
-            if action == "claim":
-                group = self._group_or_missing(task["group_id"], conn)
-                if not group["authorized"]:
-                    raise _conflict(f"Group {group['id']} is not authorized", task_id=task_id, group_id=group["id"])
-                conflicts = []
-                for other in tasks.values():
-                    if other["id"] == task_id or other["state"] not in _LOCKING_STATES or other["assignee"] == actor:
-                        continue
-                    shared = [path for path in other["file_scope"]
-                              if any(_overlaps(path, mine) for mine in task["file_scope"])]
-                    if shared:
-                        conflicts.append({"task_id": other["id"], "assignee": other["assignee"],
-                                          "status": other["state"], "paths": shared})
-                if conflicts:
-                    raise _conflict(f"Files of {task_id} are locked by other tasks", task_id=task_id, conflicts=conflicts)
-                assignee = actor
-            elif action == "unclaim":
-                assignee = ""
-            elif action == "start":
-                attempt += 1
-            try:
-                self.store.update_task(conn, task_id, expected_revision=task["revision"], state=target,
-                                       assignee=assignee, attempt=attempt)
-            except StaleRevision as stale:
-                raise _conflict(str(stale), task_id=task_id, revision=stale.current) from None
-            after = {**before, task_id: target}
-            self.store.append_event(conn, _EVENT_OF_ACTION[action], actor=actor, group_id=task["group_id"],
-                                    task_id=task_id, cause=cause,
-                                    payload={"from": status, "to": graph.effective_status(task_id, after, deps)})
-            self._announce_ready(conn, task_id, before, after, deps, tasks, actor, f"dependency {task_id} {target}")
-            return self._task_view(task_id, conn)
+            return self._apply(conn, task_id, action, actor=actor, cause=cause, expected_revision=expected_revision)
+
+    def _apply(self, conn: sqlite3.Connection, task_id: str, action: str, *, actor: str, cause: str = "",
+               expected_revision: int | None = None, gate: bool = False, event: str | None = None,
+               payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Apply one transition inside the caller's transaction (the body of ``transition``).
+
+        ``gate=True`` allows the internal gate actions (``GATE_TRANSITIONS``);
+        the gate services use it so that results, events and the state change
+        commit together. ``event`` and ``payload`` override the event type and
+        extend its payload for gate actions.
+        """
+        table = GATE_TRANSITIONS if gate else TRANSITIONS
+        if action not in table:
+            raise _invalid("action", f"action must be one of {', '.join(table)}")
+        allowed, target = table[action]
+        tasks, deps = self._snapshot(conn)
+        if task_id not in tasks:
+            raise _missing("Task", task_id)
+        task = tasks[task_id]
+        before = self._states(tasks)
+        status = graph.effective_status(task_id, before, deps)
+        if expected_revision is not None and expected_revision != task["revision"]:
+            raise _conflict(f"Task {task_id} is at revision {task['revision']}", task_id=task_id,
+                            expected_revision=expected_revision, revision=task["revision"])
+        if status not in allowed:
+            raise _conflict(f"Cannot {action} a task that is {status}", task_id=task_id, status=status,
+                            action=action, allowed=list(allowed))
+        if action in ASSIGNEE_ONLY and actor != task["assignee"]:
+            raise _conflict(f"Only the assignee ({task['assignee'] or 'none'}) can {action} {task_id}",
+                            task_id=task_id, assignee=task["assignee"], actor=actor)
+        assignee = task["assignee"]
+        attempt = task["attempt"]
+        if action == "accept":
+            # With a gate (ORQ-2), passing it is the only way to accept.
+            checks = task["gate"] or self._group_or_missing(task["group_id"], conn).get("default_gate", [])
+            if checks:
+                raise _conflict(f"{task_id} has a gate; run it to accept the task", task_id=task_id, gate=checks)
+        if action == "claim":
+            group = self._group_or_missing(task["group_id"], conn)
+            if not group["authorized"]:
+                raise _conflict(f"Group {group['id']} is not authorized", task_id=task_id, group_id=group["id"])
+            conflicts = []
+            for other in tasks.values():
+                if other["id"] == task_id or other["state"] not in _LOCKING_STATES or other["assignee"] == actor:
+                    continue
+                shared = [path for path in other["file_scope"]
+                          if any(_overlaps(path, mine) for mine in task["file_scope"])]
+                if shared:
+                    conflicts.append({"task_id": other["id"], "assignee": other["assignee"],
+                                      "status": other["state"], "paths": shared})
+            if conflicts:
+                raise _conflict(f"Files of {task_id} are locked by other tasks", task_id=task_id, conflicts=conflicts)
+            assignee = actor
+        elif action == "unclaim":
+            assignee = ""
+        elif action == "start":
+            attempt += 1
+        try:
+            self.store.update_task(conn, task_id, expected_revision=task["revision"], state=target,
+                                   assignee=assignee, attempt=attempt)
+        except StaleRevision as stale:
+            raise _conflict(str(stale), task_id=task_id, revision=stale.current) from None
+        after = {**before, task_id: target}
+        self.store.append_event(conn, event or _EVENT_OF_ACTION[action], actor=actor, group_id=task["group_id"],
+                                task_id=task_id, cause=cause,
+                                payload={"from": status, "to": graph.effective_status(task_id, after, deps),
+                                         **(payload or {})})
+        self._announce_ready(conn, task_id, before, after, deps, tasks, actor, f"dependency {task_id} {target}")
+        return self._task_view(task_id, conn)
 
     # -------- team event log --------
     @service_errors

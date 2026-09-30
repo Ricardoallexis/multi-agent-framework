@@ -5,7 +5,8 @@
 A dependency is an edge ``{"task_id", "depends_on_id", "requires"}`` (the rows
 of the task store): ``task_id`` waits for ``depends_on_id``. It is satisfied
 when the task it waits for is ``accepted`` (``requires="accepted"``) or, with
-``requires="submitted"``, ``submitted`` or ``accepted``.
+``requires="submitted"``, ``submitted``, ``validating`` (its gate is running) or
+``accepted``.
 
 Only a stored ``open`` task is reported as ``blocked`` or ``ready``; every
 other stored state is reported as it is. A dependency on a task that does not
@@ -20,7 +21,8 @@ from typing import Any
 REQUIRES = ("accepted", "submitted")
 _SATISFYING: dict[str, frozenset[str]] = {
     "accepted": frozenset({"accepted"}),
-    "submitted": frozenset({"submitted", "accepted"}),
+    # A task being validated by its gate (ORQ-2) was already submitted.
+    "submitted": frozenset({"submitted", "validating", "accepted"}),
 }
 
 Dependency = Mapping[str, Any]

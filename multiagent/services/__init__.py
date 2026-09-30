@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 from .definitions import DefinitionServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
+from .gates import GateServices
 from .runs import RunServices
 from .tasks import TaskServices
 
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ApplicationServices",
     "DefinitionServices",
+    "GateServices",
     "RunServices",
     "ServiceError",
     "TaskServices",
@@ -47,7 +49,7 @@ _BUNDLE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,119}$")
 
 
 class ApplicationServices:
-    """Facade over one ``System``: ``definitions``, ``runs`` and ``tasks``."""
+    """Facade over one ``System``: ``definitions``, ``runs``, ``tasks`` and ``gates``."""
 
     def __init__(self, system: System, *, bundles: Mapping[str, str | Path] | None = None):
         self.system = system
@@ -59,6 +61,7 @@ class ApplicationServices:
         self.definitions = DefinitionServices(self)
         self.runs = RunServices(self)
         self.tasks = TaskServices(self)
+        self.gates = GateServices(self)
 
     @classmethod
     def create(cls, settings: Settings | None = None, *,

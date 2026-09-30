@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     db_path: Optional[Path] = None
     runs_dir: Optional[Path] = None
     assets_dir: Optional[Path] = None
+    # Local, trusted file of named project commands for task gates (ORQ-2);
+    # empty means <local_dir>/project_commands.toml. Never read from a task or a request.
+    project_commands_file: Optional[Path] = None
 
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:8b"
@@ -100,6 +103,7 @@ class Settings(BaseSettings):
         self.db_path = Path(self.db_path or self.data_dir / "multiagent.db").resolve()
         self.runs_dir = Path(self.runs_dir or self.data_dir / "runs").resolve()
         self.assets_dir = Path(self.assets_dir or self.data_dir / "assets").resolve()
+        self.project_commands_file = Path(self.project_commands_file or self.local_dir / "project_commands.toml").resolve()
         return self
 
     @property
