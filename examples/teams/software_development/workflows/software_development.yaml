@@ -1,0 +1,89 @@
+# FW1-T03 example: a generic software development team. Roles, prompts and contracts all belong
+# to this bundle; nothing about this domain lives in the multiagent package. Human review
+# happens after the design and after the final review (checkpoint_after: true).
+id: software_development
+max_iterations: 2
+steps:
+  - id: define_scope
+    agent: product_manager
+    prompt_id: dev/define_scope
+    prompt_version: 1
+    skills: []
+    contract: ProductBrief
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+
+  - id: design_solution
+    agent: architect
+    prompt_id: dev/design_solution
+    prompt_version: 1
+    skills: []
+    contract: TechnicalDesign
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true
+
+  - id: plan_backend
+    agent: backend_engineer
+    prompt_id: dev/plan_backend
+    prompt_version: 1
+    skills: []
+    contract: BackendPlan
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+
+  - id: plan_frontend
+    agent: frontend_engineer
+    prompt_id: dev/plan_frontend
+    prompt_version: 1
+    skills: []
+    contract: FrontendPlan
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+
+  - id: plan_tests
+    agent: qa_engineer
+    prompt_id: dev/plan_tests
+    prompt_version: 1
+    skills: []
+    contract: TestStrategy
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+
+  - id: draft_documentation
+    agent: technical_writer
+    prompt_id: dev/draft_documentation
+    prompt_version: 1
+    skills: []
+    contract: DocumentationPlan
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+
+  - id: review_delivery
+    agent: reviewer
+    prompt_id: dev/review_delivery
+    prompt_version: 1
+    skills: []
+    contract: ReviewReport
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

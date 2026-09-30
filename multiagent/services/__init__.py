@@ -9,6 +9,7 @@ notebooks), so they all behave the same way::
     services.definitions.list_workflows()
     run = services.runs.create(RunRequest(workflow_id="...", project_name="demo"))
     services.runs.approve(run["id"])
+    services.tasks.ready_tasks(group_id="ORQ")
 
 Methods return JSON-ready data and report known failures as ``ServiceError``
 (``code``, ``message``, ``status``, ``details``; see ``errors``).
@@ -26,6 +27,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 from .definitions import DefinitionServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
 from .runs import RunServices
+from .tasks import TaskServices
 
 if TYPE_CHECKING:
     from ..bootstrap import System
@@ -36,6 +38,7 @@ __all__ = [
     "DefinitionServices",
     "RunServices",
     "ServiceError",
+    "TaskServices",
     "service_errors",
     "translate",
 ]
@@ -44,7 +47,7 @@ _BUNDLE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,119}$")
 
 
 class ApplicationServices:
-    """Facade over one ``System``: ``definitions`` and ``runs``."""
+    """Facade over one ``System``: ``definitions``, ``runs`` and ``tasks``."""
 
     def __init__(self, system: System, *, bundles: Mapping[str, str | Path] | None = None):
         self.system = system
@@ -55,6 +58,7 @@ class ApplicationServices:
             self._bundles[name] = Path(path).resolve()
         self.definitions = DefinitionServices(self)
         self.runs = RunServices(self)
+        self.tasks = TaskServices(self)
 
     @classmethod
     def create(cls, settings: Settings | None = None, *,

@@ -1,0 +1,36 @@
+agents:
+  product_manager:
+    role: Turns a feature request into a scoped brief with user stories
+    active: true
+    capabilities:
+      product_scoping: PRIMARY
+  architect:
+    role: Designs the components and interfaces that satisfy the brief
+    active: true
+    capabilities:
+      solution_design: PRIMARY
+  backend_engineer:
+    role: Plans the server-side implementation of the design
+    active: true
+    capabilities:
+      backend_planning: PRIMARY
+  frontend_engineer:
+    role: Plans the user-facing implementation of the design
+    active: true
+    capabilities:
+      frontend_planning: PRIMARY
+  qa_engineer:
+    role: Designs acceptance tests that cover the stories and the plans
+    active: true
+    capabilities:
+      test_design: PRIMARY
+  technical_writer:
+    role: Plans the documentation that users and maintainers need
+    active: true
+    capabilities:
+      documentation_planning: PRIMARY
+  reviewer:
+    role: Reviews the whole delivery and decides whether it can proceed
+    active: true
+    capabilities:
+      delivery_review: PRIMARY
