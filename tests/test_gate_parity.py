@@ -40,14 +40,32 @@ def make_services(local: Path) -> ApplicationServices:
     return ApplicationServices.create(settings)
 
 
+class _WithoutTimeout:
+    """The shared TestClient as the CLI sees it, minus the ``timeout`` argument.
+
+    ``gate run`` passes ``timeout=None`` to wait for long project commands; the TestClient has
+    no timeout to apply and warns about any that it is given.
+    """
+
+    def __init__(self, client: TestClient):
+        self._client = client
+
+    def request(self, method: str, url: str, **kwargs):
+        kwargs.pop("timeout", None)
+        return self._client.request(method, url, **kwargs)
+
+    def __getattr__(self, name: str):
+        return getattr(self._client, name)
+
+
 class _ClientContext:
     """Keep the shared TestClient open across the CLI's per-request context."""
 
     def __init__(self, client: TestClient):
         self.client = client
 
-    def __enter__(self) -> TestClient:
-        return self.client
+    def __enter__(self) -> _WithoutTimeout:
+        return _WithoutTimeout(self.client)
 
     def __exit__(self, *exc_info) -> bool:
         return False

@@ -24,6 +24,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.definitions` | `list_workflows`, `get_workflow`, `list_agents`, `list_bundles`, `validate_bundle` |
 | `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_submit`, `artifacts`, `events`, `usage` |
 | `services.tasks` | `create_group`, `update_group`, `get_group`, `list_groups`, `create_task`, `get_task`, `list_tasks`, `ready_tasks`, `add_dependency`, `remove_dependency`, `transition`, `events` |
+| `services.gates` | `set_task_gate`, `set_group_gate`, `get_gate`, `review`, `run_gate`, `abort_gate`, `results`, `project_commands` |
 
 For example, create a built-in social-post run:
 
@@ -107,6 +108,14 @@ and bundle-worker shutdown through its application lifespan.
 | `DELETE` | `/api/v1/tasks/{task_id}/dependencies/{depends_on_id}` | Remove a dependency; requires `?actor=`. |
 | `POST` | `/api/v1/tasks/{task_id}/transitions` | Change a task's state with `{"action", "actor", "cause"?, "expected_revision"?}`. |
 | `GET` | `/api/v1/team-events` | List team events; optional `after`, `group`, `task`, and `limit` (1–1000). |
+| `GET` | `/api/v1/tasks/{task_id}/gate` | Get the task's effective gate, its source (task, group, or none), and its last run. |
+| `PUT` | `/api/v1/tasks/{task_id}/gate` | Set the task's own gate with `{"checks", "actor"}`; an empty list removes it. |
+| `PUT` | `/api/v1/task-groups/{group_id}/gate` | Set the group's default gate with `{"checks", "actor"}`. |
+| `POST` | `/api/v1/tasks/{task_id}/gate/run` | Run the gate of a submitted task with `{"actor", "cause"?}`; waits until it ends. |
+| `POST` | `/api/v1/tasks/{task_id}/gate/abort` | Return a task stuck in `validating` to `submitted` with `{"actor", "cause"}`. |
+| `GET` | `/api/v1/tasks/{task_id}/gate/results` | List stored check results; optional `attempt`. |
+| `POST` | `/api/v1/tasks/{task_id}/reviews` | Approve or reject the current attempt with `{"actor", "approved", "comment"?}`. |
+| `GET` | `/api/v1/project-commands` | List configured project commands (names, timeouts, folders; never arguments). |
 
 The run endpoint accepts either a `SocialPostRequest` or a generic
 `RunRequest`. A generic request selects a workflow and supplies its inputs:
@@ -132,8 +141,9 @@ See [`TELEMETRY.md`](TELEMETRY.md) for the local-only usage model, CLI
 export, nullable token semantics, and the future OpenTelemetry mapping.
 
 See [`TASKS.md`](TASKS.md) for task groups, dependencies, states, transitions,
-file locks, team events, the matching CLI commands, and an example. Task request
-bodies reject unknown fields with `422 invalid_request`.
+file locks, gates, project commands, team events, the matching CLI commands, and
+examples. Task and gate request bodies reject unknown fields with
+`422 invalid_request`, so a request can never bring a command to run.
 
 For a human response, send a JSON object with a non-empty `raw_response` string;
 `provider`, `model`, `prompt_used`, and `notes` are optional. The review and
