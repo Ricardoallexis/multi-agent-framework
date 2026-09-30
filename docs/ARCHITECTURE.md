@@ -11,6 +11,7 @@ main.py / CLI / Python callers
   -> FastAPI app (HTTP API)
   -> ApplicationServices (multiagent/services/)
       -> definitions (workflows, agents, bundles)
+      -> tasks -> TaskStore + pure dependency graph (multiagent/tasks/)
       -> runs -> RunService (one per bundle runtime)
           -> WorkflowEngine
               -> ModelRouter
@@ -27,15 +28,19 @@ main.py / CLI / Python callers
 
 ### `multiagent/services/`
 
-The public Python layer (`ApplicationServices`) used by the HTTP API and, through it, the CLI. It lists and validates definitions, creates and steers runs (including definition bundles, each with its own store and worker), and reports failures as `ServiceError` with stable codes. See [`API.md`](API.md).
+The public Python layer (`ApplicationServices`) used by the HTTP API and, through it, the CLI. It lists and validates definitions, creates and steers runs (including definition bundles, each with its own store and worker), coordinates tasks with dependencies through one transition function, and reports failures as `ServiceError` with stable codes. See [`API.md`](API.md) and [`TASKS.md`](TASKS.md).
 
 ### `multiagent/api.py`
 
-Exposes the HTTP API over the application services: definitions, runs, reviews, cancellation, externally executed human-guided steps, and artifacts, with structured errors.
+Exposes the HTTP API over the application services: definitions, runs, reviews, cancellation, externally executed human-guided steps, artifacts, task groups, tasks, and team events, with structured errors.
 
 ### `multiagent/cli.py`
 
-Provides development and operational commands for diagnostics, runs, Human-in-the-Loop flows, assets, publications, metrics, and branding.
+Provides development and operational commands for diagnostics, runs, Human-in-the-Loop flows, tasks and team events, assets, publications, metrics, and branding.
+
+### `multiagent/tasks/`
+
+The pure dependency graph of tasks: cycle detection, `blocked` and `ready` status, blockers, released dependents, and parallel layers. It has no database or service imports, so the rules can be tested and reused on their own.
 
 ### `multiagent/workflow_engine.py`
 
@@ -63,7 +68,7 @@ Defines the Pydantic input and output contracts exchanged between workflow steps
 
 ### `multiagent/db/`
 
-Provides SQLite persistence, migrations, and access to run state, artifacts, projects, brand profiles, assets, publications, and telemetry.
+Provides SQLite persistence, migrations, and access to run state, artifacts, projects, brand profiles, assets, publications, telemetry, and tasks (`task_store.py`: task groups, tasks, dependencies, and the team event log, where a state change and its event are committed together).
 
 ## Local persistence
 

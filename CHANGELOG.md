@@ -18,6 +18,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 - Add parity tests across the Python facade, HTTP, and the CLI.
 - Record provider-reported token usage locally per run, agent, step, and attempt, including elapsed duration and failed attempts. Read records and totals through Python, HTTP, and CLI (including JSONL export); missing provider usage stays null, and telemetry write failures do not stop execution. See `docs/TELEMETRY.md`.
 - Add `scripts/check_version_consistency.py`. It checks that every current version declaration (README header, newest changelog release, latest milestone, `pyproject.toml`, and the tag on tag builds) matches `multiagent/version.py`, and that the product stage and the Python pre-release agree. CI and `run_tests_windows.bat` run it before the tests.
+- Add a reproducible example team, `examples/teams/software_development/`: a definition bundle with seven roles (product manager, architect, backend, frontend, QA, technical writer, reviewer), one output contract per step, two human reviews, and sample outputs that run in Mock mode. It has its own README and an automated test that loads it from an empty folder, runs it end to end, and checks that it carries no private or local references. The workflow makes one model call per step, so run it with `MAX_LLM_CALLS=7` or more.
 
 ### Changed
 

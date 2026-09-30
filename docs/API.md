@@ -2,7 +2,7 @@
 
 Multi-Agent Framework exposes one application-services facade for Python and an
 HTTP API built on that same facade. Both interfaces share workflow validation,
-run operations, and structured errors.
+run operations, task operations, and structured errors.
 
 ## Python facade
 
@@ -23,6 +23,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | --- | --- |
 | `services.definitions` | `list_workflows`, `get_workflow`, `list_agents`, `list_bundles`, `validate_bundle` |
 | `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_submit`, `artifacts`, `events`, `usage` |
+| `services.tasks` | `create_group`, `update_group`, `get_group`, `list_groups`, `create_task`, `get_task`, `list_tasks`, `ready_tasks`, `add_dependency`, `remove_dependency`, `transition`, `events` |
 
 For example, create a built-in social-post run:
 
@@ -94,6 +95,18 @@ and bundle-worker shutdown through its application lifespan.
 | `POST` | `/api/v1/runs/{run_id}/cancel` | Cancel or request cancellation; optional `?force=true`. |
 | `GET` | `/api/v1/runs/{run_id}/human-next` | Get the next pending human-guided step. |
 | `POST` | `/api/v1/runs/{run_id}/human-submit` | Submit a human response. |
+| `GET` | `/api/v1/task-groups` | List task groups with task counts per status. |
+| `POST` | `/api/v1/task-groups` | Create a task group with `{"id", "title", "actor", "authorized"?, "default_requires"?}`. Returns `201 Created`. |
+| `GET` | `/api/v1/task-groups/{group_id}` | Get a task group with task counts per status. |
+| `PATCH` | `/api/v1/task-groups/{group_id}` | Change `title`, `authorized`, or `default_requires`; requires `actor`. |
+| `GET` | `/api/v1/tasks` | List tasks; optional `group`, `status`, and `assignee` query parameters. |
+| `POST` | `/api/v1/tasks` | Create a task with `{"group_id", "id", "title", "actor", "objective"?, "depends_on"?, "file_scope"?, "requirements"?, "preferred"?}`. Returns `201 Created`. |
+| `GET` | `/api/v1/tasks/ready` | List ready tasks of authorized groups; optional `group`. |
+| `GET` | `/api/v1/tasks/{task_id}` | Get a task with its status, blockers, dependencies, and dependents. |
+| `POST` | `/api/v1/tasks/{task_id}/dependencies` | Add a dependency with `{"depends_on_id", "actor", "requires"?}`. |
+| `DELETE` | `/api/v1/tasks/{task_id}/dependencies/{depends_on_id}` | Remove a dependency; requires `?actor=`. |
+| `POST` | `/api/v1/tasks/{task_id}/transitions` | Change a task's state with `{"action", "actor", "cause"?, "expected_revision"?}`. |
+| `GET` | `/api/v1/team-events` | List team events; optional `after`, `group`, `task`, and `limit` (1–1000). |
 
 The run endpoint accepts either a `SocialPostRequest` or a generic
 `RunRequest`. A generic request selects a workflow and supplies its inputs:
@@ -118,6 +131,10 @@ configured by the server, not supplied by API clients.
 See [`TELEMETRY.md`](TELEMETRY.md) for the local-only usage model, CLI
 export, nullable token semantics, and the future OpenTelemetry mapping.
 
+See [`TASKS.md`](TASKS.md) for task groups, dependencies, states, transitions,
+file locks, team events, the matching CLI commands, and an example. Task request
+bodies reject unknown fields with `422 invalid_request`.
+
 For a human response, send a JSON object with a non-empty `raw_response` string;
 `provider`, `model`, `prompt_used`, and `notes` are optional. The review and
 human-response endpoints validate their request bodies and return the same
@@ -137,6 +154,10 @@ of order. It should reload the run (`GET /api/v1/runs/{run_id}`) instead of
 guessing its state. The Stage 0 run view does this and shows a notice while it
 reloads. `seq` is additive: existing fields, including the event `id`, keep
 their meaning. An `after` below 0 or not an integer returns 422 `invalid_request`.
+
+Team events (`GET /api/v1/team-events`) use one sequence for the whole team
+rather than one per run: an unfiltered read has no gaps, and a read filtered by
+group or task skips the events of other groups or tasks. See [`TASKS.md`](TASKS.md#team-events).
 
 ## Structured errors
 
