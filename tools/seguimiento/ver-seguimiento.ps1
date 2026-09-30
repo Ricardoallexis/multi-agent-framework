@@ -135,6 +135,31 @@ function Test-TaskPatchRequired([string]$patch) {
     if (-not $value) { return $false }
     $value -notmatch '(?i)^\s*(?:—|–|-|ninguno|none|no aplica)(?:\s|$|\()'
 }
+# "T01, T03" / "T02-T08, T10" / "-" -> T01, T03 ... (same stage). Same expansion as Expand-TaskDeps in
+# sistema\tareas.ps1, which tomar-tarea.ps1 uses; the range accepts a hyphen or an en dash.
+function Expand-DependencyCodes([string]$value) {
+    $dash = [string][char]0x2013
+    $codes = foreach ($part in ($value -split ',')) {
+        if ($part -match "T(\d+)\s*[$dash-]\s*T(\d+)") {
+            foreach ($n in [int]$Matches[1]..[int]$Matches[2]) { 'T{0:D2}' -f $n }
+        } elseif ($part -match 'T(\d+)') {
+            'T{0:D2}' -f [int]$Matches[1]
+        }
+    }
+    @($codes | Select-Object -Unique)
+}
+# Rule 27, the same decision as Get-DependencyBlock in sistema\tareas.ps1: $null when the dependency
+# releases its dependents under the stage mode (probada, integrada or terminada), otherwise why it does not.
+function Get-DependencyWait($dependency, [string]$mode) {
+    if ($dependency.State -eq 'integrada') { return $null }
+    if ($dependency.State -ne 'terminada') { return [string]$dependency.State }
+    $hasPatch = [regex]::Matches([string]$dependency.Patch, '\d{3}-[^`\s,()]+\.patch').Count -gt 0
+    if (-not $hasPatch -or $mode -eq 'terminada') { return $null }
+    if ($mode -eq 'integrada') { return 'terminada, falta integrarla' }
+    if ($dependency.Verdict -eq 'probada') { return $null }
+    if ($dependency.Verdict -eq 'prueba fallida') { return 'terminada, prueba fallida' }
+    'terminada, sin pruebas aprobadas'
+}
 function Safe-Snippet([string]$text) {
     $value = $text -replace '(?i)\b[A-Z]:\\[^\s<>""|]+', '[ruta omitida]'
     $value = $value -replace '\\\\[^\s<>""|]+', '[ruta omitida]'
@@ -507,6 +532,8 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         }
         $stageTitle = if ($stageText -match '(?m)^# (.+)$') { $Matches[1] } else { $stage.Name }
         $authorized = Get-Field $stageText 'Autorizada'
+        $releaseMode = (Get-Field $stageText 'Liberar dependientes').Trim().ToLowerInvariant()
+        if ($releaseMode -notin 'probada', 'integrada', 'terminada') { $releaseMode = 'probada' }
         $done = 0; $total = 0
         $taskReadFailed = $stageReadFailed
         try {
@@ -570,7 +597,17 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         $tasksByCode = @{}
         foreach ($record in $taskRecords) { $tasksByCode[$record.Code] = $record }
         foreach ($record in $taskRecords) {
-            $dependencyCodes = @([regex]::Matches($record.Dependencies, '(?i)\bT\d+\b') | ForEach-Object { $_.Value.ToUpperInvariant() } | Select-Object -Unique)
+            $dependencyCodes = @(Expand-DependencyCodes $record.Dependencies)
+            # A task that its card calls disponible, liberada or reabierta is not takeable while a
+            # dependency has not released its dependents (rule 27); the card's state is not changed.
+            $waitingFor = @()
+            if ($record.State -in 'disponible', 'liberada', 'reabierta') {
+                $waitingFor = @($dependencyCodes | ForEach-Object {
+                    if (-not $tasksByCode.ContainsKey($_)) { "$_ (sin ficha)" }
+                    elseif ($why = Get-DependencyWait $tasksByCode[$_] $releaseMode) { "$_ ($why)" }
+                })
+            }
+            $record | Add-Member -NotePropertyName WaitingFor -NotePropertyValue $waitingFor -Force
             $dependencyHtml = if ($dependencyCodes.Count) {
                 $items = foreach ($dependencyCode in $dependencyCodes) {
                     if (-not $tasksByCode.ContainsKey($dependencyCode)) {
@@ -623,8 +660,11 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             }
 
             $stateClass = 's-' + ($record.State -replace ' ', '-')
+            $stateCell = if ($record.WaitingFor.Count) {
+                "<span class=""state s-bloqueada"">Bloqueada por dependencia</span><div class=""meta"">Espera: $(Encode ($record.WaitingFor -join '; '))</div><div class=""meta"">Estado en la ficha: $(Encode $record.State)</div>"
+            } else { "<span class=""state $stateClass"">$(Encode $record.State)</span>" }
             $rowHtml = "<tr><td><a href=""$($record.Href)"">$(Encode $record.Title)</a>$($record.LeftHtml)</td>" +
-            "<td><span class=""state $stateClass"">$(Encode $record.State)</span></td>" +
+            "<td>$stateCell</td>" +
             "<td>$(Inline $record.Agent)</td><td>$(Inline $record.Preferred)</td>" +
             "<td>$dependencyHtml</td><td>$integrationHtml</td><td>$(Inline $record.Patch)</td><td>$(Encode $record.Workers)</td><td>$(Get-TokensHtml $record.Tokens)</td></tr>"
             $taskRows.Add([pscustomobject]@{ Id = $record.Code; State = $record.State; Patch = $record.Patch; Html = $rowHtml })
@@ -643,14 +683,15 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $count = { param($states) @($taskRecords | Where-Object { $_.State -in $states }).Count }
             $integrated = & $count @('integrada')
             $working = @($taskRecords | Where-Object { $_.State -eq 'en curso' } | ForEach-Object { "$($_.Code) ($($_.Agent))" })
-            $blocked = & $count @('pendiente', 'requiere cambios', 'reabierta')
-            $available = & $count @('disponible', 'liberada')
+            $waitingOnDependency = @($taskRecords | Where-Object { $_.WaitingFor.Count }).Count
+            $blocked = @($taskRecords | Where-Object { $_.State -in 'pendiente', 'requiere cambios', 'reabierta' -and -not $_.WaitingFor.Count }).Count
+            $available = @($taskRecords | Where-Object { $_.State -in 'disponible', 'liberada' -and -not $_.WaitingFor.Count }).Count
             $workingText = if ($working) { "En curso: $(Encode ($working -join ', '))" } else { 'Nadie trabajando ahora' }
             $activeCards.Add(@"
 <div class="card">
   <div class="card-head"><span class="gate">$(Encode $stage.Name)</span><span class="pct">$pct%</span></div>
   <div class="bar"><div class="fill" style="width:$pct%"></div></div>
-  <div class="meta">$done de $total terminadas o integradas &middot; $integrated integradas &middot; $available disponibles$(if ($blocked) { " &middot; $blocked en espera o con cambios" })</div>
+  <div class="meta">$done de $total terminadas o integradas &middot; $integrated integradas &middot; $available disponibles$(if ($waitingOnDependency) { " &middot; $waitingOnDependency bloqueadas por dependencia" })$(if ($blocked) { " &middot; $blocked en espera o con cambios" })</div>
   <div class="goal">$(Encode ($stageTitle -replace '^\S+\s*·\s*', ''))</div>
   <div class="meta">$workingText</div>
 </div>
@@ -710,6 +751,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
   <div class="bar"><div class="fill" style="width:$pct%"></div></div>
   <p class="meta">Autorizada: $(Encode $authorized) &middot; terminadas o integradas: $done de $total</p>
   <p class="meta">Integración: un parche entregado queda pendiente hasta que la ficha registre integrada; sin parche no implica integración pendiente. El commit y la fecha se muestran solo si constan en la ficha y su historial.</p>
+  $(if (@($taskRecords | Where-Object { $_.WaitingFor.Count }).Count) { "<p class=""meta"">Bloqueada por dependencia: la ficha dice disponible, pero una dependencia todavía no libera a sus dependientes (regla 27, modo &laquo;$(Encode $releaseMode)&raquo;). Es lo mismo que comprueba tomar-tarea.ps1.</p>" })
   <p class="meta">Cierre: $(if ($closure.Status -eq 'complete') { 'verificado' } elseif ($closure.Status -eq 'active') { 'etapa activa' } else { 'no verificado — ' + (Encode $closure.Reason) })</p>
   $taskGroups
 </section>
@@ -1087,6 +1129,7 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
 .s-integrada { background:var(--ok); color:#fff; }
 .s-idle { background:var(--accent-soft); color:var(--muted); }
 .s-unknown { background:var(--warn-bg); border:1px solid var(--warn-line); }
+.s-bloqueada { background:var(--accent-soft); color:var(--muted); border:1px dashed var(--warn-line); }
 .agent-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; }
 .agent-card h2 { margin:0; font-size:18px; }
 .agent-card h3 { margin:14px 0 6px; font-size:14px; }

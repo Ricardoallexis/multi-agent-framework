@@ -35,6 +35,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 - Clarify the autonomy model in `docs/COMPARISON.md`, `README.md`, `ROADMAP.md`, and `PROGRESS.md`. The runtime currently executes declared workflows. The roadmap target is governed autonomy: planning, delegation, and dynamic routing within declared roles, permissions, contracts, budgets, gates, and policies, with escalation to a human. It is not unrestricted agent conversation.
 - `setup_windows.bat` picks a supported Python (3.12, then 3.13) instead of falling back to the default `py -3`, which can be an unsupported version. When none is found it stops before creating `.venv` and says which versions are needed; an existing `.venv` with an unsupported Python is reported and left untouched. The supported versions are listed in one line at the top of the script.
 - Support Python 3.14: `requires-python` is now `>=3.12,<3.15`, the 3.14 classifier is declared, CI runs on 3.12, 3.13, and 3.14, and `setup_windows.bat` accepts 3.14. The test suite passes unchanged on 3.14.
+- Tracker (`tools/seguimiento`): a task whose card says `disponible`, `liberada` or `reabierta` but that waits for a dependency is shown as blocked, naming the dependency and its state, and the stage card counts available and blocked tasks separately. The decision is the one `tomar-tarea.ps1` applies (rule 27, including the stage's release mode), so the page no longer offers a task that cannot be taken. Dependency ranges such as `T02-T08` are now expanded in the dependency column.
 
 ### Roadmap
 
