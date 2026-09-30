@@ -16,8 +16,8 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Research and knowledge workflows | `░░░░░░░░░░` 0% | 0 of 6 |
 | Content, branding, and production | `░░░░░░░░░░` 0% | 0 of 8 |
 | Human-in-the-loop | `█░░░░░░░░░` 11% | 1 of 9 |
-| Collaborative agent teams | `░░░░░░░░░░` 0% | 0 of 16 |
-| Planning, delegation, and team orchestration | `░░░░░░░░░░` 0% | 0 of 12 |
+| Collaborative agent teams | `█░░░░░░░░░` 6% | 1 of 16 |
+| Planning, delegation, and team orchestration | `█░░░░░░░░░` 14% | 2 of 14 |
 | Team design from a prompt | `░░░░░░░░░░` 0% | 0 of 9 |
 | Preset sharing and community catalog | `░░░░░░░░░░` 0% | 0 of 7 |
 | Reference tool stacks for team presets | `░░░░░░░░░░` 0% | 0 of 5 |
@@ -29,7 +29,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Security and privacy | `░░░░░░░░░░` 0% | 0 of 6 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **13%** | **26 of 197** |
+| **All roadmap items** | **15%** | **29 of 199** |
 <!-- progress:table:end -->
 
 ## Current stage — runtime foundations

@@ -23,8 +23,8 @@ This plan breaks the [roadmap](../ROADMAP.md) into stages, sub-stages, and tasks
 | S4 | Execution backend abstraction | Core + Extension | S1 | ☐ |
 | S5 | Tool and capability contracts | Core | S1 | ☐ |
 | S6 | Team definitions and team design | Core | S5.C | ☐ |
-| S7 | Collaborative team primitives | Core | S6.A | ☐ |
-| S8 | Planning and delegation | Core | S4.A, S5.C, S6.A | ☐ |
+| S7 | Collaborative team primitives | Core | S6.A | ◐ |
+| S8 | Planning and delegation | Core | S4.A, S5.C, S6.A | ◐ |
 | S9 | Interoperability | Extension | S1 (S9.A), S5.A | ☐ |
 | S10 | Observability and evaluation | Core + Extension | S3 | ◐ |
 | S11 | Model routing and local AI | Core + Extension | S3 | ☐ |
@@ -193,7 +193,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S7.A2 | Structured messages and handoffs (delivery, proposal, question, answer, decision, result). | S7.A1 |
 | **S7.B — Work control** | | |
 | S7.B1 | Scoped workspaces: members change only assigned resources; shared ones need approval. | S6.A1 |
-| S7.B2 | *(proposed)* Task reservation with declared resources: taking a task reserves its resources and rejects overlaps. | S7.B1 |
+| S7.B2 | ✅ Task reservation with declared resources: claiming a task locks its declared files and rejects overlaps (task services, [`TASKS.md`](TASKS.md)). | S7.B1 |
 | S7.B3 | Change proposals in an ordered queue with held drafts; a supervisor applies them. | S7.B1 |
 | S7.B4 | *(proposed)* Dependency-aware integration gate: a change waits until its task is finished and its dependencies are applied and verified. | S7.B3 |
 | **S7.C — Quality gates** | | |
@@ -219,7 +219,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S8.A — Plans as data** | | |
-| S8.A1 | Plan schema: tasks, subtasks, dependencies, capabilities, contracts, assignments, parallel groups, review and integration steps. | S6.A1 |
+| S8.A1 | ◐ Plan schema: tasks, subtasks, dependencies, capabilities, contracts, assignments, parallel groups, review and integration steps. Done: tasks, groups, and dependencies as data, computed readiness, one transition function, and a team event log ([`TASKS.md`](TASKS.md)). | S6.A1 |
 | S8.A2 | Execute plans through the existing engine and backends, not a second engine. | S8.A1, S4.A2 |
 | **S8.B — Manual planning** | | |
 | S8.B1 | Manual planner and plan editing before and during execution. | S8.A2 |

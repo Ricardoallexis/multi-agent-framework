@@ -140,7 +140,7 @@ Human control is intended to remain a first-class part of the architecture rathe
 
 ## Collaborative agent teams
 
-**Progress:** `░░░░░░░░░░` 0/16 · 0% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 1/16 · 6% <!-- progress -->
 
 A domain-neutral core for coordinating two or more agents, and the humans who supervise them, on shared work. Software development is one application; the same primitives should serve design, finance, research, operations, or any other domain. Domain-specific behavior lives in team presets and examples that users can extend, and agents can help a user design their own team setup. The protocol is the framework's own and runs on its runs, events, and Human Bridge; A2A or Microsoft Agent Framework may carry messages, but they do not define it.
 
@@ -149,7 +149,7 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 - [ ] A team log and member inboxes: an append-only log plus a per-member inbox where reading a message acknowledges it, so members process only unread messages and never poll.
 - [ ] Structured messages and handoffs (delivery, proposal, question, answer, decision, result) that state the baseline, what changed, what was not verified, and what is requested from whom.
 - [ ] Change proposals: members deliver reviewable change sets in an ordered queue, with dependencies and held drafts, and a supervisor applies them rather than their authors.
-- [ ] *(proposed)* Task reservation with declared resources: taking a task reserves its resources and rejects overlapping work.
+- [x] Task reservation with declared resources: claiming a task locks the files it declares and rejects overlapping work by another assignee (see [`docs/TASKS.md`](docs/TASKS.md)).
 - [ ] *(proposed)* A dependency-aware integration gate: a change waits until its task is finished and its dependencies are applied and verified.
 - [ ] Review and gates: cross-review between members, and stages that close only when shared checks pass and a supervisor approves.
 - [ ] Check results with visibility rules: a member's own checks stay private to it, shared checks are visible to the team, and one designated reader summarizes each report.
@@ -163,10 +163,11 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 
 ## Planning, delegation, and team orchestration
 
-**Progress:** `░░░░░░░░░░` 0/12 · 0% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 2/14 · 14% <!-- progress -->
 
 Turn a high-level objective into an executable plan for a team the user has defined: understand the objective, decompose the work, find the required capabilities, assign specialists, coordinate execution, request revisions, and integrate the final result. Planners and orchestrators act only within the limits the user declares (roles, capabilities, permissions, contracts, budgets, gates, and policies) and escalate to a human when needed; every decision stays traceable. The core stays domain-neutral; industries appear only in presets and examples.
 
+- [x] Represent tasks, task groups, and dependencies as data in the core: `blocked` and `ready` are computed from the dependencies, every state change goes through one transition function, and a team event log records each change. Available through Python, HTTP, and the CLI with the same results (see [`docs/TASKS.md`](docs/TASKS.md)).
 - [ ] Represent a plan as data (tasks, subtasks, dependencies, required capabilities, expected outputs and contracts, assignments, parallel groups, review and integration steps) and execute it through the existing workflow engine and backends instead of a second engine.
 - [ ] Make planners pluggable: manual, deterministic, LLM-based, a custom plugin, or an external planner.
 - [ ] Support manual, semi-automatic, and automatic planning on the same core; semi-automatic plans wait for approval through the existing human-in-the-loop mechanism, where users can edit, reassign, or reject them.
@@ -174,6 +175,7 @@ Turn a high-level objective into an executable plan for a team the user has defi
 - [ ] Describe organizations as data (members, teams, and relationships such as reporting, supervision, delegation, review, consultation, and approval), supporting hierarchical, flat, matrix, peer-to-peer, and temporary structures.
 - [ ] Express sequential, parallel, dependent, optional, conditional, and iterative work.
 - [ ] Coordinate specialists through delegation, consultation, review, revision, approval, and handoff, and integrate partial results through merging, synthesis, conflict detection, cross-review, and final assembly.
+- [x] Record task traceability in the team event log: who created, claimed, and changed each task, when, and why, with its status and attempts.
 - [ ] Record delegation traceability (who created and assigned each task and why, required capabilities, status, attempts, reviews, and results) without storing private model reasoning.
 - [ ] Allow editing a plan before and during execution (add, remove, split, or merge tasks; change assignees, priorities, reviewers, or dependencies; pause, resume, or cancel).
 - [ ] Replan when a task fails, an agent or tool is unavailable, validation or a human rejects an output, or new information appears.
