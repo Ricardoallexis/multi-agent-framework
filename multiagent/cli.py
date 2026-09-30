@@ -55,10 +55,15 @@ def _detail(response: httpx.Response) -> str:
         return response.text.strip() or response.reason_phrase
 
 
-def _api_json(method: str, path: str, *, json_body=None, params=None):
+_DEFAULT_TIMEOUT = object()
+
+
+def _api_json(method: str, path: str, *, json_body=None, params=None, timeout=_DEFAULT_TIMEOUT):
+    # ``timeout=None`` waits without limit (a task gate may run long project commands).
+    options = {} if timeout is _DEFAULT_TIMEOUT else {"timeout": timeout}
     try:
         with api_client() as client:
-            response = client.request(method, path, json=json_body, params=params)
+            response = client.request(method, path, json=json_body, params=params, **options)
     except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
         raise RuntimeError("Backend unavailable at 127.0.0.1:8000. Start .\\run_backend.bat") from exc
     except httpx.HTTPError as exc:
@@ -211,6 +216,39 @@ def cmd_task_do(args) -> None:
     if args.revision is not None:
         body["expected_revision"] = args.revision
     pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/transitions", json_body=body))
+
+
+def cmd_task_gate(args) -> None:
+    task = _segment(args.task_id)
+    if args.operation == "show":
+        pretty(_api_json("GET", f"/api/v1/tasks/{task}/gate"))
+    elif args.operation == "results":
+        params = {"attempt": args.attempt} if args.attempt is not None else None
+        pretty(_api_json("GET", f"/api/v1/tasks/{task}/gate/results", params=params))
+    else:
+        if not args.actor:
+            raise ValueError(f"task gate {args.operation} needs --actor")
+        if args.operation == "set":
+            pretty(_api_json("PUT", f"/api/v1/tasks/{task}/gate", json_body={"checks": args.check or [], "actor": args.actor}))
+        elif args.operation == "run":
+            pretty(_api_json("POST", f"/api/v1/tasks/{task}/gate/run", json_body={"actor": args.actor, "cause": args.cause},
+                             timeout=None))
+        else:  # abort
+            pretty(_api_json("POST", f"/api/v1/tasks/{task}/gate/abort", json_body={"actor": args.actor, "cause": args.cause}))
+
+
+def cmd_task_review(args) -> None:
+    pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/reviews",
+                     json_body={"actor": args.actor, "approved": args.approve, "comment": args.comment}))
+
+
+def cmd_task_group_gate(args) -> None:
+    pretty(_api_json("PUT", f"/api/v1/task-groups/{_segment(args.group_id)}/gate",
+                     json_body={"checks": args.check or [], "actor": args.actor}))
+
+
+def cmd_project_commands(args) -> None:
+    pretty(_api_json("GET", "/api/v1/project-commands"))
 
 
 def cmd_team_events(args) -> None:
@@ -534,6 +572,9 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--not-authorized", dest="authorized", action="store_false")
     x.add_argument("--requires", choices=requires_choices); x.add_argument("--actor", required=True)
     x.set_defaults(func=cmd_task_group_update)
+    x = group.add_parser("gate", help="Set the group's default gate; no --check clears it")
+    x.add_argument("group_id"); x.add_argument("--check", action="append", help="tests, commit, review or command:<name>; repeatable")
+    x.add_argument("--actor", required=True); x.set_defaults(func=cmd_task_group_gate)
     x = sub.add_parser("tasks", help="List tasks, or only ready tasks of authorized groups with --ready")
     x.add_argument("--group"); x.add_argument("--status"); x.add_argument("--assignee"); x.add_argument("--ready", action="store_true")
     x.set_defaults(func=cmd_tasks)
@@ -551,6 +592,18 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("task_id"); x.add_argument("action"); x.add_argument("--actor", required=True)
     x.add_argument("--cause", default=""); x.add_argument("--revision", type=int, help="Fail unless the task is still at this revision")
     x.set_defaults(func=cmd_task_do)
+    x = task.add_parser("gate", help="Show, set, run or abort a task's gate, or list its results")
+    x.add_argument("operation", choices=["show", "set", "run", "abort", "results"]); x.add_argument("task_id")
+    x.add_argument("--check", action="append", help="For set: tests, commit, review or command:<name>; repeatable; none clears")
+    x.add_argument("--actor"); x.add_argument("--cause", default=""); x.add_argument("--attempt", type=int)
+    x.set_defaults(func=cmd_task_gate)
+    x = task.add_parser("review", help="Approve or reject the current attempt of a submitted task")
+    x.add_argument("task_id"); decision = x.add_mutually_exclusive_group(required=True)
+    decision.add_argument("--approve", dest="approve", action="store_true")
+    decision.add_argument("--reject", dest="approve", action="store_false")
+    x.add_argument("--actor", required=True); x.add_argument("--comment", default=""); x.set_defaults(func=cmd_task_review)
+    x = sub.add_parser("project-commands", help="List the project commands configured on the server (names, timeouts, folders)")
+    x.set_defaults(func=cmd_project_commands)
     x = sub.add_parser("team-events", help="List team events, optionally only those after a sequence number")
     x.add_argument("--after", type=int, default=0); x.add_argument("--group"); x.add_argument("--task")
     x.add_argument("--limit", type=int, default=500); x.set_defaults(func=cmd_team_events)

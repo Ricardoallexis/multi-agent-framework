@@ -148,6 +148,27 @@ class TaskDependencyCreate(_Body):
     requires: str | None = None
 
 
+class GateUpdate(_Body):
+    checks: list[str]
+    actor: str
+
+
+class GateRunRequest(_Body):
+    actor: str
+    cause: str = ""
+
+
+class GateAbortRequest(_Body):
+    actor: str
+    cause: str
+
+
+class ReviewRequest(_Body):
+    actor: str
+    approved: bool
+    comment: str = ""
+
+
 class TaskTransitionRequest(_Body):
     action: str
     actor: str
@@ -338,6 +359,42 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         """The single state-change route: ``{action, actor, cause?, expected_revision?}``."""
         return services.tasks.transition(task_id, body.action, actor=body.actor, cause=body.cause,
                                          expected_revision=body.expected_revision)
+
+    # --- gates (ORQ-2) ----------------------------------------------------------
+
+    @app.get("/api/v1/tasks/{task_id}/gate")
+    def get_task_gate(task_id: str):
+        return services.gates.get_gate(task_id)
+
+    @app.put("/api/v1/tasks/{task_id}/gate")
+    def set_task_gate(task_id: str, body: GateUpdate):
+        return services.gates.set_task_gate(task_id, body.checks, actor=body.actor)
+
+    @app.put("/api/v1/task-groups/{group_id}/gate")
+    def set_group_gate(group_id: str, body: GateUpdate):
+        return services.gates.set_group_gate(group_id, body.checks, actor=body.actor)
+
+    @app.post("/api/v1/tasks/{task_id}/gate/run")
+    def run_task_gate(task_id: str, body: GateRunRequest):
+        """Run the task's gate now; it only runs project commands from the server's local file."""
+        return services.gates.run_gate(task_id, actor=body.actor, cause=body.cause)
+
+    @app.post("/api/v1/tasks/{task_id}/gate/abort")
+    def abort_task_gate(task_id: str, body: GateAbortRequest):
+        return services.gates.abort_gate(task_id, actor=body.actor, cause=body.cause)
+
+    @app.get("/api/v1/tasks/{task_id}/gate/results")
+    def task_gate_results(task_id: str, attempt: int | None = Query(None, ge=0)):
+        return services.gates.results(task_id, attempt=attempt)
+
+    @app.post("/api/v1/tasks/{task_id}/reviews")
+    def review_task(task_id: str, body: ReviewRequest):
+        return services.gates.review(task_id, actor=body.actor, approved=body.approved, comment=body.comment)
+
+    @app.get("/api/v1/project-commands")
+    def project_commands():
+        """Configured command names, timeouts and working directories; never the argv."""
+        return services.gates.project_commands()
 
     @app.get("/api/v1/team-events")
     def team_events(after: int = Query(0, ge=0), group: str | None = None, task: str | None = None,

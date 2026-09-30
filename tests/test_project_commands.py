@@ -7,11 +7,15 @@ The commands run the current Python interpreter with harmless one-line scripts.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
+from multiagent.tasks import commands as commands_module
 from multiagent.tasks.commands import (
     DEFAULT_TIMEOUT_SECONDS,
     OUTPUT_EXCERPT_CHARS,
@@ -146,3 +150,103 @@ def test_stderr_is_included_in_the_output(tmp_path):
 argv = [{PY}, "-c", "import sys; sys.stderr.write('to stderr')"]
 """)
     assert "to stderr" in run_command(loaded, "warn").output
+
+
+# The command starts a child that sleeps for a minute and reports its pid.
+_WITH_CHILD = ("import subprocess, sys, time; "
+               "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+               "print('child', child.pid, flush=True); time.sleep(60)")
+# The command starts a child and exits at once, leaving the child holding the output open.
+_ORPHANING = ("import subprocess, sys; "
+              "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+              "print('child', child.pid, flush=True)")
+
+
+def _pid_of(output: str) -> int:
+    return int(output.split("child", 1)[1].split()[0])
+
+
+def _alive(pid: int) -> bool:
+    if os.name == "nt":
+        listing = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True)
+        return str(pid) in listing.stdout
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _stop(pid: int) -> None:
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+    else:
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
+
+
+def test_a_timeout_ends_the_whole_process_tree(tmp_path):
+    loaded = commands(tmp_path, f"""
+[commands.tree]
+argv = [{PY}, "-c", {json.dumps(_WITH_CHILD)}]
+timeout = 2
+""")
+    started = time.monotonic()
+    result = run_command(loaded, "tree")
+    elapsed = time.monotonic() - started
+    pid = _pid_of(result.output)
+    try:
+        assert (result.status, result.reason, result.exit_code) == ("failed", "timeout", None)
+        assert "timed out after 2 s" in result.output and "child" in result.output  # the partial output survives
+        # Before the fix the call waited for the child (60 s here) instead of the 2 s timeout.
+        assert elapsed < 30
+        deadline = time.monotonic() + 10
+        while _alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.2)
+        assert not _alive(pid), "the child of the command is still running"
+    finally:
+        _stop(pid)
+
+
+def test_a_command_that_ends_is_not_held_by_a_child_that_keeps_the_output_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(commands_module, "KILL_GRACE_SECONDS", 1)
+    loaded = commands(tmp_path, f"""
+[commands.orphan]
+argv = [{PY}, "-c", {json.dumps(_ORPHANING)}]
+timeout = 30
+""")
+    started = time.monotonic()
+    result = run_command(loaded, "orphan")
+    elapsed = time.monotonic() - started
+    pid = _pid_of(result.output)
+    try:
+        # The exit code decides; the call does not wait for the child (60 s) nor for the timeout (30 s).
+        assert (result.status, result.exit_code) == ("passed", 0) and "child" in result.output
+        assert elapsed < 20
+    finally:
+        _stop(pid)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="on Windows taskkill /T reaches every descendant, so none escapes the tree")
+def test_a_timeout_does_not_wait_for_a_process_that_left_the_tree(tmp_path, monkeypatch):
+    monkeypatch.setattr(commands_module, "KILL_GRACE_SECONDS", 1)
+    escaping = ("import subprocess, sys, time; "
+                "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True); "
+                "print('child', child.pid, flush=True); time.sleep(60)")
+    loaded = commands(tmp_path, f"""
+[commands.escape]
+argv = [{PY}, "-c", {json.dumps(escaping)}]
+timeout = 2
+""")
+    started = time.monotonic()
+    result = run_command(loaded, "escape")
+    elapsed = time.monotonic() - started
+    pid = _pid_of(result.output)
+    try:
+        assert (result.status, result.reason) == ("failed", "timeout")
+        assert "child" in result.output and "not waiting for it" in result.output
+        assert elapsed < 20
+    finally:
+        _stop(pid)
