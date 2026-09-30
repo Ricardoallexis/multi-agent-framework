@@ -1,10 +1,14 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 echo ================================================
 echo  Multi-Agent Framework - Windows Setup
 echo ================================================
+
+rem Supported Python versions, in order of preference, separated by spaces.
+rem Keep this list in sync with requires-python in pyproject.toml.
+set "SUPPORTED_PYTHON=3.12 3.13"
 
 where py >nul 2>nul
 if errorlevel 1 (
@@ -13,20 +17,42 @@ if errorlevel 1 (
   exit /b 1
 )
 
-py -3.12 -c "import sys" >nul 2>nul
-if errorlevel 1 (
-  set "PY_CMD=py -3"
-  echo Python 3.12 was not detected; the default compatible Python 3 version will be used.
-) else (
-  set "PY_CMD=py -3.12"
+set "PY_CMD="
+set "PY_VERSION="
+for %%V in (%SUPPORTED_PYTHON%) do (
+  if not defined PY_CMD (
+    py -%%V -c "import sys" >nul 2>nul
+    if not errorlevel 1 (
+      set "PY_CMD=py -%%V"
+      set "PY_VERSION=%%V"
+    )
+  )
+)
+
+if not defined PY_CMD (
+  echo ERROR: No supported Python was found.
+  echo This project needs Python %SUPPORTED_PYTHON: = or % ^(see requires-python in pyproject.toml^).
+  echo Newer versions, such as the default "py -3" on some machines, are not supported yet.
+  echo Install Python 3.12 x64 from python.org, then run this script again.
+  echo Nothing was created or changed.
+  exit /b 1
 )
 
 if not exist .venv (
-  echo [1/7] Creating virtual environment...
+  echo [1/7] Creating virtual environment with Python %PY_VERSION%...
   %PY_CMD% -m venv .venv
   if errorlevel 1 exit /b 1
 ) else (
   echo [1/7] Virtual environment already exists.
+  set "VENV_VERSION="
+  for /f "usebackq tokens=1,2" %%A in (`.venv\Scripts\python.exe -c "import sys; print(sys.version_info[0], sys.version_info[1])" 2^>nul`) do set "VENV_VERSION=%%A.%%B"
+  set "VENV_OK="
+  for %%S in (%SUPPORTED_PYTHON%) do if "%%S"=="!VENV_VERSION!" set "VENV_OK=1"
+  if not defined VENV_OK (
+    echo ERROR: The existing .venv uses an unsupported Python ^(!VENV_VERSION!^), or it cannot be run.
+    echo It was left untouched. To recreate it with Python %PY_VERSION%, delete the .venv folder and run this script again.
+    exit /b 1
+  )
 )
 
 echo [2/7] Updating pip...
