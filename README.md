@@ -187,6 +187,8 @@ as `--objective` and `--topic`. HTTP errors appear in the CLI with their code,
 message, and available details. See [Python and HTTP API](docs/API.md) for the
 facade, bundle registration contract, endpoints, and error format.
 
+A complete, copyable example is [the software development team bundle](examples/teams/software_development/README.md): seven roles, two human reviews, and sample outputs that run in Mock mode.
+
 To return to provider inference, stop the server, set `MOCK_MODE=false`, and
 restart it with your provider configuration. This server mode is separate from
 the standalone `dry-run` command below, which does not need the HTTP server.
