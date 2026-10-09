@@ -254,12 +254,16 @@ function Get-RegisteredAgents {
     $rows = @()
     if (Test-Path -LiteralPath $path -PathType Leaf) {
         foreach ($line in [IO.File]::ReadAllLines($path)) {
-            if ($line -match '^\|\s*([A-Za-z0-9-]+)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(ACTIVO|PAUSADO)\s*\|') {
-                $rows += [pscustomobject]@{ Name = $Matches[1]; Application = ($Matches[1] -split '-', 2)[0]; State = $Matches[4] }
+            if ($line -match '^\|\s*([A-Za-z0-9-]+)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(ACTIVO|PAUSADO)\s*\|(?:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|)?') {
+                $rows += [pscustomobject]@{ Name = $Matches[1]; Application = ($Matches[1] -split '-', 2)[0]; Model = $Matches[2]; State = $Matches[4]; Cursor = $Matches[6]; Session = $Matches[7]; Base = '' }
             }
         }
     }
-    if (-not $rows) { $rows = @('Claude', 'Codex', 'Copilot') | ForEach-Object { [pscustomobject]@{ Name = $_; Application = $_; State = 'ACTIVO' } } }
+    if (-not $rows) { $rows = @('Claude', 'Codex', 'Copilot') | ForEach-Object { [pscustomobject]@{ Name = $_; Application = $_; Model = ''; State = 'ACTIVO'; Cursor = ''; Session = ''; Base = '' } } }
+    # Instances of the same model (rule 28, P-303: base name + digit, e.g. Claude-Opus2) group under their active base.
+    foreach ($row in $rows) {
+        if ($row.Name -match '^(.+?)\d+$' -and @($rows | Where-Object { $_.Name -eq $Matches[1] -and $_.State -eq 'ACTIVO' })) { $row.Base = $Matches[1] }
+    }
     $rows
 }
 
@@ -1004,16 +1008,30 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
     } else {
         '<p class="meta">Ninguna tarea tiene tokens registrados todavía.</p>'
     }
-    @"
+    $identity = @(
+        if ($agentRow.Model) { "Modelo: $(Encode $agentRow.Model)" }
+        if ($agentRow.Session) { "Última sesión: $(Encode $agentRow.Session)" }
+    ) -join ' · '
+    $identityHtml = if ($identity) { "<p class=""meta"">$identity</p>" } else { '' }
+    $card = @"
 <section class="panel agent-card">
   <div class="card-head"><h2>$(Encode $name)</h2><span class="state $statusClass">$(Encode $status)</span></div>
+  $identityHtml
   <div class="agent-current"><h3>Tarea actual según el tablero</h3>$current</div>
   <div class="agent-current"><h3>Tokens en tareas</h3>$tokensHtml</div>
   <div class="agent-current"><h3>Seguimiento de asignaciones cloud</h3>$cloudContext</div>
   $(Get-AlignmentHtml $name $agentRow.Application)
   $lastActivity
+<!--instances-->
 </section>
 "@
+    [pscustomobject]@{ Name = $name; Base = $agentRow.Base; Html = $card }
+}
+$agentCards = foreach ($entry in @($agentCards | Where-Object { -not $_.Base })) {
+    $nested = foreach ($instance in @($agentCards | Where-Object { $_.Base -eq $entry.Name })) {
+        "<details class=""agent-instance""><summary>Instancia $(Encode $instance.Name)</summary>$($instance.Html.Replace('<!--instances-->', ''))</details>"
+    }
+    $entry.Html.Replace('<!--instances-->', ($nested -join "`n"))
 }
 # Retired names (PAUSADO, e.g. the generic Claude replaced by Claude-<Model>) stay folded, only if the board mentions them.
 $retired = @($registeredAgents | Where-Object { $_.State -eq 'PAUSADO' -and @($agentBoard.History | Where-Object Agent -ieq $_.Name).Count })
