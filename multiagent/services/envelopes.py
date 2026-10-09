@@ -5,9 +5,8 @@
 Contract fixed by ORQ-T22; implemented by ORQ-T25 on the envelope store
 (``multiagent.db.envelope_store``, ORQ-T23), the pure envelope validation
 (``multiagent.tasks.envelopes``, ORQ-T24) and the single task transition
-function of ``services.tasks``. Until ORQ-T25 every method raises
-``NotImplementedError("ORQ-T25")`` and the service is not part of
-``ApplicationServices``.
+function of ``services.tasks`` (ORQ-T25). Available as
+``ApplicationServices.envelopes``.
 
 A **task envelope** (``multiagent.task_envelope/1``) is what an agent needs to
 start a task and nothing more: objective, effective status, dependencies *by
@@ -40,40 +39,171 @@ is not the assignee, or a result with the same key already has other content).
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import re
+import sqlite3
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
+
+from ..db.envelope_store import HARD_MAX_BLOB_BYTES, EnvelopeStore
+from ..tasks import graph
+from ..tasks.envelopes import (
+    MAX_CONSTRAINT_CHARS,
+    MAX_CONSTRAINTS,
+    MAX_CONTEXT_REFS,
+    MAX_REFERENCE_CHARS,
+    MAX_RESULT_BYTES,
+    REFERENCE_SCHEMES,
+    RESOLVABLE_SCHEMES,
+    TASK_ENVELOPE_SCHEMA,
+    TASK_RESULT_SCHEMA,
+    EnvelopeError,
+    blob_ref,
+    build_task_envelope,
+    canonical_json,
+    envelope_sha256,
+    parse_reference,
+    patch_sha256,
+    result_ref,
+    unchanged_envelope,
+    validate_reference,
+    validate_task_result,
+)
+from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
+from .tasks import _TASK_ID, TERMINAL_STATES, _text
 
 if TYPE_CHECKING:
     from . import ApplicationServices
 
-TASK_ENVELOPE_SCHEMA = "multiagent.task_envelope/1"
-TASK_RESULT_SCHEMA = "multiagent.task_result/1"
-REFERENCE_SCHEMES = ("result", "blob", "doc", "report", "rules")
-RESOLVABLE_SCHEMES = ("result", "blob")
-MAX_REFERENCE_CHARS = 200
-MAX_CONTEXT_REFS = 20
-MAX_CONSTRAINTS = 20
-MAX_CONSTRAINT_CHARS = 200
-MAX_SUMMARY_CHARS = 1500
-MAX_DECISIONS = 20
-MAX_DECISION_CHARS = 300
-MAX_CONTRACT_CHANGES_CHARS = 1500
-MAX_TESTS_NOT_RUN = 20
-MAX_TEST_NOT_RUN_CHARS = 200
-MAX_REQUESTS = 10
-MAX_PATCH_FILES = 200
-MAX_RESULT_BYTES = 16 * 1024
+__all__ = [
+    "DEFAULT_BLOB_MAX_BYTES",
+    "DEFAULT_READ_BYTES",
+    "EVENT_TYPES",
+    "EnvelopeServices",
+    "MAX_READ_BYTES",
+    "MAX_REFERENCE_CHARS",
+    "MAX_RESULT_BYTES",
+    "REFERENCE_SCHEMES",
+    "RESOLVABLE_SCHEMES",
+    "TASK_ENVELOPE_SCHEMA",
+    "TASK_RESULT_SCHEMA",
+]
+
 DEFAULT_BLOB_MAX_BYTES = 8 * 1024 * 1024
 DEFAULT_READ_BYTES = 64 * 1024
 MAX_READ_BYTES = 1024 * 1024
+MAX_CONSUMER_CHARS = 100
+MAX_EVENT_TYPE_CHARS = 64
+MAX_READ_EVENTS = 1000
 EVENT_TYPES = ("result.submitted", "task.context_updated")
+
+_COMMIT = re.compile(r"[0-9a-f]{7,40}")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+_MEDIA_TYPE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*")
+_GROUP_ID = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
+_TEXT_MEDIA_TYPES = ("application/json",)
+# The context cannot change while the gate validates the delivery, nor once the task is closed.
+_FROZEN_STATES = (*TERMINAL_STATES, "validating")
+_EVENT_BATCH = 500
+
+
+def _invalid(field: str, message: str, **details: Any) -> ServiceError:
+    return ServiceError(INVALID_REQUEST, message, status=422, details={"field": field, **details})
+
+
+def _conflict(message: str, **details: Any) -> ServiceError:
+    return ServiceError(INVALID_STATE, message, status=409, details=details)
+
+
+def _missing(kind: str, identifier: str) -> ServiceError:
+    return ServiceError(NOT_FOUND, f"{kind} not found: {identifier}", status=404, details={kind.lower(): identifier})
+
+
+def _from_envelope_error(error: EnvelopeError) -> ServiceError:
+    return _invalid(error.field, str(error))
+
+
+def _integer(field: str, value: Any, *, minimum: int, maximum: int | None = None) -> int:
+    if (isinstance(value, bool) or not isinstance(value, int) or value < minimum
+            or (maximum is not None and value > maximum)):
+        bounds = f">= {minimum}" if maximum is None else f"between {minimum} and {maximum}"
+        raise _invalid(field, f"{field} must be an integer {bounds}", value=repr(value))
+    return value
+
+
+def _consumer(value: Any) -> str:
+    return _text("consumer", value, maximum=MAX_CONSUMER_CHARS)
+
+
+def _scope(value: Any) -> str:
+    """``""`` (the whole team), ``group:<id>`` or ``task:<id>``."""
+    if value == "":
+        return ""
+    if isinstance(value, str):
+        kind, _, identifier = value.partition(":")
+        if (kind == "group" and _GROUP_ID.fullmatch(identifier)) or (kind == "task" and _TASK_ID.fullmatch(identifier)):
+            return value
+    raise _invalid("scope", f"scope must be '', group:<id> or task:<id>: {value!r}")
+
+
+def _is_text(media_type: str) -> bool:
+    return media_type.startswith("text/") or media_type in _TEXT_MEDIA_TYPES
+
+
+def _utf8_text(data: bytes, *, at_end: bool) -> str | None:
+    """``data`` as UTF-8, or ``None`` when it is not UTF-8.
+
+    Inside the blob (``at_end`` false) a character cut by the end of the range
+    is left out; at the end of the blob an incomplete character is not UTF-8.
+    """
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        if at_end or exc.reason != "unexpected end of data" or len(data) - exc.start > 3:
+            return None
+        try:
+            return data[:exc.start].decode("utf-8")
+        except UnicodeDecodeError:
+            return None
 
 
 class EnvelopeServices:
     def __init__(self, services: ApplicationServices):
         self._services = services
+        self._store: EnvelopeStore | None = None
+        # Size limit of one blob (contract §4); configurable up to the store's hard limit.
+        self.blob_max_bytes = DEFAULT_BLOB_MAX_BYTES
+
+    @property
+    def store(self) -> EnvelopeStore:
+        # Created on first use, like the task store.
+        if self._store is None:
+            self._store = EnvelopeStore(self._services.system.db)
+        return self._store
+
+    @property
+    def _tasks(self):
+        return self._services.tasks
+
+    # -------- helpers --------
+    def _task_or_missing(self, task_id: str, conn: sqlite3.Connection) -> dict[str, Any]:
+        task = self._tasks.store.get_task(task_id, conn=conn) if isinstance(task_id, str) else None
+        if task is None:
+            raise _missing("Task", str(task_id))
+        return task
+
+    @staticmethod
+    def _result_view(row: Mapping[str, Any]) -> dict[str, Any]:
+        return {**row["result"], "ref": result_ref(row["task_id"], row["attempt"]),
+                "result_sha256": row["result_sha256"], "created_at": row["created_at"]}
+
+    def _cursor_view(self, consumer: str, scope: str, conn: sqlite3.Connection) -> dict[str, Any]:
+        return {"consumer": consumer, "scope": scope, "seq": self.store.get_cursor(consumer, scope, conn=conn),
+                "head": self.store.event_head(conn=conn)}
 
     # -------- task context and envelope --------
+    @service_errors
     def set_task_context(self, task_id: str, *, actor: str, base_commit: str | None = None,
                          context_refs: Iterable[str] | None = None,
                          constraints: Iterable[str] | None = None) -> dict[str, Any]:
@@ -81,43 +211,181 @@ class EnvelopeServices:
 
         Only the given fields change; ``revision`` goes up. Context references
         follow the reference grammar; constraints are plain data, never executed.
-        Errors: ``not_found``, ``invalid_request`` (format or limits),
-        ``invalid_state`` (the task is terminal or ``validating``).
+        Returns the task with its ``base_commit``, ``context_refs`` and ``constraints``.
+        Errors: ``not_found``, ``invalid_request`` (format or limits, or no field
+        given), ``invalid_state`` (the task is terminal or ``validating``).
         """
-        raise NotImplementedError("ORQ-T25")
+        actor = _text("actor", actor, maximum=100)
+        fields: list[str] = []
+        if base_commit is not None:
+            if base_commit != "" and not (isinstance(base_commit, str) and _COMMIT.fullmatch(base_commit)):
+                raise _invalid("base_commit", "base_commit must be empty or 7 to 40 lowercase hex characters")
+            fields.append("base_commit")
+        refs: list[str] | None = None
+        if context_refs is not None:
+            if isinstance(context_refs, (str, bytes)):
+                raise _invalid("context_refs", "context_refs must be a list")
+            refs = []
+            try:
+                for raw in context_refs:
+                    ref = validate_reference(raw, field="context_refs")
+                    if ref not in refs:
+                        refs.append(ref)
+            except EnvelopeError as error:
+                raise _from_envelope_error(error) from None
+            if len(refs) > MAX_CONTEXT_REFS:
+                raise _invalid("context_refs", f"context_refs has more than {MAX_CONTEXT_REFS} references")
+            fields.append("context_refs")
+        texts: list[str] | None = None
+        if constraints is not None:
+            if isinstance(constraints, (str, bytes)):
+                raise _invalid("constraints", "constraints must be a list")
+            texts = [_text("constraints", raw, maximum=MAX_CONSTRAINT_CHARS) for raw in constraints]
+            if len(texts) > MAX_CONSTRAINTS:
+                raise _invalid("constraints", f"constraints has more than {MAX_CONSTRAINTS} items")
+            fields.append("constraints")
+        if not fields:
+            raise _invalid("context", "Give at least one of base_commit, context_refs or constraints")
+        with self._tasks.store.transaction() as conn:
+            task = self._task_or_missing(task_id, conn)
+            if task["state"] in _FROZEN_STATES:
+                raise _conflict(f"Cannot change the context of a task that is {task['state']}", task_id=task_id,
+                                status=task["state"])
+            self.store.set_task_context(conn, task_id, base_commit=base_commit, context_refs=refs,
+                                        constraints=texts)
+            self._tasks._bump(conn, task)
+            self._tasks.store.append_event(conn, "task.context_updated", actor=actor, group_id=task["group_id"],
+                                           task_id=task_id, payload={"fields": fields})
+            return {**self._tasks._task_view(task_id, conn), **(self.store.task_context(task_id, conn=conn) or {})}
 
+    @service_errors
     def get_envelope(self, task_id: str, *, known_hash: str | None = None) -> dict[str, Any]:
         """The task envelope, or ``{"unchanged": true, "hash": ..., "revision": ...}`` when ``known_hash`` matches.
 
         The hash is the sha256 of the canonical JSON of the envelope (sorted
         keys, compact separators, UTF-8). Dependencies appear with their
         status and, when they have a result, the ``result_ref`` of its latest
-        attempt; ``artifact_refs`` lists the patch blobs of those results.
-        Errors: ``not_found``.
+        attempt; ``artifact_refs`` lists the patch blobs of those results. A
+        task without an objective uses its title. ``events_after`` is the head
+        of the team event log when the envelope is computed, so any new event
+        changes the hash.
+        Errors: ``not_found``, ``invalid_request`` (``known_hash``).
         """
-        raise NotImplementedError("ORQ-T25")
+        if known_hash is not None and not (isinstance(known_hash, str) and _SHA256.fullmatch(known_hash)):
+            raise _invalid("known_hash", "known_hash must be 64 lowercase hex characters")
+        # One connection: the envelope comes from one consistent read.
+        with self._tasks.store.db.connect() as conn:
+            tasks, deps = self._tasks._snapshot(conn)
+            if task_id not in tasks:
+                raise _missing("Task", str(task_id))
+            task = tasks[task_id]
+            states = self._tasks._states(tasks)
+            depends_on: list[dict[str, Any]] = []
+            artifacts: list[str] = []
+            for dep in deps:
+                if dep["task_id"] != task_id:
+                    continue
+                other = dep["depends_on_id"]
+                item = {"task_id": other, "requires": dep["requires"],
+                        "status": graph.effective_status(other, states, deps)}
+                latest = self.store.latest_result(other, conn=conn)
+                if latest is not None:
+                    item["result_ref"] = result_ref(other, latest["attempt"])
+                    if latest["patch_sha256"]:
+                        artifacts.append(blob_ref(latest["patch_sha256"]))
+                depends_on.append(item)
+            context = self.store.task_context(task_id, conn=conn) or {}
+            gate = task["gate"] or self._tasks._group_or_missing(task["group_id"], conn).get("default_gate", [])
+            head = self.store.event_head(conn=conn)
+        try:
+            envelope = build_task_envelope(
+                task_id=task_id, group_id=task["group_id"], revision=task["revision"], attempt=task["attempt"],
+                assignee=task["assignee"] or None, status=graph.effective_status(task_id, states, deps),
+                objective=task["objective"] or task["title"], depends_on=depends_on, artifact_refs=artifacts,
+                context_refs=context.get("context_refs", []), file_scope=task["file_scope"],
+                constraints=context.get("constraints", []), gate=gate,
+                base_commit=context.get("base_commit", ""), events_after=head)
+        except EnvelopeError as error:
+            raise _from_envelope_error(error) from None
+        if known_hash is not None and known_hash == envelope_sha256(envelope):
+            return unchanged_envelope(envelope)
+        return envelope
 
     # -------- blobs and artifacts --------
+    @service_errors
     def put_blob(self, content: bytes, *, actor: str, media_type: str = "application/octet-stream",
                  expected_sha256: str | None = None) -> dict[str, Any]:
         """Store content by its sha256; returns ``{ref, sha256, size, media_type, created}``.
 
-        The same content is stored once (``created`` is false the second time).
-        Errors: ``invalid_request`` (too large, bad media type, or
-        ``expected_sha256`` does not match).
+        The same content is stored once (``created`` is false the second time,
+        and the first ``media_type`` stays). Errors: ``invalid_request`` (not
+        bytes, too large, bad media type, or ``expected_sha256`` does not match).
         """
-        raise NotImplementedError("ORQ-T25")
+        actor = _text("actor", actor, maximum=100)
+        if not isinstance(content, (bytes, bytearray, memoryview)):
+            raise _invalid("content", "content must be bytes")
+        content = bytes(content)
+        limit = min(self.blob_max_bytes, HARD_MAX_BLOB_BYTES)
+        if len(content) > limit:
+            raise _invalid("content", f"The blob is {len(content)} bytes; the limit is {limit}", limit=limit)
+        if not (isinstance(media_type, str) and len(media_type) <= 100 and _MEDIA_TYPE.fullmatch(media_type)):
+            raise _invalid("media_type", f"media_type must be type/subtype in lowercase: {media_type!r}")
+        sha256 = hashlib.sha256(content).hexdigest()
+        if expected_sha256 is not None:
+            expected = expected_sha256.removeprefix("sha256:") if isinstance(expected_sha256, str) else None
+            if expected != sha256:
+                raise _invalid("expected_sha256", "The content does not match expected_sha256", sha256=sha256)
+        with self._tasks.store.transaction() as conn:
+            row, created = self.store.put_blob(conn, content, actor=actor, media_type=media_type)
+        return {"ref": blob_ref(sha256), "sha256": sha256, "size": row["size"], "media_type": row["media_type"],
+                "created": created}
 
+    @service_errors
     def get_artifact(self, ref: str, *, offset: int = 0, length: int = DEFAULT_READ_BYTES) -> dict[str, Any]:
         """Read a range of a blob: ``{ref, sha256, size, media_type, offset, length, encoding, content, eof}``.
 
-        Text media types come back as UTF-8, the rest as base64. ``length`` is at most 1 MiB.
+        Text media types (``text/*``, ``application/json``) come back as UTF-8
+        and the rest as base64. A text range that would cut a character ends
+        before it (``length`` is what was returned); text that is not UTF-8,
+        or a range that starts inside a character, comes back as base64. ``length`` is at most 1 MiB. A ``result:``
+        reference is read with ``get_result``.
         Errors: ``not_found`` (no such blob), ``invalid_request`` (a scheme the
         core does not resolve, or a bad range).
         """
-        raise NotImplementedError("ORQ-T25")
+        try:
+            parsed = parse_reference(ref, field="ref")
+        except EnvelopeError as error:
+            raise _from_envelope_error(error) from None
+        if parsed.scheme == "result":
+            raise _invalid("ref", "A result reference is read with get_result", ref=parsed.text)
+        if not parsed.resolvable:
+            raise _invalid("ref", f"The core does not resolve {parsed.scheme} references: read it with your own tools",
+                           ref=parsed.text)
+        offset = _integer("offset", offset, minimum=0)
+        length = _integer("length", length, minimum=1, maximum=MAX_READ_BYTES)
+        sha256 = parsed.sha256 or ""
+        row = self.store.get_blob(sha256)
+        if row is None:
+            raise _missing("Blob", parsed.text)
+        if offset > row["size"]:
+            raise _invalid("offset", f"offset is past the end of the blob ({row['size']} bytes)", size=row["size"])
+        try:
+            data = self.store.read_blob(sha256, offset=offset, length=length)
+        except FileNotFoundError:
+            raise _missing("Blob", parsed.text) from None
+        text = (_utf8_text(data, at_end=offset + len(data) >= row["size"])
+                if _is_text(row["media_type"]) else None)
+        if text is not None:
+            data = text.encode("utf-8")
+            encoding, content = "utf-8", text
+        else:
+            encoding, content = "base64", base64.b64encode(data).decode("ascii")
+        return {"ref": parsed.text, "sha256": sha256, "size": row["size"], "media_type": row["media_type"],
+                "offset": offset, "length": len(data), "encoding": encoding, "content": content,
+                "eof": offset + len(data) >= row["size"]}
 
     # -------- results --------
+    @service_errors
     def submit_result(self, task_id: str, result: Mapping[str, Any], *, actor: str) -> dict[str, Any]:
         """Store the result of the current attempt and submit the task; returns ``{result, duplicate, task}``.
 
@@ -130,40 +398,162 @@ class EnvelopeServices:
         blob that does not exist), ``invalid_state`` (status, not the assignee,
         or other content for the same key).
         """
-        raise NotImplementedError("ORQ-T25")
+        actor = _text("actor", actor, maximum=100)
+        with self._tasks.store.transaction() as conn:
+            task = self._task_or_missing(task_id, conn)
+            attempt = task["attempt"]
+            if attempt < 1:
+                raise _conflict(f"Cannot submit a result for {task_id}: it was never started", task_id=task_id,
+                                status=task["state"])
+            try:
+                validated = validate_task_result(result, task_id=task_id, attempt=attempt, agent=actor)
+            except EnvelopeError as error:
+                raise _from_envelope_error(error) from None
+            encoded = canonical_json(validated).decode("utf-8")
+            digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+            patch = patch_sha256(validated)
+            ref = result_ref(task_id, attempt)
+            stored = self.store.find_result(task_id, attempt, patch, conn=conn)
+            if stored is not None:
+                if stored["result_sha256"] != digest:
+                    raise _conflict(f"Attempt {attempt} of {task_id} already has a result with other content",
+                                    task_id=task_id, attempt=attempt, ref=ref)
+                return {"result": self._result_view(stored), "duplicate": True,
+                        "task": self._tasks._task_view(task_id, conn)}
+            blob = self.store.get_blob(patch, conn=conn) if patch else None
+            if patch and blob is None:
+                raise _invalid("patch.blob", f"Unknown patch blob sha256:{patch}; store it with put_blob first")
+            # The single transition function checks the status and the assignee.
+            view = self._tasks._apply(conn, task_id, "submit", actor=actor)
+            try:
+                row = self.store.insert_result(conn, task_id=task_id, attempt=attempt, agent=actor,
+                                               result_json=encoded, result_sha256=digest, patch_sha256=patch)
+            except sqlite3.IntegrityError:
+                raise _conflict(f"Attempt {attempt} of {task_id} already has a result", task_id=task_id,
+                                attempt=attempt, ref=ref) from None
+            payload: dict[str, Any] = {"attempt": attempt, "result_ref": ref,
+                                       "files_count": len(validated["patch"]["files"]) if patch else 0}
+            if blob is not None:
+                payload.update(patch_blob=blob_ref(patch), patch_size=blob["size"])
+            self._tasks.store.append_event(conn, "result.submitted", actor=actor, group_id=task["group_id"],
+                                           task_id=task_id, ref=ref, payload=payload)
+            return {"result": self._result_view(row), "duplicate": False, "task": view}
 
+    @service_errors
     def get_result(self, ref_or_task_id: str, *, attempt: int | None = None) -> dict[str, Any]:
         """A task result by ``result://<task_id>/<attempt>`` or by task id (latest attempt unless ``attempt``).
 
-        Errors: ``not_found``, ``invalid_request`` (a reference that is not a result).
+        Errors: ``not_found``, ``invalid_request`` (a reference that is not a
+        result, or a reference together with ``attempt``).
         """
-        raise NotImplementedError("ORQ-T25")
+        if isinstance(ref_or_task_id, str) and ":" in ref_or_task_id:
+            try:
+                parsed = parse_reference(ref_or_task_id, field="ref")
+            except EnvelopeError as error:
+                raise _from_envelope_error(error) from None
+            if parsed.scheme != "result":
+                raise _invalid("ref", f"Not a result reference: {ref_or_task_id!r}")
+            if attempt is not None:
+                raise _invalid("attempt", "The attempt goes in the reference, not beside it")
+            task_id, attempt = parsed.task_id or "", parsed.attempt
+        else:
+            task_id = ref_or_task_id
+            if attempt is not None:
+                attempt = _integer("attempt", attempt, minimum=1)
+        with self._tasks.store.db.connect() as conn:
+            self._task_or_missing(task_id, conn)
+            rows = self.store.results(task_id, attempt=attempt, conn=conn)
+        if not rows:
+            raise _missing("Result", result_ref(task_id, attempt) if attempt else task_id)
+        return self._result_view(rows[0])
 
+    @service_errors
     def list_results(self, task_id: str) -> list[dict[str, Any]]:
         """Summaries and references of every attempt's result, most recent first. Errors: ``not_found``."""
-        raise NotImplementedError("ORQ-T25")
+        with self._tasks.store.db.connect() as conn:
+            self._task_or_missing(task_id, conn)
+            rows = self.store.results(task_id, conn=conn)
+        summaries = []
+        for row in rows:
+            result = row["result"]
+            summaries.append({
+                "ref": result_ref(row["task_id"], row["attempt"]), "task_id": row["task_id"],
+                "attempt": row["attempt"], "agent": row["agent"], "summary": result["summary"],
+                "patch_blob": blob_ref(row["patch_sha256"]) if row["patch_sha256"] else None,
+                "files_count": len(result["patch"]["files"]) if result.get("patch") else 0,
+                "result_sha256": row["result_sha256"], "created_at": row["created_at"],
+            })
+        return summaries
 
     # -------- cursors --------
+    @service_errors
     def get_cursor(self, consumer: str, *, scope: str = "") -> dict[str, Any]:
         """``{consumer, scope, seq, head}``; a consumer without a cursor is at 0.
 
         ``scope`` is ``""`` (the whole team), ``group:<id>`` or ``task:<id>``.
         Errors: ``invalid_request``.
         """
-        raise NotImplementedError("ORQ-T25")
+        consumer, scope = _consumer(consumer), _scope(scope)
+        with self._tasks.store.db.connect() as conn:
+            return self._cursor_view(consumer, scope, conn)
 
+    @service_errors
     def read_events(self, consumer: str, *, scope: str = "", types: Iterable[str] | None = None,
                     assigned_to_me: bool = False, limit: int = 100) -> dict[str, Any]:
         """Events after the consumer's cursor within ``scope``: ``{events, cursor, head, has_more}``.
 
-        Does not move the cursor. ``assigned_to_me`` keeps only events of tasks
-        currently assigned to ``consumer``. Errors: ``invalid_request``.
+        Does not move the cursor: acknowledge with ``ack_events``, usually with
+        the ``seq`` of the last event handled. ``types`` keeps only those event
+        types and ``assigned_to_me`` only the events of tasks currently assigned
+        to ``consumer``; ``limit`` (1..1000) counts the events returned.
+        ``has_more`` is true when more events of the scope follow the last one
+        returned. Errors: ``invalid_request``.
         """
-        raise NotImplementedError("ORQ-T25")
+        consumer, scope = _consumer(consumer), _scope(scope)
+        limit = _integer("limit", limit, minimum=1, maximum=MAX_READ_EVENTS)
+        wanted: set[str] | None = None
+        if types is not None:
+            if isinstance(types, (str, bytes)):
+                raise _invalid("types", "types must be a list")
+            wanted = {_text("types", item, maximum=MAX_EVENT_TYPE_CHARS) for item in types}
+        if not isinstance(assigned_to_me, bool):
+            raise _invalid("assigned_to_me", "assigned_to_me must be true or false")
+        kind, _, identifier = scope.partition(":")
+        where = {"group_id": identifier if kind == "group" else None, "task_id": identifier if kind == "task" else None}
+        tasks = self._tasks.store
+        with tasks.db.connect() as conn:
+            cursor = self.store.get_cursor(consumer, scope, conn=conn)
+            head = self.store.event_head(conn=conn)
+            mine = {task["id"] for task in tasks.list_tasks(assignee=consumer, conn=conn)} if assigned_to_me else set()
+            events: list[dict[str, Any]] = []
+            after, has_more = cursor, False
+            # Filters apply after reading, so the log is read in batches until ``limit`` events match.
+            while True:
+                batch = tasks.events(after=after, limit=_EVENT_BATCH, conn=conn, **where)
+                for event in batch:
+                    if len(events) == limit:
+                        has_more = True
+                        break
+                    after = event["seq"]
+                    if (wanted is None or event["type"] in wanted) and (not assigned_to_me or event["task_id"] in mine):
+                        events.append(event)
+                if has_more or len(batch) < _EVENT_BATCH:
+                    break
+            if not has_more and len(events) == limit:
+                has_more = bool(tasks.events(after=after, limit=1, conn=conn, **where))
+        return {"events": events, "cursor": cursor, "head": head, "has_more": has_more}
 
+    @service_errors
     def ack_events(self, consumer: str, seq: int, *, scope: str = "") -> dict[str, Any]:
         """Move the cursor to ``seq`` (never backwards); returns the same shape as ``get_cursor``.
 
         Errors: ``invalid_request`` (``seq`` is not an integer >= 0 or is past the head of the log).
         """
-        raise NotImplementedError("ORQ-T25")
+        consumer, scope = _consumer(consumer), _scope(scope)
+        seq = _integer("seq", seq, minimum=0)
+        with self._tasks.store.transaction() as conn:
+            head = self.store.event_head(conn=conn)
+            if seq > head:
+                raise _invalid("seq", f"seq {seq} is past the head of the event log ({head})", head=head)
+            self.store.set_cursor(conn, consumer, scope, seq)
+            return self._cursor_view(consumer, scope, conn)

@@ -10,6 +10,7 @@ notebooks), so they all behave the same way::
     run = services.runs.create(RunRequest(workflow_id="...", project_name="demo"))
     services.runs.approve(run["id"])
     services.tasks.ready_tasks(group_id="ORQ")
+    services.envelopes.get_envelope("ORQ-T25")
 
 Methods return JSON-ready data and report known failures as ``ServiceError``
 (``code``, ``message``, ``status``, ``details``; see ``errors``).
@@ -25,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
 from .definitions import DefinitionServices
+from .envelopes import EnvelopeServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
 from .gates import GateServices
 from .runs import RunServices
@@ -37,6 +39,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ApplicationServices",
     "DefinitionServices",
+    "EnvelopeServices",
     "GateServices",
     "RunServices",
     "ServiceError",
@@ -49,7 +52,7 @@ _BUNDLE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,119}$")
 
 
 class ApplicationServices:
-    """Facade over one ``System``: ``definitions``, ``runs``, ``tasks`` and ``gates``."""
+    """Facade over one ``System``: ``definitions``, ``runs``, ``tasks``, ``gates`` and ``envelopes``."""
 
     def __init__(self, system: System, *, bundles: Mapping[str, str | Path] | None = None):
         self.system = system
@@ -62,6 +65,7 @@ class ApplicationServices:
         self.runs = RunServices(self)
         self.tasks = TaskServices(self)
         self.gates = GateServices(self)
+        self.envelopes = EnvelopeServices(self)
 
     @classmethod
     def create(cls, settings: Settings | None = None, *,
