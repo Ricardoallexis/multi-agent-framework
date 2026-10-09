@@ -197,6 +197,74 @@ class AlwaysUnavailable(LLMAdapter):
         return {"provider":"ollama","available":False}
 
 
+class SemanticallyInvalidOnce(LLMAdapter):
+    provider = "ollama"
+
+    def generate_structured(self, *, spec, prompt, output_schema, requires_web=False):
+        parsed = output_schema(
+            title=" ", hook="A useful opening sentence", body="A sufficiently long response body for this workflow fixture.",
+            cta="Learn more", hashtags=["#test"],
+        )
+        return LLMResponse(parsed, parsed.model_dump_json(), self.provider, "ollama-observed-v2",
+                           tokens_in=71, tokens_out=29, latency_ms=17,
+                           metadata={"num_ctx": 8192, "provider_trace": "semantic-reject"})
+
+    def health(self):
+        return {"provider": self.provider, "available": True}
+
+
+def test_semantic_rejection_fallback_preserves_usage_and_event_metadata(tmp_path):
+    system = build_system(
+        settings_for(tmp_path),
+        adapter_overrides={"ollama": SemanticallyInvalidOnce(), "gemini": FakeAdapter()},
+    )
+    run = system.run_service.create_social_post(
+        SocialPostRequest(project_name="semantic-fallback", objective="Create an educational post", topic="KNX")
+    )
+    system.worker.process_once()
+
+    with TestClient(create_app(system), base_url="http://localhost") as client:
+        events = client.get(f"/api/v1/runs/{run['id']}/events").json()
+        usage = client.get(f"/api/v1/runs/{run['id']}/usage").json()
+    attempts = [event["payload"] for event in events if event["event_type"] == "model_attempt"]
+    rows = usage["records"]
+
+    assert [item["status"] for item in attempts] == ["failed", "success"]
+    assert attempts[0]["provider_invoked"] is True
+    assert attempts[0]["requested_model"] == "local_default"
+    assert attempts[0]["observed_model"] is None
+    assert attempts[0]["effective_model"] == system.catalog.model("local_default").model
+    assert attempts[0]["tokens_in"] == 71 and attempts[0]["tokens_out"] == 29
+    assert attempts[0]["num_ctx"] == 8192
+    assert attempts[0]["metadata"]["provider_trace"] == "semantic-reject"
+    assert attempts[1]["call_ordinal"] == 2
+    assert len(rows) == 2
+    assert [(row["success"], row["tokens_in"], row["tokens_out"]) for row in rows] == [(False, 71, 29), (True, 10, 20)]
+    assert all(row["estimated_cost_usd"] is None for row in rows)
+    assert usage["totals"]["run"]["tokens_total"] == 130
+
+
+def test_preflight_rejection_reaches_legacy_callback_without_usage_row(tmp_path):
+    system = build_system(settings_for(tmp_path), adapter_overrides={"gemini": FakeAdapter()})
+    system.engine.router.adapters.pop("ollama", None)
+    run = system.run_service.create_social_post(
+        SocialPostRequest(project_name="preflight-usage", objective="Create an educational post", topic="KNX")
+    )
+    system.worker.process_once()
+
+    with TestClient(create_app(system), base_url="http://localhost") as client:
+        events = client.get(f"/api/v1/runs/{run['id']}/events").json()
+        usage = client.get(f"/api/v1/runs/{run['id']}/usage").json()
+    attempts = [event["payload"] for event in events if event["event_type"] == "model_attempt"]
+
+    assert attempts[0]["stage"] == "preflight"
+    assert attempts[0]["provider_invoked"] is False
+    assert attempts[1]["provider_invoked"] is True
+    assert len(usage["records"]) == 1
+    assert usage["records"][0]["success"] is True
+    assert usage["records"][0]["provider"] == "fake"
+
+
 def test_local_to_gemini_fallback_counts_two_calls(tmp_path):
     s = settings_for(tmp_path)
     system = build_system(s, adapter_overrides={"ollama": AlwaysUnavailable(), "gemini": FakeAdapter()})

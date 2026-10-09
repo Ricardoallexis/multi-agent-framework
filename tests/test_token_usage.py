@@ -125,7 +125,9 @@ def test_missing_provider_usage_does_not_break_execution(tmp_path):
     assert records[0]["tokens_in"] is None
     assert records[0]["tokens_out"] is None
     assert records[0]["tokens_total"] is None
+    assert records[0]["estimated_cost_usd"] is None
     assert summarize_usage(records)["run"]["records_without_usage"] == 1
+    assert summarize_usage(records)["run"]["estimated_cost_usd"] is None
 
 
 def test_telemetry_write_failure_does_not_stop_step(tmp_path, monkeypatch):
@@ -161,3 +163,4 @@ def test_usage_reading_matches_http_facade(tmp_path):
     assert response.status_code == 200
     assert response.json()["records"] == expected
     assert response.json()["totals"] == summarize_usage(expected)
+    assert response.json()["totals"]["run"]["estimated_cost_usd"] is None

@@ -282,14 +282,16 @@ class WorkflowEngine:
                     )
 
                 def record_failed_attempt(failure: dict[str, Any]) -> None:
+                    if not failure.get("provider_invoked", True):
+                        return
                     self.usage_recorder.record(TokenUsageRecord(
                         run_id=run_id,
                         step_id=step.id,
                         agent_id=step.agent,
                         attempt=attempt,
                         provider=failure.get("provider", ""),
-                        model=failure.get("model", ""),
-                        model_digest=failure.get("model_digest", ""),
+                        model=failure.get("observed_model") or failure.get("effective_model") or failure.get("model", ""),
+                        model_digest=failure.get("model_digest") or "",
                         prompt_id=step.prompt_id,
                         prompt_version=step.prompt_version,
                         prompt_sha256=prompt_sha256,
@@ -298,11 +300,13 @@ class WorkflowEngine:
                         tokens_out=failure.get("tokens_out"),
                         num_ctx=failure.get("num_ctx"),
                         duration_ms=failure.get("duration_ms"),
-                        estimated_cost_usd=failure.get("estimated_cost_usd"),
+                        estimated_cost_usd=None,
                         success=False,
                         error_type=failure.get("error_type", "UnknownError"),
                     ))
-                    self.store.db.log_event(run_id, "model_attempt_failed", {"step_id": step.id, **failure})
+
+                def record_attempt(event: dict[str, Any]) -> None:
+                    self.store.db.log_event(run_id, "model_attempt", {"step_id": step.id, **event})
 
                 response, attempts = self.router.execute(
                     binding=binding,
@@ -312,6 +316,7 @@ class WorkflowEngine:
                     before_call=consume_llm_call,
                     validate_response=validate_response,
                     on_failed_attempt=record_failed_attempt,
+                    on_attempt=record_attempt,
                 )
 
                 # Soft cancellation discards the result before persisting an artifact if a human
@@ -615,7 +620,7 @@ class WorkflowEngine:
             tokens_out=response.tokens_out if response.tokens_out > 0 else None,
             num_ctx=int(response.metadata.get("num_ctx") or 0) or None,
             duration_ms=response.latency_ms,
-            estimated_cost_usd=self._estimate_cost(response.metadata.get("catalog_model_id", step.preferred_model), response.tokens_in, response.tokens_out),
+            estimated_cost_usd=None,
             success=True,
             error_type="",
         ))
@@ -780,12 +785,9 @@ class WorkflowEngine:
         from .db.database import utcnow
         return utcnow()
 
-    def _estimate_cost(self, model_id: str, tokens_in: int, tokens_out: int) -> float:
-        try:
-            spec = self.catalog.model(model_id)
-        except KeyError:
-            return 0.0
-        return round((tokens_in / 1_000_000) * spec.input_cost_per_million + (tokens_out / 1_000_000) * spec.output_cost_per_million, 8)
+    def _estimate_cost(self, model_id: str, tokens_in: int, tokens_out: int) -> float | None:
+        # Catalog values have no verified source, date, or billing unit.
+        return None
 
 
 class _CancelledSignal(Exception):
