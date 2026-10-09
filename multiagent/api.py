@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Mapping, Union
+from typing import Any, Mapping, Union
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Query, Request
@@ -174,6 +174,23 @@ class TaskTransitionRequest(_Body):
     actor: str
     cause: str = ""
     expected_revision: int | None = None
+
+
+class TaskContextUpdate(_Body):
+    actor: str
+    base_commit: str | None = None
+    context_refs: list[str] | None = None
+    constraints: list[str] | None = None
+
+
+class TaskResultSubmit(_Body):
+    actor: str
+    result: dict[str, Any]
+
+
+class CursorAck(_Body):
+    seq: int
+    scope: str = ""
 
 
 def create_app(system=None, *, services: ApplicationServices | None = None,
@@ -401,6 +418,72 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
                     limit: int = Query(500, ge=1, le=1000)):
         """Team events with ``seq`` greater than ``after``, oldest first."""
         return services.tasks.events(after=after, group_id=group, task_id=task, limit=limit)
+
+    # --- envelopes, results, blobs and cursors (ORQ-3) ---------------------------
+
+    @app.put("/api/v1/tasks/{task_id}/context")
+    def set_task_context(task_id: str, body: TaskContextUpdate):
+        return services.envelopes.set_task_context(task_id, actor=body.actor, base_commit=body.base_commit,
+                                                   context_refs=body.context_refs, constraints=body.constraints)
+
+    @app.get("/api/v1/tasks/{task_id}/envelope")
+    def get_task_envelope(task_id: str, known_hash: str | None = None):
+        """The task envelope v1, or ``{unchanged, hash, revision}`` when ``known_hash`` still matches."""
+        return services.envelopes.get_envelope(task_id, known_hash=known_hash)
+
+    @app.post("/api/v1/blobs")
+    async def put_blob(request: Request, actor: str = Query(...),
+                       media_type: str = "application/octet-stream", sha256: str | None = None):
+        """Store the raw request body by its sha256 (same size limit as the service: 413 above it)."""
+        limit = services.envelopes.blob_max_bytes
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > limit:
+            raise ServiceError(INVALID_REQUEST, f"The blob is larger than {limit} bytes", status=413,
+                               details={"field": "content", "limit": limit})
+        content = bytearray()
+        async for chunk in request.stream():
+            content += chunk
+            if len(content) > limit:
+                raise ServiceError(INVALID_REQUEST, f"The blob is larger than {limit} bytes", status=413,
+                                   details={"field": "content", "limit": limit})
+        return services.envelopes.put_blob(bytes(content), actor=actor, media_type=media_type,
+                                           expected_sha256=sha256)
+
+    @app.get("/api/v1/artifacts")
+    def get_artifact(ref: str, offset: int = 0, length: int = 64 * 1024):
+        """A range of a blob by ``blob:sha256:<hex>``; text as UTF-8, the rest as base64."""
+        return services.envelopes.get_artifact(ref, offset=offset, length=length)
+
+    @app.post("/api/v1/tasks/{task_id}/results")
+    def submit_task_result(task_id: str, body: TaskResultSubmit):
+        """Store the result of the current attempt and submit the task in one step."""
+        return services.envelopes.submit_result(task_id, body.result, actor=body.actor)
+
+    @app.get("/api/v1/tasks/{task_id}/results")
+    def task_results(task_id: str, attempt: int | None = None):
+        """Summaries of every attempt's result, or the full result of one ``attempt``."""
+        if attempt is None:
+            return services.envelopes.list_results(task_id)
+        return services.envelopes.get_result(task_id, attempt=attempt)
+
+    @app.get("/api/v1/results")
+    def get_result(ref: str):
+        """A full result by ``result://<task_id>/<attempt>``."""
+        return services.envelopes.get_result(ref)
+
+    @app.get("/api/v1/cursors/{consumer}")
+    def get_cursor(consumer: str, scope: str = ""):
+        return services.envelopes.get_cursor(consumer, scope=scope)
+
+    @app.get("/api/v1/cursors/{consumer}/events")
+    def read_cursor_events(consumer: str, scope: str = "", type: list[str] | None = Query(None),
+                           mine: bool = False, limit: int = 100):
+        """Events after the consumer's cursor; reading does not move it (``POST .../ack`` does)."""
+        return services.envelopes.read_events(consumer, scope=scope, types=type, assigned_to_me=mine, limit=limit)
+
+    @app.post("/api/v1/cursors/{consumer}/ack")
+    def ack_cursor(consumer: str, body: CursorAck):
+        return services.envelopes.ack_events(consumer, body.seq, scope=body.scope)
 
     mount_ui(app)  # Stage 0 UI at /ui: static files only, a client of the routes above
     return app

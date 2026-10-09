@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import sys
 import tempfile
@@ -58,9 +59,12 @@ def _detail(response: httpx.Response) -> str:
 _DEFAULT_TIMEOUT = object()
 
 
-def _api_json(method: str, path: str, *, json_body=None, params=None, timeout=_DEFAULT_TIMEOUT):
+def _api_json(method: str, path: str, *, json_body=None, params=None, timeout=_DEFAULT_TIMEOUT, content=None):
     # ``timeout=None`` waits without limit (a task gate may run long project commands).
+    # ``content`` sends raw bytes instead of JSON (a blob).
     options = {} if timeout is _DEFAULT_TIMEOUT else {"timeout": timeout}
+    if content is not None:
+        options["content"] = content
     try:
         with api_client() as client:
             response = client.request(method, path, json=json_body, params=params, **options)
@@ -249,6 +253,74 @@ def cmd_task_group_gate(args) -> None:
 
 def cmd_project_commands(args) -> None:
     pretty(_api_json("GET", "/api/v1/project-commands"))
+
+
+def cmd_task_context(args) -> None:
+    body = {"actor": args.actor}
+    if args.base_commit is not None:
+        body["base_commit"] = args.base_commit
+    if args.context_ref is not None or args.clear_context_refs:
+        body["context_refs"] = args.context_ref or []
+    if args.constraint is not None or args.clear_constraints:
+        body["constraints"] = args.constraint or []
+    pretty(_api_json("PUT", f"/api/v1/tasks/{_segment(args.task_id)}/context", json_body=body))
+
+
+def cmd_task_envelope(args) -> None:
+    params = {"known_hash": args.known_hash} if args.known_hash else None
+    pretty(_api_json("GET", f"/api/v1/tasks/{_segment(args.task_id)}/envelope", params=params))
+
+
+def cmd_task_result(args) -> None:
+    if args.operation == "submit":
+        if not args.actor or not args.file:
+            raise ValueError("task result submit needs --actor and --file")
+        result = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.target)}/results",
+                         json_body={"actor": args.actor, "result": result}))
+    elif args.operation == "list":
+        pretty(_api_json("GET", f"/api/v1/tasks/{_segment(args.target)}/results"))
+    elif args.target.startswith("result://"):  # show by reference
+        pretty(_api_json("GET", "/api/v1/results", params={"ref": args.target}))
+    else:  # show by task id: the latest attempt unless --attempt
+        if args.attempt is None:
+            results = _api_json("GET", f"/api/v1/tasks/{_segment(args.target)}/results")
+            if not results:
+                raise RuntimeError(f"Task {args.target} has no result")
+            pretty(_api_json("GET", "/api/v1/results", params={"ref": results[0]["ref"]}))
+        else:
+            pretty(_api_json("GET", f"/api/v1/tasks/{_segment(args.target)}/results", params={"attempt": args.attempt}))
+
+
+def cmd_blob_put(args) -> None:
+    params = {"actor": args.actor, "media_type": args.media_type}
+    pretty(_api_json("POST", "/api/v1/blobs", params=params, content=Path(args.file).read_bytes()))
+
+
+def cmd_artifact_get(args) -> None:
+    piece = _api_json("GET", "/api/v1/artifacts", params={"ref": args.ref, "offset": args.offset, "length": args.length})
+    if not args.output:
+        pretty(piece)
+        return
+    data = piece["content"].encode("utf-8") if piece["encoding"] == "utf-8" else base64.b64decode(piece["content"])
+    Path(args.output).write_bytes(data)
+    print(f"{len(data)} bytes from offset {piece['offset']} of {piece['size']} written to {args.output}"
+          f"{'' if piece['eof'] else ' (more remain: use --offset)'}")
+
+
+def cmd_cursor(args) -> None:
+    consumer = _segment(args.consumer)
+    if args.operation == "show":
+        pretty(_api_json("GET", f"/api/v1/cursors/{consumer}", params={"scope": args.scope}))
+    elif args.operation == "events":
+        params = {"scope": args.scope, "mine": args.mine, "limit": args.limit}
+        if args.type:
+            params["type"] = args.type
+        pretty(_api_json("GET", f"/api/v1/cursors/{consumer}/events", params=params))
+    else:  # ack
+        if args.seq is None:
+            raise ValueError("cursor ack needs --seq")
+        pretty(_api_json("POST", f"/api/v1/cursors/{consumer}/ack", json_body={"seq": args.seq, "scope": args.scope}))
 
 
 def cmd_team_events(args) -> None:
@@ -602,6 +674,32 @@ def build_parser() -> argparse.ArgumentParser:
     decision.add_argument("--approve", dest="approve", action="store_true")
     decision.add_argument("--reject", dest="approve", action="store_false")
     x.add_argument("--actor", required=True); x.add_argument("--comment", default=""); x.set_defaults(func=cmd_task_review)
+    x = task.add_parser("context", help="Set a task's base commit, context references or constraints")
+    x.add_argument("task_id"); x.add_argument("--actor", required=True); x.add_argument("--base-commit")
+    x.add_argument("--context-ref", action="append", help="doc://, report://, rules@sha256:, result:// or blob:sha256:; repeatable")
+    x.add_argument("--constraint", action="append", help="Plain text; repeatable")
+    x.add_argument("--clear-context-refs", action="store_true"); x.add_argument("--clear-constraints", action="store_true")
+    x.set_defaults(func=cmd_task_context)
+    x = task.add_parser("envelope", help="Show the task envelope (references only), or 'unchanged' for a known hash")
+    x.add_argument("task_id"); x.add_argument("--known-hash"); x.set_defaults(func=cmd_task_envelope)
+    x = task.add_parser("result", help="Submit a result (and the task), show one, or list a task's results")
+    x.add_argument("operation", choices=["submit", "show", "list"])
+    x.add_argument("target", help="Task id, or result://<task>/<attempt> for show")
+    x.add_argument("--actor"); x.add_argument("--file", help="For submit: the result JSON"); x.add_argument("--attempt", type=int)
+    x.set_defaults(func=cmd_task_result)
+    blob = sub.add_parser("blob", help="Store content by its sha256").add_subparsers(dest="blob_command", required=True)
+    x = blob.add_parser("put"); x.add_argument("file"); x.add_argument("--actor", required=True)
+    x.add_argument("--media-type", default="application/octet-stream"); x.set_defaults(func=cmd_blob_put)
+    artifact = sub.add_parser("artifact", help="Read a blob by reference, by ranges").add_subparsers(dest="artifact_command", required=True)
+    x = artifact.add_parser("get"); x.add_argument("ref"); x.add_argument("--offset", type=int, default=0)
+    x.add_argument("--length", type=int, default=64 * 1024); x.add_argument("--output", help="Write the bytes to this file")
+    x.set_defaults(func=cmd_artifact_get)
+    x = sub.add_parser("cursor", help="Show, read or acknowledge a consumer's event cursor")
+    x.add_argument("operation", choices=["show", "events", "ack"]); x.add_argument("consumer")
+    x.add_argument("--scope", default="", help="'' (team), group:<id> or task:<id>"); x.add_argument("--seq", type=int)
+    x.add_argument("--type", action="append", help="For events: keep only this event type; repeatable")
+    x.add_argument("--mine", action="store_true", help="For events: only tasks assigned to the consumer")
+    x.add_argument("--limit", type=int, default=100); x.set_defaults(func=cmd_cursor)
     x = sub.add_parser("project-commands", help="List the project commands configured on the server (names, timeouts, folders)")
     x.set_defaults(func=cmd_project_commands)
     x = sub.add_parser("team-events", help="List team events, optionally only those after a sequence number")
