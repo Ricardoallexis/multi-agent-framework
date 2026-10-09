@@ -174,7 +174,9 @@ PARITY: list[tuple[str, dict[str, Any]]] = [
     ("review", {"task_id": "B", "actor": "agent:r", "approved": True, "comment": "fine"}),
     ("run_gate", {"task_id": "B", "actor": "user"}),
     ("run_gate", {"task_id": "MISSING", "actor": "user"}),
+    ("review", {"task_id": "MISSING", "actor": "agent:r", "approved": False, "comment": "needs work"}),
     ("abort_gate", {"task_id": "A", "actor": "user", "cause": "not running"}),
+    ("abort_gate", {"task_id": "STUCK", "actor": "user", "cause": "runner crashed"}),
     ("results", {"task_id": "BAD"}),
     ("results", {"task_id": "B", "attempt": 1}),
     ("get_gate", {"task_id": "B"}),
@@ -191,6 +193,11 @@ def setup_tasks(services: ApplicationServices) -> None:
     services.gates.set_task_gate("MISSING", ["command:lint"], actor="user")
     for task_id in ("A", "B", "BAD", "MISSING"):
         deliver(tasks, task_id)
+    # A gate run that was interrupted: the task stays validating until abort_gate returns it.
+    tasks.create_task("G", "STUCK", "Stuck", actor="user")
+    deliver(tasks, "STUCK")
+    with tasks.store.transaction() as conn:
+        tasks._apply(conn, "STUCK", "gate_start", actor="user", gate=True, event="gate.started")
 
 
 def run_facade(services: ApplicationServices, op: str, args: dict[str, Any]) -> Any:

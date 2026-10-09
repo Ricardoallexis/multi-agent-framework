@@ -197,7 +197,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S7.B3 | Change proposals in an ordered queue with held drafts; a supervisor applies them. | S7.B1 |
 | S7.B4 | *(proposed)* Dependency-aware integration gate: a change waits until its task is finished and its dependencies are applied and verified. | S7.B3 |
 | **S7.C — Quality gates** | | |
-| S7.C1 | Cross-review and stage gates that close only with passing shared checks and supervisor approval. | S7.B3 |
+| S7.C1 | ◐ Cross-review and stage gates that close only with passing shared checks and supervisor approval. Done: task gates with ordered checks (local project commands, review by another actor), stored results, and release of dependents only when the gate passes ([`TASKS.md`](TASKS.md#gates)). | S7.B3 |
 | S7.C2 | Check results with visibility rules and one designated reader per report. | S7.C1 |
 | S7.C3 | Workspace synchronization after each approved stage, with confirmation and no lost work. | S7.C1 |
 | **S7.D — Modes and budgets** | | |
@@ -226,7 +226,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S8.B2 | Delegation traceability: who created and assigned each task and why, attempts, reviews, results. | S8.A2 |
 | **S8.C — Assignment** | | |
 | S8.C1 | Assignment by capabilities, roles, tools, permissions, availability, and budget, with deterministic rules first. | S8.A1, S5.C2 |
-| S8.C2 | Plan constraints: budgets, local-only execution, allowed providers, required approvals. | S8.C1 |
+| S8.C2 | Plan constraints: budgets, local-only execution, allowed providers, required approvals, read-only profiles. | S8.C1 |
 | **S8.D — Assisted planning** | | |
 | S8.D1 | Pluggable planners (manual, deterministic, LLM-based, custom, external). | S8.B1 |
 | S8.D2 | Semi-automatic plans that wait for human approval, where users can edit, reassign, or reject them. | S8.D1, S13.B1 |
@@ -296,7 +296,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S11.A — Policies** | | |
-| S11.A1 | Routing by task type, strengths, latency, context size, privacy, availability, and cost, with explicit priority rules. | — |
+| S11.A1 | Routing by task type, strengths, latency, context size, privacy and provider data-use terms (training opt-out, retention), availability, and cost, with explicit priority rules. | — |
 | S11.A2 | Local-first, cloud-first, offline-only, and hybrid policies. | S11.A1 |
 | S11.A3 | Token and context budgeting that prevents avoidable overflow. | S11.A1 |
 | **S11.B — Model health** | | |
@@ -345,13 +345,21 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S13.A2 | Revision history and comparisons between attempts. | — |
 | S13.A3 | Comments and structured feedback passed safely into later attempts. | S13.A2 |
 | **S13.B — Policy** | | |
-| S13.B1 | Approval policies per workflow, step, risk level, or project. | S5.B1 |
+| S13.B1 | Approval policies per workflow, step, risk level, or project, resolving each action to allow, require approval, or block, over a non-overridable safety floor (classes that can never be auto-allowed). | S5.B1 |
 | S13.B2 | *(proposed)* A register of proposals and decisions with state and validity. | — |
 | **S13.C — External output** | | |
 | S13.C1 | Improve the human-guided external model flow across CLI, API, and UI. | — |
-| S13.C2 | Replace a step with externally produced output, with manifest, hashes, preview, confirmation, and receipt. | S13.C1 |
+| S13.C2 | Replace a step with externally produced output, with manifest, hashes, preview and attached evidence (screenshots, recordings, logs) referenced from the artifact manifest, confirmation, and receipt. | S13.C1 |
 | **S13.D — Audit** | | |
 | S13.D1 | Audit trails showing model, tool, or human origin. | S5.D2 |
+
+**External executors (S13.C):** whoever produces the external output (a person, a cloud agent, a vendor's always-on agent) is outside the framework, which only validates the artifact. Document and mitigate:
+- **Data leakage:** the delivered prompt may carry project context, personal data, or secrets; apply per-step context propagation (S12.B1) and sanitization (S17.3) before handing it over, and never credentials (S17.1).
+- **Provenance:** the pasted result does not prove who produced it or with which model; the receipt records `executor: external` with a self-declared label and the hashes of the delivered prompt and the result, without authenticating.
+- **Instructions in the result:** the result is data; it is validated against the contract and nothing inside it is ever executed.
+- **Side actions of the executor:** an executor with connected apps may act outside the framework while "running" the step (send mail, open pull requests); governing that is the user's responsibility on the external platform.
+- **Provider retention and training:** the external provider may retain the content or use it for training depending on the plan and settings; say so in the documentation.
+- **Cost and telemetry:** external work does not appear in the framework's telemetry; the step is marked `external, usage unknown` instead of inferring usage.
 
 **Parallel:** S13.A, S13.B2, and S13.C at once.
 

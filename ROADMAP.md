@@ -140,7 +140,7 @@ Human control is intended to remain a first-class part of the architecture rathe
 
 ## Collaborative agent teams
 
-**Progress:** `█░░░░░░░░░` 1/16 · 6% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 2/17 · 12% <!-- progress -->
 
 A domain-neutral core for coordinating two or more agents, and the humans who supervise them, on shared work. Software development is one application; the same primitives should serve design, finance, research, operations, or any other domain. Domain-specific behavior lives in team presets and examples that users can extend, and agents can help a user design their own team setup. The protocol is the framework's own and runs on its runs, events, and Human Bridge; A2A or Microsoft Agent Framework may carry messages, but they do not define it.
 
@@ -150,6 +150,7 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 - [ ] Structured messages and handoffs (delivery, proposal, question, answer, decision, result) that state the baseline, what changed, what was not verified, and what is requested from whom.
 - [ ] Change proposals: members deliver reviewable change sets in an ordered queue, with dependencies and held drafts, and a supervisor applies them rather than their authors.
 - [x] Task reservation with declared resources: claiming a task locks the files it declares and rejects overlapping work by another assignee (see [`docs/TASKS.md`](docs/TASKS.md)).
+- [x] Task gates: a submitted task is accepted only after an ordered list of checks passes (project commands configured in a local file and run without a shell, and a review by an actor other than the assignee); a failing check stops its branch, and every result is stored per attempt (see [`docs/TASKS.md`](docs/TASKS.md#gates)).
 - [ ] *(proposed)* A dependency-aware integration gate: a change waits until its task is finished and its dependencies are applied and verified.
 - [ ] Review and gates: cross-review between members, and stages that close only when shared checks pass and a supervisor approves.
 - [ ] Check results with visibility rules: a member's own checks stay private to it, shared checks are visible to the team, and one designated reader summarizes each report.

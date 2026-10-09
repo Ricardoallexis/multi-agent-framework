@@ -6,6 +6,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Added
 
+- Add task gates (`services.gates`, migration `005_gates.sql`): an ordered list of checks declared on a task or as a group default, which a submitted task must pass to be accepted. Checks run project commands defined only in a local, trusted file (`project_commands.toml`, or `PROJECT_COMMANDS_FILE`) without a shell, with a timeout that stops the whole process tree, or require a review by an actor other than the assignee. A passing gate accepts the task and releases its dependents; a failing check asks for changes and stops the branch; a configuration error returns the task to `submitted`. Results are stored per attempt with the last 4000 characters of output. Available through Python, the HTTP API, and the CLI (`task gate`, `task review`, `task-group gate`, `project-commands`). See `docs/TASKS.md`.
 - Coordinate work as tasks with dependencies (`services.tasks`, migration `004_tasks.sql`): task groups with authorization, tasks whose `blocked` or `ready` status is computed from their dependencies, one transition function (claim, start, pause, resume, submit, accept, request changes, fail, cancel) that records the actor and cause, file locks on claim, optimistic revisions, and a team event log read with `after`. Available through Python, the HTTP API (`/api/v1/task-groups`, `/api/v1/tasks`, `/api/v1/team-events`), and the CLI (`task-groups`, `task-group`, `tasks`, `task`, `team-events`) with the same results and errors. See `docs/TASKS.md`.
 - Add application services (`multiagent.services`): one Python facade, `ApplicationServices`. It covers definitions (workflows, agents, and bundles) and runs, and the HTTP API and CLI use it. Failures raise `ServiceError` with a stable `code`, a `message`, an HTTP-like `status`, and JSON-ready `details`.
 - Run definition bundles through the facade, each with its own store and worker. Bundles are registered by name in Python and are never exposed by path.
@@ -39,6 +40,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Roadmap
 
+- Mark task gates as done and stage gates with supervisor approval as partial; check visibility rules and the dependency-aware integration gate for changes remain planned.
 - Mark tasks, groups, and dependencies as data, task traceability in the team event log, and task reservation with declared resources as done; plan schemas, planners, and delegation traceability for reviews and results remain planned.
 - Add an organization chart model (S6.B2: role, holder, reports, and status through the application services) and an accessible organization chart view in the UI (S14.9), inspired by the organization chart in Paperclip; the idea is reused, not its code.
 - Add a stage plan (`docs/ROADMAP_STAGES.md`): stages S0–S18 with sub-stages, tasks, dependencies, and parallel lanes, classified as Core, Extension, or Example, with objectives, acceptance criteria, and examples. The development order now follows these stages.
