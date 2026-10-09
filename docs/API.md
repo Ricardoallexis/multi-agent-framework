@@ -25,6 +25,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_submit`, `artifacts`, `events`, `usage` |
 | `services.tasks` | `create_group`, `update_group`, `get_group`, `list_groups`, `create_task`, `get_task`, `list_tasks`, `ready_tasks`, `add_dependency`, `remove_dependency`, `transition`, `events` |
 | `services.gates` | `set_task_gate`, `set_group_gate`, `get_gate`, `review`, `run_gate`, `abort_gate`, `results`, `project_commands` |
+| `services.envelopes` | `set_task_context`, `get_envelope`, `put_blob`, `get_artifact`, `submit_result`, `get_result`, `list_results`, `get_cursor`, `read_events`, `ack_events` |
 
 For example, create a built-in social-post run:
 
@@ -116,6 +117,16 @@ and bundle-worker shutdown through its application lifespan.
 | `GET` | `/api/v1/tasks/{task_id}/gate/results` | List stored check results; optional `attempt`. |
 | `POST` | `/api/v1/tasks/{task_id}/reviews` | Approve or reject the current attempt with `{"actor", "approved", "comment"?}`. |
 | `GET` | `/api/v1/project-commands` | List configured project commands (names, timeouts, folders; never arguments). |
+| `PUT` | `/api/v1/tasks/{task_id}/context` | Set the task's `base_commit`, `context_refs`, and `constraints` with `{"actor", ...}`; only the given fields change. |
+| `GET` | `/api/v1/tasks/{task_id}/envelope` | Get the task envelope; optional `known_hash` returns `{"unchanged": true, ...}` when it still matches. |
+| `POST` | `/api/v1/blobs` | Store a blob: the request body is the raw content; `?actor=` is required and `?media_type=` and `?sha256=` (to verify the content) are optional. A blob over 8 MiB answers `413 invalid_request`. |
+| `GET` | `/api/v1/artifacts` | Read a range of a blob: `?ref=blob:sha256:…`, optional `offset` and `length` (up to 1 MiB). |
+| `POST` | `/api/v1/tasks/{task_id}/results` | Submit the result of the current attempt and submit the task with `{"actor", "result"}`; a repeated identical result returns `"duplicate": true`. |
+| `GET` | `/api/v1/results` | Get a result by `?ref=result://<task_id>/<attempt>`. |
+| `GET` | `/api/v1/tasks/{task_id}/results` | List the summaries of the task's results, or get the full result of one attempt with `?attempt=`. |
+| `GET` | `/api/v1/cursors/{consumer}` | Get the consumer's event cursor and the log head; optional `scope`. |
+| `GET` | `/api/v1/cursors/{consumer}/events` | List the events after the consumer's cursor; optional `scope`, `type` (repeatable), `mine`, and `limit` (1–1000). Does not move the cursor. |
+| `POST` | `/api/v1/cursors/{consumer}/ack` | Move the cursor with `{"seq", "scope"?}`; never backwards, never past the head. |
 
 The run endpoint accepts either a `SocialPostRequest` or a generic
 `RunRequest`. A generic request selects a workflow and supplies its inputs:
@@ -141,8 +152,9 @@ See [`TELEMETRY.md`](TELEMETRY.md) for the local-only usage model, CLI
 export, nullable token semantics, and the future OpenTelemetry mapping.
 
 See [`TASKS.md`](TASKS.md) for task groups, dependencies, states, transitions,
-file locks, gates, project commands, team events, the matching CLI commands, and
-examples. Task and gate request bodies reject unknown fields with
+file locks, gates, project commands, task envelopes and results, blobs, event
+cursors, team events, the matching CLI commands, and examples. Task, gate,
+and envelope request bodies reject unknown fields with
 `422 invalid_request`, so a request can never bring a command to run.
 
 For a human response, send a JSON object with a non-empty `raw_response` string;

@@ -147,9 +147,28 @@ def test_envelope_known_hash_answers_unchanged_until_something_happens(services)
     assert "unchanged" not in changed and changed["status"] == "claimed"
 
 
+def test_envelope_events_after_is_read_before_the_data(services, monkeypatch):
+    env = services.envelopes
+    snapshot = services.tasks._snapshot
+
+    def snapshot_after_a_concurrent_change(conn):
+        # Another writer claims A between the reads: the envelope may miss the change,
+        # but then events_after must be before its event so that a reader still sees it.
+        monkeypatch.setattr(services.tasks, "_snapshot", snapshot)
+        services.tasks.transition("A", "claim", actor="agent:a")
+        return snapshot(conn)
+
+    monkeypatch.setattr(services.tasks, "_snapshot", snapshot_after_a_concurrent_change)
+    envelope = env.get_envelope("B")
+    claimed = [e for e in services.tasks.events(after=0) if e["type"] == "task.claimed"][0]
+    assert envelope["events_after"] < claimed["seq"]
+
+
 def test_envelope_errors(services):
     env = services.envelopes
     assert error(lambda: env.get_envelope("NOPE")).code == "not_found"
+    caught = error(lambda: env.get_envelope(["A"]))
+    assert (caught.code, caught.details["field"]) == ("invalid_request", "task_id")
     caught = error(lambda: env.get_envelope("A", known_hash="abc"))
     assert (caught.code, caught.details["field"]) == ("invalid_request", "known_hash")
 
@@ -376,6 +395,7 @@ def test_read_events_filters_by_type_and_by_assignee(services):
     (lambda env: env.read_events("agent:x", limit=0), "limit"),
     (lambda env: env.read_events("agent:x", limit=1001), "limit"),
     (lambda env: env.read_events("agent:x", types="task.created"), "types"),
+    (lambda env: env.read_events("agent:x", types=3), "types"),
     (lambda env: env.read_events("agent:x", assigned_to_me="yes"), "assigned_to_me"),
     (lambda env: env.ack_events("agent:x", -1), "seq"),
     (lambda env: env.ack_events("agent:x", True), "seq"),

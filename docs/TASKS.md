@@ -10,9 +10,10 @@ agent, or a human. Actors are free text such as `user` or `agent:reviewer`; the
 framework never names model providers. Actors separate responsibilities; they do
 not authenticate anyone.
 
-Tasks are available through the Python facade (`services.tasks`), the HTTP API,
-and the CLI, with the same operations and errors in all three. Everything is
-stored in the local SQLite database (migration `004_tasks.sql`).
+Tasks are available through the Python facade (`services.tasks`, `services.gates`,
+and `services.envelopes`), the HTTP API, and the CLI, with the same operations
+and errors in all three. Everything is stored in the local SQLite database
+(migrations `004_tasks.sql`, `005_gates.sql`, and `006_envelopes.sql`).
 
 ## Groups
 
@@ -101,14 +102,16 @@ Each change writes one event in the same transaction as the change:
 `dependency.removed`, `task.claimed`, `task.unclaimed`, `task.started`,
 `task.paused`, `task.resumed`, `task.submitted`, `task.accepted`,
 `task.changes_requested`, `task.failed`, `task.cancelled`, and `task.ready`
-(a dependent became ready). An event carries `seq`, `type`, `group_id`,
+(a dependent became ready), plus `task.context_updated` and `result.submitted`
+(see [Envelopes and results](#envelopes-and-results)). An event carries `seq`, `type`, `group_id`,
 `task_id`, `actor`, `cause`, `ref`, a small `payload` (at most 2048 bytes), and
 `created_at`.
 
 `seq` is one sequence for the whole team, strictly increasing. Read only newer
 events with `after`: an unfiltered read returns consecutive numbers, and a read
-filtered by group or task skips the events of other groups or tasks. Clients
-keep their own `after` cursor.
+filtered by group or task skips the events of other groups or tasks. Clients can
+keep their own `after` cursor or let the framework keep one per consumer (see
+[Event cursors](#event-cursors)).
 
 ## Gates
 
@@ -205,6 +208,212 @@ multiagent task review release --approve --actor agent:reviewer --comment "looks
 multiagent task gate results backend
 ```
 
+## Envelopes and results
+
+An agent should not need the whole conversation of the tasks it depends on. The
+framework hands it two small, validated JSON documents instead, plus references
+to anything bigger.
+
+- A **task envelope** (`multiagent.task_envelope/1`) is what an agent needs to
+  start a task: objective, effective status, dependencies by reference, file
+  scope, gate, base commit, and the event sequence to read from.
+- A **task result** (`multiagent.task_result/1`) is what an agent delivers: a
+  bounded summary, decisions, contract changes, tests not run, requests, and its
+  patch as a blob. Dependents receive the result, not the conversation.
+
+Both documents are data only. They never carry a command, a credential, or an
+absolute path of the user, and free text (`objective`, `constraints`, `summary`)
+is never interpreted. A reader ignores fields it does not know, and a field such
+as `command` in a submitted result is dropped, never stored.
+
+### Task envelope
+
+`get_envelope` computes the envelope from the task, its dependencies, their
+results, and its gate. It is not stored.
+
+```json
+{
+  "schema": "multiagent.task_envelope/1",
+  "task_id": "G5-T02", "group_id": "G5", "revision": 7, "attempt": 1,
+  "assignee": "agent:builder", "status": "ready",
+  "objective": "Implement the retry policy for failed model calls.",
+  "depends_on": [{"task_id": "G5-T01", "requires": "accepted", "status": "accepted", "result_ref": "result://G5-T01/1"}],
+  "artifact_refs": ["blob:sha256:4de80d71962b58a468c70570c9e11eabca31b9a470e19bdea5b0801181bfb9df"],
+  "context_refs": ["doc://docs/ARCHITECTURE.md#model-router@2263537"],
+  "file_scope": ["multiagent/model_router.py"],
+  "constraints": ["no push"],
+  "gate": ["tests"], "base_commit": "2263537", "events_after": 212
+}
+```
+
+| Field | Comes from |
+| --- | --- |
+| `task_id`, `group_id`, `revision`, `attempt`, `assignee`, `status` | The task (`status` is the effective status). |
+| `objective` | The task's objective, or its title when it has none. |
+| `depends_on` | Each dependency with its `requires`, effective `status`, and, when it has a result, the `result_ref` of its latest attempt. |
+| `artifact_refs` | The patch blobs of those results. |
+| `context_refs`, `constraints`, `base_commit` | The task context (below). |
+| `file_scope`, `gate` | The task's file scope and its effective gate. |
+| `events_after` | The head of the team event log when the envelope was computed. |
+
+`get_envelope` takes the optional `known_hash` of an envelope you already have.
+The hash is the sha256 of the envelope's canonical JSON (sorted keys, compact
+separators, UTF-8). If nothing changed you get `{"unchanged": true, "hash": ...,
+"revision": ...}` instead of the whole envelope.
+
+### Task context
+
+`set_task_context` sets what the envelope cannot derive: a `base_commit` (7 to 40
+lowercase hex characters, or empty), up to 20 `context_refs` (see
+[References](#references)), and up to 20 `constraints` of at most 200 characters
+each. Only the fields you give change; the task's `revision` goes up and a
+`task.context_updated` event is written. The context of a task that is closed
+(`accepted`, `failed`, `cancelled`) or `validating` cannot change.
+
+### Results
+
+`submit_result` stores the result of the current attempt and submits the task in
+one transaction, so a result never exists without its `submit` and the other way
+around. The task must be `running` and the actor must be its assignee, the same
+rules as the `submit` action; the framework fills `schema`, `task_id`,
+`attempt`, and `agent`.
+
+```json
+{
+  "summary": "Added the retry policy with exponential backoff and a cap of three attempts.",
+  "decisions": ["Retry only on transient errors"],
+  "contract_changes": "",
+  "tests_not_run": ["pytest"],
+  "requests": [{"to": "user", "what": "apply the patch"}],
+  "base_commit": "2263537",
+  "patch": {"blob": "sha256:4de80d71962b58a468c70570c9e11eabca31b9a470e19bdea5b0801181bfb9df",
+            "files": ["multiagent/model_router.py"]}
+}
+```
+
+| Field | Limit |
+| --- | --- |
+| `summary` (required) | 1 to 1500 characters. |
+| `decisions` | Up to 20 items of at most 300 characters. |
+| `contract_changes` | Up to 1500 characters. |
+| `tests_not_run` | Up to 20 items of at most 200 characters. |
+| `requests` | Up to 10 items `{"to", "what"}` of at most 100 and 200 characters. |
+| `base_commit` | Empty or 7 to 40 lowercase hex characters. |
+| `patch` | `{"blob", "files"}`: a blob already stored with `put_blob`, and up to 200 relative paths. |
+| Whole result | At most 16 KiB of canonical JSON. |
+
+A result is optional: the plain `submit` action keeps working without one.
+Submitting a result is **idempotent**: the same task, attempt, and patch with the
+same content returns the stored result with `"duplicate": true` and writes
+nothing, so a client can retry after a lost response. The same task, attempt, and
+patch with other content is an `invalid_state` error, and a new attempt (after
+`needs_changes`) accepts a new result. A result without a patch uses the empty
+patch key, so there is one such result per attempt.
+
+`submit_result` writes `task.submitted` and `result.submitted` (with the
+attempt, the result reference, and the patch blob and size, never the summary).
+Read results with `get_result` (by reference or by task, latest attempt unless
+you pass `attempt`) and `list_results` (summaries of every attempt, newest
+first).
+
+### References
+
+References are text with a fixed grammar. The core resolves only `result:` and
+`blob:`; the others are validated and returned as text for the agent to read
+with its own tools, so the framework knows nothing about your repository or your
+documents.
+
+| Scheme | Form | Resolved by the framework |
+| --- | --- | --- |
+| `result:` | `result://<task_id>/<attempt>` | Yes, with `get_result`. |
+| `blob:` | `blob:sha256:<64 hex>` | Yes, with `get_artifact`. |
+| `doc:` | `doc://<relative path>[#anchor][@commit]` | No. |
+| `report:` | `report://<id>` | No. |
+| `rules@` | `rules@sha256:<64 hex>` | No. |
+
+A reference has at most 200 characters, no control characters, and no
+credentials. A `doc:` path is relative, uses `/`, and has no `..` or drive.
+
+### Blobs and artifacts
+
+A blob is content addressed by its sha256 and stored once: the bytes live under
+the data folder (`blobs/<first two hex>/<sha256>`) and the metadata in the
+database. `put_blob` takes the bytes, a `media_type` (`type/subtype`, lowercase),
+and an optional `expected_sha256` to check the content. Storing the same content
+again changes nothing (`created` is false and the first media type stays). A
+blob is at most 8 MiB.
+
+`get_artifact` reads a blob **by ranges** (`offset`, and `length` up to 1 MiB,
+64 KiB by default), so what you do not ask for never enters your context.
+`text/*` and `application/json` come back as UTF-8, without cutting a character
+at the end of the range, and everything else as base64. The framework never
+executes or interprets a blob: a patch is applied with your own tools.
+
+### Event cursors
+
+A consumer is any name you choose (`agent:reviewer`, `viewer`). The framework keeps
+one cursor per consumer and scope, where the scope is empty (the whole team),
+`group:<id>`, or `task:<id>`, so a consumer can resume after an interruption
+without keeping its own state.
+
+`read_events` returns the events after the consumer's cursor, oldest first, with
+the `cursor`, the log `head`, and `has_more`. It can keep only some event types
+(`types`) or only the events of tasks currently assigned to the consumer
+(`assigned_to_me`). **Reading does not move the cursor**: you move it with
+`ack_events` once you have handled the events, normally to the `seq` of the last
+one. A cursor never moves backwards, and it cannot go past the head of the log.
+If a consumer crashes before acknowledging, it reads the same events again
+(delivery is at least once).
+
+### Envelope example
+
+```python
+from multiagent.services import ApplicationServices
+
+services = ApplicationServices.create()
+tasks, envelopes = services.tasks, services.envelopes
+tasks.create_group("ship", "Ship it", actor="user", authorized=True)
+tasks.create_task("ship", "backend", "Build the service", actor="user")
+tasks.create_task("ship", "release", "Release", actor="user", depends_on=["backend"])
+envelopes.set_task_context("release", actor="user", base_commit="2263537",
+                           context_refs=["doc://docs/ARCHITECTURE.md@2263537"])
+
+# the agent that does "backend" delivers a patch and a result
+patch = envelopes.put_blob(b"diff --git a/service.py b/service.py\n...", actor="agent:builder",
+                           media_type="text/x-patch")
+for action in ("claim", "start"):
+    tasks.transition("backend", action, actor="agent:builder")
+envelopes.submit_result("backend", {
+    "summary": "Built the service.",
+    "patch": {"blob": f"sha256:{patch['sha256']}", "files": ["service.py"]},
+}, actor="agent:builder")
+
+# the next agent reads a small envelope, then only what it needs
+envelope = envelopes.get_envelope("release")
+envelope["depends_on"]                       # status and result_ref of each dependency
+envelopes.get_result(envelope["depends_on"][0]["result_ref"])["summary"]
+envelopes.get_artifact(envelope["artifact_refs"][0], length=2000)["content"]
+
+# and follows the team log from where it stopped
+batch = envelopes.read_events("agent:releaser", scope="group:ship")
+envelopes.ack_events("agent:releaser", batch["events"][-1]["seq"], scope="group:ship")
+```
+
+```bash
+multiagent task context release --actor user --base-commit 2263537
+multiagent blob put service.patch --actor agent:builder --media-type text/x-patch
+multiagent task result submit backend --actor agent:builder --file result.json
+multiagent task envelope release
+multiagent artifact get blob:sha256:4de80d71962b58a468c70570c9e11eabca31b9a470e19bdea5b0801181bfb9df --length 2000
+multiagent cursor events agent:releaser --mine
+multiagent cursor ack agent:releaser --seq 213
+```
+
+`task context` also takes `--context-ref` and `--constraint` (repeatable) and
+`--clear-context-refs` and `--clear-constraints` to empty those lists;
+`task result show` takes a task id (with `--attempt`) or a `result://` reference;
+`artifact get --output FILE` writes the bytes to a file; and `cursor` takes
+`--scope`, `--type` (repeatable), and `--limit`.
 ## Example
 
 Four tasks where two can run in parallel: `plan -> (backend || docs) -> release`.
@@ -274,6 +483,16 @@ multiagent team-events --after 0
 | Gate results | `gates.results(id, attempt=)` | `GET /api/v1/tasks/{id}/gate/results` | `task gate results` |
 | Review | `gates.review(id, actor=…, approved=…)` | `POST /api/v1/tasks/{id}/reviews` | `task review` |
 | Project commands | `gates.project_commands()` | `GET /api/v1/project-commands` | `project-commands` |
+| Set a task's context | `envelopes.set_task_context(id, actor=…)` | `PUT /api/v1/tasks/{id}/context` | `task context` |
+| Task envelope | `envelopes.get_envelope(id, known_hash=)` | `GET /api/v1/tasks/{id}/envelope` | `task envelope` |
+| Store a blob | `envelopes.put_blob(content, actor=…)` | `POST /api/v1/blobs` | `blob put` |
+| Read a blob | `envelopes.get_artifact(ref, offset=, length=)` | `GET /api/v1/artifacts` | `artifact get` |
+| Submit a result | `envelopes.submit_result(id, result, actor=…)` | `POST /api/v1/tasks/{id}/results` | `task result submit` |
+| Show a result | `envelopes.get_result(ref_or_id, attempt=)` | `GET /api/v1/results` | `task result show` |
+| List results | `envelopes.list_results(id)` | `GET /api/v1/tasks/{id}/results` | `task result list` |
+| Show a cursor | `envelopes.get_cursor(consumer, scope=)` | `GET /api/v1/cursors/{consumer}` | `cursor show` |
+| Read events | `envelopes.read_events(consumer, scope=, types=, assigned_to_me=, limit=)` | `GET /api/v1/cursors/{consumer}/events` | `cursor events` |
+| Acknowledge events | `envelopes.ack_events(consumer, seq, scope=)` | `POST /api/v1/cursors/{consumer}/ack` | `cursor ack` |
 
 Errors use the shared format in [`API.md`](API.md#structured-errors):
 `not_found` (404), `invalid_request` (422, including cycles and malformed

@@ -273,8 +273,12 @@ class EnvelopeServices:
         """
         if known_hash is not None and not (isinstance(known_hash, str) and _SHA256.fullmatch(known_hash)):
             raise _invalid("known_hash", "known_hash must be 64 lowercase hex characters")
-        # One connection: the envelope comes from one consistent read.
+        if not isinstance(task_id, str):
+            raise _invalid("task_id", "task_id must be text")
         with self._tasks.store.db.connect() as conn:
+            # The head first: events_after is never ahead of the data, so a reader that
+            # starts there sees every later change (at worst one it already reflects).
+            head = self.store.event_head(conn=conn)
             tasks, deps = self._tasks._snapshot(conn)
             if task_id not in tasks:
                 raise _missing("Task", str(task_id))
@@ -296,7 +300,6 @@ class EnvelopeServices:
                 depends_on.append(item)
             context = self.store.task_context(task_id, conn=conn) or {}
             gate = task["gate"] or self._tasks._group_or_missing(task["group_id"], conn).get("default_gate", [])
-            head = self.store.event_head(conn=conn)
         try:
             envelope = build_task_envelope(
                 task_id=task_id, group_id=task["group_id"], revision=task["revision"], attempt=task["attempt"],
@@ -513,7 +516,7 @@ class EnvelopeServices:
         limit = _integer("limit", limit, minimum=1, maximum=MAX_READ_EVENTS)
         wanted: set[str] | None = None
         if types is not None:
-            if isinstance(types, (str, bytes)):
+            if isinstance(types, (str, bytes)) or not isinstance(types, Iterable):
                 raise _invalid("types", "types must be a list")
             wanted = {_text("types", item, maximum=MAX_EVENT_TYPE_CHARS) for item in types}
         if not isinstance(assigned_to_me, bool):
