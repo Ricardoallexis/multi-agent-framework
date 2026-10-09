@@ -38,9 +38,11 @@ the reviewer is the assignee).
 """
 from __future__ import annotations
 
+import json
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, Iterator
 
 from ..db.gate_store import GateStore
 from ..tasks.commands import COMMAND_NAME, CommandConfigError, CommandResult, load_commands, run_command
@@ -59,7 +61,7 @@ RESULT_STATUSES = ("passed", "failed", "error", "pending")
 GATE_OUTCOMES = ("passed", "failed", "error", "pending")
 EVENT_TYPES = (
     "gate.updated", "gate.started", "gate.check_passed", "gate.check_failed", "gate.check_error",
-    "gate.passed", "gate.failed", "gate.error", "gate.pending", "gate.aborted",
+    "gate.passed", "gate.failed", "gate.error", "gate.pending", "gate.aborted", "gate.discarded",
     "review.approved", "review.rejected",
 )
 _CHECK_EVENT = {"passed": "gate.check_passed", "failed": "gate.check_failed", "error": "gate.check_error"}
@@ -116,6 +118,42 @@ class GateServices:
         return self._services.tasks
 
     # -------- helpers --------
+    @contextmanager
+    def _transaction(self) -> Iterator[sqlite3.Connection]:
+        try:
+            with self._tasks.store.transaction() as conn:
+                yield conn
+        except sqlite3.IntegrityError:
+            raise _conflict("Gate operation conflicts with stored state") from None
+
+    def _next_run(self, task_id: str, attempt: int, conn: sqlite3.Connection) -> int:
+        # A start reserves its number even when it never stores results. Include
+        # legacy result rows, and read every start without the event API's limit.
+        run = self.store.next_run(task_id, attempt, conn=conn)
+        for row in conn.execute("SELECT payload_json FROM team_events WHERE task_id=? AND type='gate.started'",
+                                (task_id,)):
+            payload = json.loads(row[0])
+            if payload.get("attempt") == attempt:
+                run = max(run, payload.get("run", 0) + 1)
+        return run
+
+    @staticmethod
+    def _latest_start(task_id: str, conn: sqlite3.Connection) -> int | None:
+        row = conn.execute("SELECT MAX(seq) FROM team_events WHERE task_id=? AND type='gate.started'",
+                           (task_id,)).fetchone()
+        return row[0]
+
+    def _is_current(self, task_id: str, attempt: int, started_seq: int,
+                    conn: sqlite3.Connection) -> bool:
+        task = self._task_or_missing(task_id, conn)
+        return (task["state"] == "validating" and task["attempt"] == attempt
+                and self._latest_start(task_id, conn) == started_seq)
+
+    def _discard(self, conn: sqlite3.Connection, task: dict[str, Any], *, actor: str,
+                 attempt: int, run: int, reason: str) -> None:
+        self._tasks.store.append_event(conn, "gate.discarded", actor=actor, group_id=task["group_id"],
+                                       task_id=task["id"], payload={"run": run, "attempt": attempt, "reason": reason})
+
     def _commands(self):
         settings = self._services.settings
         return load_commands(settings.project_commands_file, default_cwd=settings.local_dir.parent)
@@ -163,7 +201,7 @@ class GateServices:
         """
         actor = _text("actor", actor, maximum=100)
         normalized = normalize_checks(checks)
-        with self._tasks.store.transaction() as conn:
+        with self._transaction() as conn:
             task = self._task_or_missing(task_id, conn)
             if task["state"] in TERMINAL_STATES or task["state"] == "validating":
                 raise _conflict(f"Task {task_id} is {task['state']}", task_id=task_id, state=task["state"])
@@ -178,7 +216,7 @@ class GateServices:
         """Declare the group's default gate; event ``gate.updated``. Errors: ``not_found``, ``invalid_request``."""
         actor = _text("actor", actor, maximum=100)
         normalized = normalize_checks(checks)
-        with self._tasks.store.transaction() as conn:
+        with self._transaction() as conn:
             if not self.store.set_group_gate(conn, group_id, normalized):
                 raise _missing("Group", group_id)
             self._tasks.store.append_event(conn, "gate.updated", actor=actor, group_id=group_id,
@@ -206,7 +244,7 @@ class GateServices:
         comment = _text("comment", comment, maximum=500, required=False)
         if not isinstance(approved, bool):
             raise _invalid("approved", "approved must be true or false")
-        with self._tasks.store.transaction() as conn:
+        with self._transaction() as conn:
             task = self._task_or_missing(task_id, conn)
             if task["state"] not in ("submitted", "validating"):
                 raise _conflict(f"Only a submitted task can be reviewed; {task_id} is {task['state']}",
@@ -224,11 +262,13 @@ class GateServices:
         """Run the effective gate of a ``submitted`` task and return ``{outcome, run, results, task}``.
 
         Commands run outside the database transaction, each with its timeout.
-        Errors: ``not_found``, ``invalid_state`` (not ``submitted``, or no gate).
+        Errors: ``not_found``, ``invalid_state`` (not ``submitted``, no gate,
+        obsolete execution or a database integrity conflict). Obsolete runs
+        emit ``gate.discarded`` without storing results or changing the task.
         """
         actor = _text("actor", actor, maximum=100)
         cause = _text("cause", cause, maximum=500, required=False)
-        with self._tasks.store.transaction() as conn:
+        with self._transaction() as conn:
             task = self._task_or_missing(task_id, conn)
             checks, source = self._effective(task, conn)
             if not checks:
@@ -237,9 +277,11 @@ class GateServices:
                 raise _conflict(f"Only a submitted task can run its gate; {task_id} is {task['state']}",
                                 task_id=task_id, state=task["state"])
             attempt = task["attempt"]
-            run = self.store.next_run(task_id, attempt, conn=conn)
+            run = self._next_run(task_id, attempt, conn)
             self._tasks._apply(conn, task_id, "gate_start", actor=actor, cause=cause, gate=True, event="gate.started",
                                payload={"run": run, "attempt": attempt, "checks": checks, "source": source})
+            started_seq = self._latest_start(task_id, conn)
+            assert started_seq is not None
         try:
             try:
                 commands: Any = self._commands() if any(c.startswith("command:") for c in checks) else {}
@@ -251,42 +293,59 @@ class GateServices:
                 executed.append((check, result))
                 if result.status != "passed":
                     break
-        except BaseException:
-            # Never leave the task stuck in validating because of an unexpected error.
-            with self._tasks.store.transaction() as conn:
-                self._tasks._apply(conn, task_id, "gate_return", actor=actor, cause="gate interrupted", gate=True,
-                                   event="gate.aborted", payload={"run": run})
+            last = executed[-1][1]
+            outcome = "passed" if last.status == "passed" else last.status
+            action, event = {"passed": ("gate_pass", "gate.passed"), "failed": ("gate_fail", "gate.failed"),
+                             "error": ("gate_return", "gate.error"), "pending": ("gate_return", "gate.pending")}[outcome]
+            with self._transaction() as conn:
+                obsolete = not self._is_current(task_id, attempt, started_seq, conn)
+                rows = []
+                if obsolete:
+                    self._discard(conn, task, actor=actor, attempt=attempt, run=run, reason="superseded")
+                else:
+                    for position, (check, result) in enumerate(executed, start=1):
+                        rows.append(self.store.insert_result(
+                            conn, task_id=task_id, attempt=attempt, run=run, position=position, check_name=check,
+                            status=result.status, actor=actor, started_at=result.started_at, ended_at=result.ended_at,
+                            command="" if check == "review" else result.name, exit_code=result.exit_code,
+                            duration_ms=result.duration_ms, output=result.output))
+                        if result.status in _CHECK_EVENT:
+                            self._tasks.store.append_event(
+                                conn, _CHECK_EVENT[result.status], actor=actor, group_id=task["group_id"], task_id=task_id,
+                                payload={"run": run, "check": check, "status": result.status, "reason": result.reason,
+                                         "exit_code": result.exit_code, "duration_ms": result.duration_ms})
+                    view = self._tasks._apply(conn, task_id, action, actor=actor, cause=cause, gate=True, event=event,
+                                              payload={"run": run, "check": executed[-1][0], "reason": last.reason})
+        except BaseException as exc:
+            # Recovery owns the same identity check as finalization: an old
+            # runner's exception must never abort a replacement run.
+            with self._transaction() as conn:
+                if self._is_current(task_id, attempt, started_seq, conn):
+                    self._tasks._apply(conn, task_id, "gate_return", actor=actor, cause="gate interrupted", gate=True,
+                                       event="gate.aborted", payload={"run": run, "attempt": attempt})
+                else:
+                    self._discard(conn, task, actor=actor, attempt=attempt, run=run, reason="interrupted_obsolete")
+            if isinstance(exc, sqlite3.IntegrityError):
+                raise _conflict("Gate operation conflicts with stored state", task_id=task_id) from None
             raise
-        last = executed[-1][1]
-        outcome = "passed" if last.status == "passed" else last.status
-        action, event = {"passed": ("gate_pass", "gate.passed"), "failed": ("gate_fail", "gate.failed"),
-                         "error": ("gate_return", "gate.error"), "pending": ("gate_return", "gate.pending")}[outcome]
-        with self._tasks.store.transaction() as conn:
-            rows = []
-            for position, (check, result) in enumerate(executed, start=1):
-                rows.append(self.store.insert_result(
-                    conn, task_id=task_id, attempt=attempt, run=run, position=position, check_name=check,
-                    status=result.status, actor=actor, started_at=result.started_at, ended_at=result.ended_at,
-                    command="" if check == "review" else result.name, exit_code=result.exit_code,
-                    duration_ms=result.duration_ms, output=result.output))
-                if result.status in _CHECK_EVENT:
-                    self._tasks.store.append_event(
-                        conn, _CHECK_EVENT[result.status], actor=actor, group_id=task["group_id"], task_id=task_id,
-                        payload={"run": run, "check": check, "status": result.status, "reason": result.reason,
-                                 "exit_code": result.exit_code, "duration_ms": result.duration_ms})
-            view = self._tasks._apply(conn, task_id, action, actor=actor, cause=cause, gate=True, event=event,
-                                      payload={"run": run, "check": executed[-1][0], "reason": last.reason})
+        if obsolete:
+            # Raise after committing the discard event, without reporting a
+            # passing outcome or returning results from an invalidated run.
+            raise _conflict("Gate execution is no longer current", task_id=task_id, attempt=attempt, run=run)
         return {"outcome": outcome, "run": run, "results": rows, "task": view}
 
     @service_errors
     def abort_gate(self, task_id: str, *, actor: str, cause: str) -> dict[str, Any]:
         """Return a ``validating`` task to ``submitted`` (for example after a crash); event ``gate.aborted``.
 
+        This invalidates a live runner; its commands may finish, but its results
+        and exception recovery cannot change this task or a later execution.
+
         Errors: ``not_found``, ``invalid_request`` (empty cause), ``invalid_state`` (not ``validating``).
         """
         actor = _text("actor", actor, maximum=100)
         cause = _text("cause", cause, maximum=500)
-        with self._tasks.store.transaction() as conn:
+        with self._transaction() as conn:
             self._task_or_missing(task_id, conn)
             return self._tasks._apply(conn, task_id, "gate_return", actor=actor, cause=cause, gate=True,
                                       event="gate.aborted")

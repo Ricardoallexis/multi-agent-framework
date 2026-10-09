@@ -7,13 +7,17 @@ Project commands run the current Python interpreter with harmless scripts.
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Lock
 from pathlib import Path
 
 import pytest
 
 from multiagent.config import Settings
 from multiagent.services import ApplicationServices, ServiceError
+from multiagent.tasks.commands import CommandResult
 
 PY = json.dumps(sys.executable)
 # Exits 1 for the task id "BAD", 0 otherwise, and prints the task id.
@@ -206,3 +210,183 @@ def test_reviews_are_rejected_for_bad_input(services):
     assert error(lambda: gates.review("A", actor="agent:r", approved="yes")).code == "invalid_request"
     assert error(lambda: gates.review("NOPE", actor="agent:r", approved=True)).code == "not_found"
     assert error(lambda: gates.results("A", attempt=-1)).code == "invalid_request"
+
+
+def checked(status: str = "passed", output: str = "current") -> CommandResult:
+    return CommandResult("test", status, 0 if status == "passed" else 1, 0, output,
+                         "" if status == "passed" else status, "2026-10-09T00:00:00+00:00", "2026-10-09T00:00:01+00:00")
+
+
+@pytest.mark.parametrize("old_status", ["passed", "failed", "error", "pending"])
+@pytest.mark.parametrize("old_finishes_first", [True, False])
+def test_aborted_live_gate_cannot_finalize_over_its_replacement(services, monkeypatch, old_status, old_finishes_first):
+    tasks, gates = services.tasks, services.gates
+    tasks.create_task("G", "A", "A", actor="user")
+    tasks.create_task("G", "NEXT", "Next", actor="user", depends_on=["A"])
+    gates.set_task_gate("A", ["tests"], actor="user")
+    deliver(services, "A")
+    entered, release = [Event(), Event()], [Event(), Event()]
+    calls, lock = [], Lock()
+
+    def run_check(*args):
+        with lock:
+            position = len(calls)
+            calls.append(position)
+        entered[position].set()
+        assert release[position].wait(10), "runner was not released"
+        return checked(old_status if position == 0 else "passed", "obsolete" if position == 0 else "replacement")
+
+    # The replacement has a new service instance: ownership is persisted,
+    # rather than held in a process-local counter or lock.
+    replacement = type(gates)(services)
+    monkeypatch.setattr(type(gates), "_run_check", run_check)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        try:
+            old = pool.submit(gates.run_gate, "A", actor="runner:old")
+            assert entered[0].wait(10)
+            gates.abort_gate("A", actor="user", cause="replace live runner")
+            new = pool.submit(replacement.run_gate, "A", actor="runner:new")
+            assert entered[1].wait(10)
+            active = tasks.get_task("A")
+            starts = [e["payload"] for e in tasks.events(task_id="A") if e["type"] == "gate.started"]
+            assert [(e["attempt"], e["run"]) for e in starts] == [(1, 1), (1, 2)]
+            if old_finishes_first:
+                release[0].set()
+                obsolete = error(lambda: old.result(timeout=10))
+                assert tasks.get_task("A") == active
+                assert gates.results("A") == []
+                assert tasks.get_task("NEXT")["status"] == "blocked"
+                release[1].set()
+                current = new.result(timeout=10)
+            else:
+                release[1].set()
+                current = new.result(timeout=10)
+                accepted = tasks.get_task("A")
+                release[0].set()
+                obsolete = error(lambda: old.result(timeout=10))
+                assert tasks.get_task("A") == accepted
+        finally:
+            for signal in release:
+                signal.set()
+    assert obsolete.code == "invalid_state"
+    assert obsolete.details == {"task_id": "A", "attempt": 1, "run": 1}
+    assert (current["outcome"], current["run"], current["task"]["status"]) == ("passed", 2, "accepted")
+    assert [(r["run"], r["output_excerpt"]) for r in gates.results("A")] == [(2, "replacement")]
+    events = tasks.events(task_id="A")
+    assert [e["payload"]["run"] for e in events if e["type"] == "gate.passed"] == [2]
+    assert [e["payload"] for e in events if e["type"] == "gate.discarded"] == [
+        {"run": 1, "attempt": 1, "reason": "superseded"}]
+    assert len([e for e in tasks.events(task_id="NEXT") if e["type"] == "task.ready"]) == 1
+
+
+@pytest.mark.parametrize("exception_type", [RuntimeError, KeyboardInterrupt, sqlite3.IntegrityError])
+def test_exception_from_obsolete_runner_does_not_abort_current_gate(services, monkeypatch, exception_type):
+    tasks, gates = services.tasks, services.gates
+    tasks.create_task("G", "A", "A", actor="user")
+    gates.set_task_gate("A", ["tests"], actor="user")
+    deliver(services, "A")
+    entered, release = [Event(), Event()], [Event(), Event()]
+    calls, lock = [], Lock()
+
+    def run_check(*args):
+        with lock:
+            position = len(calls)
+            calls.append(position)
+        entered[position].set()
+        assert release[position].wait(10), "runner was not released"
+        if position == 0:
+            raise exception_type("old runner interrupted")
+        return checked()
+
+    monkeypatch.setattr(gates, "_run_check", run_check)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        try:
+            old = pool.submit(gates.run_gate, "A", actor="runner:old")
+            assert entered[0].wait(10)
+            gates.abort_gate("A", actor="user", cause="replace live runner")
+            new = pool.submit(gates.run_gate, "A", actor="runner:new")
+            assert entered[1].wait(10)
+            active = tasks.get_task("A")
+            release[0].set()
+            expected = ServiceError if exception_type is sqlite3.IntegrityError else exception_type
+            with pytest.raises(expected) as caught:
+                old.result(timeout=10)
+            if expected is ServiceError:
+                assert caught.value.code == "invalid_state"
+            assert tasks.get_task("A") == active
+            assert gates.results("A") == []
+            assert [e["payload"] for e in tasks.events(task_id="A") if e["type"] == "gate.discarded"] == [
+                {"run": 1, "attempt": 1, "reason": "interrupted_obsolete"}]
+            release[1].set()
+            assert new.result(timeout=10)["task"]["status"] == "accepted"
+        finally:
+            for signal in release:
+                signal.set()
+    assert len([e for e in tasks.events(task_id="A") if e["type"] == "gate.aborted"]) == 1
+
+
+def test_integrity_error_rolls_back_results_and_recovers_only_the_owned_gate(services, monkeypatch):
+    tasks, gates = services.tasks, services.gates
+    tasks.create_task("G", "A", "A", actor="user")
+    gates.set_task_gate("A", ["review", "tests"], actor="user")
+    deliver(services, "A")
+    monkeypatch.setattr(gates, "_run_check", lambda *args: checked())
+    insert = gates.store.insert_result
+
+    def duplicate_result(conn, **fields):
+        if fields["position"] == 2:
+            raise sqlite3.IntegrityError("UNIQUE constraint failed: private SQL details")
+        return insert(conn, **fields)
+
+    monkeypatch.setattr(gates.store, "insert_result", duplicate_result)
+    failure = error(lambda: gates.run_gate("A", actor="runner"))
+    assert (failure.code, failure.status) == ("invalid_state", 409)
+    assert "private SQL" not in failure.message
+    assert tasks.get_task("A")["status"] == "submitted"
+    assert gates.results("A") == []
+    events = tasks.events(task_id="A")
+    assert not [e for e in events if e["type"].startswith("gate.check_")]
+    assert events[-1]["type"] == "gate.aborted"
+    assert events[-1]["payload"]["run"] == 1
+    assert events[-1]["payload"]["attempt"] == 1
+    monkeypatch.setattr(gates.store, "insert_result", insert)
+    assert gates.run_gate("A", actor="runner")["run"] == 2
+
+
+def test_obsolete_gate_from_an_earlier_attempt_cannot_accept_a_new_attempt(services, monkeypatch):
+    tasks, gates = services.tasks, services.gates
+    tasks.create_task("G", "A", "A", actor="user")
+    gates.set_task_gate("A", ["tests"], actor="user")
+    deliver(services, "A")
+
+    def replace_attempt(*args):
+        gates.abort_gate("A", actor="user", cause="new attempt")
+        tasks.transition("A", "request_changes", actor="user")
+        tasks.transition("A", "start", actor="agent:a")
+        tasks.transition("A", "submit", actor="agent:a")
+        monkeypatch.setattr(gates, "_run_check", lambda *args: checked())
+        current = gates.run_gate("A", actor="runner:new")
+        assert (current["run"], current["task"]["attempt"]) == (1, 2)
+        return checked(output="obsolete")
+
+    monkeypatch.setattr(gates, "_run_check", replace_attempt)
+    assert error(lambda: gates.run_gate("A", actor="runner:old")).code == "invalid_state"
+    assert tasks.get_task("A")["status"] == "accepted"
+    assert [(r["attempt"], r["run"], r["output_excerpt"]) for r in gates.results("A")] == [(2, 1, "current")]
+
+
+def test_review_during_a_gate_does_not_invalidate_the_runner(services, monkeypatch):
+    tasks, gates = services.tasks, services.gates
+    tasks.create_task("G", "A", "A", actor="user")
+    gates.set_task_gate("A", ["tests", "review"], actor="user")
+    deliver(services, "A")
+    run_check = gates._run_check
+
+    def approve_during_check(check, *args):
+        if check == "command:test":
+            gates.review("A", actor="reviewer", approved=True)
+            return checked()
+        return run_check(check, *args)
+
+    monkeypatch.setattr(gates, "_run_check", approve_during_check)
+    assert gates.run_gate("A", actor="runner")["task"]["status"] == "accepted"
