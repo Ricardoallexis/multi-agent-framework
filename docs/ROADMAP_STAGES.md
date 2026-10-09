@@ -189,8 +189,8 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S7.A — Communication** | | |
-| S7.A1 | Append-only team log and per-member inboxes where reading acknowledges. | S6.A1 |
-| S7.A2 | Structured messages and handoffs (delivery, proposal, question, answer, decision, result). | S7.A1 |
+| S7.A1 | ◐ Append-only team log and per-member inboxes where reading acknowledges. Done: a team event log with per-consumer cursors that move only on explicit acknowledgment ([`TASKS.md`](TASKS.md#event-cursors)). | S6.A1 |
+| S7.A2 | ◐ Structured messages and handoffs (delivery, proposal, question, answer, decision, result). Done: task envelopes and results by reference (base, decisions, contract changes, tests not run, requests, patch by sha256) ([`TASKS.md`](TASKS.md#envelopes-and-results)). | S7.A1 |
 | **S7.B — Work control** | | |
 | S7.B1 | Scoped workspaces: members change only assigned resources; shared ones need approval. | S6.A1 |
 | S7.B2 | ✅ Task reservation with declared resources: claiming a task locks its declared files and rejects overlaps (task services, [`TASKS.md`](TASKS.md)). | S7.B1 |
