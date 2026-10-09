@@ -34,7 +34,7 @@ def result(gates: GateStore, conn, **overrides):
 
 def test_migration_005_adds_gates_without_touching_tasks(stores):
     tasks, gates = stores
-    assert gates.db.schema_version() == 5
+    assert gates.db.schema_version() == 6
     with gates.db.connect() as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "gate_results" in tables
@@ -110,6 +110,6 @@ def test_migration_005_keeps_existing_tasks(tmp_path: Path):
             conn.execute("INSERT INTO schema_version(version,name,applied_at) VALUES(?,?,'old')", (version, path.name))
         conn.execute("INSERT INTO task_groups(id,title,created_by,created_at,updated_at) VALUES('G','Old','user','t','t')")
         conn.commit()
-    assert db.migrate() == ["005_gates.sql"]
+    assert db.migrate() == ["005_gates.sql", "006_envelopes.sql"]
     group = TaskStore(db).get_group("G")
     assert (group["title"], group["default_gate"]) == ("Old", [])
