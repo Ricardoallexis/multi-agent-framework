@@ -16,7 +16,7 @@ Multi-Agent Framework is a domain-neutral, configurable runtime for building and
 - A bundled example workflow with specialized agents for research, strategy, content creation, branding, and visual pre-production.
 - Ollama, Gemini, and OpenAI adapters.
 - `auto`, `local`, `cloud`, and `human_guided` execution modes.
-- Human-in-the-loop review, approval, revision, rejection, and externally executed steps.
+- Human-in-the-loop review, approval, revision, rejection, and externally executed steps. Whoever produces an external result (a person, a cloud agent, or a vendor's always-on agent) stays outside the framework, which only validates the delivered artifact (see "External executors" in the [stage plan](docs/ROADMAP_STAGES.md)).
 - Pydantic contracts and structured output validation.
 - Validation of workflow definitions before any run starts, with stable error codes.
 - Human review after any step, resuming from the next step without repeating approved work.
