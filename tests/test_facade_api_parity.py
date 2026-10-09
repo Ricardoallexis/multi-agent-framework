@@ -105,3 +105,38 @@ def test_invalid_workflow_error_matches_between_facade_and_http(tmp_path):
         response = client.get("/api/v1/workflows/bad.id")
         assert response.status_code == error.value.status == 422
         assert response.json()["detail"] == error.value.to_payload()
+def test_anonymous_assignment_preview_and_accept_match_facade(tmp_path):
+    settings = Settings(
+        _env_file=None, local_dir=tmp_path, worker_enabled=False, mock_mode=True,
+        gemini_api_key="", openai_api_key="", openai_enabled=False,
+    )
+    services = ApplicationServices.create(settings)
+    services.tasks.create_group("ORQ", "Authorized", actor="test", authorized=True)
+    task = services.tasks.create_task("ORQ", "ORQ-PARITY", "Parity", actor="test")
+    body = {"profile_id": "unknown-profile"}
+
+    facade_preview = services.assignment.preview(task["id"], body)
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
+        http_preview_response = client.post(f"/api/v1/tasks/{task['id']}/assignment/preview", json=body)
+        assert http_preview_response.status_code == 200
+        http_preview = http_preview_response.json()
+        assert http_preview == facade_preview
+
+        accept_body = {"preview_token": facade_preview["preview_token"], "acknowledge": True}
+        facade_accept = services.assignment.accept(task["id"], accept_body["preview_token"], True)
+        http_accept_response = client.post(f"/api/v1/tasks/{task['id']}/assignment/accept", json=accept_body)
+        assert http_accept_response.status_code == 200
+        assert http_accept_response.json() == facade_accept
+        assert http_accept_response.json()["decision"]["status"] == "manual"
+        assert "operator_context_unverified" in http_accept_response.json()["decision"]["reason_codes"]
+        assert services.tasks.get_task(task["id"])["state"] == "open"
+
+
+def test_assignment_http_body_rejects_actor_and_grant_injection(tmp_path):
+    settings = Settings(_env_file=None, local_dir=tmp_path, worker_enabled=False, mock_mode=True,
+                        gemini_api_key="", openai_api_key="", openai_enabled=False)
+    services = ApplicationServices.create(settings)
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
+        response = client.post("/api/v1/tasks/ORQ-X/assignment/preview",
+                               json={"actor": "agent:claimed", "grants": ["cloud"]})
+    assert response.status_code == 422

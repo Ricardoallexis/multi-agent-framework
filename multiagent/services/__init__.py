@@ -25,6 +25,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
+from .assignment import AssignmentServices
 from .definitions import DefinitionServices
 from .envelopes import EnvelopeServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
@@ -66,6 +67,7 @@ class ApplicationServices:
         self.tasks = TaskServices(self)
         self.gates = GateServices(self)
         self.envelopes = EnvelopeServices(self)
+        self.assignment = AssignmentServices(self)
 
     @classmethod
     def create(cls, settings: Settings | None = None, *,

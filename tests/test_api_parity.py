@@ -99,6 +99,80 @@ def test_invalid_bodies_use_the_same_error_shape(client):
     assert_error(client.post("/api/v1/runs", params={"bundle": "team"}, json=social), 422, "invalid_request")
 
 
+def test_assignment_bodies_reject_client_supplied_authority(client):
+    for forged in (
+        {"actor": "agent:claimed"}, {"grants": ["cloud"]},
+        {"trust": "verified"}, {"selected_executor": "made_up"},
+    ):
+        response = client.post("/api/v1/tasks/ORQ-X/assignment/preview", json=forged)
+        assert response.status_code == 422
+    response = client.post("/api/v1/tasks/ORQ-X/assignment/accept",
+                           json={"preview_token": "forged", "acknowledge": True, "actor": "user"})
+    assert response.status_code == 422
+
+
+def test_assignment_provider_is_request_scoped_for_preview_and_accept(services):
+    from multiagent.routing.executor_capabilities import VerifiedOperatorContext
+
+    services.tasks.create_group("ORQ", "Authorized", actor="test", authorized=True)
+    task = services.tasks.create_task("ORQ", "ORQ-PROVIDER", "Provider", actor="test")
+    config = {
+        "version": 1, "profiles": {}, "executors": {}, "requirement_map": {},
+        "data_classifications": {"group:ORQ": "sensitive"},
+        "operator_boundary": {
+            "operator_id": "ops", "authorized_aliases": ["agent:verified"],
+            "claim_actor_alias": "agent:verified", "operator_grants": [],
+            "alias_grants": {"agent:verified": []},
+        },
+    }
+    services.system.catalog.executor_routing = config
+    services.system.catalog.executor_routing_valid = True
+    seen = []
+
+    def provider(request):
+        seen.append(request)
+        return VerifiedOperatorContext("ops", "agent:verified", grants=frozenset(),
+                                       provenance="synthetic_test_provider", verified=True,
+                                       trusted_data_class="sensitive", data_class_scope="group:ORQ")
+
+    with TestClient(create_app(services=services, operator_context_provider=provider),
+                    base_url="http://localhost") as app_client:
+        preview = app_client.post(f"/api/v1/tasks/{task['id']}/assignment/preview",
+                                  json={"profile_id": "unknown-profile", "data_class": "public"}).json()
+        response = app_client.post(f"/api/v1/tasks/{task['id']}/assignment/accept",
+                                   json={"preview_token": preview["preview_token"], "acknowledge": True})
+    assert response.status_code == 200
+    assert [request.url.path.rsplit("/", 1)[-1] for request in seen] == ["preview", "accept"]
+    assert preview["decision"]["status"] == "blocked"
+    assert "data_class_mismatch" in preview["decision"]["reason_codes"]
+
+
+def test_anonymous_assignment_preview_and_accept_are_manual(services):
+    services.tasks.create_group("ORQ", "Authorized", actor="test", authorized=True)
+    task = services.tasks.create_task("ORQ", "ORQ-ANON", "Anonymous", actor="test")
+    with TestClient(create_app(services=services), base_url="http://localhost") as app_client:
+        preview = app_client.post(f"/api/v1/tasks/{task['id']}/assignment/preview",
+                                  json={"profile_id": "unknown-profile"}).json()
+        accepted = app_client.post(f"/api/v1/tasks/{task['id']}/assignment/accept",
+                                   json={"preview_token": preview["preview_token"], "acknowledge": True})
+    assert preview["decision"]["status"] == "manual"
+    assert "operator_context_unverified" in preview["decision"]["reason_codes"]
+    assert accepted.status_code == 200 and accepted.json()["decision"]["status"] == "manual"
+    assert "operator_context_unverified" in accepted.json()["decision"]["reason_codes"]
+
+
+def test_assignment_body_data_class_does_not_supply_trusted_privacy_class(services):
+    services.tasks.create_group("ORQ", "Authorized", actor="test", authorized=True)
+    task = services.tasks.create_task("ORQ", "ORQ-PRIVACY-ANON", "Privacy", actor="test")
+    with TestClient(create_app(services=services), base_url="http://localhost") as app_client:
+        response = app_client.post(f"/api/v1/tasks/{task['id']}/assignment/preview",
+                                   json={"profile_id": "unknown-profile", "data_class": "non_sensitive"})
+    assert response.status_code == 200
+    decision = response.json()["decision"]
+    assert decision["status"] in {"manual", "blocked"}
+    assert "privacy_class_unknown" in decision["reason_codes"]
+
+
 def test_human_step_errors_keep_their_status(client, services):
     run = client.post("/api/v1/runs", params={"bundle": "team"},
                       json={**GENERIC, "execution_mode": "human_guided"}).json()

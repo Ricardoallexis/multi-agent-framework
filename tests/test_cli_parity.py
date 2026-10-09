@@ -135,3 +135,27 @@ def test_cli_validation_error_matches_http(monkeypatch, capsys, tmp_path):
     assert detail["message"] in cli_error
     assert detail["details"]["issues"][0]["code"] in cli_error
     services.runs.close()
+
+
+def test_cli_assignment_uses_http_and_anonymous_accept_stays_manual(monkeypatch, capsys, tmp_path):
+    services = make_services(tmp_path / "assignment")
+    services.tasks.create_group("ORQ", "Authorized", actor="test", authorized=True)
+    task = services.tasks.create_task("ORQ", "ORQ-CLI", "CLI assignment", actor="test")
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
+        preview = json.loads(invoke_cli(
+            monkeypatch, capsys, client,
+            ["task", "assignment", "preview", task["id"], "--profile-id", "unknown-profile"],
+        ))
+        direct = client.post(f"/api/v1/tasks/{task['id']}/assignment/preview",
+                             json={"profile_id": "unknown-profile"})
+        assert direct.status_code == 200
+        assert preview == direct.json()
+
+        accepted = json.loads(invoke_cli(
+            monkeypatch, capsys, client,
+            ["task", "assignment", "accept", task["id"], preview["preview_token"], "--acknowledge"],
+        ))
+        assert accepted["decision"]["status"] == "manual"
+        assert "operator_context_unverified" in accepted["decision"]["reason_codes"]
+        assert services.tasks.get_task(task["id"])["state"] == "open"
+    services.runs.close()

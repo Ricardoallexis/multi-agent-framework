@@ -132,3 +132,82 @@ routing_profiles:
       max_retries_per_candidate: 0
       max_provider_invocations: 1
   assignments: {}
+# T15 executor declarations are intentionally manual until a conforming adapter
+# provides fixed, verifiable capability evidence. These are surface presets,
+# not claims that a particular client is present or available.
+executor_routing:
+  version: 1
+  profiles: {}
+  executors:
+    codex_app_subagents:
+      surface: codex_app_subagents
+      version: "1"
+      mode: manual
+      adapter_id: null
+      capabilities_available: null
+      roles_available: null
+      permissions_available: null
+      permissions_required: null
+      permissions_consumed: null
+      permission_ceiling: null
+      allowed_data_classes: null
+      execution_modes: null
+    claude_code:
+      surface: claude_code
+      version: "1"
+      mode: manual
+      adapter_id: null
+      capabilities_available: null
+      roles_available: null
+      permissions_available: null
+      permissions_required: null
+      permissions_consumed: null
+      permission_ceiling: null
+      allowed_data_classes: null
+      execution_modes: null
+    copilot_cli:
+      surface: copilot_cli
+      version: "1"
+      mode: manual
+      adapter_id: null
+      capabilities_available: null
+      roles_available: null
+      permissions_available: null
+      permissions_required: null
+      permissions_consumed: null
+      permission_ceiling: null
+      allowed_data_classes: null
+      execution_modes: null
+    claude_app:
+      surface: claude_app
+      version: "1"
+      mode: manual
+      adapter_id: null
+      capabilities_available: null
+      roles_available: null
+      permissions_available: null
+      permissions_required: null
+      permissions_consumed: null
+      permission_ceiling: null
+      allowed_data_classes: null
+      execution_modes: null
+    chatgpt_app:
+      surface: chatgpt_app
+      version: "1"
+      mode: manual
+      adapter_id: null
+      capabilities_available: null
+      roles_available: null
+      permissions_available: null
+      permissions_required: null
+      permissions_consumed: null
+      permission_ceiling: null
+      allowed_data_classes: null
+      execution_modes: null
+  requirement_map: {}
+  data_classifications: {}
+  operator_boundary:
+    operator_id: null
+    authorized_aliases: []
+    alias_grants: {}
+    claim_actor_alias: null

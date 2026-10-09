@@ -195,6 +195,22 @@ def cmd_task_show(args) -> None:
     pretty(_api_json("GET", f"/api/v1/tasks/{_segment(args.task_id)}"))
 
 
+def cmd_task_assignment_preview(args) -> None:
+    body = {key: value for key, value in (
+        ("profile_id", args.profile_id), ("requested_executor", args.executor),
+        ("requested_model", args.model), ("requested_effort", args.effort),
+        ("required_context_isolation", args.context_isolation),
+        ("additional_requirements", args.requirement), ("permission_scope", args.permission),
+        ("data_class", args.data_class),
+    ) if value is not None}
+    pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/assignment/preview", json_body=body))
+
+
+def cmd_task_assignment_accept(args) -> None:
+    pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/assignment/accept",
+                     json_body={"preview_token": args.preview_token, "acknowledge": args.acknowledge}))
+
+
 def cmd_task_create(args) -> None:
     pretty(_api_json("POST", "/api/v1/tasks", json_body={
         "group_id": args.group_id, "id": args.task_id, "title": args.title, "actor": args.actor,
@@ -652,6 +668,16 @@ def build_parser() -> argparse.ArgumentParser:
     x.set_defaults(func=cmd_tasks)
     task = sub.add_parser("task", help="Show, create, link or change a task").add_subparsers(dest="task_command", required=True)
     x = task.add_parser("show"); x.add_argument("task_id"); x.set_defaults(func=cmd_task_show)
+    assignment = task.add_parser("assignment", help="Preview or acknowledge a task assignment plan")
+    assignment_sub = assignment.add_subparsers(dest="assignment_command", required=True)
+    x = assignment_sub.add_parser("preview")
+    x.add_argument("task_id"); x.add_argument("--profile-id"); x.add_argument("--executor")
+    x.add_argument("--model"); x.add_argument("--effort"); x.add_argument("--context-isolation", choices=["fresh", "inherited", "unknown"])
+    x.add_argument("--requirement", action="append"); x.add_argument("--permission", action="append")
+    x.add_argument("--data-class"); x.set_defaults(func=cmd_task_assignment_preview)
+    x = assignment_sub.add_parser("accept")
+    x.add_argument("task_id"); x.add_argument("preview_token"); x.add_argument("--acknowledge", action="store_true")
+    x.set_defaults(func=cmd_task_assignment_accept)
     x = task.add_parser("create"); x.add_argument("group_id"); x.add_argument("task_id"); x.add_argument("--title", required=True)
     x.add_argument("--objective", default=""); x.add_argument("--depends-on", action="append", metavar="ID[:requires]")
     x.add_argument("--file", action="append", help="A path or folder the task will change; repeatable")

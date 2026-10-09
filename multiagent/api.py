@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import inspect
 from pathlib import Path
-from typing import Any, Mapping, Union
+from typing import Any, Callable, Mapping, Union
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Query, Request
@@ -188,13 +189,30 @@ class TaskResultSubmit(_Body):
     result: dict[str, Any]
 
 
+class AssignmentPreviewRequest(_Body):
+    profile_id: str | None = None
+    requested_executor: str | None = None
+    requested_model: str | None = None
+    requested_effort: str | None = None
+    required_context_isolation: str | None = None
+    additional_requirements: list[str] = Field(default_factory=list)
+    permission_scope: list[str] | None = None
+    data_class: str | None = None
+
+
+class AssignmentAcceptRequest(_Body):
+    preview_token: str
+    acknowledge: bool
+
+
 class CursorAck(_Body):
     seq: int
     scope: str = ""
 
 
 def create_app(system=None, *, services: ApplicationServices | None = None,
-               bundles: Mapping[str, str | Path] | None = None) -> FastAPI:
+               bundles: Mapping[str, str | Path] | None = None,
+               operator_context_provider: Callable[[Request], Any] | None = None) -> FastAPI:
     """HTTP API over the application services; every route goes through the facade.
 
     Pass ``services`` to reuse a facade, or ``system`` (and optionally trusted
@@ -465,6 +483,22 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         if attempt is None:
             return services.envelopes.list_results(task_id)
         return services.envelopes.get_result(task_id, attempt=attempt)
+
+    @app.post("/api/v1/tasks/{task_id}/assignment/preview")
+    async def preview_task_assignment(task_id: str, body: AssignmentPreviewRequest, request: Request):
+        operator_context = operator_context_provider(request) if operator_context_provider else None
+        if inspect.isawaitable(operator_context):
+            operator_context = await operator_context
+        return services.assignment.preview(task_id, body.model_dump(exclude_none=True),
+                                           operator_context=operator_context)
+
+    @app.post("/api/v1/tasks/{task_id}/assignment/accept")
+    async def accept_task_assignment(task_id: str, body: AssignmentAcceptRequest, request: Request):
+        operator_context = operator_context_provider(request) if operator_context_provider else None
+        if inspect.isawaitable(operator_context):
+            operator_context = await operator_context
+        return services.assignment.accept(task_id, body.preview_token, body.acknowledge,
+                                          operator_context=operator_context)
 
     @app.get("/api/v1/results")
     def get_result(ref: str):

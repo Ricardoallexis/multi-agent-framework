@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -49,6 +51,13 @@ class Catalog:
         routing = models_document.get("routing_profiles", {}) or {}
         self.routing_profiles = dict(routing.get("profiles", {}) or {})
         self.routing_assignments = dict(routing.get("assignments", {}) or {})
+        executor_routing = models_document.get("executor_routing", {}) or {}
+        self.executor_routing_valid = isinstance(executor_routing, dict)
+        self.executor_routing = dict(executor_routing) if self.executor_routing_valid else {}
+        self.executor_routing_hash = hashlib.sha256(json.dumps(
+            self.executor_routing, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            default=str,
+        ).encode("utf-8")).hexdigest()
         self.models: dict[str, ModelSpec] = {}
         for model_id, raw in raw_models.items():
             raw = dict(raw)

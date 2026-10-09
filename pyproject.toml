@@ -41,6 +41,8 @@ packages = [
   "multiagent.db",
   "multiagent.observability",
   "multiagent.services",
+  "multiagent.routing",
+  "multiagent.executors",
   "multiagent.tasks",
   "multiagent.ui",
   "multiagent._resources",
