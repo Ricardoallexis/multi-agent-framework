@@ -626,3 +626,100 @@ def test_openai_adapter_uses_responses_parse(tmp_path):
     assert captured["text_format"] is ContentOutput
     assert response.parsed.hook == parsed.hook
     assert response.tokens_in == 50 and response.tokens_out == 25
+
+
+def test_explicit_routing_profile_records_decision_and_dispatch_budget(tmp_path, monkeypatch):
+    from multiagent.routing_policy import RoutingDecision
+
+    s = settings_for(tmp_path)
+    system = build_system(s, dry_run=True)
+    system.catalog.routing_assignments["social_post"] = {"create": "test-profile"}
+    system.catalog.routing_profiles["test-profile"] = {
+        "enabled": True,
+        "candidate_model_ids": ["local_default"],
+        "max_candidates": 1,
+        "max_provider_invocations": 1,
+        "max_retries_per_candidate": 0,
+    }
+    seen = {}
+
+    def select(request, evidence):
+        seen["request"] = request
+        seen["evidence"] = evidence
+        return RoutingDecision(
+            status="selected", requested_model="local_default", selected_model="local_default",
+            profile_id="test-profile", budget_scope={"run_id": evidence.scope, "profile_id": "test-profile"},
+        )
+
+    monkeypatch.setattr(system.engine.router, "select", select)
+    run = system.run_service.create_social_post(
+        SocialPostRequest(project_name="route-profile", objective="Create an educational post", topic="KNX")
+    )
+    system.worker.process_once()
+    state = system.run_service.get(run["id"])
+    decisions = [event for event in state["events"] if event["event_type"] == "routing_decision"]
+    reservations = [event for event in state["events"] if event["event_type"] == "routing_dispatch_reserved"]
+    attempts = [event for event in state["events"] if event["event_type"] == "model_attempt"]
+    assert decisions[-1]["payload"]["profile_id"] == "test-profile"
+    assert decisions[-1]["payload"]["evidence"]["scope"]["run_id"] == run["id"]
+    assert len(reservations) == 1
+    assert reservations[0]["payload"]["scope"] == {"run_id": run["id"], "profile_id": "test-profile"}
+    assert attempts[-1]["payload"]["profile_id"] == "test-profile"
+    assert seen["evidence"].provider_health == {}
+    assert seen["evidence"].stats_by_model["scope"]["run_id"] == run["id"]
+    assert seen["request"].effective_permissions is None
+    assert state["llm_calls"] == 1
+
+
+def test_explicit_unknown_routing_profile_blocks_before_provider(tmp_path):
+    s = settings_for(tmp_path)
+    system = build_system(s, dry_run=True)
+    system.catalog.routing_assignments["social_post"] = {"create": "missing-profile"}
+    run = system.run_service.create_social_post(
+        SocialPostRequest(project_name="route-blocked", objective="Create an educational post", topic="KNX")
+    )
+    system.worker.process_once()
+    state = system.run_service.get(run["id"])
+    decisions = [event for event in state["events"] if event["event_type"] == "routing_decision"]
+    assert state["status"] == RunStatus.FAILED.value
+    assert decisions[-1]["payload"]["status"] == "blocked"
+    assert decisions[-1]["payload"]["reason_codes"] == ["unknown_profile"]
+    assert not [event for event in state["events"] if event["event_type"] == "routing_dispatch_reserved"]
+    assert state["llm_calls"] == 0
+
+
+def test_profile_preflight_fallback_reserves_actual_candidate(tmp_path, monkeypatch):
+    from multiagent.routing_policy import RoutingDecision
+
+    s = settings_for(tmp_path)
+    system = build_system(s, adapter_overrides={"gemini": FakeAdapter()})
+    system.engine.router.adapters.pop("ollama", None)
+    system.catalog.routing_assignments["social_post"] = {"create": "test-profile"}
+    system.catalog.routing_profiles["test-profile"] = {
+        "enabled": True,
+        "candidate_model_ids": ["local_default", "cloud_fast"],
+        "max_candidates": 2,
+        "max_provider_invocations": 2,
+        "max_retries_per_candidate": 0,
+    }
+    monkeypatch.setattr(system.engine.router, "select", lambda request, evidence: RoutingDecision(
+        status="selected", requested_model="local_default", selected_model="local_default",
+        fallback_models=("cloud_fast",), profile_id="test-profile",
+        budget_scope={"run_id": evidence.scope, "profile_id": "test-profile"},
+    ))
+    run = system.run_service.create_social_post(
+        SocialPostRequest(project_name="route-preflight", objective="Create an educational post", topic="KNX")
+    )
+
+    system.worker.process_once()
+    state = system.run_service.get(run["id"])
+    attempts = [event["payload"] for event in state["events"] if event["event_type"] == "model_attempt"]
+    reservations = [event["payload"] for event in state["events"] if event["event_type"] == "routing_dispatch_reserved"]
+
+    assert attempts[0]["attempted_model"] == "local_default"
+    assert attempts[0]["provider_invoked"] is False
+    assert attempts[1]["attempted_model"] == "cloud_fast"
+    assert attempts[1]["provider_invoked"] is True
+    assert len(reservations) == 1
+    assert reservations[0]["attempted_model"] == "cloud_fast"
+    assert state["llm_calls"] == 1

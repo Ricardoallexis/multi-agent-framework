@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from pydantic import BaseModel
 import pytest
 
@@ -8,6 +10,7 @@ from multiagent.catalog import ModelSpec
 from multiagent.contracts import ModelTier, TaskRequirements
 from multiagent.errors import ProviderUnavailable, StructuredOutputError
 from multiagent.model_router import ModelBinding, ModelRouter
+from multiagent.routing_policy import RoutingEvidence, RoutingRequest, summarize_routing_evidence
 
 
 class Payload(BaseModel):
@@ -16,6 +19,7 @@ class Payload(BaseModel):
 
 class StaticCatalog:
     def __init__(self):
+        self.routing_profiles = {}
         self.models = {
             "primary": ModelSpec("primary", "one", "provider-one", "local", True, False),
             "fallback": ModelSpec("fallback", "two", "provider-two", "cloud", True, True),
@@ -145,6 +149,23 @@ def test_observer_callback_errors_do_not_change_fallback_or_success(caplog):
     assert "on_failed_attempt callback failed" in caplog.text
 
 
+def test_fallback_candidate_uses_its_own_bounded_retry_count():
+    primary = SequenceAdapter("one", [ProviderUnavailable("offline")])
+    fallback = SequenceAdapter("two", [StructuredOutputError("invalid"), response("accepted", model="provider-two")])
+    router = ModelRouter(StaticCatalog(), {"one": primary, "two": fallback})
+
+    result, attempts = router.execute(
+        binding=ModelBinding("primary", "fallback", max_retries=0, fallback_max_retries=1),
+        requirements=requirements(), prompt="x", output_schema=Payload,
+    )
+
+    assert result.parsed.value == "accepted"
+    assert primary.calls == 1
+    assert fallback.calls == 2
+    assert [attempt["retry"] for attempt in attempts] == [0, 0, 1]
+    assert [attempt["attempted_model"] for attempt in attempts] == ["primary", "fallback", "fallback"]
+
+
 def test_success_observer_error_does_not_discard_provider_response():
     adapter = SequenceAdapter("one", [response("accepted", model="provider-one-v2")])
     router = ModelRouter(StaticCatalog(), {"one": adapter})
@@ -159,3 +180,191 @@ def test_success_observer_error_does_not_discard_provider_response():
 
     assert result.parsed.value == "accepted"
     assert attempts[0]["status"] == "success"
+
+
+def priced(amount, *, currency="USD", denominator=1_000_000):
+    return {
+        "input": {"amount": amount, "currency": currency, "denominator": denominator, "unit": "tokens",
+                   "source": "fixture-rate-card", "provenance": "catalog_declared",
+                   "valid_from": "2025-01-01T00:00:00Z", "valid_until": "2035-01-01T00:00:00Z"},
+        "output": {"amount": amount * 2, "currency": currency, "denominator": denominator, "unit": "tokens",
+                    "source": "fixture-rate-card", "provenance": "catalog_declared",
+                    "valid_from": "2025-01-01T00:00:00Z", "valid_until": "2035-01-01T00:00:00Z"},
+    }
+
+
+def profile_catalog(*, enabled=True, economic=True, require_health=False):
+    catalog = StaticCatalog()
+    catalog.models = {
+        "primary": ModelSpec("primary", "one", "configured-one", "local", True, False,
+                              capabilities=frozenset({"text_generation"}), roles=frozenset({"assistant"}),
+                              permissions=frozenset(), permissions_required=frozenset(),
+                              allowed_data_classes=frozenset({"non_sensitive"}), pricing=priced(1.0)),
+        "fallback": ModelSpec("fallback", "two", "configured-two", "local", True, False,
+                              capabilities=frozenset({"text_generation"}), roles=frozenset({"assistant"}),
+                              permissions=frozenset(), permissions_required=frozenset(),
+                              allowed_data_classes=frozenset({"non_sensitive"}), pricing=priced(0.25)),
+    }
+    catalog.routing_profiles = {
+        "costed": {
+            "version": 1, "enabled": enabled, "candidate_model_ids": ["primary", "fallback"],
+            "max_candidates": 2, "required_capabilities": ["structured_output"], "required_roles": [],
+            "required_permissions": [], "allowed_permissions": [], "allowed_data_classes": ["non_sensitive"],
+            "execution_modes": ["auto", "local", "cloud"], "economic_selection": economic,
+            "require_health": require_health, "max_retries_per_candidate": 0,
+            "max_provider_invocations": 3,
+        }
+    }
+    return catalog
+
+
+def profile_request(**overrides):
+    values = {
+        "profile_id": "costed", "workflow_id": "sample", "step_id": "create",
+        "requested_model": "primary", "required_capabilities": frozenset({"structured_output"}),
+        "required_permissions": frozenset(), "effective_permissions": frozenset(),
+        "authorized_data_classes": frozenset({"non_sensitive"}),
+        "authorization_provenance": "caller_request", "data_class": "non_sensitive",
+        "execution_mode": "auto", "output_schema": "Payload",
+        "estimated_input_tokens": 1000, "estimated_output_tokens": 200,
+    }
+    values.update(overrides)
+    return RoutingRequest(**values)
+
+
+def test_profile_selector_chooses_cheapest_comparable_candidate_without_claiming_dispatch():
+    router = ModelRouter(profile_catalog(), {"one": SequenceAdapter("one", []), "two": SequenceAdapter("two", [])})
+    decision = router.select(profile_request(), RoutingEvidence(scope="run-1", provenance="run_snapshot"))
+
+    assert decision.status == "selected"
+    assert decision.requested_model == "primary"
+    assert decision.selected_model == "fallback"
+    assert decision.planned_model == "configured-two"
+    assert decision.effective_model is None and decision.effective_config_model is None
+    assert decision.observed_model is None
+    assert decision.reason_codes == ("lowest_estimated_cost_for_common_token_quantities_or_dominant_rates",)
+
+
+def test_explicit_disabled_unknown_or_economically_unknown_profile_never_uses_legacy():
+    catalog = profile_catalog(enabled=False)
+    router = ModelRouter(catalog, {"one": SequenceAdapter("one", []), "two": SequenceAdapter("two", [])})
+    disabled = router.select(profile_request())
+    unknown = router.select(profile_request(profile_id="missing"))
+
+    catalog.routing_profiles["costed"]["enabled"] = True
+    catalog.models["primary"] = ModelSpec("primary", "one", "configured-one", "local", True, False,
+                                           capabilities=frozenset({"text_generation"}), roles=frozenset({"assistant"}),
+                                           permissions=frozenset(), permissions_required=frozenset(),
+                                           allowed_data_classes=frozenset({"non_sensitive"}), pricing=None)
+    missing_cost = router.select(profile_request())
+
+    assert disabled.status == "blocked" and disabled.reason_codes == ("profile_disabled",)
+    assert unknown.status == "blocked" and unknown.reason_codes == ("unknown_profile",)
+    assert missing_cost.status == "blocked" and "comparable_price_unknown" in missing_cost.reason_codes
+
+
+def test_cloud_and_sensitive_require_explicit_effective_grants_and_health_is_not_probed():
+    catalog = profile_catalog(economic=False, require_health=True)
+    catalog.models["primary"] = ModelSpec("primary", "one", "configured-one", "cloud", True, False,
+                                           capabilities=frozenset({"text_generation"}), roles=frozenset({"assistant"}),
+                                           permissions=frozenset({"provider:cloud", "data:sensitive"}),
+                                           permissions_required=frozenset({"provider:cloud"}),
+                                           allowed_data_classes=frozenset({"non_sensitive", "sensitive"}))
+    adapter = SequenceAdapter("one", [])
+    router = ModelRouter(catalog, {"one": adapter, "two": SequenceAdapter("two", [])})
+    denied_cloud = router.select(profile_request(execution_mode="cloud"))
+    denied_sensitive = router.select(profile_request(
+        execution_mode="local", data_class="sensitive", authorized_data_classes=frozenset(),
+        effective_permissions=frozenset(),
+    ))
+    unknown_health = router.select(profile_request(execution_mode="cloud", effective_permissions=frozenset({"provider:cloud"})))
+
+    assert denied_cloud.status == "blocked"
+    assert denied_sensitive.status == "blocked" and "sensitive_class_not_authorized" in denied_sensitive.reason_codes
+    assert unknown_health.status == "blocked"
+    assert adapter.calls == 0
+
+
+def test_routing_stats_group_call_events_separately_from_usage_rows():
+    events = [
+        {"event_type": "model_attempt", "payload": {"requested_model": "primary", "effective_model": "configured-one",
+         "routing_requested_model": "original-pref", "observed_model": "served-one", "provider_invoked": True,
+         "status": "failed", "duration_ms": 8}},
+        {"event_type": "model_attempt", "payload": {"requested_model": "primary", "effective_model": None,
+         "observed_model": None, "provider_invoked": False, "status": "failed", "duration_ms": None}},
+    ]
+    summary = summarize_routing_evidence("run-1", events, [
+        {"model": "served-one", "tokens_in": 11, "tokens_out": None, "duration_ms": 8,
+         "estimated_cost_usd": None, "success": False},
+    ])
+
+    assert summary["scope"]["run_id"] == "run-1"
+    assert summary["by_requested_model"]["primary"]["provider_invocations"] == 1
+    assert summary["by_routing_requested_model"]["original-pref"]["provider_invocations"] == 1
+    assert summary["by_requested_model"]["primary"]["preflight_rejections"] == 1
+    assert summary["by_observed_model"]["served-one"]["failures"] == 1
+    assert summary["by_usage_model"]["served-one"]["tokens_in"]["total"] == 11
+    assert summary["by_usage_model"]["served-one"]["tokens_out"]["total"] is None
+    assert summary["by_usage_model"]["served-one"]["estimated_cost_usd"]["total"] is None
+    partial = summarize_routing_evidence("run-2", [], [
+        {"model": "m", "tokens_in": 11, "success": False},
+        {"model": "m", "tokens_in": None, "success": False},
+    ])
+    metric = partial["by_usage_model"]["m"]["tokens_in"]
+    assert metric == {"total": None, "known_subtotal": 11, "known_count": 1, "unknown_count": 1}
+
+
+def test_strict_budgets_fail_closed_without_adapter_enforcement_and_planning_is_labeled():
+    catalog = profile_catalog()
+    catalog.routing_profiles["costed"]["max_cost"] = {"amount": 1, "currency": "USD"}
+    router = ModelRouter(catalog, {"one": SequenceAdapter("one", []), "two": SequenceAdapter("two", [])})
+
+    strict = router.select(profile_request())
+    assert strict.status == "blocked"
+    assert strict.reason_codes == ("strict_budget_enforcement_unsupported",)
+
+    del catalog.routing_profiles["costed"]["max_cost"]
+    catalog.routing_profiles["costed"]["planning_max_input_tokens"] = 500
+    planned = router.select(profile_request())
+    assert planned.status == "blocked"
+    assert planned.reason_codes == ("input_token_budget_unknown_or_exceeded",)
+    assert planned.budget_scope["planning_estimates"]["input_tokens"] == 500
+
+
+def test_unknown_data_class_and_non_observational_health_cannot_qualify_candidate():
+    catalog = profile_catalog(economic=False, require_health=True)
+    catalog.routing_profiles["costed"]["health_max_age_seconds"] = 60
+    router = ModelRouter(catalog, {"one": SequenceAdapter("one", []), "two": SequenceAdapter("two", [])})
+    missing_class = router.select(profile_request(data_class=None))
+    declared_health = router.select(
+        profile_request(),
+        RoutingEvidence(scope="run-1", provider_health={
+            "one": {"value": True, "source": "yaml", "provenance": "catalog_declared",
+                    "observed_at": "2026-10-09T12:00:00Z", "scope": "one"},
+        }),
+    )
+    verified_health = router.select(
+        profile_request(),
+        RoutingEvidence(scope="run-1", provider_health={
+            "one": {"value": True, "source": "adapter.health", "provenance": "adapter_health",
+                    "observed_at": datetime.now(timezone.utc).isoformat(), "scope": "one"},
+            "two": {"value": True, "source": "adapter.health", "provenance": "adapter_health",
+                    "observed_at": datetime.now(timezone.utc).isoformat(), "scope": "two"},
+        }),
+    )
+    assert missing_class.status == "blocked"
+    assert declared_health.status == "blocked"
+    assert verified_health.status == "selected"
+
+
+def test_planning_cost_filter_applies_without_economic_ranking():
+    catalog = profile_catalog(economic=False)
+    catalog.routing_profiles["costed"]["planning_max_cost"] = {"amount": 0.001, "currency": "USD"}
+    router = ModelRouter(catalog, {"one": SequenceAdapter("one", []), "two": SequenceAdapter("two", [])})
+
+    decision = router.select(profile_request())
+
+    assert decision.status == "selected"
+    assert decision.selected_model == "fallback"
+    assert decision.reason_codes == ("first_eligible_configured_candidate_after_planning_filters",)
+    assert decision.budget_scope["planning_estimates"]["cost"] == {"amount": 0.001, "currency": "USD"}

@@ -31,6 +31,8 @@ from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition
 from .model_router import ModelBinding, ModelRouter
 from .observability import TokenUsageRecord, UsageRecorder
 from .prompts import PromptManager
+from .routing_policy import RoutingEvidence, RoutingRequest, summarize_routing_evidence
+from .observability.usage import read_usage
 from .schema_utils import estimate_tokens_conservative
 from .workflows import WorkflowCatalog, WorkflowDefinition, WorkflowStep, condition_is_true
 from .workflow_validation import (
@@ -222,22 +224,98 @@ class WorkflowEngine:
                     elif research_mode == ResearchMode.NONE:
                         raise ValidationFailed("requires_web=True but research_mode=none")
 
+                profile_id, profile = self.catalog.routing_profile_for(run["workflow_id"], step.id)
                 binding, requirements, routing_reason = self._routing_for_step(
                     step=step,
                     execution_mode=execution_mode,
                     requires_web=requires_web,
                     sensitive=bool(request.get("sensitive", False)),
                 )
-                self.store.db.log_event(run_id, "routing_decision", {
-                    "step_id": step.id,
-                    "execution_mode": execution_mode.value,
-                    "research_mode": fresh.get("research_mode", "none"),
-                    "preferred_model": binding.preferred_model if binding else None,
-                    "fallback_model": binding.fallback_model if binding else None,
-                    "reason": routing_reason,
-                    "estimated_input_tokens": estimated_input,
-                    "requires_web": requires_web,
-                })
+                routing_decision = None
+                if profile_id is not None:
+                    profile_required = profile.get("required_permissions", []) if isinstance(profile, dict) else []
+                    caller_grants = request.get("effective_permissions")
+                    if caller_grants is None:
+                        caller_grants = request.get("permissions")
+                    requested_model = (
+                        profile.get("requested_model") if isinstance(profile, dict) else None
+                    ) or (binding.preferred_model if binding is not None else None)
+                    authorized_classes = request.get("authorized_data_classes")
+                    if authorized_classes is None:
+                        authorized_classes = request.get("data_classes")
+                    routing_request = RoutingRequest(
+                        profile_id=profile_id,
+                        workflow_id=run["workflow_id"],
+                        step_id=step.id,
+                        requested_model=requested_model,
+                        required_capabilities=frozenset({"structured_output"} | ({"web"} if requires_web else set())),
+                        required_role=step.agent,
+                        required_permissions=frozenset(profile_required or ()),
+                        effective_permissions=frozenset(caller_grants) if caller_grants is not None else None,
+                        authorized_data_classes=frozenset(authorized_classes) if authorized_classes is not None else None,
+                        authorization_provenance=request.get("authorization_provenance"),
+                        data_class="sensitive" if request.get("sensitive") else request.get("data_class", "non_sensitive"),
+                        execution_mode=execution_mode.value,
+                        requires_web=requires_web,
+                        output_schema=step.contract,
+                        estimated_input_tokens=estimated_input,
+                    )
+                    evidence_summary = summarize_routing_evidence(
+                        run_id, list(fresh.get("events", [])), read_usage(self.store, run_id)
+                    )
+                    routing_decision = self.router.select(
+                        routing_request,
+                        RoutingEvidence(scope=run_id, stats_by_model=evidence_summary,
+                                        provenance="single_run_snapshot"),
+                    )
+                    decision_data = routing_decision.to_dict()
+                    decision_data.update({
+                        "step_id": step.id,
+                        "execution_mode": execution_mode.value,
+                        "research_mode": fresh.get("research_mode", "none"),
+                        "estimated_input_tokens": estimated_input,
+                        "requires_web": requires_web,
+                        "evidence": evidence_summary,
+                    })
+                    self.store.db.log_event(run_id, "routing_decision", decision_data)
+                    if routing_decision.status == "selected":
+                        selected = routing_decision.selected_model
+                        if not selected:
+                            raise ValidationFailed("Routing profile selected no model")
+                        selected_spec = self.catalog.model(selected)
+                        fallbacks = [model for model in routing_decision.fallback_models if model != selected]
+                        retries = int(profile.get("max_retries_per_candidate", 0))
+                        binding = ModelBinding(
+                            preferred_model=selected,
+                            fallback_model=fallbacks[0] if fallbacks else None,
+                            max_retries=retries,
+                            fallback_max_retries=retries,
+                        )
+                        requirements = TaskRequirements(
+                            requires_web=requires_web,
+                            output_schema=step.contract,
+                            tier=ModelTier.CLOUD if str(selected_spec.tier).casefold() == "cloud" else ModelTier.LOCAL,
+                        )
+                        routing_reason = "explicit routing profile selected"
+                    elif routing_decision.status == "manual" and execution_mode == ExecutionMode.HUMAN_GUIDED:
+                        binding, requirements = None, None
+                        routing_reason = "human_guided requested"
+                    else:
+                        raise ValidationFailed(
+                            "Routing profile requires manual selection or is blocked: "
+                            + ", ".join(routing_decision.reason_codes)
+                        )
+                else:
+                    self.store.db.log_event(run_id, "routing_decision", {
+                        "step_id": step.id,
+                        "execution_mode": execution_mode.value,
+                        "research_mode": fresh.get("research_mode", "none"),
+                        "preferred_model": binding.preferred_model if binding else None,
+                        "fallback_model": binding.fallback_model if binding else None,
+                        "reason": routing_reason,
+                        "estimated_input_tokens": estimated_input,
+                        "requires_web": requires_web,
+                    })
                 self.store.db.log_event(run_id, "step_started", {
                     "step_id": step.id,
                     "attempt": attempt,
@@ -265,11 +343,31 @@ class WorkflowEngine:
 
                 assert binding is not None and requirements is not None
 
+                profile_models = ([binding.preferred_model] + ([binding.fallback_model] if binding.fallback_model else [])) if profile_id is not None else []
+                next_profile_model = profile_models[0] if profile_models else None
+
                 def consume_llm_call() -> None:
                     budget_state = self.store.get_run(run_id)
+                    attempted_model = next_profile_model
+                    self._check_cancel(run_id)
+                    if profile_id is not None:
+                        used = sum(
+                            1 for event in budget_state.get("events", [])
+                            if event.get("event_type") == "routing_dispatch_reserved"
+                            and event.get("payload", {}).get("profile_id") == profile_id
+                        )
+                        profile_limit = profile.get("max_provider_invocations") if isinstance(profile, dict) else None
+                        if profile_limit is not None and used >= int(profile_limit):
+                            raise BudgetExceeded("routing profile max_provider_invocations reached")
                     if int(budget_state["llm_calls"]) >= int(budget_state["max_llm_calls"]):
                         raise BudgetExceeded("max_llm_calls reached")
-                    self._check_cancel(run_id)
+                    if profile_id is not None:
+                        self.store.db.log_event(run_id, "routing_dispatch_reserved", {
+                            "profile_id": profile_id,
+                            "step_id": step.id,
+                            "attempted_model": attempted_model,
+                            "scope": {"run_id": run_id, "profile_id": profile_id},
+                        })
                     self.store.increment_llm_calls(run_id)
 
                 def validate_response(parsed, response: LLMResponse) -> None:
@@ -306,7 +404,26 @@ class WorkflowEngine:
                     ))
 
                 def record_attempt(event: dict[str, Any]) -> None:
-                    self.store.db.log_event(run_id, "model_attempt", {"step_id": step.id, **event})
+                    nonlocal next_profile_model
+                    if (profile_models and event.get("stage") == "preflight"
+                            and event.get("provider_invoked") is False
+                            and (event.get("attempted_model") or event.get("model")) == profile_models[0]
+                            and len(profile_models) > 1):
+                        next_profile_model = profile_models[1]
+                    elif profile_models and event.get("provider_invoked") is True and event.get("status") == "failed":
+                        retry_limit = int(profile.get("max_retries_per_candidate", 0)) if isinstance(profile, dict) else 0
+                        if event.get("error_type") == "StructuredOutputError" and int(event.get("retry", 0)) < retry_limit:
+                            next_profile_model = event.get("attempted_model") or event.get("model")
+                        elif next_profile_model == profile_models[0] and len(profile_models) > 1:
+                            next_profile_model = profile_models[1]
+                    attempt_event = dict(event)
+                    if routing_decision is not None:
+                        attempt_event["routing_requested_model"] = routing_decision.requested_model
+                    self.store.db.log_event(run_id, "model_attempt", {
+                        "step_id": step.id,
+                        **({"profile_id": profile_id} if profile_id is not None else {}),
+                        **attempt_event,
+                    })
 
                 response, attempts = self.router.execute(
                     binding=binding,

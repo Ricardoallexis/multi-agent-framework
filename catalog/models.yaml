@@ -11,6 +11,11 @@ models:
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: true
+    capabilities: [text_generation]
+    roles: [researcher, strategist, creator, designer]
+    permissions: []
+    permissions_required: []
+    allowed_data_classes: [non_sensitive]
 
   local_reasoning:
     provider: ollama
@@ -24,6 +29,11 @@ models:
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: true
+    capabilities: [text_generation]
+    roles: [researcher, strategist, creator, designer]
+    permissions: []
+    permissions_required: []
+    allowed_data_classes: [non_sensitive]
 
   cloud_fast:
     provider: gemini
@@ -35,6 +45,11 @@ models:
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: true
+    capabilities: [text_generation]
+    roles: [researcher, strategist, creator, designer]
+    permissions: [provider:cloud]
+    permissions_required: [provider:cloud]
+    allowed_data_classes: [non_sensitive]
 
   cloud_advanced:
     provider: gemini
@@ -46,6 +61,11 @@ models:
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: true
+    capabilities: [text_generation]
+    roles: [researcher, strategist, creator, designer]
+    permissions: [provider:cloud]
+    permissions_required: [provider:cloud]
+    allowed_data_classes: [non_sensitive]
 
   gemini_grounded:
     provider: gemini
@@ -57,6 +77,11 @@ models:
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: true
+    capabilities: [text_generation]
+    roles: [researcher, strategist, creator, designer]
+    permissions: [provider:cloud]
+    permissions_required: [provider:cloud]
+    allowed_data_classes: [non_sensitive]
 
   gemini_fast:
     provider: gemini
@@ -68,6 +93,11 @@ models:
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: true
+    capabilities: [text_generation]
+    roles: [researcher, strategist, creator, designer]
+    permissions: [provider:cloud]
+    permissions_required: [provider:cloud]
+    allowed_data_classes: [non_sensitive]
 
   openai_optional:
     provider: openai
@@ -78,3 +108,27 @@ models:
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: false
+    capabilities: [text_generation]
+    roles: [researcher, strategist, creator, designer]
+    permissions: [provider:cloud]
+    permissions_required: [provider:cloud]
+    allowed_data_classes: [non_sensitive]
+
+routing_profiles:
+  profiles:
+    local_non_sensitive_supervised:
+      version: 1
+      enabled: false
+      candidate_model_ids: [local_default]
+      max_candidates: 1
+      required_capabilities: [structured_output]
+      required_roles: []
+      required_permissions: []
+      allowed_permissions: []
+      allowed_data_classes: [non_sensitive]
+      execution_modes: [auto, local]
+      require_health: false
+      economic_selection: false
+      max_retries_per_candidate: 0
+      max_provider_invocations: 1
+  assignments: {}
