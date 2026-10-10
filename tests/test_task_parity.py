@@ -207,6 +207,26 @@ SCRIPT: list[tuple[str, dict[str, Any]]] = [
     ("import_snapshot", _SNAPSHOT_ARGS),
     ("get_snapshot", {"source_key": _SNAPSHOT_ARGS["source_key"]}),
     ("rollback_snapshot", {"source_key": _SNAPSHOT_ARGS["source_key"], "actor": "agent:parity"}),
+    ("set_release_mode", {"group_id": "ORQ", "mode": "probada", "actor": "user"}),
+    ("add_release_dependency", {"task_id": "T4", "depends_on_id": "T1", "actor": "user",
+                                 "source_ref": "doc://fixtures/release-edge.md"}),
+    ("get_release_facts", {"task_id": "T1"}),
+    ("record_delivery_fact", {"task_id": "T1", "delivery_ref": "report://delivery-t1",
+                              "delivery_sha256": "a" * 64, "has_patch": True,
+                              "patchset_sha256": "b" * 64, "actor": "agent:parity"}),
+    ("record_test_verdict", {"task_id": "T1", "test_verdict": "passed",
+                              "test_patchset_sha256": "b" * 64,
+                              "test_ref": "report://tests-t1", "actor": "agent:parity"}),
+    ("record_integration_fact", {"task_id": "T1", "integration_commit": "c" * 40,
+                                  "integration_ref": "doc://fixtures/integration-t1.md",
+                                  "actor": "agent:parity"}),
+    ("get_release_facts", {"task_id": "T1"}),
+    ("reset_release_facts", {"task_id": "T1", "actor": "agent:parity", "reason": "parity reset"}),
+    ("remove_release_dependency", {"task_id": "T4", "depends_on_id": "T1", "actor": "user"}),
+    ("create_task", {"group_id": "ORQ", "task_id": "T6", "title": "Atomic mixed dependencies",
+                     "actor": "agent:parity", "depends_on": ["T1"],
+                     "release_dependencies": [{"depends_on_id": "T3",
+                                                "source_ref": "doc://fixtures/release-t6.md"}]}),
 ]
 
 
@@ -227,6 +247,14 @@ def run_facade(services: ApplicationServices, op: str, args: dict[str, Any]) -> 
         return getattr(tasks, op)(args.pop("task_id"), args.pop("depends_on_id"), **args)
     if op in ("plan_snapshot", "import_snapshot"):
         return getattr(tasks, op)(args.pop("snapshot"), **args)
+    if op == "set_release_mode":
+        return tasks.set_release_mode(args.pop("group_id"), args.pop("mode"), **args)
+    if op in ("add_release_dependency", "remove_release_dependency"):
+        return getattr(tasks, op)(args.pop("task_id"), args.pop("depends_on_id"), **args)
+    if op in ("record_delivery_fact", "record_test_verdict", "record_integration_fact", "reset_release_facts"):
+        return getattr(tasks, op)(args.pop("task_id"), **args)
+    if op == "get_release_facts":
+        return tasks.get_release_facts(args["task_id"])
     return getattr(tasks, op)(**args)
 
 
@@ -270,6 +298,23 @@ def run_http(client: TestClient, op: str, args: dict[str, Any]) -> tuple[int, An
     elif op == "rollback_snapshot":
         response = client.post(f"/api/v1/task-snapshots/{quote(a['source_key'], safe='')}/rollback",
                                json={"actor": a["actor"]})
+    elif op == "set_release_mode":
+        response = client.put(f"/api/v1/task-groups/{quote(a['group_id'], safe='')}/release-mode",
+                              json={"mode": a["mode"], "actor": a["actor"]})
+    elif op == "add_release_dependency":
+        task_id = quote(a.pop("task_id"), safe="")
+        response = client.post(f"/api/v1/tasks/{task_id}/release-dependencies", json=a)
+    elif op == "remove_release_dependency":
+        task_id, depends_on_id = quote(a["task_id"], safe=""), quote(a["depends_on_id"], safe="")
+        response = client.delete(f"/api/v1/tasks/{task_id}/release-dependencies/{depends_on_id}",
+                                 params={"actor": a["actor"]})
+    elif op == "get_release_facts":
+        response = client.get(f"/api/v1/tasks/{quote(a['task_id'], safe='')}/release-facts")
+    elif op in ("record_delivery_fact", "record_test_verdict", "record_integration_fact", "reset_release_facts"):
+        task_id = quote(a.pop("task_id"), safe="")
+        route = {"record_delivery_fact": "delivery", "record_test_verdict": "test",
+                 "record_integration_fact": "integration", "reset_release_facts": "reset"}[op]
+        response = client.post(f"/api/v1/tasks/{task_id}/release-facts/{route}", json=a)
     else:  # pragma: no cover - the script only uses the operations above
         raise AssertionError(op)
     return response.status_code, response.json()
@@ -291,6 +336,8 @@ def cli_args(op: str, args: dict[str, Any], snapshot_file: Path | None = None) -
         argv = ["task", "create", a["group_id"], a["task_id"], "--title", a["title"], "--actor", a["actor"]]
         for dep in a.get("depends_on", []):
             argv += ["--depends-on", dep]
+        for dep in a.get("release_dependencies", []):
+            argv += ["--release-dep", f"{dep['depends_on_id']}={dep['source_ref']}"]
         for path in a.get("file_scope", []):
             argv += ["--file", path]
         return argv
@@ -322,6 +369,29 @@ def cli_args(op: str, args: dict[str, Any], snapshot_file: Path | None = None) -
         return ["task", "snapshot", "show", a["source_key"]]
     if op == "rollback_snapshot":
         return ["task", "snapshot", "rollback", a["source_key"], "--actor", a["actor"]]
+    if op == "set_release_mode":
+        return ["task", "release", "mode", a["group_id"], a["mode"], "--actor", a["actor"]]
+    if op in ("add_release_dependency", "remove_release_dependency"):
+        argv = ["task", "release", "dep", "add" if op == "add_release_dependency" else "remove",
+                a["task_id"], a["depends_on_id"], "--actor", a["actor"]]
+        return argv + (["--source-ref", a["source_ref"]] if op == "add_release_dependency" else [])
+    if op == "get_release_facts":
+        return ["task", "release", "facts", "show", a["task_id"]]
+    if op == "record_delivery_fact":
+        argv = ["task", "release", "facts", "delivery", a["task_id"], "--delivery-ref", a["delivery_ref"],
+                "--delivery-sha256", a["delivery_sha256"], "--actor", a["actor"]]
+        argv += ["--has-patch" if a["has_patch"] else "--no-patch"]
+        return argv + (["--patchset-sha256", a["patchset_sha256"]] if a["patchset_sha256"] else [])
+    if op == "record_test_verdict":
+        return ["task", "release", "facts", "test", a["task_id"], "--verdict", a["test_verdict"],
+                "--patchset-sha256", a["test_patchset_sha256"], "--test-ref", a["test_ref"],
+                "--actor", a["actor"]]
+    if op == "record_integration_fact":
+        return ["task", "release", "facts", "integration", a["task_id"], "--commit", a["integration_commit"],
+                "--integration-ref", a["integration_ref"], "--actor", a["actor"]]
+    if op == "reset_release_facts":
+        return ["task", "release", "facts", "reset", a["task_id"], "--actor", a["actor"],
+                "--reason", a["reason"]]
     raise AssertionError(op)  # pragma: no cover
 
 

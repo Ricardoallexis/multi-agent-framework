@@ -43,7 +43,7 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from ..db.task_store import StaleRevision, TaskStore
-from ..tasks import graph
+from ..tasks import graph, release as release_policy
 from ..tasks.envelopes import (EnvelopeError, MAX_CONTEXT_REFS, MAX_CONSTRAINTS, MAX_CONSTRAINT_CHARS,
                                parse_reference, validate_reference)
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
@@ -90,6 +90,8 @@ _LOCKING_STATES = ("claimed", "running", "paused", "validating", "needs_changes"
 
 EVENT_TYPES = (
     "group.created", "group.updated", "task.created", "dependency.added", "dependency.removed",
+    "group.release_mode_changed", "legacy_dependency.added", "legacy_dependency.removed",
+    "release.delivery_recorded", "release.test_recorded", "release.integration_recorded", "release.facts_reset",
     "task.claimed", "task.unclaimed", "task.started", "task.paused", "task.resumed",
     "task.submitted", "task.accepted", "task.changes_requested", "task.failed",
     "task.cancelled", "task.ready",
@@ -187,24 +189,93 @@ class TaskServices:
         tasks = {task["id"]: task for task in self.store.list_tasks(conn=conn)}
         return tasks, self.store.dependencies(conn=conn)
 
+    def _release_context(self, conn: sqlite3.Connection) -> dict[str, Any]:
+        groups = {group["id"]: group for group in self.store.list_groups(conn=conn)}
+        return {"groups": groups,
+                "dependencies": self.store.legacy_release_dependencies(conn=conn),
+                "facts": self.store.release_facts(conn=conn)}
+
+    @staticmethod
+    def _release_edge_view(edge: Mapping[str, Any], tasks: Mapping[str, Mapping[str, Any]],
+                           states: Mapping[str, str], context: Mapping[str, Any]) -> dict[str, Any]:
+        dependent = tasks.get(edge["task_id"], {})
+        group = context["groups"].get(dependent.get("group_id"), {})
+        mode = group.get("legacy_release_mode")
+        facts = context["facts"].get(edge["depends_on_id"], release_policy.empty_facts(edge["depends_on_id"]))
+        satisfied, reason, refs = release_policy.evaluate(mode, facts)
+        prerequisite = edge["depends_on_id"]
+        return {"kind": "legacy_release", "task_id": prerequisite, "threshold": mode,
+                "source_ref": edge["source_ref"], "prerequisite": {"state": states.get(prerequisite),
+                "status": states.get(prerequisite)}, "satisfied": satisfied, "reason": reason,
+                "evidence": refs}
+
+    @classmethod
+    def _effective_status(cls, task_id: str, states: Mapping[str, str], native: list[dict[str, Any]],
+                          tasks: Mapping[str, Mapping[str, Any]], context: Mapping[str, Any] | None = None) -> str:
+        state = states[task_id]
+        if state != "open":
+            return state
+        if graph.blockers(task_id, states, native):
+            return "blocked"
+        if context is not None:
+            if any(edge["task_id"] == task_id and not cls._release_edge_view(edge, tasks, states, context)["satisfied"]
+                   for edge in context["dependencies"]):
+                return "blocked"
+        return "ready"
+
+    @classmethod
+    def _blockers(cls, task_id: str, states: Mapping[str, str], native: list[dict[str, Any]],
+                  tasks: Mapping[str, Mapping[str, Any]], context: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
+        found = graph.blockers(task_id, states, native)
+        if context is not None:
+            for edge in context["dependencies"]:
+                if edge["task_id"] == task_id:
+                    item = cls._release_edge_view(edge, tasks, states, context)
+                    if not item["satisfied"]:
+                        found.append(item)
+        return found
+
+    @classmethod
+    def _status_map(cls, tasks: Mapping[str, Mapping[str, Any]], native: list[dict[str, Any]],
+                    context: Mapping[str, Any] | None = None) -> dict[str, str]:
+        states = cls._states(tasks)
+        return {task_id: cls._effective_status(task_id, states, native, tasks, context) for task_id in tasks}
+
+    def _emit_newly_ready(self, conn: sqlite3.Connection, before: Mapping[str, str], after: Mapping[str, str],
+                          tasks: Mapping[str, Mapping[str, Any]], actor: str, cause: str) -> None:
+        for task_id, status in after.items():
+            if before.get(task_id) == "blocked" and status == "ready":
+                self.store.append_event(conn, "task.ready", actor=actor, group_id=tasks[task_id]["group_id"],
+                                        task_id=task_id, cause=cause, payload={"from": "blocked", "to": "ready"})
+
     @staticmethod
     def _states(tasks: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
         return {task_id: task["state"] for task_id, task in tasks.items()}
 
-    def _view(self, task: Mapping[str, Any], states: Mapping[str, str], deps: list[dict[str, Any]]) -> dict[str, Any]:
+    def _view(self, task: Mapping[str, Any], states: Mapping[str, str], deps: list[dict[str, Any]],
+              context: Mapping[str, Any] | None = None,
+              tasks: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+        tasks = tasks or {str(task["id"]): task}
         own = [dep for dep in deps if dep["task_id"] == task["id"]]
+        legacy = ([edge for edge in context["dependencies"] if edge["task_id"] == task["id"]]
+                  if context is not None else [])
         view = {
             "id": task["id"],
             "group_id": task["group_id"],
             "title": task["title"],
             "objective": task["objective"],
             "state": task["state"],
-            "status": graph.effective_status(task["id"], states, deps),
-            "blockers": graph.blockers(task["id"], states, deps),
+            "status": self._effective_status(task["id"], states, deps, tasks, context),
+            "blockers": self._blockers(task["id"], states, deps, tasks, context),
             "depends_on": [{"task_id": dep["depends_on_id"], "requires": dep["requires"],
                             "satisfied": graph.is_satisfied(dep["requires"], states.get(dep["depends_on_id"]))}
                            for dep in own],
-            "dependents": graph.dependents(task["id"], deps),
+            "dependents": list(dict.fromkeys(graph.dependents(task["id"], deps) +
+                                               ([edge["task_id"] for edge in context["dependencies"]
+                                                 if edge["depends_on_id"] == task["id"]]
+                                                if context is not None else []))),
+            "release_dependencies": [self._release_edge_view(edge, tasks, states, context)
+                                     for edge in legacy],
             "assignee": task["assignee"],
             "preferred": task["preferred"],
             "requirements": task["requirements"],
@@ -225,15 +296,16 @@ class TaskServices:
 
     def _task_view(self, task_id: str, conn: sqlite3.Connection) -> dict[str, Any]:
         tasks, deps = self._snapshot(conn)
-        return self._view(tasks[task_id], self._states(tasks), deps)
+        return self._view(tasks[task_id], self._states(tasks), deps, self._release_context(conn), tasks)
 
     def _group_view(self, group: Mapping[str, Any], conn: sqlite3.Connection) -> dict[str, Any]:
         tasks, deps = self._snapshot(conn)
+        context = self._release_context(conn)
         states = self._states(tasks)
         counts: dict[str, int] = {}
         for task_id, task in tasks.items():
             if task["group_id"] == group["id"]:
-                status = graph.effective_status(task_id, states, deps)
+                status = self._effective_status(task_id, states, deps, tasks, context)
                 counts[status] = counts.get(status, 0) + 1
         result = {**group, "counts": counts}
         provenance = self.store.snapshot_provenance("group", str(group["id"]), conn=conn)
@@ -258,26 +330,67 @@ class TaskServices:
                                     task_id=dependent, cause=cause, payload={"from": "blocked", "to": "ready"})
 
     # -------- native snapshots (ORQ-4 A) --------
+    def _normalize_snapshot_release_facts(self, task_id: str, raw: Any) -> dict[str, Any] | None:
+        if raw is None:
+            return None
+        if not isinstance(raw, Mapping):
+            raise _invalid("delivery", "delivery must be null or an evidence object", task_id=task_id)
+        allowed = {"delivery_ref", "delivery_sha256", "has_patch", "patchset_sha256", "test_verdict",
+                   "test_patchset_sha256", "test_ref", "integration_commit", "integration_ref"}
+        if set(raw) - allowed or not {"delivery_ref", "delivery_sha256", "has_patch", "patchset_sha256"} <= set(raw):
+            raise _invalid("delivery", "delivery requires delivery ref/hash, has_patch and patchset hash",
+                           task_id=task_id, fields=sorted(set(raw) - allowed))
+        delivery_ref = self._release_ref("delivery_ref", raw["delivery_ref"])
+        delivery_sha256 = self._release_sha("delivery_sha256", raw["delivery_sha256"])
+        has_patch = raw["has_patch"]
+        if not isinstance(has_patch, bool):
+            raise _invalid("has_patch", "has_patch must be boolean", task_id=task_id)
+        patchset_sha256 = self._release_sha("patchset_sha256", raw["patchset_sha256"], required=has_patch)
+        if not has_patch and patchset_sha256:
+            raise _invalid("patchset_sha256", "patchset_sha256 must be empty when has_patch is false", task_id=task_id)
+        verdict = raw.get("test_verdict")
+        test_patchset = raw.get("test_patchset_sha256", "")
+        test_ref = raw.get("test_ref", "")
+        if verdict is None:
+            if test_patchset or test_ref:
+                raise _invalid("test_verdict", "test evidence fields require a verdict", task_id=task_id)
+            test_patchset = ""
+            test_ref = ""
+        else:
+            if verdict not in ("passed", "failed"):
+                raise _invalid("test_verdict", "test_verdict must be passed or failed", task_id=task_id)
+            if not has_patch:
+                raise _invalid("test_verdict", "test evidence requires a delivery with a patch", task_id=task_id)
+            test_patchset = self._release_sha("test_patchset_sha256", test_patchset)
+            if test_patchset != patchset_sha256:
+                raise _invalid("test_patchset_sha256", "test evidence must match the delivery patchset", task_id=task_id)
+            test_ref = self._release_ref("test_ref", test_ref)
+        integration_commit = raw.get("integration_commit", "")
+        integration_ref = raw.get("integration_ref", "")
+        if bool(integration_commit) != bool(integration_ref):
+            raise _invalid("integration_commit", "integration_commit and integration_ref must be provided together",
+                           task_id=task_id)
+        if integration_commit:
+            integration_commit = _text("integration_commit", integration_commit, maximum=40)
+            if not _COMMIT.fullmatch(integration_commit):
+                raise _invalid("integration_commit", "integration_commit must be 7 to 40 lowercase hex characters",
+                               task_id=task_id)
+            integration_ref = self._release_ref("integration_ref", integration_ref)
+        return {"delivery_ref": delivery_ref, "delivery_sha256": delivery_sha256, "has_patch": has_patch,
+                "patchset_sha256": patchset_sha256, "test_verdict": verdict,
+                "test_patchset_sha256": test_patchset, "test_ref": test_ref,
+                "integration_commit": integration_commit, "integration_ref": integration_ref}
+
     def _normalize_snapshot(self, snapshot: Mapping[str, Any], *, source_key: str, source_ref: str,
-                            snapshot_sha256: str, actor: str) -> tuple[dict[str, Any], str]:
+                            snapshot_sha256: str, actor: str, contract_version: int = 2
+                            ) -> tuple[dict[str, Any], str]:
         from .gates import normalize_checks
         if not isinstance(snapshot, Mapping):
             raise _invalid("snapshot", "snapshot must be an object")
-        b_only = {"legacy_release_mode", "release_mode", "release_dependencies", "delivery", "delivery_fact",
-                  "patch_sha256", "release_threshold"}
-        if b_only.intersection(snapshot):
-            raise _conflict("Snapshot requires the legacy release capability",
-                            required_capability="release_dependencies/v1")
+        if contract_version not in (1, 2):
+            raise _invalid("contract_version", "unsupported snapshot contract version")
         for field, value in (("source_key", source_key), ("source_ref", source_ref), ("actor", actor)):
             _text(field, value, maximum=500)
-        for group in snapshot.get("groups", []) if isinstance(snapshot.get("groups", []), list) else []:
-            if isinstance(group, Mapping) and b_only.intersection(group):
-                raise _conflict("Snapshot requires the legacy release capability",
-                                required_capability="release_dependencies/v1")
-        for dep in snapshot.get("dependencies", []) if isinstance(snapshot.get("dependencies", []), list) else []:
-            if isinstance(dep, Mapping) and ("kind" in dep or b_only.intersection(dep)):
-                raise _conflict("Snapshot requires the legacy release capability",
-                                required_capability="release_dependencies/v1")
         required = {"groups", "tasks", "dependencies"}
         if set(snapshot) != required:
             raise _invalid("snapshot", "snapshot must contain exactly groups, tasks and dependencies",
@@ -296,12 +409,16 @@ class TaskServices:
         groups: list[dict[str, Any]] = []
         tasks: list[dict[str, Any]] = []
         deps: list[dict[str, str]] = []
+        legacy_deps: list[dict[str, str]] = []
         seen_groups: set[str] = set()
         seen_tasks: set[str] = set()
         for raw in body["groups"]:
             if not isinstance(raw, Mapping):
                 raise _invalid("groups", "each group must be an object")
-            allowed_group = {"id", "title", "authorized", "default_requires", "default_gate", "source_id", "source_state"}
+            allowed_group = {"id", "title", "authorized", "default_requires", "default_gate", "source_id",
+                             "source_state"}
+            if contract_version >= 2:
+                allowed_group.add("legacy_release_mode")
             if set(raw) - allowed_group:
                 raise _invalid("groups", "unsupported group fields", fields=sorted(set(raw) - allowed_group))
             gid = _identifier("group_id", raw.get("id"), _GROUP_ID)
@@ -317,19 +434,22 @@ class TaskServices:
             if not isinstance(gate, list):
                 raise _invalid("default_gate", "default_gate must be a list")
             gate = normalize_checks(gate)
+            mode = raw.get("legacy_release_mode", "probada") if contract_version >= 2 else None
+            if mode is not None and mode not in release_policy.RELEASE_MODES:
+                raise _invalid("legacy_release_mode", "legacy_release_mode must be null or a known release mode", group_id=gid)
             groups.append({"id": gid, "title": title, "authorized": authorized,
                            "default_requires": req, "default_gate": gate,
+                           "legacy_release_mode": mode,
                            "source_id": _text("source_id", raw.get("source_id", ""), maximum=200, required=False),
                            "source_state": _text("source_state", raw.get("source_state", ""), maximum=100, required=False)})
         for raw in body["tasks"]:
             if not isinstance(raw, Mapping):
                 raise _invalid("tasks", "each task must be an object")
-            if b_only.intersection(raw):
-                raise _conflict("Snapshot requires the legacy release capability",
-                                required_capability="release_dependencies/v1")
             allowed_task = {"id", "group_id", "title", "objective", "state", "assignee", "preferred", "requirements",
                             "file_scope", "lock_policy", "workspace_domain", "base_commit", "context_refs", "constraints",
                             "gate", "source_id", "source_state"}
+            if contract_version >= 2:
+                allowed_task.add("delivery")
             if set(raw) - allowed_task:
                 raise _invalid("tasks", "unsupported task fields", fields=sorted(set(raw) - allowed_task))
             tid = _identifier("task_id", raw.get("id"), _TASK_ID)
@@ -387,6 +507,11 @@ class TaskServices:
             if not isinstance(gate, list):
                 raise _invalid("gate", "gate must be a list", task_id=tid)
             gate = normalize_checks(gate)
+            release_facts = (self._normalize_snapshot_release_facts(tid, raw.get("delivery"))
+                             if contract_version >= 2 else None)
+            if contract_version >= 2 and (state == "submitted") != (release_facts is not None):
+                raise _invalid("delivery", "submitted snapshots require current delivery evidence and other states must not carry it",
+                               task_id=tid)
             tasks.append({"id": tid, "group_id": gid, "title": _text("title", raw.get("title"), maximum=200),
                           "objective": _text("objective", raw.get("objective", ""), maximum=4000, required=False),
                           "state": state, "assignee": assignee,
@@ -395,21 +520,31 @@ class TaskServices:
                           "lock_policy": {"shared_scope": shared, "workspace_scope": workspace},
                           "workspace_domain": domain, "epoch_pending": state == "paused",
                           "base_commit": base_commit, "context_refs": refs, "constraints": constraints, "gate": gate,
+                          "release_facts": release_facts,
                           "source_id": _text("source_id", raw.get("source_id", ""), maximum=200, required=False),
                           "source_state": _text("source_state", raw.get("source_state", ""), maximum=100, required=False)})
         seen_edges: set[tuple[str, str]] = set()
         for raw in body["dependencies"]:
-            if not isinstance(raw, Mapping) or set(raw) != {"task_id", "depends_on_id", "requires"}:
-                raise _invalid("dependencies", "native dependency requires task_id, depends_on_id and requires")
+            if not isinstance(raw, Mapping):
+                raise _invalid("dependencies", "each dependency must be an object")
+            if not {"task_id", "depends_on_id"} <= set(raw):
+                raise _invalid("dependencies", "dependency requires task_id and depends_on_id")
             tid = _identifier("task_id", raw["task_id"], _TASK_ID)
             depid = _identifier("depends_on_id", raw["depends_on_id"], _TASK_ID)
-            req = _requires(raw["requires"])
             edge = (tid, depid)
             if edge in seen_edges:
                 raise _invalid("dependencies", f"Repeated dependency: {tid} -> {depid}")
             seen_edges.add(edge)
-            deps.append({"task_id": tid, "depends_on_id": depid, "requires": req})
-        normalized = {"groups": groups, "tasks": tasks, "dependencies": deps}
+            if set(raw) == {"task_id", "depends_on_id", "requires"}:
+                req = _requires(raw["requires"])
+                deps.append({"task_id": tid, "depends_on_id": depid, "requires": req})
+            elif (contract_version >= 2 and set(raw) == {"task_id", "depends_on_id", "kind", "source_ref"}
+                  and raw["kind"] == "legacy_release"):
+                legacy_deps.append({"task_id": tid, "depends_on_id": depid, "source_ref": self._release_ref("source_ref", raw["source_ref"])})
+            else:
+                raise _invalid("dependencies", "native dependencies need requires; legacy edges need kind=legacy_release and source_ref")
+        normalized = {"groups": groups, "tasks": tasks, "dependencies": deps,
+                      "legacy_dependencies": legacy_deps}
         return normalized, digest
 
     def _check_snapshot_collisions(self, conn: sqlite3.Connection, batch: Mapping[str, Any]) -> None:
@@ -422,12 +557,14 @@ class TaskServices:
             if task["group_id"] not in {g["id"] for g in batch["groups"]} and not self.store.get_group(task["group_id"], conn=conn):
                 raise _missing("Group", task["group_id"])
         task_ids = {t["id"] for t in batch["tasks"]}
-        for dep in batch["dependencies"]:
+        all_dependencies = batch["dependencies"] + batch["legacy_dependencies"]
+        for dep in all_dependencies:
             if dep["task_id"] not in task_ids or dep["depends_on_id"] not in task_ids:
                 raise _invalid("dependencies", "snapshot dependencies must connect tasks in this batch")
-        cycle = graph.find_cycle(batch["dependencies"])
-        if cycle:
-            raise _invalid("dependencies", "Dependency cycle: " + " -> ".join(cycle), cycle=cycle)
+        try:
+            graph.validate_union(task_ids, batch["dependencies"], batch["legacy_dependencies"])
+        except graph.GraphError as error:
+            raise _invalid("dependencies", str(error), cycle=getattr(error, "cycle", None)) from None
         candidates = [t for t in batch["tasks"] if t["state"] in _LOCKING_STATES]
         existing = self.store.list_tasks(conn=conn)
         pairs: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
@@ -469,28 +606,35 @@ class TaskServices:
             self._check_snapshot_collisions(conn, batch)
         return {"status": "planned", "source_key": source_key, "source_ref": source_ref,
                 "snapshot_sha256": digest, "groups": [g["id"] for g in batch["groups"]],
-                "tasks": [t["id"] for t in batch["tasks"]], "dependencies": batch["dependencies"],
+                "tasks": [t["id"] for t in batch["tasks"]],
+                "dependencies": batch["dependencies"] +
+                                [{"task_id": d["task_id"], "depends_on_id": d["depends_on_id"],
+                                  "kind": "legacy_release", "source_ref": d["source_ref"]}
+                                 for d in batch["legacy_dependencies"]],
                 "warnings": ["Imported history is unknown; no transitions, gate results or task results are created."]}
 
     @service_errors
     def import_snapshot(self, snapshot: Mapping[str, Any], *, source_key: str, source_ref: str,
                         snapshot_sha256: str, actor: str) -> dict[str, Any]:
-        batch, digest = self._normalize_snapshot(snapshot, source_key=source_key, source_ref=source_ref,
-                                                  snapshot_sha256=snapshot_sha256, actor=actor)
         actor = _text("actor", actor, maximum=100)
-        raw_snapshot = _canonical_json({"groups": snapshot["groups"], "tasks": snapshot["tasks"],
-                                        "dependencies": snapshot["dependencies"]})
         with self.store.transaction() as conn:
             prior = self.store.snapshot(source_key, conn=conn)
+            contract_version = int(prior.get("contract_version", 1)) if prior else 2
+            batch, digest = self._normalize_snapshot(snapshot, source_key=source_key, source_ref=source_ref,
+                                                      snapshot_sha256=snapshot_sha256, actor=actor,
+                                                      contract_version=contract_version)
             if prior:
                 if prior["snapshot_sha256"] != digest:
                     raise _conflict("source_key already identifies a different snapshot", source_key=source_key)
                 return self._snapshot_receipt(prior, conn)
+            raw_snapshot = _canonical_json({"groups": snapshot["groups"], "tasks": snapshot["tasks"],
+                                            "dependencies": snapshot["dependencies"]})
             self._check_snapshot_collisions(conn, batch)
             for group in batch["groups"]:
                 self.store.insert_group(conn, group["id"], group["title"], actor=actor,
                                         authorized=group["authorized"], default_requires=group["default_requires"],
-                                        default_gate=group["default_gate"])
+                                        default_gate=group["default_gate"],
+                                        legacy_release_mode=group["legacy_release_mode"])
             for task in batch["tasks"]:
                 self.store.insert_snapshot_task(conn, task, actor=actor)
                 for name in ("context_refs", "constraints"):
@@ -500,14 +644,20 @@ class TaskServices:
                 conn.execute("UPDATE tasks SET base_commit=?,context_refs_json=?,constraints_json=? WHERE id=?",
                              (task["base_commit"], json.dumps(task["context_refs"], ensure_ascii=False, separators=(",", ":")),
                               json.dumps(task["constraints"], ensure_ascii=False, separators=(",", ":")), task["id"]))
+                if task["release_facts"] is not None:
+                    self.store.write_release_fact(conn, task["id"], actor=actor, **task["release_facts"])
             for dep in batch["dependencies"]:
                 self.store.insert_dependency(conn, dep["task_id"], dep["depends_on_id"], dep["requires"])
+            for dep in batch["legacy_dependencies"]:
+                self.store.insert_legacy_release_dependency(conn, dep["task_id"], dep["depends_on_id"],
+                                                            dep["source_ref"])
             seq = self.store.append_event(conn, "snapshot.imported", actor=actor, ref=source_ref,
                                           payload={"source_key": source_key, "snapshot_sha256": digest,
                                                    "groups": len(batch["groups"]), "tasks": len(batch["tasks"]),
-                                                   "dependencies": len(batch["dependencies"])})
+                                                   "dependencies": len(batch["dependencies"]) + len(batch["legacy_dependencies"])})
             self.store.insert_snapshot(conn, source_key=source_key, source_ref=source_ref,
-                                       snapshot_sha256=digest, actor=actor, snapshot_json=raw_snapshot, event_seq=seq)
+                                       snapshot_sha256=digest, actor=actor, snapshot_json=raw_snapshot, event_seq=seq,
+                                       contract_version=2)
             for group in batch["groups"]:
                 self.store.add_snapshot_object(conn, source_key=source_key, object_type="group",
                                                object_id=group["id"], source_id=group["source_id"],
@@ -575,9 +725,28 @@ class TaskServices:
                     if dangling:
                         raise _conflict("External tasks reference snapshot results; rollback is unsafe",
                                         source_key=source_key, task_id=row["id"], references=dangling)
+                for row in conn.execute(
+                        f"SELECT task_id,delivery_ref,test_ref,integration_ref FROM legacy_release_facts "
+                        f"WHERE task_id NOT IN ({marks})", ids):
+                    try:
+                        dangling = []
+                        for field in ("delivery_ref", "test_ref", "integration_ref"):
+                            ref = row[field]
+                            if not ref:
+                                continue
+                            parsed = parse_reference(ref)
+                            if parsed.scheme == "result" and parsed.task_id in ids:
+                                dangling.append(ref)
+                    except (ValueError, TypeError):
+                        raise _conflict("An external release fact has an unreadable reference; rollback is unsafe",
+                                        source_key=source_key, task_id=row["task_id"]) from None
+                    if dangling:
+                        raise _conflict("External release facts reference snapshot results; rollback is unsafe",
+                                        source_key=source_key, task_id=row["task_id"], references=dangling)
             batch, _ = self._normalize_snapshot(receipt["snapshot"], source_key=source_key,
                                                 source_ref=receipt["source_ref"],
-                                                snapshot_sha256=receipt["snapshot_sha256"], actor=receipt["actor"])
+                                                snapshot_sha256=receipt["snapshot_sha256"], actor=receipt["actor"],
+                                                contract_version=int(receipt.get("contract_version", 1)))
             for expected in batch["tasks"]:
                 current = self.store.get_task(expected["id"], conn=conn)
                 untouched = current is not None and (
@@ -600,7 +769,8 @@ class TaskServices:
                 if (current is None or current["title"] != expected["title"]
                         or current["authorized"] != expected["authorized"]
                         or current["default_requires"] != expected["default_requires"]
-                        or current.get("default_gate", []) != expected["default_gate"]):
+                        or current.get("default_gate", []) != expected["default_gate"]
+                        or current.get("legacy_release_mode") != expected["legacy_release_mode"]):
                     raise _conflict("Snapshot group differs from its import baseline; rollback is unsafe",
                                     source_key=source_key, group_id=expected["id"])
             expected_edges = sorted((d["task_id"], d["depends_on_id"], d["requires"])
@@ -610,6 +780,24 @@ class TaskServices:
             if actual_edges != expected_edges:
                 raise _conflict("Snapshot dependencies differ from their import baseline; rollback is unsafe",
                                 source_key=source_key)
+            expected_legacy_edges = sorted((d["task_id"], d["depends_on_id"], d["source_ref"])
+                                           for d in batch["legacy_dependencies"])
+            actual_legacy_edges = sorted((d["task_id"], d["depends_on_id"], d["source_ref"])
+                                         for tid in ids for d in self.store.legacy_release_dependencies(task_id=tid, conn=conn))
+            if actual_legacy_edges != expected_legacy_edges:
+                raise _conflict("Snapshot legacy release dependencies differ from their import baseline; rollback is unsafe",
+                                source_key=source_key)
+            for expected in batch["tasks"]:
+                expected_fact = expected["release_facts"]
+                actual_fact = self.store.release_fact(expected["id"], conn=conn)
+                fact_fields = ("delivery_ref", "delivery_sha256", "has_patch", "patchset_sha256", "test_verdict",
+                               "test_patchset_sha256", "test_ref", "integration_commit", "integration_ref")
+                if ((expected_fact is None and actual_fact is not None)
+                        or (expected_fact is not None and (actual_fact is None or any(
+                            actual_fact.get(key) != expected_fact[key] for key in fact_fields
+                        ) or actual_fact.get("updated_by") != receipt["actor"]))):
+                    raise _conflict("Snapshot release facts differ from their import baseline; rollback is unsafe",
+                                    source_key=source_key, task_id=expected["id"])
             if ids:
                 marks = ",".join("?" * len(ids))
                 for table, col in (("task_results", "task_id"), ("gate_results", "task_id")):
@@ -618,7 +806,14 @@ class TaskServices:
                 if conn.execute(f"SELECT 1 FROM task_deps WHERE depends_on_id IN ({marks}) AND task_id NOT IN ({marks}) LIMIT 1",
                                 (*ids, *ids)).fetchone():
                     raise _conflict("Snapshot tasks have external dependents; rollback is unsafe", source_key=source_key)
+                if conn.execute(f"SELECT 1 FROM legacy_release_dependencies WHERE depends_on_id IN ({marks}) AND task_id NOT IN ({marks}) LIMIT 1",
+                                (*ids, *ids)).fetchone():
+                    raise _conflict("Snapshot tasks have external legacy release dependents; rollback is unsafe",
+                                    source_key=source_key)
                 conn.execute(f"DELETE FROM task_deps WHERE task_id IN ({marks}) OR depends_on_id IN ({marks})", (*ids, *ids))
+                conn.execute(f"DELETE FROM legacy_release_dependencies WHERE task_id IN ({marks}) OR depends_on_id IN ({marks})",
+                             (*ids, *ids))
+                conn.execute(f"DELETE FROM legacy_release_facts WHERE task_id IN ({marks})", ids)
                 conn.execute(f"DELETE FROM tasks WHERE id IN ({marks})", ids)
             if gids:
                 marks = ",".join("?" * len(gids))
@@ -694,7 +889,8 @@ class TaskServices:
     @service_errors
     def create_task(self, group_id: str, task_id: str, title: str, *, actor: str, objective: str = "",
                     depends_on: Iterable[str | Mapping[str, str]] = (), file_scope: Iterable[str] = (),
-                    requirements: Iterable[str] = (), preferred: str = "") -> dict[str, Any]:
+                    requirements: Iterable[str] = (), preferred: str = "",
+                    release_dependencies: Iterable[Mapping[str, str]] = ()) -> dict[str, Any]:
         """Create an ``open`` task; events ``task.created`` (with its initial status) and ``dependency.added``.
 
         ``depends_on`` holds task ids or ``{"task_id": ..., "requires": ...}``;
@@ -702,6 +898,9 @@ class TaskServices:
         relative paths or folders (``/`` separators, no ``..``).
         Errors: ``not_found`` (group or dependency), ``invalid_request`` (ids,
         formats, a cycle), ``invalid_state`` (the task already exists).
+        ``release_dependencies`` is an optional atomic set of legacy release
+        edges, each ``{"depends_on_id", "source_ref"}``. Native and legacy
+        edges are checked together for duplicate pairs and cycles.
         """
         task_id = _identifier("task_id", task_id, _TASK_ID)
         title = _text("title", title, maximum=200)
@@ -724,16 +923,44 @@ class TaskServices:
             if dep_id in {existing for existing, _ in wanted}:
                 raise _invalid("depends_on", f"Repeated dependency: {dep_id}")
             wanted.append((dep_id, requires))
+        if isinstance(release_dependencies, (str, bytes, Mapping)):
+            raise _invalid("release_dependencies", "release_dependencies must be a list")
+        wanted_release: list[tuple[str, str]] = []
+        for item in release_dependencies:
+            if not isinstance(item, Mapping) or set(item) != {"depends_on_id", "source_ref"}:
+                raise _invalid("release_dependencies", "each release dependency requires depends_on_id and source_ref")
+            dep_id = _identifier("depends_on_id", item["depends_on_id"], _TASK_ID)
+            try:
+                source_ref = validate_reference(item["source_ref"], field="source_ref")
+            except EnvelopeError as error:
+                raise _invalid(error.field, str(error)) from None
+            if dep_id in {existing for existing, _ in wanted_release}:
+                raise _invalid("release_dependencies", f"Repeated release dependency: {dep_id}")
+            if dep_id in {existing for existing, _ in wanted}:
+                raise _invalid("release_dependencies", f"Dependency pair has multiple kinds: {task_id} -> {dep_id}")
+            wanted_release.append((dep_id, source_ref))
         try:
             with self.store.transaction() as conn:
                 group = self._group_or_missing(group_id, conn)
                 if self.store.get_task(task_id, conn=conn) is not None:
                     raise _conflict(f"Task already exists: {task_id}", task_id=task_id)
-                for dep_id, _ in wanted:
+                for dep_id, _ in [*wanted, *wanted_release]:
                     if dep_id == task_id:
                         raise _invalid("depends_on", "A task cannot depend on itself", cycle=[task_id, task_id])
                     if self.store.get_task(dep_id, conn=conn) is None:
                         raise _missing("Task", dep_id)
+                current_tasks, current_native = self._snapshot(conn)
+                current_legacy = self.store.legacy_release_dependencies(conn=conn)
+                planned_native = current_native + [{"task_id": task_id, "depends_on_id": dep_id,
+                                                    "requires": req or group["default_requires"]}
+                                                   for dep_id, req in wanted]
+                planned_legacy = current_legacy + [{"task_id": task_id, "depends_on_id": dep_id,
+                                                    "source_ref": ref}
+                                                   for dep_id, ref in wanted_release]
+                try:
+                    graph.validate_union([*current_tasks, task_id], planned_native, planned_legacy)
+                except graph.GraphError as error:
+                    raise _invalid("depends_on", str(error), cycle=getattr(error, "cycle", None)) from None
                 self.store.insert_task(conn, task_id, group_id, title, actor=actor, objective=objective,
                                        preferred=preferred, requirements=labels, file_scope=scope)
                 added = []
@@ -741,12 +968,18 @@ class TaskServices:
                     requires = requires or group["default_requires"]
                     self.store.insert_dependency(conn, task_id, dep_id, requires)
                     added.append((dep_id, requires))
+                for dep_id, source_ref in wanted_release:
+                    self.store.insert_legacy_release_dependency(conn, task_id, dep_id, source_ref)
                 view = self._task_view(task_id, conn)
                 self.store.append_event(conn, "task.created", actor=actor, group_id=group_id, task_id=task_id,
                                         payload={"status": view["status"]})
                 for dep_id, requires in added:
                     self.store.append_event(conn, "dependency.added", actor=actor, group_id=group_id,
                                             task_id=task_id, payload={"depends_on_id": dep_id, "requires": requires})
+                for dep_id, source_ref in wanted_release:
+                    self.store.append_event(conn, "legacy_dependency.added", actor=actor, group_id=group_id,
+                                            task_id=task_id, ref=source_ref,
+                                            payload={"depends_on_id": dep_id, "kind": "legacy_release"})
                 return view
         except sqlite3.IntegrityError:
             raise _conflict(f"Task already exists: {task_id}", task_id=task_id) from None
@@ -759,9 +992,9 @@ class TaskServices:
         """
         with self.store.db.connect() as conn:
             tasks, deps = self._snapshot(conn)
-        if task_id not in tasks:
-            raise _missing("Task", task_id)
-        return self._view(tasks[task_id], self._states(tasks), deps)
+            if task_id not in tasks:
+                raise _missing("Task", task_id)
+            return self._view(tasks[task_id], self._states(tasks), deps, self._release_context(conn), tasks)
 
     @service_errors
     def list_tasks(self, *, group_id: str | None = None, status: str | None = None,
@@ -774,8 +1007,9 @@ class TaskServices:
             raise _invalid("status", f"status must be one of {', '.join(STATUSES)}")
         with self.store.db.connect() as conn:
             tasks, deps = self._snapshot(conn)
-        states = self._states(tasks)
-        views = [self._view(task, states, deps) for task in tasks.values()]
+            states = self._states(tasks)
+            release_context = self._release_context(conn)
+            views = [self._view(task, states, deps, release_context, tasks) for task in tasks.values()]
         return [view for view in views
                 if (group_id is None or view["group_id"] == group_id)
                 and (status is None or view["status"] == status)
@@ -801,6 +1035,7 @@ class TaskServices:
             requires = _requires(requires)
         with self.store.transaction() as conn:
             tasks, deps = self._snapshot(conn)
+            legacy = self.store.legacy_release_dependencies(conn=conn)
             for identifier in (task_id, depends_on_id):
                 if identifier not in tasks:
                     raise _missing("Task", identifier)
@@ -810,10 +1045,15 @@ class TaskServices:
             if any(d["task_id"] == task_id and d["depends_on_id"] == depends_on_id for d in deps):
                 raise _conflict(f"{task_id} already depends on {depends_on_id}", task_id=task_id,
                                 depends_on_id=depends_on_id)
-            cycle = graph.would_create_cycle(deps, task_id, depends_on_id)
-            if cycle:
-                raise _invalid("depends_on_id", "Dependency cycle: " + " -> ".join(cycle), cycle=cycle)
+            if any(d["task_id"] == task_id and d["depends_on_id"] == depends_on_id for d in legacy):
+                raise _conflict("Dependency pair already exists as a legacy release edge", task_id=task_id,
+                                depends_on_id=depends_on_id)
             requires = requires or self._group_or_missing(task["group_id"], conn)["default_requires"]
+            try:
+                graph.validate_union(tasks, deps + [{"task_id": task_id, "depends_on_id": depends_on_id,
+                                                      "requires": requires}], legacy)
+            except graph.GraphError as error:
+                raise _invalid("depends_on_id", str(error), cycle=getattr(error, "cycle", None)) from None
             self.store.insert_dependency(conn, task_id, depends_on_id, requires)
             self._bump(conn, task)
             self.store.append_event(conn, "dependency.added", actor=actor, group_id=task["group_id"], task_id=task_id,
@@ -829,23 +1069,260 @@ class TaskServices:
         actor = _text("actor", actor, maximum=100)
         with self.store.transaction() as conn:
             tasks, deps = self._snapshot(conn)
+            context = self._release_context(conn)
             if task_id not in tasks:
                 raise _missing("Task", task_id)
             task = tasks[task_id]
             states = self._states(tasks)
-            was = graph.effective_status(task_id, states, deps)
+            before = self._status_map(tasks, deps, context)
             if not self.store.delete_dependency(conn, task_id, depends_on_id):
                 raise ServiceError(NOT_FOUND, f"{task_id} does not depend on {depends_on_id}", status=404,
                                    details={"task_id": task_id, "depends_on_id": depends_on_id})
             self._bump(conn, task)
             self.store.append_event(conn, "dependency.removed", actor=actor, group_id=task["group_id"],
                                     task_id=task_id, payload={"depends_on_id": depends_on_id})
-            remaining = [d for d in deps if not (d["task_id"] == task_id and d["depends_on_id"] == depends_on_id)]
-            if was == "blocked" and graph.effective_status(task_id, states, remaining) == "ready":
-                self.store.append_event(conn, "task.ready", actor=actor, group_id=task["group_id"], task_id=task_id,
-                                        cause=f"dependency {depends_on_id} removed",
-                                        payload={"from": "blocked", "to": "ready"})
+            updated_tasks, updated_native = self._snapshot(conn)
+            after = self._status_map(updated_tasks, updated_native, self._release_context(conn))
+            self._emit_newly_ready(conn, before, after, updated_tasks, actor, f"dependency {depends_on_id} removed")
             return self._task_view(task_id, conn)
+
+    def _release_facts_view(self, task_id: str, conn: sqlite3.Connection) -> dict[str, Any]:
+        task = self.store.get_task(task_id, conn=conn)
+        if task is None:
+            raise _missing("Task", task_id)
+        group = self._group_or_missing(task["group_id"], conn)
+        return {**release_policy.facts_view(task_id, group.get("legacy_release_mode"),
+                                            self.store.release_fact(task_id, conn=conn)),
+                "group_id": task["group_id"]}
+
+    @service_errors
+    def get_release_facts(self, task_id: str) -> dict[str, Any]:
+        with self.store.db.connect() as conn:
+            return self._release_facts_view(task_id, conn)
+
+    @service_errors
+    def set_release_mode(self, group_id: str, mode: str, *, actor: str) -> dict[str, Any]:
+        group_id = _identifier("group_id", group_id, _GROUP_ID)
+        mode = _text("mode", mode, maximum=20)
+        if mode not in release_policy.RELEASE_MODES:
+            raise _invalid("mode", f"mode must be one of {', '.join(release_policy.RELEASE_MODES)}")
+        actor = _text("actor", actor, maximum=100)
+        with self.store.transaction() as conn:
+            group = self._group_or_missing(group_id, conn)
+            if group.get("legacy_release_mode") == mode:
+                return {"group_id": group_id, "legacy_release_mode": mode}
+            tasks, native = self._snapshot(conn)
+            before = self._status_map(tasks, native, self._release_context(conn))
+            previous = group.get("legacy_release_mode")
+            if not self.store.set_legacy_release_mode(conn, group_id, mode):
+                raise _missing("Group", group_id)
+            self.store.append_event(conn, "group.release_mode_changed", actor=actor, group_id=group_id,
+                                    payload={"from": previous, "to": mode})
+            release_context = self._release_context(conn)
+            after = self._status_map(tasks, native, release_context)
+            self._emit_newly_ready(conn, before, after, tasks, actor, "legacy release mode changed")
+            return {"group_id": group_id, "legacy_release_mode": mode}
+
+    @service_errors
+    def add_release_dependency(self, task_id: str, depends_on_id: str, *, actor: str,
+                               source_ref: str) -> dict[str, Any]:
+        task_id = _identifier("task_id", task_id, _TASK_ID)
+        depends_on_id = _identifier("depends_on_id", depends_on_id, _TASK_ID)
+        actor = _text("actor", actor, maximum=100)
+        try:
+            source_ref = validate_reference(source_ref, field="source_ref")
+        except EnvelopeError as error:
+            raise _invalid(error.field, str(error)) from None
+        with self.store.transaction() as conn:
+            tasks, native = self._snapshot(conn)
+            if task_id not in tasks:
+                raise _missing("Task", task_id)
+            if depends_on_id not in tasks:
+                raise _missing("Task", depends_on_id)
+            task = tasks[task_id]
+            if task["state"] in TERMINAL_STATES:
+                raise _conflict(f"Task {task_id} is {task['state']}", task_id=task_id, state=task["state"])
+            existing = next((edge for edge in self.store.legacy_release_dependencies(task_id=task_id, conn=conn)
+                             if edge["depends_on_id"] == depends_on_id), None)
+            if existing:
+                if existing["source_ref"] != source_ref:
+                    raise _conflict("Release dependency already exists with a different source_ref",
+                                    task_id=task_id, depends_on_id=depends_on_id)
+                return {"task_id": task_id, "depends_on_id": depends_on_id, "kind": "legacy_release",
+                        "source_ref": source_ref, "action": "added"}
+            legacy = self.store.legacy_release_dependencies(conn=conn)
+            try:
+                graph.validate_union(tasks, native, legacy + [{"task_id": task_id,
+                                    "depends_on_id": depends_on_id, "source_ref": source_ref}])
+            except graph.GraphError as error:
+                raise _invalid("depends_on_id", str(error), cycle=getattr(error, "cycle", None)) from None
+            before = self._status_map(tasks, native, self._release_context(conn))
+            self.store.insert_legacy_release_dependency(conn, task_id, depends_on_id, source_ref)
+            self._bump(conn, task)
+            self.store.append_event(conn, "legacy_dependency.added", actor=actor, group_id=task["group_id"],
+                                    task_id=task_id, ref=source_ref,
+                                    payload={"depends_on_id": depends_on_id, "kind": "legacy_release"})
+            return {"task_id": task_id, "depends_on_id": depends_on_id, "kind": "legacy_release",
+                    "source_ref": source_ref, "action": "added"}
+
+    @service_errors
+    def remove_release_dependency(self, task_id: str, depends_on_id: str, *, actor: str) -> dict[str, Any]:
+        task_id = _identifier("task_id", task_id, _TASK_ID)
+        depends_on_id = _identifier("depends_on_id", depends_on_id, _TASK_ID)
+        actor = _text("actor", actor, maximum=100)
+        with self.store.transaction() as conn:
+            tasks, native = self._snapshot(conn)
+            task = tasks.get(task_id)
+            if task is None:
+                raise _missing("Task", task_id)
+            existing = next((edge for edge in self.store.legacy_release_dependencies(task_id=task_id, conn=conn)
+                             if edge["depends_on_id"] == depends_on_id), None)
+            if existing is None:
+                raise ServiceError(NOT_FOUND, f"{task_id} has no legacy release dependency on {depends_on_id}",
+                                   status=404, details={"task_id": task_id, "depends_on_id": depends_on_id})
+            before = self._status_map(tasks, native, self._release_context(conn))
+            self.store.delete_legacy_release_dependency(conn, task_id, depends_on_id)
+            self._bump(conn, task)
+            self.store.append_event(conn, "legacy_dependency.removed", actor=actor, group_id=task["group_id"],
+                                    task_id=task_id, ref=existing["source_ref"],
+                                    payload={"depends_on_id": depends_on_id, "kind": "legacy_release"})
+            updated_tasks, updated_native = self._snapshot(conn)
+            after = self._status_map(updated_tasks, updated_native, self._release_context(conn))
+            self._emit_newly_ready(conn, before, after, updated_tasks, actor,
+                                   f"legacy dependency {depends_on_id} removed")
+            return {"task_id": task_id, "depends_on_id": depends_on_id, "kind": "legacy_release",
+                    "source_ref": existing["source_ref"], "action": "removed"}
+
+    @staticmethod
+    def _release_sha(field: str, value: Any, *, required: bool = True) -> str:
+        if not isinstance(value, str) or (required and not re.fullmatch(r"[0-9a-f]{64}", value)):
+            raise _invalid(field, f"{field} must be a lowercase SHA-256 hex digest")
+        if not required and value and not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise _invalid(field, f"{field} must be empty or a lowercase SHA-256 hex digest")
+        return value
+
+    def _release_ref(self, field: str, value: Any) -> str:
+        try:
+            return validate_reference(value, field=field)
+        except EnvelopeError as error:
+            raise _invalid(error.field, str(error)) from None
+
+    def _write_release_fact(self, conn: sqlite3.Connection, task_id: str, *, actor: str,
+                            fact: Mapping[str, Any], event: str, ref: str, cause: str) -> dict[str, Any]:
+        task = self.store.get_task(task_id, conn=conn)
+        if task is None:
+            raise _missing("Task", task_id)
+        tasks, native = self._snapshot(conn)
+        before = self._status_map(tasks, native, self._release_context(conn))
+        self.store.write_release_fact(conn, task_id, actor=actor, **fact)
+        self._bump(conn, task)
+        self.store.append_event(conn, event, actor=actor, group_id=task["group_id"], task_id=task_id, ref=ref,
+                                payload={key: value for key, value in fact.items()
+                                         if key in {"delivery_sha256", "has_patch", "patchset_sha256",
+                                                    "test_verdict", "test_patchset_sha256", "integration_commit"}})
+        updated_tasks, updated_native = self._snapshot(conn)
+        after = self._status_map(updated_tasks, updated_native, self._release_context(conn))
+        self._emit_newly_ready(conn, before, after, updated_tasks, actor, cause)
+        return self._release_facts_view(task_id, conn)
+
+    @service_errors
+    def record_delivery_fact(self, task_id: str, *, delivery_ref: str, delivery_sha256: str,
+                             has_patch: bool, patchset_sha256: str, actor: str) -> dict[str, Any]:
+        task_id = _identifier("task_id", task_id, _TASK_ID)
+        actor = _text("actor", actor, maximum=100)
+        delivery_ref = self._release_ref("delivery_ref", delivery_ref)
+        delivery_sha256 = self._release_sha("delivery_sha256", delivery_sha256)
+        if not isinstance(has_patch, bool):
+            raise _invalid("has_patch", "has_patch must be boolean")
+        patchset_sha256 = self._release_sha("patchset_sha256", patchset_sha256, required=has_patch)
+        if not has_patch and patchset_sha256:
+            raise _invalid("patchset_sha256", "patchset_sha256 must be empty when has_patch is false")
+        fact = {"delivery_ref": delivery_ref, "delivery_sha256": delivery_sha256, "has_patch": has_patch,
+                "patchset_sha256": patchset_sha256, "test_verdict": None, "test_patchset_sha256": "",
+                "test_ref": "", "integration_commit": "", "integration_ref": ""}
+        with self.store.transaction() as conn:
+            task = self.store.get_task(task_id, conn=conn)
+            if task is None:
+                raise _missing("Task", task_id)
+            current = self.store.release_fact(task_id, conn=conn)
+            delivery_fields = ("delivery_ref", "delivery_sha256", "has_patch", "patchset_sha256")
+            if current and all(current.get(key) == fact[key] for key in delivery_fields):
+                return self._release_facts_view(task_id, conn)
+            return self._write_release_fact(conn, task_id, actor=actor, fact=fact,
+                                            event="release.delivery_recorded", ref=delivery_ref,
+                                            cause="legacy delivery evidence recorded")
+
+    @service_errors
+    def record_test_verdict(self, task_id: str, *, test_verdict: str, test_patchset_sha256: str,
+                            test_ref: str, actor: str) -> dict[str, Any]:
+        task_id = _identifier("task_id", task_id, _TASK_ID)
+        actor = _text("actor", actor, maximum=100)
+        if test_verdict not in ("passed", "failed"):
+            raise _invalid("test_verdict", "test_verdict must be passed or failed")
+        test_patchset_sha256 = self._release_sha("test_patchset_sha256", test_patchset_sha256)
+        test_ref = self._release_ref("test_ref", test_ref)
+        with self.store.transaction() as conn:
+            task = self.store.get_task(task_id, conn=conn)
+            if task is None:
+                raise _missing("Task", task_id)
+            current = self.store.release_fact(task_id, conn=conn)
+            if current is None:
+                raise _conflict("A current delivery is required before recording a test verdict", task_id=task_id)
+            if not current["has_patch"]:
+                raise _conflict("A test verdict requires a delivery with a patch", task_id=task_id)
+            if test_patchset_sha256 != current["patchset_sha256"]:
+                raise _conflict("Test evidence must match the current delivery patchset", task_id=task_id,
+                                expected_patchset_sha256=current["patchset_sha256"],
+                                actual_patchset_sha256=test_patchset_sha256)
+            fact = {key: current[key] for key in ("delivery_ref", "delivery_sha256", "has_patch", "patchset_sha256",
+                                                  "integration_commit", "integration_ref")}
+            fact.update(test_verdict=test_verdict, test_patchset_sha256=test_patchset_sha256, test_ref=test_ref)
+            if all(current.get(key) == value for key, value in fact.items()):
+                return self._release_facts_view(task_id, conn)
+            return self._write_release_fact(conn, task_id, actor=actor, fact=fact,
+                                            event="release.test_recorded", ref=test_ref,
+                                            cause="legacy test evidence recorded")
+
+    @service_errors
+    def record_integration_fact(self, task_id: str, *, integration_commit: str,
+                                integration_ref: str, actor: str) -> dict[str, Any]:
+        task_id = _identifier("task_id", task_id, _TASK_ID)
+        actor = _text("actor", actor, maximum=100)
+        integration_commit = _text("integration_commit", integration_commit, maximum=40)
+        if not _COMMIT.fullmatch(integration_commit):
+            raise _invalid("integration_commit", "integration_commit must be 7 to 40 lowercase hex characters")
+        integration_ref = self._release_ref("integration_ref", integration_ref)
+        with self.store.transaction() as conn:
+            task = self.store.get_task(task_id, conn=conn)
+            if task is None:
+                raise _missing("Task", task_id)
+            current = self.store.release_fact(task_id, conn=conn)
+            if current is None:
+                raise _conflict("A current delivery is required before recording integration", task_id=task_id)
+            fact = {key: current[key] for key in ("delivery_ref", "delivery_sha256", "has_patch", "patchset_sha256",
+                                                  "test_verdict", "test_patchset_sha256", "test_ref")}
+            fact.update(integration_commit=integration_commit, integration_ref=integration_ref)
+            if current["integration_commit"] == integration_commit and current["integration_ref"] == integration_ref:
+                return self._release_facts_view(task_id, conn)
+            return self._write_release_fact(conn, task_id, actor=actor, fact=fact,
+                                            event="release.integration_recorded", ref=integration_ref,
+                                            cause="legacy integration evidence recorded")
+
+    @service_errors
+    def reset_release_facts(self, task_id: str, *, actor: str, reason: str) -> dict[str, Any]:
+        task_id = _identifier("task_id", task_id, _TASK_ID)
+        actor = _text("actor", actor, maximum=100)
+        reason = _text("reason", reason, maximum=500)
+        with self.store.transaction() as conn:
+            task = self.store.get_task(task_id, conn=conn)
+            if task is None:
+                raise _missing("Task", task_id)
+            if self.store.release_fact(task_id, conn=conn) is not None:
+                self.store.reset_release_fact(conn, task_id)
+                self._bump(conn, task)
+                self.store.append_event(conn, "release.facts_reset", actor=actor, group_id=task["group_id"],
+                                        task_id=task_id, cause=reason, payload={"reason": reason})
+            return self._release_facts_view(task_id, conn)
 
     @service_errors
     def transition(self, task_id: str, action: str, *, actor: str, cause: str = "",
@@ -893,10 +1370,11 @@ class TaskServices:
             raise _missing("Task", task_id)
         task = tasks[task_id]
         before = self._states(tasks)
+        before_statuses = self._status_map(tasks, deps, self._release_context(conn))
         if gate and action == "gate_start" and task["attempt"] < 1:
             raise _conflict("A task imported as submitted has no current execution epoch; start it before running a gate",
                             task_id=task_id, attempt=task["attempt"], historical_attempts="unknown")
-        status = graph.effective_status(task_id, before, deps)
+        status = self._effective_status(task_id, before, deps, tasks, self._release_context(conn))
         if expected_revision is not None and expected_revision != task["revision"]:
             raise _conflict(f"Task {task_id} is at revision {task['revision']}", task_id=task_id,
                             expected_revision=expected_revision, revision=task["revision"])
@@ -953,12 +1431,20 @@ class TaskServices:
                                    snapshot_epoch_pending=epoch_pending_update)
         except StaleRevision as stale:
             raise _conflict(str(stale), task_id=task_id, revision=stale.current) from None
-        after = {**before, task_id: target}
+        reset_release = action in ("claim", "unclaim", "request_changes", "gate_fail") or (
+            action == "start" and task["state"] == "needs_changes")
+        release_facts_reset = self.store.reset_release_fact(conn, task_id) if reset_release else False
+        updated_tasks, updated_native = self._snapshot(conn)
+        after_context = self._release_context(conn)
+        after_statuses = self._status_map(updated_tasks, updated_native, after_context)
+        after_state = self._states(updated_tasks)
         self.store.append_event(conn, event or _EVENT_OF_ACTION[action], actor=actor, group_id=task["group_id"],
                                 task_id=task_id, cause=cause,
-                                payload={"from": status, "to": graph.effective_status(task_id, after, deps),
-                                         **(payload or {}), **({"epoch_start": True} if epoch_started else {})})
-        self._announce_ready(conn, task_id, before, after, deps, tasks, actor, f"dependency {task_id} {target}")
+                                payload={"from": status, "to": after_statuses[task_id],
+                                         **(payload or {}), **({"epoch_start": True} if epoch_started else {}),
+                                         **({"release_facts_reset": True} if release_facts_reset else {})})
+        self._emit_newly_ready(conn, before_statuses, after_statuses, updated_tasks, actor,
+                               f"dependency {task_id} {target}")
         return self._task_view(task_id, conn)
 
     @staticmethod

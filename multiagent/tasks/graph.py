@@ -121,6 +121,27 @@ def validate(task_ids: Iterable[str], dependencies: Iterable[Dependency]) -> Non
         raise CycleError(cycle)
 
 
+def validate_union(task_ids: Iterable[str], native: Iterable[Dependency],
+                   legacy_release: Iterable[Dependency]) -> None:
+    """Validate a graph whose native and legacy release edges live in separate stores.
+
+    The synthetic ``requires`` value is used only by the topology validator; it is
+    never persisted or projected into an envelope.
+    """
+    native_rows, legacy_rows = list(native), list(legacy_release)
+    pairs: set[tuple[str, str]] = set()
+    for edge in native_rows + legacy_rows:
+        pair = (str(edge["task_id"]), str(edge["depends_on_id"]))
+        if pair in pairs:
+            raise GraphError(f"Dependency pair has multiple kinds: {pair[0]} -> {pair[1]}")
+        pairs.add(pair)
+    normalized_legacy = [
+        {"task_id": edge["task_id"], "depends_on_id": edge["depends_on_id"], "requires": "accepted"}
+        for edge in legacy_rows
+    ]
+    validate(task_ids, native_rows + normalized_legacy)
+
+
 def blockers(task_id: str, states: Mapping[str, str], dependencies: Iterable[Dependency]) -> list[dict[str, Any]]:
     """Unsatisfied dependencies of ``task_id``: ``{task_id, state, requires}`` in dependency order."""
     found = []

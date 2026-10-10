@@ -156,6 +156,16 @@ def _parse_depends_on(values: list[str] | None) -> list:
     return result
 
 
+def _parse_release_dependencies(values: list[str] | None) -> list[dict[str, str]]:
+    result = []
+    for item in values or []:
+        depends_on_id, separator, source_ref = item.partition("=")
+        if not separator or not depends_on_id or not source_ref:
+            raise ValueError("--release-dep must use DEPENDENCY_ID=SOURCE_REF")
+        result.append({"depends_on_id": depends_on_id, "source_ref": source_ref})
+    return result
+
+
 def cmd_task_groups(args) -> None:
     pretty(_api_json("GET", "/api/v1/task-groups"))
 
@@ -215,6 +225,7 @@ def cmd_task_create(args) -> None:
     pretty(_api_json("POST", "/api/v1/tasks", json_body={
         "group_id": args.group_id, "id": args.task_id, "title": args.title, "actor": args.actor,
         "objective": args.objective, "depends_on": _parse_depends_on(args.depends_on),
+        "release_dependencies": _parse_release_dependencies(args.release_dep),
         "file_scope": args.file or [], "requirements": args.requirement or [], "preferred": args.preferred,
     }))
 
@@ -318,6 +329,46 @@ def cmd_task_context(args) -> None:
 def cmd_task_envelope(args) -> None:
     params = {"known_hash": args.known_hash} if args.known_hash else None
     pretty(_api_json("GET", f"/api/v1/tasks/{_segment(args.task_id)}/envelope", params=params))
+
+
+def cmd_task_context_v2(args) -> None:
+    params = {"after": args.after}
+    if args.known_fingerprint:
+        params["known_fingerprint"] = args.known_fingerprint
+    pretty(_api_json("GET", f"/api/v2/tasks/{_segment(args.task_id)}/context", params=params))
+
+
+def cmd_task_release(args) -> None:
+    if args.release_command == "mode":
+        pretty(_api_json("PUT", f"/api/v1/task-groups/{_segment(args.group_id)}/release-mode",
+                         json_body={"mode": args.mode, "actor": args.actor}))
+    elif args.release_command == "dep":
+        path = f"/api/v1/tasks/{_segment(args.task_id)}/release-dependencies"
+        if args.operation == "add":
+            pretty(_api_json("POST", path, json_body={"depends_on_id": args.depends_on_id,
+                                                      "source_ref": args.source_ref, "actor": args.actor}))
+        else:
+            pretty(_api_json("DELETE", f"{path}/{_segment(args.depends_on_id)}",
+                             params={"actor": args.actor}))
+    elif args.facts_command == "show":
+        pretty(_api_json("GET", f"/api/v1/tasks/{_segment(args.task_id)}/release-facts"))
+    elif args.facts_command == "delivery":
+        body = {"delivery_ref": args.delivery_ref, "delivery_sha256": args.delivery_sha256,
+                "has_patch": args.has_patch, "patchset_sha256": args.patchset_sha256 or "",
+                "actor": args.actor}
+        pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/release-facts/delivery", json_body=body))
+    elif args.facts_command == "test":
+        body = {"test_verdict": args.test_verdict, "test_patchset_sha256": args.test_patchset_sha256,
+                "test_ref": args.test_ref, "actor": args.actor}
+        pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/release-facts/test", json_body=body))
+    elif args.facts_command == "integration":
+        body = {"integration_commit": args.integration_commit, "integration_ref": args.integration_ref,
+                "actor": args.actor}
+        pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/release-facts/integration",
+                         json_body=body))
+    else:  # reset
+        pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/release-facts/reset",
+                         json_body={"actor": args.actor, "reason": args.reason}))
 
 
 def cmd_task_result(args) -> None:
@@ -713,6 +764,8 @@ def build_parser() -> argparse.ArgumentParser:
     x.set_defaults(func=cmd_task_assignment_accept)
     x = task.add_parser("create"); x.add_argument("group_id"); x.add_argument("task_id"); x.add_argument("--title", required=True)
     x.add_argument("--objective", default=""); x.add_argument("--depends-on", action="append", metavar="ID[:requires]")
+    x.add_argument("--release-dep", action="append", metavar="ID=SOURCE_REF",
+                   help="Add an atomic legacy release dependency; repeatable")
     x.add_argument("--file", action="append", help="A path or folder the task will change; repeatable")
     x.add_argument("--requirement", action="append"); x.add_argument("--preferred", default="")
     x.add_argument("--actor", required=True); x.set_defaults(func=cmd_task_create)
@@ -724,6 +777,39 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--cause", default=""); x.add_argument("--revision", type=int, help="Fail unless the task is still at this revision")
     x.add_argument("--actor-domain", help="Workspace domain for a pending task's workspace-scoped locks")
     x.set_defaults(func=cmd_task_do)
+    release = task.add_parser("release", help="Manage legacy release modes, dependencies and evidence")
+    release_sub = release.add_subparsers(dest="release_command", required=True)
+    x = release_sub.add_parser("mode", help="Set a group's legacy release mode")
+    x.add_argument("group_id"); x.add_argument("mode", choices=["terminada", "probada", "integrada"])
+    x.add_argument("--actor", required=True); x.set_defaults(func=cmd_task_release)
+    dep = release_sub.add_parser("dep", help="Add or remove a legacy release dependency")
+    dep_sub = dep.add_subparsers(dest="operation", required=True)
+    x = dep_sub.add_parser("add"); x.add_argument("task_id"); x.add_argument("depends_on_id")
+    x.add_argument("--source-ref", required=True); x.add_argument("--actor", required=True)
+    x.set_defaults(func=cmd_task_release)
+    x = dep_sub.add_parser("remove"); x.add_argument("task_id"); x.add_argument("depends_on_id")
+    x.add_argument("--actor", required=True); x.set_defaults(func=cmd_task_release)
+    facts = release_sub.add_parser("facts", help="Inspect or record current-round release evidence")
+    facts_sub = facts.add_subparsers(dest="facts_command", required=True)
+    x = facts_sub.add_parser("show"); x.add_argument("task_id"); x.set_defaults(func=cmd_task_release)
+    x = facts_sub.add_parser("delivery"); x.add_argument("task_id")
+    x.add_argument("--delivery-ref", required=True); x.add_argument("--delivery-sha256", required=True)
+    patch_presence = x.add_mutually_exclusive_group(required=True)
+    patch_presence.add_argument("--has-patch", dest="has_patch", action="store_true")
+    patch_presence.add_argument("--no-patch", dest="has_patch", action="store_false")
+    x.add_argument("--patchset-sha256", default=""); x.add_argument("--actor", required=True)
+    x.set_defaults(func=cmd_task_release)
+    x = facts_sub.add_parser("test"); x.add_argument("task_id")
+    x.add_argument("--verdict", dest="test_verdict", choices=["passed", "failed"], required=True)
+    x.add_argument("--patchset-sha256", dest="test_patchset_sha256", required=True)
+    x.add_argument("--test-ref", required=True); x.add_argument("--actor", required=True)
+    x.set_defaults(func=cmd_task_release)
+    x = facts_sub.add_parser("integration"); x.add_argument("task_id")
+    x.add_argument("--commit", dest="integration_commit", required=True)
+    x.add_argument("--integration-ref", required=True); x.add_argument("--actor", required=True)
+    x.set_defaults(func=cmd_task_release)
+    x = facts_sub.add_parser("reset"); x.add_argument("task_id"); x.add_argument("--actor", required=True)
+    x.add_argument("--reason", required=True); x.set_defaults(func=cmd_task_release)
     snapshot = task.add_parser("snapshot", help="Import, inspect or roll back an imported task snapshot")
     snapshot_sub = snapshot.add_subparsers(dest="operation", required=True)
     x = snapshot_sub.add_parser("import", help="Import a snapshot JSON file; --actor is the current importer")
@@ -751,6 +837,9 @@ def build_parser() -> argparse.ArgumentParser:
     x.set_defaults(func=cmd_task_context)
     x = task.add_parser("envelope", help="Show the task envelope (references only), or 'unchanged' for a known hash")
     x.add_argument("task_id"); x.add_argument("--known-hash"); x.set_defaults(func=cmd_task_envelope)
+    x = task.add_parser("context-v2", help="Show release-aware task context, or 'unchanged' for a known fingerprint")
+    x.add_argument("task_id"); x.add_argument("--known-fingerprint"); x.add_argument("--after", type=int, default=0)
+    x.set_defaults(func=cmd_task_context_v2)
     x = task.add_parser("result", help="Submit a result (and the task), show one, or list a task's results")
     x.add_argument("operation", choices=["submit", "show", "list"])
     x.add_argument("target", help="Task id, or result://<task>/<attempt> for show")

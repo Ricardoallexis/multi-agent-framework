@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..db.envelope_store import HARD_MAX_BLOB_BYTES, EnvelopeStore
 from ..tasks import graph
+from ..tasks import release as release_policy
 from ..tasks.envelopes import (
     MAX_CONSTRAINT_CHARS,
     MAX_CONSTRAINTS,
@@ -283,6 +284,9 @@ class EnvelopeServices:
             tasks, deps = self._tasks._snapshot(conn)
             if task_id not in tasks:
                 raise _missing("Task", str(task_id))
+            if self._tasks.store.legacy_release_dependencies(task_id=task_id, conn=conn):
+                raise _conflict("This task has legacy release dependencies; request context v2",
+                                task_id=task_id, required_capability="release_dependencies/v1")
             task = tasks[task_id]
             states = self._tasks._states(tasks)
             depends_on: list[dict[str, Any]] = []
@@ -314,6 +318,134 @@ class EnvelopeServices:
         if known_hash is not None and known_hash == task_envelope_sha256(envelope):
             return unchanged_envelope(envelope)
         return envelope
+
+    @service_errors
+    def get_context_v2(self, task_id: str, *, known_fingerprint: str | None = None,
+                       after: int = 0) -> dict[str, Any]:
+        """Return the unchanged v1 task envelope plus the complete release context.
+
+        ``after`` is a consistency cursor only: it must not be ahead of the event
+        head observed at the start of this read. This method neither reads nor
+        acknowledges events. The fingerprint covers the envelope without
+        ``events_after`` and the full release context, including provenance.
+        """
+        if not isinstance(task_id, str):
+            raise _invalid("task_id", "task_id must be text")
+        after = _integer("after", after, minimum=0)
+        if known_fingerprint is not None and not (isinstance(known_fingerprint, str)
+                                                   and _SHA256.fullmatch(known_fingerprint)):
+            raise _invalid("known_fingerprint", "known_fingerprint must be 64 lowercase hex characters")
+        tasks_service = self._tasks
+        with tasks_service.store.db.connect() as conn:
+            # Pin a WAL read snapshot before sampling the cursor and all context rows.
+            conn.execute("BEGIN")
+            head = self.store.event_head(conn=conn)
+            if after > head:
+                raise _invalid("after", "after cursor is ahead of the current event head", head=head)
+            tasks, native = tasks_service._snapshot(conn)
+            if task_id not in tasks:
+                raise _missing("Task", task_id)
+            task = tasks[task_id]
+            legacy_edges = tasks_service.store.legacy_release_dependencies(conn=conn)
+            group_task_ids = {item_id for item_id, item in tasks.items() if item["group_id"] == task["group_id"]}
+            group_native = [edge for edge in native if edge["task_id"] in group_task_ids]
+            group_legacy = [edge for edge in legacy_edges if edge["task_id"] in group_task_ids]
+            states = tasks_service._states(tasks)
+            group = tasks_service._group_or_missing(task["group_id"], conn)
+            release_data = tasks_service._release_context(conn)
+            release_statuses = tasks_service._status_map(tasks, native, release_data)
+            context = self.store.task_context(task_id, conn=conn) or {}
+            native_items: list[dict[str, Any]] = []
+            own_native_items: list[dict[str, Any]] = []
+            artifacts: list[str] = []
+            for edge in group_native:
+                prerequisite = edge["depends_on_id"]
+                dependent_id = edge["task_id"]
+                is_satisfied = graph.is_satisfied(edge["requires"], states.get(prerequisite))
+                item = {"kind": "native", "task_id": prerequisite, "requires": edge["requires"],
+                        "dependent_task_id": dependent_id,
+                        "source_ref": "", "prerequisite": {"state": states.get(prerequisite),
+                        "status": release_statuses.get(prerequisite)},
+                        "satisfied": is_satisfied,
+                        "reason": "native_requirement_satisfied" if is_satisfied else "native_requirement_unmet",
+                        "evidence": []}
+                latest = self.store.latest_result(prerequisite, conn=conn)
+                if latest is not None:
+                    item["result_ref"] = result_ref(prerequisite, latest["attempt"])
+                    if latest["patch_sha256"]:
+                        item["evidence"].append(blob_ref(latest["patch_sha256"]))
+                        if dependent_id == task_id:
+                            artifacts.append(blob_ref(latest["patch_sha256"]))
+                native_items.append(item)
+                if dependent_id == task_id:
+                    own_native_items.append(item)
+            legacy_items: list[dict[str, Any]] = []
+            release_facts: dict[str, Any] = {}
+            for edge in group_legacy:
+                prerequisite = edge["depends_on_id"]
+                dependent_id = edge["task_id"]
+                facts = release_data["facts"].get(prerequisite, {})
+                dependent_group = release_data["groups"].get(tasks[dependent_id]["group_id"], {})
+                threshold = dependent_group.get("legacy_release_mode")
+                satisfied, reason, evidence = release_policy.evaluate(threshold, facts)
+                legacy_items.append({"kind": "legacy_release", "task_id": prerequisite,
+                                     "dependent_task_id": dependent_id,
+                                     "threshold": threshold, "source_ref": edge["source_ref"],
+                                     "prerequisite": {"state": states.get(prerequisite),
+                                     "status": release_statuses.get(prerequisite)},
+                                     "satisfied": satisfied, "reason": reason, "evidence": evidence,
+                                     "facts": tasks_service._release_facts_view(prerequisite, conn)})
+                release_facts[prerequisite] = tasks_service._release_facts_view(prerequisite, conn)
+                provenance = tasks_service.store.snapshot_provenance("task", prerequisite, conn=conn)
+                if provenance:
+                    release_facts[prerequisite]["provenance"] = provenance
+            dependencies = native_items + legacy_items
+            blockers = [edge for edge in dependencies
+                        if edge.get("dependent_task_id") == task_id and not edge["satisfied"]]
+            readiness = task["state"]
+            if readiness == "open":
+                readiness = "blocked" if blockers else "ready"
+            group_provenance = tasks_service.store.snapshot_provenance("group", task["group_id"], conn=conn)
+            task_provenance = tasks_service.store.snapshot_provenance("task", task_id, conn=conn)
+            gate = task["gate"] or group.get("default_gate", [])
+            envelope_data = {
+                "task_id": task_id, "group_id": task["group_id"], "revision": task["revision"],
+                "attempt": task["attempt"], "assignee": task["assignee"] or None,
+                "status": graph.effective_status(task_id, states, native),
+                "objective": task["objective"] or task["title"],
+                "depends_on": [{"task_id": edge["depends_on_id"], "requires": edge["requires"],
+                                "status": graph.effective_status(edge["depends_on_id"], states, native),
+                                **({"result_ref": result_ref(edge["depends_on_id"], latest["attempt"])}
+                                   if (latest := self.store.latest_result(edge["depends_on_id"], conn=conn)) else {})}
+                               for edge in native if edge["task_id"] == task_id],
+                "artifact_refs": artifacts,
+                "context_refs": context.get("context_refs", []), "file_scope": task["file_scope"],
+                "constraints": context.get("constraints", []), "gate": gate,
+                "base_commit": context.get("base_commit", ""), "events_after": head,
+            }
+        try:
+            envelope = build_task_envelope(**envelope_data)
+        except EnvelopeError as error:
+            raise _from_envelope_error(error) from None
+        release_context = {
+            "task_id": task_id, "group_id": task["group_id"],
+            "legacy_release_mode": group.get("legacy_release_mode"),
+            "group_policy": {"authorized": group["authorized"],
+                             "default_requires": group["default_requires"],
+                             "default_gate": group.get("default_gate", []),
+                             "legacy_release_mode": group.get("legacy_release_mode")},
+            "readiness": readiness, "blockers": blockers, "dependencies": dependencies,
+            "facts": release_facts,
+            "provenance": {"task": task_provenance, "group": group_provenance},
+        }
+        fingerprint_data = {"task_envelope": {key: value for key, value in envelope.items()
+                                               if key != "events_after"},
+                            "release_context": release_context}
+        fingerprint = hashlib.sha256(canonical_json(fingerprint_data)).hexdigest()
+        if known_fingerprint == fingerprint:
+            return {"unchanged": True, "fingerprint": fingerprint}
+        return {"capabilities": ["release_dependencies/v1"], "task_envelope": envelope,
+                "release_context": release_context, "fingerprint": fingerprint}
 
     # -------- blobs and artifacts --------
     @service_errors

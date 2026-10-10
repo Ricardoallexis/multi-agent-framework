@@ -537,7 +537,51 @@ the imported batch and is refused after batch activity, changed baseline rows,
 external references, or an acknowledged event cursor; it never rewinds other
 events or deletes the audit receipt.
 
-Legacy release thresholds and delivery evidence belong to ORQ-4 B. A requests
-that require those fields fail with `required_capability: release_dependencies/v1`
-until that capability is installed; they are never projected into native
-`accepted` or `submitted` dependencies.
+## ORQ-4 B: legacy release milestones
+
+Legacy release dependencies and current delivery facts are stored separately
+from native `accepted` / `submitted` dependencies. `create_task(...,
+release_dependencies=[{"depends_on_id": ..., "source_ref": ...}])` creates the
+task and its legacy edges in one transaction. A missing prerequisite returns
+`not_found` and leaves no task, edge, or event. Native and legacy edges share
+duplicate-pair and cycle validation, while each edge remains in its own table.
+
+Each group has an optional `legacy_release_mode` (`terminada`, `probada`, or
+`integrada`). Imported legacy snapshots default a missing mode to `probada`;
+an explicit null mode remains unresolved and blocks every legacy edge. The
+mode is selected from the group of the dependent task, including across-group
+edges. A verified integration releases any mode. A delivery with no patch also
+releases any mode. A patch delivery releases `terminada` immediately, waits for
+integration under `integrada`, and under `probada` requires the latest passed
+test to match the current patchset. Failed, missing, or stale test evidence
+does not release `probada`. Native acceptance, submission, and gate results do
+not substitute for these facts.
+
+`record_delivery_fact` replaces the current delivery and clears prior test and
+integration facts. Test facts must match the current patchset when recorded.
+Explicit reset and new-round transitions clear the full current fact row;
+pause/resume preserves the same round. Facts keep provenance references and
+are evidence records, not gate passes or reconstructed history.
+
+The API exposes release-mode, dependency, and fact operations under the
+`/api/v1/task-groups/{id}/release-mode` and `/api/v1/tasks/{id}/release-*`
+routes. `GET /api/v2/tasks/{id}/context` returns the exact v1 task envelope,
+the complete group dependency graph with `dependent_task_id`, release policy,
+facts and provenance, plus a fingerprint. The fingerprint hashes canonical
+JSON of `{task_envelope without events_after, release_context}`. Supplying the
+same `known_fingerprint` returns `{unchanged: true, fingerprint}`. Its `after`
+parameter only rejects a cursor beyond the event head; this read neither
+fetches nor acknowledges events. V1 envelope requests fail closed with
+`required_capability: release_dependencies/v1` when the task itself has legacy
+release dependencies. Native v1 envelope hashes and result contracts remain
+unchanged.
+
+Snapshot B imports group modes, typed native/legacy edges, and submitted-task
+delivery evidence atomically under the A snapshot hash and receipt. Rollback
+compares these rows with the imported baseline and refuses if batch activity,
+external references, changed facts/edges, or an acknowledged cursor makes it
+unsafe. Receipts written before B retain contract version 1 through migration
+008, so a version-1 snapshot can still be retried idempotently and rolled back
+using its original A fields, including a submitted task without imported B
+evidence. New snapshots use version 2. Historical events and task results are
+never synthesized.

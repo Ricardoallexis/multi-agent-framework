@@ -126,18 +126,81 @@ def test_snapshot_accepts_native_dependency_thresholds(tmp_path):
             assert edge["satisfied"] is False
 
 
-def test_snapshot_rejects_b_only_release_fields_until_capability_is_available(tmp_path):
-    services = make_services(tmp_path)
+def test_cli_imports_and_rolls_back_b_release_facts_and_dependency(monkeypatch, capsys, tmp_path):
+    services = make_services(tmp_path / "db")
     data = snapshot()
     data["groups"][0]["legacy_release_mode"] = "probada"
-    body = import_body("orq4:fixture:b-only", data=data)
+    prerequisite = data["tasks"][0]
+    prerequisite.update({
+        "source_state": "probada",
+        "state": "submitted",
+        "delivery": {
+            "delivery_ref": "report://fixture-delivery",
+            "delivery_sha256": "a" * 64,
+            "has_patch": True,
+            "patchset_sha256": "b" * 64,
+            "test_verdict": "passed",
+            "test_patchset_sha256": "b" * 64,
+            "test_ref": "report://fixture-tests",
+        },
+    })
+    dependent = {**prerequisite, "id": "ORQ4-fixture-T02", "source_id": "T02", "source_state": "disponible",
+                 "state": "open", "delivery": None, "title": "Synthetic release dependent"}
+    data["tasks"].append(dependent)
+    data["dependencies"] = [{
+        "task_id": dependent["id"], "depends_on_id": prerequisite["id"],
+        "kind": "legacy_release", "source_ref": "doc://fixtures/orq4/release-edge.md",
+    }]
+    body = import_body("orq4:fixture:b-release", data=data)
     with TestClient(create_app(services=services), base_url="http://127.0.0.1") as client:
-        response = client.post("/api/v1/task-snapshots/import", json=body)
-        assert response.status_code == 409
-        detail = response.json()["detail"]
-        assert detail["code"] == "invalid_state"
-        assert detail["details"]["required_capability"] == "release_dependencies/v1"
+        snapshot_file = tmp_path / "b-release.json"
+        snapshot_file.write_text(json.dumps({
+            key: body[key] for key in ("snapshot", "source_key", "source_ref", "snapshot_sha256")
+        }), encoding="utf-8")
+
+        code, plan = invoke_cli(monkeypatch, capsys, client, [
+            "task", "snapshot", "import", str(snapshot_file), "--actor", "agent:cli", "--what-if",
+        ])
+        assert code == 0
+        assert plan["status"] == "planned"
         assert client.get("/api/v1/task-groups").json() == []
+        assert client.get("/api/v1/tasks").json() == []
+        assert client.get("/api/v1/team-events").json() == []
+        assert client.get("/api/v1/task-snapshots/orq4%3Afixture%3Ab-release").status_code == 404
+
+        code, imported = invoke_cli(monkeypatch, capsys, client, [
+            "task", "snapshot", "import", str(snapshot_file), "--actor", "agent:cli",
+        ])
+        assert code == 0
+        assert imported["source_key"] == body["source_key"]
+        group = client.get("/api/v1/task-groups/ORQ4-fixture")
+        assert group.status_code == 200
+        assert group.json()["legacy_release_mode"] == "probada"
+        facts = client.get(f"/api/v1/tasks/{prerequisite['id']}/release-facts")
+        assert facts.status_code == 200, facts.text
+        assert facts.json()["delivery_ref"] == "report://fixture-delivery"
+        assert facts.json()["test_verdict"] == "passed"
+        assert facts.json()["test_patchset_sha256"] == facts.json()["patchset_sha256"]
+        assert dependent["id"] in {task["id"] for task in client.get("/api/v1/tasks/ready").json()}
+
+        code, receipt = invoke_cli(monkeypatch, capsys, client, [
+            "task", "snapshot", "show", body["source_key"],
+        ])
+        assert code == 0
+        assert receipt["state"] == "applied"
+        assert receipt["dependencies"] == data["dependencies"]
+
+        code, rolled_back = invoke_cli(monkeypatch, capsys, client, [
+            "task", "snapshot", "rollback", body["source_key"], "--actor", "agent:cli",
+        ])
+        assert code == 0
+        assert rolled_back["state"] == "rolled_back"
+        assert client.get("/api/v1/task-groups").json() == []
+        assert client.get("/api/v1/tasks").json() == []
+        assert client.get(f"/api/v1/tasks/{prerequisite['id']}/release-facts").status_code == 404
+        retained = client.get("/api/v1/task-snapshots/orq4%3Afixture%3Ab-release")
+        assert retained.status_code == 200
+        assert retained.json()["state"] == "rolled_back"
 
 
 def test_cli_snapshot_import_show_and_rollback_are_http_backed(monkeypatch, capsys, tmp_path):

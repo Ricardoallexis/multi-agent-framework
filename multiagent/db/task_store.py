@@ -95,14 +95,21 @@ class TaskStore:
     # -------- groups --------
     def insert_group(self, conn: sqlite3.Connection, group_id: str, title: str, *, actor: str,
                      authorized: bool = False, default_requires: str = "accepted",
-                     default_gate: Iterable[dict[str, Any]] = ()) -> dict[str, Any]:
+                     default_gate: Iterable[dict[str, Any]] = (),
+                     legacy_release_mode: str | None = None) -> dict[str, Any]:
         now = utcnow()
         conn.execute(
-            "INSERT INTO task_groups(id,title,authorized,default_requires,created_by,created_at,updated_at,default_gate_json) "
-            "VALUES(?,?,?,?,?,?,?,?)",
-            (group_id, title, int(authorized), default_requires, actor, now, now, _dumps(list(default_gate))),
+            "INSERT INTO task_groups(id,title,authorized,default_requires,created_by,created_at,updated_at,default_gate_json,legacy_release_mode) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (group_id, title, int(authorized), default_requires, actor, now, now, _dumps(list(default_gate)),
+             legacy_release_mode),
         )
         return self.get_group(group_id, conn=conn)  # type: ignore[return-value]
+
+    def set_legacy_release_mode(self, conn: sqlite3.Connection, group_id: str, mode: str | None) -> bool:
+        cursor = conn.execute("UPDATE task_groups SET legacy_release_mode=?,updated_at=? WHERE id=?",
+                              (mode, utcnow(), group_id))
+        return bool(cursor.rowcount)
 
     def update_group(self, conn: sqlite3.Connection, group_id: str, *, title: str | None = None,
                      authorized: bool | None = None, default_requires: str | None = None) -> dict[str, Any] | None:
@@ -220,11 +227,12 @@ class TaskStore:
         raise StaleRevision(task_id, expected_revision, current["revision"])
 
     def insert_snapshot(self, conn: sqlite3.Connection, *, source_key: str, source_ref: str,
-                        snapshot_sha256: str, actor: str, snapshot_json: str, event_seq: int) -> None:
+                        snapshot_sha256: str, actor: str, snapshot_json: str, event_seq: int,
+                        contract_version: int = 2) -> None:
         conn.execute(
-            "INSERT INTO task_snapshots(source_key,source_ref,snapshot_sha256,actor,snapshot_json,imported_at,event_seq) "
-            "VALUES(?,?,?,?,?,?,?)",
-            (source_key, source_ref, snapshot_sha256, actor, snapshot_json, utcnow(), event_seq),
+            "INSERT INTO task_snapshots(source_key,source_ref,snapshot_sha256,actor,snapshot_json,imported_at,event_seq,contract_version) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (source_key, source_ref, snapshot_sha256, actor, snapshot_json, utcnow(), event_seq, contract_version),
         )
 
     def snapshot(self, source_key: str, *, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
@@ -291,6 +299,73 @@ class TaskStore:
                + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY rowid")
         with self._reader(conn) as c:
             return [dict(row) for row in c.execute(sql, params)]
+
+    def insert_legacy_release_dependency(self, conn: sqlite3.Connection, task_id: str, depends_on_id: str,
+                                         source_ref: str) -> None:
+        conn.execute(
+            "INSERT INTO legacy_release_dependencies(task_id,depends_on_id,source_ref,created_at) VALUES(?,?,?,?)",
+            (task_id, depends_on_id, source_ref, utcnow()),
+        )
+
+    def delete_legacy_release_dependency(self, conn: sqlite3.Connection, task_id: str, depends_on_id: str) -> bool:
+        cursor = conn.execute("DELETE FROM legacy_release_dependencies WHERE task_id=? AND depends_on_id=?",
+                              (task_id, depends_on_id))
+        return bool(cursor.rowcount)
+
+    def legacy_release_dependencies(self, *, task_id: str | None = None, depends_on_id: str | None = None,
+                                    conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+        where: list[str] = []
+        params: list[Any] = []
+        if task_id is not None:
+            where.append("task_id=?")
+            params.append(task_id)
+        if depends_on_id is not None:
+            where.append("depends_on_id=?")
+            params.append(depends_on_id)
+        sql = ("SELECT task_id,depends_on_id,source_ref FROM legacy_release_dependencies"
+               + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY rowid")
+        with self._reader(conn) as c:
+            return [dict(row) for row in c.execute(sql, params)]
+
+    def release_fact(self, task_id: str, *, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+        with self._reader(conn) as c:
+            row = c.execute("SELECT * FROM legacy_release_facts WHERE task_id=?", (task_id,)).fetchone()
+        item = dict(row) if row else None
+        if item is not None:
+            item["has_patch"] = bool(item["has_patch"])
+        return item
+
+    def release_facts(self, *, conn: sqlite3.Connection | None = None) -> dict[str, dict[str, Any]]:
+        with self._reader(conn) as c:
+            rows = c.execute("SELECT * FROM legacy_release_facts ORDER BY rowid").fetchall()
+        output: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            item = dict(row)
+            item["has_patch"] = bool(item["has_patch"])
+            output[item["task_id"]] = item
+        return output
+
+    def write_release_fact(self, conn: sqlite3.Connection, task_id: str, *, delivery_ref: str,
+                           delivery_sha256: str, has_patch: bool, patchset_sha256: str,
+                           test_verdict: str | None = None, test_patchset_sha256: str = "", test_ref: str = "",
+                           integration_commit: str = "", integration_ref: str = "",
+                           actor: str) -> None:
+        conn.execute(
+            "INSERT INTO legacy_release_facts(task_id,delivery_ref,delivery_sha256,has_patch,patchset_sha256,"
+            "test_verdict,test_patchset_sha256,test_ref,integration_commit,integration_ref,updated_by,updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET "
+            "delivery_ref=excluded.delivery_ref,delivery_sha256=excluded.delivery_sha256,"
+            "has_patch=excluded.has_patch,patchset_sha256=excluded.patchset_sha256,"
+            "test_verdict=excluded.test_verdict,test_patchset_sha256=excluded.test_patchset_sha256,"
+            "test_ref=excluded.test_ref,integration_commit=excluded.integration_commit,"
+            "integration_ref=excluded.integration_ref,updated_by=excluded.updated_by,updated_at=excluded.updated_at",
+            (task_id, delivery_ref, delivery_sha256, int(has_patch), patchset_sha256, test_verdict,
+             test_patchset_sha256, test_ref, integration_commit, integration_ref, actor, utcnow()),
+        )
+
+    def reset_release_fact(self, conn: sqlite3.Connection, task_id: str) -> bool:
+        cursor = conn.execute("DELETE FROM legacy_release_facts WHERE task_id=?", (task_id,))
+        return bool(cursor.rowcount)
 
     # -------- team events --------
     def append_event(self, conn: sqlite3.Connection, event_type: str, *, actor: str, group_id: str = "",

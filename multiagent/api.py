@@ -131,6 +131,11 @@ class TaskDependencyRef(_Body):
     requires: str | None = None
 
 
+class ReleaseDependencyRef(_Body):
+    depends_on_id: str
+    source_ref: str
+
+
 class TaskCreate(_Body):
     group_id: str
     id: str
@@ -138,6 +143,7 @@ class TaskCreate(_Body):
     actor: str
     objective: str = ""
     depends_on: list[Union[str, TaskDependencyRef]] = Field(default_factory=list)
+    release_dependencies: list[ReleaseDependencyRef] = Field(default_factory=list)
     file_scope: list[str] = Field(default_factory=list)
     requirements: list[str] = Field(default_factory=list)
     preferred: str = ""
@@ -147,6 +153,43 @@ class TaskDependencyCreate(_Body):
     depends_on_id: str
     actor: str
     requires: str | None = None
+
+
+class ReleaseModeUpdate(_Body):
+    mode: str
+    actor: str
+
+
+class ReleaseDependencyCreate(_Body):
+    depends_on_id: str
+    source_ref: str
+    actor: str
+
+
+class DeliveryFactRequest(_Body):
+    delivery_ref: str
+    delivery_sha256: str
+    has_patch: bool
+    patchset_sha256: str
+    actor: str
+
+
+class TestVerdictRequest(_Body):
+    test_verdict: str
+    test_patchset_sha256: str
+    test_ref: str
+    actor: str
+
+
+class IntegrationFactRequest(_Body):
+    integration_commit: str
+    integration_ref: str
+    actor: str
+
+
+class ReleaseFactsResetRequest(_Body):
+    actor: str
+    reason: str
 
 
 class GateUpdate(_Body):
@@ -375,6 +418,10 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         return services.tasks.update_group(group_id, actor=body.actor, title=body.title,
                                            authorized=body.authorized, default_requires=body.default_requires)
 
+    @app.put("/api/v1/task-groups/{group_id}/release-mode")
+    def set_group_release_mode(group_id: str, body: ReleaseModeUpdate):
+        return services.tasks.set_release_mode(group_id, body.mode, actor=body.actor)
+
     @app.post("/api/v1/task-snapshots/import")
     def import_task_snapshot(body: TaskSnapshotImportRequest):
         operation = services.tasks.plan_snapshot if body.what_if else services.tasks.import_snapshot
@@ -396,9 +443,11 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/tasks", status_code=201)
     def create_task(body: TaskCreate):
         depends_on = [item if isinstance(item, str) else item.model_dump(exclude_none=True) for item in body.depends_on]
+        release_dependencies = [item.model_dump() for item in body.release_dependencies]
         return services.tasks.create_task(body.group_id, body.id, body.title, actor=body.actor, objective=body.objective,
                                           depends_on=depends_on, file_scope=body.file_scope,
-                                          requirements=body.requirements, preferred=body.preferred)
+                                          requirements=body.requirements, preferred=body.preferred,
+                                          release_dependencies=release_dependencies)
 
     @app.get("/api/v1/tasks/ready")
     def ready_tasks(group: str | None = None):
@@ -416,6 +465,44 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.delete("/api/v1/tasks/{task_id}/dependencies/{depends_on_id}")
     def remove_task_dependency(task_id: str, depends_on_id: str, actor: str = Query(...)):
         return services.tasks.remove_dependency(task_id, depends_on_id, actor=actor)
+
+    @app.post("/api/v1/tasks/{task_id}/release-dependencies")
+    def add_release_dependency(task_id: str, body: ReleaseDependencyCreate):
+        return services.tasks.add_release_dependency(task_id, body.depends_on_id, actor=body.actor,
+                                                     source_ref=body.source_ref)
+
+    @app.delete("/api/v1/tasks/{task_id}/release-dependencies/{depends_on_id}")
+    def remove_release_dependency(task_id: str, depends_on_id: str, actor: str = Query(...)):
+        return services.tasks.remove_release_dependency(task_id, depends_on_id, actor=actor)
+
+    @app.get("/api/v1/tasks/{task_id}/release-facts")
+    def get_release_facts(task_id: str):
+        return services.tasks.get_release_facts(task_id)
+
+    @app.post("/api/v1/tasks/{task_id}/release-facts/delivery")
+    def record_delivery_fact(task_id: str, body: DeliveryFactRequest):
+        return services.tasks.record_delivery_fact(
+            task_id, delivery_ref=body.delivery_ref, delivery_sha256=body.delivery_sha256,
+            has_patch=body.has_patch, patchset_sha256=body.patchset_sha256, actor=body.actor,
+        )
+
+    @app.post("/api/v1/tasks/{task_id}/release-facts/test")
+    def record_test_verdict(task_id: str, body: TestVerdictRequest):
+        return services.tasks.record_test_verdict(
+            task_id, test_verdict=body.test_verdict, test_patchset_sha256=body.test_patchset_sha256,
+            test_ref=body.test_ref, actor=body.actor,
+        )
+
+    @app.post("/api/v1/tasks/{task_id}/release-facts/integration")
+    def record_integration_fact(task_id: str, body: IntegrationFactRequest):
+        return services.tasks.record_integration_fact(
+            task_id, integration_commit=body.integration_commit, integration_ref=body.integration_ref,
+            actor=body.actor,
+        )
+
+    @app.post("/api/v1/tasks/{task_id}/release-facts/reset")
+    def reset_release_facts(task_id: str, body: ReleaseFactsResetRequest):
+        return services.tasks.reset_release_facts(task_id, actor=body.actor, reason=body.reason)
 
     @app.post("/api/v1/tasks/{task_id}/transitions")
     def transition_task(task_id: str, body: TaskTransitionRequest):
@@ -476,6 +563,11 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def get_task_envelope(task_id: str, known_hash: str | None = None):
         """The task envelope v1, or ``{unchanged, hash, revision}`` when ``known_hash`` still matches."""
         return services.envelopes.get_envelope(task_id, known_hash=known_hash)
+
+    @app.get("/api/v2/tasks/{task_id}/context")
+    def get_task_context_v2(task_id: str, known_fingerprint: str | None = None,
+                            after: int = Query(0, ge=0)):
+        return services.envelopes.get_context_v2(task_id, known_fingerprint=known_fingerprint, after=after)
 
     @app.post("/api/v1/blobs")
     async def put_blob(request: Request, actor: str = Query(...),
