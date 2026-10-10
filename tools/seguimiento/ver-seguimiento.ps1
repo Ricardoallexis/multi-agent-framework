@@ -1293,6 +1293,12 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
       }
     });
   }
+  // Local file links (task cards, stage sheets, reports) open outside this window so the
+  // Edge --app window, which has no navigation bar, never leaves the tracker.
+  document.querySelectorAll('a[href^="file:"]').forEach((link) => {
+    link.target = '_blank';
+    link.rel = 'noopener';
+  });
   show(location.hash.slice(1));
   setTimeout(() => location.reload(), 30000);
 </script>
