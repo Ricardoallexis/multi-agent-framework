@@ -27,7 +27,7 @@ This plan breaks the [roadmap](../ROADMAP.md) into stages, sub-stages, and tasks
 | S8 | Planning and delegation | Core | S4.A, S5.C, S6.A | ◐ |
 | S9 | Interoperability | Extension | S1 (S9.A), S5.A | ☐ |
 | S10 | Observability and evaluation | Core + Extension | S3 | ◐ |
-| S11 | Model routing and local AI | Core + Extension | S3 | ☐ |
+| S11 | Model routing and local AI | Core + Extension | S3 | ◐ |
 | S12 | Memory, context, and knowledge | Core | S5.A | ☐ |
 | S13 | Human-in-the-loop improvements | Core | S1 | ◐ |
 | S14 | Operator UI, UI stages 1–3 | Extension | S5, S6.A, S8.B, S9 | ☐ |
@@ -225,8 +225,8 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S8.B1 | Manual planner and plan editing before and during execution. | S8.A2 |
 | S8.B2 | Delegation traceability: who created and assigned each task and why, attempts, reviews, results. | S8.A2 |
 | **S8.C — Assignment** | | |
-| S8.C1 | Assignment by capabilities, roles, tools, permissions, availability, and budget, with deterministic rules first. | S8.A1, S5.C2 |
-| S8.C2 | Plan constraints: budgets, local-only execution, allowed providers, required approvals, read-only profiles. | S8.C1 |
+| S8.C1 | ◐ Partial. T15 adds descriptor-based policy preview and guarded claims filtered by declared capabilities, roles, permissions, modes, and privacy. Bundled surfaces remain manual/unknown, so availability and execution are not established. | S8.A1, S5.C2 |
+| S8.C2 | ◐ Partial. T14/T15 apply configured mode, permission, privacy, and invocation-budget constraints; unmapped canonical constraints block. No executor is launched through ORQ-6. | S8.C1 |
 | **S8.D — Assisted planning** | | |
 | S8.D1 | Pluggable planners (manual, deterministic, LLM-based, custom, external). | S8.B1 |
 | S8.D2 | Semi-automatic plans that wait for human approval, where users can edit, reassign, or reject them. | S8.D1, S13.B1 |
@@ -287,7 +287,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 **Parallel:** S10.A, S10.C1, and S10.D1 at once.
 **Acceptance:** a run exports a report and an OpenTelemetry trace; a prompt change shows a regression score.
 
-## S11 · Model routing and local AI ☐
+## S11 · Model routing and local AI ◐
 
 - **Class:** Core (policies) + Extension (local model providers).
 - **Objective:** choose the right model per task and reduce dependence on paid cloud inference.
@@ -296,9 +296,9 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S11.A — Policies** | | |
-| S11.A1 | Routing by task type, strengths, latency, context size, privacy and provider data-use terms (training opt-out, retention), availability, and cost, with explicit priority rules. | — |
+| S11.A1 | ◐ Partial. T14 provides opt-in profiles, deterministic candidate filters, evidence-aware health selection, and comparable-price selection when evidence permits. No implicit health probes run; current surfaces do not establish provider availability or served-model outcomes. | — |
 | S11.A2 | Local-first, cloud-first, offline-only, and hybrid policies. | S11.A1 |
-| S11.A3 | Token and context budgeting that prevents avoidable overflow. | S11.A1 |
+| S11.A3 | ◐ Partial. T14 enforces run/profile provider-invocation limits across dispatch attempts. Strict token/cost enforcement is unsupported; planning estimates remain distinct and cannot establish actual usage or cost. Only provider-invocation limits have strict enforcement. | S11.A1 |
 | **S11.B — Model health** | | |
 | S11.B1 | Health checks, capability discovery, and automatic fallback. | — |
 | S11.B2 | Per-model quality, latency, failure, and usage statistics to inform routing. | S11.B1, S10.A1 |

@@ -74,6 +74,8 @@ The first public baseline is backend-first and provides the foundation for the r
 
 The framework is intended to use the orchestrator to choose the most appropriate model for each task rather than relying on one model for every capability.
 
+**Implemented in part:** T14 adds opt-in routing profiles, candidate filters, routing evidence, and observable run-scoped usage summaries; T15 adds descriptor-based assignment preview and a guarded task claim. Routing and assignment remain opt-in, and the current executor surfaces are manual or unknown. No executor launch is implemented through ORQ-6, and actual served-model and cost outcomes are not measured. The checklist below tracks full roadmap items, so these partial implementations do not count as completed items. See [model routing and task assignment](docs/model-routing.md).
+
 - [ ] Expand routing based on task type, model strengths, latency, context size, privacy, availability, and cost.
 - [ ] Allow explicit priority rules so text, research, image, and video tasks are routed only to suitable models.
 - [ ] Add model health checks, capability discovery, and automatic fallback policies.
@@ -168,6 +170,8 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 **Progress:** `█░░░░░░░░░` 2/14 · 14% <!-- progress -->
 
 Turn a high-level objective into an executable plan for a team the user has defined: understand the objective, decompose the work, find the required capabilities, assign specialists, coordinate execution, request revisions, and integrate the final result. Planners and orchestrators act only within the limits the user declares (roles, capabilities, permissions, contracts, budgets, gates, and policies) and escalate to a human when needed; every decision stays traceable. The core stays domain-neutral; industries appear only in presets and examples.
+
+**Implemented in part:** T15 can preview policy-constrained assignment from explicit executor descriptors and claim a ready task after revalidation. Its bundled surfaces remain manual/unknown, and nonempty unmapped envelope constraints block assignment. This does not yet execute a plan or launch an executor. See [model routing and task assignment](docs/model-routing.md).
 
 - [x] Represent tasks, task groups, and dependencies as data in the core: `blocked` and `ready` are computed from the dependencies, every state change goes through one transition function, and a team event log records each change. Available through Python, HTTP, and the CLI with the same results (see [`docs/TASKS.md`](docs/TASKS.md)).
 - [ ] Represent a plan as data (tasks, subtasks, dependencies, required capabilities, expected outputs and contracts, assignments, parallel groups, review and integration steps) and execute it through the existing workflow engine and backends instead of a second engine.
