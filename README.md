@@ -310,6 +310,7 @@ See [`docs/VERSIONING.md`](docs/VERSIONING.md), including the release procedure.
 - [`PROGRESS.md`](PROGRESS.md) — progress by area and what each finished feature enables.
 - [`CHANGELOG.md`](CHANGELOG.md) — public release history.
 - [`docs/API.md`](docs/API.md) — Python facade, HTTP endpoints, structured errors, and Mock mode.
+- [`docs/model-routing.md`](docs/model-routing.md) — model profiles, routing evidence, budgets, and task-assignment limits.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components and execution flow.
 - [`docs/COMPARISON.md`](docs/COMPARISON.md) — how this project differs from other multi-agent frameworks.
 - [`docs/LICENSING.md`](docs/LICENSING.md) — license, attribution, and no-telemetry policy.
