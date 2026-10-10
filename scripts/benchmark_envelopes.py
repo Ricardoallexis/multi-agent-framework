@@ -15,6 +15,12 @@ Compares two ways of handing a task with dependencies to an agent:
 
 Tokens are estimated as ``chars / 4``. The reduction is reported, not promised.
 
+Each scenario is reported twice. The raw ratio compares only what each mode hands
+over. The ``*_with_floor`` figures add the shared floor — the agent's profile and the
+minimum context, which an agent reads whatever the handoff — to both modes, which is
+the fairer comparison. The context package is the worst case measured (a long
+session with changed rules), so even the floor figures favour the envelope mode.
+
 Usage::
 
     python scripts/benchmark_envelopes.py          # JSON report on stdout
@@ -39,6 +45,8 @@ CURRENT_PIECES = {
     "task_card": 1947,
 }
 CURRENT_PER_DEPENDENCY = {"delivery_entry": 1940, "handoff": 12627}
+# Read in both modes: the agent's profile and the minimum context.
+SHARED_FLOOR = ("profile", "minimum_context")
 CURRENT_PER_EVENT = {"inbox_entry": 1940}  # each new channel entry read to resume
 
 PATCH = ("diff --git a/src/module.py b/src/module.py\n" + "+value = 1\n" * 40).encode("utf-8")
@@ -112,18 +120,30 @@ def run_benchmark(data_dir: Path) -> dict[str, Any]:
     resume_current = (CURRENT_PIECES["context_package"] + CURRENT_PIECES["task_card"]
                       + len(delta["events"]) * CURRENT_PER_EVENT["inbox_entry"])
 
-    def scenario(current: int, new: int, reads_current: int, reads_new: int) -> dict[str, Any]:
+    floor = sum(CURRENT_PIECES[piece] for piece in SHARED_FLOOR)
+
+    def scenario(current: int, new: int, reads_current: int, reads_new: int, *,
+                 floor_in_current: bool) -> dict[str, Any]:
+        current_floor = current if floor_in_current else current + floor
+        new_floor = new + floor
         return {"current_bytes": current, "new_bytes": new,
                 "current_tokens_est": _tokens(current), "new_tokens_est": _tokens(new),
                 "current_reads": reads_current, "new_reads": reads_new,
-                "ratio": round(new / current, 4)}
+                "ratio": round(new / current, 4),
+                "shared_floor_bytes": floor,
+                "current_bytes_with_floor": current_floor, "new_bytes_with_floor": new_floor,
+                "current_tokens_est_with_floor": _tokens(current_floor),
+                "new_tokens_est_with_floor": _tokens(new_floor),
+                "ratio_with_floor": round(new_floor / current_floor, 4)}
 
     return {
         "fixture": "T1 -> T2 || T3 -> T4 (Mock mode)",
         "token_estimate": "chars / 4",
         "start_task_with_dependencies": scenario(
-            start_current, start_new, len(CURRENT_PIECES) + dependencies * len(CURRENT_PER_DEPENDENCY), start_reads),
-        "resume_from_cursor": scenario(resume_current, resume_new, 2 + len(delta["events"]), 1),
+            start_current, start_new, len(CURRENT_PIECES) + dependencies * len(CURRENT_PER_DEPENDENCY), start_reads,
+            floor_in_current=True),
+        "resume_from_cursor": scenario(resume_current, resume_new, 2 + len(delta["events"]), 1,
+                                       floor_in_current=False),
         "events_to_resume": len(delta["events"]),
     }
 

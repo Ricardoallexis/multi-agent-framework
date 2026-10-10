@@ -241,3 +241,10 @@ def test_the_context_benchmark_is_reproducible_and_reads_less(tmp_path):
         numbers = first[scenario]
         assert 0 < numbers["new_bytes"] < numbers["current_bytes"]
         assert numbers["new_reads"] <= numbers["current_reads"]
+        # The fair comparison: the profile and the minimum context count in both modes.
+        floor = numbers["shared_floor_bytes"]
+        assert numbers["new_bytes_with_floor"] == numbers["new_bytes"] + floor
+        assert numbers["current_bytes_with_floor"] >= numbers["current_bytes"]
+        assert numbers["new_bytes_with_floor"] < numbers["current_bytes_with_floor"]
+        assert numbers["ratio"] < numbers["ratio_with_floor"] < 1
+    assert first["start_task_with_dependencies"]["current_bytes_with_floor"] ==         first["start_task_with_dependencies"]["current_bytes"]          # the floor is already part of it
