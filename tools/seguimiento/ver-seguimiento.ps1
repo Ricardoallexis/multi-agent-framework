@@ -16,10 +16,15 @@ param(
     [Parameter(Mandatory)][string]$ChannelPath,
     [Parameter(Mandatory)][string]$RepoPath,
     [switch]$NoAbrir,
-    [switch]$Vigilar
+    [switch]$Vigilar,
+    [switch]$LeerApi,
+    [string]$ApiBaseUrl = 'http://127.0.0.1:8000',
+    [ValidateRange(1, 120)][int]$ApiTimeoutSeconds = 5
 )
 
 $ErrorActionPreference = 'Stop'
+$script:apiBaseUrl = $ApiBaseUrl.TrimEnd('/')
+$script:apiTimeoutSeconds = $ApiTimeoutSeconds
 $channel = (Resolve-Path -LiteralPath $ChannelPath).Path
 $repoRoot = (Resolve-Path -LiteralPath $RepoPath).Path
 $summary = Join-Path $channel 'RESUMEN.md'
@@ -67,6 +72,83 @@ if (Test-Path -LiteralPath $cloudAssignmentsModulePath -PathType Leaf) {
 
 function Encode([string]$text) { [System.Net.WebUtility]::HtmlEncode($text) }
 function Inline([string]$text) { (Encode $text) -replace '`([^`]*)`', '<code>$1</code>' }
+function Get-ApiJson([string]$path) {
+    $baseUri = [uri]::new($script:apiBaseUrl)
+    if ($baseUri.Scheme -notin @('http', 'https') -or $baseUri.UserInfo -or $baseUri.Query -or $baseUri.Fragment) { throw 'ApiBaseUrl debe usar HTTP(S) y no incluir credenciales, query ni fragmento.' }
+    $uri = [uri]::new($baseUri, $path)
+    $response = Invoke-WebRequest -Method Get -Uri $uri -TimeoutSec $script:apiTimeoutSeconds -NoProxy -ErrorAction Stop
+    $value = ConvertFrom-Json -InputObject $response.Content -AsHashtable -NoEnumerate -ErrorAction Stop
+    return ,$value
+}
+function Get-ApiBoardHtml {
+    $source = 'URL inválida'
+    try {
+        $displayUri = [uri]::new($script:apiBaseUrl)
+        $source = Encode ($displayUri.GetLeftPart([System.UriPartial]::Authority) + $displayUri.AbsolutePath.TrimEnd('/'))
+    } catch { }
+    try {
+        $groups = Get-ApiJson '/api/v1/task-groups'
+        $tasks = Get-ApiJson '/api/v1/tasks'
+        if ($groups -isnot [System.Array] -or $tasks -isnot [System.Array]) { throw 'Schema inválido: grupos y tareas deben ser listas JSON.' }
+        foreach ($group in $groups) {
+            if ($group -isnot [System.Collections.IDictionary] -or -not $group.id -or -not $group.title -or $null -eq $group.authorized -or $group.counts -isnot [System.Collections.IDictionary]) { throw 'Schema inválido en grupo: se requieren id, title, authorized y counts.' }
+            foreach ($countName in $group.counts.Keys) {
+                $countValue = $group.counts[$countName]
+                if ($countValue -isnot [byte] -and $countValue -isnot [sbyte] -and $countValue -isnot [int16] -and $countValue -isnot [uint16] -and $countValue -isnot [int32] -and $countValue -isnot [uint32] -and $countValue -isnot [int64] -and $countValue -isnot [uint64]) { throw "Schema inválido: count '$countName' de grupo $($group.id) debe ser entero." }
+                if ([long]$countValue -lt 0) { throw "Schema inválido: count '$countName' de grupo $($group.id) no puede ser negativo." }
+            }
+        }
+        $groupIds = @($groups | ForEach-Object { [string]$_.id })
+        foreach ($task in $tasks) {
+            if ($task -isnot [System.Collections.IDictionary] -or -not $task.id -or -not $task.group_id -or -not $task.title -or -not $task.state -or -not $task.status) { throw 'Schema inválido en tarea: se requieren id, group_id, title, state y status.' }
+            if ($task.group_id -notin $groupIds) { throw "Schema inválido: la tarea $($task.id) referencia un grupo ausente." }
+        }
+        foreach ($group in $groups) {
+            $groupTasks = @($tasks | Where-Object { $_.group_id -eq $group.id })
+            $actual = @{}; foreach ($task in $groupTasks) { $key = [string]$task.status; $actual[$key] = 1 + [int]$actual[$key] }
+            $keys = @($actual.Keys) + @($group.counts.Keys) | Select-Object -Unique
+            foreach ($key in $keys) {
+                if ([long]$actual[$key] -ne [long]$group.counts[$key]) { throw "Conteo API inconsistente para grupo $($group.id), estado $key." }
+            }
+        }
+        $events = [System.Collections.Generic.List[object]]::new()
+        $after = 0
+        do {
+            $page = Get-ApiJson "/api/v1/team-events?after=$after&limit=1000"
+            if ($page -isnot [System.Array]) { throw 'Schema inválido: eventos debe ser una lista JSON.' }
+            foreach ($event in $page) {
+                if ($event -isnot [System.Collections.IDictionary] -or $null -eq $event.seq -or -not $event.type -or -not $event.actor -or -not $event.created_at -or $null -eq $event.payload) { throw 'Schema inválido en evento: faltan seq, type, actor, created_at o payload.' }
+                if ([long]$event.seq -le $after) { throw 'Schema inválido: secuencia de eventos no avanza.' }
+                $after = [long]$event.seq
+                $events.Add($event)
+            }
+        } while ($page.Count -eq 1000)
+
+        $groupRows = foreach ($group in $groups) {
+            $tasksInGroup = @($tasks | Where-Object { $_.group_id -eq $group.id })
+            $taskRows = foreach ($task in $tasksInGroup) {
+                $tokens = if ($null -ne $task.tokens) { Encode ([string]$task.tokens) } else { '<span class="meta">Desconocidos · API no provee tokens</span>' }
+                $cost = if ($null -ne $task.cost) { Encode ([string]$task.cost) } else { '<span class="meta">Desconocido · API no provee costo</span>' }
+                $assignee = if ($null -ne $task.assignee) { Encode ([string]$task.assignee) } else { '<span class="meta">Sin dato</span>' }
+                $dependencyData = if ($null -ne $task.depends_on) { Encode (ConvertTo-Json -InputObject $task.depends_on -Compress -Depth 5) } else { '<span class="meta">Desconocido · API no provee dependencias</span>' }
+                $blockerData = if ($null -ne $task.blockers) { Encode (ConvertTo-Json -InputObject $task.blockers -Compress -Depth 5) } else { '<span class="meta">Desconocido · API no provee bloqueos</span>' }
+                $attempt = if ($null -ne $task.attempt) { Encode ([string]$task.attempt) } else { '<span class="meta">Desconocido</span>' }
+                $status = Encode ([string]$task.status)
+                "<tr><td><strong>$(Encode ([string]$task.title))</strong><div class=""meta"">$(Encode ([string]$task.id))</div></td><td><code>$status</code><div class=""meta"">Estado core: $(Encode ([string]$task.state))</div></td><td>$assignee</td><td>$dependencyData<div class=""meta"">Bloqueos: $blockerData</div></td><td>$attempt</td><td>$tokens</td><td>$cost</td></tr>"
+            }
+            $authorization = if ($group.authorized) { 'autorizado por API' } else { 'no autorizado por API' }
+            "<section class=""panel""><h2>$(Encode ([string]$group.title)) <span class=""meta"">$(Encode ([string]$group.id)) · $authorization</span></h2><p class=""meta"">$(($tasksInGroup.Count)) tareas devueltas por API · conteos de estado verificados contra la lista de tareas.</p><table><tr><th>Tarea</th><th>Estado</th><th>Responsable</th><th>Dependencias y bloqueos (API)</th><th>Attempts core</th><th>Tokens</th><th>Costo</th></tr>$($taskRows -join "`n")</table></section>"
+        }
+        $eventRows = foreach ($event in @($events | Sort-Object seq -Descending | Select-Object -First 100)) {
+            "<tr><td>$(Encode ([string]$event.seq))</td><td><code>$(Encode ([string]$event.type))</code></td><td>$(Encode ([string]$event.group_id))</td><td>$(Encode ([string]$event.task_id))</td><td>$(Encode ([string]$event.actor))</td><td>$(Encode ([string]$event.created_at))</td><td><code>$(Encode (ConvertTo-Json -InputObject $event.payload -Compress -Depth 8))</code></td></tr>"
+        }
+        $empty = if (-not $groups.Count -and -not $tasks.Count -and -not $events.Count) { '<p class="meta">API confirmó grupos, tareas y eventos vacíos.</p>' } else { '' }
+        return "<p class=""meta"">Fuente: API de solo lectura <code>$source</code>. Estado core literal; `accepted` no se interpreta como integrada. Git y reportes de integración se leen aparte desde el checkout/canal locales.</p>$empty$($groupRows -join "`n")<section class=""panel""><h2>Eventos core <span class=""meta"">$($events.Count) leídos; se muestran los últimos 100</span></h2><table><tr><th>Seq</th><th>Evento</th><th>Grupo</th><th>Tarea</th><th>Actor</th><th>Fecha API</th><th>Payload</th></tr>$($eventRows -join "`n")</table></section>"
+    } catch {
+        $detail = Encode ($_.Exception.Message + $(if ($_.Exception.InnerException) { ' (' + $_.Exception.InnerException.Message + ')' }))
+        return "<section class=""stop""><strong>API desconocida o no disponible</strong><p>No se pudo validar el snapshot; no se presenta como tablero vacío. Fuente configurada: <code>$source</code>.</p><p class=""meta"">$detail</p></section>"
+    }
+}
 function Get-Field([string]$text, [string]$name) {
     if ($text -match "(?m)^\|\s*$name\s*\|\s*(.*?)\s*\|\s*$") { $Matches[1] } else { '' }
 }
@@ -466,6 +548,7 @@ function Get-AlignmentHtml([string]$name, [string]$application = '') {
 
 function Build-Page {
 $agentBoard = Get-AgentBoardData
+$apiBoardHtml = if ($LeerApi) { Get-ApiBoardHtml } else { '' }
 $readsText = if (Test-Path -LiteralPath $integrationReads -PathType Leaf) {
     try { Get-Content -LiteralPath $integrationReads -Raw -Encoding utf8 -ErrorAction Stop }
     catch {
@@ -1181,6 +1264,7 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
   <button data-tab="historico">Etapas completadas</button>
   <button data-tab="etapas">Plan de etapas</button>
   <button data-tab="roadmap">Roadmap</button>
+  $(if ($LeerApi) { '<button data-tab="api">API core</button>' })
   $(if ($flowListener) { "<button id=""run-flow"" type=""button"" aria-label=""Abrir el ciclo global de integración"">Abrir ciclo de integración</button>" } else { '<button id="run-flow" type="button" disabled title="El puente local no está activo; inicia el visor con Seguimiento.cmd">Abrir ciclo de integración</button>' })
 </nav>
 <p id="flow-status" class="meta" role="status" aria-live="polite" style="max-width:1100px;margin:6px auto;padding:0 16px"></p>
@@ -1219,6 +1303,7 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
   </div>
   <div class="tab" id="etapas"><section class="panel doc features">$features</section></div>
   <div class="tab" id="roadmap"><section class="panel doc">$fullRoadmap</section></div>
+  $(if ($LeerApi) { "<div class=""tab"" id=""api"">$apiBoardHtml</div>" })
 </main>
 <script>
   // The selected tab lives in the URL hash so the periodic reload keeps it.
