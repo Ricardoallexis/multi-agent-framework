@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import sqlite3
+import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,6 +14,23 @@ from multiagent.config import Settings
 from multiagent.db import Database
 from multiagent.db.gate_store import OUTPUT_EXCERPT_CHARS, GateStore
 from multiagent.db.task_store import TaskStore
+
+
+def _legacy_database(tmp_path: Path, through: int) -> tuple[Database, Path]:
+    source = Path(__file__).parents[1] / "migrations"
+    migrations_dir = tmp_path / "migrations"
+    migrations_dir.mkdir()
+    for path in sorted(source.glob("*.sql")):
+        if int(path.stem.split("_", 1)[0]) <= through:
+            shutil.copyfile(path, migrations_dir / path.name)
+    db = Database(SimpleNamespace(db_path=tmp_path / "data" / "multiagent.db",
+                                  migrations_dir=migrations_dir))
+    return db, migrations_dir
+
+
+def _enable_migration(migrations_dir: Path, name: str) -> None:
+    source = Path(__file__).parents[1] / "migrations" / name
+    shutil.copyfile(source, migrations_dir / name)
 
 
 @pytest.fixture
@@ -32,14 +51,23 @@ def result(gates: GateStore, conn, **overrides):
     return gates.insert_result(conn, **values)
 
 
-def test_migration_005_adds_gates_without_touching_tasks(stores):
-    tasks, gates = stores
-    assert gates.db.schema_version() == 6
-    with gates.db.connect() as conn:
+def test_migration_005_adds_gates_without_touching_tasks(tmp_path: Path):
+    db, migrations_dir = _legacy_database(tmp_path, 4)
+    db.migrate()
+    with db.connect() as conn:
+        conn.execute("INSERT INTO task_groups(id,title,created_by,created_at,updated_at) VALUES('G','Group','user','t','t')")
+        conn.execute("INSERT INTO tasks(id,group_id,title,created_by,created_at,updated_at) VALUES('G-T01','G','Task','user','t','t')")
+        conn.commit()
+    _enable_migration(migrations_dir, "005_gates.sql")
+    assert db.migrate() == ["005_gates.sql"]
+    assert db.schema_version() == 5
+    with db.connect() as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        group_gate = conn.execute("SELECT default_gate_json FROM task_groups WHERE id='G'").fetchone()[0]
+        task = conn.execute("SELECT title,gate_json FROM tasks WHERE id='G-T01'").fetchone()
     assert "gate_results" in tables
-    assert tasks.get_group("G")["default_gate"] == []
-    assert tasks.get_task("G-T01")["gate"] == []
+    assert group_gate == "[]"
+    assert (task["title"], task["gate_json"]) == ("Task", "[]")
 
 
 def test_task_and_group_gates_are_stored(stores):
@@ -100,16 +128,14 @@ def test_invalid_results_are_rejected(stores):
 
 
 def test_migration_005_keeps_existing_tasks(tmp_path: Path):
-    settings = Settings(data_dir=tmp_path / "data", db_path=tmp_path / "data" / "multiagent.db")
-    db = Database(settings)
-    migrations = sorted(settings.migrations_dir.glob("*.sql"))
+    db, migrations_dir = _legacy_database(tmp_path, 4)
+    db.migrate()
     with db.connect() as conn:
-        conn.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)")
-        for version, path in enumerate(migrations[:4], start=1):
-            conn.executescript(path.read_text(encoding="utf-8"))
-            conn.execute("INSERT INTO schema_version(version,name,applied_at) VALUES(?,?,'old')", (version, path.name))
         conn.execute("INSERT INTO task_groups(id,title,created_by,created_at,updated_at) VALUES('G','Old','user','t','t')")
         conn.commit()
-    assert db.migrate() == ["005_gates.sql", "006_envelopes.sql"]
-    group = TaskStore(db).get_group("G")
-    assert (group["title"], group["default_gate"]) == ("Old", [])
+    _enable_migration(migrations_dir, "005_gates.sql")
+    assert db.migrate() == ["005_gates.sql"]
+    assert db.schema_version() == 5
+    with db.connect() as conn:
+        group = conn.execute("SELECT title,default_gate_json FROM task_groups WHERE id='G'").fetchone()
+    assert tuple(group) == ("Old", "[]")

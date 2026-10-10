@@ -235,7 +235,40 @@ def cmd_task_do(args) -> None:
     body = {"action": args.action, "actor": args.actor, "cause": args.cause}
     if args.revision is not None:
         body["expected_revision"] = args.revision
+    if args.actor_domain is not None:
+        body["actor_domain"] = args.actor_domain
     pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/transitions", json_body=body))
+
+
+def cmd_task_snapshot(args) -> None:
+    if args.operation == "import":
+        try:
+            body = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Could not read snapshot JSON file '{args.file}': {exc}") from exc
+        if not isinstance(body, dict):
+            raise ValueError("Snapshot file must contain a JSON object.")
+        required = {"snapshot", "source_key", "source_ref", "snapshot_sha256"}
+        missing = sorted(required - body.keys())
+        extra = sorted(body.keys() - required)
+        if missing or extra:
+            details = []
+            if missing:
+                details.append("missing fields: " + ", ".join(missing))
+            if extra:
+                details.append("unsupported fields: " + ", ".join(extra))
+            raise ValueError("Invalid snapshot file (" + "; ".join(details) + ").")
+        if not isinstance(body["snapshot"], dict):
+            raise ValueError("Snapshot file field 'snapshot' must be a JSON object.")
+        body["actor"] = args.actor
+        if args.what_if:
+            body["what_if"] = True
+        pretty(_api_json("POST", "/api/v1/task-snapshots/import", json_body=body))
+    elif args.operation == "show":
+        pretty(_api_json("GET", f"/api/v1/task-snapshots/{_segment(args.source_key)}"))
+    else:
+        pretty(_api_json("POST", f"/api/v1/task-snapshots/{_segment(args.source_key)}/rollback",
+                         json_body={"actor": args.actor}))
 
 
 def cmd_task_gate(args) -> None:
@@ -689,7 +722,17 @@ def build_parser() -> argparse.ArgumentParser:
     x = task.add_parser("do", help="Apply one action: claim, unclaim, start, pause, resume, submit, accept, request_changes, fail, cancel")
     x.add_argument("task_id"); x.add_argument("action"); x.add_argument("--actor", required=True)
     x.add_argument("--cause", default=""); x.add_argument("--revision", type=int, help="Fail unless the task is still at this revision")
+    x.add_argument("--actor-domain", help="Workspace domain for a pending task's workspace-scoped locks")
     x.set_defaults(func=cmd_task_do)
+    snapshot = task.add_parser("snapshot", help="Import, inspect or roll back an imported task snapshot")
+    snapshot_sub = snapshot.add_subparsers(dest="operation", required=True)
+    x = snapshot_sub.add_parser("import", help="Import a snapshot JSON file; --actor is the current importer")
+    x.add_argument("file", help="JSON object with snapshot, source_key, source_ref and snapshot_sha256")
+    x.add_argument("--actor", required=True); x.add_argument("--what-if", action="store_true")
+    x.set_defaults(func=cmd_task_snapshot)
+    x = snapshot_sub.add_parser("show"); x.add_argument("source_key"); x.set_defaults(func=cmd_task_snapshot)
+    x = snapshot_sub.add_parser("rollback"); x.add_argument("source_key"); x.add_argument("--actor", required=True)
+    x.set_defaults(func=cmd_task_snapshot)
     x = task.add_parser("gate", help="Show, set, run or abort a task's gate, or list its results")
     x.add_argument("operation", choices=["show", "set", "run", "abort", "results"]); x.add_argument("task_id")
     x.add_argument("--check", action="append", help="For set: tests, commit, review or command:<name>; repeatable; none clears")

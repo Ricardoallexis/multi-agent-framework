@@ -175,6 +175,20 @@ class TaskTransitionRequest(_Body):
     actor: str
     cause: str = ""
     expected_revision: int | None = None
+    actor_domain: str | None = None
+
+
+class TaskSnapshotImportRequest(_Body):
+    snapshot: dict[str, Any]
+    source_key: str
+    source_ref: str
+    snapshot_sha256: str
+    actor: str
+    what_if: bool = False
+
+
+class TaskSnapshotRollbackRequest(_Body):
+    actor: str
 
 
 class TaskContextUpdate(_Body):
@@ -361,6 +375,20 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         return services.tasks.update_group(group_id, actor=body.actor, title=body.title,
                                            authorized=body.authorized, default_requires=body.default_requires)
 
+    @app.post("/api/v1/task-snapshots/import")
+    def import_task_snapshot(body: TaskSnapshotImportRequest):
+        operation = services.tasks.plan_snapshot if body.what_if else services.tasks.import_snapshot
+        return operation(body.snapshot, source_key=body.source_key, source_ref=body.source_ref,
+                         snapshot_sha256=body.snapshot_sha256, actor=body.actor)
+
+    @app.get("/api/v1/task-snapshots/{source_key}")
+    def get_task_snapshot(source_key: str):
+        return services.tasks.get_snapshot(source_key)
+
+    @app.post("/api/v1/task-snapshots/{source_key}/rollback")
+    def rollback_task_snapshot(source_key: str, body: TaskSnapshotRollbackRequest):
+        return services.tasks.rollback_snapshot(source_key, actor=body.actor)
+
     @app.get("/api/v1/tasks")
     def list_tasks(group: str | None = None, status: str | None = None, assignee: str | None = None):
         return services.tasks.list_tasks(group_id=group, status=status, assignee=assignee)
@@ -393,7 +421,7 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def transition_task(task_id: str, body: TaskTransitionRequest):
         """The single state-change route: ``{action, actor, cause?, expected_revision?}``."""
         return services.tasks.transition(task_id, body.action, actor=body.actor, cause=body.cause,
-                                         expected_revision=body.expected_revision)
+                                         expected_revision=body.expected_revision, actor_domain=body.actor_domain)
 
     # --- gates (ORQ-2) ----------------------------------------------------------
 

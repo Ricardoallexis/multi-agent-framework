@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,6 +17,23 @@ from multiagent.db import Database
 from multiagent.db import envelope_store
 from multiagent.db.envelope_store import EnvelopeStore
 from multiagent.db.task_store import TaskStore
+
+
+def _legacy_database(tmp_path: Path, through: int) -> tuple[Database, Path]:
+    source = Path(__file__).parents[1] / "migrations"
+    migrations_dir = tmp_path / "migrations"
+    migrations_dir.mkdir()
+    for path in sorted(source.glob("*.sql")):
+        if int(path.stem.split("_", 1)[0]) <= through:
+            shutil.copyfile(path, migrations_dir / path.name)
+    db = Database(SimpleNamespace(data_dir=tmp_path / "data", db_path=tmp_path / "data" / "multiagent.db",
+                                  migrations_dir=migrations_dir))
+    return db, migrations_dir
+
+
+def _enable_migration(migrations_dir: Path, name: str) -> None:
+    source = Path(__file__).parents[1] / "migrations" / name
+    shutil.copyfile(source, migrations_dir / name)
 
 
 @pytest.fixture
@@ -43,33 +62,69 @@ def add_result(tasks, envelopes, conn=None, *, attempt=1, patch="", body=None, t
         return envelopes.insert_result(own, **kwargs)
 
 
-def test_migration_006_adds_the_tables_and_defaults_without_touching_tasks(stores):
-    tasks, envelopes = stores
-    assert envelopes.db.schema_version() == 6
-    with envelopes.db.connect() as conn:
+def test_migration_006_adds_the_tables_and_defaults_without_touching_tasks(tmp_path: Path):
+    db, migrations_dir = _legacy_database(tmp_path, 5)
+    db.migrate()
+    with db.connect() as conn:
+        conn.execute("INSERT INTO task_groups(id,title,created_by,created_at,updated_at) VALUES('G','Old group','user','t','t')")
+        conn.execute("INSERT INTO tasks(id,group_id,title,created_by,created_at,updated_at) VALUES('G-T01','G','Old task','user','t','t')")
+        conn.commit()
+    _enable_migration(migrations_dir, "006_envelopes.sql")
+    assert db.migrate() == ["006_envelopes.sql"]
+    assert db.schema_version() == 6
+    envelopes = EnvelopeStore(db)
+    with db.connect() as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"blobs", "task_results", "event_cursors"} <= tables
     assert envelopes.task_context("G-T01") == {"base_commit": "", "context_refs": [], "constraints": []}
-    task = tasks.get_task("G-T01")
-    assert (task["state"], task["revision"], task["gate"]) == ("open", 1, [])
+    with db.connect() as conn:
+        task = conn.execute("SELECT state,revision,gate_json FROM tasks WHERE id='G-T01'").fetchone()
+        assert tuple(task) == ("open", 1, "[]")
 
 
 def test_migration_006_keeps_existing_tasks(tmp_path: Path):
-    settings = Settings(data_dir=tmp_path / "data", db_path=tmp_path / "data" / "multiagent.db")
-    db = Database(settings)
-    migrations = sorted(settings.migrations_dir.glob("*.sql"))
+    db, migrations_dir = _legacy_database(tmp_path, 5)
+    db.migrate()
     with db.connect() as conn:
-        conn.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)")
-        for version, path in enumerate(migrations[:5], start=1):
-            conn.executescript(path.read_text(encoding="utf-8"))
-            conn.execute("INSERT INTO schema_version(version,name,applied_at) VALUES(?,?,'old')", (version, path.name))
         conn.execute("INSERT INTO task_groups(id,title,created_by,created_at,updated_at) VALUES('G','Old','user','t','t')")
-        conn.execute("INSERT INTO tasks(id,group_id,title,created_by,created_at,updated_at) "
-                     "VALUES('G-T01','G','Old task','user','t','t')")
+        conn.execute("INSERT INTO tasks(id,group_id,title,created_by,created_at,updated_at) VALUES('G-T01','G','Old task','user','t','t')")
         conn.commit()
+    _enable_migration(migrations_dir, "006_envelopes.sql")
     assert db.migrate() == ["006_envelopes.sql"]
+    assert db.schema_version() == 6
     assert EnvelopeStore(db).task_context("G-T01") == {"base_commit": "", "context_refs": [], "constraints": []}
-    assert TaskStore(db).get_task("G-T01")["title"] == "Old task"
+    with db.connect() as conn:
+        assert conn.execute("SELECT title FROM tasks WHERE id='G-T01'").fetchone()[0] == "Old task"
+
+
+def test_upgrade_006_to_007_preserves_task_gates_and_context_and_is_idempotent(tmp_path: Path):
+    db, migrations_dir = _legacy_database(tmp_path, 6)
+    db.migrate()
+    envelopes = EnvelopeStore(db)
+    with db.connect() as conn:
+        conn.execute("INSERT INTO task_groups(id,title,created_by,created_at,updated_at,default_gate_json) "
+                     "VALUES('G','Upgrade group','user','t','t','[\"review\"]')")
+        conn.execute("INSERT INTO tasks(id,group_id,title,created_by,created_at,updated_at,gate_json,base_commit,context_refs_json,constraints_json) "
+                     "VALUES('G-T01','G','Upgrade task','user','t','t','[\"command:test\"]','abcdef1','[\"doc://spec@abcdef1\"]','[\"keep evidence\"]')")
+        conn.commit()
+
+    _enable_migration(migrations_dir, "007_task_snapshots.sql")
+    assert db.migrate() == ["007_task_snapshots.sql"]
+    assert db.schema_version() == 7
+    assert db.migrate() == []
+    tasks = TaskStore(db)
+    group = tasks.get_group("G")
+    row = tasks.get_task("G-T01")
+    assert group["default_gate"] == ["review"]
+    assert row["gate"] == ["command:test"]
+    assert row["title"] == "Upgrade task"
+    assert envelopes.task_context("G-T01") == {
+        "base_commit": "abcdef1", "context_refs": ["doc://spec@abcdef1"],
+        "constraints": ["keep evidence"],
+    }
+    with db.connect() as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"task_snapshots", "task_snapshot_objects"} <= tables
 
 
 def test_task_context_is_stored_and_does_not_bump_the_revision(stores):

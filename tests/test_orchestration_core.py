@@ -355,7 +355,9 @@ def test_schema_migration_preserves_run_asset_and_brand(tmp_path):
     conn.commit(); conn.close()
 
     system = build_system(settings_for(tmp_path), dry_run=True)
-    assert system.db.schema_version() == 6
+    migrations = sorted((Path(__file__).parents[1] / "migrations").glob("*.sql"))
+    latest_version = max(int(path.stem.split("_", 1)[0]) for path in migrations)
+    assert system.db.schema_version() == latest_version
     run = system.run_service.get("r")
     assert len(run["request_fingerprint"]) == 64
     assert run["brand_profile_id"] == "b"

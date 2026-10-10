@@ -37,11 +37,15 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import hashlib
+import json
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from ..db.task_store import StaleRevision, TaskStore
 from ..tasks import graph
+from ..tasks.envelopes import (EnvelopeError, MAX_CONTEXT_REFS, MAX_CONSTRAINTS, MAX_CONSTRAINT_CHARS,
+                               parse_reference, validate_reference)
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
 
 if TYPE_CHECKING:
@@ -94,6 +98,12 @@ MAX_EVENT_PAYLOAD_BYTES = 2048
 
 _GROUP_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 _TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_SNAPSHOT_STATES = ("open", "claimed", "paused", "needs_changes", "submitted")
+_COMMIT = re.compile(r"^[0-9a-f]{7,40}$")
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 def _invalid(field: str, message: str, **details: Any) -> ServiceError:
@@ -183,7 +193,7 @@ class TaskServices:
 
     def _view(self, task: Mapping[str, Any], states: Mapping[str, str], deps: list[dict[str, Any]]) -> dict[str, Any]:
         own = [dep for dep in deps if dep["task_id"] == task["id"]]
-        return {
+        view = {
             "id": task["id"],
             "group_id": task["group_id"],
             "title": task["title"],
@@ -199,12 +209,19 @@ class TaskServices:
             "preferred": task["preferred"],
             "requirements": task["requirements"],
             "file_scope": task["file_scope"],
+            "lock_policy": task.get("lock_policy", {}),
+            "workspace_domain": task.get("workspace_domain", ""),
             "attempt": task["attempt"],
             "revision": task["revision"],
             "created_by": task["created_by"],
             "created_at": task["created_at"],
             "updated_at": task["updated_at"],
         }
+        provenance = self.store.snapshot_provenance("task", str(task["id"]))
+        if provenance:
+            view["provenance"] = provenance
+            view["attempt_history"] = "unknown"
+        return view
 
     def _task_view(self, task_id: str, conn: sqlite3.Connection) -> dict[str, Any]:
         tasks, deps = self._snapshot(conn)
@@ -218,7 +235,11 @@ class TaskServices:
             if task["group_id"] == group["id"]:
                 status = graph.effective_status(task_id, states, deps)
                 counts[status] = counts.get(status, 0) + 1
-        return {**group, "counts": counts}
+        result = {**group, "counts": counts}
+        provenance = self.store.snapshot_provenance("group", str(group["id"]), conn=conn)
+        if provenance:
+            result["provenance"] = provenance
+        return result
 
     def _group_or_missing(self, group_id: str, conn: sqlite3.Connection) -> dict[str, Any]:
         group = self.store.get_group(group_id, conn=conn)
@@ -235,6 +256,380 @@ class TaskServices:
         for dependent in graph.newly_ready(changed, before, after, deps):
             self.store.append_event(conn, "task.ready", actor=actor, group_id=tasks[dependent]["group_id"],
                                     task_id=dependent, cause=cause, payload={"from": "blocked", "to": "ready"})
+
+    # -------- native snapshots (ORQ-4 A) --------
+    def _normalize_snapshot(self, snapshot: Mapping[str, Any], *, source_key: str, source_ref: str,
+                            snapshot_sha256: str, actor: str) -> tuple[dict[str, Any], str]:
+        from .gates import normalize_checks
+        if not isinstance(snapshot, Mapping):
+            raise _invalid("snapshot", "snapshot must be an object")
+        b_only = {"legacy_release_mode", "release_mode", "release_dependencies", "delivery", "delivery_fact",
+                  "patch_sha256", "release_threshold"}
+        if b_only.intersection(snapshot):
+            raise _conflict("Snapshot requires the legacy release capability",
+                            required_capability="release_dependencies/v1")
+        for field, value in (("source_key", source_key), ("source_ref", source_ref), ("actor", actor)):
+            _text(field, value, maximum=500)
+        for group in snapshot.get("groups", []) if isinstance(snapshot.get("groups", []), list) else []:
+            if isinstance(group, Mapping) and b_only.intersection(group):
+                raise _conflict("Snapshot requires the legacy release capability",
+                                required_capability="release_dependencies/v1")
+        for dep in snapshot.get("dependencies", []) if isinstance(snapshot.get("dependencies", []), list) else []:
+            if isinstance(dep, Mapping) and ("kind" in dep or b_only.intersection(dep)):
+                raise _conflict("Snapshot requires the legacy release capability",
+                                required_capability="release_dependencies/v1")
+        required = {"groups", "tasks", "dependencies"}
+        if set(snapshot) != required:
+            raise _invalid("snapshot", "snapshot must contain exactly groups, tasks and dependencies",
+                           expected=sorted(required), actual=sorted(map(str, snapshot.keys())))
+        body = {"groups": snapshot["groups"], "tasks": snapshot["tasks"],
+                "dependencies": snapshot["dependencies"]}
+        if any(not isinstance(body[key], list) for key in required):
+            raise _invalid("snapshot", "groups, tasks and dependencies must be lists")
+        try:
+            digest = hashlib.sha256(_canonical_json(body).encode("utf-8")).hexdigest()
+        except (TypeError, ValueError):
+            raise _invalid("snapshot", "snapshot must be strict JSON data") from None
+        if not isinstance(snapshot_sha256, str) or snapshot_sha256.lower() != digest:
+            raise _invalid("snapshot_sha256", "snapshot_sha256 does not match canonical snapshot",
+                           expected=digest)
+        groups: list[dict[str, Any]] = []
+        tasks: list[dict[str, Any]] = []
+        deps: list[dict[str, str]] = []
+        seen_groups: set[str] = set()
+        seen_tasks: set[str] = set()
+        for raw in body["groups"]:
+            if not isinstance(raw, Mapping):
+                raise _invalid("groups", "each group must be an object")
+            allowed_group = {"id", "title", "authorized", "default_requires", "default_gate", "source_id", "source_state"}
+            if set(raw) - allowed_group:
+                raise _invalid("groups", "unsupported group fields", fields=sorted(set(raw) - allowed_group))
+            gid = _identifier("group_id", raw.get("id"), _GROUP_ID)
+            if gid in seen_groups:
+                raise _invalid("groups", f"Repeated group id: {gid}")
+            seen_groups.add(gid)
+            title = _text("title", raw.get("title"), maximum=200)
+            authorized = raw.get("authorized")
+            if not isinstance(authorized, bool):
+                raise _invalid("authorized", "group authorized must be boolean")
+            req = _requires(raw.get("default_requires", "accepted"), "default_requires")
+            gate = raw.get("default_gate", [])
+            if not isinstance(gate, list):
+                raise _invalid("default_gate", "default_gate must be a list")
+            gate = normalize_checks(gate)
+            groups.append({"id": gid, "title": title, "authorized": authorized,
+                           "default_requires": req, "default_gate": gate,
+                           "source_id": _text("source_id", raw.get("source_id", ""), maximum=200, required=False),
+                           "source_state": _text("source_state", raw.get("source_state", ""), maximum=100, required=False)})
+        for raw in body["tasks"]:
+            if not isinstance(raw, Mapping):
+                raise _invalid("tasks", "each task must be an object")
+            if b_only.intersection(raw):
+                raise _conflict("Snapshot requires the legacy release capability",
+                                required_capability="release_dependencies/v1")
+            allowed_task = {"id", "group_id", "title", "objective", "state", "assignee", "preferred", "requirements",
+                            "file_scope", "lock_policy", "workspace_domain", "base_commit", "context_refs", "constraints",
+                            "gate", "source_id", "source_state"}
+            if set(raw) - allowed_task:
+                raise _invalid("tasks", "unsupported task fields", fields=sorted(set(raw) - allowed_task))
+            tid = _identifier("task_id", raw.get("id"), _TASK_ID)
+            if tid in seen_tasks:
+                raise _invalid("tasks", f"Repeated task id: {tid}")
+            seen_tasks.add(tid)
+            if raw.get("state") not in _SNAPSHOT_STATES:
+                raise _invalid("state", "snapshot state must be open, claimed, paused, needs_changes or submitted",
+                               task_id=tid)
+            gid = _identifier("group_id", raw.get("group_id"), _GROUP_ID)
+            state = raw["state"]
+            scope = _paths(raw.get("file_scope", []))
+            raw_assignee = raw.get("assignee", "")
+            assignee = "" if raw_assignee is None else _text("assignee", raw_assignee, maximum=100, required=False)
+            if state in ("claimed", "paused", "needs_changes") and not assignee:
+                raise _invalid("assignee", f"{state} snapshot task requires its current assignee", task_id=tid)
+            raw_domain = raw.get("workspace_domain", "")
+            domain = "" if raw_domain is None else _text("workspace_domain", raw_domain, maximum=200, required=False)
+            policy = raw.get("lock_policy")
+            if policy is None:
+                policy = ({"shared_scope": [], "workspace_scope": []} if state in ("open", "needs_changes", "submitted") else
+                          {"shared_scope": scope if state == "claimed" else [],
+                           "workspace_scope": scope if state == "paused" else []})
+            if not isinstance(policy, Mapping) or set(policy) != {"shared_scope", "workspace_scope"}:
+                raise _invalid("lock_policy", "lock_policy requires shared_scope and workspace_scope", task_id=tid)
+            shared, workspace = _paths(policy["shared_scope"]), _paths(policy["workspace_scope"])
+            if any(not any(p == declared or p.startswith(declared + "/") for declared in scope)
+                   for p in shared + workspace):
+                raise _invalid("lock_policy", "lock scopes must be contained in declared file_scope", task_id=tid)
+            if workspace and not domain:
+                raise _invalid("workspace_domain", "workspace_domain is required for workspace locks", task_id=tid)
+            if state == "claimed" and (shared != scope or workspace):
+                raise _invalid("lock_policy", "claimed snapshots must retain the complete global file_scope lock", task_id=tid)
+            if state == "paused" and set(shared + workspace) != set(scope):
+                raise _invalid("lock_policy", "paused snapshots must partition their complete file_scope", task_id=tid)
+            if state == "paused" and set(shared).intersection(workspace):
+                raise _invalid("lock_policy", "a paused path cannot be both shared and workspace-scoped", task_id=tid)
+            if state in ("open", "needs_changes", "submitted") and (shared or workspace):
+                raise _invalid("lock_policy", f"{state} snapshots must not retain locks", task_id=tid)
+            base_commit = raw.get("base_commit", "")
+            base_commit = _text("base_commit", base_commit, maximum=40, required=False)
+            if base_commit and not _COMMIT.fullmatch(base_commit):
+                raise _invalid("base_commit", "base_commit must be empty or 7 to 40 lowercase hex characters", task_id=tid)
+            refs, constraints = raw.get("context_refs", []), raw.get("constraints", [])
+            if not isinstance(refs, list) or len(refs) > MAX_CONTEXT_REFS:
+                raise _invalid("context_refs", f"context_refs must be a list of at most {MAX_CONTEXT_REFS}", task_id=tid)
+            try:
+                refs = list(dict.fromkeys(validate_reference(ref, field="context_refs") for ref in refs))
+            except EnvelopeError as exc:
+                raise _invalid(exc.field, str(exc), task_id=tid) from None
+            if not isinstance(constraints, list) or len(constraints) > MAX_CONSTRAINTS:
+                raise _invalid("constraints", f"constraints must be a list of at most {MAX_CONSTRAINTS}", task_id=tid)
+            constraints = [_text("constraints", x, maximum=MAX_CONSTRAINT_CHARS) for x in constraints]
+            gate = raw.get("gate", [])
+            if not isinstance(gate, list):
+                raise _invalid("gate", "gate must be a list", task_id=tid)
+            gate = normalize_checks(gate)
+            tasks.append({"id": tid, "group_id": gid, "title": _text("title", raw.get("title"), maximum=200),
+                          "objective": _text("objective", raw.get("objective", ""), maximum=4000, required=False),
+                          "state": state, "assignee": assignee,
+                          "preferred": _text("preferred", raw.get("preferred", ""), maximum=100, required=False),
+                          "requirements": _labels(raw.get("requirements", [])), "file_scope": scope,
+                          "lock_policy": {"shared_scope": shared, "workspace_scope": workspace},
+                          "workspace_domain": domain, "epoch_pending": state == "paused",
+                          "base_commit": base_commit, "context_refs": refs, "constraints": constraints, "gate": gate,
+                          "source_id": _text("source_id", raw.get("source_id", ""), maximum=200, required=False),
+                          "source_state": _text("source_state", raw.get("source_state", ""), maximum=100, required=False)})
+        seen_edges: set[tuple[str, str]] = set()
+        for raw in body["dependencies"]:
+            if not isinstance(raw, Mapping) or set(raw) != {"task_id", "depends_on_id", "requires"}:
+                raise _invalid("dependencies", "native dependency requires task_id, depends_on_id and requires")
+            tid = _identifier("task_id", raw["task_id"], _TASK_ID)
+            depid = _identifier("depends_on_id", raw["depends_on_id"], _TASK_ID)
+            req = _requires(raw["requires"])
+            edge = (tid, depid)
+            if edge in seen_edges:
+                raise _invalid("dependencies", f"Repeated dependency: {tid} -> {depid}")
+            seen_edges.add(edge)
+            deps.append({"task_id": tid, "depends_on_id": depid, "requires": req})
+        normalized = {"groups": groups, "tasks": tasks, "dependencies": deps}
+        return normalized, digest
+
+    def _check_snapshot_collisions(self, conn: sqlite3.Connection, batch: Mapping[str, Any]) -> None:
+        for group in batch["groups"]:
+            if self.store.get_group(group["id"], conn=conn):
+                raise _conflict(f"Group already exists: {group['id']}", group_id=group["id"])
+        for task in batch["tasks"]:
+            if self.store.get_task(task["id"], conn=conn):
+                raise _conflict(f"Task already exists: {task['id']}", task_id=task["id"])
+            if task["group_id"] not in {g["id"] for g in batch["groups"]} and not self.store.get_group(task["group_id"], conn=conn):
+                raise _missing("Group", task["group_id"])
+        task_ids = {t["id"] for t in batch["tasks"]}
+        for dep in batch["dependencies"]:
+            if dep["task_id"] not in task_ids or dep["depends_on_id"] not in task_ids:
+                raise _invalid("dependencies", "snapshot dependencies must connect tasks in this batch")
+        cycle = graph.find_cycle(batch["dependencies"])
+        if cycle:
+            raise _invalid("dependencies", "Dependency cycle: " + " -> ".join(cycle), cycle=cycle)
+        candidates = [t for t in batch["tasks"] if t["state"] in _LOCKING_STATES]
+        existing = self.store.list_tasks(conn=conn)
+        pairs: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+        for candidate in candidates:
+            pairs.extend((candidate, row) for row in existing if row["state"] in _LOCKING_STATES)
+        for index, candidate in enumerate(candidates):
+            pairs.extend((candidate, other) for other in candidates[index + 1:])
+        for candidate, other in pairs:
+            if candidate.get("assignee") and candidate.get("assignee") == other.get("assignee"):
+                continue
+            cpolicy = candidate.get("lock_policy") or {"shared_scope": candidate["file_scope"], "workspace_scope": []}
+            opolicy = other.get("lock_policy") or {"shared_scope": other["file_scope"], "workspace_scope": []}
+            if "shared_scope" not in opolicy and "workspace_scope" not in opolicy:
+                opolicy = {"shared_scope": other["file_scope"], "workspace_scope": []}
+            if candidate["state"] == "paused" and other["state"] == "paused":
+                overlap = self._policies_conflict(cpolicy, candidate.get("workspace_domain") or None,
+                                                  opolicy, other.get("workspace_domain") or None)
+            elif candidate["state"] == "paused":
+                overlap = self._policies_conflict(cpolicy, candidate.get("workspace_domain") or None,
+                                                  opolicy, other.get("workspace_domain") or None, paused_owner=1)
+            elif other["state"] == "paused":
+                overlap = self._policies_conflict(cpolicy, candidate.get("workspace_domain") or None,
+                                                  opolicy, other.get("workspace_domain") or None, paused_owner=2)
+            else:
+                opolicy = {"shared_scope": list(opolicy.get("shared_scope", []))
+                           + list(opolicy.get("workspace_scope", [])), "workspace_scope": []}
+                overlap = self._policies_conflict(cpolicy, candidate.get("workspace_domain") or None,
+                                                  opolicy, other.get("workspace_domain") or None)
+            if overlap:
+                raise _conflict("Snapshot contains conflicting active locks", task_id=candidate["id"],
+                                conflicts=[{"task_id": other["id"], "paths": overlap}])
+
+    @service_errors
+    def plan_snapshot(self, snapshot: Mapping[str, Any], *, source_key: str, source_ref: str,
+                      snapshot_sha256: str, actor: str) -> dict[str, Any]:
+        batch, digest = self._normalize_snapshot(snapshot, source_key=source_key, source_ref=source_ref,
+                                                  snapshot_sha256=snapshot_sha256, actor=actor)
+        with self.store.db.connect() as conn:
+            self._check_snapshot_collisions(conn, batch)
+        return {"status": "planned", "source_key": source_key, "source_ref": source_ref,
+                "snapshot_sha256": digest, "groups": [g["id"] for g in batch["groups"]],
+                "tasks": [t["id"] for t in batch["tasks"]], "dependencies": batch["dependencies"],
+                "warnings": ["Imported history is unknown; no transitions, gate results or task results are created."]}
+
+    @service_errors
+    def import_snapshot(self, snapshot: Mapping[str, Any], *, source_key: str, source_ref: str,
+                        snapshot_sha256: str, actor: str) -> dict[str, Any]:
+        batch, digest = self._normalize_snapshot(snapshot, source_key=source_key, source_ref=source_ref,
+                                                  snapshot_sha256=snapshot_sha256, actor=actor)
+        actor = _text("actor", actor, maximum=100)
+        raw_snapshot = _canonical_json({"groups": snapshot["groups"], "tasks": snapshot["tasks"],
+                                        "dependencies": snapshot["dependencies"]})
+        with self.store.transaction() as conn:
+            prior = self.store.snapshot(source_key, conn=conn)
+            if prior:
+                if prior["snapshot_sha256"] != digest:
+                    raise _conflict("source_key already identifies a different snapshot", source_key=source_key)
+                return self._snapshot_receipt(prior, conn)
+            self._check_snapshot_collisions(conn, batch)
+            for group in batch["groups"]:
+                self.store.insert_group(conn, group["id"], group["title"], actor=actor,
+                                        authorized=group["authorized"], default_requires=group["default_requires"],
+                                        default_gate=group["default_gate"])
+            for task in batch["tasks"]:
+                self.store.insert_snapshot_task(conn, task, actor=actor)
+                for name in ("context_refs", "constraints"):
+                    if not isinstance(task[name], list):
+                        raise _invalid(name, f"{name} must be a list", task_id=task["id"])
+                self.store.db  # keep the store's transaction boundary explicit
+                conn.execute("UPDATE tasks SET base_commit=?,context_refs_json=?,constraints_json=? WHERE id=?",
+                             (task["base_commit"], json.dumps(task["context_refs"], ensure_ascii=False, separators=(",", ":")),
+                              json.dumps(task["constraints"], ensure_ascii=False, separators=(",", ":")), task["id"]))
+            for dep in batch["dependencies"]:
+                self.store.insert_dependency(conn, dep["task_id"], dep["depends_on_id"], dep["requires"])
+            seq = self.store.append_event(conn, "snapshot.imported", actor=actor, ref=source_ref,
+                                          payload={"source_key": source_key, "snapshot_sha256": digest,
+                                                   "groups": len(batch["groups"]), "tasks": len(batch["tasks"]),
+                                                   "dependencies": len(batch["dependencies"])})
+            self.store.insert_snapshot(conn, source_key=source_key, source_ref=source_ref,
+                                       snapshot_sha256=digest, actor=actor, snapshot_json=raw_snapshot, event_seq=seq)
+            for group in batch["groups"]:
+                self.store.add_snapshot_object(conn, source_key=source_key, object_type="group",
+                                               object_id=group["id"], source_id=group["source_id"],
+                                               source_state=group["source_state"])
+            for task in batch["tasks"]:
+                self.store.add_snapshot_object(conn, source_key=source_key, object_type="task",
+                                               object_id=task["id"], source_id=task["source_id"],
+                                               source_state=task["source_state"])
+            return self._snapshot_receipt(self.store.snapshot(source_key, conn=conn), conn)
+
+    def _snapshot_receipt(self, receipt: Mapping[str, Any], conn: sqlite3.Connection) -> dict[str, Any]:
+        batch = receipt["snapshot"]
+        return {"source_key": receipt["source_key"], "source_ref": receipt["source_ref"],
+                "snapshot_sha256": receipt["snapshot_sha256"], "actor": receipt["actor"],
+                "imported_at": receipt["imported_at"], "event_seq": receipt["event_seq"],
+                "state": receipt["state"], "rollback_actor": receipt["rollback_actor"],
+                "rolled_back_at": receipt["rolled_back_at"], "rollback_event_seq": receipt["rollback_event_seq"],
+                "groups": [g["id"] for g in batch["groups"]], "tasks": [t["id"] for t in batch["tasks"]],
+                "dependencies": batch["dependencies"]}
+
+    @service_errors
+    def get_snapshot(self, source_key: str) -> dict[str, Any]:
+        with self.store.db.connect() as conn:
+            receipt = self.store.snapshot(source_key, conn=conn)
+            if receipt is None:
+                raise _missing("Snapshot", source_key)
+            return self._snapshot_receipt(receipt, conn)
+
+    @service_errors
+    def rollback_snapshot(self, source_key: str, *, actor: str) -> dict[str, Any]:
+        actor = _text("actor", actor, maximum=100)
+        with self.store.transaction() as conn:
+            receipt = self.store.snapshot(source_key, conn=conn)
+            if receipt is None:
+                raise _missing("Snapshot", source_key)
+            if receipt["state"] == "rolled_back":
+                return self._snapshot_receipt(receipt, conn)
+            ids = [row[0] for row in conn.execute(
+                "SELECT object_id FROM task_snapshot_objects WHERE source_key=? AND object_type='task'", (source_key,))]
+            gids = [row[0] for row in conn.execute(
+                "SELECT object_id FROM task_snapshot_objects WHERE source_key=? AND object_type='group'", (source_key,))]
+            marker = receipt["event_seq"]
+            if ids or gids:
+                task_marks = ",".join("?" * len(ids)) or "''"
+                group_marks = ",".join("?" * len(gids)) or "''"
+                later = conn.execute(
+                    f"SELECT 1 FROM team_events WHERE seq>? AND "
+                    f"(task_id IN ({task_marks}) OR group_id IN ({group_marks})) LIMIT 1",
+                    (marker, *ids, *gids),
+                ).fetchone()
+                if later:
+                    raise _conflict("Snapshot objects have later activity; rollback is unsafe", source_key=source_key)
+            if conn.execute("SELECT 1 FROM event_cursors WHERE seq>=? LIMIT 1", (marker,)).fetchone():
+                raise _conflict("Snapshot event has been consumed; rollback is unsafe", source_key=source_key)
+            if ids:
+                marks = ",".join("?" * len(ids))
+                for row in conn.execute(f"SELECT id,context_refs_json FROM tasks WHERE id NOT IN ({marks})", ids):
+                    try:
+                        refs = json.loads(row["context_refs_json"])
+                        dangling = [ref for ref in refs if parse_reference(ref).scheme == "result"
+                                    and parse_reference(ref).task_id in ids]
+                    except (ValueError, TypeError):
+                        raise _conflict("An external task has unreadable references; rollback is unsafe",
+                                        source_key=source_key, task_id=row["id"]) from None
+                    if dangling:
+                        raise _conflict("External tasks reference snapshot results; rollback is unsafe",
+                                        source_key=source_key, task_id=row["id"], references=dangling)
+            batch, _ = self._normalize_snapshot(receipt["snapshot"], source_key=source_key,
+                                                source_ref=receipt["source_ref"],
+                                                snapshot_sha256=receipt["snapshot_sha256"], actor=receipt["actor"])
+            for expected in batch["tasks"]:
+                current = self.store.get_task(expected["id"], conn=conn)
+                untouched = current is not None and (
+                    current["revision"] == 1 and current["attempt"] == 0 and current["state"] == expected["state"]
+                    and current["assignee"] == expected["assignee"] and current["title"] == expected["title"]
+                    and current["objective"] == expected["objective"] and current["preferred"] == expected["preferred"]
+                    and current["requirements"] == expected["requirements"] and current["file_scope"] == expected["file_scope"]
+                    and current["gate"] == expected["gate"] and current["base_commit"] == expected["base_commit"]
+                    and json.loads(current["context_refs_json"]) == expected["context_refs"]
+                    and json.loads(current["constraints_json"]) == expected["constraints"]
+                    and current["lock_policy"] == expected["lock_policy"]
+                    and current["workspace_domain"] == expected["workspace_domain"]
+                    and bool(current["snapshot_epoch_pending"]) == bool(expected["epoch_pending"])
+                )
+                if not untouched:
+                    raise _conflict("Snapshot task differs from its import baseline; rollback is unsafe",
+                                    source_key=source_key, task_id=expected["id"])
+            for expected in batch["groups"]:
+                current = self.store.get_group(expected["id"], conn=conn)
+                if (current is None or current["title"] != expected["title"]
+                        or current["authorized"] != expected["authorized"]
+                        or current["default_requires"] != expected["default_requires"]
+                        or current.get("default_gate", []) != expected["default_gate"]):
+                    raise _conflict("Snapshot group differs from its import baseline; rollback is unsafe",
+                                    source_key=source_key, group_id=expected["id"])
+            expected_edges = sorted((d["task_id"], d["depends_on_id"], d["requires"])
+                                    for d in batch["dependencies"])
+            actual_edges = sorted((d["task_id"], d["depends_on_id"], d["requires"])
+                                  for tid in ids for d in self.store.dependencies(task_id=tid, conn=conn))
+            if actual_edges != expected_edges:
+                raise _conflict("Snapshot dependencies differ from their import baseline; rollback is unsafe",
+                                source_key=source_key)
+            if ids:
+                marks = ",".join("?" * len(ids))
+                for table, col in (("task_results", "task_id"), ("gate_results", "task_id")):
+                    if conn.execute(f"SELECT 1 FROM {table} WHERE {col} IN ({marks}) LIMIT 1", ids).fetchone():
+                        raise _conflict("Snapshot tasks have downstream evidence; rollback is unsafe", source_key=source_key)
+                if conn.execute(f"SELECT 1 FROM task_deps WHERE depends_on_id IN ({marks}) AND task_id NOT IN ({marks}) LIMIT 1",
+                                (*ids, *ids)).fetchone():
+                    raise _conflict("Snapshot tasks have external dependents; rollback is unsafe", source_key=source_key)
+                conn.execute(f"DELETE FROM task_deps WHERE task_id IN ({marks}) OR depends_on_id IN ({marks})", (*ids, *ids))
+                conn.execute(f"DELETE FROM tasks WHERE id IN ({marks})", ids)
+            if gids:
+                marks = ",".join("?" * len(gids))
+                if conn.execute(f"SELECT 1 FROM tasks WHERE group_id IN ({marks}) LIMIT 1", gids).fetchone():
+                    raise _conflict("Snapshot groups have tasks outside the batch; rollback is unsafe", source_key=source_key)
+                conn.execute(f"DELETE FROM task_groups WHERE id IN ({marks})", gids)
+            rollback_seq = self.store.append_event(conn, "snapshot.rolled_back", actor=actor, ref=receipt["source_ref"],
+                                                   payload={"source_key": source_key, "snapshot_sha256": receipt["snapshot_sha256"]})
+            conn.execute("UPDATE task_snapshots SET state='rolled_back',rollback_actor=?,rolled_back_at=?,rollback_event_seq=? WHERE source_key=?",
+                         (actor, __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(), rollback_seq, source_key))
+            return self._snapshot_receipt(self.store.snapshot(source_key, conn=conn), conn)
 
     # -------- groups --------
     @service_errors
@@ -454,7 +849,7 @@ class TaskServices:
 
     @service_errors
     def transition(self, task_id: str, action: str, *, actor: str, cause: str = "",
-                   expected_revision: int | None = None) -> dict[str, Any]:
+                   expected_revision: int | None = None, actor_domain: str | None = None) -> dict[str, Any]:
         """The single entry point for state changes (see ``TRANSITIONS``).
 
         ``claim`` also requires an authorized group and a ``file_scope`` that
@@ -474,11 +869,14 @@ class TaskServices:
         if expected_revision is not None and (isinstance(expected_revision, bool) or not isinstance(expected_revision, int)):
             raise _invalid("expected_revision", "expected_revision must be an integer")
         with self.store.transaction() as conn:
-            return self._apply(conn, task_id, action, actor=actor, cause=cause, expected_revision=expected_revision)
+            if actor_domain is not None:
+                actor_domain = _text("actor_domain", actor_domain, maximum=200)
+            return self._apply(conn, task_id, action, actor=actor, cause=cause,
+                               expected_revision=expected_revision, actor_domain=actor_domain)
 
     def _apply(self, conn: sqlite3.Connection, task_id: str, action: str, *, actor: str, cause: str = "",
                expected_revision: int | None = None, gate: bool = False, event: str | None = None,
-               payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+               payload: Mapping[str, Any] | None = None, actor_domain: str | None = None) -> dict[str, Any]:
         """Apply one transition inside the caller's transaction (the body of ``transition``).
 
         ``gate=True`` allows the internal gate actions (``GATE_TRANSITIONS``);
@@ -495,6 +893,9 @@ class TaskServices:
             raise _missing("Task", task_id)
         task = tasks[task_id]
         before = self._states(tasks)
+        if gate and action == "gate_start" and task["attempt"] < 1:
+            raise _conflict("A task imported as submitted has no current execution epoch; start it before running a gate",
+                            task_id=task_id, attempt=task["attempt"], historical_attempts="unknown")
         status = graph.effective_status(task_id, before, deps)
         if expected_revision is not None and expected_revision != task["revision"]:
             raise _conflict(f"Task {task_id} is at revision {task['revision']}", task_id=task_id,
@@ -507,6 +908,10 @@ class TaskServices:
                             task_id=task_id, assignee=task["assignee"], actor=actor)
         assignee = task["assignee"]
         attempt = task["attempt"]
+        lock_policy_update = None
+        epoch_pending_update = None
+        workspace_domain_update = None
+        epoch_started = action == "resume" and bool(task.get("snapshot_epoch_pending"))
         if action == "accept":
             # With a gate (ORQ-2), passing it is the only way to accept.
             checks = task["gate"] or self._group_or_missing(task["group_id"], conn).get("default_gate", [])
@@ -516,34 +921,104 @@ class TaskServices:
             group = self._group_or_missing(task["group_id"], conn)
             if not group["authorized"]:
                 raise _conflict(f"Group {group['id']} is not authorized", task_id=task_id, group_id=group["id"])
-            conflicts = []
-            for other in tasks.values():
-                if other["id"] == task_id or other["state"] not in _LOCKING_STATES or other["assignee"] == actor:
-                    continue
-                shared = [path for path in other["file_scope"]
-                          if any(_overlaps(path, mine) for mine in task["file_scope"])]
-                if shared:
-                    conflicts.append({"task_id": other["id"], "assignee": other["assignee"],
-                                      "status": other["state"], "paths": shared})
+            conflicts = self._lock_conflicts(task["file_scope"], task, tasks.values(), actor=actor,
+                                             actor_domain=actor_domain,
+                                             requested_policy={"shared_scope": task["file_scope"], "workspace_scope": []},
+                                             requested_state=target)
             if conflicts:
                 raise _conflict(f"Files of {task_id} are locked by other tasks", task_id=task_id, conflicts=conflicts)
             assignee = actor
+            lock_policy_update = {"shared_scope": task["file_scope"], "workspace_scope": []}
+            workspace_domain_update = actor_domain or ""
         elif action == "unclaim":
             assignee = ""
         elif action == "start":
+            imported = self.store.snapshot_provenance("task", task_id, conn=conn) is not None
+            if task["state"] == "claimed" or task.get("snapshot_epoch_pending") or (imported and task["state"] == "needs_changes"):
+                self._assert_global_lock(task, tasks.values(), actor=actor)
+            if task.get("snapshot_epoch_pending") or (imported and task["state"] == "needs_changes"):
+                lock_policy_update = {"shared_scope": task["file_scope"], "workspace_scope": []}
+                epoch_pending_update = False
             attempt += 1
+        elif action == "resume":
+            self._assert_global_lock(task, tasks.values(), actor=actor)
+            if task.get("snapshot_epoch_pending"):
+                attempt += 1
+                lock_policy_update = {"shared_scope": task["file_scope"], "workspace_scope": []}
+                epoch_pending_update = False
         try:
             self.store.update_task(conn, task_id, expected_revision=task["revision"], state=target,
-                                   assignee=assignee, attempt=attempt)
+                                   assignee=assignee, attempt=attempt, lock_policy=lock_policy_update,
+                                   workspace_domain=workspace_domain_update,
+                                   snapshot_epoch_pending=epoch_pending_update)
         except StaleRevision as stale:
             raise _conflict(str(stale), task_id=task_id, revision=stale.current) from None
         after = {**before, task_id: target}
         self.store.append_event(conn, event or _EVENT_OF_ACTION[action], actor=actor, group_id=task["group_id"],
                                 task_id=task_id, cause=cause,
                                 payload={"from": status, "to": graph.effective_status(task_id, after, deps),
-                                         **(payload or {})})
+                                         **(payload or {}), **({"epoch_start": True} if epoch_started else {})})
         self._announce_ready(conn, task_id, before, after, deps, tasks, actor, f"dependency {task_id} {target}")
         return self._task_view(task_id, conn)
+
+    @staticmethod
+    def _policies_conflict(one: Mapping[str, Any], one_domain: str | None,
+                           two: Mapping[str, Any], two_domain: str | None,
+                           *, paused_owner: int = 0) -> list[str]:
+        overlaps = lambda left, right: [q for q in right if any(_overlaps(p, q) for p in left)]
+        found = overlaps(one.get("shared_scope", []), two.get("shared_scope", []))
+        same_or_unknown = not one_domain or not two_domain or one_domain == two_domain
+        if paused_owner == 2:
+            if same_or_unknown:
+                found += overlaps(one.get("shared_scope", []), two.get("workspace_scope", []))
+                found += overlaps(one.get("workspace_scope", []), two.get("workspace_scope", []))
+        elif paused_owner == 1:
+            if same_or_unknown:
+                found += overlaps(one.get("workspace_scope", []), two.get("shared_scope", []))
+                found += overlaps(one.get("workspace_scope", []), two.get("workspace_scope", []))
+        else:
+            found += overlaps(one.get("shared_scope", []), two.get("workspace_scope", []))
+            found += overlaps(one.get("workspace_scope", []), two.get("shared_scope", []))
+            if same_or_unknown:
+                found += overlaps(one.get("workspace_scope", []), two.get("workspace_scope", []))
+        return list(dict.fromkeys(found))
+
+    @staticmethod
+    def _lock_conflicts(requested: list[str], task: Mapping[str, Any], others: Iterable[Mapping[str, Any]], *,
+                        actor: str, actor_domain: str | None = None,
+                        requested_policy: Mapping[str, Any] | None = None,
+                        requested_state: str | None = None) -> list[dict[str, Any]]:
+        conflicts = []
+        requested_policy = requested_policy or {"shared_scope": requested, "workspace_scope": []}
+        requested_state = requested_state or str(task["state"])
+        for other in others:
+            if other["id"] == task["id"] or other["state"] not in _LOCKING_STATES or other["assignee"] == actor:
+                continue
+            policy = other.get("lock_policy") or {}
+            if "shared_scope" not in policy and "workspace_scope" not in policy:
+                policy = {"shared_scope": other["file_scope"], "workspace_scope": []}
+            if other["state"] == "paused":
+                paths = TaskServices._policies_conflict(requested_policy, actor_domain, policy,
+                                                        other.get("workspace_domain") or None, paused_owner=2)
+            else:
+                # Workspace-scoped locks on an active claimed/running task must
+                # behave globally; domain metadata cannot bypass active locks.
+                active_policy = {"shared_scope": list(policy.get("shared_scope", []))
+                                 + list(policy.get("workspace_scope", [])), "workspace_scope": []}
+                paths = TaskServices._policies_conflict(requested_policy, actor_domain, active_policy,
+                                                        other.get("workspace_domain") or None)
+            if paths:
+                conflicts.append({"task_id": other["id"], "assignee": other["assignee"],
+                                  "status": other["state"], "paths": list(dict.fromkeys(paths))})
+        return conflicts
+
+    def _assert_global_lock(self, task: Mapping[str, Any], others: Iterable[Mapping[str, Any]], *, actor: str) -> None:
+        conflicts = self._lock_conflicts(task["file_scope"], task, others, actor=actor,
+                                         actor_domain=task.get("workspace_domain") or None,
+                                         requested_policy={"shared_scope": task["file_scope"], "workspace_scope": []},
+                                         requested_state="running")
+        if conflicts:
+            raise _conflict(f"Files of {task['id']} are locked by other tasks", task_id=task["id"], conflicts=conflicts)
 
     # -------- team event log --------
     @service_errors

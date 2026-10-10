@@ -501,3 +501,43 @@ Errors use the shared format in [`API.md`](API.md#structured-errors):
 `not_found` (404), `invalid_request` (422, including cycles and malformed
 paths), and `invalid_state` (409, including locked files, unauthorized groups,
 and stale revisions).
+
+## ORQ-4 A: native task snapshots
+
+`tasks.plan_snapshot(snapshot, source_key=…, source_ref=…, snapshot_sha256=…, actor=…)`
+validates and previews an exact `{groups, tasks, dependencies}` batch without
+writing. `import_snapshot` applies it in one transaction. The SHA-256 is over
+UTF-8 canonical JSON of exactly those three fields (sorted keys, compact
+separators). Repeating a source key and hash returns the original receipt;
+reusing a key with another hash conflicts. The receipt is available through
+`get_snapshot(source_key)` and remains after `rollback_snapshot(source_key,
+actor=…)`.
+
+Snapshots preserve only current native states `open`, `claimed`, `paused`,
+`needs_changes`, and `submitted`. They create one `snapshot.imported` event,
+not reconstructed task transitions, results, gate runs, or acceptance evidence.
+An imported task starts at attempt 0 with prior attempts marked unknown. An
+imported paused task starts a new attempt when it is resumed; an imported
+submitted task has no execution epoch, so it cannot run a gate until it is
+started in the current core. Task and group views expose source provenance.
+
+Locks are explicit metadata on the core task rows. `claimed` snapshots must
+hold their whole `file_scope` globally; `paused` snapshots partition that scope
+between `shared_scope` and `workspace_scope` and supply the sibling
+`workspace_domain` field. Missing workspace identity is treated conservatively.
+`needs_changes`, `open`, and `submitted` imports hold no file locks. Starting an
+imported `needs_changes` task or resuming an imported paused task rechecks the
+global scope against current locks before acquiring it. Native claim always
+acquires the whole scope globally, even when `actor_domain` is supplied;
+workspace identity only lets work coexist with a paused imported workspace
+lock in a different known domain. Active claimed/running locks remain global.
+The first resume of an imported paused task marks its `task.resumed` event with
+`epoch_start: true`. Rollback removes only
+the imported batch and is refused after batch activity, changed baseline rows,
+external references, or an acknowledged event cursor; it never rewinds other
+events or deletes the audit receipt.
+
+Legacy release thresholds and delivery evidence belong to ORQ-4 B. A requests
+that require those fields fail with `required_capability: release_dependencies/v1`
+until that capability is installed; they are never projected into native
+`accepted` or `submitted` dependencies.

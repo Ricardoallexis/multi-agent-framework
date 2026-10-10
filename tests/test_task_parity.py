@@ -8,8 +8,10 @@ can run in parallel; T4 waits for both.
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,6 +20,7 @@ from multiagent import cli
 from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.services import ApplicationServices, ServiceError, TaskServices
+from multiagent.tasks.envelopes import canonical_json
 
 
 def make_services(root: Path) -> ApplicationServices:
@@ -148,6 +151,27 @@ class _ClientContext:
 
 
 # (operation, arguments); errors are part of the script.
+def snapshot_operation_args() -> dict[str, Any]:
+    snapshot = {
+        "groups": [{"id": "SNAP-G", "title": "Snapshot parity", "authorized": True}],
+        "tasks": [{
+            "id": "SNAP-T01", "group_id": "SNAP-G", "title": "Synthetic snapshot task",
+            "objective": "Exercise snapshot operations across public interfaces.",
+            "source_id": "T01", "source_state": "disponible", "state": "open",
+            "context_refs": ["doc://fixtures/snapshot-parity.md"], "gate": [],
+        }],
+        "dependencies": [],
+    }
+    return {
+        "snapshot": snapshot,
+        "source_key": "parity:task-snapshot:one",
+        "source_ref": "doc://fixtures/snapshot-parity.json",
+        "snapshot_sha256": hashlib.sha256(canonical_json(snapshot)).hexdigest(),
+        "actor": "agent:parity",
+    }
+
+
+_SNAPSHOT_ARGS = snapshot_operation_args()
 SCRIPT: list[tuple[str, dict[str, Any]]] = [
     ("create_group", {"group_id": "ORQ", "title": "Orchestration", "actor": "user", "authorized": True}),
     ("create_group", {"group_id": "ORQ", "title": "Again", "actor": "user"}),
@@ -179,6 +203,10 @@ SCRIPT: list[tuple[str, dict[str, Any]]] = [
     ("list_groups", {}),
     ("events", {"after": 3}),
     ("events", {"task_id": "T1"}),
+    ("plan_snapshot", _SNAPSHOT_ARGS),
+    ("import_snapshot", _SNAPSHOT_ARGS),
+    ("get_snapshot", {"source_key": _SNAPSHOT_ARGS["source_key"]}),
+    ("rollback_snapshot", {"source_key": _SNAPSHOT_ARGS["source_key"], "actor": "agent:parity"}),
 ]
 
 
@@ -197,6 +225,8 @@ def run_facade(services: ApplicationServices, op: str, args: dict[str, Any]) -> 
         return tasks.transition(args.pop("task_id"), args.pop("action"), **args)
     if op in ("add_dependency", "remove_dependency"):
         return getattr(tasks, op)(args.pop("task_id"), args.pop("depends_on_id"), **args)
+    if op in ("plan_snapshot", "import_snapshot"):
+        return getattr(tasks, op)(args.pop("snapshot"), **args)
     return getattr(tasks, op)(**args)
 
 
@@ -230,12 +260,22 @@ def run_http(client: TestClient, op: str, args: dict[str, Any]) -> tuple[int, An
         if "task_id" in a:
             params["task"] = a["task_id"]
         response = client.get("/api/v1/team-events", params=params)
+    elif op in ("plan_snapshot", "import_snapshot"):
+        body = {key: a[key] for key in ("snapshot", "source_key", "source_ref", "snapshot_sha256", "actor")}
+        if op == "plan_snapshot":
+            body["what_if"] = True
+        response = client.post("/api/v1/task-snapshots/import", json=body)
+    elif op == "get_snapshot":
+        response = client.get(f"/api/v1/task-snapshots/{quote(a['source_key'], safe='')}")
+    elif op == "rollback_snapshot":
+        response = client.post(f"/api/v1/task-snapshots/{quote(a['source_key'], safe='')}/rollback",
+                               json={"actor": a["actor"]})
     else:  # pragma: no cover - the script only uses the operations above
         raise AssertionError(op)
     return response.status_code, response.json()
 
 
-def cli_args(op: str, args: dict[str, Any]) -> list[str]:
+def cli_args(op: str, args: dict[str, Any], snapshot_file: Path | None = None) -> list[str]:
     a = dict(args)
     if op == "create_group":
         argv = ["task-group", "create", a["group_id"], "--title", a["title"], "--actor", a["actor"]]
@@ -274,14 +314,29 @@ def cli_args(op: str, args: dict[str, Any]) -> list[str]:
     if op == "events":
         argv = ["team-events", "--after", str(a.get("after", 0))]
         return argv + (["--task", a["task_id"]] if "task_id" in a else [])
+    if op in ("plan_snapshot", "import_snapshot"):
+        assert snapshot_file is not None
+        argv = ["task", "snapshot", "import", str(snapshot_file), "--actor", a["actor"]]
+        return argv + (["--what-if"] if op == "plan_snapshot" else [])
+    if op == "get_snapshot":
+        return ["task", "snapshot", "show", a["source_key"]]
+    if op == "rollback_snapshot":
+        return ["task", "snapshot", "rollback", a["source_key"], "--actor", a["actor"]]
     raise AssertionError(op)  # pragma: no cover
 
 
-def run_cli(monkeypatch, capsys, client: TestClient, op: str, args: dict[str, Any]) -> tuple[int, Any]:
+def run_cli(monkeypatch, capsys, client: TestClient, op: str, args: dict[str, Any],
+            tmp_path: Path) -> tuple[int, Any]:
     monkeypatch.setattr(cli, "api_client", lambda: _ClientContext(client))
+    snapshot_file = None
+    if op in ("plan_snapshot", "import_snapshot"):
+        snapshot_file = tmp_path / f"{op}.json"
+        snapshot_file.write_text(json.dumps({key: args[key] for key in (
+            "snapshot", "source_key", "source_ref", "snapshot_sha256",
+        )}), encoding="utf-8")
     code = 0
     try:
-        cli.main(cli_args(op, args))
+        cli.main(cli_args(op, args, snapshot_file))
     except SystemExit as exc:
         code = exc.code
     captured = capsys.readouterr()
@@ -291,7 +346,8 @@ def run_cli(monkeypatch, capsys, client: TestClient, op: str, args: dict[str, An
 def normalize(value: Any) -> Any:
     """Drop timestamps: everything else must be identical across interfaces."""
     if isinstance(value, dict):
-        return {k: normalize(v) for k, v in value.items() if k not in ("created_at", "updated_at")}
+        return {k: normalize(v) for k, v in value.items()
+                if k not in ("created_at", "updated_at", "imported_at", "rolled_back_at")}
     if isinstance(value, list):
         return [normalize(v) for v in value]
     return value
@@ -318,7 +374,7 @@ def test_facade_http_and_cli_give_the_same_results(monkeypatch, capsys, tmp_path
                 assert normalize(body) == expected[1], (step, op)
             else:
                 assert (status, body["detail"]["code"]) == expected[1], (step, op, body)
-            code, output = run_cli(monkeypatch, capsys, cli_client, op, args)
+            code, output = run_cli(monkeypatch, capsys, cli_client, op, args, tmp_path)
             if expected[0] == "ok":
                 assert code == 0 and normalize(output) == expected[1], (step, op, output)
             else:

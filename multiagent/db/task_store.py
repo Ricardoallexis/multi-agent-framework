@@ -34,6 +34,7 @@ _TASK_JSON = {
     "exclusive_resources_json": "exclusive_resources",
     "gate_json": "gate",
     "execution_json": "execution",
+    "lock_policy_json": "lock_policy",
 }
 
 
@@ -93,12 +94,13 @@ class TaskStore:
 
     # -------- groups --------
     def insert_group(self, conn: sqlite3.Connection, group_id: str, title: str, *, actor: str,
-                     authorized: bool = False, default_requires: str = "accepted") -> dict[str, Any]:
+                     authorized: bool = False, default_requires: str = "accepted",
+                     default_gate: Iterable[dict[str, Any]] = ()) -> dict[str, Any]:
         now = utcnow()
         conn.execute(
-            "INSERT INTO task_groups(id,title,authorized,default_requires,created_by,created_at,updated_at) "
-            "VALUES(?,?,?,?,?,?,?)",
-            (group_id, title, int(authorized), default_requires, actor, now, now),
+            "INSERT INTO task_groups(id,title,authorized,default_requires,created_by,created_at,updated_at,default_gate_json) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (group_id, title, int(authorized), default_requires, actor, now, now, _dumps(list(default_gate))),
         )
         return self.get_group(group_id, conn=conn)  # type: ignore[return-value]
 
@@ -140,6 +142,20 @@ class TaskStore:
         )
         return self.get_task(task_id, conn=conn)  # type: ignore[return-value]
 
+    def insert_snapshot_task(self, conn: sqlite3.Connection, task: dict[str, Any], *, actor: str) -> dict[str, Any]:
+        now = utcnow()
+        conn.execute(
+            "INSERT INTO tasks(id,group_id,title,objective,state,assignee,preferred,requirements_json,file_scope_json,gate_json,"
+            "attempt,revision,created_by,created_at,updated_at,base_commit,context_refs_json,constraints_json,"
+            "lock_policy_json,workspace_domain,snapshot_epoch_pending) VALUES(?,?,?,?,?,?,?,?,?,?,0,1,?,?,?,?,?,?,?,?,?)",
+            (task["id"], task["group_id"], task["title"], task.get("objective", ""), task["state"],
+             task.get("assignee", ""), task.get("preferred", ""), _dumps(task.get("requirements", [])),
+             _dumps(task.get("file_scope", [])), _dumps(task.get("gate", [])), actor, now, now, task.get("base_commit", ""),
+             _dumps(task.get("context_refs", [])), _dumps(task.get("constraints", [])),
+             _dumps(task["lock_policy"]), task.get("workspace_domain", ""), int(task.get("epoch_pending", False))),
+        )
+        return self.get_task(task["id"], conn=conn)  # type: ignore[return-value]
+
     def get_task(self, task_id: str, *, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
         with self._reader(conn) as c:
             row = c.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
@@ -168,7 +184,9 @@ class TaskStore:
 
     def update_task(self, conn: sqlite3.Connection, task_id: str, *, expected_revision: int,
                     state: str | None = None, assignee: str | None = None,
-                    attempt: int | None = None) -> dict[str, Any] | None:
+                    attempt: int | None = None, lock_policy: dict[str, Any] | None = None,
+                    workspace_domain: str | None = None,
+                    snapshot_epoch_pending: bool | None = None) -> dict[str, Any] | None:
         """Change the given fields and bump ``revision``, only if it is still ``expected_revision``.
 
         Returns the updated task, ``None`` when it does not exist, or raises
@@ -182,6 +200,12 @@ class TaskStore:
             changes["assignee"] = assignee
         if attempt is not None:
             changes["attempt"] = attempt
+        if lock_policy is not None:
+            changes["lock_policy_json"] = _dumps(lock_policy)
+        if workspace_domain is not None:
+            changes["workspace_domain"] = workspace_domain
+        if snapshot_epoch_pending is not None:
+            changes["snapshot_epoch_pending"] = int(snapshot_epoch_pending)
         changes["updated_at"] = utcnow()
         assignments = ",".join(f"{column}=?" for column in changes)
         cursor = conn.execute(
@@ -194,6 +218,51 @@ class TaskStore:
         if current is None:
             return None
         raise StaleRevision(task_id, expected_revision, current["revision"])
+
+    def insert_snapshot(self, conn: sqlite3.Connection, *, source_key: str, source_ref: str,
+                        snapshot_sha256: str, actor: str, snapshot_json: str, event_seq: int) -> None:
+        conn.execute(
+            "INSERT INTO task_snapshots(source_key,source_ref,snapshot_sha256,actor,snapshot_json,imported_at,event_seq) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (source_key, source_ref, snapshot_sha256, actor, snapshot_json, utcnow(), event_seq),
+        )
+
+    def snapshot(self, source_key: str, *, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+        with self._reader(conn) as c:
+            row = c.execute("SELECT * FROM task_snapshots WHERE source_key=?", (source_key,)).fetchone()
+        if row is None:
+            return None
+        item = dict(row)
+        item["snapshot"] = json.loads(item.pop("snapshot_json"))
+        return item
+
+    def snapshots(self, *, conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+        with self._reader(conn) as c:
+            rows = c.execute("SELECT * FROM task_snapshots ORDER BY imported_at,source_key").fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            item["snapshot"] = json.loads(item.pop("snapshot_json"))
+            items.append(item)
+        return items
+
+    def add_snapshot_object(self, conn: sqlite3.Connection, *, source_key: str, object_type: str,
+                            object_id: str, source_id: str = "", source_state: str = "") -> None:
+        conn.execute(
+            "INSERT INTO task_snapshot_objects(source_key,object_type,object_id,source_id,source_state) "
+            "VALUES(?,?,?,?,?)", (source_key, object_type, object_id, source_id, source_state),
+        )
+
+    def snapshot_provenance(self, object_type: str, object_id: str, *,
+                            conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+        with self._reader(conn) as c:
+            row = c.execute(
+                "SELECT o.source_id,o.source_state,s.source_key,s.source_ref,s.snapshot_sha256,s.actor,s.imported_at "
+                "FROM task_snapshot_objects o JOIN task_snapshots s USING(source_key) "
+                "WHERE o.object_type=? AND o.object_id=? AND s.state='applied'",
+                (object_type, object_id),
+            ).fetchone()
+        return dict(row) if row else None
 
     # -------- dependencies --------
     def insert_dependency(self, conn: sqlite3.Connection, task_id: str, depends_on_id: str,
