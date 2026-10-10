@@ -135,6 +135,21 @@ def envelope_sha256(data: Any) -> str:
     return hashlib.sha256(canonical_json(data)).hexdigest()
 
 
+# Fields that say where to read events from, not what the task is: they change with every event of
+# the team, so they stay out of the hash that tells a caller whether its envelope is still current.
+HASH_EXCLUDED_FIELDS = ("events_after",)
+
+
+def task_envelope_sha256(envelope: Mapping[str, Any]) -> str:
+    """The hash of a task envelope, as used by ``known_hash``: ``envelope_sha256`` without ``events_after``.
+
+    An event of another task moves ``events_after`` but changes nothing the envelope says about
+    its own task, so it does not invalidate a cached envelope. Anything else (status, dependencies,
+    results, gate, context, revision) does.
+    """
+    return envelope_sha256({key: value for key, value in envelope.items() if key not in HASH_EXCLUDED_FIELDS})
+
+
 # -------- references --------
 def result_ref(task_id: str, attempt: int) -> str:
     """``result://<task_id>/<attempt>``, validated."""
@@ -368,7 +383,7 @@ def validate_task_envelope(data: Any) -> dict[str, Any]:
 
 def unchanged_envelope(envelope: Mapping[str, Any]) -> dict[str, Any]:
     """The short answer for a caller that already holds this envelope: ``{unchanged, hash, revision}``."""
-    return {"unchanged": True, "hash": envelope_sha256(envelope), "revision": envelope["revision"]}
+    return {"unchanged": True, "hash": task_envelope_sha256(envelope), "revision": envelope["revision"]}
 
 
 # -------- task result --------

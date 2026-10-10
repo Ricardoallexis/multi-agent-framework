@@ -258,8 +258,11 @@ results, and its gate. It is not stored.
 
 `get_envelope` takes the optional `known_hash` of an envelope you already have.
 The hash is the sha256 of the envelope's canonical JSON (sorted keys, compact
-separators, UTF-8). If nothing changed you get `{"unchanged": true, "hash": ...,
-"revision": ...}` instead of the whole envelope.
+separators, UTF-8) **without `events_after`**, so an event of another task does
+not invalidate it. If nothing changed you get `{"unchanged": true, "hash": ...,
+"revision": ...}` instead of the whole envelope. `events_after` only tells you
+where to start reading events; keep following the log with an
+[event cursor](#event-cursors), not with the hash.
 
 ### Task context
 

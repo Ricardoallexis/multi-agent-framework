@@ -62,7 +62,7 @@ from ..tasks.envelopes import (
     blob_ref,
     build_task_envelope,
     canonical_json,
-    envelope_sha256,
+    task_envelope_sha256,
     parse_reference,
     patch_sha256,
     result_ref,
@@ -262,13 +262,14 @@ class EnvelopeServices:
     def get_envelope(self, task_id: str, *, known_hash: str | None = None) -> dict[str, Any]:
         """The task envelope, or ``{"unchanged": true, "hash": ..., "revision": ...}`` when ``known_hash`` matches.
 
-        The hash is the sha256 of the canonical JSON of the envelope (sorted
-        keys, compact separators, UTF-8). Dependencies appear with their
+        The hash is the sha256 of the canonical JSON of the envelope without
+        ``events_after`` (sorted keys, compact separators, UTF-8), so an event
+        of another task does not invalidate it. Dependencies appear with their
         status and, when they have a result, the ``result_ref`` of its latest
         attempt; ``artifact_refs`` lists the patch blobs of those results. A
         task without an objective uses its title. ``events_after`` is the head
-        of the team event log when the envelope is computed, so any new event
-        changes the hash.
+        of the team event log when the envelope is computed; read the events
+        after it with a cursor (``read_events``), not through the hash.
         Errors: ``not_found``, ``invalid_request`` (``known_hash``).
         """
         if known_hash is not None and not (isinstance(known_hash, str) and _SHA256.fullmatch(known_hash)):
@@ -310,7 +311,7 @@ class EnvelopeServices:
                 base_commit=context.get("base_commit", ""), events_after=head)
         except EnvelopeError as error:
             raise _from_envelope_error(error) from None
-        if known_hash is not None and known_hash == envelope_sha256(envelope):
+        if known_hash is not None and known_hash == task_envelope_sha256(envelope):
             return unchanged_envelope(envelope)
         return envelope
 

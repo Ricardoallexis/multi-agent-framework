@@ -17,7 +17,7 @@ from multiagent import cli
 from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.services import ApplicationServices, ServiceError
-from multiagent.tasks.envelopes import envelope_sha256
+from multiagent.tasks.envelopes import task_envelope_sha256
 
 PATCH = b"diff --git a/src/a.py b/src/a.py\n+print('a')\n"
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "benchmark_envelopes.py"
@@ -101,7 +101,7 @@ def test_a_dependent_gets_the_result_by_reference_over_http(world):
     assert envelope["depends_on"][0]["result_ref"] == "result://A/1"
     assert envelope["artifact_refs"] == [blob["ref"]] and envelope["constraints"] == ["no push"]
     assert PATCH.decode() not in json.dumps(envelope)
-    same = http.get("/api/v1/tasks/B/envelope", params={"known_hash": envelope_sha256(envelope)}).json()
+    same = http.get("/api/v1/tasks/B/envelope", params={"known_hash": task_envelope_sha256(envelope)}).json()
     assert same["unchanged"] is True
 
     full = http.get("/api/v1/results", params={"ref": "result://A/1"}).json()
@@ -152,7 +152,7 @@ def test_the_cli_drives_the_same_flow(world):
     run("task", "context", "B", "--actor", "user", "--context-ref", "doc://README.md", "--constraint", "no push")
     envelope = run("task", "envelope", "B")
     assert envelope == services.envelopes.get_envelope("B")
-    assert run("task", "envelope", "B", "--known-hash", envelope_sha256(envelope))["unchanged"] is True
+    assert run("task", "envelope", "B", "--known-hash", task_envelope_sha256(envelope))["unchanged"] is True
     run("task", "context", "B", "--actor", "user", "--clear-constraints")
     assert services.envelopes.get_envelope("B")["constraints"] == []
 

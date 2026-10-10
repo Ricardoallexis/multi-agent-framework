@@ -25,6 +25,7 @@ from multiagent.tasks.envelopes import (
     result_key,
     result_ref,
     same_result,
+    task_envelope_sha256,
     unchanged_envelope,
     validate_reference,
     validate_task_envelope,
@@ -197,9 +198,20 @@ def test_task_envelope_rejects_invalid_fields(changes, field):
 def test_unchanged_envelope_answer_is_short_and_carries_the_hash():
     env = envelope()
     answer = unchanged_envelope(env)
-    assert answer == {"unchanged": True, "hash": envelope_sha256(env), "revision": 7}
+    assert answer == {"unchanged": True, "hash": task_envelope_sha256(env), "revision": 7}
     assert len(canonical_json(answer)) < 120
-    assert envelope_sha256(envelope(events_after=213)) != answer["hash"]
+
+
+def test_the_envelope_hash_ignores_events_after_and_nothing_else():
+    env = envelope()
+    digest = task_envelope_sha256(env)
+    assert task_envelope_sha256(envelope(events_after=213)) == digest   # an event of another task
+    assert envelope_sha256(envelope(events_after=213)) != envelope_sha256(env)  # the generic hash still sees it
+    assert task_envelope_sha256({**env, "status": "claimed"}) != digest
+    assert task_envelope_sha256({**env, "revision": 8}) != digest
+    assert task_envelope_sha256({**env, "gate": ["review"]}) != digest
+    assert task_envelope_sha256({**env, "constraints": ["no push", "keep it short"]}) != digest
+    assert "events_after" in env  # it is still part of the envelope itself
 
 
 # -------- task result --------

@@ -11,7 +11,7 @@ import pytest
 
 from multiagent.config import Settings
 from multiagent.services import ApplicationServices, EnvelopeServices, ServiceError
-from multiagent.tasks.envelopes import TASK_ENVELOPE_FIELDS, envelope_sha256
+from multiagent.tasks.envelopes import TASK_ENVELOPE_FIELDS, task_envelope_sha256
 
 PATCH = b"diff --git a/src/a.py b/src/a.py\n+print('a')\n"
 
@@ -138,13 +138,27 @@ def test_envelope_carries_dependencies_by_reference_and_the_task_context(service
 def test_envelope_known_hash_answers_unchanged_until_something_happens(services):
     env = services.envelopes
     envelope = env.get_envelope("A")
-    digest = envelope_sha256(envelope)
+    digest = task_envelope_sha256(envelope)
     assert env.get_envelope("A", known_hash=digest) == {"unchanged": True, "hash": digest,
                                                         "revision": envelope["revision"]}
     assert env.get_envelope("A", known_hash="0" * 64) == envelope
     services.tasks.transition("A", "claim", actor="agent:a")
     changed = env.get_envelope("A", known_hash=digest)
     assert "unchanged" not in changed and changed["status"] == "claimed"
+
+
+def test_known_hash_survives_events_of_other_tasks(services):
+    env = services.envelopes
+    envelope = env.get_envelope("A")
+    digest = task_envelope_sha256(envelope)
+    services.tasks.create_task("G", "Z", "Unrelated", actor="user", objective="Not A")
+    services.tasks.update_group("G", actor="user", title="Renamed group")
+    assert head(services) > envelope["events_after"]                      # the log did move
+    answer = env.get_envelope("A", known_hash=digest)
+    assert answer == {"unchanged": True, "hash": digest, "revision": envelope["revision"]}
+    fresh = env.get_envelope("A")
+    assert fresh["events_after"] > envelope["events_after"]               # a full envelope still carries the new head
+    assert task_envelope_sha256(fresh) == digest
 
 
 def test_envelope_events_after_is_read_before_the_data(services, monkeypatch):
