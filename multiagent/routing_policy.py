@@ -6,6 +6,7 @@ health snapshots, permission grants, and event/usage snapshots.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
@@ -121,6 +122,10 @@ class RoutingCandidate:
     eligible: bool = False
     reason_codes: tuple[str, ...] = ()
     provenance: Mapping[str, Any] = field(default_factory=dict)
+    # Catalog level (T1..T4) and classification (``classified`` / ``unclassified``) as declared;
+    # a rejected candidate keeps them next to its ``reason_codes`` as evidence of why it was left out.
+    level: str | None = None
+    classification: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("capabilities", "roles", "permissions_available", "permissions_required", "allowed_data_classes"):
@@ -189,6 +194,19 @@ class RoutingDecision:
     budget_scope: Mapping[str, Any] = field(default_factory=dict)
     manual_required: bool = False
     version: int = CONTRACT_VERSION
+    # Economic-profile evidence (ECO-T05). ``step_kind`` is the kind the decision was made for and
+    # ``profile_mode`` the profile's ``mode`` (None for a profile that declares none). ``selected_level``
+    # is the catalog level of the chosen model and ``price_evidence`` the price it was chosen on
+    # (source, validity window, whether it was current, and the estimated cost when it could be computed).
+    # ``effort`` is the effort the step should run with: the step's own, else the profile's per-kind
+    # one, with ``effort_source`` saying which ("step" or "profile"). Candidates left out are the
+    # ``candidates`` with ``eligible`` false and their ``reason_codes``.
+    step_kind: str | None = None
+    profile_mode: str | None = None
+    selected_level: str | None = None
+    price_evidence: Mapping[str, Any] | None = None
+    effort: str | None = None
+    effort_source: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result = {name: getattr(self, name) for name in self.__dataclass_fields__}
@@ -202,6 +220,8 @@ class RoutingDecision:
         result["candidates"] = [candidate.to_dict() for candidate in self.candidates]
         result["provenance"] = dict(self.provenance)
         result["budget_scope"] = dict(self.budget_scope)
+        if self.price_evidence is not None:
+            result["price_evidence"] = json.loads(json.dumps(self.price_evidence, default=str))
         return result
 
 

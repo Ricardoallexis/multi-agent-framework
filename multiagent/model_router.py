@@ -11,7 +11,9 @@ from typing import Any, Callable, Mapping
 from pydantic import BaseModel
 
 from .adapters.base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
-from .catalog import Catalog, ModelSpec, current_price
+from .catalog import (
+    MODEL_LEVELS, Catalog, CatalogError, ModelSpec, current_price, validate_routing_profile,
+)
 from .contracts import TaskRequirements
 from .routing_policy import RoutingCandidate, RoutingDecision, RoutingEvidence, RoutingRequest
 from .errors import (
@@ -37,6 +39,11 @@ class ModelBinding:
 ResponseValidator = Callable[[BaseModel, LLMResponse], None]
 AttemptCallback = Callable[[dict[str, Any]], None]
 _logger = logging.getLogger(__name__)
+_PRICE_EVIDENCE_FIELDS = ("amount", "denominator", "unit", "currency", "source", "valid_from", "valid_until", "provenance")
+# Reasons a level-bounded profile can reject a candidate for; the top-level blocked reason lists those seen.
+_LEVEL_REASON_CODES = frozenset({
+    "model_unclassified", "level_below_minimum", "level_above_maximum", "price_evidence_missing_or_expired",
+})
 _ROUTABLE_ERRORS = (
     ProviderUnavailable,
     ProviderRequestError,
@@ -70,6 +77,34 @@ class ModelRouter:
         # One shared check (catalog.current_price) so selection and the usage cost estimate agree.
         return current_price(pricing, now=now)
 
+    @classmethod
+    def _price_evidence(cls, spec: ModelSpec, *, now, request: RoutingRequest, ranking: str) -> dict[str, Any] | None:
+        """The price a model was chosen on: declared rates with source and validity, and whether they were current.
+
+        ``estimated_cost`` is set only when the request carried both token estimates and the price is
+        current; an unknown cost stays ``None`` and is never read as 0. ``ranking`` says how the model
+        was compared with the other eligible ones (``estimated_tokens``, ``dominant_rates``,
+        ``single_candidate``) or ``not_ranked`` when no price comparison was made.
+        """
+        pricing = getattr(spec, "pricing", None)
+        if not isinstance(pricing, dict):
+            return None
+        evidence: dict[str, Any] = {"model_id": spec.id, "level": spec.level, "ranking": ranking}
+        for component in ("input", "output"):
+            price = pricing.get(component)
+            evidence[component] = ({field: price.get(field) for field in _PRICE_EVIDENCE_FIELDS}
+                                   if isinstance(price, dict) else None)
+        current = cls._current_price(pricing, now=now)
+        evidence["current"] = current is not None
+        cost = None
+        if (current is not None and request.estimated_input_tokens is not None
+                and request.estimated_output_tokens is not None):
+            cost = (current[0][0] * request.estimated_input_tokens / current[0][2]
+                    + current[1][0] * request.estimated_output_tokens / current[1][2])
+        evidence["estimated_cost"] = cost
+        evidence["estimated_cost_currency"] = current[0][1] if current is not None and cost is not None else None
+        return evidence
+
     def select(self, request: RoutingRequest, evidence: RoutingEvidence | None = None) -> RoutingDecision:
         """Resolve an explicitly requested, enabled profile without side effects or provider calls."""
         evidence = evidence or RoutingEvidence()
@@ -84,6 +119,9 @@ class ModelRouter:
             authorized_data_classes=tuple(sorted(request.authorized_data_classes)) if request.authorized_data_classes is not None else None,
             provenance={"request": request.authorization_provenance or "unknown", "evidence_scope": evidence.scope},
             manual_required=True,
+            step_kind=request.step_kind,
+            effort=request.effort,
+            effort_source="step" if request.effort is not None else None,
         )
         if profile_id is None:
             return RoutingDecision(status="manual", reason_codes=("no_profile_requested",), **base)
@@ -130,12 +168,38 @@ class ModelRouter:
                 return None
             return {value} if isinstance(value, str) else set(value)
 
-        model_ids = profile.get("candidate_model_ids")
+        try:
+            profile = validate_routing_profile(profile_id, profile)
+        except CatalogError as exc:
+            base["provenance"] = {**base["provenance"], "profile_error": str(exc)}
+            return RoutingDecision(status="blocked", reason_codes=("economic_profile_invalid",), **base)
+        profile_mode = profile.get("mode")  # None for a profile that declares no economic fields
+        single = profile_mode == "single"
+        levels = profile.get("levels") if not single else None  # level bounds do not apply to a single model
+        step_kind = request.step_kind
+        base["profile_mode"] = profile_mode
+        profile_effort = profile.get("effort")
+        if request.effort is None and isinstance(profile_effort, dict) and profile_effort.get(step_kind) is not None:
+            # The profile only fills a gap: a step that asked for an effort keeps it.
+            base["effort"], base["effort_source"] = profile_effort[step_kind], "profile"
+        bounds = None
+        if levels is not None:
+            bounds = levels.get(step_kind)
+            if bounds is None:
+                return RoutingDecision(status="blocked", reason_codes=("step_kind_levels_missing",), **base)
+
         max_candidates = profile.get("max_candidates", 2)
-        if (not isinstance(model_ids, list) or not model_ids or type(max_candidates) is not int
-                or not 1 <= max_candidates <= 2 or len(model_ids) > max_candidates
-                or len(set(map(str, model_ids))) != len(model_ids)):
-            return RoutingDecision(status="blocked", reason_codes=("invalid_candidate_limit_or_allowlist",), **base)
+        if single:
+            model_ids = [profile["model_id"]]
+        elif levels is not None:
+            # A level-bounded profile ranks the whole catalog unless it names an allowlist.
+            model_ids = profile.get("candidate_model_ids") or list(getattr(self.catalog, "models", {}))
+        else:
+            model_ids = profile.get("candidate_model_ids")
+            if (not isinstance(model_ids, list) or not model_ids or type(max_candidates) is not int
+                    or not 1 <= max_candidates <= 2 or len(model_ids) > max_candidates
+                    or len(set(map(str, model_ids))) != len(model_ids)):
+                return RoutingDecision(status="blocked", reason_codes=("invalid_candidate_limit_or_allowlist",), **base)
         retries = profile.get("max_retries_per_candidate", 0)
         invocation_limit = profile.get("max_provider_invocations")
         if (type(retries) is not int or retries < 0
@@ -257,8 +321,22 @@ class ModelRouter:
                                 reasons.append("provider_health_snapshot_expired")
                         except (TypeError, ValueError):
                             reasons.append("provider_health_timestamp_unknown_or_stale")
+            level = getattr(spec, "level", None)
+            classification = getattr(spec, "classification", "unclassified")
+            if bounds is not None:
+                if classification != "classified" or level not in MODEL_LEVELS:
+                    reasons.append("model_unclassified")
+                else:
+                    position = MODEL_LEVELS.index(level)
+                    if "min" in bounds and position < MODEL_LEVELS.index(bounds["min"]):
+                        reasons.append("level_below_minimum")
+                    if "max" in bounds and position > MODEL_LEVELS.index(bounds["max"]):
+                        reasons.append("level_above_maximum")
+                if self._current_price(getattr(spec, "pricing", None), now=now) is None:
+                    reasons.append("price_evidence_missing_or_expired")
             candidate = RoutingCandidate(
                 model_id=spec.id, provider=spec.provider, planned_model=spec.model, tier=spec.tier,
+                level=level, classification=classification,
                 capabilities=frozenset(capabilities), roles=frozenset(roles) if roles is not None else None,
                 permissions_available=frozenset(available_permissions) if available_permissions is not None else None,
                 permissions_required=frozenset(consumed_permissions),
@@ -270,9 +348,19 @@ class ModelRouter:
             if not reasons:
                 eligible_specs.append(spec)
         if not eligible_specs:
-            return RoutingDecision(status="blocked", reason_codes=("no_eligible_candidate",), candidates=tuple(candidates), **base)
+            summary = sorted({code for candidate in candidates for code in candidate.reason_codes
+                              if code in _LEVEL_REASON_CODES}) if bounds is not None else []
+            return RoutingDecision(status="blocked", reason_codes=("no_eligible_candidate", *summary),
+                                   candidates=tuple(candidates), **base)
 
-        economic = bool(profile.get("economic_selection", False))
+        if single:
+            economic = False  # one named model: neither cheaper nor dearer is looked for
+        elif levels is not None:
+            # Orchestration, planning and review always take the cheapest; work follows economic_selection.
+            economic = step_kind != "work" or bool(profile.get("economic_selection", True))
+        else:
+            economic = bool(profile.get("economic_selection", False))
+        ranking = "not_ranked"
         amounts: list[float] | None = None
         prices = []
         if economic:
@@ -284,7 +372,11 @@ class ModelRouter:
             if request.estimated_input_tokens is not None and request.estimated_output_tokens is not None:
                 amounts = [price[0][0] * request.estimated_input_tokens / price[0][2]
                            + price[1][0] * request.estimated_output_tokens / price[1][2] for price in prices]
+                ranking = "estimated_tokens"
+            elif len(prices) == 1:
+                ranking = "single_candidate"
             elif len(prices) > 1:
+                ranking = "dominant_rates"
                 dominators = [i for i, price in enumerate(prices) if all(
                     price[0][0] <= other[0][0] and price[1][0] <= other[1][0] for other in prices
                 )]
@@ -330,7 +422,13 @@ class ModelRouter:
         selected, *alternatives = eligible_specs
         fallback = tuple(spec.id for spec in alternatives[:1])
         chosen = next(candidate for candidate in candidates if candidate.model_id == selected.id)
-        reasons = ("lowest_estimated_cost_for_common_token_quantities_or_dominant_rates",) if economic else ("first_eligible_configured_candidate_after_planning_filters",)
+        if single:
+            reasons = ("single_model_profile",)
+        elif economic:
+            reasons = ("lowest_estimated_cost_for_common_token_quantities_or_dominant_rates",)
+        else:
+            reasons = ("first_eligible_configured_candidate_after_planning_filters",)
+        price_evidence = self._price_evidence(selected, now=now, request=request, ranking=ranking)
         limit_keys = ("max_candidates", "max_retries_per_candidate", "max_provider_invocations",
                       "planning_max_input_tokens", "planning_max_output_tokens", "planning_max_cost")
         limits = {key: profile.get(key) for key in limit_keys if key in profile}
@@ -351,6 +449,8 @@ class ModelRouter:
                         "evidence": evidence.provenance},
             budget_scope={**budget_scope, "limits": limits},
             manual_required=False,
+            step_kind=step_kind, profile_mode=profile_mode, selected_level=selected.level,
+            price_evidence=price_evidence, effort=base["effort"], effort_source=base["effort_source"],
         )
     def _validate_compat(self, spec: ModelSpec, req: TaskRequirements) -> None:
         if req.requires_web and not spec.web:

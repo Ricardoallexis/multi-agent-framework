@@ -149,6 +149,31 @@ routing_profiles:
       economic_selection: false
       max_retries_per_candidate: 0
       max_provider_invocations: 1
+    # Economic profile (ECO-T05): disabled and assigned to no workflow step. Orchestration, planning and
+    # review take the cheapest classified model of level T3 or higher; work takes the cheapest classified
+    # model of level T2 or lower. Only models with level, classification: classified and current price
+    # evidence take part; nothing falls back to the legacy binding. To use it, see docs/model-routing.md.
+    # The permission ceiling below is empty (local models only); add provider:cloud to allow cloud models.
+    economic:
+      version: 1
+      enabled: false
+      mode: supervised            # supervised | automatic | single (single also needs model_id)
+      levels:
+        orchestration: {min: T3}
+        planning: {min: T3}
+        review: {min: T3}
+        work: {max: T2}
+      effort: {work: low, review: medium}   # fills a step's effort only when the step sets none
+      economic_selection: true
+      escalation: {max_escalations_per_step: 1, ceiling: T3}   # stored for ECO-T06; selection does not read it
+      required_capabilities: [structured_output]
+      required_roles: []
+      required_permissions: []
+      allowed_permissions: []
+      allowed_data_classes: [non_sensitive]
+      execution_modes: [auto, local, cloud]
+      require_health: false
+      max_retries_per_candidate: 1
   assignments: {}
 # T15 executor declarations are intentionally manual until a conforming adapter
 # provides fixed, verifiable capability evidence. These are surface presets,

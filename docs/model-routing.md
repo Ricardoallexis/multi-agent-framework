@@ -52,7 +52,7 @@ steps:
     effort: medium    # none | low | medium | high | max (default: unset, provider default)
 ~~~
 
-Unknown values are rejected when the workflow loads (`invalid_value`; a wrong type is `invalid_type`). In YAML, `none` is the level "no reasoning"; leave the field out (or `null`) to keep the provider default. `kind` is generic and has no effect by itself; it is carried in `RoutingRequest.step_kind` together with `effort` and the 1-based `attempt` of the step, so a profile can use them. Selection does not read them yet.
+Unknown values are rejected when the workflow loads (`invalid_value`; a wrong type is `invalid_type`). In YAML, `none` is the level "no reasoning"; leave the field out (or `null`) to keep the provider default. `kind` is generic and has no effect by itself; it is carried in `RoutingRequest.step_kind` together with `effort` and the 1-based `attempt` of the step. Only a profile with `levels` (see [Economic profile](#economic-profile)) reads `step_kind`; every other profile selects as before.
 
 The step's `effort` is passed to the provider adapter, which translates it only where the provider can express it:
 
@@ -64,6 +64,62 @@ The step's `effort` is passed to the provider adapter, which translates it only 
 | Fake (tests) | simulated `effort` | applied unless built with `supports_effort=False` |
 
 An explicit effort overrides the model's catalog `thinking` value for that call; without an effort the adapters send exactly what they sent before. An adapter that cannot express the effort ignores it and the call proceeds. Each `model_attempt` event of a step with an effort records `effort_requested`, `effort_applied` (true only when the provider call carried the setting), `effective_config_effort` (the provider setting sent, or null) and `effort_note` (why it was not applied). The adapter also copies these into the response metadata. The record says what was requested and sent, not that the provider honored it or what it cost. The adapters do not know which models support the setting: a model that rejects it fails the call as a provider error.
+
+## Economic profile
+
+The bundled `economic` profile in `catalog/models.yaml` chooses a model by step kind, model level and price evidence. It is optional and reversible: it ships with `enabled: false` and is assigned to no workflow step, so nothing changes until you turn it on. It is a routing profile like any other; a decision it makes is a plan, not proof of a call, of the price paid, or of quality.
+
+~~~yaml
+routing_profiles:
+  profiles:
+    economic:
+      version: 1
+      enabled: false
+      mode: supervised            # supervised | automatic | single
+      levels:
+        orchestration: {min: T3}
+        planning:      {min: T3}
+        review:        {min: T3}
+        work:          {max: T2}
+      effort: {work: low, review: medium}
+      economic_selection: true
+      escalation: {max_escalations_per_step: 1, ceiling: T3}
+      # plus the usual profile fields: required_capabilities, allowed_permissions, allowed_data_classes, ...
+~~~
+
+The economic fields are all optional; a profile that declares none of them behaves exactly as before. They are validated when the catalog loads, and a malformed one is an error naming the profile.
+
+| Field | Meaning |
+| --- | --- |
+| `mode` | `supervised` (default), `automatic` or `single`. Selection is the same in `supervised` and `automatic`; they differ only in how escalation will be approved (ECO-T06). `single` uses only `model_id`. |
+| `levels` | Per step kind (`orchestration`, `planning`, `review`, `work`) a `min` and/or `max` model level (`T1` to `T4`). A step kind that is not listed is blocked (`step_kind_levels_missing`). |
+| `effort` | Per step kind, one of `none`, `low`, `medium`, `high`, `max`. It is used only when the step declares no effort of its own; a step's own effort always wins. |
+| `model_id` | The catalog model of `mode: single`; required there, ignored in the other modes. |
+| `escalation` | `max_escalations_per_step` (0 or 1) and `ceiling` (`T1` to `T3`; T4 is never automatic). It is validated and stored only: this profile does not escalate, and selection ignores it. |
+| `candidate_model_ids` | Optional allowlist. Without it every model in the catalog is a candidate (the 2-candidate limit of the other profiles does not apply). |
+| `economic_selection` | For `work`, `true` (the default here) takes the cheapest candidate and `false` takes the first eligible one in the order of `candidate_model_ids`. Orchestration, planning and review always take the cheapest. |
+
+How a step is routed:
+
+1. A candidate is eligible when it passes the same rules as any profile (capabilities, role, permissions and the profile's permission ceiling, data class, local or cloud mode, health) and, in addition, it is `classification: classified`, its level is inside the bounds of the step's kind, and it has current price evidence (source and validity window). A model that is unclassified, outside the bounds or without a current price is left out with a reason; an unknown price is never read as 0.
+2. Among the eligible candidates the cheapest is chosen: by estimated cost when the request carries input and output token estimates, otherwise only when one candidate's input and output rates are both lowest. Candidates with crossing rates and no estimates block (`common_token_quantities_or_price_dominance_missing`). The workflow engine currently supplies the input estimate only, so a choice between several models needs one whose rates are both lowest.
+3. If no candidate is eligible the decision is `blocked` with `no_eligible_candidate` plus the level, classification or price reasons seen (`model_unclassified`, `level_below_minimum`, `level_above_maximum`, `price_evidence_missing_or_expired`). The run does not fall back to the static binding.
+4. `mode: single` skips levels, classification and price: only `model_id` is considered, still under the permission, privacy, mode and health rules, with no cheaper or dearer alternative and no fallback model.
+
+Permissions and privacy are never relaxed. Sensitive data is still sent only to a candidate whose declared data classes include it, within the profile's `allowed_data_classes` and `allowed_permissions` and the caller's grants; cloud models still need `provider:cloud` granted by the caller and inside the profile ceiling.
+
+The decision records what it was based on (`RoutingDecision`, also in the `routing_decision` run event): `step_kind`, `profile_mode`, `selected_level`, `price_evidence` (the input and output rates with source, validity window and provenance, whether they were current, the ranking used and the estimated cost, or null when it could not be computed), the `effort` to use with `effort_source` (`step` or `profile`), and every candidate with its `level`, `classification`, `eligible` flag and `reason_codes`; the rejected candidates are those with `eligible: false`.
+
+To enable it:
+
+1. Classify the models you want to use: give each a `level`, `classification: classified` and a `pricing` block with a source and validity window (the bundled local Ollama models are T1 with a declared no-charge price; the bundled cloud models are unclassified and have no pricing, so they stay out until you measure and price them). Prices in the catalog are your declaration, not live provider data.
+2. If cloud models will take part, add `provider:cloud` to the profile's `allowed_permissions` (it is empty, so only local models qualify) and make sure the caller grants it and authorizes the data class.
+3. Set `enabled: true` and review `levels`, `effort` and `mode`.
+4. Mark the steps with `kind` (steps default to `work`) and assign the profile to the steps in `assignments`, for example `assignments: {social_post: {create: economic}}`.
+
+With the bundled catalog nothing is T3, so orchestration, planning and review steps block until a T3 or T4 model is classified and priced; that is the intended behavior and not a fault.
+
+To turn it off, remove the assignment (steps return to their static binding) or set `enabled: false` (a step still assigned to a disabled profile blocks). No migration is needed either way.
 
 ## What a decision tells you
 
@@ -97,9 +153,9 @@ For assignment, the public task-creation requirements remain plain labels. execu
 
 A profile’s planning_max_input_tokens, planning_max_output_tokens, and planning_max_cost are pre-dispatch planning filters. They depend on estimates and comparable, current catalog pricing; they do not cap actual provider usage or guarantee a final bill. Missing token estimates, missing prices, different currencies/units, or stale price evidence leave cost unknown and can block a profile that requires that estimate.
 
-The model catalog’s legacy input_cost_per_million and output_cost_per_million values, including 0.0, are not by themselves price evidence and do not prove that a model is free. Cost comparison needs input and output pricing with matching currency, unit, and denominator plus source, provenance, and validity dates. A profile with economic_selection enabled selects only when the configured prices can be compared; it does not prove lower real-world cost or higher quality.
+The model catalog’s legacy input_cost_per_million and output_cost_per_million values, including 0.0, are not by themselves price evidence and do not prove that a model is free. Cost comparison needs input and output pricing with matching currency, unit, and denominator plus source, provenance, and validity dates. A profile with economic_selection enabled selects only when the configured prices can be compared; it does not prove lower real-world cost or higher quality. The units `token` and `tokens` are the same unit when prices are compared (case and surrounding spaces are ignored); any other unit, or a different currency or denominator, is incomparable and blocks.
 
-A model may also declare an optional level (T1 economic, T2 standard, T3 advanced, T4 maximum) and a classification (classified or unclassified, the default). Classified requires a level, and a model with no classification is unclassified: it has not been measured. Routing does not read level or classification yet; they only record the declaration. The pricing block is validated when the catalog is loaded (input and output each with amount, an integer denominator, unit, currency, source, valid_from, valid_until and provenance; the two must match in currency, unit, and denominator), and a malformed block is an error that names the model. A block outside its validity window loads, but the router ignores it as if it were absent. A local model with no per-token charge may declare an amount of 0 with provenance local_no_charge and a source that says why; the bundled local Ollama models do this and are T1 classified, while bundled cloud models stay unclassified with no pricing. Setting a non-zero legacy input_cost_per_million or output_cost_per_million without pricing logs a warning at load and changes nothing else.
+A model may also declare an optional level (T1 economic, T2 standard, T3 advanced, T4 maximum) and a classification (classified or unclassified, the default). Classified requires a level, and a model with no classification is unclassified: it has not been measured. Only a profile with `levels` reads level and classification (see [Economic profile](#economic-profile)); for every other profile they only record the declaration. The pricing block is validated when the catalog is loaded (input and output each with amount, an integer denominator, unit, currency, source, valid_from, valid_until and provenance; the two must match in currency, unit, and denominator), and a malformed block is an error that names the model. A block outside its validity window loads, but the router ignores it as if it were absent. A local model with no per-token charge may declare an amount of 0 with provenance local_no_charge and a source that says why; the bundled local Ollama models do this and are T1 classified, while bundled cloud models stay unclassified with no pricing. Setting a non-zero legacy input_cost_per_million or output_cost_per_million without pricing logs a warning at load and changes nothing else.
 
 Strict budgets currently support provider_invocations only. max_provider_invocations is enforced at each dispatch for the run/profile, together with the run-wide max_llm_calls limit. Each dispatched attempt, including retries, fallback attempts, and failed calls, consumes an invocation. The profile’s max_candidates and retry settings constrain the planned cascade as well. Requesting strict token or cost limits is unsupported and blocks the route; planning estimates are not substitutes for strict enforcement. Run duration and workflow limits remain separate.
 

@@ -13,6 +13,7 @@ import yaml
 
 from .config import Settings
 from .errors import MultiAgentError
+from .routing_policy import EFFORT_LEVELS, STEP_KINDS
 
 _logger = logging.getLogger(__name__)
 
@@ -23,6 +24,20 @@ _PRICE_COMPONENTS = ("input", "output")
 _PRICE_FIELDS = ("amount", "denominator", "unit", "currency", "source", "valid_from", "valid_until", "provenance")
 _PRICE_TEXT_FIELDS = ("unit", "currency", "source", "provenance")
 _PRICE_WINDOW_FIELDS = ("valid_from", "valid_until")
+
+# Routing profile fields that make a profile an "economic" one (ECO-T05). A profile that declares none
+# of them is a legacy profile and is validated and routed exactly as before.
+ROUTING_MODES = ("supervised", "automatic", "single")
+DEFAULT_ROUTING_MODE = "supervised"
+ESCALATION_CEILINGS = ("T1", "T2", "T3")  # T4 is never reached automatically (ECO-T01, decision 2)
+DEFAULT_ESCALATION = {"max_escalations_per_step": 1, "ceiling": "T3"}
+ECONOMIC_PROFILE_KEYS = ("mode", "levels", "effort", "model_id", "escalation")
+
+
+def normalize_price_unit(unit: Any) -> str:
+    """Canonical form of a price unit for comparison: ``token`` and ``tokens`` are the same unit."""
+    text = str(unit).strip().casefold()
+    return "token" if text in {"token", "tokens"} else text
 
 
 class CatalogError(MultiAgentError, ValueError):
@@ -104,7 +119,10 @@ def validate_pricing(model_id: str, pricing: Any, *, tier: str | None = None) ->
                 raise CatalogError(f"{label}: provenance {LOCAL_NO_CHARGE!r} is only valid for tier 'local', not {tier!r}")
         result[component] = entry
     for name in ("currency", "unit", "denominator"):
-        if result["input"][name] != result["output"][name]:
+        left, right = result["input"][name], result["output"][name]
+        if name == "unit":
+            left, right = normalize_price_unit(left), normalize_price_unit(right)
+        if left != right:
             raise CatalogError(
                 f"{where}: input and output must use the same {name} "
                 f"(input {result['input'][name]!r}, output {result['output'][name]!r})"
@@ -147,10 +165,108 @@ def current_price(pricing: Any, *, now: datetime) -> list[tuple[float, str, int,
                 return None
         except (TypeError, ValueError):
             return None
-        components.append((float(amount), str(currency), int(denominator), str(unit)))
+        components.append((float(amount), str(currency), int(denominator), normalize_price_unit(unit)))
     if components[0][1:] != components[1][1:]:
         return None
     return components
+
+
+def _level_index(level: str) -> int:
+    return MODEL_LEVELS.index(level)
+
+
+def validate_routing_profile(profile_id: str, profile: Any) -> Any:
+    """Check the economic fields of a routing profile and return a copy with them normalized.
+
+    The economic fields are ``mode`` (``supervised`` by default, ``automatic`` or ``single``), ``levels``
+    (per step kind a ``min`` and/or ``max`` model level), ``effort`` (per step kind), ``model_id``
+    (required when ``mode`` is ``single``) and ``escalation`` (``max_escalations_per_step`` and
+    ``ceiling``). Escalation is only declared here; nothing in this module or in the selector acts on it.
+    A profile that declares none of them, or a value that is not a mapping, is returned unchanged. A
+    malformed declaration raises ``CatalogError`` naming the profile.
+    """
+    if not isinstance(profile, dict) or not any(key in profile for key in ECONOMIC_PROFILE_KEYS):
+        return profile
+    where = f"Routing profile {profile_id!r}"
+    result = dict(profile)
+
+    mode = profile.get("mode", DEFAULT_ROUTING_MODE)
+    if mode not in ROUTING_MODES:
+        raise CatalogError(f"{where}: mode must be one of {', '.join(ROUTING_MODES)}, got {mode!r}")
+    result["mode"] = mode
+
+    model_id = profile.get("model_id")
+    if "model_id" in profile and (not isinstance(model_id, str) or not model_id.strip()):
+        raise CatalogError(f"{where}: model_id must be a non-empty catalog model id, got {model_id!r}")
+    if mode == "single" and model_id is None:
+        raise CatalogError(f"{where}: mode 'single' requires model_id (the one model the profile may use)")
+    if model_id is not None:
+        result["model_id"] = model_id.strip()
+
+    if "candidate_model_ids" in profile:
+        candidates = profile["candidate_model_ids"]
+        if (not isinstance(candidates, list) or not candidates
+                or any(not isinstance(item, str) or not item.strip() for item in candidates)
+                or len(set(candidates)) != len(candidates)):
+            raise CatalogError(f"{where}: candidate_model_ids must be a non-empty list of unique model ids")
+        if mode == "single" and result["model_id"] not in candidates:
+            raise CatalogError(f"{where}: model_id {result['model_id']!r} is not in candidate_model_ids")
+
+    if "levels" in profile:
+        levels = profile["levels"]
+        if not isinstance(levels, dict) or not levels:
+            raise CatalogError(
+                f"{where}: levels must be a mapping from step kind ({', '.join(STEP_KINDS)}) to a min/max level")
+        normalized: dict[str, dict[str, str]] = {}
+        for kind, bounds in levels.items():
+            if kind not in STEP_KINDS:
+                raise CatalogError(f"{where}: levels has unknown step kind {kind!r}; expected one of {', '.join(STEP_KINDS)}")
+            if not isinstance(bounds, dict) or not bounds:
+                raise CatalogError(f"{where}: levels.{kind} must be a mapping with 'min' and/or 'max' (for example {{min: T3}})")
+            unknown = sorted(str(key) for key in bounds if key not in ("min", "max"))
+            if unknown:
+                raise CatalogError(f"{where}: levels.{kind} has unknown keys {unknown}; expected only 'min' and 'max'")
+            for bound, level in bounds.items():
+                if level not in MODEL_LEVELS:
+                    raise CatalogError(
+                        f"{where}: levels.{kind}.{bound} must be one of {', '.join(MODEL_LEVELS)}, got {level!r}")
+            if "min" in bounds and "max" in bounds and _level_index(bounds["min"]) > _level_index(bounds["max"]):
+                raise CatalogError(f"{where}: levels.{kind}.min {bounds['min']} is above max {bounds['max']}")
+            normalized[kind] = {bound: bounds[bound] for bound in ("min", "max") if bound in bounds}
+        result["levels"] = normalized
+
+    if "effort" in profile:
+        effort = profile["effort"]
+        if not isinstance(effort, dict):
+            raise CatalogError(
+                f"{where}: effort must be a mapping from step kind ({', '.join(STEP_KINDS)}) to an effort level")
+        for kind, level in effort.items():
+            if kind not in STEP_KINDS:
+                raise CatalogError(f"{where}: effort has unknown step kind {kind!r}; expected one of {', '.join(STEP_KINDS)}")
+            if level not in EFFORT_LEVELS:
+                raise CatalogError(
+                    f"{where}: effort.{kind} must be one of {', '.join(EFFORT_LEVELS)} "
+                    f"(leave the step kind out to keep the provider default), got {level!r}")
+        result["effort"] = dict(effort)
+
+    if "escalation" in profile:
+        escalation = profile["escalation"]
+        if not isinstance(escalation, dict):
+            raise CatalogError(f"{where}: escalation must be a mapping with max_escalations_per_step and ceiling")
+        unknown = sorted(str(key) for key in escalation if key not in DEFAULT_ESCALATION)
+        if unknown:
+            raise CatalogError(f"{where}: escalation has unknown keys {unknown}; expected {', '.join(DEFAULT_ESCALATION)}")
+        limit = escalation.get("max_escalations_per_step", DEFAULT_ESCALATION["max_escalations_per_step"])
+        if type(limit) is not int or not 0 <= limit <= 1:
+            raise CatalogError(
+                f"{where}: escalation.max_escalations_per_step must be 0 or 1 (one escalation per step), got {limit!r}")
+        ceiling = escalation.get("ceiling", DEFAULT_ESCALATION["ceiling"])
+        if ceiling not in ESCALATION_CEILINGS:
+            raise CatalogError(
+                f"{where}: escalation.ceiling must be one of {', '.join(ESCALATION_CEILINGS)} "
+                f"(T4 is never automatic), got {ceiling!r}")
+        result["escalation"] = {"max_escalations_per_step": limit, "ceiling": ceiling}
+    return result
 
 
 @dataclass(frozen=True)
@@ -202,7 +318,10 @@ class Catalog:
         models_document = self._load_yaml(self.catalog_dir / "models.yaml")
         raw_models = models_document.get("models", {})
         routing = models_document.get("routing_profiles", {}) or {}
-        self.routing_profiles = dict(routing.get("profiles", {}) or {})
+        self.routing_profiles = {
+            profile_id: validate_routing_profile(str(profile_id), profile)
+            for profile_id, profile in dict(routing.get("profiles", {}) or {}).items()
+        }
         self.routing_assignments = dict(routing.get("assignments", {}) or {})
         executor_routing = models_document.get("executor_routing", {}) or {}
         self.executor_routing_valid = isinstance(executor_routing, dict)
@@ -231,6 +350,10 @@ class Catalog:
             spec = ModelSpec(id=model_id, **raw)
             self._warn_legacy_cost(spec)
             self.models[model_id] = spec
+        for profile_id, profile in self.routing_profiles.items():
+            if isinstance(profile, dict) and profile.get("mode") == "single" and profile["model_id"] not in self.models:
+                raise CatalogError(
+                    f"Routing profile {str(profile_id)!r}: model_id {profile['model_id']!r} is not a model in the catalog")
 
     @staticmethod
     def _warn_legacy_cost(spec: ModelSpec) -> None:

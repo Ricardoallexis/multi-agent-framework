@@ -235,6 +235,7 @@ class WorkflowEngine:
                     sensitive=bool(request.get("sensitive", False)),
                 )
                 routing_decision = None
+                effective_effort = step.effort
                 if profile_id is not None:
                     profile_required = profile.get("required_permissions", []) if isinstance(profile, dict) else []
                     caller_grants = request.get("effective_permissions")
@@ -303,6 +304,10 @@ class WorkflowEngine:
                             tier=ModelTier.CLOUD if str(selected_spec.tier).casefold() == "cloud" else ModelTier.LOCAL,
                         )
                         routing_reason = "explicit routing profile selected"
+                        if routing_decision.effort is not None:
+                            # The decision keeps the step's own effort and only adds the profile's per-kind one
+                            # when the step asked for none.
+                            effective_effort = routing_decision.effort
                     elif routing_decision.status == "manual" and execution_mode == ExecutionMode.HUMAN_GUIDED:
                         binding, requirements = None, None
                         routing_reason = "human_guided requested"
@@ -331,7 +336,7 @@ class WorkflowEngine:
                     "prompt_version": step.prompt_version,
                     "execution_mode": execution_mode.value,
                     "step_kind": step.kind,
-                    "effort": step.effort,
+                    "effort": effective_effort,
                 })
 
                 if execution_mode == ExecutionMode.HUMAN_GUIDED:
@@ -445,7 +450,7 @@ class WorkflowEngine:
                     validate_response=validate_response,
                     on_failed_attempt=record_failed_attempt,
                     on_attempt=record_attempt,
-                    effort=step.effort,
+                    effort=effective_effort,
                 )
 
                 # Soft cancellation discards the result before persisting an artifact if a human
