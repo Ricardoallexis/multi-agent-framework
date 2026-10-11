@@ -26,7 +26,7 @@ The order follows technical dependencies and changes as the project learns (see 
 4. **S8** Planning and delegation: manual first, then semi-automatic and automatic.
 5. **S9** Interoperability. The MCP server can start at any time; channels and clients follow the tool contracts.
 6. **S10–S13** Observability and evaluation, routing and local AI, memory and context, and human-in-the-loop improvements. They advance in parallel lanes when their dependencies are met.
-7. **S14–S15** Operator UI stages 1–3, then the advanced operator interface once OpenTelemetry, MCP, and concurrent planning exist.
+7. **S14–S15** The local operator GUI is partially delivered; the remaining operator UI stages continue in S14. The advanced operator interface follows once OpenTelemetry, MCP, and concurrent planning exist.
 8. **S16** Presets, examples, and catalog, including reference tool stacks. The research and examples can start early because they do not block the core.
 9. **S17** Security, developer experience, and releases, continuously; **S18** a future M2 generation only if compatibility cannot be kept.
 
@@ -234,11 +234,15 @@ Research which well-known open-source tools make good examples for the most comm
 
 ## Frontend / UI
 
-**Progress:** `██░░░░░░░░` 4/20 · 20% <!-- progress -->
+**Progress:** `██░░░░░░░░` 5/21 · 24% <!-- progress -->
 
-`F00` ships without a graphical interface. A minimal UI arrives early as a development, testing, and operator interface rather than as the final product. It is one more client of the public API, like the CLI, with no business logic, persistence, or orchestration of its own, and it works with the mock backend so no API keys are needed. Its technology is chosen at that milestone, and each later area of the roadmap adds UI only where it clearly improves validation, operation, or experience.
+`F00` shipped without a graphical interface. The local operator GUI is now
+available alongside the Stage 0 run-console prototype; it is a separate local
+interface, not the final product. See [docs/GUI.md](docs/GUI.md) and
+[docs/UI0.md](docs/UI0.md).
 
 - [x] Stage 0, right after the application services and HTTP parity: start a run from an available workflow (mock by default), follow its status and events, handle the pending human action (approve, request changes, regenerate, reject, cancel, or paste an external model's response and see validation errors), and inspect artifacts. Its review and confirmation step for externally produced output can follow the same human-confirmation pattern as the external-delivery importer (`tools/seguimiento/`).
+- [x] Local operator GUI served by the API at `/gui/`: read-only session browsing for configured Claude, Codex, Copilot, and framework sources; framework-run creation and human actions; live session follow; and confirmation-gated open-in-app actions. It uses a local bearer token and stays on loopback. This is a partial delivery of S14, not completion of UI stages 1–3.
 - [ ] Stage 1: agent and workflow configuration, once agent, tool, and capability contracts are stable.
 - [ ] Stage 2: teams, plans, and tasks, to inspect and approve generated plans and follow task execution.
 - [ ] Stage 3: tools and interoperability, including pending permissions, channels, MCP, and artifacts.

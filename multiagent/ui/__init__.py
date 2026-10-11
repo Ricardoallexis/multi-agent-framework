@@ -18,9 +18,6 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 def mount_ui(app: FastAPI) -> None:
     """Serve the UI at ``/ui`` (same origin as the API, so no CORS is needed)."""
-    from ..gui import mount_gui
-
-    mount_gui(app)  # new GUI at /gui, independent of the prototype assets
     if not (STATIC_DIR / "index.html").is_file():
         return  # installed without UI assets: the API keeps working
     app.mount("/ui/static", StaticFiles(directory=STATIC_DIR), name="ui-static")

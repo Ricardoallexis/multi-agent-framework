@@ -1,5 +1,8 @@
 # Stage 0 run console
 
+The newer operator GUI is documented in [GUI.md](GUI.md). This prototype is
+kept at `/ui/` only until the new GUI covers its use cases.
+
 Stage 0 is a local operator interface for declared workflows. It uses the public
 HTTP API at `/api/v1` for every operation. Runs, artifacts, and workflow state
 belong to the backend; the UI adds no persistence or orchestration layer.

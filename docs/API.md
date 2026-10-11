@@ -177,6 +177,18 @@ guessing its state. The Stage 0 run view does this and shows a notice while it
 reloads. `seq` is additive: existing fields, including the event `id`, keep
 their meaning. An `after` below 0 or not an integer returns 422 `invalid_request`.
 
+## GUI routes (local, token-protected)
+
+The operator GUI is served at `/gui/`; its local routes live under
+`/gui/api/*` and require the GUI access token. They are not part of the public
+`/api/v1` contract. For startup, session access, settings, and the security
+model, see the [operator GUI guide](GUI.md).
+
+Start the local GUI with `multiagent gui [--port N] [--real] [--no-browser]`
+or `python -m multiagent.gui`. The read-only session service is also available
+through `multiagent sessions list`, `multiagent sessions show`, and
+`multiagent sessions items`.
+
 Team events (`GET /api/v1/team-events`) use one sequence for the whole team
 rather than one per run: an unfiltered read has no gaps, and a read filtered by
 group or task skips the events of other groups or tasks. See [`TASKS.md`](TASKS.md#team-events).

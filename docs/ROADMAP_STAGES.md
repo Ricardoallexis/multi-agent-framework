@@ -30,7 +30,7 @@ This plan breaks the [roadmap](../ROADMAP.md) into stages, sub-stages, and tasks
 | S11 | Model routing and local AI | Core + Extension | S3 | ◐ |
 | S12 | Memory, context, and knowledge | Core | S5.A | ☐ |
 | S13 | Human-in-the-loop improvements | Core | S1 | ◐ |
-| S14 | Operator UI, UI stages 1–3 | Extension | S5, S6.A, S8.B, S9 | ☐ |
+| S14 | Operator UI, UI stages 1–3 | Extension | S5, S6.A, S8.B, S9 | ◐ |
 | S15 | Advanced operator interface | Extension | S10.B, S9.C, S8.C | ☐ |
 | S16 | Presets, examples, and catalog | Extension + Example | S6.A | ◐ |
 | S17 | Security, developer experience, and releases | Core (cross-cutting) | — | ◐ |
@@ -363,10 +363,18 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 
 **Parallel:** S13.A, S13.B2, and S13.C at once.
 
-## S14 · Operator UI, UI stages 1–3 ☐
+## S14 · Operator UI, UI stages 1–3 ◐
 
 - **Class:** Extension (API client).
 - **Objective:** grow the operator UI only where it improves validation and operation.
+
+**Delivered in part:** a local operator GUI at `/gui/` with a read-only,
+configurable session viewer, framework-run creation and human actions, live
+session follow, and confirmation-gated open-in-app support. It uses the local
+API with a bearer token and is documented in [GUI.md](GUI.md). The Stage 0
+prototype remains at `/ui/` until its use cases are covered. This does not
+complete UI stages 1–3; the configuration, teams/plans/tasks, tools, and
+advanced visualization items below remain planned.
 
 | Task | Description | Depends on |
 | --- | --- | --- |

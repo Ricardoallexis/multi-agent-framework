@@ -17,6 +17,7 @@ from .contracts import HumanReviewRequest, HumanStepSubmission, SocialPostReques
 from .run_request import RunRequest
 from .services import ApplicationServices, ServiceError
 from .services.errors import INVALID_REQUEST
+from .gui import mount_gui
 from .ui import mount_ui
 from .version import __version__
 
@@ -671,5 +672,6 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def ack_cursor(consumer: str, body: CursorAck):
         return services.envelopes.ack_events(consumer, body.seq, scope=body.scope)
 
+    mount_gui(app)  # operator GUI at /gui (token-protected /gui/api, docs/GUI.md)
     mount_ui(app)  # Stage 0 UI at /ui: static files only, a client of the routes above
     return app
