@@ -273,7 +273,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S10.A — Telemetry** | | |
-| S10.A1 | Retry counts, routing-decision telemetry, and token estimates. | — |
+| S10.A1 | ◐ Partial. Routing decisions, requested/applied effort, bounded-escalation events, and estimated call cost from token counts and valid catalog price evidence are recorded; retries and token estimates are not yet fully delivered. | — |
 | S10.A2 | Exportable run reports for debugging and audit. | — |
 | **S10.B — Standards** | | |
 | S10.B1 | OpenTelemetry traces and metrics (GenAI conventions) alongside domain events. | S10.A1, S4.A1 |
@@ -287,6 +287,12 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 **Parallel:** S10.A, S10.C1, and S10.D1 at once.
 **Acceptance:** a run exports a report and an OpenTelemetry trace; a prompt change shows a regression score.
 
+**Delivered in part:** provider-call cost estimates are recorded with their price
+basis, with unknown values kept separate from zero. Routing and bounded
+escalation events provide decision evidence. Exportable reports, complete
+retry/token-estimate telemetry, OpenTelemetry, and evaluation datasets remain
+planned.
+
 ## S11 · Model routing and local AI ◐
 
 - **Class:** Core (policies) + Extension (local model providers).
@@ -296,11 +302,11 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S11.A — Policies** | | |
-| S11.A1 | ◐ Partial. T14 provides opt-in profiles, deterministic candidate filters, evidence-aware health selection, and comparable-price selection when evidence permits. No implicit health probes run; current surfaces do not establish provider availability or served-model outcomes. | — |
+| S11.A1 | ◐ Partial. T14 provides opt-in profiles, deterministic candidate filters, evidence-aware health selection, and comparable-price selection when evidence permits. The disabled-by-default economic profile applies levels, classification, and current price evidence; it does not establish provider availability or served-model outcomes. | — |
 | S11.A2 | Local-first, cloud-first, offline-only, and hybrid policies. | S11.A1 |
-| S11.A3 | ◐ Partial. T14 enforces run/profile provider-invocation limits across dispatch attempts. Strict token/cost enforcement is unsupported; planning estimates remain distinct and cannot establish actual usage or cost. Only provider-invocation limits have strict enforcement. | S11.A1 |
+| S11.A3 | ◐ Partial. T14 enforces run/profile provider-invocation limits across dispatch attempts. The economic profile checks budgets before bounded escalation; strict token/cost enforcement and actual billing guarantees remain unsupported. | S11.A1 |
 | **S11.B — Model health** | | |
-| S11.B1 | Health checks, capability discovery, and automatic fallback. | — |
+| S11.B1 | ◐ Partial. Economic-profile escalation moves up one level, at most once per attempt, only after output-quality failures; provider errors do not escalate and T4 is never reached automatically. | — |
 | S11.B2 | Per-model quality, latency, failure, and usage statistics to inform routing. | S11.B1, S10.A1 |
 | **S11.C — Local models** | | |
 | S11.C1 | Evaluate and add complementary local language models by strength. | S11.B1 |
@@ -311,6 +317,17 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S11.D1 | Evaluate external structured-decision providers behind a neutral interface, opt-in only. | S11.A1 |
 
 **Parallel:** S11.A and S11.B at once.
+
+**Delivered in part:** the catalog supports model levels (T1–T4),
+classification, and validity-bounded pricing evidence; local Ollama models
+declare T1 and no-charge prices. Workflow steps carry `kind` and provider
+translated `effort`. A disabled-by-default economic profile selects among
+eligible priced models and supports bounded, supervised or automatic
+escalation. Offline measurement tools apply the approved paired-run adoption
+criterion; real measurements require user authorization and budget. Codex,
+Claude, and Copilot CLI executor adapters can receive routing decisions within
+their declared support, but remain disabled. Broader health discovery, local
+model expansion, and the other planned items remain open.
 
 ## S12 · Memory, context, and knowledge ☐
 

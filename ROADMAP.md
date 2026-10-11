@@ -26,6 +26,7 @@ The order follows technical dependencies and changes as the project learns (see 
 4. **S8** Planning and delegation: manual first, then semi-automatic and automatic.
 5. **S9** Interoperability. The MCP server can start at any time; channels and clients follow the tool contracts.
 6. **S10–S13** Observability and evaluation, routing and local AI, memory and context, and human-in-the-loop improvements. They advance in parallel lanes when their dependencies are met.
+   The disabled-by-default economic routing profile uses classified model levels and current price evidence, with bounded quality-failure escalation and cost telemetry; executor adapters are implemented but disabled. Real adoption measurements require user authorization and budget.
 7. **S14–S15** The local operator GUI is partially delivered; the remaining operator UI stages continue in S14. The advanced operator interface follows once OpenTelemetry, MCP, and concurrent planning exist.
 8. **S16** Presets, examples, and catalog, including reference tool stacks. The research and examples can start early because they do not block the core.
 9. **S17** Security, developer experience, and releases, continuously; **S18** a future M2 generation only if compatibility cannot be kept.

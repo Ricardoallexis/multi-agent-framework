@@ -2,6 +2,30 @@
 
 Model routing chooses a model for a workflow step. Task assignment chooses a person or executor surface for a task. A selected route or assignment is a plan; it does not prove that a provider or executor was called, that the requested settings took effect, or that the resulting work passed review.
 
+## Economic mode at a glance
+
+The optional `economic` routing profile ranks eligible models using declared
+levels and current catalog price evidence, while respecting capability,
+privacy, permission, mode, and budget constraints. It is disabled and
+unassigned by default. `supervised` mode can pause for human approval before
+escalating to T3; `automatic` allows escalation without approval, and `single`
+never escalates. Automatic escalation is limited to one level after an output
+quality failure, never reaches T4, and never handles provider errors.
+
+Workflow steps can declare a generic `kind` and provider-translated `effort`.
+Calls record what was requested and applied, and telemetry estimates cost only
+when token counts and valid, comparable price evidence are available. Unknown
+cost remains unknown. Offline evaluation tools compare paired accepted runs;
+real measurements require explicit user authorization and a budget.
+
+Codex, Claude, and Copilot CLI executor adapters are also present but disabled.
+When enabled, routing requests are constrained by each executor's declared
+model and effort support; this does not prove the executor used the requested
+model. See [step kind and effort](#step-kind-and-reasoning-effort),
+[economic profile](#economic-profile), [bounded escalation](#bounded-escalation),
+[executor routing](#model-and-effort-for-executors), [measurement](#measuring-the-economic-profile),
+and [cost telemetry](TELEMETRY.md#estimated-cost) for details.
+
 ## Defaults and opt-in profiles
 
 Workflows keep their configured preferred model and optional fallback unless a routing profile is explicitly assigned to a workflow step in the catalog. An absent profile preserves this legacy behavior. An explicitly requested profile that is unknown, disabled, invalid, or has no eligible candidate returns a blocked decision; it does not silently use the legacy binding.
