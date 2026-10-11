@@ -26,6 +26,8 @@ VIEW_FILES = [
     "main.js", "runs.js", "create-run.js", "run-detail.js", "human-actions.js",
     "sessions.js", "session-detail.js", "session-items.js", "open-in-app.js", "subagents-panel.js",
 ]
+# The app shell (GUI2-T02: top bar, sidebar, right panel) draws controls too, under the same rules.
+VIEW_FILES += ["shell.js", "sidebar.js", "right-panel.js", "panel-slots.js", "subagents-mount.js"]
 CONTROL_TAGS = {"input", "select", "textarea", "button"}
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
@@ -50,10 +52,12 @@ DYNAMIC_TOPICS = {
 
 # Sections (headings with an id) and the topic that explains each; run and session titles are data, not sections.
 SECTION_TOPICS = {
-    "sessions-title": "sessions.list", "children-title": "session.children", "items-title": "session.items",
+    "sessions-title": "sessions.list", "items-title": "session.items",
     "roots-title": "sessions.roots", "preview-title": "preview.panel", "counters-title": "run.counters",
     "steps-title": "run.steps", "history-title": "run.history", "results-title": "run.results",
-    "inputs-title": "run.inputs", "human-actions-title": "human.section", "sub-title": "subagents.panel",
+    "inputs-title": "run.inputs", "human-actions-title": "human.section",
+    "panel-changes-title": "panel.changes", "panel-subagents-title": "subagents.panel",
+    "panel-tokens-title": "panel.tokens", "panel-sources-title": "panel.sources",
 }
 DATA_HEADINGS = {"run-title", "session-title"}
 

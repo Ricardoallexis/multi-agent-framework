@@ -1,6 +1,7 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// One session: summary header, items paged with "cargar más", subagents and live follow over the SSE stream.
+// One session: summary header, items paged with "cargar más" and live follow over the SSE stream. Its subagents are listed
+// by the right panel of the shell (subagents-mount.js), not here.
 // Session content is untrusted text: it is only ever rendered as text nodes (see session-items.js).
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet } from "./api.js";
@@ -17,8 +18,6 @@ import { errorText, fmtDate } from "./text.js";
 
 const ITEMS_PAGE = 200;
 const SUMMARY_REFRESH_MS = 2000;
-const CHILD_PAGE = 500;
-const CHILD_MAX_PAGES = 8;
 const NEAR_BOTTOM_PX = 160;
 
 const sessionPath = (id, tail = "") => "/gui/api/sessions/" + encodeURIComponent(id) + tail;
@@ -44,47 +43,6 @@ const FOLLOW_TEXT = {
   ended: "Seguimiento terminado",
   failed: "No se pudo seguir en vivo",
 };
-
-function Children({ token, summary }) {
-  const [state, setState] = useState({ loading: true, found: [], error: null });
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const found = [];
-      let after = null;
-      try {
-        for (let pages = 0; pages < CHILD_MAX_PAGES && !cancelled; pages += 1) {
-          const query = new URLSearchParams({ source: summary.source, limit: String(CHILD_PAGE) });
-          if (after) query.set("after", after);
-          const page = await apiGet("/gui/api/sessions?" + query.toString(), token);
-          for (const session of page.sessions) if (session.parent_id === summary.id) found.push(session);
-          after = page.next_cursor;
-          if (!after || found.length >= summary.child_count) break;
-        }
-        found.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
-        if (!cancelled) setState({ loading: false, found, error: null });
-      } catch (failure) {
-        if (!cancelled) setState({ loading: false, found, error: asApiError(failure) });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [summary.id, token]);
-
-  return html`<section class="panel" aria-labelledby="children-title">
-    <h4 id="children-title">Subagentes (${summary.child_count})</h4>
-    <${Help} topic="session.children" />
-    ${state.loading && html`<p class="muted" aria-busy="true">Buscando los subagentes…</p>`}
-    ${state.error && html`<p class="message error" role="alert">No se pudieron listar: ${errorText(state.error)}</p>`}
-    ${!state.loading && !state.error && state.found.length === 0 && html`<p class="muted">Los subagentes de esta sesión no
-      tienen una sesión propia que se pueda abrir; aparecen como avisos «Subagente» dentro de la conversación.</p>`}
-    ${state.found.length > 0 && html`<ul class="child-list">
-      ${state.found.map((child) => html`<li key=${child.id}>
-        <a href=${routeHref("sessions", child.id)}>${sessionTitle(child)}</a>
-        <span class="muted small"> · ${statusInfo(child.status).label} · actualizada ${relativeTime(child.updated_at)}</span>
-      </li>`)}
-    </ul>`}
-  </section>`;
-}
 
 function Header({ token, summary, onRefresh }) {
   const info = statusInfo(summary.status);
@@ -258,7 +216,6 @@ export function SessionDetail({ token, sessionId, onBack }) {
     ${back}
     ${!summary && html`<h3 id="session-title">Sesión</h3><p class="muted" aria-busy="true">Cargando la sesión…</p>`}
     ${summary && html`<${Header} token=${token} summary=${summary} onRefresh=${refreshSummary} />`}
-    ${summary && summary.child_count > 0 && html`<${Children} token=${token} summary=${summary} />`}
     <section class="panel live-bar" aria-label="Seguimiento en vivo">
       <span class=${"badge live live-" + followState} role="status" aria-live="polite">${followText}</span>
       ${page.done && !retryable && html`<button type="button" class="btn secondary small" ...${helpFor("session.pause")} onClick=${() => setPaused(!paused)}>

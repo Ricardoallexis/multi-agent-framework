@@ -81,6 +81,32 @@ To make your own bundle, copy `examples/bundles/general`, rename the workflow
 ids, and edit the prompts, agents and contracts; keep a sample output for each
 contract in `SAMPLE_OUTPUTS` so Mock runs work.
 
+## Layout
+
+The views sit inside a three-zone shell (GUI2-T02):
+
+- **Left sidebar** (`nav`): "Nueva sesión" (for now it opens the create-run
+  form at `#new`), a search box and the sessions of Claude, Codex and Copilot
+  plus the framework runs, grouped by project (the folder name of a session, the
+  project name of a run). Each item has a status dot (working, finished, error;
+  also written as text for screen readers) and each group counts its items per
+  app. It uses only `/gui/api/sessions` and `/gui/api/runs`; there is no task
+  board because the GUI API does not serve one.
+- **Centre** (`main`): the view of the current route. In a session, consecutive
+  tool calls and results fold into one block, "Trabajó N min · K herramientas",
+  that opens to show them.
+- **Right panel** (`aside`): Cambios, Subagentes, Tokens and Fuentes, empty for
+  now except Subagentes. A button in the top bar collapses it
+  (`aria-expanded`/`aria-controls`) and the browser remembers the choice in
+  `localStorage`. Each section body is a small component in `js/panel-slots.js`,
+  which is where later tasks plug in. Subagentes holds the subagents panel
+  (Activos/Terminados tabs) for the session open in the centre.
+
+Below about 900 px the sidebar becomes a drawer opened by the "Menú" button
+(Esc or a click outside closes it) and the right panel stacks under the content.
+There is a skip link, visible focus and 44 px touch targets; the palette follows
+`prefers-color-scheme`.
+
 ## Views
 
 **Sesiones** is the default view. It combines a read-only, filterable and

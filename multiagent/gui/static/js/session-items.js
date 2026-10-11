@@ -6,6 +6,7 @@ import { html } from "../vendor/htm-preact-standalone.module.js";
 import { routeHref } from "./route.js";
 import { kindLabel, tokensText } from "./session-text.js";
 import { fmtDate } from "./text.js";
+import { foldWork, workLabel } from "./work-fold.js";
 
 const SHORT_NOTE = 240;
 const CHILD_ID = /^(?:claude|codex|copilot|framework):[A-Za-z0-9:_-]{1,190}$/;
@@ -94,8 +95,22 @@ export function Item({ item }) {
   }
 }
 
+// A folded run of work (GUI2-T02): closed by default, it opens to show every tool call and result inside.
+function WorkBlock({ block }) {
+  return html`<li class="item work-fold">
+    <details>
+      <summary>${workLabel(block)}</summary>
+      <ol class="items work-items" aria-label="Trabajo realizado">
+        ${block.entries.map((entry) => html`<${Item} key=${entry.index} item=${entry.item} />`)}
+      </ol>
+    </details>
+  </li>`;
+}
+
 export function Items({ items }) {
   return html`<ol class="items" aria-label="Contenido de la sesión">
-    ${items.map((item, index) => html`<${Item} key=${index} item=${item} />`)}
+    ${foldWork(items).map((block) => (block.fold
+      ? html`<${WorkBlock} key=${"w" + block.start} block=${block} />`
+      : html`<${Item} key=${block.index} item=${block.item} />`))}
   </ol>`;
 }

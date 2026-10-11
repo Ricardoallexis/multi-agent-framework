@@ -185,21 +185,20 @@ export function SubagentsPanel({ token, sessionId, currentId = null }) {
   };
 
   const viewingChild = currentId && currentId !== sessionId;
-  return html`<section class="sub-panel" aria-labelledby="sub-title">
+  // The title "Subagentes" and its "?" (topic "subagents.panel") belong to the section of the right panel that holds this panel.
+  return html`<div class="sub-panel">
+    ${viewingChild && html`<div class="header-tools back-bar">
+      <a class="btn secondary small" href=${routeHref("sessions", sessionId)} ...${helpFor("subagents.back")}>← Volver a la sesión principal</a>
+      <${Help} topic="subagents.back" compact=${true} />
+    </div>`}
     <div class="sub-head">
-      <h3 id="sub-title">Subagentes</h3>
+      <p class="muted small sub-counts" role="status" aria-live="polite">${data.loaded ? countsText(counts) : "Cargando subagentes…"}${
+        stream === "failed" ? ". Sin actualización en vivo; se revisa cada 10 segundos." : ""}</p>
       <div class="header-tools">
         <button type="button" class="btn secondary small" ...${helpFor("subagents.refresh")} onClick=${refresh}>Actualizar</button>
         <${Help} topic="subagents.refresh" compact=${true} />
       </div>
     </div>
-    <${Help} topic="subagents.panel" />
-    ${viewingChild && html`<div class="header-tools back-bar">
-      <a class="btn secondary small" href=${routeHref("sessions", sessionId)} ...${helpFor("subagents.back")}>← Volver a la sesión principal</a>
-      <${Help} topic="subagents.back" compact=${true} />
-    </div>`}
-    <p class="muted small" role="status" aria-live="polite">${data.loaded ? countsText(counts) : "Cargando subagentes…"}${
-      stream === "failed" ? ". Sin actualización en vivo; se revisa cada 10 segundos." : ""}</p>
     <div class="sub-tabs-row">
       <div class="sub-tabs" role="tablist" aria-label="Estado de los subagentes" onKeyDown=${onTabKey}>
         ${GROUPS.map((entry) => html`<button key=${entry.id} type="button" role="tab" id=${"sub-tab-" + entry.id}
@@ -226,5 +225,5 @@ export function SubagentsPanel({ token, sessionId, currentId = null }) {
       </div>`}
     </div>
     ${data.warnings.length > 0 && html`<p class="muted small">${data.warnings.map(childrenWarning).join(" ")}</p>`}
-  </section>`;
+  </div>`;
 }

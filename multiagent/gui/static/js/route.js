@@ -1,15 +1,18 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// Tiny hash router: "#sessions", "#sessions/<id>", "#runs", "#runs/<run id>". The id is URL-encoded.
+// Tiny hash router: "#sessions", "#sessions/<id>", "#runs", "#runs/<run id>" and "#new" (a new session, GUI2-T02: for
+// now it opens the create-run form). The id is URL-encoded.
 // "#run=<id>" is what the API gives as the link of a framework session; it opens that run in "Ejecuciones".
 // The local token travels in "#token=" only until main.js reads it and removes it from the address.
 import { useState, useEffect } from "../vendor/htm-preact-standalone.module.js";
 
 export const DEFAULT_SECTION = "sessions";
 const SECTION_IDS = ["sessions", "runs"];
+export const NEW_SECTION = "new";
 
 export function parseRoute(hash) {
   const text = String(hash || "").replace(/^#\/?/, "");
+  if (text === NEW_SECTION) return { section: NEW_SECTION, id: null };
   const legacy = /^run=(.+)$/.exec(text);
   if (legacy) return { section: "runs", id: safeDecode(legacy[1]) };
   const slash = text.indexOf("/");

@@ -683,15 +683,19 @@ def used(text: str, name: str) -> set[str]:
     return set(re.findall(rf"\b{name}\.([a-z_]+)", text))
 
 
-def test_new_files_exist_and_main_has_just_one_import_for_them():
+def test_new_files_exist_and_the_panel_lives_in_the_right_panel_slot_of_the_shell():
     for name in NEW_JS:
         assert (JS / name).is_file(), name
     assert (STATIC_DIR / "subagents-panel.css").is_file()
-    main = read("main.js")
-    assert [line for line in main.splitlines() if "subagents" in line] == [
-        'import "./subagents-mount.js"; // subagents column next to an open session (GUI2-T04)']
+    # no import of its own and no column of its own: the «Subagentes» slot of the shell (GUI2-T02) mounts the panel
+    assert [line for line in read("main.js").splitlines() if "subagents" in line] == []
+    slots = read("panel-slots.js")
+    assert 'import { SubagentsMount } from "./subagents-mount.js"' in slots and "<${SubagentsMount}" in slots
+    assert 'id="subagents-slot"' in slots and 'data-slot="subagents"' in slots
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     assert re.findall(r"<script[^>]*>", html) == ['<script type="module" src="/gui/static/js/main.js">']
+    assert re.findall(r'<link rel="stylesheet" href="([^"]+)">', html) == [
+        "/gui/static/app.css", "/gui/static/subagents-panel.css"]
 
 
 @pytest.mark.parametrize("name", NEW_JS)
@@ -733,7 +737,7 @@ def test_status_is_never_colour_only_and_all_texts_are_spanish():
     assert '<span class=${"sub-dot tone-" + info.tone} aria-hidden="true">' in panel
     css = (STATIC_DIR / "subagents-panel.css").read_text(encoding="utf-8")
     assert "prefers-reduced-motion" in css and "sub-pulse" in css and "min-height: 44px" in css
-    assert ".subagents-dock:empty" in css and "has-subagents" in css and "max-width: 1100px" in css
+    assert "subagents-dock" not in css and "has-subagents" not in css and "position: fixed" not in css   # one right panel only
 
 
 def test_the_panel_opens_children_through_the_existing_route_scheme():
@@ -741,8 +745,9 @@ def test_the_panel_opens_children_through_the_existing_route_scheme():
     assert 'routeHref("sessions", child.link_id)' in panel and 'routeHref("runs", ' in panel
     assert 'only=children' in panel and "parseBlock" in panel and "setInterval(" in panel
     assert re.search(r"TICK_MS = (\d+)", panel) and int(re.search(r"TICK_MS = (\d+)", panel)[1]) >= 10000
-    assert "useRoute" in mount and 'route.section === "sessions"' in mount and "loadToken" in mount
-    assert "innerHTML" not in mount and "subagents-panel.css" in mount
+    assert "export function SubagentsMount" in mount and "openId" in mount and "useListedSession" in mount
+    assert "<${SubagentsPanel}" in mount and "currentId=${openId}" in mount
+    assert "innerHTML" not in mount and "document.body" not in mount and "render(" not in mount   # no root or column of its own
 
 
 def test_fields_read_by_the_client_exist_in_the_api_answers(world):

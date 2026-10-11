@@ -573,14 +573,6 @@ export const HELP = {
       "El identificador es el que usa este visor para enlazar la sesión."
     ]
   },
-  "session.children": {
-    "title": "Subagentes",
-    "hint": "Sesiones auxiliares que lanzó esta sesión.",
-    "more": [
-      "Cada una tiene su propia conversación, que abres desde su enlace.",
-      "Si no aparece ninguna, esos subagentes se ven solo como avisos «Subagente» dentro de la conversación."
-    ]
-  },
   "session.live": {
     "title": "Seguimiento en vivo",
     "hint": "Si la pantalla recibe lo nuevo de la sesión sin que recargues.",
@@ -685,7 +677,6 @@ export const HELP = {
       "Ejecútalo dentro de la carpeta que se indica junto al comando, si aparece."
     ]
   },
-
   "subagents.panel": {
     "title": "Subagentes de la sesión",
     "hint": "Los agentes auxiliares que trabajan o trabajaron para esta sesión.",
@@ -743,6 +734,66 @@ export const HELP = {
     "more": [
       "La lista enseña primero los diez con actividad más reciente.",
       "El botón despliega los demás y, una vez abierta la lista, vuelve a dejar solo los diez primeros."
+    ]
+  },
+  "shell.menu": {
+    "title": "Menú de sesiones",
+    "hint": "Abre o cierra la lista de sesiones en pantallas estrechas.",
+    "more": [
+      "En pantallas estrechas la lista de sesiones se oculta para dejar sitio al contenido.",
+      "Este botón la muestra como un cajón sobre la pantalla y vuelve a ocultarla.",
+      "También se cierra con la tecla Esc o al elegir un elemento de la lista."
+    ]
+  },
+  "shell.panel": {
+    "title": "Panel de contexto",
+    "hint": "Muestra u oculta el panel de la derecha.",
+    "more": [
+      "El panel reúne los cambios, los subagentes, los tokens y las fuentes de la sesión abierta.",
+      "Este navegador recuerda si lo dejaste abierto o cerrado.",
+      "En pantallas estrechas aparece debajo del contenido."
+    ]
+  },
+  "shell.new_session": {
+    "title": "Nueva sesión",
+    "hint": "Empieza un trabajo nuevo.",
+    "more": [
+      "Por ahora abre el formulario de una ejecución nueva: eliges un workflow y rellenas sus entradas.",
+      "No se ejecuta nada hasta que pulsas «Crear ejecución»."
+    ]
+  },
+  "shell.search": {
+    "title": "Buscar en la lista",
+    "hint": "Filtra la lista de la izquierda mientras escribes.",
+    "more": [
+      "Busca en el título, el proyecto, la aplicación y el estado de cada elemento.",
+      "No distingue mayúsculas ni acentos, y pide que aparezcan todas las palabras escritas.",
+      "Solo filtra lo que ya está en la lista: no busca dentro de las conversaciones."
+    ]
+  },
+  "panel.changes": {
+    "title": "Cambios",
+    "hint": "Archivos que la sesión ha modificado.",
+    "more": [
+      "Aquí irán los archivos que la sesión cambió, con las líneas añadidas y quitadas.",
+      "Mientras no haya datos se muestra un aviso vacío."
+    ]
+  },
+  "panel.tokens": {
+    "title": "Tokens",
+    "hint": "Cuánto texto procesaron los modelos de la sesión.",
+    "more": [
+      "Un token es un trozo de texto que el modelo lee o escribe; cuantos más hay, más cuesta la sesión.",
+      "Aquí se sumarán los del orquestador y los de los trabajadores.",
+      "Mientras no haya datos se muestra un aviso vacío."
+    ]
+  },
+  "panel.sources": {
+    "title": "Fuentes",
+    "hint": "De dónde salen los datos de la sesión.",
+    "more": [
+      "Las fuentes son las apps o los archivos de los que se lee la sesión: Claude, Codex, Copilot o el propio framework.",
+      "Aquí se indicará cuál se usó y si alguna no estaba disponible."
     ]
   }
 };
