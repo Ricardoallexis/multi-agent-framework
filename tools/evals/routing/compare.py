@@ -32,7 +32,7 @@ _NULLABLE_NUMBERS = (
 _TEXT_FIELDS = (
     "case_id", "route", "input_version", "input_hash", "rubric_version",
     "rubric_hash", "config_hash", "surface", "evaluated_at", "requested", "effective", "observed",
-    "cost_unit",
+    "cost_unit", "category",
 )
 _BOOL_FIELDS = ("accepted", "critical_error")
 

@@ -132,6 +132,81 @@ A step whose cheaper model fails on the **quality of its output** can move up on
 - **Modes.** `automatic` escalates up to the ceiling without asking. `supervised` (the default) escalates automatically below T3 and, to reach T3 or above, **pauses the step**: the run waits as `waiting_human` with `waiting_reason: escalation_approval` and an `escalation_requested` event (reason, error, the model proposed with its price evidence, and the estimated cost so far). `POST /api/v1/runs/{id}/approve` resumes the same step with the escalated model, selected again so a changed catalog, grant or budget still applies; `reject` fails the step and the run with the reason. A pending escalation takes no other review action (`changes`, `regenerate`). `single` never escalates.
 - **Record.** Run events `model_escalated` (step, attempt, escalation number, mode, from and to level and model, `reason` = `structured_output_failed` or `semantic_validation_failed`, the error, `estimated_cost_so_far` for the run and for the step with unknown costs apart, and `approved_by_human`), `escalation_requested`, `escalation_approved`, `escalation_rejected` and `escalation_blocked` (with a `code` such as `ceiling_reached`, `no_eligible_candidate`, `max_llm_calls_reached` or `max_escalations_reached`). The `routing_decision` of the escalation carries `escalation` (number, attempt, from and to level, from model, reason, `ceiling`, `max_escalations_per_step`) and the request's `RoutingRequest.escalation`; later `model_attempt` events of the step carry `escalation: 1`, and `model_selected` lists the attempts of both levels. The estimated cost is an estimate from catalog prices, not a bill, and it is `null` for a call whose tokens or price are unknown.
 
+## Measuring the economic profile
+
+A routing decision is a plan, not proof that the profile saves money or keeps quality. Whether the economic profile should become anyone's default is decided from measured runs, by the user, using three offline tools in `tools/evals/routing/`. They read records and a database; they call no model, change no catalog, and **activate nothing**: the profile stays disabled and unassigned unless someone assigns it.
+
+| Tool | Does |
+| --- | --- |
+| `export_runs.py` | Turns a labelled set of finished runs in a framework database into comparator records (the `compare.py` format of RUT-T08). Reads only. |
+| `compare.py` | Compares two routes case by case: acceptance, calls, tokens, cost, escalations, rework. |
+| `adoption.py` | Applies the adoption criterion below to those records, per corpus category and overall, and writes a verdict as JSON or Markdown. |
+
+### The criterion
+
+The criterion is the one approved in the ECO-T01 contract (section 8). The economic profile (the candidate route) is adopted for a group of cases only when, on the cases that both routes ran with the same frozen input, rubric, configuration and surface:
+
+| # | Requirement | Rule |
+| --- | --- | --- |
+| 1 | Enough cases | At least 20 paired cases in each category of the corpus (`--min-cases`). |
+| 2 | Cost | Cost **per accepted run** strictly lower than the current route's, counting the failed attempts and escalations. A tie is not a saving. |
+| 3 | Quality | Acceptance rate not worse by more than 2 percentage points (`--max-acceptance-drop-points`). |
+| 4 | Safety | No new critical errors: no case where only the candidate has a critical error. |
+
+Each category gets a verdict, and so do all cases together:
+
+- `adopt`: every requirement holds.
+- `not_adopt`: a requirement measurably fails (cost not lower, quality drop beyond the margin, a new critical error).
+- `insufficient_data`: it cannot be decided: fewer than 20 paired cases, or a cost that is unknown (a call without price evidence or without reported tokens), undefined (no accepted run) or in a different unit than the other route. An unknown cost is never read as 0. A requirement that already fails on too few cases is listed but does not decide `not_adopt`.
+
+The overall verdict is `not_adopt` if any group fails, `insufficient_data` if any category is short, uncategorized cases exist, or a corpus category named with `--category` has no case, and `adopt` only when every category and the pooled cases adopt. The verdict is evidence for the user; enabling the profile by default stays a user decision. The same measurement serves to classify a new model: run the cases with the model as the candidate and read the verdict per category before giving it a `level` and `classification: classified` in the catalog.
+
+### Running a measurement
+
+A measurement with paid models spends money and quota. Run one only after the user has authorized it and fixed a budget (a cap on `max_llm_calls` per run, the number of cases, and the models involved), and keep real inputs and the exported files outside version control. Everything below also runs offline: `tests/test_economic_measurement.py` does it end to end with a fake provider and fake priced catalog entries.
+
+1. **Prepare.** Freeze the corpus (at least 20 cases per category) and its rubric, and give each case a stable id, an input version and a rubric version and hash. Classify and price the T1 to T3 models in the catalog with a `source` and validity window, and define the economic profile as in [Economic profile](#economic-profile).
+2. **Run both routes.** Run every case twice with the same request, workflow, settings and budgets: once as it runs today (no profile assigned for the step: route `legacy`) and once with the profile assigned (route = the profile id, for example `economic`). Switch routes by adding and removing the entry in `routing_profiles.assignments`; nothing else changes. Keep the run ids.
+3. **Review.** A human approves or rejects each result at the review checkpoint (an approved final result is an accepted run), and a reviewer adjudicates critical errors per the corpus rubric.
+4. **Label the runs.** One JSON object per run, in a JSON or JSONL file:
+
+   ~~~json
+   {"run_id": "...", "case_id": "case-007", "route": "economic", "category": "extraction",
+    "input_version": "v1", "rubric_version": "r1", "rubric_hash": "...", "critical_error": false}
+   ~~~
+
+   `run_id`, `case_id`, `route`, `input_version`, `rubric_version` and `rubric_hash` are required, and so is `critical_error` (the framework cannot judge it; `--assume-no-critical-errors` records `false` for labels without it, only when no adjudication exists). Optional: `category`, `input_hash` and `config_hash` (default: hashes of the run request and of the workflow and budget settings), `surface`, and `accepted: false` for a run an evaluator rejected although it completed. Only these keys are read; a corpus row with its input text can be passed as a label without leaking it.
+5. **Export, compare, judge.**
+
+   ~~~sh
+   python tools/evals/routing/export_runs.py --db data/multiagent.db --labels labels.jsonl --output records.jsonl
+   python tools/evals/routing/compare.py records.jsonl --output report.json
+   python tools/evals/routing/adoption.py report.json --candidate economic --category extraction --category classification --output verdict.md
+   ~~~
+
+   `adoption.py` takes the baseline route `legacy` by default, writes Markdown or JSON by the extension of `--output`, and exits 0 whatever the verdict (the verdict is data). Use `--category` once per corpus category so that a category with no run cannot go unnoticed.
+
+How the export fills a record, so the numbers can be audited:
+
+- `accepted`: the run is `completed`, did not end because its budget ran out, and has no critical error. The export refuses runs that are still queued, running or waiting, and a route label that disagrees with the routing profile in the run's events (`legacy` means none).
+- `calls`, `input_tokens`, `output_tokens`, `duration_ms`: the provider calls in the usage telemetry, failed attempts included and human steps not. A value any call did not report is unknown (null), and so is everything when a telemetry write failed.
+- `cost` and `cost_unit`: the sum of the calls' estimated costs from catalog price evidence (see [`TELEMETRY.md`](TELEMETRY.md#estimated-cost)). It is unknown if any call has no cost or the currencies differ, and `adoption.py` then reports `insufficient_data`. A run with no model call has a measured 0.
+- `rework`: human requests for changes. `escalations`: `model_escalated` events (see [Bounded escalation](#bounded-escalation)). `requested` and `effective`: the catalog model ids routed to and called.
+- **Privacy:** records hold identifiers, hashes, counters, tokens, costs and model ids. Prompts, requests, artifacts, event payloads and error messages are never exported.
+
+An illustrative verdict, from the synthetic test corpus (fake provider, fake prices, 6 cases per category and `--min-cases 6`; with the real 20-case minimum the same evidence is `insufficient_data`):
+
+~~~text
+Verdict: adopt - candidate `economic` against baseline `legacy`, 12 paired case(s).
+
+| Category       | Cases | Verdict | Acceptance (baseline -> candidate) | Cost per accepted run  | New critical | Candidate escalations |
+| classification | 6     | adopt   | 100.0% -> 100.0%                   | 0.03 -> 0.00373333 USD | 0            | 1                     |
+| extraction     | 6     | adopt   | 100.0% -> 100.0%                   | 0.03 -> 0.00506667 USD | 0            | 2                     |
+| (all cases)    | 12    | adopt   | 100.0% -> 100.0%                   | 0.03 -> 0.0044 USD     | 0            | 3                     |
+~~~
+
+The synthetic numbers show the mechanics only. They say nothing about any real model, price or task.
+
 ## What a decision tells you
 
 The selector is a pure in-process operation. It consumes a RoutingRequest and optional RoutingEvidence; it does not probe a provider or call a model. The result status is selected, manual, or blocked. Reason codes and provenance explain why a candidate was kept or rejected.
