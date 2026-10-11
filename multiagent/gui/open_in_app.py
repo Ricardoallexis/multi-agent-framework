@@ -24,7 +24,6 @@ valid UUID to resume), ``launch_disabled`` (403), ``claude_not_found`` (409, ``c
 """
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -35,14 +34,15 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
+from ..executors import launch_safety
 from ..services.errors import ServiceError
 from ..services.sessions import SessionServices
 from ..sessions import is_uuid
 
 CREATE_NEW_CONSOLE = 0x00000010  # the Windows process-creation flag (``subprocess.CREATE_NEW_CONSOLE``)
-SCRUBBED_PREFIXES = ("CLAUDE", "ANTHROPIC")
+SCRUBBED_PREFIXES = launch_safety.SCRUBBED_PREFIXES
 COMMAND_PREFIX = ("claude", "--desktop", "--resume")
-NO_CURRENT_DIR_VARIABLE = "NoDefaultCurrentDirectoryInExePath"
+NO_CURRENT_DIR_VARIABLE = launch_safety.NO_CURRENT_DIR_VARIABLE
 MIN_LAUNCH_INTERVAL = 2.0  # seconds between two launches by this process
 
 UNSUPPORTED_SOURCE = "unsupported_source"
@@ -79,14 +79,12 @@ def claude_resume_uuid(summary: dict[str, Any]) -> str:
 
 def scrubbed_environment() -> dict[str, str]:
     """A copy of the environment without any ``CLAUDE*`` or ``ANTHROPIC*`` variable."""
-    return {name: value for name, value in os.environ.items() if not name.upper().startswith(SCRUBBED_PREFIXES)}
+    return launch_safety.scrubbed_environment()
 
 
 def launch_environment() -> dict[str, str]:
     """The scrubbed environment plus ``NoDefaultCurrentDirectoryInExePath=1`` (the current folder is not searched)."""
-    env = {name: value for name, value in scrubbed_environment().items() if name.upper() != NO_CURRENT_DIR_VARIABLE.upper()}
-    env[NO_CURRENT_DIR_VARIABLE] = "1"
-    return env
+    return launch_safety.launch_environment()
 
 
 def working_folder() -> tuple[str, str]:
@@ -94,20 +92,12 @@ def working_folder() -> tuple[str, str]:
     return str(Path.home()), "home"
 
 
-def _normal(path: str) -> str:
-    return os.path.normcase(os.path.abspath(path))
+_normal = launch_safety.normal_path
 
 
 def find_claude() -> str | None:
     """The ``claude`` program from the absolute ``PATH`` entries that are not the server's current folder, or None."""
-    here = _normal(os.getcwd())
-    entries = [entry.strip().strip('"') for entry in os.environ.get("PATH", "").split(os.pathsep)]
-    entries = [entry for entry in entries if entry and os.path.isabs(entry) and _normal(entry) != here]
-    found = shutil.which("claude", path=os.pathsep.join(entries))
-    # Windows puts the current folder first even when it is not asked for: never run what sits there
-    if not found or _normal(os.path.dirname(os.path.abspath(found))) == here:
-        return None
-    return found
+    return launch_safety.find_executable("claude", which=shutil.which)
 
 
 def reserve_launch() -> None:
