@@ -694,6 +694,25 @@ function Get-AlignmentHtml([string]$name, [string]$application = '') {
     "<p class=""meta""><span class=""state $class"">Realineación: $(Encode $cells[1])</span> $(Encode $cells[2]) · revisado $(Encode $cells[4])$detail</p>"
 }
 
+function Limit-Text([string]$text, [int]$max) {
+    if ($text.Length -gt $max) { $text.Substring(0, $max - 3) + '...' } else { $text }
+}
+# SEG-T07 convention: a card or ETAPA.md line containing the literal marker "Pide al usuario:" (any
+# case) is surfaced in Resumen > "Decisiones que te piden". Write it when an agent needs a decision.
+function Get-PideAlUsuarioLines([string]$text) {
+    @($text -split "`r?`n" | Where-Object { $_ -match '(?i)pide al usuario:' } | ForEach-Object { Limit-Text (Safe-Snippet $_) 200 })
+}
+function Format-TodoGroup([string]$heading, [object[]]$items) {
+    if (-not $items.Count) { return '' }
+    $sorted = @($items | Sort-Object @{ Expression = { if ($_.Date) { [datetime]$_.Date } else { [datetime]::MinValue } }; Descending = $true })
+    $lis = foreach ($item in $sorted) {
+        $label = "<a href=""$($item.Href)"">$(Encode $item.Title)</a>"
+        $extra = if ($item.Text) { ' · ' + (Encode $item.Text) } else { '' }
+        $date = if ($item.Date) { " <span class=""meta"">$(Encode (([datetime]$item.Date).ToString('yyyy-MM-dd HH:mm', [cultureinfo]::InvariantCulture)))</span>" } else { '' }
+        "<li>$label$extra$date</li>"
+    }
+    "<h3>$(Encode $heading) <span class=""meta"">($($items.Count))</span></h3><ul>$($lis -join '')</ul>"
+}
 function Build-Page {
 $agentBoard = Get-AgentBoardData
 $apiBoardHtml = if ($LeerApi) { Get-ApiBoardHtml } else { '' }
@@ -741,6 +760,10 @@ $publicEntries = [System.Collections.Generic.List[object]]::new()
 $uncertainEntries = [System.Collections.Generic.List[object]]::new()
 $archiveLinkEntries = [System.Collections.Generic.List[object]]::new()
 $stageIndex = @{}
+# SEG-T07: generated "Qué tienes que hacer ahora" items, filled while the board is read.
+$todoReady = [System.Collections.Generic.List[object]]::new()
+$todoAuth = [System.Collections.Generic.List[object]]::new()
+$todoDecisions = [System.Collections.Generic.List[object]]::new()
 $boardReadFailed = $false
 if (Test-Path -LiteralPath $tasksDir -PathType Container) {
     $boardReadFailed = $false
@@ -829,6 +852,8 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             }
             $record.Missing = if (($state -in 'liberada', 'pendiente', 'reabierta', 'requiere cambios') -and $text -match '(?s)## Qu. falta\s*(.+?)\s*## ') { Safe-Snippet $Matches[1] } else { '' }
             $record | Add-Member -NotePropertyName LeftHtml -NotePropertyValue $left
+            $record | Add-Member -NotePropertyName PideLines -NotePropertyValue @(Get-PideAlUsuarioLines $text)
+            $record | Add-Member -NotePropertyName FileDate -NotePropertyValue $file.LastWriteTime
             $cardDelegations = Get-CardDelegations $history
             $record | Add-Member -NotePropertyName ActiveDelegations -NotePropertyValue @($cardDelegations.Active)
             $record | Add-Member -NotePropertyName Delegation -NotePropertyValue (Get-DelegationSummary $record.Id $cardDelegations $record.Agent)
@@ -915,6 +940,35 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         }
         # SEG-T05: tasks inside a stage follow their code (T01, T02, ...); each row still shows its own last activity.
         $taskRows = @($taskRows | Sort-Object @{ Expression = { if ($_.Id -match '^T(\d+)') { [int]$Matches[1] } else { [int]::MaxValue } } }, @{ Expression = 'Id' })
+        # SEG-T07: pending items for the user coming from this stage and its cards.
+        $stageClosedState = (Get-Field $stageText 'Estado').Trim().ToLowerInvariant() -in @('cerrada', 'cerrado', 'closed', 'complete', 'completed')
+        if (-not $stageReadFailed -and -not $stageClosedState) {
+            $stageFileDate = try { (Get-Item -LiteralPath $stageFile -ErrorAction Stop).LastWriteTime } catch { $null }
+            $stageHref = ([uri]$stageFile).AbsoluteUri
+            $stageAuthorized = $authorized.Trim() -match '^(?i)s[ií](?![\p{L}])'
+            if ($authorized.Trim() -and -not $stageAuthorized) {
+                $todoAuth.Add([pscustomobject]@{ Title = $stage.Name; Text = (Limit-Text (Safe-Snippet $authorized) 160); Href = $stageHref; Date = $stageFileDate })
+            } elseif ($authorized -match '(?i)pendientes? de autorizaci[oó]n') {
+                $fragment = if ($authorized -match '(?i)([^.;]{0,100}pendientes? de autorizaci[oó]n[^.;]{0,60})') { $Matches[1] } else { $authorized }
+                $todoAuth.Add([pscustomobject]@{ Title = $stage.Name; Text = (Limit-Text (Safe-Snippet $fragment) 160); Href = $stageHref; Date = $stageFileDate })
+            }
+            if ($stageAuthorized) {
+                foreach ($record in $taskRecords) {
+                    if ($record.State -eq 'disponible' -and -not $record.WaitingFor.Count) {
+                        $todoReady.Add([pscustomobject]@{ Title = "$(if ($record.Title -like "$($record.Id)*") { $record.Title -replace '^(\S+)\s+', '$1 · ' } else { "$($record.Id) · $($record.Title)" }) · di «trabaja en $($stage.Name)»"; Text = ''; Href = $record.Href; Date = if ($record.LastRow) { $record.LastRow.Date } else { $record.FileDate } })
+                    }
+                }
+            }
+            foreach ($pideLine in @(Get-PideAlUsuarioLines $stageText)) {
+                $todoDecisions.Add([pscustomobject]@{ Title = $stage.Name; Text = $pideLine; Href = $stageHref; Date = $stageFileDate })
+            }
+            foreach ($record in $taskRecords) {
+                if ($record.State -in 'terminada', 'integrada') { continue }
+                foreach ($pideLine in @($record.PideLines)) {
+                    $todoDecisions.Add([pscustomobject]@{ Title = $record.Id; Text = $pideLine; Href = $record.Href; Date = if ($record.LastRow) { $record.LastRow.Date } else { $record.FileDate } })
+                }
+            }
+        }
         $closure = if ($stageReadFailed) {
             [pscustomobject]@{ Status = 'unknown'; Reason = 'La ficha de etapa falta o no se pudo leer.'; Commit = ''; Report = ''; Stage = $stage.Name }
         } else {
@@ -1120,14 +1174,43 @@ $integrationPanel = @"
 </section>
 "@
 
-$todo = ''
+# SEG-T07: "Qué tienes que hacer ahora" is generated from live sources; the hand-written section of
+# RESUMEN.md is kept below it as "Notas".
+$todoProposals = [System.Collections.Generic.List[object]]::new()
+$proposalsFile = Join-Path $channel 'PROPUESTAS.md'
+if (Test-Path -LiteralPath $proposalsFile -PathType Leaf) {
+    try {
+        $proposalsHref = ([uri]$proposalsFile).AbsoluteUri
+        foreach ($line in @(Get-Content -LiteralPath $proposalsFile -Encoding utf8 -ErrorAction Stop)) {
+            if ($line -notmatch '^\|\s*(P-\d+)\s*\|([^|]*)\|([^|]*)\|') { continue }
+            $proposalId = $Matches[1]
+            $proposalTopic = $Matches[2]
+            $proposalState = ($Matches[3].Trim().ToLowerInvariant() -replace '\s+', '_') -replace 'revisión', 'revision'
+            if ($proposalState -notin 'propuesta', 'en_revision') { continue }
+            $todoProposals.Add([pscustomobject]@{ Number = [int]($proposalId -replace '\D', ''); Title = $proposalId; Text = "$(Limit-Text (Safe-Snippet $proposalTopic) 120) · $proposalState"; Href = $proposalsHref; Date = $null })
+        }
+    } catch { Write-Warning 'No se pudo leer PROPUESTAS.md; se omiten las propuestas pendientes.' }
+}
+$todoPatches = @(Get-ChildItem -LiteralPath $pendingPatchesDir -Filter '*.patch' -File -ErrorAction SilentlyContinue | ForEach-Object {
+    [pscustomobject]@{ Title = $_.Name; Text = ''; Href = ([uri]$_.FullName).AbsoluteUri; Date = $_.LastWriteTime }
+})
+$todoGroups = @(
+    Format-TodoGroup 'Tareas esperando tu asignación' $todoReady.ToArray()
+    Format-TodoGroup 'Pendiente de tu autorización' $todoAuth.ToArray()
+    Format-TodoGroup 'Propuestas esperando tu decisión' @($todoProposals | Sort-Object Number -Descending)
+    Format-TodoGroup 'Parches por integrar' $todoPatches
+    Format-TodoGroup 'Decisiones que te piden' $todoDecisions.ToArray()
+) | Where-Object { $_ }
+$todoNotes = ''
 if (Test-Path $summary) {
     $summaryText = Get-Content -Path $summary -Raw -Encoding utf8
     if ($summaryText -match '(?s)## Qu. tienes que hacer ahora\s*(.+?)\s*## Bit') {
         $todoMarkdown = ($Matches[1] -split "`r?`n" | Where-Object { $_ -notmatch '^_Esta secci' }) -join "`n"
-        $todo = (ConvertFrom-Markdown -InputObject $todoMarkdown).Html
+        if ($todoMarkdown.Trim()) { $todoNotes = '<h3>Notas</h3>' + (ConvertFrom-Markdown -InputObject $todoMarkdown).Html }
     }
 }
+$todoBody = if ($todoGroups.Count) { $todoGroups -join "`n" } else { '<p>Nada pendiente de tu parte.</p>' }
+$todo = $todoBody + $todoNotes
 
 # "Plan de etapas": the Spanish summary in ROADMAP_VISTA.md ("## Etapas y features").
 # "Roadmap": generated from the repository itself (PROGRESS.md and docs/ROADMAP_STAGES.md), so it
@@ -1478,7 +1561,7 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
 <p id="flow-status" class="meta" role="status" aria-live="polite" style="max-width:1100px;margin:6px auto;padding:0 16px"></p>
 <main>
   <div class="tab" id="resumen">
-    $(if ($todo) { "<section class=""panel todo""><h2>Qué tienes que hacer ahora</h2>$todo</section>" })
+    <section class="panel todo"><h2>Qué tienes que hacer ahora</h2>$todo</section>
     <h2>Etapas activas</h2>
     $(if ($cards.Count) { "<section class=""cards"">$($cards -join "`n")</section>" } else { '<section class="panel">No hay etapas activas en el tablero.</section>' })
     $integrationPanel
