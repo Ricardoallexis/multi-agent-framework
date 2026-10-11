@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     # empty means <local_dir>/project_commands.toml. Never read from a task or a request.
     project_commands_file: Optional[Path] = None
 
+    # GUI (/gui): local access token file (empty means ~/.multiagent/gui-token) and SSE timing.
+    gui_token_file: Optional[Path] = None
+    gui_heartbeat_seconds: float = Field(default=20.0, gt=0)
+    gui_poll_seconds: float = Field(default=0.5, gt=0)
+    # 0 keeps each SSE connection open until the client leaves; tests set a small bound.
+    gui_stream_max_seconds: float = Field(default=0.0, ge=0)
+
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:8b"
     ollama_num_ctx: int = Field(default=4096, ge=1024)
@@ -104,6 +111,7 @@ class Settings(BaseSettings):
         self.runs_dir = Path(self.runs_dir or self.data_dir / "runs").resolve()
         self.assets_dir = Path(self.assets_dir or self.data_dir / "assets").resolve()
         self.project_commands_file = Path(self.project_commands_file or self.local_dir / "project_commands.toml").resolve()
+        self.gui_token_file = Path(self.gui_token_file or Path.home() / ".multiagent" / "gui-token").expanduser().resolve()
         return self
 
     @property

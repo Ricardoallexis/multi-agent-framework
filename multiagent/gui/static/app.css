@@ -1,0 +1,37 @@
+/* Copyright 2026 Ricardoallexis and contributors */
+/* SPDX-License-Identifier: Apache-2.0 */
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9; --panel: #fff; --text: #1b1f24; --muted: #5b6570; --line: #d8dde3;
+  --accent: #2457c5; --ok: #1a7f3c; --warn: #9a6700; --bad: #b42318;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171b; --panel: #1c2026; --text: #e7eaee; --muted: #9aa5b1; --line: #2e353d;
+    --accent: #7aa2f7; --ok: #4cc26b; --warn: #e3b341; --bad: #ff7b72;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+.shell { display: grid; grid-template-columns: 220px 1fr; grid-template-rows: auto 1fr; min-height: 100vh; }
+.topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+.topbar h1 { font-size: 1rem; margin: 0; flex: 1; }
+.nav { padding: 12px; background: var(--panel); border-right: 1px solid var(--line); display: flex;
+  flex-direction: column; gap: 4px; }
+.nav button { text-align: left; padding: 8px 10px; border: 0; border-radius: 6px; background: none;
+  color: var(--text); font: inherit; cursor: pointer; }
+.nav button[aria-current="page"] { background: var(--accent); color: #fff; }
+.content { padding: 24px; }
+.muted { color: var(--muted); }
+.badge { padding: 2px 8px; border-radius: 999px; font-size: .8rem; border: 1px solid var(--line); }
+.badge.mock { color: var(--warn); border-color: var(--warn); font-weight: 600; }
+.badge.connected { color: var(--ok); border-color: var(--ok); }
+.badge.reconnecting { color: var(--warn); border-color: var(--warn); }
+.badge.offline { color: var(--bad); border-color: var(--bad); }
+.notice { max-width: 40rem; margin: 15vh auto; padding: 24px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; }
+@media (max-width: 640px) {
+  .shell { grid-template-columns: 1fr; }
+  .nav { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--line); }
+}

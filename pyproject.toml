@@ -44,7 +44,9 @@ packages = [
   "multiagent.routing",
   "multiagent.executors",
   "multiagent.tasks",
+  "multiagent.sessions",
   "multiagent.ui",
+  "multiagent.gui",
   "multiagent._resources",
   "multiagent._resources.catalog",
   "multiagent._resources.workflows",
@@ -62,6 +64,7 @@ packages = [
 
 [tool.setuptools.package-data]
 "multiagent.ui" = ["static/*.html", "static/*.css", "static/js/*.js"]
+"multiagent.gui" = ["static/*.html", "static/*.css", "static/js/*.js", "static/vendor/*"]
 "multiagent._resources.catalog" = ["*.yaml"]
 "multiagent._resources.workflows" = ["*.yaml"]
 "multiagent._resources.prompts" = ["*/*.md"]

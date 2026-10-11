@@ -19,12 +19,21 @@ param(
     [switch]$Vigilar,
     [switch]$LeerApi,
     [string]$ApiBaseUrl = 'http://127.0.0.1:8000',
-    [ValidateRange(1, 120)][int]$ApiTimeoutSeconds = 5
+    [ValidateRange(1, 120)][int]$ApiTimeoutSeconds = 5,
+    # SEG-T11: where subagent transcripts live, and the activity thresholds (minutes).
+    [string[]]$SubagentRoots = @((Join-Path $HOME '.claude\projects')),
+    [ValidateRange(1, 1440)][int]$ActiveMinutes = 15,
+    [ValidateRange(1, 10080)][int]$StoppedMinutes = 60,
+    [Nullable[datetime]]$NowOverride = $null
 )
 
 $ErrorActionPreference = 'Stop'
 $script:apiBaseUrl = $ApiBaseUrl.TrimEnd('/')
 $script:apiTimeoutSeconds = $ApiTimeoutSeconds
+$script:subagentRoots = @($SubagentRoots)
+$script:activeMinutes = $ActiveMinutes
+$script:stoppedMinutes = $StoppedMinutes
+$script:nowOverride = $NowOverride
 $channel = (Resolve-Path -LiteralPath $ChannelPath).Path
 $repoRoot = (Resolve-Path -LiteralPath $RepoPath).Path
 $summary = Join-Path $channel 'RESUMEN.md'
@@ -431,20 +440,27 @@ function Get-RegisteredAgents {
 # SEG-T05: delegations of a card ("delegada" / "devuelta" rows of its Historial, see registrar-delegacion.ps1).
 # Returns Rows (every delegated worker, oldest first, deduplicated by worker) and Active (delegada without a later
 # devuelta of the same worker). Defensive: rows that do not match are skipped.
-function Get-CardDelegations([string]$history) {
+function Get-CardDelegations([string]$history, [string]$state = 'en curso') {
     $rows = [System.Collections.Generic.List[object]]::new()
     $active = [System.Collections.Generic.List[object]]::new()
     $orchestrator = ''
     foreach ($row in @(Get-HistoryRows $history | Sort-Object Date)) {
+        if ($row.Action -in 'tomada', 'reasignada') {
+            # SEG-T11: another agent took the task over; delegations of the previous orchestrator are over.
+            for ($k = $active.Count - 1; $k -ge 0; $k--) { if ($active[$k].Orchestrator -ine $row.Agent) { $active.RemoveAt($k) } }
+            continue
+        }
         if ($row.Action -notin 'delegada', 'devuelta') { continue }
         if ($row.Detail -notmatch '^(?<w>[^(:]+?)(?:\s*\((?<p>[^)]*)\))?\s*:\s*(?<rest>.*)$') { continue }
         $worker = $Matches['w'].Trim(); $paren = $Matches['p']; $rest = $Matches['rest'].Trim()
+        $reference = ''
+        if ($rest -match '\s*\[ref:\s*(agent-[A-Za-z0-9]+)\s*\]\s*$') { $reference = $Matches[1]; $rest = ($rest -replace '\s*\[ref:\s*agent-[A-Za-z0-9]+\s*\]\s*$', '').Trim() }
         if (-not $worker) { continue }
         if ($row.Action -eq 'delegada') {
             $level = if ($paren -match '\b(T[1-4])\b') { $Matches[1] } else { '' }
             $effort = if ($paren -match 'esfuerzo\s+([^,;)\s]+)') { $Matches[1] } else { '' }
             if (-not $orchestrator) { $orchestrator = $row.Agent }
-            $entry = [pscustomobject]@{ Worker = $worker; Level = $level; Effort = $effort; Since = $row.Date; Piece = $rest; Orchestrator = $row.Agent }
+            $entry = [pscustomobject]@{ Worker = $worker; Level = $level; Effort = $effort; Since = $row.Date; Piece = $rest; Orchestrator = $row.Agent; Reference = $reference }
             $active.Add($entry)
             if (-not @($rows | Where-Object { $_.Worker -ieq $worker })) { $rows.Add($entry) }
         } else {
@@ -453,6 +469,7 @@ function Get-CardDelegations([string]$history) {
             if ($i -lt $active.Count) { $active.RemoveAt($i) }
         }
     }
+    if ($state -ne 'en curso') { $active.Clear() }
     [pscustomobject]@{ Rows = @($rows); Active = @($active); Orchestrator = $orchestrator }
 }
 # JSONL lines of <channel>\orquestacion\<ETAPA>\ejecuciones.jsonl, grouped by task id (upper case). Read once.
@@ -484,10 +501,81 @@ function Format-WorkerLabel($entry) {
     $detail = @($entry.Level; if ($entry.Effort) { "esfuerzo $($entry.Effort)" }) | Where-Object { $_ }
     if ($detail) { "$($entry.Worker) ($($detail -join ', '))" } else { $entry.Worker }
 }
+# SEG-T11: activity status of a delegated worker from the tail of its subagent transcript. Only times and
+# the status are exposed, never the content.
+$script:SubagentFileCache = @{}
+function Find-SubagentFile([string]$reference) {
+    if ($script:SubagentFileCache.ContainsKey($reference)) { return $script:SubagentFileCache[$reference] }
+    $found = $null
+    foreach ($root in $script:subagentRoots) {
+        if (-not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+        try { $found = Get-ChildItem -Path (Join-Path $root "*\*\subagents\$reference.jsonl") -File -ErrorAction Stop | Select-Object -First 1 } catch { $found = $null }
+        if ($found) { break }
+    }
+    $script:SubagentFileCache[$reference] = $found
+    $found
+}
+function ConvertTo-LocalStamp($value) {
+    if ($value -is [datetime]) { if ($value.Kind -eq 'Local') { return $value } return [datetime]::SpecifyKind($value, 'Utc').ToLocalTime() }
+    try { ([datetimeoffset]::Parse([string]$value, [cultureinfo]::InvariantCulture, 'AssumeUniversal')).LocalDateTime } catch { $null }
+}
+function Get-WorkerActivity($entry) {
+    $reference = if ($entry.PSObject.Properties['Reference']) { [string]$entry.Reference } else { '' }
+    if (-not $reference) { return 'sin señal de actividad' }
+    $file = Find-SubagentFile $reference
+    if (-not $file) { return 'sin señal de actividad' }
+    $now = if ($null -ne $script:nowOverride) { [datetime]$script:nowOverride } else { Get-Date }
+    $last = $file.LastWriteTime
+    $running = $null
+    try {
+        $stream = [IO.File]::Open($file.FullName, 'Open', 'Read', 'ReadWrite')
+        try {
+            $take = [int][Math]::Min(65536, $stream.Length)
+            $null = $stream.Seek(-$take, 'End')
+            $buffer = New-Object byte[] $take
+            $read = $stream.Read($buffer, 0, $take)
+            $text = [Text.Encoding]::UTF8.GetString($buffer, 0, $read)
+        } finally { $stream.Dispose() }
+        $lines = @($text -split "`r?`n" | Where-Object { $_.Trim() })
+        if ($take -lt $file.Length -and $lines.Count) { $lines = @($lines | Select-Object -Skip 1) }
+        $records = foreach ($line in $lines) { try { $line | ConvertFrom-Json -ErrorAction Stop } catch { } }
+        $records = @($records)
+        if ($records.Count) {
+            $stamp = $records[-1].timestamp
+            if ($stamp) { $t = ConvertTo-LocalStamp $stamp; if ($t -and $t -gt $last) { $last = $t } }
+            $resolved = @{}
+            $pending = $null
+            foreach ($rec in $records) {
+                $content = $null
+                try { $content = $rec.message.content } catch { }
+                foreach ($block in @($content)) {
+                    if ($block -isnot [pscustomobject]) { continue }
+                    if ($block.type -eq 'tool_result' -and $block.tool_use_id) { $resolved[[string]$block.tool_use_id] = $true }
+                    elseif ($block.type -eq 'tool_use') {
+                        $cmd = ''
+                        try { $cmd = ($block.input | ConvertTo-Json -Depth 4 -Compress) } catch { }
+                        if ($rec.type -eq 'assistant') { $pending = [pscustomobject]@{ Id = [string]$block.id; Cmd = $cmd; Time = $null; Stamp = $rec.timestamp } }
+                    }
+                }
+            }
+            if ($pending -and -not $resolved.ContainsKey($pending.Id) -and $pending.Cmd -match 'pytest|probar\.ps1|integrar-sin-ventanas\.ps1') {
+                $since = $last
+                if ($pending.Stamp) { $t = ConvertTo-LocalStamp $pending.Stamp; if ($t) { $since = $t } }
+                $running = $since
+            }
+        }
+    } catch { }
+    $minutes = [Math]::Max(0, [int][Math]::Floor(($now - $last).TotalMinutes))
+    if ($minutes -gt $script:stoppedMinutes) { return 'Probablemente detenido' }
+    if ($running) { return "Ejecutando prueba · desde $($running.ToString('HH:mm', [cultureinfo]::InvariantCulture))" }
+    if ($minutes -lt $script:activeMinutes) { return 'Trabajando' }
+    "Sin actividad reciente · última hace $minutes min"
+}
 function Format-ActiveDelegation($entry) {
     $level = if ($entry.Level) { " ($($entry.Level))" } else { '' }
     $piece = if ($entry.Piece) { " · $($entry.Piece)" } else { '' }
-    "trabajando: $($entry.Worker)$level desde $($entry.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture))$piece"
+    $activity = Get-WorkerActivity $entry
+    "$($entry.Worker)$level desde $($entry.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture)) · $activity$piece"
 }
 # Merged delegation summary of a task: orchestrator and distinct workers (card rows win over JSONL lines).
 function Get-DelegationSummary([string]$taskId, $cardDelegations, [string]$cardAgent) {
@@ -582,7 +670,7 @@ function Get-AgentBoardData {
             }
 
             $historyText = Get-TaskSection $text 'Historial'
-            $task | Add-Member -NotePropertyName ActiveDelegations -NotePropertyValue @((Get-CardDelegations $historyText).Active)
+            $task | Add-Member -NotePropertyName ActiveDelegations -NotePropertyValue @((Get-CardDelegations $historyText $state).Active)
             $badHistory = $false
             $historyLineNumber = 0
             foreach ($line in ($historyText -split "`r?`n")) {
@@ -877,7 +965,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $record | Add-Member -NotePropertyName LeftHtml -NotePropertyValue $left
             $record | Add-Member -NotePropertyName PideLines -NotePropertyValue @(Get-PideAlUsuarioLines $text)
             $record | Add-Member -NotePropertyName FileDate -NotePropertyValue $file.LastWriteTime
-            $cardDelegations = Get-CardDelegations $history
+            $cardDelegations = Get-CardDelegations $history $state
             $record | Add-Member -NotePropertyName ActiveDelegations -NotePropertyValue @($cardDelegations.Active)
             $record | Add-Member -NotePropertyName Delegation -NotePropertyValue (Get-DelegationSummary $record.Id $cardDelegations $record.Agent)
             $taskRecords.Add($record)

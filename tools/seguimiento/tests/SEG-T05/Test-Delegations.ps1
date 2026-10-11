@@ -60,8 +60,8 @@ try {
     Assert-True ($agents -match 'sin actividad: Copilot-Auto</p>') 'Copilot-Auto idle'
     Assert-True ($agents -match '<h3>Codex</h3>') 'Codex active (pendiente)'
     # Delegations: active shown, returned not.
-    Assert-True ($claude -match 'trabajando: Claude Sonnet 5\.5 \(T2\) desde 10:15 (·|&#183;) vista de agentes') 'active delegation line'
-    Assert-True ($agents -notmatch 'trabajando: Haiku Lite') 'returned worker is not shown as working'
+    Assert-True ($claude -match 'Claude Sonnet 5\.5 \(T2\) desde 10:15 (·|&#183;) sin se(ñ|&#241;)al de actividad (·|&#183;) vista de agentes') 'active delegation line'
+    Assert-True ($agents -notmatch 'Haiku Lite \(T1\)') 'returned worker is not shown as working'
 
     # Trabajaron column of the task table.
     $row = [regex]::Match($html, '<tr><td><a [^>]*>SEG-T05 Tarea de prueba T05</a>.*?</tr>').Value
@@ -85,7 +85,7 @@ try {
     # Resumen card of the active stage.
     $cards = $html.Substring($html.IndexOf('<section class="cards">'))
     $cards = $cards.Substring(0, $cards.IndexOf('</section>'))
-    Assert-True ($cards -match 'trabajando: Claude Sonnet 5\.5 \(T2\) desde 10:15') 'Resumen card shows trabajando'
+    Assert-True ($cards -match 'Claude Sonnet 5\.5 \(T2\) desde 10:15') 'Resumen card shows trabajando'
     Assert-True ($cards -notmatch 'Haiku Lite') 'Resumen card omits returned worker'
 }
 catch {
