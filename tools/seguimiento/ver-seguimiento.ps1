@@ -405,6 +405,97 @@ function Get-RegisteredAgents {
     $rows
 }
 
+# SEG-T05: delegations of a card ("delegada" / "devuelta" rows of its Historial, see registrar-delegacion.ps1).
+# Returns Rows (every delegated worker, oldest first, deduplicated by worker) and Active (delegada without a later
+# devuelta of the same worker). Defensive: rows that do not match are skipped.
+function Get-CardDelegations([string]$history) {
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $active = [System.Collections.Generic.List[object]]::new()
+    $orchestrator = ''
+    foreach ($row in @(Get-HistoryRows $history | Sort-Object Date)) {
+        if ($row.Action -notin 'delegada', 'devuelta') { continue }
+        if ($row.Detail -notmatch '^(?<w>[^(:]+?)(?:\s*\((?<p>[^)]*)\))?\s*:\s*(?<rest>.*)$') { continue }
+        $worker = $Matches['w'].Trim(); $paren = $Matches['p']; $rest = $Matches['rest'].Trim()
+        if (-not $worker) { continue }
+        if ($row.Action -eq 'delegada') {
+            $level = if ($paren -match '\b(T[1-4])\b') { $Matches[1] } else { '' }
+            $effort = if ($paren -match 'esfuerzo\s+([^,;)\s]+)') { $Matches[1] } else { '' }
+            if (-not $orchestrator) { $orchestrator = $row.Agent }
+            $entry = [pscustomobject]@{ Worker = $worker; Level = $level; Effort = $effort; Since = $row.Date; Piece = $rest; Orchestrator = $row.Agent }
+            $active.Add($entry)
+            if (-not @($rows | Where-Object { $_.Worker -ieq $worker })) { $rows.Add($entry) }
+        } else {
+            $i = 0
+            while ($i -lt $active.Count -and $active[$i].Worker -ine $worker) { $i++ }
+            if ($i -lt $active.Count) { $active.RemoveAt($i) }
+        }
+    }
+    [pscustomobject]@{ Rows = @($rows); Active = @($active); Orchestrator = $orchestrator }
+}
+# JSONL lines of <channel>\orquestacion\<ETAPA>\ejecuciones.jsonl, grouped by task id (upper case). Read once.
+$script:ExecutionLines = $null
+function Get-ExecutionLines([string]$taskId) {
+    if ($null -eq $script:ExecutionLines) {
+        $script:ExecutionLines = @{}
+        $dir = Join-Path $channel 'orquestacion'
+        $files = @()
+        if (Test-Path -LiteralPath $dir -PathType Container) {
+            try { $files = @(Get-ChildItem -LiteralPath $dir -Filter 'ejecuciones.jsonl' -File -Recurse -ErrorAction Stop) } catch { $files = @() }
+        }
+        foreach ($file in $files) {
+            try { $lines = [IO.File]::ReadAllLines($file.FullName) } catch { continue }
+            foreach ($line in $lines) {
+                if (-not $line.Trim()) { continue }
+                try { $item = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+                if (-not $item -or -not $item.task -or -not $item.worker) { continue }
+                $key = ([string]$item.task).Trim().ToUpperInvariant()
+                if (-not $script:ExecutionLines.ContainsKey($key)) { $script:ExecutionLines[$key] = [System.Collections.Generic.List[object]]::new() }
+                $script:ExecutionLines[$key].Add($item)
+            }
+        }
+    }
+    $key = $taskId.Trim().ToUpperInvariant()
+    if ($script:ExecutionLines.ContainsKey($key)) { @($script:ExecutionLines[$key]) } else { @() }
+}
+function Format-WorkerLabel($entry) {
+    $detail = @($entry.Level; if ($entry.Effort) { "esfuerzo $($entry.Effort)" }) | Where-Object { $_ }
+    if ($detail) { "$($entry.Worker) ($($detail -join ', '))" } else { $entry.Worker }
+}
+function Format-ActiveDelegation($entry) {
+    $level = if ($entry.Level) { " ($($entry.Level))" } else { '' }
+    $piece = if ($entry.Piece) { " · $($entry.Piece)" } else { '' }
+    "trabajando: $($entry.Worker)$level desde $($entry.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture))$piece"
+}
+# Merged delegation summary of a task: orchestrator and distinct workers (card rows win over JSONL lines).
+function Get-DelegationSummary([string]$taskId, $cardDelegations, [string]$cardAgent) {
+    $workers = [System.Collections.Generic.List[string]]::new()
+    $seen = @{}
+    $orchestrator = $cardDelegations.Orchestrator
+    foreach ($row in $cardDelegations.Rows) {
+        $workers.Add((Format-WorkerLabel $row))
+        $seen[$row.Worker.ToLowerInvariant()] = $true
+    }
+    foreach ($item in @(Get-ExecutionLines $taskId)) {
+        $worker = ([string]$item.worker).Trim()
+        if (-not $worker -or $seen.ContainsKey($worker.ToLowerInvariant())) { continue }
+        $seen[$worker.ToLowerInvariant()] = $true
+        $model = if ($item.PSObject.Properties['requested_model']) { ([string]$item.requested_model).Trim() } else { '' }
+        $effort = if ($item.PSObject.Properties['requested_effort']) { ([string]$item.requested_effort).Trim() } else { '' }
+        $itemOrchestrator = if ($item.PSObject.Properties['orchestrator']) { ([string]$item.orchestrator).Trim() } else { '' }
+        if ($itemOrchestrator) {
+            if (-not $orchestrator) { $orchestrator = $itemOrchestrator }
+            $detail = @($model; if ($effort) { "esfuerzo $effort" }) | Where-Object { $_ }
+            $label = if ($detail) { "$worker ($($detail -join ', '))" } else { $worker }
+        } else {
+            # Older Codex lines: no orchestrator, the requested model is the useful name.
+            $label = if ($model) { "$model ($worker)" } else { $worker }
+        }
+        $workers.Add($label)
+    }
+    if (-not $workers.Count) { return $null }
+    [pscustomobject]@{ Orchestrator = if ($orchestrator) { $orchestrator } else { $cardAgent }; Workers = @($workers) }
+}
+
 function Get-AgentBoardData {
     $registered = @((Get-RegisteredAgents).Name)
     $tasks = [System.Collections.Generic.List[object]]::new()
@@ -468,6 +559,7 @@ function Get-AgentBoardData {
             }
 
             $historyText = Get-TaskSection $text 'Historial'
+            $task | Add-Member -NotePropertyName ActiveDelegations -NotePropertyValue @((Get-CardDelegations $historyText).Active)
             $badHistory = $false
             $historyLineNumber = 0
             foreach ($line in ($historyText -split "`r?`n")) {
@@ -737,6 +829,9 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             }
             $record.Missing = if (($state -in 'liberada', 'pendiente', 'reabierta', 'requiere cambios') -and $text -match '(?s)## Qu. falta\s*(.+?)\s*## ') { Safe-Snippet $Matches[1] } else { '' }
             $record | Add-Member -NotePropertyName LeftHtml -NotePropertyValue $left
+            $cardDelegations = Get-CardDelegations $history
+            $record | Add-Member -NotePropertyName ActiveDelegations -NotePropertyValue @($cardDelegations.Active)
+            $record | Add-Member -NotePropertyName Delegation -NotePropertyValue (Get-DelegationSummary $record.Id $cardDelegations $record.Agent)
             $taskRecords.Add($record)
         }
         $tasksByCode = @{}
@@ -809,14 +904,17 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 "<span class=""state s-bloqueada"">Bloqueada por dependencia</span><div class=""meta"">Espera: $(Encode ($record.WaitingFor -join '; '))</div><div class=""meta"">Estado en la ficha: $(Encode $record.State)</div>"
             } else { "<span class=""state $stateClass"">$(Encode $record.State)</span>" }
             $lastActivityHtml = if ($record.LastRow) { "<div class=""meta"">Última actividad $(Encode (Format-ActivityDate $record.LastRow.Date))</div>" } else { '<div class="meta">Sin historial fechado</div>' }
+            $delegationHtml = if ($record.Delegation) {
+                "<div class=""meta"">orquestó $(Encode $record.Delegation.Orchestrator)</div>" + (($record.Delegation.Workers | ForEach-Object { "<div class=""meta"">$(Encode $_)</div>" }) -join '')
+            } else { '' }
             $rowHtml = "<tr><td><a href=""$($record.Href)"">$(Encode $record.Title)</a>$lastActivityHtml$($record.LeftHtml)</td>" +
             "<td>$stateCell</td>" +
             "<td>$(Inline $record.Agent)</td><td>$(Inline $record.Preferred)</td>" +
-            "<td>$dependencyHtml</td><td>$integrationHtml</td><td>$(Inline $record.Patch)</td><td>$(Encode $record.Workers)</td><td>$(Get-TokensHtml $record.Tokens)</td></tr>"
+            "<td>$dependencyHtml</td><td>$integrationHtml</td><td>$(Inline $record.Patch)</td><td>$(Encode $record.Workers)$delegationHtml</td><td>$(Get-TokensHtml $record.Tokens)</td></tr>"
             $taskRows.Add([pscustomobject]@{ Id = $record.Code; State = $record.State; Patch = $record.Patch; Html = $rowHtml; Date = if ($record.LastRow) { $record.LastRow.Date } else { $null } })
         }
-        # SEG-T04: tasks inside a stage, newest own activity first (task code as tie-breaker).
-        $taskRows = @($taskRows | Sort-Object @{ Expression = { if ($_.Date) { $_.Date } else { [datetime]::MinValue } }; Descending = $true }, @{ Expression = 'Id'; Descending = $false })
+        # SEG-T05: tasks inside a stage follow their code (T01, T02, ...); each row still shows its own last activity.
+        $taskRows = @($taskRows | Sort-Object @{ Expression = { if ($_.Id -match '^T(\d+)') { [int]$Matches[1] } else { [int]::MaxValue } } }, @{ Expression = 'Id' })
         $closure = if ($stageReadFailed) {
             [pscustomobject]@{ Status = 'unknown'; Reason = 'La ficha de etapa falta o no se pudo leer.'; Commit = ''; Report = ''; Stage = $stage.Name }
         } else {
@@ -857,6 +955,8 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $blocked = @($taskRecords | Where-Object { $_.State -in 'pendiente', 'requiere cambios', 'reabierta' -and -not $_.WaitingFor.Count }).Count
             $available = @($taskRecords | Where-Object { $_.State -in 'disponible', 'liberada' -and -not $_.WaitingFor.Count }).Count
             $workingText = if ($working) { "En curso: $(Encode ($working -join ', '))" } else { 'Nadie trabajando ahora' }
+            $delegatedLines = @($taskRecords | Where-Object { $_.State -eq 'en curso' } | ForEach-Object { foreach ($d in $_.ActiveDelegations) { "<div class=""meta"">$(Encode $_.Code): $(Encode (Format-ActiveDelegation $d))</div>" } })
+            $workingText += ($delegatedLines -join '')
             $activeCards.Add([pscustomobject]@{ Date = if ($lastActivity) { $lastActivity.Date } else { $null }; Html = @"
 <div class="card">
   <div class="card-head"><span class="gate">$(Encode $stage.Name)</span><span class="pct">$pct%</span></div>
@@ -1107,7 +1207,8 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
             $current = foreach ($task in $active) {
                 $taskState = if ($task.State -eq 'en curso') { 'En curso' } else { 'Pendiente' }
                 $context = if ($task.Missing) { "<p class=""agent-context"">Qué falta: $(Encode $task.Missing)</p>" } else { '' }
-                "<div class=""agent-task""><strong>$(Encode $task.Id) · $(Encode $task.Title)</strong><span class=""state $(if ($task.State -eq 'en curso') { 's-en-curso' } else { 's-pendiente' })"">Asignada · $(Encode $taskState)</span>$context</div>"
+                $delegated = (@($task.ActiveDelegations) | ForEach-Object { "<p class=""agent-context"">$(Encode (Format-ActiveDelegation $_))</p>" }) -join ''
+                "<div class=""agent-task""><strong>$(Encode $task.Id) · $(Encode $task.Title)</strong><span class=""state $(if ($task.State -eq 'en curso') { 's-en-curso' } else { 's-pendiente' })"">Asignada · $(Encode $taskState)</span>$context$delegated</div>"
             }
             $current = $current -join "`n"
         } elseif ($agentBoard.Partial) {
@@ -1188,24 +1289,38 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
     ) -join ' · '
     $identityHtml = if ($identity) { "<p class=""meta"">$identity</p>" } else { '' }
     $card = @"
-<section class="panel agent-card">
-  <div class="card-head"><h2>$(Encode $name)</h2><span class="state $statusClass">$(Encode $status)</span></div>
+<div class="agent-name">
+  <div class="card-head"><h3>$(Encode $name)</h3><span class="state $statusClass">$(Encode $status)</span></div>
   $identityHtml
-  <div class="agent-current"><h3>Tarea actual según el tablero</h3>$current</div>
-  <div class="agent-current"><h3>Tokens en tareas</h3>$tokensHtml</div>
-  <div class="agent-current"><h3>Seguimiento de asignaciones cloud</h3>$cloudContext</div>
+  <div class="agent-current"><h4>Tarea actual según el tablero</h4>$current</div>
+  <div class="agent-current"><h4>Tokens en tareas</h4>$tokensHtml</div>
+  <div class="agent-current"><h4>Seguimiento de asignaciones cloud</h4>$cloudContext</div>
   $(Get-AlignmentHtml $name $agentRow.Application)
   $lastActivity
-<!--instances-->
+</div>
+"@
+    $isActive = -not $agentBoard.Available -or [bool]$active
+    [pscustomobject]@{ Name = $name; Application = $agentRow.Application; Active = $isActive; Html = $card }
+}
+# SEG-T05: one card per application; only names with an active task are listed, the rest in one line.
+$agentCards = foreach ($application in @($agentCards | ForEach-Object Application | Select-Object -Unique)) {
+    $members = @($agentCards | Where-Object Application -eq $application)
+    $activeMembers = @($members | Where-Object Active)
+    $idleMembers = @($members | Where-Object { -not $_.Active })
+    $appStatus = if ($activeMembers.Count) { "$($activeMembers.Count) con tarea activa" } else { 'sin actividad' }
+    $appClass = if ($activeMembers.Count) { 's-en-curso' } else { 's-idle' }
+    $idleHtml = ''
+    if ($idleMembers.Count) {
+        $idleHtml = "<p class=""meta agent-idle"">sin actividad: $(Encode (($idleMembers | ForEach-Object Name) -join ', '))</p>" +
+            (($idleMembers | ForEach-Object { "<details class=""agent-instance""><summary>Detalle de $(Encode $_.Name)</summary>$($_.Html)</details>" }) -join "`n")
+    }
+    @"
+<section class="panel agent-card">
+  <div class="card-head"><h2>$(Encode $application)</h2><span class="state $appClass">$(Encode $appStatus)</span></div>
+  $(($activeMembers | ForEach-Object Html) -join "`n")
+  $idleHtml
 </section>
 "@
-    [pscustomobject]@{ Name = $name; Base = $agentRow.Base; Html = $card }
-}
-$agentCards = foreach ($entry in @($agentCards | Where-Object { -not $_.Base })) {
-    $nested = foreach ($instance in @($agentCards | Where-Object { $_.Base -eq $entry.Name })) {
-        "<details class=""agent-instance""><summary>Instancia $(Encode $instance.Name)</summary>$($instance.Html.Replace('<!--instances-->', ''))</details>"
-    }
-    $entry.Html.Replace('<!--instances-->', ($nested -join "`n"))
 }
 # Retired names (PAUSADO, e.g. the generic Claude replaced by Claude-<Model>) stay folded, only if the board mentions them.
 $retired = @($registeredAgents | Where-Object { $_.State -eq 'PAUSADO' -and @($agentBoard.History | Where-Object Agent -ieq $_.Name).Count })
@@ -1324,7 +1439,9 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
 .s-bloqueada { background:var(--accent-soft); color:var(--muted); border:1px dashed var(--warn-line); }
 .agent-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; }
 .agent-card h2 { margin:0; font-size:18px; }
-.agent-card h3 { margin:14px 0 6px; font-size:14px; }
+.agent-card h3 { margin:14px 0 6px; font-size:16px; }
+.agent-card h4 { margin:10px 0 4px; font-size:14px; }
+.agent-name { border-top:1px solid var(--line); margin-top:12px; padding-top:4px; }
 .agent-current .meta, .agent-last .meta { color:var(--muted); font-size:13px; margin:4px 0; }
 .agent-task { border-left:3px solid var(--accent); padding:4px 0 6px 10px; margin:6px 0; }
 .agent-task .state { margin-left:6px; }

@@ -109,10 +109,11 @@ try {
     Assert-True ($cards -match 'Última actividad: 2026-05-12 17:20 · EEE-T01 terminada \(Claude-Opus\)') 'EEE last activity text'
     Assert-Order $cards @('>GGG<', '>FFF<', '>EEE<') 'active stage cards'
 
-    # 3. Tasks of GGG: T02 (06-05), T03 (06-02 08:15), T01 (06-01), T04 (no history) last.
+    # 3. Tasks of GGG follow their code (SEG-T05); each still shows its own last activity.
     $board = $html.Substring($html.IndexOf('<h2>GGG'))
     $board = $board.Substring(0, $board.IndexOf('</section>'))
-    Assert-Order $board @('GGG-T02', 'GGG-T03', 'GGG-T01', 'GGG-T04') 'task order'
+    Assert-Order $board @('GGG-T01', 'GGG-T02', 'GGG-T03', 'GGG-T04') 'task order'
+    Assert-True ($board -match 'Última actividad 2026-06-05 14:10') 'task last activity still shown'
 }
 catch {
     Write-Host $_.Exception.Message
