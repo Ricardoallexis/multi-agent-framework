@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,6 +28,8 @@ class TokenUsageRecord:
     estimated_cost_usd: float | None
     success: bool
     error_type: str = ""
+    # Evidence behind ``estimated_cost_usd`` (see ``observability.cost``); None when no cost was computed.
+    cost_basis: dict[str, Any] | None = None
 
     def as_store_data(self) -> dict[str, Any]:
         return {
@@ -47,6 +50,8 @@ class TokenUsageRecord:
             "latency_ms": self.duration_ms,
             "duration_ms": self.duration_ms,
             "estimated_cost_usd": self.estimated_cost_usd,
+            "cost_basis": (json.dumps(self.cost_basis, ensure_ascii=False, sort_keys=True)
+                           if self.cost_basis else None),
             "success": int(self.success),
             "error_type": self.error_type,
         }
@@ -77,8 +82,18 @@ class UsageRecorder:
 _RECORD_FIELDS = (
     "id", "step_id", "agent_id", "attempt", "provider", "model", "model_digest",
     "prompt_id", "prompt_version", "tokens_in", "tokens_out", "num_ctx",
-    "duration_ms", "estimated_cost_usd", "success", "error_type", "created_at",
+    "duration_ms", "estimated_cost_usd", "cost_basis", "success", "error_type", "created_at",
 )
+
+
+def _load_basis(raw: Any) -> dict[str, Any] | None:
+    if not raw:
+        return None
+    try:
+        basis = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return basis if isinstance(basis, dict) else None
 
 
 def read_usage(store, run_id: str) -> list[dict[str, Any]]:
@@ -86,6 +101,8 @@ def read_usage(store, run_id: str) -> list[dict[str, Any]]:
 
     ``tokens_in``/``tokens_out`` stay ``None`` when the provider did not report
     them; ``tokens_total`` is ``None`` unless both are reported.
+    ``estimated_cost_usd`` is ``None`` when the cost is unknown or was priced in another currency;
+    ``cost_basis`` is the evidence of a computed cost (a dict) or ``None``.
     """
     with store.db.connect() as conn:
         rows = conn.execute(
@@ -96,6 +113,7 @@ def read_usage(store, run_id: str) -> list[dict[str, Any]]:
     for row in rows:
         record = {field: row[field] for field in _RECORD_FIELDS}
         record["success"] = bool(record["success"])
+        record["cost_basis"] = _load_basis(record["cost_basis"])
         reported = record["tokens_in"] is not None and record["tokens_out"] is not None
         record["tokens_total"] = record["tokens_in"] + record["tokens_out"] if reported else None
         records.append(record)
@@ -108,8 +126,38 @@ def _sum(values: list[Any]) -> Any:
     return sum(reported) if reported else None
 
 
+def _cost_totals(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Cost of the records with the unknown ones kept apart; an unknown cost is never added as 0.
+
+    * ``estimated_cost_usd``: sum of the USD costs that are known (``None`` when there is none), so
+      it is only the whole cost when ``cost_complete`` is true.
+    * ``cost_known_records`` / ``cost_unknown_records``: records with a USD cost / with no cost at all
+      (no price evidence in force, no tokens reported, or a human step).
+    * ``cost_other_currencies``: subtotal per currency for records priced in a currency other than USD.
+    * ``cost_complete``: every record has a USD cost (and there is at least one record).
+    """
+    usd = [r["estimated_cost_usd"] for r in records if r["estimated_cost_usd"] is not None]
+    other: dict[str, float] = {}
+    unknown = 0
+    for record in records:
+        if record["estimated_cost_usd"] is not None:
+            continue
+        basis = record.get("cost_basis") or {}
+        cost, currency = basis.get("cost"), basis.get("currency")
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool) and isinstance(currency, str) and currency:
+            other[currency] = other.get(currency, 0) + cost
+        else:
+            unknown += 1
+    return {
+        "estimated_cost_usd": round(sum(usd), 6) if usd else None,
+        "cost_known_records": len(usd),
+        "cost_unknown_records": unknown,
+        "cost_other_currencies": {currency: round(total, 6) for currency, total in sorted(other.items())},
+        "cost_complete": bool(records) and unknown == 0 and not other,
+    }
+
+
 def _totals(records: list[dict[str, Any]]) -> dict[str, Any]:
-    cost = _sum([record["estimated_cost_usd"] for record in records])
     return {
         "records": len(records),
         "failed": sum(1 for record in records if not record["success"]),
@@ -118,7 +166,7 @@ def _totals(records: list[dict[str, Any]]) -> dict[str, Any]:
         "tokens_out": _sum([record["tokens_out"] for record in records]),
         "tokens_total": _sum([record["tokens_total"] for record in records]),
         "duration_ms": _sum([record["duration_ms"] for record in records]),
-        "estimated_cost_usd": round(cost, 6) if cost is not None else None,
+        **_cost_totals(records),
     }
 
 
@@ -130,13 +178,15 @@ def _group(records: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
 
 
 def summarize_usage(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Totals for the whole run, per agent and per step (in order of first use).
+    """Totals for the whole run, per agent, per step and per model (in order of first use).
 
     Token sums include only reported values; ``records_without_usage`` counts
-    the records that did not report usage (for example human steps).
+    the records that did not report usage (for example human steps). Cost totals
+    follow ``_cost_totals``: the known subtotal plus how many records are unknown.
     """
     return {
         "run": _totals(records),
         "by_agent": _group(records, "agent_id"),
         "by_step": _group(records, "step_id"),
+        "by_model": _group(records, "model"),
     }

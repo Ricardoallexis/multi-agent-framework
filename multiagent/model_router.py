@@ -11,7 +11,7 @@ from typing import Any, Callable, Mapping
 from pydantic import BaseModel
 
 from .adapters.base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
-from .catalog import Catalog, ModelSpec
+from .catalog import Catalog, ModelSpec, current_price
 from .contracts import TaskRequirements
 from .routing_policy import RoutingCandidate, RoutingDecision, RoutingEvidence, RoutingRequest
 from .errors import (
@@ -67,37 +67,8 @@ class ModelRouter:
 
     @staticmethod
     def _current_price(pricing, *, now):
-        if not isinstance(pricing, dict):
-            return None
-        components = []
-        for component in ("input", "output"):
-            price = pricing.get(component)
-            if not isinstance(price, dict):
-                return None
-            amount = price.get("amount")
-            denominator = price.get("denominator")
-            unit = price.get("unit")
-            currency = price.get("currency")
-            source = price.get("source")
-            valid_from = price.get("valid_from")
-            valid_until = price.get("valid_until")
-            if (not isinstance(amount, (int, float)) or isinstance(amount, bool)
-                    or not math.isfinite(float(amount)) or amount < 0
-                    or type(denominator) is not int or denominator <= 0
-                    or not unit or not currency or not source or not valid_from or not valid_until
-                    or price.get("provenance") in {None, "unknown"}):
-                return None
-            try:
-                starts = datetime.fromisoformat(str(valid_from).replace("Z", "+00:00"))
-                ends = datetime.fromisoformat(str(valid_until).replace("Z", "+00:00"))
-                if starts.tzinfo is None or ends.tzinfo is None or starts > now or ends <= now:
-                    return None
-            except (TypeError, ValueError):
-                return None
-            components.append((float(amount), str(currency), int(denominator), str(unit)))
-        if components[0][1:] != components[1][1:]:
-            return None
-        return components
+        # One shared check (catalog.current_price) so selection and the usage cost estimate agree.
+        return current_price(pricing, now=now)
 
     def select(self, request: RoutingRequest, evidence: RoutingEvidence | None = None) -> RoutingDecision:
         """Resolve an explicitly requested, enabled profile without side effects or provider calls."""

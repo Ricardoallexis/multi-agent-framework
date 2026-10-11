@@ -112,6 +112,47 @@ def validate_pricing(model_id: str, pricing: Any, *, tier: str | None = None) ->
     return result
 
 
+def current_price(pricing: Any, *, now: datetime) -> list[tuple[float, str, int, str]] | None:
+    """Return ``[input, output]`` as ``(amount, currency, denominator, unit)`` when both are usable at ``now``.
+
+    ``None`` means "no price evidence": the block is missing, incomplete, malformed, outside its validity
+    window, has ``unknown`` provenance, or ``input`` and ``output`` disagree on currency, unit or
+    denominator. The model router (selection by price) and the usage telemetry (estimated cost) both
+    rely on this single check; ``now`` must be timezone-aware.
+    """
+    if not isinstance(pricing, dict):
+        return None
+    components = []
+    for component in _PRICE_COMPONENTS:
+        price = pricing.get(component)
+        if not isinstance(price, dict):
+            return None
+        amount = price.get("amount")
+        denominator = price.get("denominator")
+        unit = price.get("unit")
+        currency = price.get("currency")
+        source = price.get("source")
+        valid_from = price.get("valid_from")
+        valid_until = price.get("valid_until")
+        if (not isinstance(amount, (int, float)) or isinstance(amount, bool)
+                or not math.isfinite(float(amount)) or amount < 0
+                or type(denominator) is not int or denominator <= 0
+                or not unit or not currency or not source or not valid_from or not valid_until
+                or price.get("provenance") in {None, "unknown"}):
+            return None
+        try:
+            starts = datetime.fromisoformat(str(valid_from).replace("Z", "+00:00"))
+            ends = datetime.fromisoformat(str(valid_until).replace("Z", "+00:00"))
+            if starts.tzinfo is None or ends.tzinfo is None or starts > now or ends <= now:
+                return None
+        except (TypeError, ValueError):
+            return None
+        components.append((float(amount), str(currency), int(denominator), str(unit)))
+    if components[0][1:] != components[1][1:]:
+        return None
+    return components
+
+
 @dataclass(frozen=True)
 class ModelSpec:
     id: str

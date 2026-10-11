@@ -242,7 +242,11 @@ def test_semantic_rejection_fallback_preserves_usage_and_event_metadata(tmp_path
     assert attempts[1]["call_ordinal"] == 2
     assert len(rows) == 2
     assert [(row["success"], row["tokens_in"], row["tokens_out"]) for row in rows] == [(False, 71, 29), (True, 10, 20)]
-    assert all(row["estimated_cost_usd"] is None for row in rows)
+    # The bundled local model declares local_no_charge evidence: its failed call is a real 0 with a basis.
+    # The fallback model has no price evidence in force, so its cost is unknown (never 0).
+    assert rows[0]["estimated_cost_usd"] == 0 and rows[0]["cost_basis"]["input"]["provenance"] == "local_no_charge"
+    assert rows[1]["estimated_cost_usd"] is None and rows[1]["cost_basis"] is None
+    assert usage["totals"]["run"]["cost_unknown_records"] == 1 and usage["totals"]["run"]["cost_complete"] is False
     assert usage["totals"]["run"]["tokens_total"] == 130
 
 

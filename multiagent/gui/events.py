@@ -29,6 +29,8 @@ from typing import Any, AsyncIterator
 
 import anyio
 
+from .runs import _clean  # the same cleaning as the run view: no *_path keys, bounded text
+
 BATCH = 500
 
 
@@ -40,7 +42,7 @@ def read_after(store, after: int, limit: int = BATCH, run_id: str | None = None)
             (*params, limit),
         ).fetchall()
     return [{"id": r["id"], "run_id": r["run_id"], "ts": r["ts"], "type": r["event_type"],
-             "payload": json.loads(r["payload_json"])} for r in rows]
+             "payload": _clean(json.loads(r["payload_json"]))} for r in rows]
 
 
 def format_event(event: dict[str, Any]) -> str:
@@ -98,8 +100,11 @@ async def stream_session(read: Callable[[str], dict[str, Any]], *, after: str, h
         try:
             page = await anyio.to_thread.run_sync(read, cursor)
         except Exception as exc:  # the session vanished or is no longer readable
-            code = getattr(exc, "code", "session_unavailable")
-            yield format_notice("error", {"code": code, "message": getattr(exc, "message", str(exc))})
+            # Only our own errors carry a message that is safe to show; str(exc) of an OSError holds a local path.
+            code, message = getattr(exc, "code", None), getattr(exc, "message", None)
+            yield format_notice("error", {"code": code if isinstance(code, str) else "session_unavailable",
+                                          "message": message if isinstance(message, str)
+                                          else "The session can no longer be read"})
             return
         fresh = [w for w in page.get("warnings", ()) if w not in seen]
         if fresh:

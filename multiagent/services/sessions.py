@@ -272,6 +272,8 @@ class SessionServices:
                     summary.models, summary.tokens = usage[summary.native_id]
 
     def _framework_event_items(self, store: Any, run_id: str, after: int, limit: int) -> ItemsPage:
+        from ..gui.runs import _clean  # lazy: gui imports this module; same cleaning as the run view
+
         with store.db.connect() as conn:
             rows = conn.execute(
                 "SELECT id,ts,event_type,payload_json FROM run_events WHERE run_id=? AND id>? ORDER BY id LIMIT ?",
@@ -282,6 +284,7 @@ class SessionServices:
                 payload = json.loads(row["payload_json"])
             except ValueError:
                 payload = {}
+            payload = _clean(payload)  # no *_path keys (local paths), bounded text
             body = json.dumps(payload, ensure_ascii=False, sort_keys=True) if payload else ""
             text, truncated = clip(f"{row['event_type']} {body}".strip())
             model = payload.get("model") if isinstance(payload, dict) and isinstance(payload.get("model"), str) else None

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import time
 from typing import TYPE_CHECKING, Any, Mapping
@@ -29,7 +30,7 @@ from .contracts import (
 from .db.store import Store
 from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition, ValidationFailed
 from .model_router import ModelBinding, ModelRouter
-from .observability import TokenUsageRecord, UsageRecorder
+from .observability import TokenUsageRecord, UsageRecorder, estimate_call_cost
 from .prompts import PromptManager
 from .routing_policy import RoutingEvidence, RoutingRequest, summarize_routing_evidence
 from .observability.usage import read_usage
@@ -42,6 +43,8 @@ from .workflow_validation import (
 
 if TYPE_CHECKING:
     from .bundles import DefinitionBundle
+
+_logger = logging.getLogger(__name__)
 
 
 class WorkflowEngine:
@@ -403,7 +406,10 @@ class WorkflowEngine:
                         tokens_out=failure.get("tokens_out"),
                         num_ctx=failure.get("num_ctx"),
                         duration_ms=failure.get("duration_ms"),
-                        estimated_cost_usd=None,
+                        **self._call_cost(
+                            failure.get("attempted_model") or failure.get("model"),
+                            failure.get("tokens_in"), failure.get("tokens_out"),
+                        ),
                         success=False,
                         error_type=failure.get("error_type", "UnknownError"),
                     ))
@@ -616,6 +622,7 @@ class WorkflowEngine:
             tokens_out=None,
             num_ctx=None,
             duration_ms=None,
+            # A human or external model reports no token counts and has no catalog price: unknown.
             estimated_cost_usd=None,
             success=True,
         ))
@@ -710,6 +717,26 @@ class WorkflowEngine:
         })
         return self._finalize_return(run_id)
 
+    def _call_cost(self, catalog_model_id: str | None, tokens_in: int | None,
+                   tokens_out: int | None) -> dict[str, Any]:
+        """``estimated_cost_usd`` and ``cost_basis`` of one provider call, from the catalog price evidence.
+
+        Both stay ``None`` (unknown, never 0) when the model is not in the catalog, has no price in force
+        now, or a token count is missing. A costing problem never affects the step: telemetry only.
+        """
+        unknown: dict[str, Any] = {"estimated_cost_usd": None, "cost_basis": None}
+        if not catalog_model_id:
+            return unknown
+        try:
+            spec = self.catalog.models.get(str(catalog_model_id))
+            estimate = estimate_call_cost(spec, tokens_in=tokens_in, tokens_out=tokens_out) if spec else None
+        except Exception:
+            _logger.warning("Cost estimate failed for %s; recording it as unknown", catalog_model_id, exc_info=True)
+            return unknown
+        if estimate is None:
+            return unknown
+        return {"estimated_cost_usd": estimate.estimated_cost_usd, "cost_basis": estimate.basis}
+
     def _persist_completed_step(self, *, run_id: str, index: int, step: WorkflowStep, attempt: int,
                                 context: dict[str, Any], data: dict[str, Any], model_id: str,
                                 prompt_sha256: str, response: LLMResponse, attempts: list[dict], fresh: dict[str, Any]) -> None:
@@ -727,6 +754,8 @@ class WorkflowEngine:
         path = self.artifacts.write(run_id=run_id, step_index=index, step_id=step.id, attempt=attempt, data=data)
         relative_path = path.relative_to(self.settings.data_dir)
         self.store.add_artifact(run_id=run_id, step_id=step.id, attempt=attempt, kind=step.contract, path=str(relative_path), data=data)
+        tokens_in = response.tokens_in if response.tokens_in > 0 else None
+        tokens_out = response.tokens_out if response.tokens_out > 0 else None
         self.usage_recorder.record(TokenUsageRecord(
             run_id=run_id,
             step_id=step.id,
@@ -739,11 +768,11 @@ class WorkflowEngine:
             prompt_version=step.prompt_version,
             prompt_sha256=prompt_sha256,
             brand_version=fresh.get("brand_version"),
-            tokens_in=response.tokens_in if response.tokens_in > 0 else None,
-            tokens_out=response.tokens_out if response.tokens_out > 0 else None,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
             num_ctx=int(response.metadata.get("num_ctx") or 0) or None,
             duration_ms=response.latency_ms,
-            estimated_cost_usd=None,
+            **self._call_cost(response.metadata.get("catalog_model_id"), tokens_in, tokens_out),
             success=True,
             error_type="",
         ))

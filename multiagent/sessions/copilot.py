@@ -44,6 +44,7 @@ from .models import (
 )
 
 READER = "copilot-events/1"
+MAX_WORKSPACE_YAML_BYTES = 1024 * 1024  # a workspace.yaml is a few lines; a larger file is not read
 SEEN_VERSIONS = ("copilotVersion 0.x",)
 _IGNORED = {"session.start", "session.resume", "session.info", "session.idle", "session.model_change",
             "session.truncation", "session.snapshot_rewind", "session.error", "session.warning",
@@ -171,8 +172,14 @@ class CopilotReader:
     def _summary(self, native: str, d: Path, dbmeta: dict[str, dict], usage: dict[str, TokenUsage],
                  extra: list[str]) -> SessionSummary:
         ws: dict[str, str] = {}
+        extra = list(extra)
         try:
-            ws = parse_flat_yaml((d / "workspace.yaml").read_text(encoding="utf-8", errors="replace"))
+            with open(d / "workspace.yaml", "rb") as fh:
+                raw = fh.read(MAX_WORKSPACE_YAML_BYTES + 1)
+            if len(raw) > MAX_WORKSPACE_YAML_BYTES:
+                extra.append("workspace_yaml_skipped: file is larger than 1 MB")
+            else:
+                ws = parse_flat_yaml(raw.decode("utf-8", errors="replace"))
         except OSError:
             pass
         events = d / "events.jsonl"

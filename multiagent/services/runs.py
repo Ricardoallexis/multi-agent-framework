@@ -226,11 +226,15 @@ class RunServices:
 
     @service_errors
     def usage(self, run_id: str) -> dict[str, Any]:
-        """Token usage of the run: every record plus totals per run, agent and step.
+        """Token usage of the run: every record plus totals per run, agent, step and model.
 
         Tokens a provider did not report stay ``None`` and are counted in
-        ``records_without_usage`` instead of adding 0. Costs are estimates from
-        the model catalog, never billed amounts. Error: ``not_found``.
+        ``records_without_usage`` instead of adding 0. Costs are estimates
+        (``cost_is_estimate``), never billed amounts: tokens x the catalog price
+        evidence in force at the call, or ``None`` when either is missing. Totals
+        keep unknown costs apart (``estimated_cost_usd`` is the known subtotal,
+        ``cost_unknown_records`` how many calls are missing from it,
+        ``cost_complete`` whether it is the whole cost). Error: ``not_found``.
         """
         runtime = self._find(run_id)
         records = read_usage(runtime.store, run_id)

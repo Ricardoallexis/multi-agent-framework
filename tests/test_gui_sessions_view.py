@@ -57,7 +57,7 @@ def test_view_files_exist_and_are_loaded_only_through_main():
     assert re.findall(r"<script[^>]*>", html) == ['<script type="module" src="/gui/static/js/main.js">']
 
 
-@pytest.mark.parametrize("name", VIEW_FILES + ["stream.js", "main.js", "runs.js"])
+@pytest.mark.parametrize("name", VIEW_FILES + ["stream.js", "main.js", "runs.js", "open-in-app.js"])
 def test_view_code_has_no_html_injection_eval_inline_handlers_or_remote_code(name):
     text = read(name)
     for pattern, label in FORBIDDEN:
@@ -101,12 +101,13 @@ def test_route_hrefs_are_hash_only():
     assert "location.hash = next" in route
 
 
-def test_the_open_in_app_button_is_not_part_of_this_task():
+def test_the_open_in_app_control_lives_in_its_own_file_and_fills_the_slot():
     text = "".join(read(name) for name in VIEW_FILES)
-    assert 'id="open-in-app-slot"' in text  # the placeholder GUI-T06 will fill
-    for forbidden in ("codex://", "ghapp://", "open_in_app", "openInApp"):
-        assert forbidden not in text, forbidden
-    assert not re.search(r"<button[^>]*>\s*Abrir en la app", text)
+    assert text.count('id="open-in-app-slot"') == 1  # the header slot that GUI-T06 fills
+    assert "<${OpenInApp}" in read("session-detail.js")
+    for other in ("sessions.js", "session-items.js", "session-text.js", "route.js"):
+        for forbidden in ("codex://", "ghapp://", "open_in_app", "openInApp"):
+            assert forbidden not in read(other), (other, forbidden)  # links are built in open-in-app.js only
 
 
 # --- accessibility and texts ---------------------------------------------------------------------

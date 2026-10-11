@@ -103,7 +103,7 @@ A model may also declare an optional level (T1 economic, T2 standard, T3 advance
 
 Strict budgets currently support provider_invocations only. max_provider_invocations is enforced at each dispatch for the run/profile, together with the run-wide max_llm_calls limit. Each dispatched attempt, including retries, fallback attempts, and failed calls, consumes an invocation. The profile’s max_candidates and retry settings constrain the planned cascade as well. Requesting strict token or cost limits is unsupported and blocks the route; planning estimates are not substitutes for strict enforcement. Run duration and workflow limits remain separate.
 
-Routing and usage summaries are run-scoped. Attempt events count dispatches; usage records contain reported token and cost fields. Unknown values remain null/unknown rather than zero, and the framework does not infer quality, savings, or model effectiveness from a route decision alone.
+Routing and usage summaries are run-scoped. Attempt events count dispatches; usage records contain reported token and cost fields. Unknown values remain null/unknown rather than zero, and the framework does not infer quality, savings, or model effectiveness from a route decision alone. The estimated cost in a usage record is computed from the same price evidence (tokens times the price in force at the call, unknown when either is missing); see [`TELEMETRY.md`](TELEMETRY.md#estimated-cost).
 
 ## Offline examples
 

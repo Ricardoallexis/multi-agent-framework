@@ -12,6 +12,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from ..services.sessions import DEFAULT_ITEMS_LIMIT, DEFAULT_LIST_LIMIT, SessionServices
+from .open_in_app import add_open_routes
 
 
 def add_session_routes(api: APIRouter, sessions: SessionServices) -> None:
@@ -31,3 +32,5 @@ def add_session_routes(api: APIRouter, sessions: SessionServices) -> None:
     def session_items(session_id: str, after: str | None = None, limit: int = DEFAULT_ITEMS_LIMIT):
         """Items after the cursor (``next_cursor`` of the previous page); text is plain text, never HTML."""
         return sessions.read_items(session_id, after=after, limit=limit)
+
+    add_open_routes(api, sessions)  # POST /sessions/{id}/open and GET /open-in-app (GUI-T06)

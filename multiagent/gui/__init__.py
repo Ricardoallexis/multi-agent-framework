@@ -58,7 +58,7 @@ def mount_gui(app: FastAPI) -> None:
                 raise ServiceError(INVALID_REQUEST, "after must be an integer >= 0", status=422,
                                    details={"field": "after"})
             cursor = int(after or 0)
-            if last_event_id and last_event_id.strip().isascii() and last_event_id.strip().isdigit():
+            if last_event_id and _INT_CURSOR.fullmatch(last_event_id.strip()):  # a bad header is ignored, like on a session
                 cursor = max(cursor, int(last_event_id))
             body = events.stream(services.system.store, after=cursor, **timing)
         else:  # one session: validated up front, so a bad id or cursor is a 400/404 and not a dead stream

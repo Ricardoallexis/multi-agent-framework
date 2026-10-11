@@ -146,12 +146,18 @@ def int_or_none(value: object) -> int | None:
 def iter_records(path: Path, start: int = 0) -> Iterator[tuple[dict | None, int, str]]:
     """Yield ``(record, end_offset, status)`` per line, never holding more than one line.
 
-    ``status``: ``ok``, ``broken`` (not a JSON object), ``oversized`` (> 1 MB, skipped). A final
-    line without newline that is not yet valid JSON (being written) stops the iteration without
-    advancing past it.
+    ``status``: ``ok``, ``broken`` (not a JSON object, or nested too deeply to parse), ``oversized``
+    (> 1 MB, skipped) and ``unavailable`` (the file cannot be opened: yielded once, with no path in it).
+    A final line without newline that is not yet valid JSON (being written) stops the iteration
+    without advancing past it.
     """
-    with open(path, "rb") as fh:
+    try:
+        fh = open(path, "rb")
         fh.seek(start)
+    except OSError:  # PermissionError, a locked or vanished file: its text carries the local path
+        yield None, start, "unavailable"
+        return
+    with fh:
         while True:
             line = fh.readline(MAX_LINE_BYTES + 1)
             if not line:
@@ -172,7 +178,7 @@ def iter_records(path: Path, start: int = 0) -> Iterator[tuple[dict | None, int,
                 continue
             try:
                 record = json.loads(stripped.decode("utf-8", "replace"))
-            except ValueError:
+            except (ValueError, RecursionError):  # not JSON, or nested deeper than the parser allows
                 record = None
             if not isinstance(record, dict):
                 if not complete:
@@ -188,6 +194,7 @@ class WarningCounter:
     def __init__(self) -> None:
         self.broken = 0
         self.oversized = 0
+        self.unavailable = False
         self.unknown: dict[str, int] = {}
         self.extra: list[str] = []
 
@@ -196,6 +203,8 @@ class WarningCounter:
             self.broken += 1
         elif status == "oversized":
             self.oversized += 1
+        elif status == "unavailable":
+            self.unavailable = True
 
     def unknown_type(self, name: object) -> None:
         key = str(name)[:60]
@@ -203,6 +212,8 @@ class WarningCounter:
 
     def render(self) -> list[str]:
         out = list(self.extra)
+        if self.unavailable:
+            out.append("session_file_unavailable")
         if self.broken:
             out.append(f"broken_json_lines: {self.broken}")
         if self.oversized:
@@ -232,6 +243,8 @@ def read_page(path: Path, after: str | None, limit: int, parse: ParseFn) -> Item
     for record, end, status in iter_records(path, offset):
         pos = end
         counter.line(status)
+        if status == "unavailable":
+            return ItemsPage([], encode_cursor(0, offset), True, counter.render())
         if record is not None:
             cursor = encode_cursor(0, end)
             for item in parse(record, counter):
@@ -275,7 +288,7 @@ def select_rows(conn: sqlite3.Connection, table: str, wanted: tuple[str, ...]) -
 
 
 def within_root(cwd: str | None, roots: tuple[str, ...]) -> bool:
-    if not cwd or not roots:
+    if not cwd or not roots or not os.path.isabs(cwd):  # a relative folder would resolve against our own cwd
         return False
     target = os.path.normcase(os.path.abspath(cwd))
     for root in roots:

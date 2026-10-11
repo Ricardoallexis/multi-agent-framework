@@ -532,7 +532,7 @@ class Store:
         fields = [
             "run_id","step_id","agent_id","attempt","provider","model","model_digest","prompt_id",
             "prompt_version","prompt_sha256","brand_version","tokens_in","tokens_out","num_ctx",
-            "latency_ms","duration_ms","estimated_cost_usd","success","error_type","created_at"
+            "latency_ms","duration_ms","estimated_cost_usd","cost_basis","success","error_type","created_at"
         ]
         values = [data.get(k) for k in fields[:-1]] + [utcnow()]
         with self.db.connect() as conn:

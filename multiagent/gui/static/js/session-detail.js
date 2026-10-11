@@ -5,6 +5,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet } from "./api.js";
 import { debounce } from "./bus.js";
+import { OpenInApp } from "./open-in-app.js";
 import { routeHref } from "./route.js";
 import { Items } from "./session-items.js";
 import {
@@ -83,7 +84,7 @@ function Children({ token, summary }) {
   </section>`;
 }
 
-function Header({ summary, onRefresh }) {
+function Header({ token, summary, onRefresh }) {
   const info = statusInfo(summary.status);
   const isRun = summary.source === "framework";
   return html`<header class="session-header">
@@ -107,9 +108,8 @@ function Header({ summary, onRefresh }) {
     <div class="header-actions">
       ${isRun && html`<a class="btn secondary" href=${routeHref("runs", summary.native_id)}>Ver la ejecución en «Ejecuciones»</a>`}
       <button type="button" class="btn secondary small" onClick=${onRefresh}>Actualizar datos</button>
-      <!-- GUI-T06 will place the "Abrir en la app" button here. -->
-      <span id="open-in-app-slot" class="open-in-app-slot"></span>
     </div>
+    <div id="open-in-app-slot" class="open-in-app-slot"><${OpenInApp} token=${token} summary=${summary} /></div>
   </header>`;
 }
 
@@ -251,7 +251,7 @@ export function SessionDetail({ token, sessionId, onBack }) {
   return html`<article class="session-detail" aria-labelledby="session-title" tabindex="-1" ref=${article}>
     ${back}
     ${!summary && html`<h3 id="session-title">Sesión</h3><p class="muted" aria-busy="true">Cargando la sesión…</p>`}
-    ${summary && html`<${Header} summary=${summary} onRefresh=${refreshSummary} />`}
+    ${summary && html`<${Header} token=${token} summary=${summary} onRefresh=${refreshSummary} />`}
     ${summary && summary.child_count > 0 && html`<${Children} token=${token} summary=${summary} />`}
     <section class="panel live-bar" aria-label="Seguimiento en vivo">
       <span class=${"badge live live-" + followState} role="status" aria-live="polite">${followText}</span>

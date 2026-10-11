@@ -72,6 +72,8 @@ class Settings(BaseSettings):
 
     # GUI (/gui): local access token file (empty means ~/.multiagent/gui-token) and SSE timing.
     gui_token_file: Optional[Path] = None
+    # The launcher refuses a token file outside the user's home folder unless this is set (see gui/token.py).
+    gui_token_outside_home: bool = False
     gui_heartbeat_seconds: float = Field(default=20.0, gt=0)
     gui_poll_seconds: float = Field(default=0.5, gt=0)
     # 0 keeps each SSE connection open until the client leaves; tests set a small bound.
@@ -85,6 +87,9 @@ class Settings(BaseSettings):
     gui_codex_home: Optional[Path] = None
     gui_copilot_home: Optional[Path] = None
     gui_claude_desktop_dir: Optional[Path] = None
+    # GUI-T06: may the viewer launch ``claude --desktop --resume <id>`` in a new console (Windows)? False
+    # makes the screen show the command to copy instead; the endpoint then answers 403 and starts nothing.
+    gui_allow_launch: bool = True
 
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:8b"
