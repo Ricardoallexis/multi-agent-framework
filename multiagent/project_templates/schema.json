@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Project template or plan (maf.project-template/1)",
+  "description": "Data only. A template and a plan share this shape; plans add dates. No key runs, imports or evaluates anything.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "title", "stages"],
+  "properties": {
+    "schema": {"type": "string", "const": "maf.project-template/1"},
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{2,40}$",
+      "description": "a template id (2 to 40 lowercase letters, digits or hyphens)"
+    },
+    "title": {"type": "string", "minLength": 1, "maxLength": 200},
+    "description": {"type": "string", "maxLength": 2000},
+    "visibility": {"type": "string", "enum": ["normal", "private"]},
+    "stages": {"type": "array", "maxItems": 30, "items": {"$ref": "#/$defs/stage"}}
+  },
+  "$defs": {
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "title"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9]{1,9}$",
+          "description": "a stage code (an uppercase letter, then 1 to 9 uppercase letters or digits)"
+        },
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "phases": {
+          "type": "array",
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 60}
+        },
+        "planned": {"$ref": "#/$defs/planned"},
+        "tasks": {"type": "array", "maxItems": 200, "items": {"$ref": "#/$defs/task"}}
+      }
+    },
+    "planned": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"$ref": "#/$defs/date"},
+        "end": {"$ref": "#/$defs/date"}
+      }
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "description": "a calendar date as YYYY-MM-DD"
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^T[0-9]{2,3}$",
+          "description": "a task id inside its stage (T and 2 or 3 digits)"
+        },
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "objective": {"type": "string", "maxLength": 4000},
+        "done_when": {"type": "string", "minLength": 1, "maxLength": 200},
+        "phase": {"type": "string", "maxLength": 60, "description": "one of the phases of its stage, or empty"},
+        "assignee": {
+          "type": "string",
+          "maxLength": 100,
+          "pattern": "^(user|person|agent|executor):.+$",
+          "description": "an actor: user:<name>, person:<name>, agent:<app>[/<model>] or executor:<id>"
+        },
+        "depends_on": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(T[0-9]{2,3}|[A-Z][A-Z0-9]{1,9}-T[0-9]{2,3}|stage:[A-Z][A-Z0-9]{1,9})$",
+            "description": "a task of the same stage (T02), a task of another stage (EST-T01) or every task of a stage (stage:EST)"
+          }
+        },
+        "requires": {
+          "type": "string",
+          "enum": ["accepted", "submitted"]
+        },
+        "due": {"$ref": "#/$defs/date"},
+        "context_refs": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"type": "string", "minLength": 1, "maxLength": 200}
+        }
+      }
+    }
+  }
+}

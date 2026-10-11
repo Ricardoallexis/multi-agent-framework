@@ -1,0 +1,5 @@
+schema: maf.project-template/1
+id: vacia
+title: Proyecto vacío
+description: Sin etapas ni tareas. Para empezar desde cero.
+stages: []

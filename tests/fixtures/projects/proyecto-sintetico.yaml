@@ -1,0 +1,21 @@
+# Synthetic sample plan for tests and for the GUI until the ORQ-4 cutover exists.
+# Every name, date and text is invented; it describes no real person, company or project.
+schema: maf.project-template/1
+id: proyecto-sintetico
+title: Proyecto sintético de ejemplo
+description: Datos inventados para pruebas. No describe a ninguna persona, empresa ni proyecto real.
+stages:
+  - code: ALFA
+    title: Etapa Alfa
+    phases: [Preparación, Revisión]
+    planned: {start: 2026-11-02, end: 2026-11-13}
+    tasks:
+      - {id: T01, title: Tarea de ejemplo uno, phase: Preparación, assignee: "person:persona-prueba", due: 2026-11-06, done_when: "Nota de ejemplo escrita"}
+      - {id: T02, title: Tarea de ejemplo dos, phase: Revisión, assignee: "user:revisor-prueba", depends_on: [T01], due: 2026-11-13}
+  - code: BETA
+    title: Etapa Beta
+    phases: [Ejecución]
+    planned: {start: 2026-11-16, end: 2026-11-27}
+    tasks:
+      - {id: T01, title: Tarea de ejemplo tres, phase: Ejecución, assignee: "agent:ejemplo", depends_on: ["stage:ALFA"], due: 2026-11-20}
+      - {id: T02, title: Tarea de ejemplo cuatro, depends_on: [T01]}  # sin fecha

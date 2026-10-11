@@ -104,3 +104,18 @@ def test_bundle_has_no_private_or_local_references():
 def test_core_package_stays_free_of_the_example_domain():
     for path in (ROOT / "multiagent").rglob("*.py"):
         assert "software_development" not in path.read_text(encoding="utf-8"), path.name
+
+
+# PRY-T04: the shipped project templates and the synthetic sample project are public files too.
+PUBLIC_DATA_DIRS = [ROOT / "multiagent" / "project_templates", ROOT / "tests" / "fixtures" / "projects"]
+
+
+def test_project_templates_and_fixtures_have_no_private_or_local_references():
+    files = [path for directory in PUBLIC_DATA_DIRS for path in directory.rglob("*")
+             if path.is_file() and "__pycache__" not in path.parts]
+    assert files, "no project templates or fixtures found"
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        found = [marker for marker in PRIVATE_MARKERS if marker in text]
+        assert not found, f"{path.relative_to(ROOT)} mentions private or local details: {found}"
+        assert "visibility: private" not in text, f"{path.relative_to(ROOT)} declares a private project"
