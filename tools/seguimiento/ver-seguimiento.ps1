@@ -1028,6 +1028,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         if ($phaseDefinitions.Count) {
             $assignedTasks = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
             $phaseSections = [System.Collections.Generic.List[string]]::new()
+            $currentPhaseFound = $false
             foreach ($phase in $phaseDefinitions) {
                 $phaseTaskRows = @($taskRows | Where-Object { $phase.TaskIds -contains $_.Id })
                 foreach ($phaseTask in $phaseTaskRows) { [void]$assignedTasks.Add($phaseTask.Id) }
@@ -1049,37 +1050,65 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 } else {
                     '<p class="meta">No hay fichas de tarea que coincidan con esta fase.</p>'
                 }
+                # SEG-T09: collapsible phase. Open only if it is the current one (first phase that is not complete).
+                $phaseComplete = $phaseTaskRows.Count -gt 0 -and $phaseIntegrated -eq $phaseTaskRows.Count
+                $phaseOpen = $false
+                if (-not $phaseComplete -and -not $currentPhaseFound) { $phaseOpen = $true; $currentPhaseFound = $true }
+                $phaseId = 'seg:' + $stage.Name + ':' + (($phase.Label.ToLowerInvariant() -replace '[^\p{L}\p{Nd}]+', '-').Trim('-'))
                 $phaseSections.Add(@"
-<section class="board-phase">
-  <div class="card-head"><h3>$(Encode $phase.Label) $phaseBadge</h3><span class="meta">$($phaseTaskRows.Count) $phaseTaskLabel · $phaseDone terminadas o integradas ($phaseIntegrated sin integración pendiente)</span></div>
+<details class="board-phase seg-phase" data-seg-id="$(Encode $phaseId)"$(if ($phaseOpen) { ' open' })>
+  <summary><h3>$(Encode $phase.Label) $phaseBadge</h3><span class="meta">$phaseDone de $($phaseTaskRows.Count) terminadas o integradas</span></summary>
+  <div class="seg-body">
+  <p class="meta">$($phaseTaskRows.Count) $phaseTaskLabel · $phaseDone terminadas o integradas ($phaseIntegrated sin integración pendiente)</p>
   $(if ($phase.Description) { "<p class=""meta"">$(Encode $phase.Description)</p>" })
   $phaseContent
-</section>
+  </div>
+</details>
 "@)
             }
             $unassignedRows = @($taskRows | Where-Object { -not $assignedTasks.Contains($_.Id) })
             if ($unassignedRows.Count) {
                 $phaseSections.Add(@"
-<section class="board-phase">
-  <h3>Sin fase asignada</h3>
-  $tableHeader$($unassignedRows.Html -join "`n")</table>
-</section>
+<details class="board-phase seg-phase" data-seg-id="$(Encode ('seg:' + $stage.Name + ':sin-fase'))" open>
+  <summary><h3>Sin fase asignada</h3><span class="meta">$(@($unassignedRows | Where-Object { $_.State -in 'terminada', 'integrada' }).Count) de $($unassignedRows.Count) terminadas o integradas</span></summary>
+  <div class="seg-body">$tableHeader$($unassignedRows.Html -join "`n")</table></div>
+</details>
 "@)
             }
             $taskGroups = $phaseSections -join "`n"
         } else {
             $taskGroups = "$tableHeader$($taskRows.Html -join "`n")</table>"
         }
+        # SEG-T09: the stage is a collapsible <details>; active stages open, completed ones closed.
+        $stageIsComplete = $closure.Status -eq 'complete'
+        $stageOpen = -not $stageIsComplete -and -not $claimsClosed
+        $stageStateText = if ($stageIsComplete) { 'cerrada' } elseif ($claimsClosed) { 'cierre no verificado' } else { $sf = (Get-Field $stageText 'Estado').Trim(); if ($sf) { $sf } else { 'activa' } }
+        $stateOrder = @('en curso', 'disponible', 'liberada', 'pendiente', 'requiere cambios', 'reabierta', 'terminada', 'integrada')
+        $countParts = @($taskRecords | Group-Object State | Sort-Object @{ Expression = { $i = $stateOrder.IndexOf($_.Name); if ($i -lt 0) { 99 } else { $i } } } | ForEach-Object { "$($_.Count) $(Encode $_.Name)" })
+        $stageCountsText = if ($countParts.Count) { $countParts -join ' &middot; ' } else { 'sin tareas' }
+        $stageWorkers = foreach ($r in @($taskRecords | Where-Object { $_.State -eq 'en curso' })) {
+            if (@($r.ActiveDelegations).Count) { foreach ($d in $r.ActiveDelegations) { "$(Encode $r.Code): $(Encode (Format-ActiveDelegation $d))" } }
+            elseif ($r.Agent.Trim() -and $r.Agent.Trim() -ne '-') { "trabajando: $(Encode $r.Agent.Trim()) en $(Encode $r.Code)" }
+        }
+        $stageWorkersHtml = if (@($stageWorkers).Count) { "<span class=""meta seg-workers"">$(@($stageWorkers) -join ' &middot; ')</span>" } else { '' }
+        $stageActivityHtml = if ($stageIsComplete -or $claimsClosed) { $closedLabel }
+            elseif ($lastActivity) { "Última actividad $(Encode (Format-ActivityDate $lastActivity.Date))" }
+            else { 'Última actividad: sin registro' }
+        $stageId = 'seg:' + $stage.Name
         $boardHtml = @"
-<section class="panel board">
-  <div class="card-head"><h2>$(Encode $stageTitle)</h2><span class="pct">$done/$total</span></div>
+<details class="panel board seg-stage" data-seg-id="$(Encode $stageId)"$(if ($stageOpen) { ' open' })>
+  <summary><h2>$(Encode $stageTitle)</h2><span class="state s-$($stageStateText -replace '[^\p{L}\p{Nd}]+', '-')">$(Encode $stageStateText)</span><span class="pct">$done/$total</span>
+    <span class="meta seg-counts">$stageCountsText</span><span class="meta seg-activity">$stageActivityHtml</span>$stageWorkersHtml</summary>
+  <div class="seg-body">
+  <div class="seg-toolbar"><button type="button" class="seg-btn" data-seg-action="expand" data-seg-scope="stage">Expandir todo</button> <button type="button" class="seg-btn" data-seg-action="collapse" data-seg-scope="stage">Compactar todo</button></div>
   <div class="bar"><div class="fill" style="width:$pct%"></div></div>
   <p class="meta">Autorizada: $(Encode $authorized) &middot; terminadas o integradas: $done de $total</p>
   <p class="meta">Integración: un parche entregado queda pendiente hasta que la ficha registre integrada; sin parche no implica integración pendiente. El commit y la fecha se muestran solo si constan en la ficha y su historial.</p>
   $(if (@($taskRecords | Where-Object { $_.WaitingFor.Count }).Count) { "<p class=""meta"">Bloqueada por dependencia: la ficha dice disponible, pero una dependencia todavía no libera a sus dependientes (regla 27, modo &laquo;$(Encode $releaseMode)&raquo;). Es lo mismo que comprueba tomar-tarea.ps1.</p>" })
   <p class="meta">Cierre: $(if ($closure.Status -eq 'complete') { 'verificado' } elseif ($closure.Status -eq 'active') { 'etapa activa' } else { 'no verificado — ' + (Encode $closure.Reason) })</p>
   $taskGroups
-</section>
+  </div>
+</details>
 "@
         if ($closure.Status -eq 'complete') {
             $stageHref = ([uri]$stageFile).AbsoluteUri
@@ -1091,7 +1120,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
 <section class="panel archive-stage" id="$stageAnchor">
   <div class="card-head"><h2>$(Encode $stageTitle)</h2><span class="state s-integrada">Verificada y publicada</span></div>
   <p class="meta">$closedLabel &middot; Commit de cierre <code>$(Encode $closure.Commit)</code>, contenido en <code>$(Encode $publicRef)</code> del repositorio público &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="$reportHref">Reporte de integración OK</a></p>
-  <details><summary>Ver tareas integradas ($total)</summary>$boardHtml</details>
+  $boardHtml
 </section>
 "@ })
             } else {
@@ -1100,7 +1129,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
 <section class="panel archive-stage" id="$stageAnchor">
   <div class="card-head"><h2>$(Encode $stageTitle)</h2><span class="state s-integrada">Cierre verificado localmente · publicación no confirmada</span></div>
   <p class="meta">$closedLabel &middot; Commit de cierre: <code>$(Encode $closure.Commit)</code> &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="$reportHref">Reporte de integración OK</a></p>
-  <details><summary>Ver tareas integradas ($total)</summary>$boardHtml</details>
+  $boardHtml
 </section>
 "@ })
             }
@@ -1500,6 +1529,16 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
 .board-phase:first-of-type { border-top:0; margin-top:0; padding-top:0; }
 .board-phase h3 { margin:0; font-size:16px; }
 .board-phase .card-head { gap:12px; flex-wrap:wrap; }
+summary { cursor:pointer; }
+.seg-stage > summary, .seg-phase > summary { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; list-style:none; }
+.seg-stage > summary::-webkit-details-marker, .seg-phase > summary::-webkit-details-marker { display:none; }
+.seg-stage > summary::before, .seg-phase > summary::before { content:'\25B8'; color:var(--accent); }
+.seg-stage[open] > summary::before, .seg-phase[open] > summary::before { content:'\25BE'; }
+.seg-stage > summary .seg-counts, .seg-stage > summary .seg-activity, .seg-stage > summary .seg-workers { flex-basis:100%; margin:0; }
+.seg-phase > summary h3 { display:inline; }
+.seg-body { margin-top:8px; }
+.seg-toolbar { margin:0 0 8px; }
+.seg-btn { font:inherit; font-size:13px; cursor:pointer; padding:3px 10px; border:1px solid var(--line); border-radius:6px; background:transparent; color:var(--accent); }
 .archive-stage { margin-bottom:14px; scroll-margin-top:12px; }
 .archive-stage h2 { margin:0; font-size:18px; }
 .archive-stage details { margin-top:8px; }
@@ -1567,7 +1606,7 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
     $integrationPanel
     $(if ($archiveLinks.Count) { "<section class=""panel todo""><h2>Etapas completadas</h2>$($archiveLinks -join "`n")</section>" })
   </div>
-  <div class="tab" id="tareas">$($boards -join "`n")</div>
+  <div class="tab" id="tareas"><div class="seg-toolbar"><button type="button" class="seg-btn" data-seg-action="expand" data-seg-scope="tab">Expandir todo</button> <button type="button" class="seg-btn" data-seg-action="collapse" data-seg-scope="tab">Compactar todo</button></div>$($boards -join "`n")</div>
   <div class="tab" id="agentes">$agentsView</div>
   <div class="tab" id="ideas">$ideasView</div>
   <div class="tab" id="cloud">
@@ -1586,6 +1625,7 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
     $cloudAssignmentPanel
   </div>
   <div class="tab" id="historico">
+    <div class="seg-toolbar"><button type="button" class="seg-btn" data-seg-action="expand" data-seg-scope="tab">Expandir todo</button> <button type="button" class="seg-btn" data-seg-action="collapse" data-seg-scope="tab">Compactar todo</button></div>
     <p class="meta">Archivo de visualización de solo lectura. Los cierres se derivan de ETAPA.md, fichas de tareas, commits Git y reportes. Una etapa es pública cuando su commit de cierre está en $(if ($publicRepo) { "<code>$(Encode $publicRef)</code> del repositorio público (según el último push o fetch)" } else { 'la rama pública, pero falta <code>repositorio-publico.txt</code> en el canal' }). No mueve ni modifica las fuentes.</p>
     <section class="panel todo"><h2>Verificadas y presentes en el repositorio público</h2>$($publicVerifiedBoards -join "`n")</section>
     <section class="panel todo"><h2>Cerradas e integradas localmente; publicación no confirmada</h2>$(if ($archiveBoards) { $archiveBoards } else { '<section class="panel">No hay cierres verificados localmente.</section>' })</section>
@@ -1675,6 +1715,20 @@ nav button.active { background:var(--accent); border-color:var(--accent); color:
     link.target = '_blank';
     link.rel = 'noopener';
   });
+  // SEG-T09: collapsible stages and phases; open/closed state is remembered per element in localStorage.
+  function segLoad(key) { try { return window.localStorage.getItem(key); } catch (e) { return null; } }
+  function segSave(key, open) { try { window.localStorage.setItem(key, open ? '1' : '0'); } catch (e) { /* storage unavailable: keep the initial state */ } }
+  document.querySelectorAll('details[data-seg-id]').forEach((d) => {
+    const saved = segLoad(d.dataset.segId);
+    if (saved === '1') d.open = true; else if (saved === '0') d.open = false;
+    d.addEventListener('toggle', () => segSave(d.dataset.segId, d.open));
+  });
+  document.querySelectorAll('button[data-seg-action]').forEach((b) => b.addEventListener('click', () => {
+    const open = b.dataset.segAction === 'expand';
+    const root = b.dataset.segScope === 'stage' ? b.closest('details.seg-stage') : b.closest('.tab');
+    const selector = b.dataset.segScope === 'stage' ? 'details.seg-phase' : 'details[data-seg-id]';
+    if (root) root.querySelectorAll(selector).forEach((d) => { d.open = open; });
+  }));
   show(location.hash.slice(1));
   setTimeout(() => location.reload(), 30000);
 </script>
