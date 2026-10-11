@@ -212,6 +212,62 @@ function Get-TaskEventDate([string]$history, [string]$action) {
     }
     $date
 }
+# SEG-T04: dates are local time; a date-only value counts as 00:00. Anything unparseable gives $null.
+function ConvertTo-ActivityDate([string]$date, [string]$hour = '', [string]$minute = '') {
+    try {
+        $value = [datetime]::ParseExact($date, 'yyyy-MM-dd', [cultureinfo]::InvariantCulture)
+        if ($hour -ne '' -and $minute -ne '') {
+            if ([int]$hour -gt 23 -or [int]$minute -gt 59) { return $null }
+            $value = $value.AddHours([int]$hour).AddMinutes([int]$minute)
+        }
+        return $value
+    } catch { return $null }
+}
+# Rows of a "## Historial" table: | AAAA-MM-DD [HH:mm] | agente | acción | detalle |
+function Get-HistoryRows([string]$history) {
+    foreach ($line in ($history -split "`r?`n")) {
+        if ($line -notmatch '^\|\s*(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}):(\d{2}))?\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*(.*?)\s*\|?\s*$') { continue }
+        $when = ConvertTo-ActivityDate $Matches[1] $Matches[2] $Matches[3]
+        if (-not $when) { continue }
+        [pscustomobject]@{ Date = $when; Agent = $Matches[4]; Action = $Matches[5]; Detail = $Matches[6] }
+    }
+}
+# Lines of the "## Historial de decisiones" section of ETAPA.md: - AAAA-MM-DD [HH:mm] · Agente · texto
+function Get-StageHistoryEntries([string]$stageText) {
+    foreach ($line in ((Get-TaskSection $stageText 'Historial de decisiones') -split "`r?`n")) {
+        if ($line -notmatch '^\s*[-*]\s*(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}):(\d{2}))?\s*·\s*([^·]*?)\s*·\s*(.+?)\s*$') { continue }
+        $when = ConvertTo-ActivityDate $Matches[1] $Matches[2] $Matches[3]
+        if (-not $when) { continue }
+        [pscustomobject]@{ Date = $when; Agent = $Matches[4]; Text = $Matches[5] }
+    }
+}
+function Format-ActivityDate($date) { ([datetime]$date).ToString('yyyy-MM-dd HH:mm', [cultureinfo]::InvariantCulture) }
+function Format-TimeAgo($date) {
+    $span = (Get-Date) - ([datetime]$date)
+    if ($span.TotalMinutes -lt 0) { return 'hace 0 minutos' }
+    if ($span.TotalMinutes -lt 60) { $n = [int][math]::Floor($span.TotalMinutes); return "hace $n $(if ($n -eq 1) { 'minuto' } else { 'minutos' })" }
+    if ($span.TotalHours -lt 24) { $n = [int][math]::Floor($span.TotalHours); return "hace $n $(if ($n -eq 1) { 'hora' } else { 'horas' })" }
+    $n = [int][math]::Floor($span.TotalDays)
+    "hace $n $(if ($n -eq 1) { 'día' } else { 'días' })"
+}
+function Get-ClosureLabelHtml($date, [bool]$fromCard) {
+    if (-not $date) { return '<span class="meta">fecha de cierre desconocida</span>' }
+    $source = if ($fromCard) { ' &middot; según la ficha' } else { '' }
+    "Cerrada el $(Encode (Format-ActivityDate $date)) ($(Encode (Format-TimeAgo $date)))$source"
+}
+# Committer date (local time) of a commit of the repository, or $null.
+function Get-CommitDate([string]$commit) {
+    if ($commit -notmatch '^(?i)[0-9a-f]{7,40}$') { return $null }
+    $raw = git -C $repoRoot log -1 --format=%cI $commit 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $raw) { return $null }
+    $parsed = [datetimeoffset]::MinValue
+    if ([datetimeoffset]::TryParse(([string]$raw).Trim(), [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$parsed)) { return $parsed.LocalDateTime }
+    $null
+}
+# Entries with a Date property, newest first; entries without a date go last (stable order).
+function Sort-NewestFirst([object[]]$entries) {
+    @($entries | Sort-Object @{ Expression = { if ($_.Date) { $_.Date } else { [datetime]::MinValue } }; Descending = $true })
+}
 function Test-TaskPatchRequired([string]$patch) {
     $value = $patch.Trim()
     if (-not $value) { return $false }
@@ -585,13 +641,13 @@ $publicVerifiedEvidence = [ordered]@{
     G2 = [pscustomobject]@{ Goal = 'Revisión humana a mitad del workflow'; Commit = '27b3e1e'; Report = '2026-09-26_2020_integracion.md' }
     G3 = [pscustomobject]@{ Goal = 'Un caso fuera de marketing (bundles)'; Commit = '2682b3e'; Report = '2026-09-26_2031_integracion.md' }
 }
-$activeCards = [System.Collections.Generic.List[string]]::new()
+$activeCards = [System.Collections.Generic.List[object]]::new()
 
 $boards = ''
-$archiveBoards = ''
-$publicVerifiedBoards = [System.Collections.Generic.List[string]]::new()
-$uncertainBoards = ''
-$archiveLinks = [System.Collections.Generic.List[string]]::new()
+$archiveBoardEntries = [System.Collections.Generic.List[object]]::new()
+$publicEntries = [System.Collections.Generic.List[object]]::new()
+$uncertainEntries = [System.Collections.Generic.List[object]]::new()
+$archiveLinkEntries = [System.Collections.Generic.List[object]]::new()
 $stageIndex = @{}
 $boardReadFailed = $false
 if (Test-Path -LiteralPath $tasksDir -PathType Container) {
@@ -646,7 +702,9 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $state = (Get-Field $text 'Estado').Trim().ToLowerInvariant()
             $taskId = if ($file.BaseName -match '^(T\d+)') { $Matches[1].ToUpperInvariant() } else { $file.BaseName.ToUpperInvariant() }
             $history = Get-TaskSection $text 'Historial'
+            $lastRow = @(Get-HistoryRows $history | Sort-Object Date) | Select-Object -Last 1
             $record = [pscustomobject]@{
+                LastRow = $lastRow
                 Id = "$($stage.Name)-$taskId"
                 Code = $taskId
                 Title = $name
@@ -750,12 +808,15 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $stateCell = if ($record.WaitingFor.Count) {
                 "<span class=""state s-bloqueada"">Bloqueada por dependencia</span><div class=""meta"">Espera: $(Encode ($record.WaitingFor -join '; '))</div><div class=""meta"">Estado en la ficha: $(Encode $record.State)</div>"
             } else { "<span class=""state $stateClass"">$(Encode $record.State)</span>" }
-            $rowHtml = "<tr><td><a href=""$($record.Href)"">$(Encode $record.Title)</a>$($record.LeftHtml)</td>" +
+            $lastActivityHtml = if ($record.LastRow) { "<div class=""meta"">Última actividad $(Encode (Format-ActivityDate $record.LastRow.Date))</div>" } else { '<div class="meta">Sin historial fechado</div>' }
+            $rowHtml = "<tr><td><a href=""$($record.Href)"">$(Encode $record.Title)</a>$lastActivityHtml$($record.LeftHtml)</td>" +
             "<td>$stateCell</td>" +
             "<td>$(Inline $record.Agent)</td><td>$(Inline $record.Preferred)</td>" +
             "<td>$dependencyHtml</td><td>$integrationHtml</td><td>$(Inline $record.Patch)</td><td>$(Encode $record.Workers)</td><td>$(Get-TokensHtml $record.Tokens)</td></tr>"
-            $taskRows.Add([pscustomobject]@{ Id = $record.Code; State = $record.State; Patch = $record.Patch; Html = $rowHtml })
+            $taskRows.Add([pscustomobject]@{ Id = $record.Code; State = $record.State; Patch = $record.Patch; Html = $rowHtml; Date = if ($record.LastRow) { $record.LastRow.Date } else { $null } })
         }
+        # SEG-T04: tasks inside a stage, newest own activity first (task code as tie-breaker).
+        $taskRows = @($taskRows | Sort-Object @{ Expression = { if ($_.Date) { $_.Date } else { [datetime]::MinValue } }; Descending = $true }, @{ Expression = 'Id'; Descending = $false })
         $closure = if ($stageReadFailed) {
             [pscustomobject]@{ Status = 'unknown'; Reason = 'La ficha de etapa falta o no se pudo leer.'; Commit = ''; Report = ''; Stage = $stage.Name }
         } else {
@@ -764,6 +825,28 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         $claimsClosed = -not $stageReadFailed -and (Get-Field $stageText 'Estado').Trim().ToLowerInvariant() -in @('cerrada', 'cerrado', 'closed', 'complete', 'completed')
         $closure | Add-Member -NotePropertyName ClaimsClosed -NotePropertyValue $claimsClosed
         $stageIndex[$stage.Name.ToLowerInvariant()] = $closure
+        # SEG-T04: last activity of the stage and closure date.
+        $stageHistoryEntries = @(Get-StageHistoryEntries $stageText)
+        $lastActivity = $null
+        foreach ($record in $taskRecords) {
+            if ($record.LastRow -and (-not $lastActivity -or $record.LastRow.Date -gt $lastActivity.Date)) {
+                $lastActivity = [pscustomobject]@{ Date = $record.LastRow.Date; Text = "$($record.Id) $(Safe-Snippet $record.LastRow.Action) ($(Safe-Snippet $record.LastRow.Agent))" }
+            }
+        }
+        foreach ($entry in $stageHistoryEntries) {
+            if (-not $lastActivity -or $entry.Date -gt $lastActivity.Date) {
+                $brief = Safe-Snippet $entry.Text
+                if ($brief.Length -gt 80) { $brief = $brief.Substring(0, 77) + '...' }
+                $lastActivity = [pscustomobject]@{ Date = $entry.Date; Text = "$brief ($(Safe-Snippet $entry.Agent))" }
+            }
+        }
+        $cardCloseDate = @($stageHistoryEntries | Where-Object { $_.Text -match '(?i)cerrada' } | Sort-Object Date | Select-Object -Last 1 | ForEach-Object Date) | Select-Object -Last 1
+        $closeDate = $null
+        $closeFromCard = $false
+        if ($closure.Status -eq 'complete') { $closeDate = Get-CommitDate $closure.Commit }
+        if (-not $closeDate -and $cardCloseDate) { $closeDate = $cardCloseDate; $closeFromCard = $true }
+        $closedLabel = Get-ClosureLabelHtml $closeDate $closeFromCard
+        $lastActivityLine = if ($lastActivity) { "<div class=""meta"">Última actividad: $(Encode (Format-ActivityDate $lastActivity.Date)) · $(Encode $lastActivity.Text)</div>" } else { '<div class="meta">Última actividad: sin registro</div>' }
         $pct = if ($total) { [int](100 * $done / $total) } else { 0 }
         # Summary card for every stage that is not verified as closed, built from its task cards.
         if ($closure.Status -ne 'complete') {
@@ -774,15 +857,16 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $blocked = @($taskRecords | Where-Object { $_.State -in 'pendiente', 'requiere cambios', 'reabierta' -and -not $_.WaitingFor.Count }).Count
             $available = @($taskRecords | Where-Object { $_.State -in 'disponible', 'liberada' -and -not $_.WaitingFor.Count }).Count
             $workingText = if ($working) { "En curso: $(Encode ($working -join ', '))" } else { 'Nadie trabajando ahora' }
-            $activeCards.Add(@"
+            $activeCards.Add([pscustomobject]@{ Date = if ($lastActivity) { $lastActivity.Date } else { $null }; Html = @"
 <div class="card">
   <div class="card-head"><span class="gate">$(Encode $stage.Name)</span><span class="pct">$pct%</span></div>
   <div class="bar"><div class="fill" style="width:$pct%"></div></div>
   <div class="meta">$done de $total terminadas o integradas &middot; $integrated integradas &middot; $available disponibles$(if ($waitingOnDependency) { " &middot; $waitingOnDependency bloqueadas por dependencia" })$(if ($blocked) { " &middot; $blocked en espera o con cambios" })</div>
   <div class="goal">$(Encode ($stageTitle -replace '^\S+\s*·\s*', ''))</div>
   <div class="meta">$workingText</div>
+  $lastActivityLine
 </div>
-"@)
+"@ })
         }
         $tableHeader ='<table><tr><th>Tarea</th><th>Estado</th><th>Agente</th><th>Preferente</th><th>Dependencias y estado</th><th>Integración</th><th>Parche</th><th>Trabajaron</th><th>Tokens</th></tr>'
         $phaseDefinitions = @(Get-StagePhases $stageText)
@@ -848,31 +932,31 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $reportHref = ([uri](Join-Path $integrationDir $closure.Report)).AbsoluteUri
             $stageAnchor = "history-$($stage.Name.ToLowerInvariant())"
             if (Test-CommitPublished $closure.Commit) {
-                $archiveLinks.Add("<div class=""history-summary""><strong>$(Encode $stageTitle)</strong><span class=""state s-integrada"">Verificada · pública</span><div class=""meta"">Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#$stageAnchor"">Historial</a> &middot; <a href=""$stageHref"">Ficha de etapa</a></div></div>")
-                $publicVerifiedBoards.Add(@"
+                $archiveLinkEntries.Add([pscustomobject]@{ Date = $closeDate; Html = "<div class=""history-summary""><strong>$(Encode $stageTitle)</strong><span class=""state s-integrada"">Verificada · pública</span><div class=""meta"">$closedLabel &middot; Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#$stageAnchor"">Historial</a> &middot; <a href=""$stageHref"">Ficha de etapa</a></div></div>" })
+                $publicEntries.Add([pscustomobject]@{ Date = $closeDate; Html = @"
 <section class="panel archive-stage" id="$stageAnchor">
   <div class="card-head"><h2>$(Encode $stageTitle)</h2><span class="state s-integrada">Verificada y publicada</span></div>
-  <p class="meta">Commit de cierre <code>$(Encode $closure.Commit)</code>, contenido en <code>$(Encode $publicRef)</code> del repositorio público &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="$reportHref">Reporte de integración OK</a></p>
+  <p class="meta">$closedLabel &middot; Commit de cierre <code>$(Encode $closure.Commit)</code>, contenido en <code>$(Encode $publicRef)</code> del repositorio público &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="$reportHref">Reporte de integración OK</a></p>
   <details><summary>Ver tareas integradas ($total)</summary>$boardHtml</details>
 </section>
-"@)
+"@ })
             } else {
-                $archiveLinks.Add("<div class=""history-summary""><strong>$(Encode $stageTitle)</strong><span class=""state s-integrada"">Cerrada · local</span><div class=""meta"">Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#$stageAnchor"">Historial</a> &middot; <a href=""$stageHref"">Ficha de etapa</a></div></div>")
-                $archiveBoards += @"
+                $archiveLinkEntries.Add([pscustomobject]@{ Date = $closeDate; Html = "<div class=""history-summary""><strong>$(Encode $stageTitle)</strong><span class=""state s-integrada"">Cerrada · local</span><div class=""meta"">$closedLabel &middot; Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#$stageAnchor"">Historial</a> &middot; <a href=""$stageHref"">Ficha de etapa</a></div></div>" })
+                $archiveBoardEntries.Add([pscustomobject]@{ Date = $closeDate; Html = @"
 <section class="panel archive-stage" id="$stageAnchor">
   <div class="card-head"><h2>$(Encode $stageTitle)</h2><span class="state s-integrada">Cierre verificado localmente · publicación no confirmada</span></div>
-  <p class="meta">Commit de cierre: <code>$(Encode $closure.Commit)</code> &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="$reportHref">Reporte de integración OK</a></p>
+  <p class="meta">$closedLabel &middot; Commit de cierre: <code>$(Encode $closure.Commit)</code> &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="$reportHref">Reporte de integración OK</a></p>
   <details><summary>Ver tareas integradas ($total)</summary>$boardHtml</details>
 </section>
-"@
+"@ })
             }
         } elseif ($closure.Status -eq 'unknown') {
             if ($closure.ClaimsClosed) {
                 $stageHref = ([uri]$stageFile).AbsoluteUri
                 $reason = Encode $closure.Reason
-                $uncertainBoards += @"
-<div class="history-summary"><strong>$(Encode $stageTitle)</strong><span class="state s-unknown">Cierre no verificado</span><div class="meta">$reason &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="#tareas">Ver tareas activas</a></div></div>
-"@
+                $uncertainEntries.Add([pscustomobject]@{ Date = $closeDate; Html = @"
+<div class="history-summary"><strong>$(Encode $stageTitle)</strong><span class="state s-unknown">Cierre no verificado</span><div class="meta">$closedLabel &middot; $reason &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="#tareas">Ver tareas activas</a></div></div>
+"@ })
             }
             $boards += $boardHtml
         } else {
@@ -885,12 +969,15 @@ if (-not $boards) {
         elseif (Test-Path -LiteralPath $tasksDir) { '<section class="panel">Sin etapas activas en el tablero.</section>' }
         else { '<section class="panel">El tablero de tareas no está disponible.</section>' }
 }
+# SEG-T04: closed stages, newest closure first; stages without a date go last.
+$archiveBoards = (Sort-NewestFirst $archiveBoardEntries | ForEach-Object Html) -join ''
+$uncertainBoards = (Sort-NewestFirst $uncertainEntries | ForEach-Object Html) -join ''
 if (-not $archiveBoards) { $archiveBoards = '<section class="panel">No hay cierres verificados localmente.</section>' }
-if (-not $publicVerifiedBoards.Count) { $publicVerifiedBoards.Add('<section class="panel">No hay otras etapas con publicación pública confirmada.</section>') }
+if (-not $publicEntries.Count) { $publicEntries.Add([pscustomobject]@{ Date = $null; Html = '<section class="panel">No hay otras etapas con publicación pública confirmada.</section>' }) }
 if (-not $uncertainBoards) { $uncertainBoards = '<section class="panel">No hay cierres pendientes de verificación.</section>' }
 
 # Resumen: one live card per stage that is not verified as closed (built with the board above).
-$cards = $activeCards
+$cards = @(Sort-NewestFirst $activeCards | ForEach-Object Html)
 $reportedClosedNotVerified = [System.Collections.Generic.List[string]]::new()
 foreach ($gate in $publicVerifiedEvidence.Keys) {
     $evidence = $publicVerifiedEvidence[$gate]
@@ -901,14 +988,18 @@ foreach ($gate in $publicVerifiedEvidence.Keys) {
         "Reporte registrado: $(Encode $evidence.Report) (no disponible localmente)"
     }
     $stageTitle = "$(Encode $gate) · $(Encode $evidence.Goal)"
-    $publicVerifiedBoards.Add(@"
+    $legacyDate = Get-CommitDate $evidence.Commit
+    $legacyLabel = Get-ClosureLabelHtml $legacyDate $false
+    $publicEntries.Add([pscustomobject]@{ Date = $legacyDate; Html = @"
 <section class="panel archive-stage">
   <div class="card-head"><h2>$stageTitle</h2><span class="state s-integrada">Verificada y publicada</span></div>
-  <p class="meta">Verificación y presencia en el repositorio público confirmadas por el usuario. Commit <code>$(Encode $evidence.Commit)</code> &middot; $report</p>
+  <p class="meta">$legacyLabel &middot; Verificación y presencia en el repositorio público confirmadas por el usuario. Commit <code>$(Encode $evidence.Commit)</code> &middot; $report</p>
 </section>
-"@)
-    $archiveLinks.Add("<div class=""history-summary""><strong>$stageTitle</strong><span class=""state s-integrada"">Verificada · pública</span><div class=""meta"">Commit <code>$(Encode $evidence.Commit)</code> &middot; <a href=""#historico"">Historial</a></div></div>")
+"@ })
+    $archiveLinkEntries.Add([pscustomobject]@{ Date = $legacyDate; Html = "<div class=""history-summary""><strong>$stageTitle</strong><span class=""state s-integrada"">Verificada · pública</span><div class=""meta"">$legacyLabel &middot; Commit <code>$(Encode $evidence.Commit)</code> &middot; <a href=""#historico"">Historial</a></div></div>" })
 }
+$publicVerifiedBoards = @(Sort-NewestFirst $publicEntries | ForEach-Object Html)
+$archiveLinks = @(Sort-NewestFirst $archiveLinkEntries | ForEach-Object Html)
 
 # Resumen: integration state from the channel and the repository, never from a hand-kept file.
 $pendingPatches = @(Get-ChildItem -LiteralPath $pendingPatchesDir -Filter '*.patch' -File -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object Name)
