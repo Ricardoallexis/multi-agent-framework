@@ -7,7 +7,9 @@ operator view, not a public API or a separate orchestration layer.
 
 ## Start
 
-From an installed project environment, run either command:
+From an installed project environment, run either command, or use
+`GUI.cmd` from the private channel folder
+`C:\Users\ricar\Desktop\multi-agent-framework-pair\.local\canal-pareja`:
 
 ```console
 multiagent gui [--port N] [--real] [--no-browser] [--bundle NAME=FOLDER]...
@@ -24,8 +26,8 @@ without opening it. The default port is `APP_PORT` (8000).
 
 ## Register bundles
 
-Without options the GUI offers only the built-in origin and its two social-post
-workflows. A *definition bundle* is a folder with its own workflows, agents,
+The **Origen** selector offers the included workflows and registered bundles.
+A *definition bundle* is a folder with its own workflows, agents,
 prompts and output contracts (see the [bundle contract](API.md)); registering one
 adds it to the **Origen del workflow** selector of **Ejecuciones**, with its own workflows.
 
@@ -115,12 +117,24 @@ framework-run sessions. Details are rendered according to item kind and
 include subagents; keyboard navigation and live follow over server-sent events
 (SSE) are supported.
 
-**Ejecuciones** creates a framework run using named required inputs derived from
-placeholders in the selected workflow's prompt. Workflows do not yet declare
-input schemas. The GUI previews the rendered prompt before creating the run.
+**Ejecuciones** creates a framework run using the selected workflow's inputs.
+Workflows may declare inputs with a name, label, description, example,
+required flag and type (`text`, `long_text` or `choice`); the form shows the
+description and example, and uses a selector for choices. Workflows without
+declared inputs continue to derive them from prompt placeholders. The GUI
+previews the rendered prompt before creating the run.
 Run details show skipped steps, counters, and human-action history. Available
 human actions include approve, request changes, reject, regenerate, cancel,
 and submit a human-produced result.
+
+Contextual help is available throughout the GUI: controls have a short hint
+and a «?» disclosure with a concise explanation. The disclosures are
+accessible by keyboard and can be closed with Esc.
+
+Stop either GUI server with Ctrl+C. `multiagent gui` prints «GUI detenida.»;
+the Stage 0 `multiagent ui` command prints «UI detenida.» after clean shutdown.
+On Windows, a batch launcher may additionally prompt `Terminate batch job
+(Y/N)?`; answer `Y`.
 
 ## Open a session in its application
 
