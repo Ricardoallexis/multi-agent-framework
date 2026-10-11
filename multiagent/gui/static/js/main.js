@@ -5,7 +5,9 @@ import { html, render, useState, useEffect } from "../vendor/htm-preact-standalo
 import { loadToken, clearToken, getJSON } from "./auth.js";
 import { startStream } from "./stream.js";
 import { publishEvent } from "./bus.js";
+import { navigate, useRoute } from "./route.js";
 import { Runs } from "./runs.js";
+import { Sessions } from "./sessions.js";
 
 const STATUS_TEXT = {
   connected: "Conectado",
@@ -14,8 +16,9 @@ const STATUS_TEXT = {
   unauthorized: "Token no válido",
 };
 
+// "Sesiones" is the main screen and the default one.
 const SECTIONS = [
-  { id: "sessions", label: "Sesiones", text: "Aquí se verán las sesiones de Claude, Codex y Copilot." },
+  { id: "sessions", label: "Sesiones" },
   { id: "runs", label: "Ejecuciones" },
 ];
 
@@ -28,7 +31,7 @@ function NoToken() {
 }
 
 function App({ token }) {
-  const [section, setSection] = useState("sessions");
+  const route = useRoute();
   const [status, setStatus] = useState("reconnecting");
   const [mock, setMock] = useState(false);
   const [lastEvent, setLastEvent] = useState(null);
@@ -42,6 +45,7 @@ function App({ token }) {
     });
   }, [token]);
 
+  const section = route.section;
   const current = SECTIONS.find((s) => s.id === section);
   return html`<div class="shell">
     <header class="topbar">
@@ -50,14 +54,13 @@ function App({ token }) {
       <span class=${"badge " + status} role="status" aria-live="polite">${STATUS_TEXT[status]}</span>
     </header>
     <nav class="nav" aria-label="Secciones">
-      ${SECTIONS.map((s) => html`<button key=${s.id} aria-current=${s.id === section ? "page" : null}
-        onClick=${() => setSection(s.id)}>${s.label}</button>`)}
+      ${SECTIONS.map((s) => html`<button key=${s.id} type="button" aria-current=${s.id === section ? "page" : null}
+        onClick=${() => navigate(s.id)}>${s.label}</button>`)}
     </nav>
     <main class="content">
       <h2>${current.label}</h2>
-      ${section === "runs"
-        ? html`<${Runs} token=${token} status=${status} mock=${mock} />`
-        : html`<p class="muted">${current.text} (pendiente de implementar)</p>`}
+      <${Sessions} token=${token} route=${route} active=${section === "sessions"} />
+      ${section === "runs" && html`<${Runs} token=${token} status=${status} mock=${mock} initialRunId=${route.id} />`}
       ${lastEvent && html`<p class="muted small">Último evento recibido: ${lastEvent}</p>`}
     </main>
   </div>`;

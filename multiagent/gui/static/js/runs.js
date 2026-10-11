@@ -50,11 +50,14 @@ function RunList({ token, status, selected, version, onSelect }) {
   </ul>`;
 }
 
-export function Runs({ token, status, mock }) {
-  const [selected, setSelected] = useState(null);
+export function Runs({ token, status, mock, initialRunId = null }) {
+  const [selected, setSelected] = useState(initialRunId);
   const [creating, setCreating] = useState(false);
   const [version, setVersion] = useState(0);
   const bump = () => setVersion((value) => value + 1);
+
+  // A link from the sessions screen ("#runs/<id>") opens that run.
+  useEffect(() => { if (initialRunId) { setSelected(initialRunId); setCreating(false); } }, [initialRunId]);
 
   let main;
   if (creating) {
