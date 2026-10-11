@@ -96,10 +96,17 @@ class RoutingRequest:
     # and ``reason`` say what is being escalated. The selector still applies every other rule of the
     # profile and refuses a profile that does not allow escalation or a level above its ceiling.
     escalation: Mapping[str, Any] | None = None
+    # Candidates the caller cannot use (ECO-T08): catalog model id -> reason code. A listed model stays in the
+    # decision's ``candidates`` as ineligible with that reason added to its own, so an executor that takes only some
+    # models (or refuses others) gets the cheapest one it can receive, with the usual evidence. Unlisted models are
+    # judged by the profile alone; None changes nothing.
+    excluded_models: Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
         for name in ("required_capabilities", "required_permissions", "effective_permissions", "authorized_data_classes"):
             object.__setattr__(self, name, _strings(getattr(self, name)))
+        if self.excluded_models is not None:
+            object.__setattr__(self, "excluded_models", {str(key): str(value) for key, value in dict(self.excluded_models).items()})
         if self.step_kind not in STEP_KINDS:
             raise ValueError(f"step_kind must be one of {', '.join(STEP_KINDS)}; got {self.step_kind!r}")
         if self.effort is not None and self.effort not in EFFORT_LEVELS:
@@ -118,6 +125,8 @@ class RoutingRequest:
             result[name] = sorted(value) if value is not None else None
         if result["escalation"] is not None:
             result["escalation"] = dict(result["escalation"])
+        if result["excluded_models"] is not None:
+            result["excluded_models"] = dict(result["excluded_models"])
         return result
 
 

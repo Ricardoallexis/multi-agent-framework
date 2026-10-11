@@ -140,8 +140,13 @@ def _grant_values(grants: Any) -> tuple[frozenset[str] | None, frozenset[str] | 
 
 def select_assignment(request: AssignmentRequest, *, profile: Mapping[str, Any] | None,
                       descriptors: Mapping[str, ExecutorDescriptor], routing_decision: Any,
-                      grants: Any) -> AssignmentDecision:
-    """Select a descriptor only when every required constraint is known and satisfied."""
+                      grants: Any, routing_by_executor: Mapping[str, Any] | None = None) -> AssignmentDecision:
+    """Select a descriptor only when every required constraint is known and satisfied.
+
+    ``routing_by_executor`` (ECO-T08) maps an executor id to the model routing decision made for that executor alone
+    (candidates it cannot receive left out); an executor without an entry is judged by ``routing_decision``. The
+    decision returned carries the routing decision of the executor it selected.
+    """
     profile_id = request.profile_id
     config_hash = _hash(profile or {})
     empty = dict(request=request, profile_id=profile_id,
@@ -178,6 +183,7 @@ def select_assignment(request: AssignmentRequest, *, profile: Mapping[str, Any] 
     data_classes = _strings(profile.get("allowed_data_classes"))
     allowed_modes = _strings(profile.get("execution_modes"))
     candidates: list[ExecutorDescriptor] = []
+    routes: dict[str, Any] = {}
     reasons: list[str] = []
     hashes: dict[str, str] = {}
     for executor_id in ids:
@@ -258,14 +264,21 @@ def select_assignment(request: AssignmentRequest, *, profile: Mapping[str, Any] 
         if request.permission_scope is not None and not required.issubset(request.permission_scope):
             reasons.append("permission_scope_restricts_executor")
             continue
-        routed_model = getattr(routing_decision, "selected_model", None) if routing_decision else None
+        route = routing_decision
+        if routing_by_executor is not None and descriptor.executor_id in routing_by_executor:
+            route = routing_by_executor[descriptor.executor_id]
+        routed_model = getattr(route, "selected_model", None) if route else None
         target_model = routed_model or request.requested_model
         if target_model:
             evidence = descriptor.model_support
             if evidence.status is not SupportState.SUPPORTED:
                 reasons.append("model_selection_unsupported_or_unknown")
                 continue
-            if evidence.values is None or target_model not in evidence.values:
+            # The executor may list the catalog id or the provider's model name (what the app is given).
+            names = {target_model}
+            if routed_model and getattr(route, "planned_model", None):
+                names.add(str(route.planned_model))
+            if evidence.values is None or not names & evidence.values:
                 reasons.append("planned_model_not_supported" if routed_model else "requested_model_not_supported")
                 continue
         if request.requested_effort:
@@ -282,10 +295,11 @@ def select_assignment(request: AssignmentRequest, *, profile: Mapping[str, Any] 
                     or request.required_context_isolation not in evidence.values):
                 reasons.append("context_isolation_unsupported_or_unknown")
                 continue
-        if routing_decision is not None and getattr(routing_decision, "status", None) in {"blocked", "manual"}:
+        if route is not None and getattr(route, "status", None) in {"blocked", "manual"}:
             reasons.append("model_routing_not_selectable")
             continue
         candidates.append(descriptor)
+        routes[descriptor.executor_id] = route
     common = dict(
         request=request, profile_id=profile_id, profile_version=profile_version,
         requested_model=request.requested_model,
@@ -309,6 +323,10 @@ def select_assignment(request: AssignmentRequest, *, profile: Mapping[str, Any] 
     chosen_required.update(chosen.permissions_required or ())
     chosen_required.update(chosen.permissions_consumed or ())
     common["required_permissions"] = tuple(sorted(chosen_required))
+    if routing_by_executor is not None and chosen.executor_id in routing_by_executor:
+        chosen_route = routes[chosen.executor_id]
+        common["routing_decision"] = chosen_route
+        common["planned_model"] = getattr(chosen_route, "selected_model", None) if chosen_route else request.requested_model
     if chosen.permission_ceiling is not None:
         effective_ceiling = chosen.permission_ceiling if profile_ceiling is None else chosen.permission_ceiling & profile_ceiling
         common["permission_ceiling"] = tuple(sorted(effective_ceiling))

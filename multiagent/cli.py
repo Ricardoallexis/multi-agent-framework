@@ -227,7 +227,7 @@ def cmd_task_assignment_preview(args) -> None:
         ("requested_model", args.model), ("requested_effort", args.effort),
         ("required_context_isolation", args.context_isolation),
         ("additional_requirements", args.requirement), ("permission_scope", args.permission),
-        ("data_class", args.data_class),
+        ("data_class", args.data_class), ("step_kind", args.step_kind),
     ) if value is not None}
     pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/assignment/preview", json_body=body))
 
@@ -251,8 +251,8 @@ def cmd_executors(args) -> None:
     body.update({key: value for key, value in (("model", args.model), ("effort", args.effort), ("actor", args.actor),
                                                ("timeout_seconds", args.timeout)) if value is not None})
     if args.executors_command == "run":
-        body.update({key: value for key, value in (("executor_id", args.executor), ("profile_id", args.profile_id))
-                     if value is not None})
+        body.update({key: value for key, value in (("executor_id", args.executor), ("profile_id", args.profile_id),
+                                                    ("step_kind", args.step_kind)) if value is not None})
     # ``timeout=None``: the attempt can take minutes and the server answers when it ends.
     pretty(_api_json("POST", f"/api/v1/executors/{args.executors_command}", json_body=body, timeout=None))
 
@@ -864,7 +864,10 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("task_id"); x.add_argument("--profile-id"); x.add_argument("--executor")
     x.add_argument("--model"); x.add_argument("--effort"); x.add_argument("--context-isolation", choices=["fresh", "inherited", "unknown"])
     x.add_argument("--requirement", action="append"); x.add_argument("--permission", action="append")
-    x.add_argument("--data-class"); x.set_defaults(func=cmd_task_assignment_preview)
+    x.add_argument("--data-class")
+    x.add_argument("--step-kind", choices=["orchestration", "planning", "review", "work"],
+                   help="Kind of step the model routing profile selects for (default work)")
+    x.set_defaults(func=cmd_task_assignment_preview)
     x = assignment_sub.add_parser("accept")
     x.add_argument("task_id"); x.add_argument("preview_token"); x.add_argument("--acknowledge", action="store_true")
     x.set_defaults(func=cmd_task_assignment_accept)
@@ -979,6 +982,8 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--profile-id", help="Assignment profile whose preview selects the executor (needs a verified operator)")
     x.add_argument("--model"); x.add_argument("--effort"); x.add_argument("--actor", help="Default: executor:<executor id>")
     x.add_argument("--timeout", type=int, help="Seconds before the attempt is stopped")
+    x.add_argument("--step-kind", choices=["orchestration", "planning", "review", "work"],
+                   help="Kind of step the model routing profile selects for (default work)")
     x.set_defaults(func=cmd_executors)
     x = executors.add_parser("resume", help="Continue the session the framework created for the task")
     x.add_argument("task_id"); x.add_argument("--model"); x.add_argument("--effort")

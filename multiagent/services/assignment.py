@@ -11,9 +11,10 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from ..executors.registry import ExecutorRegistry
+from ..executors.selection import model_exclusions, select_for_executor
 from ..routing.assignment import AssignmentDecision, AssignmentRequest, select_assignment
 from ..routing.executor_capabilities import VerifiedOperatorContext, validate_executor_config
-from ..routing_policy import RoutingRequest
+from ..routing_policy import DEFAULT_STEP_KIND, STEP_KINDS, RoutingRequest
 from ..tasks.envelopes import envelope_sha256
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
 
@@ -22,7 +23,7 @@ __all__ = ["AssignmentServices"]
 _REQUEST_FIELDS = {
     "profile_id", "requested_executor", "requested_model", "requested_effort",
     "required_capabilities", "required_role", "required_roles", "required_permissions", "permission_scope",
-    "data_class", "required_context_isolation", "additional_requirements", "constraints",
+    "data_class", "required_context_isolation", "additional_requirements", "constraints", "step_kind",
 }
 _TOKEN_VERSION = 1
 
@@ -123,6 +124,10 @@ class AssignmentServices:
         for field in ("required_capabilities", "required_roles", "required_permissions", "permission_scope"):
             if field in result:
                 result[field] = _set(result[field])
+        step_kind = result.get("step_kind")
+        if step_kind is not None and step_kind not in STEP_KINDS:
+            raise _error(INVALID_REQUEST, f"step_kind must be one of {', '.join(STEP_KINDS)}", status=422,
+                         field="step_kind")
         result.setdefault("additional_requirements", ())
         for field in ("additional_requirements",):
             value = result[field]
@@ -205,12 +210,14 @@ class AssignmentServices:
                 "provenance": {"operator": "trusted_config", "alias": "verified_context" if self._verified_alias(context) else "unknown"}}
 
     def _routing_decision(self, request: AssignmentRequest, profile: Mapping[str, Any] | None,
-                          grants: Mapping[str, Any]):
+                          grants: Mapping[str, Any], step_kind: str = DEFAULT_STEP_KIND,
+                          excluded_models: Mapping[str, str] | None = None):
         model_profile_id = profile.get("model_routing_profile_id") if isinstance(profile, Mapping) else None
         if not model_profile_id:
             return None
         model_request = RoutingRequest(
             profile_id=str(model_profile_id), requested_model=request.requested_model,
+            step_kind=step_kind, excluded_models=excluded_models or None,
             required_capabilities=request.required_capabilities, required_role=request.required_role,
             required_permissions=request.required_permissions,
             effective_permissions=_set(grants.get("effective_permissions")),
@@ -219,6 +226,53 @@ class AssignmentServices:
             data_class=request.data_class,
         )
         return self._services.system.engine.router.select(model_request)
+
+    @staticmethod
+    def _profile_executor_ids(profile: Mapping[str, Any] | None, request: AssignmentRequest) -> list[str]:
+        ids = profile.get("executor_ids") if isinstance(profile, Mapping) else None
+        if not isinstance(ids, (list, tuple)):
+            return []
+        names = [str(item) for item in ids]
+        return [request.requested_executor] if request.requested_executor in names else names
+
+    def _routing_by_executor(self, request: AssignmentRequest, profile: Mapping[str, Any] | None,
+                             grants: Mapping[str, Any], step_kind: str, global_route: Any,
+                             descriptors: Mapping[str, Any]) -> dict[str, Any] | None:
+        """The model routing decision for each executor of the profile, with the models it cannot receive left out.
+
+        The router ranks and applies the profile as usual (level bounds, price evidence, privacy); the only change is
+        that the candidates this executor cannot take are ineligible with a reason, so each executor is offered the
+        best model it can receive (ECO-T08). None when the profile has no model routing profile.
+        """
+        if global_route is None:
+            return None
+        models = getattr(self._services.system.catalog, "models", {}) or {}
+        routes: dict[str, Any] = {}
+        for executor_id in self._profile_executor_ids(profile, request):
+            descriptor = descriptors.get(executor_id)
+            if descriptor is None:
+                continue
+            excluded = model_exclusions(models, descriptor, self._registry.resolve(executor_id))
+            routes[executor_id] = (self._routing_decision(request, profile, grants, step_kind, excluded)
+                                   if excluded else global_route)
+        return routes
+
+    def _executor_requests(self, request: AssignmentRequest, profile: Mapping[str, Any] | None,
+                           descriptors: Mapping[str, Any], routes: Mapping[str, Any] | None,
+                           selected: str | None) -> dict[str, Any]:
+        """Model and effort each executor of the profile would be asked to use, with where each value comes from."""
+        requests: dict[str, Any] = {}
+        for executor_id in self._profile_executor_ids(profile, request):
+            descriptor = descriptors.get(executor_id)
+            if descriptor is None:
+                continue
+            selection = select_for_executor(
+                executor_id, descriptor, (routes or {}).get(executor_id), requested_model=request.requested_model,
+                requested_effort=request.requested_effort, adapter=self._registry.resolve(executor_id))
+            entry = selection.to_dict()
+            entry.pop("executor_id")
+            requests[executor_id] = {**entry, "selected": executor_id == selected}
+        return requests
 
     def _build(self, task_id: str, external: Mapping[str, Any],
                context: VerifiedOperatorContext | None) -> tuple[AssignmentDecision, dict[str, Any], dict[str, Any]]:
@@ -302,9 +356,12 @@ class AssignmentServices:
         )
         grants = self._grants(context, profile, external)
         descriptors = self._registry.snapshot()
-        routing = self._routing_decision(request, profile, grants)
+        step_kind = external.get("step_kind") or DEFAULT_STEP_KIND
+        routing = self._routing_decision(request, profile, grants, step_kind)
+        routes = self._routing_by_executor(request, profile, grants, step_kind, routing, descriptors)
         decision = select_assignment(request, profile=profile if isinstance(profile, Mapping) else None,
-                                     descriptors=descriptors, routing_decision=routing, grants=grants)
+                                     descriptors=descriptors, routing_decision=routing, grants=grants,
+                                     routing_by_executor=routes)
         if not self._config_valid:
             decision = replace(decision, status="blocked",
                                reason_codes=tuple(dict.fromkeys((*decision.reason_codes, "executor_routing_config_invalid"))))
@@ -353,6 +410,12 @@ class AssignmentServices:
             if reason:
                 decision = replace(decision, status="blocked", selected_executor=None, planned_executor=None,
                                    reason_codes=tuple(dict.fromkeys((*decision.reason_codes, reason))))
+        executor_requests = self._executor_requests(request, profile if isinstance(profile, Mapping) else None,
+                                                    descriptors, routes, decision.selected_executor)
+        if executor_requests:
+            # What each executor would be asked to run with (ECO-T08): the same function the executor service uses.
+            decision = replace(decision, evidence={**dict(decision.evidence), "step_kind": step_kind,
+                                                   "executor_requests": executor_requests})
         snapshot = {
             "config_hash": _digest(config),
             "config_version": config.get("version"),

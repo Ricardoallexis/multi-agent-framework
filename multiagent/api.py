@@ -276,6 +276,7 @@ class AssignmentPreviewRequest(_Body):
     additional_requirements: list[str] = Field(default_factory=list)
     permission_scope: list[str] | None = None
     data_class: str | None = None
+    step_kind: str | None = None      # orchestration | planning | review | work (default): picks the routing level (ECO-T08)
 
 
 class AssignmentAcceptRequest(_Body):
@@ -291,6 +292,7 @@ class ExecutorRunRequest(_Body):
     profile_id: str | None = None
     actor: str | None = None
     timeout_seconds: int | None = None
+    step_kind: str | None = None
 
 
 class ExecutorResumeRequest(_Body):
@@ -692,7 +694,7 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
             operator_context = await operator_context
         return await anyio.to_thread.run_sync(lambda: services.executors.run_task(
             body.task_id, body.executor_id, body.model, body.effort, body.actor, profile_id=body.profile_id,
-            timeout_seconds=body.timeout_seconds, operator_context=operator_context))
+            timeout_seconds=body.timeout_seconds, operator_context=operator_context, step_kind=body.step_kind))
 
     @app.post("/api/v1/executors/resume")
     async def resume_executor_task(body: ExecutorResumeRequest):

@@ -365,6 +365,8 @@ class ModelRouter:
                         reasons.append("level_above_maximum")
                 if self._current_price(getattr(spec, "pricing", None), now=now) is None:
                     reasons.append("price_evidence_missing_or_expired")
+            if request.excluded_models and spec.id in request.excluded_models:
+                reasons.append(request.excluded_models[spec.id])
             candidate = RoutingCandidate(
                 model_id=spec.id, provider=spec.provider, planned_model=spec.model, tier=spec.tier,
                 level=level, classification=classification,

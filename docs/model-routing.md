@@ -121,6 +121,19 @@ With the bundled catalog nothing is T3, so orchestration, planning and review st
 
 To turn it off, remove the assignment (steps return to their static binding) or set `enabled: false` (a step still assigned to a disabled profile blocks). No migration is needed either way.
 
+## Model and effort for executors
+
+An executor application (Codex, Claude, Copilot; `multiagent executors run`) is launched with the model and effort of the routing profile, with the same evidence the model router records for a workflow step. This applies when the run names an assignment `profile_id` whose `model_routing_profile_id` points at a routing profile (the economic profile or any other) and the caller gives no `model` or `effort`.
+
+- **Step kind.** `step_kind` (`orchestration`, `planning`, `review`, `work`; default `work`) is given to the preview or the run and picks the profile's level bounds and its effort for that kind, exactly as a workflow step's `kind` does. ORQ tasks have no kind of their own.
+- **Per executor.** The router is asked once for each executor of the assignment profile, with the catalog models that executor cannot receive marked ineligible (`executor_model_not_declared` when the executor lists its models and this one is not among them, by the provider's model name or the catalog id; `executor_adapter_refuses_model:<code>` when its adapter refuses it, as Copilot does for every Claude model). Level bounds, price evidence, privacy and permissions are applied as always; the answer is the cheapest model *that executor* can receive. An executor left with no model is not selected (`model_routing_not_selectable`).
+- **Only what the executor declares is sent.** A model must be listed in the executor's `model_support` values and an effort in its `effort_support` values. Otherwise the value is dropped and the reason goes in `notes` (`effort_not_sent: low_not_in_executor_support`, `effort_not_sent: executor_effort_support_unknown`, `model_not_sent: ...`). Claude's effort support is unknown, so no effort is ever sent to Claude.
+- **The caller wins.** A `model` or `effort` given to the run (or `requested_model` / `requested_effort` to the preview) replaces the profile's value and is recorded as `source: user`. It is still checked against the executor's evidence and refused with `model_not_supported` / `effort_not_supported` if the executor declares it does not take it; it is never silently replaced.
+- **The preview shows it.** `decision.evidence.executor_requests` lists, for each executor of the profile, `model`, `model_source`, `effort`, `effort_source`, `notes`, the routing evidence (`profile_id`, `profile_mode`, `step_kind`, `level`, `selected_model`, `price_source`, `price_current`, `effort_source`) and the candidates skipped for that executor. The launch uses the same function, so the request carries what the preview showed. `decision.routing_decision` is the decision of the executor that was selected. Looking at a preview launches and claims nothing.
+- **Record.** Each attempt writes the team event `executor.routing_selected` (executor, attempt, mode `launch` or `resume`, model and effort with their sources, and the evidence above); `executor.session_recorded` and `executor.attempt_finished` carry `model_source` and `effort_source`. A resume continues the recorded session's model and effort (`source: session`) unless the caller names others. `GET /api/v1/executors/status?task=ID` lists them as `routings`.
+
+A plan is not proof: the executor application may use another model than requested, and the price is the catalog's estimate, not a bill.
+
 ## Bounded escalation
 
 A step whose cheaper model fails on the **quality of its output** can move up one model level, once. It applies only to an economic profile in `supervised` or `automatic` mode that declares `escalation` with `max_escalations_per_step: 1`; every other profile, `single` mode, a limit of 0 and a dry run behave as before.
@@ -274,7 +287,7 @@ Task assignment preview is also local API work and does not call a model or laun
 multiagent task assignment preview TASK_ID
 ~~~
 
-The CLI accepts --profile-id, --executor, --model, --effort, --context-isolation, --requirement, --permission, and --data-class. The HTTP preview endpoint is POST /api/v1/tasks/{task_id}/assignment/preview and accepts profile_id, requested_executor, requested_model, requested_effort, required_context_isolation, additional_requirements, permission_scope, and data_class. Request bodies are strict. Role, capability, and permission requirements for these public surfaces should come from trusted profile and requirement-map configuration; do not assume the in-process service’s broader request type is exposed by HTTP or CLI.
+The CLI accepts --profile-id, --executor, --model, --effort, --context-isolation, --requirement, --permission, --data-class, and --step-kind. The HTTP preview endpoint is POST /api/v1/tasks/{task_id}/assignment/preview and accepts profile_id, requested_executor, requested_model, requested_effort, required_context_isolation, additional_requirements, permission_scope, data_class, and step_kind. Request bodies are strict. Role, capability, and permission requirements for these public surfaces should come from trusted profile and requirement-map configuration; do not assume the in-process service’s broader request type is exposed by HTTP or CLI.
 
 An explicit accept is a separate operation. The CLI command is:
 

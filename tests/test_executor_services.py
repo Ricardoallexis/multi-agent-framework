@@ -220,8 +220,8 @@ def test_a_run_submits_the_parsed_result_through_submit_result_and_the_gate_deci
     stored = services.envelopes.get_result("T1")
     assert stored["agent"] == "executor:claude_cli" and stored["summary"] == "Did the work." and stored["attempt"] == 1
     assert event_types(services, "T1") == [
-        "task.created", "gate.updated", "task.claimed", "task.started", "executor.session_recorded",
-        "task.submitted", "result.submitted", "executor.attempt_finished"]
+        "task.created", "gate.updated", "task.claimed", "task.started", "executor.routing_selected",
+        "executor.session_recorded", "task.submitted", "result.submitted", "executor.attempt_finished"]
     session = next(e for e in services.tasks.events(task_id="T1") if e["type"] == "executor.session_recorded")
     assert session["ref"] == out["session_id"] and session["payload"]["executor_id"] == "claude_cli"
     assert session["payload"]["attempt"] == 1 and session["actor"] == "executor:claude_cli"
@@ -455,9 +455,11 @@ def test_a_profile_lets_the_assignment_preview_choose_and_the_hook_supplies_mode
     assert services.tasks.get_task("T1")["state"] == "open"
     calls = []
 
-    def hook(decision, model, effort):
+    original = services.executors._routing_selection
+
+    def hook(decision, model, effort, **kwargs):
         calls.append(decision["selected_executor"])
-        return "claude-eco", effort
+        return original(decision, "claude-eco", effort, **kwargs)
 
     services.executors._routing_selection = hook
     out = services.executors.run_task("T1", profile_id="auto", operator_context=verified())

@@ -28,17 +28,25 @@ itself. ``session_guard`` is the same check as a function, passed to the adapter
 
 ``open_target`` returns the adapter's open target for the recorded session (the one the GUI uses) and records the open.
 
-Model and effort come from the caller or, when a profile is given, from the assignment decision through
-``_routing_selection``: the single hook where ECO-T08 plugs in the economic profile.
+Model and effort (ECO-T08) come from the caller or, when a profile is given, from the model routing decision of the
+assignment profile's routing profile (economic or not) for the task's ``step_kind``, through ``_routing_selection``.
+The caller's values always win (source ``user``). A value from the profile is sent only when the executor declares it
+takes it: a model that is not in its ``model_support`` values, or an effort its ``effort_support`` does not list (Claude's
+effort is unknown, so it is never sent), is dropped and the reason goes in ``notes``. The router is asked per executor
+with the models it cannot receive excluded (Copilot refuses every Claude model), so each executor gets the best model it
+can take. The assignment preview shows the same selection for each executor (``decision.evidence.executor_requests``).
 
 Events (team event log, no migration): ``executor.session_recorded`` (``ref`` is the session id),
+``executor.routing_selected`` (``ref`` is the executor id: the model and effort of the attempt, where each came from,
+the routing profile, mode, step kind, level, price source, effort source and the candidates skipped for this executor),
 ``executor.attempt_finished`` (outcome, exit code, usage, trimmed evidence), ``executor.paused`` (``ref`` is the
 executor id) and ``session.opened_in_app`` (``ref`` is the session id).
 
 Errors (``ServiceError``): ``not_found`` (task, executor), ``invalid_request`` (malformed ids or limits, a request the
 adapter refuses) and ``invalid_state`` (``details.reason`` says why: ``executor_disabled``, ``executor_without_adapter``,
 ``executor_paused``, ``executor_unavailable``, ``task_not_runnable``, ``no_stored_session``, ``session_open_in_app``,
-``assignment_not_selected``, ``model_not_supported``, ``effort_not_supported``, ``workdir_invalid``).
+``assignment_not_selected``, ``model_not_supported``, ``effort_not_supported``, ``workdir_invalid``). ``model_not_supported``
+and ``effort_not_supported`` refuse a value the caller named; one that came from the profile is dropped instead.
 """
 from __future__ import annotations
 
@@ -55,7 +63,9 @@ from typing import TYPE_CHECKING, Any
 from ..errors import MultiAgentError
 from ..executors import process
 from ..executors.contract import ExecutorApplicationAdapter, ExecutorLaunchRequest, OpenTarget, Permission
+from ..executors.selection import ExecutorSelection, select_for_executor, select_for_resume
 from ..routing.executor_capabilities import CapabilityEvidence, SupportState
+from ..routing_policy import STEP_KINDS
 from ..sessions.models import is_uuid
 from ..tasks.envelopes import EnvelopeError
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
@@ -70,9 +80,10 @@ _logger = logging.getLogger(__name__)
 
 SESSION_EVENT = "executor.session_recorded"
 ATTEMPT_EVENT = "executor.attempt_finished"
+ROUTING_EVENT = "executor.routing_selected"
 PAUSE_EVENT = "executor.paused"
 OPEN_EVENT = "session.opened_in_app"
-EVENT_TYPES = (SESSION_EVENT, ATTEMPT_EVENT, PAUSE_EVENT, OPEN_EVENT)
+EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, PAUSE_EVENT, OPEN_EVENT)
 
 APP_OPEN_GUARD = timedelta(hours=12)      # a session opened in an app is not resumed for this long (ORQ-6 section 6)
 MAX_TIMEOUT_SECONDS = 86400
@@ -129,7 +140,7 @@ def _fit(payload: dict[str, Any]) -> dict[str, Any]:
 
     while size() > EVENT_PAYLOAD_BUDGET and len(str(payload.get("evidence", ""))) > 40:
         payload["evidence"] = str(payload["evidence"])[: len(str(payload["evidence"])) // 2]
-    for key in ("notes", "usage"):
+    for key in ("skipped", "notes", "usage"):
         if size() > EVENT_PAYLOAD_BUDGET:
             payload.pop(key, None)
     return payload
@@ -168,6 +179,7 @@ class _Plan:
     effort: str | None
     declaration: Mapping[str, Any]
     decision: Mapping[str, Any] | None = None
+    selection: ExecutorSelection | None = None
 
 
 @dataclass
@@ -316,25 +328,28 @@ class ExecutorServices:
         declaration = (registry.config.get("executors", {}) or {}).get(executor_id, {})
         return descriptor, adapter, declaration if isinstance(declaration, Mapping) else {}
 
-    def _routing_selection(self, decision: Mapping[str, Any] | None, model: str | None,
-                           effort: str | None) -> tuple[str | None, str | None]:
-        """Model and effort for the launch. The caller's win; otherwise the assignment decision's plan.
+    def _routing_selection(self, decision: Mapping[str, Any] | None, model: str | None, effort: str | None, *,
+                           executor_id: str, descriptor: Any, adapter: Any = None) -> ExecutorSelection:
+        """Model and effort for the launch (ECO-T08): the caller's, else the routing decision's, within the executor's evidence.
 
-        ECO-T08 hook: this is the one place where the economic profile's choice (same evidence as the routing
-        decision) replaces the planned model and effort. Today the plan is ``planned_model`` (the model routing
-        decision's selected model) and ``planned_effort`` (the effort the preview was asked for); without a
-        decision both stay as given, and the adapter's own defaults apply.
+        ``decision`` is the assignment decision (None when no profile was given: then only the caller's values apply).
+        Its ``routing_decision`` is the model routing decision made for the selected executor, so the economic profile's
+        choice (level, price evidence, mode) and the effort the profile sets for the step kind come with their
+        evidence. ``model`` and ``effort`` are the caller's: they win and are returned as given. Anything taken from
+        the profile that the executor does not declare it takes is dropped and said in the selection's ``notes``;
+        it is the same function the assignment preview uses (``decision.evidence.executor_requests``).
         """
-        if decision is None:
-            return model, effort
-        return model or decision.get("planned_model"), effort or decision.get("planned_effort")
+        route = decision.get("routing_decision") if decision else None
+        return select_for_executor(executor_id, descriptor, route, requested_model=model, requested_effort=effort,
+                                   adapter=adapter)
 
     def _plan(self, task_id: str, executor_id: str | None, model: str | None, effort: str | None,
-              profile_id: str | None, operator_context: Any) -> _Plan:
+              profile_id: str | None, operator_context: Any, step_kind: str | None = None) -> _Plan:
         decision: Mapping[str, Any] | None = None
         if profile_id is not None:
             request = {key: value for key, value in (("profile_id", profile_id), ("requested_executor", executor_id),
-                                                     ("requested_model", model), ("requested_effort", effort))
+                                                     ("requested_model", model), ("requested_effort", effort),
+                                                     ("step_kind", step_kind))
                        if value is not None}
             decision = self._services.assignment.preview(task_id, request, operator_context)["decision"]
             if decision.get("status") != "selected" or not decision.get("selected_executor"):
@@ -347,10 +362,14 @@ class ExecutorServices:
         if executor_id is None:
             raise _invalid("executor_id", "Give executor_id, or profile_id to let the assignment preview choose")
         descriptor, adapter, declaration = self._executor(executor_id)
-        model, effort = self._routing_selection(decision, model, effort)
+        # What the caller named is checked against the executor's evidence and refused if it does not take it;
+        # what the profile chose was already filtered by that evidence and is never an error.
         _check_support(descriptor.model_support, model, "model", executor_id)
         _check_support(descriptor.effort_support, effort, "effort", executor_id)
-        return _Plan(executor_id, descriptor, adapter, model, effort, declaration, decision)
+        selection = self._routing_selection(decision, model, effort, executor_id=executor_id, descriptor=descriptor,
+                                            adapter=adapter)
+        return _Plan(executor_id, descriptor, adapter, selection.model, selection.effort, declaration, decision,
+                     selection)
 
     def _workdir(self, task_id: str, plan: _Plan) -> Path:
         """The folder the app works in: configured for the task or the executor, else one the framework creates."""
@@ -377,17 +396,22 @@ class ExecutorServices:
     @service_errors
     def run_task(self, task_id: str, executor_id: str | None = None, model: str | None = None,
                  effort: str | None = None, actor: str | None = None, *, profile_id: str | None = None,
-                 timeout_seconds: int | None = None, operator_context: Any = None) -> dict[str, Any]:
+                 timeout_seconds: int | None = None, operator_context: Any = None,
+                 step_kind: str | None = None) -> dict[str, Any]:
         """Launch the task in an executor application in a new session; returns the outcome of the attempt.
 
         ``executor_id`` names the executor; without it ``profile_id`` makes the assignment preview choose (it needs a
         verified ``operator_context``). Only an enabled executor with an adapter runs, and not one paused by a quota
         stop. ``actor`` is the identity that claims, starts and submits (default ``executor:<executor_id>``); it is
         also the ``agent`` of the result. The task must be ``ready``, or claimed, paused or in ``needs_changes`` by
-        that actor. ``model`` and ``effort`` default to the assignment decision's plan (see ``_routing_selection``).
+        that actor. ``model`` and ``effort`` are the caller's and always win; without them the routing decision of the
+        assignment profile for ``step_kind`` (default ``work``) supplies them, within what the executor declares it
+        takes (see ``_routing_selection``).
 
         Returns ``{outcome, run_status, task_id, executor_id, attempt, actor, session_id, open_target, model, effort,
-        permission, usage, command, evidence, notes, executor_paused_until, result, gate, task}``. ``outcome`` is
+        selection, permission, usage, command, evidence, notes, executor_paused_until, result, gate, task}``.
+        ``selection`` says where ``model`` and ``effort`` came from (``user``, ``profile`` or none), what was not sent
+        and why, and the routing evidence (profile, mode, step kind, level, price source, effort source). ``outcome`` is
         ``submitted`` (the result is stored and the gate decides) or what stopped the attempt: ``failed``,
         ``timeout``, ``cancelled``, ``quota_exhausted`` or ``blocked_open_session``; those leave the task ``paused``.
         """
@@ -396,8 +420,10 @@ class ExecutorServices:
             raise _invalid("executor_id", f"Invalid executor_id: {executor_id!r}")
         model, effort = self._optional_token("model", model), self._optional_token("effort", effort)
         profile_id = self._optional_token("profile_id", profile_id)
+        if step_kind is not None and step_kind not in STEP_KINDS:
+            raise _invalid("step_kind", f"step_kind must be one of {', '.join(STEP_KINDS)}")
         task = self._tasks.get_task(task_id)
-        plan = self._plan(task_id, executor_id, model, effort, profile_id, operator_context)
+        plan = self._plan(task_id, executor_id, model, effort, profile_id, operator_context, step_kind)
         actor = _text("actor", actor if actor is not None else f"executor:{plan.executor_id}", maximum=100)
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
@@ -428,10 +454,12 @@ class ExecutorServices:
                             task_id=task_id, session_id=session_id, blocked_until=_iso(blocked))
         executor_id = str(session.get("executor_id", ""))
         descriptor, adapter, declaration = self._executor(executor_id)
-        model, effort = model or session.get("model"), effort or session.get("effort")
-        _check_support(descriptor.model_support, model, "model", executor_id)
-        _check_support(descriptor.effort_support, effort, "effort", executor_id)
-        plan = _Plan(executor_id, descriptor, adapter, model, effort, declaration)
+        selection = select_for_resume(executor_id, model=model, effort=effort, recorded_model=session.get("model"),
+                                      recorded_effort=session.get("effort"))
+        _check_support(descriptor.model_support, selection.model, "model", executor_id)
+        _check_support(descriptor.effort_support, selection.effort, "effort", executor_id)
+        plan = _Plan(executor_id, descriptor, adapter, selection.model, selection.effort, declaration,
+                     selection=selection)
         actor = _text("actor", actor or task.get("assignee") or f"executor:{executor_id}", maximum=100)
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
@@ -449,6 +477,10 @@ class ExecutorServices:
         self._preflight(plan, request, resume_session)
         cause = f"executor {mode} in {plan.executor_id}"
         view = self._enter_running(task, actor, cause)
+        if plan.selection is not None:
+            # What this attempt was asked to run with and why, kept even if the launch then fails.
+            self._append(ROUTING_EVENT, actor=actor, task=view, ref=plan.executor_id, cause=cause,
+                         payload=plan.selection.event_payload(attempt=view["attempt"], mode=mode))
         try:
             # Built again: the attempt number, the status and the assignee changed with the transitions above.
             request = replace(request, task_envelope=self._services.envelopes.get_envelope(task_id))
@@ -461,7 +493,9 @@ class ExecutorServices:
         if attempt.session_id and attempt.session_id != resume_session:
             self._append(SESSION_EVENT, actor=actor, task=view, ref=attempt.session_id, cause=cause, payload={
                 "executor_id": plan.executor_id, "adapter_id": plan.adapter.adapter_id, "attempt": view["attempt"],
-                "mode": mode, "model": plan.model, "effort": plan.effort, "permission": permission.value})
+                "mode": mode, "model": plan.model, "effort": plan.effort, "permission": permission.value,
+                "model_source": plan.selection.model_source if plan.selection else None,
+                "effort_source": plan.selection.effort_source if plan.selection else None})
         submission, problem = None, None
         if attempt.status == "completed" and attempt.envelope is not None:
             try:
@@ -478,6 +512,8 @@ class ExecutorServices:
             "executor_id": plan.executor_id, "adapter_id": plan.adapter.adapter_id, "attempt": view["attempt"],
             "mode": mode, "run_status": attempt.status, "outcome": outcome, "session_id": attempt.session_id,
             "exit_code": attempt.exit_code, "model": plan.model, "effort": plan.effort,
+            "model_source": plan.selection.model_source if plan.selection else None,
+            "effort_source": plan.selection.effort_source if plan.selection else None,
             "permission": permission.value, "usage": dict(attempt.usage) if attempt.usage else None,
             "notes": attempt.notes, "evidence": evidence,
             "result_ref": submission["result"]["ref"] if submission else None})
@@ -493,7 +529,7 @@ class ExecutorServices:
             "outcome": outcome, "run_status": attempt.status, "task_id": task_id, "executor_id": plan.executor_id,
             "attempt": view["attempt"], "actor": actor, "mode": mode, "session_id": attempt.session_id,
             "open_target": _target_view(target) if target else None, "model": plan.model, "effort": plan.effort,
-            "permission": permission.value, "usage": dict(attempt.usage) if attempt.usage else None,
+            "selection": plan.selection.to_dict() if plan.selection else None, "permission": permission.value, "usage": dict(attempt.usage) if attempt.usage else None,
             "command": attempt.command, "evidence": evidence or None, "notes": notes,
             "executor_paused_until": paused_until, "result": submission,
             "gate": self._services.gates.get_gate(task_id), "task": self._tasks.get_task(task_id)}
@@ -635,12 +671,15 @@ class ExecutorServices:
             task = self._tasks.get_task(task_id)
             sessions: list[dict[str, Any]] = []
             attempts: list[dict[str, Any]] = []
+            routings: list[dict[str, Any]] = []
             with self._store.db.connect() as conn:
-                for row in conn.execute("SELECT * FROM team_events WHERE task_id=? AND type IN (?,?) ORDER BY seq",
-                                        (task_id, SESSION_EVENT, ATTEMPT_EVENT)):
+                for row in conn.execute("SELECT * FROM team_events WHERE task_id=? AND type IN (?,?,?) ORDER BY seq",
+                                        (task_id, SESSION_EVENT, ATTEMPT_EVENT, ROUTING_EVENT)):
                     event = self._row(row)
                     if event["type"] == SESSION_EVENT:
                         sessions.append({"session_id": event["ref"], "created_at": event["created_at"], **event["payload"]})
+                    elif event["type"] == ROUTING_EVENT:
+                        routings.append({"seq": event["seq"], "created_at": event["created_at"], **event["payload"]})
                     else:
                         attempts.append({"seq": event["seq"], "created_at": event["created_at"], **event["payload"]})
                 blocked = None
@@ -649,5 +688,5 @@ class ExecutorServices:
                     blocked = _iso(until) if until else None
             result["task"] = {"task_id": task_id, "state": task["state"], "status": task["status"],
                               "attempt": task["attempt"], "assignee": task["assignee"], "sessions": sessions,
-                              "attempts": attempts, "resume_blocked_until": blocked}
+                              "attempts": attempts, "routings": routings, "resume_blocked_until": blocked}
         return result

@@ -431,6 +431,18 @@ class CopilotAdapter:
 
     # -- pure operations
 
+    def refuses_model(self, model: str) -> str | None:
+        """The reason code when this adapter would refuse ``model`` (``claude_model_rejected``), else None.
+
+        The model selection of ECO-T08 asks it before it offers a model, so Copilot never receives a Claude model
+        from a routing profile; ``build_command`` still refuses one given by hand.
+        """
+        try:
+            _check_model(model)
+        except CopilotAdapterError as exc:
+            return exc.code
+        return None
+
     def build_command(self, request: ExecutorLaunchRequest) -> list[str]:
         """argv for a new session (see the module docstring for the order)."""
         return self._argv(request, resume=None)
