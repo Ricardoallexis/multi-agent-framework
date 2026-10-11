@@ -92,6 +92,19 @@ class SessionRegistry:
         source, native = self._parse_id(session_id)
         return self._readers[source].read_items(native, after, max(1, min(int(limit), MAX_PAGE)))
 
+    def read_items_unchecked(self, session_id: str, after: str | None = None, limit: int = 200) -> ItemsPage:
+        """Items without the folder and existence check, for live follow.
+
+        The caller already ran ``get_session`` for this id; skipping it avoids re-scanning a growing
+        file on every poll. The cursor and the id are still validated.
+        """
+        decode_cursor(after, 1)
+        source, native = self._parse_id(session_id)
+        reader = self._readers.get(source)
+        if reader is None:
+            raise SessionNotFound(session_id)
+        return reader.read_items(native, after, max(1, min(int(limit), MAX_PAGE)))
+
 
 def list_sessions(config: SessionsConfig, filters: SessionFilters | None = None) -> SessionPage:
     return SessionRegistry(config).list_sessions(filters)

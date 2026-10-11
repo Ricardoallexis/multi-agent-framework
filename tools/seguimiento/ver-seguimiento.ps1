@@ -417,6 +417,53 @@ function Get-StageClosure([string]$stageName, [string]$stageText, [object[]]$tas
     [pscustomobject]@{ Status = 'complete'; Reason = ''; Commit = $closeCommit; Report = $reportName; Stage = $stageName }
 }
 
+# SEG-T13: integration round in progress. parches\ronda.txt lists the patches applied since the last integration commit
+# (aplicar.ps1 appends, the commit clears it). Its write time is the last application; the tests of the round are "en curso"
+# until an integration report (pruebas\integracion\*_integracion.md) is newer than that.
+function Get-IntegrationRound {
+    $none = [pscustomobject]@{ Active = $false; Patches = @(); Since = $null; TestsRunning = $false }
+    $file = Join-Path $channel 'parches\ronda.txt'
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return $none }
+    try {
+        $patches = @(Get-Content -LiteralPath $file -Encoding utf8 -ErrorAction Stop | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $since = (Get-Item -LiteralPath $file -ErrorAction Stop).LastWriteTime
+    } catch { return $none }
+    if (-not $patches.Count) { return $none }
+    $reportAfter = $false
+    if (Test-Path -LiteralPath $integrationDir -PathType Container) {
+        $reportAfter = @(Get-ChildItem -LiteralPath $integrationDir -Filter '*_integracion.md' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt $since }).Count -gt 0
+    }
+    [pscustomobject]@{ Active = $true; Patches = $patches; Since = $since; TestsRunning = -not $reportAfter }
+}
+# SEG-T13: one label for phases and stages, first match wins. $kind is 'Fase' or 'Etapa'; $rows are the tasks (State, Patch,
+# WaitingFor, Integrating); $closure is, for a stage, 'cerrada' (verified closure), 'sin verificar' (the card says closed
+# but it is not verified) or ''. Returns Text and Class, or $null when there is nothing to say (no tasks).
+function Get-StatusLabel([string]$kind, [object[]]$rows, [string]$closure = '', $since = $null) {
+    $rows = @($rows | Where-Object { $_ })
+    $make = { param($text, $class) [pscustomobject]@{ Text = $text; Class = $class } }
+    if ($closure -eq 'cerrada') { return & $make "$kind cerrada" 's-integrada' }
+    if ($closure -eq 'sin verificar') { return & $make 'cierre no verificado' 's-unknown' }
+    if (-not $rows.Count) { return $null }
+    # Settled = integrated, or finished with no patch to integrate (analysis deliverables).
+    $settled = @($rows | Where-Object { $_.State -eq 'integrada' -or ($_.State -eq 'terminada' -and -not (Test-TaskPatchRequired $_.Patch)) }).Count
+    $done = @($rows | Where-Object { $_.State -in 'terminada', 'integrada' }).Count
+    if (@($rows | Where-Object { $_.State -eq 'requiere cambios' }).Count) { return & $make 'Con cambios requeridos' 's-requiere-cambios' }
+    if (@($rows | Where-Object { $_.Integrating }).Count) {
+        $from = if ($since) { ([datetime]$since).ToString('HH:mm', [cultureinfo]::InvariantCulture) } else { '' }
+        return & $make "Integrando · pruebas$(if ($from) { " desde $from" })" 's-en-curso'
+    }
+    if ($settled -eq $rows.Count) {
+        if ($kind -eq 'Fase') { return & $make 'Fase completa' 's-integrada' }
+        return & $make 'Etapa terminada · falta cerrar' 's-pendiente'
+    }
+    if ($done -eq $rows.Count) { return & $make "$kind terminada · falta integrar" 's-pendiente' }
+    if (@($rows | Where-Object { $_.State -eq 'en curso' }).Count) { return & $make 'En progreso' 's-en-curso' }
+    if ($done) { return & $make "Avance parcial · $done de $($rows.Count)" 's-pendiente' }
+    # SEG-T10: takeable = disponible/liberada/reabierta with no dependency wait (reuses WaitingFor).
+    if (@($rows | Where-Object { $_.State -in 'disponible', 'liberada', 'reabierta' -and -not $_.WaitingFor.Count }).Count) { return & $make 'Disponible' 's-disponible' }
+    & $make 'En espera de dependencias' 's-idle'
+}
+
 # Agent registry of the channel (AGENTES.md, rule 28): name, application and state. Without the file
 # (a checkout without the private channel) the three founding names are assumed active.
 function Get-RegisteredAgents {
@@ -440,9 +487,11 @@ function Get-RegisteredAgents {
 # SEG-T05: delegations of a card ("delegada" / "devuelta" rows of its Historial, see registrar-delegacion.ps1).
 # Returns Rows (every delegated worker, oldest first, deduplicated by worker) and Active (delegada without a later
 # devuelta of the same worker). Defensive: rows that do not match are skipped.
+# SEG-T12: also All (every delegation, with Label, Integration, Until and Result) for the Trabajaron column.
 function Get-CardDelegations([string]$history, [string]$state = 'en curso') {
     $rows = [System.Collections.Generic.List[object]]::new()
     $active = [System.Collections.Generic.List[object]]::new()
+    $all = [System.Collections.Generic.List[object]]::new()
     $orchestrator = ''
     foreach ($row in @(Get-HistoryRows $history | Sort-Object Date)) {
         if ($row.Action -in 'tomada', 'reasignada') {
@@ -457,20 +506,32 @@ function Get-CardDelegations([string]$history, [string]$state = 'en curso') {
         if ($rest -match '\s*\[ref:\s*(agent-[A-Za-z0-9]+)\s*\]\s*$') { $reference = $Matches[1]; $rest = ($rest -replace '\s*\[ref:\s*agent-[A-Za-z0-9]+\s*\]\s*$', '').Trim() }
         if (-not $worker) { continue }
         if ($row.Action -eq 'delegada') {
-            $level = if ($paren -match '\b(T[1-4])\b') { $Matches[1] } else { '' }
-            $effort = if ($paren -match 'esfuerzo\s+([^,;)\s]+)') { $Matches[1] } else { '' }
+            # SEG-T12: "etiqueta x" (label) and "integración" (marker of -Integracion) share the parenthesis with the level and effort.
+            $label = if ($paren -match '(?i)etiqueta\s+([^,;)]+)') { $Matches[1].Trim() } else { '' }
+            $integration = [bool]($paren -match '(?i)(?:^|,)\s*integraci[oó]n\s*(?:,|$)')
+            $bare = $paren -replace '(?i)etiqueta\s+[^,;)]+', ''
+            $level = if ($bare -match '\b(T[1-4])\b') { $Matches[1] } else { '' }
+            $effort = if ($bare -match 'esfuerzo\s+([^,;)\s]+)') { $Matches[1] } else { '' }
             if (-not $orchestrator) { $orchestrator = $row.Agent }
-            $entry = [pscustomobject]@{ Worker = $worker; Level = $level; Effort = $effort; Since = $row.Date; Piece = $rest; Orchestrator = $row.Agent; Reference = $reference }
+            $entry = [pscustomobject]@{ Worker = $worker; Level = $level; Effort = $effort; Since = $row.Date; Piece = $rest; Orchestrator = $row.Agent; Reference = $reference
+                Label = $label; Integration = $integration; Until = $null; Result = ''; IsActive = $false }
             $active.Add($entry)
+            $all.Add($entry)
             if (-not @($rows | Where-Object { $_.Worker -ieq $worker })) { $rows.Add($entry) }
         } else {
             $i = 0
             while ($i -lt $active.Count -and $active[$i].Worker -ine $worker) { $i++ }
-            if ($i -lt $active.Count) { $active.RemoveAt($i) }
+            if ($i -lt $active.Count) { $active[$i].Until = $row.Date; $active[$i].Result = $rest; $active.RemoveAt($i) }
         }
     }
-    if ($state -ne 'en curso') { $active.Clear() }
-    [pscustomobject]@{ Rows = @($rows); Active = @($active); Orchestrator = $orchestrator }
+    if ($state -ne 'en curso') {
+        # SEG-T12: integration delegations (registrar-delegacion.ps1 -Integracion) stay active on a delivered task until devuelta.
+        $keep = @(if ($state -eq 'terminada') { $active | Where-Object { $_.Integration } })
+        $active.Clear()
+        foreach ($kept in $keep) { $active.Add($kept) }
+    }
+    foreach ($live in $active) { $live.IsActive = $true }
+    [pscustomobject]@{ Rows = @($rows); Active = @($active); Orchestrator = $orchestrator; All = @($all) }
 }
 # JSONL lines of <channel>\orquestacion\<ETAPA>\ejecuciones.jsonl, grouped by task id (upper case). Read once.
 $script:ExecutionLines = $null
@@ -580,10 +641,12 @@ function Format-ActiveDelegation($entry) {
 # Merged delegation summary of a task: orchestrator and distinct workers (card rows win over JSONL lines).
 function Get-DelegationSummary([string]$taskId, $cardDelegations, [string]$cardAgent) {
     $workers = [System.Collections.Generic.List[string]]::new()
+    $details = [System.Collections.Generic.List[object]]::new()   # SEG-T12: Details[i] belongs to Workers[i]
     $seen = @{}
     $orchestrator = $cardDelegations.Orchestrator
     foreach ($row in $cardDelegations.Rows) {
         $workers.Add((Format-WorkerLabel $row))
+        $details.Add([pscustomobject]@{ Worker = $row.Worker; Items = @($cardDelegations.All | Where-Object { $_.Worker -ieq $row.Worker }) })
         $seen[$row.Worker.ToLowerInvariant()] = $true
     }
     foreach ($item in @(Get-ExecutionLines $taskId)) {
@@ -602,9 +665,88 @@ function Get-DelegationSummary([string]$taskId, $cardDelegations, [string]$cardA
             $label = if ($model) { "$model ($worker)" } else { $worker }
         }
         $workers.Add($label)
+        $details.Add([pscustomobject]@{ Worker = $worker; Items = @(Get-WorkItemsFromLines @(Get-ExecutionLines $taskId | Where-Object { ([string]$_.worker).Trim() -ieq $worker })) })
     }
     if (-not $workers.Count) { return $null }
-    [pscustomobject]@{ Orchestrator = if ($orchestrator) { $orchestrator } else { $cardAgent }; Workers = @($workers) }
+    [pscustomobject]@{ Orchestrator = if ($orchestrator) { $orchestrator } else { $cardAgent }; Workers = @($workers); Details = @($details) }
+}
+
+# SEG-T12: what each delegated worker did in a task, for the Trabajaron column. Only the card history, ejecuciones.jsonl and
+# the times of a transcript (SEG-T11 activity) are used; the content of the subagents is never read.
+# Short tag of a delegation: the registered label, "integración", or the first words of the piece.
+function Get-WorkTag($item) {
+    if ($item.Label) { return $item.Label }
+    if ($item.Integration) { return 'integración' }
+    $words = @(([string]$item.Piece) -split '\s+' | Where-Object { $_ })
+    if (-not $words.Count) { return 'sin pieza' }
+    $tag = ''
+    $taken = 0
+    foreach ($word in ($words | Select-Object -First 3)) {
+        $next = if ($tag) { "$tag $word" } else { $word }
+        if ($tag -and $next.Length -gt 24) { break }
+        $tag = $next; $taken++
+    }
+    if ($tag.Length -gt 24) { $tag = $tag.Substring(0, 24) }
+    $tag = $tag.TrimEnd(':', ';', ',', '.', ' ')
+    if ($taken -lt $words.Count) { $tag += '…' }
+    $tag
+}
+# HH:mm for today, the full date otherwise.
+function Format-WorkTime($value) {
+    $now = if ($null -ne $script:nowOverride) { [datetime]$script:nowOverride } else { Get-Date }
+    $when = [datetime]$value
+    if ($when.Date -eq $now.Date) { $when.ToString('HH:mm', [cultureinfo]::InvariantCulture) } else { $when.ToString('yyyy-MM-dd HH:mm', [cultureinfo]::InvariantCulture) }
+}
+# Delegations of one worker from its ejecuciones.jsonl lines (no card rows): "delegated" opens one, any other status closes the oldest.
+function Get-WorkItemsFromLines([object[]]$lines) {
+    $items = [System.Collections.Generic.List[object]]::new()
+    $open = [System.Collections.Generic.List[object]]::new()
+    $text = { param($line, $name) if ($line.PSObject.Properties[$name] -and $null -ne $line.$name) { ([string]$line.$name).Trim() } else { '' } }
+    foreach ($line in $lines) {
+        $status = & $text $line 'status'
+        $reason = & $text $line 'reason'
+        $stamp = if ($line.PSObject.Properties['recorded_at']) { ConvertTo-LocalStamp $line.recorded_at } else { $null }
+        if ($status -eq 'delegated') {
+            $item = [pscustomobject]@{ Worker = (& $text $line 'worker'); Level = ''; Effort = ''; Since = $stamp; Piece = $reason; Orchestrator = (& $text $line 'orchestrator'); Reference = (& $text $line 'reference')
+                Label = (& $text $line 'label'); Integration = [bool]($line.PSObject.Properties['integration'] -and $line.integration -eq $true); Until = $null; Result = ''; IsActive = $false }
+            $items.Add($item); $open.Add($item)
+        } elseif ($open.Count) {
+            $open[0].Until = $stamp; $open[0].Result = $(if ($reason) { $reason } else { $status }); $open.RemoveAt(0)
+        } else {
+            $items.Add([pscustomobject]@{ Worker = (& $text $line 'worker'); Level = ''; Effort = ''; Since = $stamp; Piece = ''; Orchestrator = (& $text $line 'orchestrator'); Reference = ''
+                Label = (& $text $line 'label'); Integration = $false; Until = $stamp; Result = $(if ($reason) { $reason } else { $status }); IsActive = $false })
+        }
+    }
+    @($items)
+}
+# One <details> per delegated worker: the summary is the worker label with the short tag(s) of what it worked on; the body lists
+# every delegation of that worker in the task (piece, result, from/until, activity while active) and its tokens (the "↳" entry
+# of the Tokens field). Workers without items keep the plain line.
+function Get-WorkerListHtml($delegation, [string]$tokens) {
+    $tokenEntries = @(Get-TokenEntries $tokens | Where-Object { $_.Kind -eq 'worker' })
+    $out = for ($i = 0; $i -lt @($delegation.Workers).Count; $i++) {
+        $label = @($delegation.Workers)[$i]
+        $detail = if ($i -lt @($delegation.Details).Count) { @($delegation.Details)[$i] } else { $null }
+        $items = if ($detail) { @($detail.Items) } else { @() }
+        if (-not $items.Count) { "<div class=""meta"">$(Encode $label)</div>"; continue }
+        $tags = @($items | ForEach-Object { Get-WorkTag $_ } | Select-Object -Unique | Select-Object -First 3)
+        $chips = ($tags | ForEach-Object { " <span class=""state s-idle seg-tag"">$(Encode $_)</span>" }) -join ''
+        $lines = foreach ($item in @($items | Sort-Object @{ Expression = { if ($_.Since) { $_.Since } else { [datetime]::MinValue } } })) {
+            $span = if ($item.Since) { "desde $(Format-WorkTime $item.Since)" } else { 'hora no registrada' }
+            if ($item.Until) { $span += " hasta $(Format-WorkTime $item.Until)" }
+            elseif ($item.IsActive) { $span += " · en curso · $(Get-WorkerActivity $item)" }
+            else { $span += ' · sin devolver' }
+            $piece = if ($item.Piece) { "<div>Pieza: $(Encode $item.Piece)</div>" } else { '' }
+            $result = if ($item.Result) { "<div>Resultado: $(Encode $item.Result)</div>" } else { '' }
+            "<li><strong>$(Encode (Get-WorkTag $item))</strong> · $(Encode $span)$piece$result</li>"
+        }
+        $token = $tokenEntries | Where-Object { $_.Agent -ieq $detail.Worker } | Select-Object -First 1
+        $tokenLine = if (-not $token) { '' }
+            elseif ($null -eq $token.Total) { "<div>Tokens: $(Encode $token.Source)</div>" }
+            else { "<div>Tokens: $(Format-TokenCount $token.Total) · entrada $(Format-TokenCount $token.Input) · salida $(Format-TokenCount $token.Output) · $(Encode $token.Source)</div>" }
+        "<div class=""meta""><details class=""seg-worker""><summary>$(Encode $label)$chips</summary><ul class=""seg-worker-items"">$($lines -join '')</ul>$tokenLine</details></div>"
+    }
+    @($out) -join ''
 }
 
 function Get-AgentBoardData {
@@ -864,6 +1006,13 @@ $publicVerifiedEvidence = [ordered]@{
     G3 = [pscustomobject]@{ Goal = 'Un caso fuera de marketing (bundles)'; Commit = '2682b3e'; Report = '2026-09-26_2031_integracion.md' }
 }
 $activeCards = [System.Collections.Generic.List[object]]::new()
+# SEG-T13: integration round in progress (parches\ronda.txt) and the notice shown when the page is generated during it.
+$integrationRound = Get-IntegrationRound
+$integrationNoticeHtml = if ($integrationRound.Active) {
+    $roundNames = @($integrationRound.Patches | Select-Object -First 5) -join ', '
+    if ($integrationRound.Patches.Count -gt 5) { $roundNames += " y $($integrationRound.Patches.Count - 5) más" }
+    "<p class=""seg-integration-notice"" role=""status"">Generado durante una integración (ronda: $(Encode $roundNames)); los datos pueden cambiar al terminar.</p>"
+} else { '' }
 
 $boards = ''
 $archiveBoardEntries = [System.Collections.Generic.List[object]]::new()
@@ -984,6 +1133,13 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 })
             }
             $record | Add-Member -NotePropertyName WaitingFor -NotePropertyValue $waitingFor -Force
+            # SEG-T13: a delivered task whose patch is in the round being integrated, while the round's tests have no report yet.
+            $integrating = $false
+            if ($integrationRound.Active -and $integrationRound.TestsRunning -and $record.State -eq 'terminada') {
+                $cardPatches = @([regex]::Matches([string]$record.Patch, '\d{3}-[^`\s,()]+\.patch') | ForEach-Object { $_.Value })
+                $integrating = @($cardPatches | Where-Object { $integrationRound.Patches -contains $_ }).Count -gt 0
+            }
+            $record | Add-Member -NotePropertyName Integrating -NotePropertyValue $integrating -Force
             $dependencyHtml = if ($dependencyCodes.Count) {
                 $items = foreach ($dependencyCode in $dependencyCodes) {
                     if (-not $tasksByCode.ContainsKey($dependencyCode)) {
@@ -1011,7 +1167,9 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                     'prueba fallida' { '<div><span class="state s-requiere-cambios">Prueba fallida · no libera dependientes</span></div>' }
                     default { '<div class="meta">Sin veredicto de prueba todavía (regla 27)</div>' }
                 }
-                if (Test-TaskPatchRequired $record.Patch) {
+                if ($record.Integrating) {
+                    "<span class=""state s-en-curso"">Integrando · pruebas desde $($integrationRound.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture))</span>$date<div class=""meta"">Parche: $(Inline $record.Patch)</div>"
+                } elseif (Test-TaskPatchRequired $record.Patch) {
                     "<span class=""state s-pendiente"">Requiere integración · pendiente</span>$verdict$date<div class=""meta"">Parche: $(Inline $record.Patch)</div>"
                 } elseif ($record.Patch.Trim()) {
                     "<span class=""state s-idle"">Sin parche que integrar</span>$date"
@@ -1041,13 +1199,13 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             } else { "<span class=""state $stateClass"">$(Encode $record.State)</span>" }
             $lastActivityHtml = if ($record.LastRow) { "<div class=""meta"">Última actividad $(Encode (Format-ActivityDate $record.LastRow.Date))</div>" } else { '<div class="meta">Sin historial fechado</div>' }
             $delegationHtml = if ($record.Delegation) {
-                "<div class=""meta"">orquestó $(Encode $record.Delegation.Orchestrator)</div>" + (($record.Delegation.Workers | ForEach-Object { "<div class=""meta"">$(Encode $_)</div>" }) -join '')
+                "<div class=""meta"">orquestó $(Encode $record.Delegation.Orchestrator)</div>" + (Get-WorkerListHtml $record.Delegation $record.Tokens)
             } else { '' }
             $rowHtml = "<tr><td><a href=""$($record.Href)"">$(Encode $record.Title)</a>$lastActivityHtml$($record.LeftHtml)</td>" +
             "<td>$stateCell</td>" +
             "<td>$(Inline $record.Agent)</td><td>$(Inline $record.Preferred)</td>" +
             "<td>$dependencyHtml</td><td>$integrationHtml</td><td>$(Inline $record.Patch)</td><td>$(Encode $record.Workers)$delegationHtml</td><td>$(Get-TokensHtml $record.Tokens)</td></tr>"
-            $taskRows.Add([pscustomobject]@{ Id = $record.Code; State = $record.State; Patch = $record.Patch; WaitingFor = @($record.WaitingFor); Html = $rowHtml; Date = if ($record.LastRow) { $record.LastRow.Date } else { $null } })
+            $taskRows.Add([pscustomobject]@{ Id = $record.Code; State = $record.State; Patch = $record.Patch; WaitingFor = @($record.WaitingFor); Integrating = [bool]$record.Integrating; Html = $rowHtml; Date = if ($record.LastRow) { $record.LastRow.Date } else { $null } })
         }
         # SEG-T05: tasks inside a stage follow their code (T01, T02, ...); each row still shows its own last activity.
         $taskRows = @($taskRows | Sort-Object @{ Expression = { if ($_.Id -match '^T(\d+)') { [int]$Matches[1] } else { [int]::MaxValue } } }, @{ Expression = 'Id' })
@@ -1122,6 +1280,9 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $workingText = if ($working) { "En curso: $(Encode ($working -join ', '))" } else { 'Nadie trabajando ahora' }
             $delegatedLines = @($taskRecords | Where-Object { $_.State -eq 'en curso' } | ForEach-Object { foreach ($d in $_.ActiveDelegations) { "<div class=""meta"">$(Encode $_.Code): $(Encode (Format-ActiveDelegation $d))</div>" } })
             $workingText += ($delegatedLines -join '')
+            # SEG-T12: integration activity (delegations registered with -Integracion on delivered tasks, e.g. Ejecutando prueba).
+            $integrationLines = @($taskRecords | Where-Object { $_.State -eq 'terminada' } | ForEach-Object { foreach ($d in $_.ActiveDelegations) { "<div class=""meta"">$(Encode $_.Code): integración · $(Encode (Format-ActiveDelegation $d))</div>" } })
+            $workingText += ($integrationLines -join '')
             $activeCards.Add([pscustomobject]@{ Date = if ($lastActivity) { $lastActivity.Date } else { $null }; Html = @"
 <div class="card">
   <div class="card-head"><span class="gate">$(Encode $stage.Name)</span><span class="pct">$pct%</span></div>
@@ -1150,16 +1311,9 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 $phaseIntegrated = @($phaseTaskRows | Where-Object {
                     $_.State -eq 'integrada' -or ($_.State -eq 'terminada' -and -not (Test-TaskPatchRequired $_.Patch))
                 }).Count
-                $phaseBlocked = @($phaseTaskRows | Where-Object { $_.State -eq 'requiere cambios' }).Count
-                $phaseBadge = if (-not $phaseTaskRows.Count) { '' }
-                    elseif ($phaseBlocked) { '<span class="state s-requiere-cambios">Con cambios requeridos</span>' }
-                    elseif ($phaseIntegrated -eq $phaseTaskRows.Count) { '<span class="state s-integrada">Fase completa</span>' }
-                    elseif ($phaseDone -eq $phaseTaskRows.Count) { '<span class="state s-pendiente">Fase terminada · falta integrar</span>' }
-                    elseif (@($phaseTaskRows | Where-Object { $_.State -eq 'en curso' }).Count) { '<span class="state s-en-curso">En progreso</span>' }
-                    elseif ($phaseDone) { "<span class=""state s-pendiente"">Avance parcial · $phaseDone de $($phaseTaskRows.Count)</span>" }
-                    # SEG-T10: takeable = disponible/liberada/reabierta with no dependency wait (reuses WaitingFor).
-                    elseif (@($phaseTaskRows | Where-Object { $_.State -in 'disponible', 'liberada', 'reabierta' -and -not $_.WaitingFor.Count }).Count) { '<span class="state s-disponible">Disponible</span>' }
-                    else { '<span class="state s-idle">En espera de dependencias</span>' }
+                # SEG-T13: the same label function as the stage header (Get-StatusLabel).
+                $phaseLabel = Get-StatusLabel 'Fase' $phaseTaskRows '' $integrationRound.Since
+                $phaseBadge = if ($phaseLabel) { "<span class=""state $($phaseLabel.Class)"">$(Encode $phaseLabel.Text)</span>" } else { '' }
                 $phaseContent = if ($phaseTaskRows.Count) {
                     "$tableHeader$($phaseTaskRows.Html -join "`n")</table>"
                 } else {
@@ -1198,11 +1352,18 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         $stageIsComplete = $closure.Status -eq 'complete'
         $stageOpen = -not $stageIsComplete -and -not $claimsClosed
         $stageStateText = if ($stageIsComplete) { 'cerrada' } elseif ($claimsClosed) { 'cierre no verificado' } else { $sf = (Get-Field $stageText 'Estado').Trim(); if ($sf) { $sf } else { 'activa' } }
+        # SEG-T13: the header says what the tasks are doing (same function as the phases); the card's Estado is a secondary datum.
+        $stageLabel = Get-StatusLabel 'Etapa' $taskRows $(if ($stageIsComplete) { 'cerrada' } elseif ($claimsClosed) { 'sin verificar' } else { '' }) $integrationRound.Since
+        $stageEstado = (Get-Field $stageText 'Estado').Trim().ToLowerInvariant()
+        $stageStateHtml = if ($stageLabel) {
+            "<span class=""state $($stageLabel.Class)"">$(Encode $stageLabel.Text)</span>" + $(if ($stageEstado -and -not $stageIsComplete -and -not $claimsClosed) { "<span class=""meta seg-estado"">etapa $(Encode $stageEstado)</span>" })
+        } else { "<span class=""state s-$($stageStateText -replace '[^\p{L}\p{Nd}]+', '-')"">$(Encode $stageStateText)</span>" }
         $stateOrder = @('en curso', 'disponible', 'liberada', 'pendiente', 'requiere cambios', 'reabierta', 'terminada', 'integrada')
         $countParts = @($taskRecords | Group-Object State | Sort-Object @{ Expression = { $i = $stateOrder.IndexOf($_.Name); if ($i -lt 0) { 99 } else { $i } } } | ForEach-Object { "$($_.Count) $(Encode $_.Name)" })
         $stageCountsText = if ($countParts.Count) { $countParts -join ' &middot; ' } else { 'sin tareas' }
         $stageWorkers = foreach ($r in @($taskRecords | Where-Object { $_.State -eq 'en curso' })) {
-            if (@($r.ActiveDelegations).Count) { foreach ($d in $r.ActiveDelegations) { "$(Encode $r.Code): $(Encode (Format-ActiveDelegation $d))" } }
+            # SEG-T13: the agent in charge of the task is named besides the worker.
+            if (@($r.ActiveDelegations).Count) { foreach ($d in $r.ActiveDelegations) { "$(Encode $r.Code)$(if ($r.Agent.Trim() -and $r.Agent.Trim() -ne '-') { " · a cargo de $(Encode $r.Agent.Trim())" }) · $(Encode (Format-ActiveDelegation $d))" } }
             elseif ($r.Agent.Trim() -and $r.Agent.Trim() -ne '-') { "trabajando: $(Encode $r.Agent.Trim()) en $(Encode $r.Code)" }
         }
         $stageWorkersHtml = if (@($stageWorkers).Count) { "<span class=""meta seg-workers"">$(@($stageWorkers) -join ' &middot; ')</span>" } else { '' }
@@ -1212,7 +1373,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         $stageId = 'seg:' + $stage.Name
         $boardHtml = @"
 <details class="panel board seg-stage" data-seg-id="$(Encode $stageId)"$(if ($stageOpen) { ' open' })>
-  <summary><h2>$(Encode $stageTitle)</h2><span class="state s-$($stageStateText -replace '[^\p{L}\p{Nd}]+', '-')">$(Encode $stageStateText)</span><span class="pct">$done/$total</span>
+  <summary><h2>$(Encode $stageTitle)</h2>$stageStateHtml<span class="pct">$done/$total</span>
     <span class="meta seg-counts">$stageCountsText</span><span class="meta seg-activity">$stageActivityHtml</span>$stageWorkersHtml</summary>
   <div class="seg-body">
   <div class="seg-toolbar"><button type="button" class="seg-btn" data-seg-action="expand" data-seg-scope="stage">Expandir todo</button> <button type="button" class="seg-btn" data-seg-action="collapse" data-seg-scope="stage">Compactar todo</button></div>
@@ -1654,6 +1815,8 @@ summary { cursor:pointer; }
 .seg-body { margin-top:8px; }
 .seg-toolbar { margin:0 0 8px; }
 .seg-btn { font:inherit; font-size:13px; cursor:pointer; padding:3px 10px; border:1px solid var(--line); border-radius:6px; background:transparent; color:var(--accent); }
+.seg-integration-notice { max-width:1100px; margin:8px auto; padding:8px 14px; background:var(--warn-bg); border:1px solid var(--warn-line); border-radius:10px; font-size:13px; }
+.seg-stage > summary .seg-estado { margin:0; }
 .archive-stage { margin-bottom:14px; scroll-margin-top:12px; }
 .archive-stage h2 { margin:0; font-size:18px; }
 .archive-stage details { margin-top:8px; }
@@ -1694,6 +1857,10 @@ summary { cursor:pointer; }
 .idea-review-note { margin:8px 0 0; }
 .idea-card .meta { margin:6px 0 0; }
 .cloud-panel h2 { margin-top:0; }
+.seg-worker > summary { cursor:pointer; }
+.seg-tag { margin-left:4px; font-size:11px; }
+.seg-worker-items { margin:4px 0; padding-left:18px; }
+.seg-worker-items li { margin:3px 0; }
 </style>
 </head>
 <body>
@@ -1701,6 +1868,7 @@ summary { cursor:pointer; }
   <h1>Seguimiento del proyecto &mdash; Multi-Agent Framework</h1>
   <p>Generado desde el tablero de tareas, el canal y el repositorio de integración a las $(Get-Date -Format 'HH:mm:ss'). Se recarga sola cada 30 s mientras la ventana de Seguimiento.cmd siga abierta.</p>
 </header>
+$integrationNoticeHtml
 <nav>
   <button data-tab="resumen">Resumen</button>
   <button data-tab="tareas">Tareas</button>
@@ -1866,6 +2034,9 @@ function Get-Stamp {
         $publicRefLog = Join-Path $publicRepo ".git\logs\refs\remotes\$($publicRef -replace '/', '\')"
         if (Test-Path -LiteralPath $publicRefLog -PathType Leaf) { $files += Get-Item -LiteralPath $publicRefLog }
     }
+    # SEG-T13: an integration round (patches applied, tests running) changes the labels and the notice.
+    $roundFile = Join-Path $channel 'parches\ronda.txt'
+    if (Test-Path -LiteralPath $roundFile -PathType Leaf) { $files += Get-Item -LiteralPath $roundFile }
     $channelRegistry = Join-Path $channel 'CANAL.md'
     if (Test-Path -LiteralPath $channelRegistry -PathType Leaf) { $files += Get-Item -LiteralPath $channelRegistry }
     if (Test-Path $tasksDir) { $files += Get-ChildItem $tasksDir -Recurse -Filter '*.md' }

@@ -14,8 +14,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..bundles import DefinitionBundle, load_bundle
+from ..prompts import PromptManager
 from ..workflow_validation import WorkflowDefinitionError, require_safe_workflow_id
-from ..workflows import WorkflowDefinition
+from ..workflows import WorkflowCatalog, WorkflowDefinition
+from . import workflow_inputs
 from .errors import INVALID_DEFINITION, ServiceError, service_errors
 
 if TYPE_CHECKING:
@@ -77,6 +79,63 @@ class DefinitionServices:
             self._services.bundle_path(bundle)  # unknown bundle: not_found before any loading
         definition = self._load(workflow_id, bundle)
         return {"bundle": bundle, **dataclasses.asdict(definition)}
+
+    # --- reading helpers for interfaces that show or fill a workflow (no validation, no model) ---
+
+    def _read_parts(self, workflow_id: str, bundle: str | None) -> tuple[WorkflowDefinition, PromptManager]:
+        """Parse a workflow and find its prompts without importing bundle code.
+
+        ``get_workflow`` validates and, for bundles, imports ``contracts.py`` on every call;
+        a form that refreshes as the operator types must not. Structural errors still raise.
+        """
+        if bundle is None:
+            engine = self._services.system.engine
+            return engine.workflows.load(workflow_id), engine.prompts
+        root = self._services.bundle_path(bundle)
+        definition = WorkflowCatalog(self._services.settings, workflows_dir=root / "workflows").load(workflow_id)
+        prompts = PromptManager(
+            self._services.settings,
+            prompts_dir=root / "prompts" if (root / "prompts").is_dir() else None,
+            skills_dir=root / "skills" if (root / "skills").is_dir() else None,
+        )
+        return definition, prompts
+
+    @service_errors
+    def read_workflow(self, workflow_id: str, *, bundle: str | None = None) -> dict[str, Any]:
+        """Structure of one workflow (same shape as ``get_workflow``) without catalog validation.
+
+        Meant for showing the steps of a run whose workflow may have changed since;
+        use ``get_workflow`` when the definition must be valid. Errors: ``not_found``,
+        ``invalid_definition`` (the document cannot be parsed).
+        """
+        definition, _ = self._read_parts(workflow_id, bundle)
+        return {"bundle": bundle, **dataclasses.asdict(definition)}
+
+    @service_errors
+    def workflow_inputs(self, workflow_id: str, *, bundle: str | None = None) -> dict[str, Any]:
+        """Inputs the workflow expects, derived from its prompt placeholders.
+
+        Returns ``{"id", "bundle", "source", "inputs": [{"name", "label", "required",
+        "skipped_only", "context", "used_in", "needed_by", "prompt_line"}], "steps": [...]}``;
+        see ``workflow_inputs`` for the rules. Errors: ``not_found``, ``invalid_definition``.
+        """
+        definition, prompts = self._read_parts(workflow_id, bundle)
+        return {"id": workflow_id, "bundle": bundle, **workflow_inputs.derive_inputs(definition, prompts)}
+
+    @service_errors
+    def preview_prompts(self, workflow_id: str, inputs: dict[str, str], *, bundle: str | None = None,
+                        execution_mode: str = "auto", sensitive: bool = False) -> dict[str, Any]:
+        """Render each step's prompt for these inputs as text; nothing is executed or stored.
+
+        Returns ``{"id", "bundle", "source", "missing_inputs", "empty_optional_inputs",
+        "steps": [{"id", "skipped", "skip", "text", "needs_previous_outputs", ...}]}``.
+        Errors: ``not_found``, ``invalid_definition``, ``invalid_request`` (a prompt cannot be rendered).
+        """
+        definition, prompts = self._read_parts(workflow_id, bundle)
+        spec = workflow_inputs.derive_inputs(definition, prompts)
+        result = workflow_inputs.preview(definition, prompts, spec, inputs,
+                                         execution_mode=execution_mode, sensitive=sensitive)
+        return {"id": workflow_id, "bundle": bundle, **result}
 
     @service_errors
     def list_agents(self, *, bundle: str | None = None) -> list[dict[str, Any]]:

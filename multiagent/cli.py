@@ -704,6 +704,52 @@ def cmd_ui(args) -> None:
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
+def add_gui_arguments(parser: argparse.ArgumentParser) -> None:
+    """Options of ``multiagent gui`` and ``python -m multiagent.gui`` (defined once)."""
+    parser.add_argument("--port", type=int, default=0, help="Port (default: app_port from settings)")
+    parser.add_argument("--real", action="store_true", help="Use real models (default: Mock mode)")
+    parser.add_argument("--no-browser", action="store_true", help="Print the URL without opening the browser")
+
+
+def cmd_gui(args) -> None:
+    """Start the local server with the new GUI; same as ``python -m multiagent.gui``."""
+    from .gui import __main__ as gui_main
+
+    gui_main.run(port=args.port, real=args.real, no_browser=args.no_browser)
+
+
+def _session_services():
+    """The session service the GUI routes use, built in-process: session data is private and local,
+    so the CLI reads it directly instead of going through the (token-protected) HTTP routes."""
+    from .services import ApplicationServices
+
+    return ApplicationServices.create(get_settings()).sessions
+
+
+def cmd_sessions(args) -> None:
+    """List, show or read the items of Claude, Codex, Copilot and framework sessions (read-only)."""
+    from .services import ServiceError
+
+    service = _session_services()
+    try:
+        if args.sessions_command == "list":
+            result = service.list_sessions(source=args.source, surface=args.surface, cwd=args.cwd, since=args.since,
+                                           until=args.until, text=args.text, limit=args.limit, after=args.after)
+        elif args.sessions_command == "show":
+            result = service.get_session(args.session_id)
+        else:
+            result = service.read_items(args.session_id, after=args.after, limit=args.limit)
+    except ServiceError as exc:
+        raise RuntimeError(f"{exc.code}: {exc.message}") from exc
+    if getattr(args, "jsonl", False):
+        if result.get("hint"):
+            print(result["hint"], file=sys.stderr)
+        for row in result.get("sessions", result.get("items", [])):
+            print(json.dumps(row, ensure_ascii=False, default=str))
+    else:
+        pretty(result)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="multiagent", description=f"Multi-Agent Framework {__version__} — Hybrid Human/AI Orchestration")
     p.add_argument("--version", action="version", version=__version__)
@@ -718,6 +764,22 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--bundle", action="append", metavar="NAME=FOLDER", help="Register a trusted definition bundle; repeatable")
     x.add_argument("--no-browser", action="store_true", help="Do not open the browser")
     x.set_defaults(func=cmd_ui)
+
+    x = sub.add_parser("gui", help="Start the local server with the new GUI (Mock mode unless --real) and open the browser")
+    add_gui_arguments(x); x.set_defaults(func=cmd_gui)
+    sess = sub.add_parser("sessions", help="Read Claude, Codex, Copilot and framework sessions (local, read-only)")
+    sess = sess.add_subparsers(dest="sessions_command", required=True)
+    x = sess.add_parser("list", help="List sessions, newest first (empty until GUI_SESSION_ROOTS is set)")
+    x.add_argument("--source", help="claude, codex, copilot or framework"); x.add_argument("--surface", help="desktop, cli, framework or unknown")
+    x.add_argument("--cwd", help="Only sessions whose folder is under this one"); x.add_argument("--since", help="ISO-8601, compared with the last update")
+    x.add_argument("--until", help="ISO-8601, compared with the last update"); x.add_argument("--text", help="Part of the title")
+    x.add_argument("--limit", type=int, default=100, help="1 to 500"); x.add_argument("--after", help="next_cursor of the previous page")
+    x.add_argument("--jsonl", action="store_true", help="One JSON line per session"); x.set_defaults(func=cmd_sessions)
+    x = sess.add_parser("show", help="Show one session's summary"); x.add_argument("session_id", help="<source>:<id>"); x.set_defaults(func=cmd_sessions)
+    x = sess.add_parser("items", help="Read a session's items after a cursor")
+    x.add_argument("session_id", help="<source>:<id>"); x.add_argument("--after", help="next_cursor of the previous page")
+    x.add_argument("--limit", type=int, default=200, help="1 to 500")
+    x.add_argument("--jsonl", action="store_true", help="One JSON line per item"); x.set_defaults(func=cmd_sessions)
 
     x = sub.add_parser("run")
     x.add_argument("--project", required=True); x.add_argument("--objective"); x.add_argument("--topic")

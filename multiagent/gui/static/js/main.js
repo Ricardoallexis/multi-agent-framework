@@ -4,6 +4,8 @@
 import { html, render, useState, useEffect } from "../vendor/htm-preact-standalone.module.js";
 import { loadToken, clearToken, getJSON } from "./auth.js";
 import { startStream } from "./stream.js";
+import { publishEvent } from "./bus.js";
+import { Runs } from "./runs.js";
 
 const STATUS_TEXT = {
   connected: "Conectado",
@@ -14,7 +16,7 @@ const STATUS_TEXT = {
 
 const SECTIONS = [
   { id: "sessions", label: "Sesiones", text: "Aquí se verán las sesiones de Claude, Codex y Copilot." },
-  { id: "runs", label: "Ejecuciones", text: "Aquí se verán las ejecuciones del framework y sus eventos." },
+  { id: "runs", label: "Ejecuciones" },
 ];
 
 function NoToken() {
@@ -36,7 +38,7 @@ function App({ token }) {
     return startStream({
       token,
       onStatus: (value) => { if (value === "unauthorized") clearToken(); setStatus(value); },
-      onEvent: (event) => setLastEvent(event.id),
+      onEvent: (event) => { setLastEvent(event.id); publishEvent(event); },
     });
   }, [token]);
 
@@ -53,8 +55,10 @@ function App({ token }) {
     </nav>
     <main class="content">
       <h2>${current.label}</h2>
-      <p class="muted">${current.text} (pendiente de implementar)</p>
-      ${lastEvent && html`<p class="muted">Último evento recibido: ${lastEvent}</p>`}
+      ${section === "runs"
+        ? html`<${Runs} token=${token} status=${status} mock=${mock} />`
+        : html`<p class="muted">${current.text} (pendiente de implementar)</p>`}
+      ${lastEvent && html`<p class="muted small">Último evento recibido: ${lastEvent}</p>`}
     </main>
   </div>`;
 }

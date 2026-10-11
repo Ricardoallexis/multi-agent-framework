@@ -11,6 +11,7 @@ notebooks), so they all behave the same way::
     services.runs.approve(run["id"])
     services.tasks.ready_tasks(group_id="ORQ")
     services.envelopes.get_envelope("ORQ-T25")
+    services.sessions.list_sessions(source="codex")
 
 Methods return JSON-ready data and report known failures as ``ServiceError``
 (``code``, ``message``, ``status``, ``details``; see ``errors``).
@@ -31,6 +32,7 @@ from .envelopes import EnvelopeServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
 from .gates import GateServices
 from .runs import RunServices
+from .sessions import SessionServices
 from .tasks import TaskServices
 
 if TYPE_CHECKING:
@@ -44,6 +46,7 @@ __all__ = [
     "GateServices",
     "RunServices",
     "ServiceError",
+    "SessionServices",
     "TaskServices",
     "service_errors",
     "translate",
@@ -53,7 +56,7 @@ _BUNDLE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,119}$")
 
 
 class ApplicationServices:
-    """Facade over one ``System``: ``definitions``, ``runs``, ``tasks``, ``gates`` and ``envelopes``."""
+    """Facade over one ``System``: ``definitions``, ``runs``, ``tasks``, ``gates``, ``envelopes`` and ``sessions``."""
 
     def __init__(self, system: System, *, bundles: Mapping[str, str | Path] | None = None):
         self.system = system
@@ -68,6 +71,7 @@ class ApplicationServices:
         self.gates = GateServices(self)
         self.envelopes = EnvelopeServices(self)
         self.assignment = AssignmentServices(self)
+        self.sessions = SessionServices(self)
 
     @classmethod
     def create(cls, settings: Settings | None = None, *,

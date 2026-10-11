@@ -65,9 +65,10 @@ try {
     Assert-True ($html -match 'desde 11:05 · Probablemente detenido · pieza cuatro') 'T03 detenido'
     Assert-True ($html -match 'desde 11:00 · sin señal de actividad · pieza cinco') 'T04 file missing'
     Assert-True ($html -match 'Claude Haiku \(T1\) desde 11:10 · sin señal de actividad · sin referencia') 'T04 no reference'
-    Assert-True ($html -notmatch 'pieza reasignada') 'T05 closed by takeover'
-    Assert-True ($html -notmatch 'pieza terminada') 'T06 closed by card state'
-    Assert-True ($html -notmatch 'pieza devuelta') 'T07 returned'
+    # SEG-T12: the Trabajaron column lists every delegation of the task (piece included); what must not appear is an activity line.
+    Assert-True ($html -notmatch 'T05: [^<]*pieza reasignada') 'T05 closed by takeover'
+    Assert-True ($html -notmatch 'T06: [^<]*pieza terminada') 'T06 closed by card state'
+    Assert-True ($html -notmatch 'T07: [^<]*pieza devuelta') 'T07 returned'
     Assert-True ($html -match 'desde 11:00 · Sin actividad reciente · última hace 20 min · pieza ocho') 'T08 answered tool is not a running test'
     Assert-True ($html -match 'desde 10:00 · Probablemente detenido · pieza nueve') 'T09 long test over threshold'
     Assert-True ($html -notmatch '\[ref:') 'reference kept out of the displayed piece'

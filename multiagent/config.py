@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import ipaddress
+import json
+import os
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Any, Optional
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+SESSION_SOURCES = ("claude", "codex", "copilot", "framework")  # sources of the GUI session viewer
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_ROOT.parent
@@ -21,6 +25,19 @@ LOCAL_ROOT = PROJECT_ROOT / ".local" if IN_CHECKOUT else Path.home() / ".multi-a
 
 def _resource_dir(name: str) -> Path:
     return (PROJECT_ROOT if IN_CHECKOUT else BUNDLED_ROOT) / name
+
+
+def _as_list(value: Any) -> Any:
+    """A list as is; text as a JSON array or as items separated by ``;`` (or the OS path separator)."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        return json.loads(text)
+    parts = text.split(";") if os.pathsep == ";" else text.replace(";", os.pathsep).split(os.pathsep)
+    return [part.strip() for part in parts if part.strip()]
 
 
 class Settings(BaseSettings):
@@ -59,6 +76,15 @@ class Settings(BaseSettings):
     gui_poll_seconds: float = Field(default=0.5, gt=0)
     # 0 keeps each SSE connection open until the client leaves; tests set a small bound.
     gui_stream_max_seconds: float = Field(default=0.0, ge=0)
+    # Session viewer (GUI-T02 contract, section 6). Only sessions whose working folder is inside one of
+    # ``gui_session_roots`` are shown; empty (the default) shows none. Environment values: a JSON list or
+    # items separated by ``;``. The four ``gui_*_home``/``_dir`` settings override where each store lives.
+    gui_session_roots: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    gui_session_sources: Annotated[list[str], NoDecode] = Field(default_factory=lambda: list(SESSION_SOURCES))
+    gui_claude_home: Optional[Path] = None
+    gui_codex_home: Optional[Path] = None
+    gui_copilot_home: Optional[Path] = None
+    gui_claude_desktop_dir: Optional[Path] = None
 
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:8b"
@@ -82,6 +108,27 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = Field(default=0.75, gt=0.05)
     worker_enabled: bool = True
     mock_mode: bool = False
+
+    @field_validator("gui_session_roots", "gui_session_sources", mode="before")
+    @classmethod
+    def _split_gui_lists(cls, value: Any) -> Any:
+        return _as_list(value)
+
+    @field_validator("gui_session_roots")
+    @classmethod
+    def _validate_session_roots(cls, values: list[str]) -> list[str]:
+        roots = [str(Path(v).expanduser()) for v in values if isinstance(v, str) and v.strip()]
+        if len(roots) != len(values):
+            raise ValueError("gui_session_roots must contain non-empty folder paths")
+        return list(dict.fromkeys(roots))
+
+    @field_validator("gui_session_sources")
+    @classmethod
+    def _validate_session_sources(cls, values: list[str]) -> list[str]:
+        unknown = [v for v in values if v not in SESSION_SOURCES]
+        if unknown:
+            raise ValueError(f"gui_session_sources accepts only {', '.join(SESSION_SOURCES)}; got {', '.join(map(str, unknown))}")
+        return list(dict.fromkeys(values))
 
     @field_validator("api_allowed_hosts")
     @classmethod

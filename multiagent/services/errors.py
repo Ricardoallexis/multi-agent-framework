@@ -34,6 +34,8 @@ IDEMPOTENCY_CONFLICT = "idempotency_conflict"    # 409: idempotency key reused w
 HUMAN_STEP_UNAVAILABLE = "human_step_unavailable"    # 409: run has no pending human step
 HUMAN_SUBMISSION_INVALID = "human_submission_invalid"  # 422: human/external response rejected
 OPERATION_FAILED = "operation_failed"            # 409: other framework error while handling the request
+INVALID_SESSION_ID = "invalid_session_id"        # 400: session id is not '<source>:<id>' (GUI session viewer)
+INVALID_CURSOR = "invalid_cursor"                # 400: cursor does not belong to this session or is malformed
 
 
 class ServiceError(Exception):
