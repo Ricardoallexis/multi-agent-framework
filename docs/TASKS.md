@@ -49,7 +49,9 @@ values are never stored.
 `submitted` and `accepted` are deliberately different: finishing a task does not
 release its dependents; validating it does. A task without a gate is accepted
 explicitly by a person or client; a task with a gate is accepted only by passing
-it.
+it. Imported `source_state`, a group's `authorized` flag and
+`lifecycle_state`, native task `state`, effective `blocked`/`ready` status, and
+legacy release readiness remain separate values.
 
 ## Dependencies
 
@@ -427,6 +429,57 @@ multiagent cursor events agent:releaser --mine
 multiagent cursor ack agent:releaser --seq 213
 ```
 
+### Import and roll back a native snapshot
+
+Snapshot import accepts an exact current-state batch, not a history archive or
+a bulk migration facility. Preview it first, then import it with the same
+source key and canonical SHA-256. The receipt and imported rows are retained as
+an auditable unit; rollback is available only while the safety checks confirm
+that the imported baseline has not been used or changed. This example is
+synthetic and uses a temporary local database:
+
+```python
+import hashlib
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from multiagent.config import Settings
+from multiagent.services import ApplicationServices
+
+snapshot = {
+    "groups": [{"id": "demo", "title": "Demo", "authorized": True,
+                "source_id": "old-demo", "source_state": "active"}],
+    "tasks": [{"id": "demo-task", "group_id": "demo", "title": "Demo task",
+               "state": "open", "source_id": "old-task",
+               "source_state": "available", "file_scope": []}],
+    "dependencies": [],
+}
+canonical = json.dumps(snapshot, sort_keys=True, separators=(",", ":"),
+                       ensure_ascii=False).encode("utf-8")
+digest = hashlib.sha256(canonical).hexdigest()
+
+with TemporaryDirectory() as directory:
+    base = Path(directory)
+    settings = Settings(_env_file=None, local_dir=base,
+                        data_dir=base / "data", db_path=base / "data" / "framework.db",
+                        runs_dir=base / "runs", assets_dir=base / "assets",
+                        worker_enabled=False, openai_enabled=False,
+                        openai_api_key="", gemini_api_key="")
+    services = ApplicationServices.create(settings, dry_run=True)
+    args = dict(source_key="demo-import", source_ref="synthetic://demo",
+                snapshot_sha256=digest, actor="example")
+    services.tasks.plan_snapshot(snapshot, **args)
+    services.tasks.import_snapshot(snapshot, **args)
+    receipt = services.tasks.get_snapshot("demo-import")
+    services.tasks.rollback_snapshot("demo-import", actor="example")
+    services.runs.close()
+```
+
+Rollback is not a substitute for a production migration plan. It refuses when
+activity, changed baseline rows, external references, or an acknowledged event
+cursor make removing the imported batch unsafe.
+
 `task context` also takes `--context-ref` and `--constraint` (repeatable) and
 `--clear-context-refs` and `--clear-constraints` to empty those lists;
 `task result show` takes a task id (with `--attempt`) or a `result://` reference;
@@ -488,13 +541,20 @@ multiagent team-events --after 0
 | Update a group | `update_group(id, actor=…)` | `PATCH /api/v1/task-groups/{id}` | `task-group update` |
 | List tasks | `list_tasks(group_id=, status=, assignee=)` | `GET /api/v1/tasks?group=&status=&assignee=` | `tasks` |
 | Ready tasks | `ready_tasks(group_id=)` | `GET /api/v1/tasks/ready` | `tasks --ready` |
-| Create a task | `create_task(group, id, title, actor=…, context_refs=…)` | `POST /api/v1/tasks` | `task create` (`--context-ref REF` repeatable; closed group: add `--reopen-group --group-revision N --cause C`) |
+| Create a task | `create_task(group, id, title, actor=…, context_refs=…, release_dependencies=…)` | `POST /api/v1/tasks` | `task create` (`--context-ref REF` and `--release-dep ID=SOURCE_REF` repeatable; closed group: add `--reopen-group --group-revision N --cause C`) |
 | Update task scope | `update_scope(id, file_scope=…, actor=…, expected_revision=…)` | `POST /api/v1/tasks/{id}/scope` | `task scope set ID --actor A --revision N --file PATH` (repeat `--file`, `--shared`, `--workspace`) |
 | Show a task | `get_task(id)` | `GET /api/v1/tasks/{id}` | `task show` |
 | Add a dependency | `add_dependency(id, depends_on, actor=…)` | `POST /api/v1/tasks/{id}/dependencies` | `task dep add` |
 | Remove a dependency | `remove_dependency(id, depends_on, actor=…)` | `DELETE /api/v1/tasks/{id}/dependencies/{depends_on}?actor=` | `task dep remove` |
 | Change state | `transition(id, action, actor=…)` | `POST /api/v1/tasks/{id}/transitions` | `task do` |
 | Team events | `events(after=, group_id=, task_id=, limit=)` | `GET /api/v1/team-events` | `team-events` |
+| Plan or import a task snapshot | `plan_snapshot(snapshot, source_key=…, source_ref=…, snapshot_sha256=…, actor=…)` / `import_snapshot(…)` | `POST /api/v1/task-snapshots/import` (`what_if: true` previews) | `task snapshot import FILE --actor A [--what-if]` |
+| Inspect a snapshot receipt | `get_snapshot(source_key)` | `GET /api/v1/task-snapshots/{source_key}` | `task snapshot show SOURCE_KEY` |
+| Roll back an imported snapshot | `rollback_snapshot(source_key, actor=…)` | `POST /api/v1/task-snapshots/{source_key}/rollback` | `task snapshot rollback SOURCE_KEY --actor A` |
+| Set a group's legacy release mode | `set_release_mode(group, mode, actor=…)` | `PUT /api/v1/task-groups/{group_id}/release-mode` | `task release mode GROUP MODE --actor A` |
+| Add/remove a legacy release dependency | `add_release_dependency(…)` / `remove_release_dependency(…)` | `POST` / `DELETE /api/v1/tasks/{id}/release-dependencies[/{depends_on_id}]` | `task release dep add|remove` |
+| Read or record legacy release facts | `get_release_facts`, `record_delivery_fact`, `record_test_verdict`, `record_integration_fact`, `reset_release_facts` | `GET` / `POST /api/v1/tasks/{id}/release-facts[/delivery|/test|/integration|/reset]` | `task release facts show|delivery|test|integration|reset` |
+| Read release-aware task context | `get_context_v2(id, known_fingerprint=, after=)` | `GET /api/v2/tasks/{id}/context` | `task context-v2 ID [--known-fingerprint H] [--after N]` |
 | Show a task's gate | `gates.get_gate(id)` | `GET /api/v1/tasks/{id}/gate` | `task gate show` |
 | Set a task's gate | `gates.set_task_gate(id, checks, actor=…)` | `PUT /api/v1/tasks/{id}/gate` | `task gate set` |
 | Set a group's gate | `gates.set_group_gate(id, checks, actor=…)` | `PUT /api/v1/task-groups/{id}/gate` | `task-group gate` |

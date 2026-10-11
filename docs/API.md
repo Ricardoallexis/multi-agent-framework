@@ -102,12 +102,19 @@ and bundle-worker shutdown through its application lifespan.
 | `POST` | `/api/v1/task-groups` | Create a task group with `{"id", "title", "actor", "authorized"?, "default_requires"?}`. Returns `201 Created`. |
 | `GET` | `/api/v1/task-groups/{group_id}` | Get a task group with task counts per status. |
 | `PATCH` | `/api/v1/task-groups/{group_id}` | Change `title`, `authorized`, or `default_requires`; requires `actor`. |
+| `PUT` | `/api/v1/task-groups/{group_id}/release-mode` | Set the legacy release policy to `terminada`, `probada`, or `integrada` with `{"mode", "actor"}`. |
 | `GET` | `/api/v1/tasks` | List tasks; optional `group`, `status`, and `assignee` query parameters. |
-| `POST` | `/api/v1/tasks` | Create a task with `{"group_id", "id", "title", "actor", "objective"?, "depends_on"?, "file_scope"?, "requirements"?, "preferred"?}`. Returns `201 Created`. |
+| `POST` | `/api/v1/tasks` | Create a task with native `depends_on`, optional `release_dependencies` (`depends_on_id` plus provenance `source_ref`), context references, and other task fields. Returns `201 Created`. |
+| `POST` | `/api/v1/task-snapshots/import` | Preview or atomically import a body containing `snapshot: {groups, tasks, dependencies}`, `source_key`, `source_ref`, `snapshot_sha256`, and `actor`; set `what_if: true` to preview. |
+| `GET` | `/api/v1/task-snapshots/{source_key}` | Read the durable import receipt. |
+| `POST` | `/api/v1/task-snapshots/{source_key}/rollback` | Roll back an imported batch when baseline and activity checks permit; body `{"actor"}`. |
 | `GET` | `/api/v1/tasks/ready` | List ready tasks of authorized groups; optional `group`. |
 | `GET` | `/api/v1/tasks/{task_id}` | Get a task with its status, blockers, dependencies, and dependents. |
 | `POST` | `/api/v1/tasks/{task_id}/dependencies` | Add a dependency with `{"depends_on_id", "actor", "requires"?}`. |
 | `DELETE` | `/api/v1/tasks/{task_id}/dependencies/{depends_on_id}` | Remove a dependency; requires `?actor=`. |
+| `POST` / `DELETE` | `/api/v1/tasks/{task_id}/release-dependencies[/{depends_on_id}]` | Add or remove a legacy release edge, kept separate from native dependencies. |
+| `GET` | `/api/v1/tasks/{task_id}/release-facts` | Read the current delivery, test, and integration facts with provenance. |
+| `POST` | `/api/v1/tasks/{task_id}/release-facts/{delivery\|test\|integration\|reset}` | Record or reset current legacy release evidence. |
 | `POST` | `/api/v1/tasks/{task_id}/transitions` | Change a task's state with `{"action", "actor", "cause"?, "expected_revision"?}`. |
 | `GET` | `/api/v1/team-events` | List team events; optional `after`, `group`, `task`, and `limit` (1–1000). |
 | `GET` | `/api/v1/tasks/{task_id}/gate` | Get the task's effective gate, its source (task, group, or none), and its last run. |
@@ -120,6 +127,7 @@ and bundle-worker shutdown through its application lifespan.
 | `GET` | `/api/v1/project-commands` | List configured project commands (names, timeouts, folders; never arguments). |
 | `PUT` | `/api/v1/tasks/{task_id}/context` | Set the task's `base_commit`, `context_refs`, and `constraints` with `{"actor", ...}`; only the given fields change. |
 | `GET` | `/api/v1/tasks/{task_id}/envelope` | Get the task envelope; optional `known_hash` returns `{"unchanged": true, ...}` when it still matches. |
+| `GET` | `/api/v2/tasks/{task_id}/context` | Capability `release_dependencies/v1`: return the v1 task envelope plus `release_context` and a canonical fingerprint; `known_fingerprint` may return `unchanged`; `after` only validates the event-head bound and does not read or acknowledge events. |
 | `POST` | `/api/v1/blobs` | Store a blob: the request body is the raw content; `?actor=` is required and `?media_type=` and `?sha256=` (to verify the content) are optional. A blob over 8 MiB answers `413 invalid_request`. |
 | `GET` | `/api/v1/artifacts` | Read a range of a blob: `?ref=blob:sha256:…`, optional `offset` and `length` (up to 1 MiB). |
 | `POST` | `/api/v1/tasks/{task_id}/results` | Submit the result of the current attempt and submit the task with `{"actor", "result"}`; a repeated identical result returns `"duplicate": true`. |
