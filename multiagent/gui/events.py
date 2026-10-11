@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from collections.abc import Callable
 from typing import Any, AsyncIterator
@@ -37,6 +38,36 @@ import anyio
 from .runs import _clean  # the same cleaning as the run view: no *_path keys, bounded text
 
 BATCH = 500
+_stopping = threading.Event()  # set when the server starts to stop; every stream then ends at once
+_SLICE = 0.1  # seconds between two checks of that flag while a stream waits
+
+
+def request_shutdown() -> None:
+    """Ask the open streams to end, so that a stopping server does not wait for them."""
+    _stopping.set()
+
+
+def is_shutting_down() -> bool:
+    return _stopping.is_set()
+
+
+def reset_shutdown() -> None:
+    """Clear the flag at startup (and in tests)."""
+    _stopping.clear()
+
+
+async def _pause(seconds: float) -> None:
+    """Sleep up to ``seconds``, returning at once when the flag is set.
+
+    Not ``threading.Event.wait`` in a worker thread: each open stream would hold one of AnyIO's threads
+    for its whole poll interval. The flag is checked every ``_SLICE`` seconds instead.
+    """
+    deadline = time.monotonic() + seconds
+    while not _stopping.is_set():
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return
+        await asyncio.sleep(min(left, _SLICE))
 
 
 def read_after(store, after: int, limit: int = BATCH, run_id: str | None = None) -> list[dict[str, Any]]:
@@ -61,6 +92,8 @@ async def stream(store, *, after: int, heartbeat: float, poll: float, max_second
     yield ": connected\n\n"
     cursor = after
     while True:
+        if is_shutting_down():
+            return
         events = await anyio.to_thread.run_sync(read_after, store, cursor, BATCH, run_id)
         for event in events:
             cursor = event["id"]
@@ -75,7 +108,7 @@ async def stream(store, *, after: int, heartbeat: float, poll: float, max_second
             yield ": heartbeat\n\n"
         if max_seconds and now - started >= max_seconds:
             return
-        await asyncio.sleep(poll)
+        await _pause(poll)
 
 
 def format_item(item: dict[str, Any]) -> str:
@@ -102,6 +135,8 @@ async def stream_session(read: Callable[[str], dict[str, Any]], *, after: str, h
     cursor = after
     seen: set[str] = set()
     while True:
+        if is_shutting_down():
+            return
         try:
             page = await anyio.to_thread.run_sync(read, cursor)
         except Exception as exc:  # the session vanished or is no longer readable
@@ -129,7 +164,7 @@ async def stream_session(read: Callable[[str], dict[str, Any]], *, after: str, h
             return
         if moved and not page["done"]:
             continue  # more is already in the file
-        await asyncio.sleep(poll)
+        await _pause(poll)
 
 
 async def stream_children(read: Callable[[], dict[str, Any]], *, interval: float, heartbeat: float,
@@ -137,12 +172,14 @@ async def stream_children(read: Callable[[], dict[str, Any]], *, interval: float
     """Tell the client when the children of one session changed.
 
     ``read()`` returns the children answer (``version`` and ``counts`` are what is sent). It runs at most
-    every ``interval`` seconds; nothing else is sent between changes except heartbeats.
+    every ``interval`` seconds; nothing else is sent between changes except heartbeats. A shutdown ends it.
     """
     started = last_beat = time.monotonic()
     yield ": connected\n\n"
     version: object = None
     while True:
+        if is_shutting_down():
+            return
         try:
             answer = await anyio.to_thread.run_sync(read)
         except Exception as exc:  # the session vanished or is no longer readable
@@ -161,4 +198,4 @@ async def stream_children(read: Callable[[], dict[str, Any]], *, interval: float
             yield ": heartbeat\n\n"
         if max_seconds and now - started >= max_seconds:
             return
-        await asyncio.sleep(interval)
+        await _pause(interval)

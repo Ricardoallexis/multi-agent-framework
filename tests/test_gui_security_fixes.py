@@ -220,7 +220,9 @@ def test_the_launcher_accepts_loopback_hosts(tmp_path, monkeypatch, host):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: home)
-    monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: started.append(kwargs))
+    monkeypatch.setattr(uvicorn.Server, "run",
+                        lambda self: started.append(dict(host=self.config.host, port=self.config.port,
+                                                         log_level=self.config.log_level)))
     monkeypatch.setattr(multiagent.cli, "_check_port_free", lambda host, port: None)
     for name, value in (("APP_HOST", host), ("LOCAL_DIR", str(tmp_path / "local")), ("WORKER_ENABLED", "false"),
                         ("GUI_TOKEN_FILE", str(home / ".multiagent" / "gui-token")), ("MOCK_MODE", "true")):

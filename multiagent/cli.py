@@ -704,9 +704,8 @@ def cmd_ui(args) -> None:
     import threading
     import webbrowser
 
-    import uvicorn
-
     from .api import create_app
+    from .gui.__main__ import serve
 
     if not args.real:
         os.environ["MOCK_MODE"] = "true"  # synthetic fixtures, no model calls or API keys
@@ -727,7 +726,7 @@ def cmd_ui(args) -> None:
     print("Press Ctrl+C to stop.")
     if not args.no_browser:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    serve(app, host=host, port=port, stopped="UI detenida.")
 
 
 def add_gui_arguments(parser: argparse.ArgumentParser) -> None:

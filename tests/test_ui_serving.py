@@ -130,7 +130,9 @@ def test_ui_command_defaults_to_mock_and_registers_trusted_bundles(
     monkeypatch.setattr(cli, "build_system", build_system)
     monkeypatch.setattr(api, "create_app", create_app)
     monkeypatch.setattr(cli, "_check_port_free", lambda host, port: None)
-    monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: observed.update(app=app, server=kwargs))
+    monkeypatch.setattr(uvicorn.Server, "run", lambda self: observed.update(app=self.config.app, server=dict(
+        host=self.config.host, port=self.config.port, log_level=self.config.log_level,
+        timeout_graceful_shutdown=self.config.timeout_graceful_shutdown)))
 
     args = cli.build_parser().parse_args([
         "ui",
@@ -145,7 +147,8 @@ def test_ui_command_defaults_to_mock_and_registers_trusted_bundles(
     assert observed["mock_mode"] is True
     assert observed["bundles"] == {"team": BUNDLE}
     assert observed["app"] is fake_app
-    assert observed["server"] == {"host": "127.0.0.1", "port": 8123, "log_level": "warning"}
+    assert observed["server"] == {"host": "127.0.0.1", "port": 8123, "log_level": "warning",
+                                  "timeout_graceful_shutdown": 3}
     output = capsys.readouterr().out
     assert "Mode: Mock (synthetic results, no API keys)" in output
     assert "Bundles: team" in output

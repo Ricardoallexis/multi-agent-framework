@@ -220,7 +220,7 @@ def server(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: home)
-    monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: started.append(app))
+    monkeypatch.setattr(uvicorn.Server, "run", lambda self: started.append(self.config.app))
     monkeypatch.setattr(cli, "_check_port_free", lambda host, port: None)
     for name, value in (("APP_HOST", "127.0.0.1"), ("LOCAL_DIR", str(tmp_path / "local")), ("WORKER_ENABLED", "false"),
                         ("GUI_TOKEN_FILE", str(home / ".multiagent" / "gui-token")), ("MOCK_MODE", "true"),

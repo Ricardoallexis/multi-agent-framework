@@ -13,11 +13,34 @@ from pathlib import Path
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 
 
+def serve(app, *, host: str, port: int, stopped: str) -> None:
+    """Serve ``app`` until Ctrl+C, then print ``stopped`` (``multiagent ui`` uses it too).
+
+    The first Ctrl+C sets the stop flag (``events.request_shutdown``), so open SSE streams end at once;
+    uvicorn then closes the rest, waiting at most 3 s. The Ctrl+C that uvicorn re-raises when its shutdown
+    is clean is swallowed here, so there is no traceback.
+    """
+    import uvicorn
+
+    from .events import request_shutdown, reset_shutdown
+
+    class StoppableServer(uvicorn.Server):
+        def handle_exit(self, sig, frame) -> None:
+            request_shutdown()
+            super().handle_exit(sig, frame)
+
+    reset_shutdown()
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning", timeout_graceful_shutdown=3)
+    try:
+        StoppableServer(config).run()
+    except KeyboardInterrupt:
+        pass
+    print(stopped)
+
+
 def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
         bundles: Mapping[str, str | Path] | None = None) -> None:
     """Start the server; ``bundles`` maps a name to a trusted definition-bundle folder (as in ``multiagent ui``)."""
-    import uvicorn
-
     from ..api import create_app
     from ..bootstrap import build_system
     from ..cli import _check_port_free
@@ -50,7 +73,7 @@ def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
     print("Press Ctrl+C to stop.")
     if not no_browser:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    serve(app, host=host, port=port, stopped="GUI detenida.")
 
 
 def main(argv: list[str] | None = None) -> None:
