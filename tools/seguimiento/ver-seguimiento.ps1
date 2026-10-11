@@ -504,6 +504,75 @@ function Get-RegisteredAgents {
     $rows
 }
 
+# SEG-T17 (REGLAS 33): ONE table of the applications whose workers Seguimiento follows. A worker belongs to its own application,
+# whatever application orchestrates it. A new application is added by ONE entry here, with no per-agent special cases:
+#   Key            short lower-case id (the Kind of a parsed reference)
+#   Application    name of its card in the Agentes tab (the Aplicación of its agents in AGENTES.md)
+#   RefPattern     regex of its worker reference as registrar-delegacion.ps1 writes it ("[ref: ...]" and the JSONL "reference")
+#   RefId          scriptblock: reference -> id used to find its activity file
+#   BarePattern    a reference without a known prefix that matches this regex belongs here (Claude subagent ids); $null otherwise
+#   NamePattern    regex of its name inside a worker name ("Copilot gpt-6-luna"), for delegations that carry no reference
+#   ShowAppPrefix  show "App · modelo" in place of the registered worker name (its model is read from the activity file)
+#   TailBytes      bytes read from the end of its activity file
+#   FindFile       scriptblock: parsed reference {Kind, Id} -> activity file (FileInfo) or $null
+#   ReadModel      scriptblock: file -> model name ('' when unknown); $null when the worker name already carries the model
+#   PendingTest    scriptblock: parsed records, last activity time -> start time of a running test, or $null
+# Only times, status and model names are read from the activity files, never their content.
+$script:WorkerApps = @(
+    [pscustomobject]@{ Key = 'claude'; Application = 'Claude'; RefPattern = 'agent-[A-Za-z0-9]+'; RefId = { param($reference) $reference }; BarePattern = '[A-Za-z0-9._-]+'
+        NamePattern = '(?i)\bclaude\b'; ShowAppPrefix = $false; TailBytes = 65536
+        FindFile = { param($ref) Find-SubagentFile $ref.Id }
+        ReadModel = $null
+        PendingTest = { param($records, $last) Get-ClaudePendingTest $records $last } }
+    [pscustomobject]@{ Key = 'copilot'; Application = 'Copilot'; RefPattern = 'copilot:[0-9A-Fa-f][0-9A-Fa-f-]{7,63}'; RefId = { param($reference) ($reference -split ':', 2)[1].ToLowerInvariant() }; BarePattern = $null
+        NamePattern = '(?i)\bcopilot\b'; ShowAppPrefix = $true; TailBytes = 262144
+        FindFile = { param($ref)
+            $path = Join-Path $script:copilotRoot "session-state\$($ref.Id)\events.jsonl"
+            if (Test-Path -LiteralPath $path -PathType Leaf) { Get-Item -LiteralPath $path } }
+        ReadModel = { param($file) Read-TranscriptModel $file.FullName { param($rec) Get-StringField $rec.data @('model', 'newModel', 'selectedModel', 'currentModel') } @('*"selectedModel"*', '*"model":*') { param($rec) Get-StringField $rec.data @('selectedModel', 'model') } }
+        PendingTest = { param($records, $last) Get-CopilotPendingTest $records $last } }
+    [pscustomobject]@{ Key = 'codex'; Application = 'Codex'; RefPattern = 'codex:[0-9A-Fa-f][0-9A-Fa-f-]{7,63}'; RefId = { param($reference) ($reference -split ':', 2)[1].ToLowerInvariant() }; BarePattern = $null
+        NamePattern = '(?i)\bcodex\b'; ShowAppPrefix = $true; TailBytes = 262144
+        FindFile = { param($ref)
+            foreach ($sub in 'sessions', 'archived_sessions') {
+                $dir = Join-Path $script:codexRoot $sub
+                if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
+                $found = Get-ChildItem -LiteralPath $dir -Recurse -File -Filter "rollout-*-$($ref.Id).jsonl" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($found) { return $found }
+            } }
+        ReadModel = { param($file) Read-TranscriptModel $file.FullName { param($rec) if ($rec.type -eq 'turn_context') { Get-StringField $rec.payload @('model') } } @('*"type":"turn_context"*') { param($rec) Get-StringField $rec.payload @('model') } }
+        PendingTest = { param($records, $last) Get-CodexPendingTest $records $last } }
+)
+# Any application's reference, for the "[ref: ...]" tail of a delegation row.
+$script:WorkerRefPattern = '(?:' + (($script:WorkerApps | ForEach-Object { $_.RefPattern }) -join '|') + ')'
+function Get-WorkerApp([string]$key) { $script:WorkerApps | Where-Object { $_.Key -eq $key } | Select-Object -First 1 }
+# Application (table entry) named inside a worker or agent name: the one mentioned first ("Copilot Claude Sonnet" is Copilot).
+function Get-WorkerAppByName([string]$name) {
+    $best = $null; $bestIndex = [int]::MaxValue
+    foreach ($app in $script:WorkerApps) {
+        $m = [regex]::Match($name, $app.NamePattern)
+        if ($m.Success -and $m.Index -lt $bestIndex) { $best = $app; $bestIndex = $m.Index }
+    }
+    $best
+}
+# Application (table entry) of a delegated worker: from its reference (agent- / copilot: / codex: / ...), else from its name.
+function Get-WorkerEntryApp($entry) {
+    $reference = Get-EntryReference $entry
+    if ($reference) {
+        $ref = Get-WorkerReference $reference
+        if ($ref) { $app = Get-WorkerApp $ref.Kind; if ($app) { return $app } }
+    }
+    Get-WorkerAppByName ([string]$entry.Worker)
+}
+# Application name of an agent that orchestrates: its registered Aplicación, else the application named in it, else its first word.
+function Get-AgentApplication([string]$name, [object[]]$registered = @()) {
+    $row = @($registered | Where-Object { $_.Name -ieq $name }) | Select-Object -First 1
+    if ($row -and $row.Application) { return $row.Application }
+    $app = Get-WorkerAppByName $name
+    if ($app) { return $app.Application }
+    ($name -split '-', 2)[0]
+}
+
 # SEG-T05: delegations of a card ("delegada" / "devuelta" rows of its Historial, see registrar-delegacion.ps1).
 # Returns Rows (every delegated worker, oldest first, deduplicated by worker) and Active (delegada without a later
 # devuelta of the same worker). Defensive: rows that do not match are skipped.
@@ -524,8 +593,10 @@ function Get-CardDelegations([string]$history, [string]$state = 'en curso') {
         $worker = $Matches['w'].Trim(); $paren = $Matches['p']; $rest = $Matches['rest'].Trim()
         $reference = ''
         # SEG-T15: also copilot:<id de sesión> and codex:<id de hilo> (registrar-delegacion.ps1 -Referencia).
-        if ($rest -match '\s*\[ref:\s*(agent-[A-Za-z0-9]+|(?:copilot|codex):[0-9A-Fa-f][0-9A-Fa-f-]{7,63})\s*\]\s*$') {
-            $reference = $Matches[1]; $rest = ($rest -replace '\s*\[ref:\s*(?:agent-[A-Za-z0-9]+|(?:copilot|codex):[0-9A-Fa-f][0-9A-Fa-f-]{7,63})\s*\]\s*$', '').Trim()
+        # SEG-T17: the accepted references come from the table of applications ($script:WorkerApps).
+        $referenceTail = '\s*\[ref:\s*(' + $script:WorkerRefPattern + ')\s*\]\s*$'
+        if ($rest -match $referenceTail) {
+            $reference = $Matches[1]; $rest = ($rest -replace $referenceTail, '').Trim()
         }
         if (-not $worker) { continue }
         if ($row.Action -eq 'delegada') {
@@ -606,9 +677,14 @@ function ConvertTo-LocalStamp($value) {
 }
 # SEG-T15: Copilot sessions and Codex threads are workers like the Claude subagents. A reference is agent-<id> (Claude),
 # copilot:<id de sesión> or codex:<id de hilo>. Only times, the status and the model name are read, never the content.
+# SEG-T17: the application, its id pattern and its id come from the table of applications ($script:WorkerApps).
 function Get-WorkerReference([string]$reference) {
-    if ($reference -match '^(copilot|codex):([0-9A-Fa-f][0-9A-Fa-f-]{7,63})$') { return [pscustomobject]@{ Kind = $Matches[1].ToLowerInvariant(); Id = $Matches[2].ToLowerInvariant() } }
-    if ($reference -match '^[A-Za-z0-9._-]+$') { return [pscustomobject]@{ Kind = 'claude'; Id = $reference } }
+    foreach ($app in $script:WorkerApps) {
+        if ($reference -match "^(?:$($app.RefPattern))$") { return [pscustomobject]@{ Kind = $app.Key; Id = (& $app.RefId $reference) } }
+    }
+    foreach ($app in $script:WorkerApps) {
+        if ($app.BarePattern -and $reference -match "^(?:$($app.BarePattern))$") { return [pscustomobject]@{ Kind = $app.Key; Id = $reference } }
+    }
     $null
 }
 function Get-EntryReference($entry) {
@@ -617,23 +693,12 @@ function Get-EntryReference($entry) {
 $script:WorkerFileCache = @{}
 $script:WorkerModelCache = @{}
 function Find-WorkerFile($ref) {
-    if ($ref.Kind -eq 'claude') { return Find-SubagentFile $ref.Id }
+    $app = Get-WorkerApp $ref.Kind
+    if (-not $app) { return $null }
     $key = "$($ref.Kind):$($ref.Id)"
     if ($script:WorkerFileCache.ContainsKey($key)) { return $script:WorkerFileCache[$key] }
     $found = $null
-    try {
-        if ($ref.Kind -eq 'copilot') {
-            $path = Join-Path $script:copilotRoot "session-state\$($ref.Id)\events.jsonl"
-            if (Test-Path -LiteralPath $path -PathType Leaf) { $found = Get-Item -LiteralPath $path }
-        } else {
-            foreach ($sub in 'sessions', 'archived_sessions') {
-                $dir = Join-Path $script:codexRoot $sub
-                if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
-                $found = Get-ChildItem -LiteralPath $dir -Recurse -File -Filter "rollout-*-$($ref.Id).jsonl" -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($found) { break }
-            }
-        }
-    } catch { $found = $null }
+    try { $found = & $app.FindFile $ref } catch { $found = $null }
     $script:WorkerFileCache[$key] = $found
     $found
 }
@@ -675,39 +740,43 @@ function Get-StringField($object, [string[]]$names) {
     }
     ''
 }
-# Model of a Copilot session / Codex thread: the last one named in the tail of its transcript, else the first in its head.
+# Model named in a transcript: the last one in the records of its tail ($FromTail: record -> model), else the first in the lines of
+# its head that contain one of $HeadMarkers (-like patterns; $FromHead: record -> model). Only the model name is read.
+function Read-TranscriptModel([string]$path, [scriptblock]$FromTail, [string[]]$HeadMarkers, [scriptblock]$FromHead) {
+    $model = ''
+    $records = @(Read-TailRecords $path 262144)
+    for ($i = $records.Count - 1; $i -ge 0 -and -not $model; $i--) { $model = & $FromTail $records[$i] }
+    if (-not $model) {
+        foreach ($line in Read-HeadLines $path 300 2000000) {
+            $wanted = $false
+            foreach ($marker in $HeadMarkers) { if ($line -like $marker) { $wanted = $true; break } }
+            if (-not $wanted) { continue }
+            try { $rec = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+            $model = & $FromHead $rec
+            if ($model) { break }
+        }
+    }
+    [string]$model
+}
+# Model of a worker whose application reads it from its activity file (table column ReadModel); '' otherwise.
 function Get-WorkerModel($ref) {
     $key = "$($ref.Kind):$($ref.Id)"
     if ($script:WorkerModelCache.ContainsKey($key)) { return $script:WorkerModelCache[$key] }
     $model = ''
-    $file = if ($ref.Kind -eq 'claude') { $null } else { Find-WorkerFile $ref }
+    $app = Get-WorkerApp $ref.Kind
+    $file = if ($app -and $app.ReadModel) { Find-WorkerFile $ref } else { $null }
     if ($file) {
-        try {
-            $records = @(Read-TailRecords $file.FullName 262144)
-            for ($i = $records.Count - 1; $i -ge 0 -and -not $model; $i--) {
-                $rec = $records[$i]
-                if ($ref.Kind -eq 'copilot') { $model = Get-StringField $rec.data @('model', 'newModel', 'selectedModel', 'currentModel') }
-                elseif ($rec.type -eq 'turn_context') { $model = Get-StringField $rec.payload @('model') }
-            }
-            if (-not $model) {
-                foreach ($line in Read-HeadLines $file.FullName 300 2000000) {
-                    $wanted = if ($ref.Kind -eq 'copilot') { $line -like '*"selectedModel"*' -or $line -like '*"model":*' } else { $line -like '*"type":"turn_context"*' }
-                    if (-not $wanted) { continue }
-                    try { $rec = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
-                    $model = if ($ref.Kind -eq 'copilot') { Get-StringField $rec.data @('selectedModel', 'model') } else { Get-StringField $rec.payload @('model') }
-                    if ($model) { break }
-                }
-            }
-        } catch { $model = '' }
+        try { $model = [string](& $app.ReadModel $file) } catch { $model = '' }
     }
     $script:WorkerModelCache[$key] = $model
     $model
 }
-# "Copilot · <modelo>" / "Codex · <modelo>" for those workers; any other worker keeps its registered name.
+# "Copilot · <modelo>" / "Codex · <modelo>" for the applications that show their prefix; any other worker keeps its registered name.
 function Get-WorkerDisplayName([string]$worker, [string]$reference) {
     $ref = if ($reference) { Get-WorkerReference $reference } else { $null }
-    if (-not $ref -or $ref.Kind -eq 'claude') { return $worker }
-    $app = if ($ref.Kind -eq 'copilot') { 'Copilot' } else { 'Codex' }
+    $entry = if ($ref) { Get-WorkerApp $ref.Kind } else { $null }
+    if (-not $entry -or -not $entry.ShowAppPrefix) { return $worker }
+    $app = $entry.Application
     $model = Get-WorkerModel $ref
     if ($model) { return "$app · $model" }
     if (-not $worker) { return $app }
@@ -801,21 +870,20 @@ function Get-WorkerActivity($entry) {
     if (-not $reference) { return 'sin señal de actividad' }
     $ref = Get-WorkerReference $reference
     if (-not $ref) { return 'sin señal de actividad' }
+    $app = Get-WorkerApp $ref.Kind
+    if (-not $app) { return 'sin señal de actividad' }
     $file = Find-WorkerFile $ref
     if (-not $file) { return 'sin señal de actividad' }
     $now = if ($null -ne $script:nowOverride) { [datetime]$script:nowOverride } else { Get-Date }
     $last = $file.LastWriteTime
     $running = $null
     try {
-        $records = @(Read-TailRecords $file.FullName $(if ($ref.Kind -eq 'claude') { 65536 } else { 262144 }))
+        $records = @(Read-TailRecords $file.FullName $app.TailBytes)
         if ($records.Count) {
             $stamp = $records[-1].timestamp
             if ($stamp) { $t = ConvertTo-LocalStamp $stamp; if ($t -and $t -gt $last) { $last = $t } }
-            $running = switch ($ref.Kind) {
-                'claude' { Get-ClaudePendingTest $records $last }
-                'copilot' { Get-CopilotPendingTest $records $last }
-                'codex' { Get-CodexPendingTest $records $last }
-            }
+            # SEG-T17: the running-test detector of the worker's application (table of applications).
+            $running = & $app.PendingTest $records $last
         }
     } catch { }
     $minutes = [Math]::Max(0, [int][Math]::Floor(($now - $last).TotalMinutes))
@@ -915,6 +983,11 @@ function Get-WorkItemsFromLines([object[]]$lines) {
     }
     @($items)
 }
+# "Tokens: ..." of a worker entry of the Tokens field (HTML-encoded): per-window total, input and output, or why there is no figure.
+function Get-WorkerTokenText($token) {
+    if ($null -eq $token.Total) { "Tokens: $(Encode $token.Source)" }
+    else { "Tokens: $(Format-TokenCount $token.Total) · entrada $(Format-TokenCount $token.Input) · salida $(Format-TokenCount $token.Output) · $(Encode $token.Source)" }
+}
 # One <details> per delegated worker: the summary is the worker label with the short tag(s) of what it worked on; the body lists
 # every delegation of that worker in the task (piece, result, from/until, activity while active) and its tokens (the "↳" entry
 # of the Tokens field). Workers without items keep the plain line.
@@ -937,12 +1010,45 @@ function Get-WorkerListHtml($delegation, [string]$tokens) {
             "<li><strong>$(Encode (Get-WorkTag $item))</strong> · $(Encode $span)$piece$result</li>"
         }
         $token = $tokenEntries | Where-Object { $_.Agent -ieq $detail.Worker } | Select-Object -First 1
-        $tokenLine = if (-not $token) { '' }
-            elseif ($null -eq $token.Total) { "<div>Tokens: $(Encode $token.Source)</div>" }
-            else { "<div>Tokens: $(Format-TokenCount $token.Total) · entrada $(Format-TokenCount $token.Input) · salida $(Format-TokenCount $token.Output) · $(Encode $token.Source)</div>" }
+        $tokenLine = if ($token) { "<div>$(Get-WorkerTokenText $token)</div>" } else { '' }
         "<div class=""meta""><details class=""seg-worker""><summary>$(Encode $label)$chips</summary><ul class=""seg-worker-items"">$($lines -join '')</ul>$tokenLine</details></div>"
     }
     @($out) -join ''
+}
+
+# SEG-T17 (REGLAS 33): active delegations whose worker belongs to another application than the agent that delegated it (Claude
+# orchestrating a Copilot or Codex worker, Codex orchestrating a Claude worker, ...). Each one is listed in the Agentes card of ITS
+# application, besides its line in the delegations of the orchestrator. The application comes from the worker reference, else from its
+# name. A worker of the orchestrator's own application stays in the orchestrator's block of that same card. Only times, the status
+# and model names are read (Get-WorkerActivity, Get-WorkerDisplayName), never content.
+function Get-ForeignWorkers($board, [object[]]$registered) {
+    foreach ($task in @($board.Tasks)) {
+        foreach ($entry in @($task.ActiveDelegations)) {
+            $app = Get-WorkerEntryApp $entry
+            if (-not $app) { continue }
+            $orchestrator = if ($entry.Orchestrator) { [string]$entry.Orchestrator } else { [string]$task.Agent }
+            if ((Get-AgentApplication $orchestrator $registered) -ieq $app.Application) { continue }
+            $activity = Get-WorkerActivity $entry
+            $token = @(Get-TokenEntries $task.Tokens | Where-Object { $_.Kind -eq 'worker' -and $_.Agent -ieq $entry.Worker }) | Select-Object -First 1
+            [pscustomobject]@{ Application = $app.Application; Task = $task; Entry = $entry; Orchestrator = $orchestrator
+                Activity = $activity; Stopped = ($activity -eq 'Probablemente detenido'); Token = $token }
+        }
+    }
+}
+# One worker block of an application card: model and level, "trabajando para <orquestador> en <tarea>", real activity, tokens.
+function Format-ForeignWorkerHtml($item) {
+    $entry = $item.Entry
+    $level = if ($entry.Level) { " ($($entry.Level))" } else { '' }
+    $name = Get-WorkerDisplayName $entry.Worker (Get-EntryReference $entry)
+    $badge = if ($item.Stopped) { "Probablemente detenido · delegado por $($item.Orchestrator) en $($item.Task.Id)" } else { "Activo · trabajando para $($item.Orchestrator) en $($item.Task.Id)" }
+    $badgeClass = if ($item.Stopped) { 's-unknown' } else { 's-en-curso' }
+    $since = $entry.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture)
+    $kind = if ($entry.Integration) { ' · integración' } else { '' }
+    $piece = if ($entry.Piece) { " · $($entry.Piece)" } else { '' }
+    $tokens = if ($item.Token) { "<p class=""agent-context"">$(Get-WorkerTokenText $item.Token)</p>" } else { '' }
+    "<div class=""agent-task agent-worker""><strong>$(Encode $name)$(Encode $level)</strong><span class=""state $badgeClass"">$(Encode $badge)</span>" +
+    "<p class=""agent-context"">Tarea: $(Encode $item.Task.Id) · $(Encode $item.Task.Title)$(Encode $kind)</p>" +
+    "<p class=""agent-context"">Actividad: $(Encode $item.Activity) · delegado desde $since$(Encode $piece)</p>$tokens</div>"
 }
 
 function Get-AgentBoardData {
@@ -1894,13 +2000,32 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
     $isActive = -not $agentBoard.Available -or [bool]$active
     [pscustomobject]@{ Name = $name; Application = $agentRow.Application; Active = $isActive; Html = $card }
 }
+# SEG-T17 (REGLAS 33): delegated workers of another application than their orchestrator's, grouped under their own application.
+$foreignWorkers = if ($agentBoard.Available) { @(Get-ForeignWorkers $agentBoard $registeredAgents) } else { @() }
+$applications = [System.Collections.Generic.List[string]]::new()
+foreach ($application in @($agentCards | ForEach-Object Application) + @($foreignWorkers | ForEach-Object Application)) {
+    if ($application -and $application -inotin $applications) { $applications.Add($application) }
+}
 # SEG-T05: one card per application; only names with an active task are listed, the rest in one line.
-$agentCards = foreach ($application in @($agentCards | ForEach-Object Application | Select-Object -Unique)) {
-    $members = @($agentCards | Where-Object Application -eq $application)
+# SEG-T17: also the active workers of that application, so an application with active workers never says "sin actividad".
+$agentCards = foreach ($application in @($applications)) {
+    $members = @($agentCards | Where-Object { $_.Application -ieq $application })
     $activeMembers = @($members | Where-Object Active)
     $idleMembers = @($members | Where-Object { -not $_.Active })
-    $appStatus = if ($activeMembers.Count) { "$($activeMembers.Count) con tarea activa" } else { 'sin actividad' }
-    $appClass = if ($activeMembers.Count) { 's-en-curso' } else { 's-idle' }
+    $appWorkers = @($foreignWorkers | Where-Object { $_.Application -ieq $application } | Sort-Object @{ Expression = { $_.Task.Id } }, @{ Expression = { $_.Entry.Since } })
+    $liveWorkers = @($appWorkers | Where-Object { -not $_.Stopped })
+    $stoppedWorkers = @($appWorkers | Where-Object { $_.Stopped })
+    $statusParts = @()
+    if ($activeMembers.Count) { $statusParts += "$($activeMembers.Count) con tarea activa" }
+    if ($liveWorkers.Count) { $statusParts += "$($liveWorkers.Count) $(if ($liveWorkers.Count -eq 1) { 'trabajador activo' } else { 'trabajadores activos' })" }
+    if (-not $statusParts) { $statusParts += 'sin actividad' }
+    if ($stoppedWorkers.Count) { $statusParts += "$($stoppedWorkers.Count) $(if ($stoppedWorkers.Count -eq 1) { 'trabajador probablemente detenido' } else { 'trabajadores probablemente detenidos' })" }
+    $appStatus = $statusParts -join ' · '
+    $appClass = if ($activeMembers.Count -or $liveWorkers.Count) { 's-en-curso' } else { 's-idle' }
+    $workersHtml = ''
+    if ($appWorkers.Count) {
+        $workersHtml = "<div class=""agent-name agent-workers""><h3>Trabajadores de otras aplicaciones</h3><p class=""meta"">Delegados por un agente de otra aplicación; también figuran como delegación en la tarjeta de quien los orquesta.</p>$(($appWorkers | ForEach-Object { Format-ForeignWorkerHtml $_ }) -join "`n")</div>"
+    }
     $idleHtml = ''
     if ($idleMembers.Count) {
         $idleHtml = "<p class=""meta agent-idle"">sin actividad: $(Encode (($idleMembers | ForEach-Object Name) -join ', '))</p>" +
@@ -1910,6 +2035,7 @@ $agentCards = foreach ($application in @($agentCards | ForEach-Object Applicatio
 <section class="panel agent-card">
   <div class="card-head"><h2>$(Encode $application)</h2><span class="state $appClass">$(Encode $appStatus)</span></div>
   $(($activeMembers | ForEach-Object Html) -join "`n")
+  $workersHtml
   $idleHtml
 </section>
 "@

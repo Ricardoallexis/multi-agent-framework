@@ -20,6 +20,14 @@ The entry points that consume private state require an explicit path:
 The tools do not upload packages or claim live provider activity. Upload and
 post-preparation state changes remain explicit operator actions.
 
+## Trabajadores de varias aplicaciones
+
+Quien orquesta y quien trabaja pueden ser de aplicaciones distintas (regla 33 del canal). La pestaña «Agentes» muestra cada trabajador delegado y activo en la tarjeta de SU aplicación («trabajando para <orquestador> en <tarea>», con su modelo, su actividad real y sus tokens por ventana), además de su línea en las delegaciones del orquestador. Una tarjeta de aplicación no dice «sin actividad» mientras tenga trabajadores activos; un trabajador «probablemente detenido» se lista pero no cuenta como activo.
+
+La aplicación sale de la referencia del trabajador (`agent-` Claude, `copilot:` Copilot, `codex:` Codex) y, sin referencia, del nombre del trabajador («Copilot gpt-6-luna»). Sólo se leen horas, estado y nombres de modelo de los archivos de actividad, nunca su contenido.
+
+Hay UNA tabla de aplicaciones, `$script:WorkerApps` en `ver-seguimiento.ps1`. Agregar una aplicación es agregar una entrada, sin casos especiales por agente: `Key`, `Application` (nombre de su tarjeta), `RefPattern` y `RefId` (su referencia), `BarePattern`, `NamePattern`, `ShowAppPrefix`, `TailBytes`, `FindFile` (dónde está su archivo de actividad), `ReadModel` (cómo se lee su modelo) y `PendingTest` (cómo se detecta una prueba en ejecución). Las pruebas están en `tests/SEG-T17/`.
+
 ## Lector opcional de la API core
 
 El visor conserva Markdown como vista canónica y predeterminada. `-LeerApi` agrega una pestaña de solo lectura que obtiene grupos (`GET /api/v1/task-groups`), tareas (`GET /api/v1/tasks`) y eventos (`GET /api/v1/team-events`) desde `-ApiBaseUrl` (predeterminado `http://127.0.0.1:8000`). `-ApiTimeoutSeconds` fija el límite por petición. Ejemplo:
