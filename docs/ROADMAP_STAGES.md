@@ -226,7 +226,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S8.B2 | Delegation traceability: who created and assigned each task and why, attempts, reviews, results. | S8.A2 |
 | **S8.C — Assignment** | | |
 | S8.C1 | ◐ Partial. T15 adds descriptor-based policy preview and guarded claims filtered by declared capabilities, roles, permissions, modes, and privacy. Bundled surfaces remain manual/unknown, so availability and execution are not established. | S8.A1, S5.C2 |
-| S8.C2 | ◐ Partial. T14/T15 apply configured mode, permission, privacy, and invocation-budget constraints; unmapped canonical constraints block. No executor is launched through ORQ-6. | S8.C1 |
+| S8.C2 | ◐ Partial. T14/T15 apply configured mode, permission, privacy, and invocation-budget constraints; unmapped canonical constraints block. ORQ-6 provides task launch, resume, and open operations through disabled-by-default Claude, Codex, and Copilot adapters. CI uses synthetic executables; installed CLI and live account, session, or app behavior have not been verified. See [executor applications](EXECUTORS.md). | S8.C1 |
 | **S8.D — Assisted planning** | | |
 | S8.D1 | Pluggable planners (manual, deterministic, LLM-based, custom, external). | S8.B1 |
 | S8.D2 | Semi-automatic plans that wait for human approval, where users can edit, reassign, or reject them. | S8.D1, S13.B1 |
@@ -326,8 +326,11 @@ eligible priced models and supports bounded, supervised or automatic
 escalation. Offline measurement tools apply the approved paired-run adoption
 criterion; real measurements require user authorization and budget. Codex,
 Claude, and Copilot CLI executor adapters can receive routing decisions within
-their declared support, but remain disabled. Broader health discovery, local
-model expansion, and the other planned items remain open.
+their declared support. ORQ-6 provides their task launch path, but the adapters
+remain disabled by default. CI uses synthetic executables; installed CLI and live
+account, session, or app behavior have not been verified. Broader health
+discovery, local model expansion, and the other planned items remain open. See
+[executor applications](EXECUTORS.md).
 
 ## S12 · Memory, context, and knowledge ☐
 
