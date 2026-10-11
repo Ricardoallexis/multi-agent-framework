@@ -227,6 +227,11 @@ SCRIPT: list[tuple[str, dict[str, Any]]] = [
                      "actor": "agent:parity", "depends_on": ["T1"],
                      "release_dependencies": [{"depends_on_id": "T3",
                                                 "source_ref": "doc://fixtures/release-t6.md"}]}),
+    ("update_scope", {"task_id": "T6", "file_scope": ["src/x"], "actor": "agent:parity", "expected_revision": 99}),
+    ("update_scope", {"task_id": "T6", "file_scope": ["src/x"], "actor": "agent:parity", "expected_revision": 1}),
+    ("set_group_state", {"group_id": "ORQ", "state": "closed", "actor": "user", "cause": "stale", "expected_revision": 99}),
+    ("set_group_state", {"group_id": "ORQ", "state": "closed", "actor": "user", "cause": "parity close",
+                         "expected_revision": 3}),
 ]
 
 
@@ -255,6 +260,10 @@ def run_facade(services: ApplicationServices, op: str, args: dict[str, Any]) -> 
         return getattr(tasks, op)(args.pop("task_id"), **args)
     if op == "get_release_facts":
         return tasks.get_release_facts(args["task_id"])
+    if op == "update_scope":
+        return tasks.update_scope(args.pop("task_id"), **args)
+    if op == "set_group_state":
+        return tasks.set_group_state(args.pop("group_id"), args.pop("state"), **args)
     return getattr(tasks, op)(**args)
 
 
@@ -315,6 +324,10 @@ def run_http(client: TestClient, op: str, args: dict[str, Any]) -> tuple[int, An
         route = {"record_delivery_fact": "delivery", "record_test_verdict": "test",
                  "record_integration_fact": "integration", "reset_release_facts": "reset"}[op]
         response = client.post(f"/api/v1/tasks/{task_id}/release-facts/{route}", json=a)
+    elif op == "update_scope":
+        response = client.post(f"/api/v1/tasks/{quote(a.pop('task_id'), safe='')}/scope", json=a)
+    elif op == "set_group_state":
+        response = client.post(f"/api/v1/task-groups/{quote(a.pop('group_id'), safe='')}/state", json=a)
     else:  # pragma: no cover - the script only uses the operations above
         raise AssertionError(op)
     return response.status_code, response.json()
@@ -392,6 +405,14 @@ def cli_args(op: str, args: dict[str, Any], snapshot_file: Path | None = None) -
     if op == "reset_release_facts":
         return ["task", "release", "facts", "reset", a["task_id"], "--actor", a["actor"],
                 "--reason", a["reason"]]
+    if op == "update_scope":
+        argv = ["task", "scope", "set", a["task_id"], "--actor", a["actor"], "--revision", str(a["expected_revision"])]
+        for path in a["file_scope"]:
+            argv += ["--file", path]
+        return argv
+    if op == "set_group_state":
+        return ["task", "group", "state", "set", a["group_id"], a["state"], "--actor", a["actor"],
+                "--cause", a["cause"], "--revision", str(a["expected_revision"])]
     raise AssertionError(op)  # pragma: no cover
 
 

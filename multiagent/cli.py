@@ -181,6 +181,22 @@ def cmd_task_group_create(args) -> None:
     }))
 
 
+def cmd_task_group_state(args) -> None:
+    pretty(_api_json("POST", f"/api/v1/task-groups/{_segment(args.group_id)}/state", json_body={
+        "state": args.state, "actor": args.actor, "cause": args.cause,
+        "expected_revision": args.revision,
+    }))
+
+
+def cmd_task_scope(args) -> None:
+    policy = None
+    if args.shared is not None or args.workspace is not None:
+        policy = {"shared_scope": args.shared or [], "workspace_scope": args.workspace or []}
+    body = {"file_scope": args.file or [], "actor": args.actor,
+            "expected_revision": args.revision, "workspace_domain": args.domain, "lock_policy": policy}
+    pretty(_api_json("POST", f"/api/v1/tasks/{_segment(args.task_id)}/scope", json_body=body))
+
+
 def cmd_task_group_update(args) -> None:
     body = {"actor": args.actor}
     if args.title is not None:
@@ -227,6 +243,8 @@ def cmd_task_create(args) -> None:
         "objective": args.objective, "depends_on": _parse_depends_on(args.depends_on),
         "release_dependencies": _parse_release_dependencies(args.release_dep),
         "file_scope": args.file or [], "requirements": args.requirement or [], "preferred": args.preferred,
+        "context_refs": args.context_ref or [],
+        "reopen_group": args.reopen_group, "expected_group_revision": args.group_revision, "cause": args.cause,
     }))
 
 
@@ -751,6 +769,12 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--group"); x.add_argument("--status"); x.add_argument("--assignee"); x.add_argument("--ready", action="store_true")
     x.set_defaults(func=cmd_tasks)
     task = sub.add_parser("task", help="Show, create, link or change a task").add_subparsers(dest="task_command", required=True)
+    # Explicit lifecycle transition: task group state set ID STATE --actor A --cause C --revision N
+    task_group = task.add_parser("group", help="Change task group lifecycle").add_subparsers(dest="group_action", required=True)
+    state_sub = task_group.add_parser("state").add_subparsers(dest="state_action", required=True)
+    x = state_sub.add_parser("set"); x.add_argument("group_id"); x.add_argument("state", choices=["open", "closed"])
+    x.add_argument("--actor", required=True); x.add_argument("--cause", required=True); x.add_argument("--revision", type=int, required=True)
+    x.set_defaults(func=cmd_task_group_state)
     x = task.add_parser("show"); x.add_argument("task_id"); x.set_defaults(func=cmd_task_show)
     assignment = task.add_parser("assignment", help="Preview or acknowledge a task assignment plan")
     assignment_sub = assignment.add_subparsers(dest="assignment_command", required=True)
@@ -768,7 +792,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Add an atomic legacy release dependency; repeatable")
     x.add_argument("--file", action="append", help="A path or folder the task will change; repeatable")
     x.add_argument("--requirement", action="append"); x.add_argument("--preferred", default="")
-    x.add_argument("--actor", required=True); x.set_defaults(func=cmd_task_create)
+    x.add_argument("--context-ref", action="append", help="Reference to immutable context; repeatable")
+    x.add_argument("--actor", required=True); x.add_argument("--reopen-group", action="store_true")
+    x.add_argument("--group-revision", type=int); x.add_argument("--cause", default=""); x.set_defaults(func=cmd_task_create)
+    scope = task.add_parser("scope", help="Set a task file scope and lock partition").add_subparsers(dest="scope_action", required=True)
+    x = scope.add_parser("set"); x.add_argument("task_id"); x.add_argument("--actor", required=True); x.add_argument("--revision", type=int, required=True)
+    x.add_argument("--file", action="append", help="A path or folder in file_scope; repeatable")
+    x.add_argument("--shared", action="append", help="Shared lock path; repeatable")
+    x.add_argument("--workspace", action="append", help="Workspace lock path; repeatable")
+    x.add_argument("--domain"); x.set_defaults(func=cmd_task_scope)
     x = task.add_parser("dep", help="Add or remove a dependency")
     x.add_argument("operation", choices=["add", "remove"]); x.add_argument("task_id"); x.add_argument("depends_on_id")
     x.add_argument("--requires", choices=requires_choices); x.add_argument("--actor", required=True); x.set_defaults(func=cmd_task_dep)

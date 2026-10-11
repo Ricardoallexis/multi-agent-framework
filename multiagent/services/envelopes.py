@@ -431,6 +431,8 @@ class EnvelopeServices:
             "task_id": task_id, "group_id": task["group_id"],
             "legacy_release_mode": group.get("legacy_release_mode"),
             "group_policy": {"authorized": group["authorized"],
+                             "lifecycle_state": group.get("lifecycle_state", "open"),
+                             "revision": group.get("revision", 1),
                              "default_requires": group["default_requires"],
                              "default_gate": group.get("default_gate", []),
                              "legacy_release_mode": group.get("legacy_release_mode")},

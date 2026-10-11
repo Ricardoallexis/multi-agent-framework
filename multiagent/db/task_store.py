@@ -51,6 +51,8 @@ class StaleRevision(Exception):
 def _group(row: sqlite3.Row) -> dict[str, Any]:
     item = dict(row)
     item["authorized"] = bool(item["authorized"])
+    item.setdefault("lifecycle_state", "open")
+    item.setdefault("revision", 1)
     # Migration 005 adds the group's default gate; decode it like the task JSON columns.
     if "default_gate_json" in item:
         item["default_gate"] = json.loads(item.pop("default_gate_json"))
@@ -96,13 +98,13 @@ class TaskStore:
     def insert_group(self, conn: sqlite3.Connection, group_id: str, title: str, *, actor: str,
                      authorized: bool = False, default_requires: str = "accepted",
                      default_gate: Iterable[dict[str, Any]] = (),
-                     legacy_release_mode: str | None = None) -> dict[str, Any]:
+                     legacy_release_mode: str | None = None, lifecycle_state: str = "open") -> dict[str, Any]:
         now = utcnow()
         conn.execute(
-            "INSERT INTO task_groups(id,title,authorized,default_requires,created_by,created_at,updated_at,default_gate_json,legacy_release_mode) "
-            "VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO task_groups(id,title,authorized,default_requires,created_by,created_at,updated_at,default_gate_json,legacy_release_mode,lifecycle_state) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
             (group_id, title, int(authorized), default_requires, actor, now, now, _dumps(list(default_gate)),
-             legacy_release_mode),
+             legacy_release_mode, lifecycle_state),
         )
         return self.get_group(group_id, conn=conn)  # type: ignore[return-value]
 
@@ -121,10 +123,30 @@ class TaskStore:
             changes["authorized"] = int(authorized)
         if default_requires is not None:
             changes["default_requires"] = default_requires
+        current = self.get_group(group_id, conn=conn)
+        if current is None:
+            return None
+        changes = {key: value for key, value in changes.items() if current.get(key) != value}
+        if not changes:
+            return current
         changes["updated_at"] = utcnow()
         assignments = ",".join(f"{column}=?" for column in changes)
-        cursor = conn.execute(f"UPDATE task_groups SET {assignments} WHERE id=?", (*changes.values(), group_id))
+        cursor = conn.execute(f"UPDATE task_groups SET {assignments},revision=revision+1 WHERE id=? AND revision=?",
+                              (*changes.values(), group_id, current["revision"]))
         return self.get_group(group_id, conn=conn) if cursor.rowcount else None
+
+    def set_group_lifecycle(self, conn: sqlite3.Connection, group_id: str, *, state: str,
+                            expected_revision: int) -> dict[str, Any] | None:
+        current = self.get_group(group_id, conn=conn)
+        if current is None:
+            return None
+        if current["revision"] != expected_revision:
+            return current
+        if current["lifecycle_state"] == state:
+            return current
+        conn.execute("UPDATE task_groups SET lifecycle_state=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?",
+                     (state, utcnow(), group_id, expected_revision))
+        return self.get_group(group_id, conn=conn)
 
     def get_group(self, group_id: str, *, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
         with self._reader(conn) as c:
@@ -138,14 +160,14 @@ class TaskStore:
     # -------- tasks --------
     def insert_task(self, conn: sqlite3.Connection, task_id: str, group_id: str, title: str, *, actor: str,
                     objective: str = "", preferred: str = "", requirements: Iterable[str] = (),
-                    file_scope: Iterable[str] = ()) -> dict[str, Any]:
+                    file_scope: Iterable[str] = (), context_refs: Iterable[str] = ()) -> dict[str, Any]:
         """Insert an ``open`` task at revision 1 and attempt 0."""
         now = utcnow()
         conn.execute(
             "INSERT INTO tasks(id,group_id,title,objective,state,preferred,requirements_json,file_scope_json,"
-            "created_by,created_at,updated_at) VALUES(?,?,?,?,'open',?,?,?,?,?,?)",
+            "context_refs_json,created_by,created_at,updated_at) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?)",
             (task_id, group_id, title, objective, preferred, _dumps(list(requirements)),
-             _dumps(list(file_scope)), actor, now, now),
+             _dumps(list(file_scope)), _dumps(list(context_refs)), actor, now, now),
         )
         return self.get_task(task_id, conn=conn)  # type: ignore[return-value]
 
@@ -192,7 +214,7 @@ class TaskStore:
     def update_task(self, conn: sqlite3.Connection, task_id: str, *, expected_revision: int,
                     state: str | None = None, assignee: str | None = None,
                     attempt: int | None = None, lock_policy: dict[str, Any] | None = None,
-                    workspace_domain: str | None = None,
+                    workspace_domain: str | None = None, file_scope: list[str] | None = None,
                     snapshot_epoch_pending: bool | None = None) -> dict[str, Any] | None:
         """Change the given fields and bump ``revision``, only if it is still ``expected_revision``.
 
@@ -211,6 +233,8 @@ class TaskStore:
             changes["lock_policy_json"] = _dumps(lock_policy)
         if workspace_domain is not None:
             changes["workspace_domain"] = workspace_domain
+        if file_scope is not None:
+            changes["file_scope_json"] = _dumps(file_scope)
         if snapshot_epoch_pending is not None:
             changes["snapshot_epoch_pending"] = int(snapshot_epoch_pending)
         changes["updated_at"] = utcnow()

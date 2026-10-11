@@ -17,11 +17,14 @@ and errors in all three. Everything is stored in the local SQLite database
 
 ## Groups
 
-A group has an `id`, a `title`, an `authorized` flag, a `default_requires`
+A group has an `id`, a `title`, an `authorized` flag, a separate lifecycle
+state (`open` or `closed`), an optimistic `revision`, a `default_requires`
 value for new dependencies (`accepted` by default), and a `default_gate` for its
 tasks (see [Gates](#gates)). Tasks of a group can be claimed only while the
-group is authorized, so a person can prepare a plan and approve it before any
-work starts.
+group is authorized. A closed group cannot accept new tasks unless creation
+explicitly reopens it in the same transaction. Closing requires a non-empty
+group whose tasks are all `submitted` or `accepted` and whose current delivery
+evidence is valid; deliveries with patches also require verified integration.
 
 ## Task states
 
@@ -80,6 +83,7 @@ expected_revision)`:
 | `request_changes` | `submitted` | `needs_changes` | Keeps the assignee. |
 | `fail` | `claimed`, `running`, `paused`, `needs_changes` | `failed` | |
 | `cancel` | any non-terminal status | `cancelled` | |
+| `reopen` | `submitted`, `accepted`, `failed`, `cancelled` | `open` | Requires a cause and current expected revision. Clears assignee, locks, domain and current release facts; keeps attempt and history. Abort a validating gate first. |
 
 Any other combination is rejected with `invalid_state`, and `details` lists the
 current status and the allowed ones. A refused transition changes nothing and
@@ -92,8 +96,18 @@ records no event.
 - **Concurrent clients.** Every change increments the task's `revision`. Pass
   `expected_revision` to make the change fail with `invalid_state` if someone
   else changed the task first.
-- **Follow-up work.** An accepted task is not reopened; create a new task that
-  depends on it.
+- **Scope changes.** `update_scope` requires the current revision. Open tasks
+  hold no locks; claimed and needs-changes tasks lock the full scope; paused
+  tasks partition the full scope into disjoint shared and workspace paths. Only
+  the assignee may change claimed, paused, or needs-changes work. If a paused
+  task changes scope without a new partition, the new scope stays globally
+  locked. Starting needs-changes work rechecks and reacquires its global lock.
+  Running and terminal tasks must be paused or reopened first.
+- **Follow-up work.** Reopen a submitted or terminal task with a cause and
+  expected revision, or create a new task that depends on it.
+- **Group lifecycle.** Every group mutation advances its revision only when a
+  value changes. `set_group_state` requires a cause and expected revision; group
+  closure checks delivery and integration facts in the same transaction.
 
 ## Team events
 
@@ -101,7 +115,8 @@ Each change writes one event in the same transaction as the change:
 `group.created`, `group.updated`, `task.created`, `dependency.added`,
 `dependency.removed`, `task.claimed`, `task.unclaimed`, `task.started`,
 `task.paused`, `task.resumed`, `task.submitted`, `task.accepted`,
-`task.changes_requested`, `task.failed`, `task.cancelled`, and `task.ready`
+`task.changes_requested`, `task.failed`, `task.cancelled`, `task.reopened`, `task.scope_updated`,
+`group.lifecycle_changed`, and `task.ready`
 (a dependent became ready), plus `task.context_updated` and `result.submitted`
 (see [Envelopes and results](#envelopes-and-results)). An event carries `seq`, `type`, `group_id`,
 `task_id`, `actor`, `cause`, `ref`, a small `payload` (at most 2048 bytes), and
@@ -469,10 +484,12 @@ multiagent team-events --after 0
 | List groups | `list_groups()` | `GET /api/v1/task-groups` | `task-groups` |
 | Create a group | `create_group(id, title, actor=…)` | `POST /api/v1/task-groups` | `task-group create` |
 | Show a group | `get_group(id)` | `GET /api/v1/task-groups/{id}` | `task-group show` |
+| Set group lifecycle | `set_group_state(id, state, actor=…, cause=…, expected_revision=…)` | `POST /api/v1/task-groups/{id}/state` | `task group state set ID open|closed --actor A --cause C --revision N` |
 | Update a group | `update_group(id, actor=…)` | `PATCH /api/v1/task-groups/{id}` | `task-group update` |
 | List tasks | `list_tasks(group_id=, status=, assignee=)` | `GET /api/v1/tasks?group=&status=&assignee=` | `tasks` |
 | Ready tasks | `ready_tasks(group_id=)` | `GET /api/v1/tasks/ready` | `tasks --ready` |
-| Create a task | `create_task(group, id, title, actor=…)` | `POST /api/v1/tasks` | `task create` |
+| Create a task | `create_task(group, id, title, actor=…, context_refs=…)` | `POST /api/v1/tasks` | `task create` (`--context-ref REF` repeatable; closed group: add `--reopen-group --group-revision N --cause C`) |
+| Update task scope | `update_scope(id, file_scope=…, actor=…, expected_revision=…)` | `POST /api/v1/tasks/{id}/scope` | `task scope set ID --actor A --revision N --file PATH` (repeat `--file`, `--shared`, `--workspace`) |
 | Show a task | `get_task(id)` | `GET /api/v1/tasks/{id}` | `task show` |
 | Add a dependency | `add_dependency(id, depends_on, actor=…)` | `POST /api/v1/tasks/{id}/dependencies` | `task dep add` |
 | Remove a dependency | `remove_dependency(id, depends_on, actor=…)` | `DELETE /api/v1/tasks/{id}/dependencies/{depends_on}?actor=` | `task dep remove` |
@@ -585,3 +602,31 @@ unsafe. Receipts written before B retain contract version 1 through migration
 using its original A fields, including a submitted task without imported B
 evidence. New snapshots use version 2. Historical events and task results are
 never synthesized.
+
+## ORQ-4 C: task and group lifecycle
+
+`reopen` is an explicit task transition. It accepts a required cause and
+`expected_revision`, moves eligible submitted or terminal tasks to `open`, and
+clears the assignee, current locks, workspace domain, pending snapshot epoch,
+and current release facts. It keeps the monotonic attempt count, result records,
+provenance, gate history, and prior events. A task in `validating` must first be
+returned to `submitted` through the explicit gate-abort operation.
+
+`update_scope` changes `file_scope`, lock policy, and optional workspace domain
+in one `BEGIN IMMEDIATE` transaction. It checks the revision, normalizes paths,
+validates the state-specific lock partition, detects overlapping locks, and
+records only a hash and counts in `task.scope_updated`. A matching no-op still
+checks the supplied revision and then leaves the revision and event log alone.
+The HTTP body accepts `file_scope`, `actor`, `expected_revision`, optional
+`lock_policy`, and optional `workspace_domain`.
+
+Groups have an independent `lifecycle_state` and `revision`; these fields do not
+change `authorized` or imported `source_state`. Lifecycle updates are audited
+with `group.lifecycle_changed`, and historical close events remain in the log
+after reopening. `create_task` accepts `reopen_group`, `expected_group_revision`, `cause`, and
+validated `context_refs`; the task row stores those refs as part of the initial
+insert. When a closed group is reopened, its state change and task creation
+commit or roll back together. Snapshot v2 groups
+may include `lifecycle_state`; omission defaults to `open`, while v1 hashes and
+receipts keep their original shape. Snapshot rollback checks the imported
+lifecycle baseline and does not invent historical timestamps or events.

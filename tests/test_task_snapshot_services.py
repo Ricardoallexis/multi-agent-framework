@@ -382,3 +382,40 @@ def test_snapshot_validates_core_context_and_gate_fields(tasks, field, value):
     with pytest.raises(ServiceError):
         tasks.plan_snapshot(data, actor="user", **envelope(data, "orq4:test:bad:" + field))
     assert tasks.list_groups() == []
+
+
+def test_snapshot_v2_lifecycle_is_optional_idempotent_and_rollback_safe(tasks):
+    data = {"groups": [{"id": "G", "title": "Imported", "authorized": True,
+                        "lifecycle_state": "closed"}],
+            "tasks": [task("G-T01")], "dependencies": []}
+    args = envelope(data, "orq4:test:closed-lifecycle")
+    receipt = tasks.import_snapshot(data, actor="user", **args)
+    group = tasks.get_group("G")
+    assert group["lifecycle_state"] == "closed" and group["revision"] == 1
+    assert tasks.import_snapshot(data, actor="user", **args) == receipt
+    rolled = tasks.rollback_snapshot(args["source_key"], actor="user")
+    assert rolled["state"] == "rolled_back" and tasks.list_groups() == []
+
+
+def test_snapshot_v2_omitted_lifecycle_defaults_open(tasks):
+    data = bundle(task())
+    args = envelope(data, "orq4:test:open-lifecycle")
+    tasks.import_snapshot(data, actor="user", **args)
+    group = tasks.get_group("G")
+    assert group["lifecycle_state"] == "open" and group["revision"] == 1
+    assert tasks.rollback_snapshot(args["source_key"], actor="user")["state"] == "rolled_back"
+
+
+def test_pre_lifecycle_v1_receipt_replays_and_rolls_back(tasks):
+    data = bundle(task())
+    args = envelope(data, "orq4:test:legacy-v1-receipt")
+    receipt = tasks.import_snapshot(data, actor="user", **args)
+    # Represent a persisted receipt created before contract v2/lifecycle fields.
+    with tasks.store.transaction() as conn:
+        conn.execute("UPDATE task_snapshots SET contract_version=1 WHERE source_key=?",
+                     (args["source_key"],))
+        # Version 1 predates the release mode column, so its migrated value is null.
+        conn.execute("UPDATE task_groups SET legacy_release_mode=NULL WHERE id='G'")
+        conn.execute("UPDATE task_groups SET revision=1 WHERE id='G'")
+    assert tasks.import_snapshot(data, actor="user", **args) == receipt
+    assert tasks.rollback_snapshot(args["source_key"], actor="user")["state"] == "rolled_back"

@@ -119,6 +119,21 @@ class TaskGroupCreate(_Body):
     default_requires: str = "accepted"
 
 
+class TaskGroupStateUpdate(_Body):
+    state: str
+    actor: str
+    cause: str
+    expected_revision: int
+
+
+class TaskScopeUpdate(_Body):
+    file_scope: list[str]
+    actor: str
+    expected_revision: int
+    lock_policy: dict[str, list[str]] | None = None
+    workspace_domain: str | None = None
+
+
 class TaskGroupUpdate(_Body):
     actor: str
     title: str | None = None
@@ -147,6 +162,10 @@ class TaskCreate(_Body):
     file_scope: list[str] = Field(default_factory=list)
     requirements: list[str] = Field(default_factory=list)
     preferred: str = ""
+    context_refs: list[str] = Field(default_factory=list)
+    reopen_group: bool = False
+    expected_group_revision: int | None = None
+    cause: str = ""
 
 
 class TaskDependencyCreate(_Body):
@@ -418,6 +437,11 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         return services.tasks.update_group(group_id, actor=body.actor, title=body.title,
                                            authorized=body.authorized, default_requires=body.default_requires)
 
+    @app.post("/api/v1/task-groups/{group_id}/state")
+    def set_task_group_state(group_id: str, body: TaskGroupStateUpdate):
+        return services.tasks.set_group_state(group_id, body.state, actor=body.actor, cause=body.cause,
+                                              expected_revision=body.expected_revision)
+
     @app.put("/api/v1/task-groups/{group_id}/release-mode")
     def set_group_release_mode(group_id: str, body: ReleaseModeUpdate):
         return services.tasks.set_release_mode(group_id, body.mode, actor=body.actor)
@@ -447,7 +471,9 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         return services.tasks.create_task(body.group_id, body.id, body.title, actor=body.actor, objective=body.objective,
                                           depends_on=depends_on, file_scope=body.file_scope,
                                           requirements=body.requirements, preferred=body.preferred,
-                                          release_dependencies=release_dependencies)
+                                          release_dependencies=release_dependencies, reopen_group=body.reopen_group,
+                                          expected_group_revision=body.expected_group_revision, cause=body.cause,
+                                          context_refs=body.context_refs)
 
     @app.get("/api/v1/tasks/ready")
     def ready_tasks(group: str | None = None):
@@ -457,6 +483,12 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.get("/api/v1/tasks/{task_id}")
     def get_task(task_id: str):
         return services.tasks.get_task(task_id)
+
+    @app.post("/api/v1/tasks/{task_id}/scope")
+    def update_task_scope(task_id: str, body: TaskScopeUpdate):
+        return services.tasks.update_scope(task_id, file_scope=body.file_scope, actor=body.actor,
+                                           expected_revision=body.expected_revision,
+                                           lock_policy=body.lock_policy, workspace_domain=body.workspace_domain)
 
     @app.post("/api/v1/tasks/{task_id}/dependencies")
     def add_task_dependency(task_id: str, body: TaskDependencyCreate):

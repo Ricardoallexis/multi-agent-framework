@@ -70,6 +70,7 @@ TRANSITIONS: dict[str, tuple[tuple[str, ...], str]] = {
     "request_changes": (("submitted",), "needs_changes"),
     "fail": (("claimed", "running", "paused", "needs_changes"), "failed"),
     "cancel": (("blocked", "ready", "claimed", "running", "paused", "submitted", "needs_changes"), "cancelled"),
+    "reopen": (("submitted", "accepted", "failed", "cancelled"), "open"),
 }
 # Gate actions (ORQ-2): used only by services.gates through the same function; the public API refuses them.
 GATE_TRANSITIONS: dict[str, tuple[tuple[str, ...], str]] = {
@@ -83,7 +84,7 @@ ASSIGNEE_ONLY = ("start", "pause", "resume", "submit")
 _EVENT_OF_ACTION = {
     "claim": "task.claimed", "unclaim": "task.unclaimed", "start": "task.started", "pause": "task.paused",
     "resume": "task.resumed", "submit": "task.submitted", "accept": "task.accepted",
-    "request_changes": "task.changes_requested", "fail": "task.failed", "cancel": "task.cancelled",
+    "request_changes": "task.changes_requested", "fail": "task.failed", "cancel": "task.cancelled", "reopen": "task.reopened",
 }
 # Stored states whose file_scope is locked against other assignees.
 _LOCKING_STATES = ("claimed", "running", "paused", "validating", "needs_changes")
@@ -94,7 +95,7 @@ EVENT_TYPES = (
     "release.delivery_recorded", "release.test_recorded", "release.integration_recorded", "release.facts_reset",
     "task.claimed", "task.unclaimed", "task.started", "task.paused", "task.resumed",
     "task.submitted", "task.accepted", "task.changes_requested", "task.failed",
-    "task.cancelled", "task.ready",
+    "task.cancelled", "task.reopened", "task.scope_updated", "group.lifecycle_changed", "task.ready",
 )
 MAX_EVENT_PAYLOAD_BYTES = 2048
 
@@ -418,7 +419,7 @@ class TaskServices:
             allowed_group = {"id", "title", "authorized", "default_requires", "default_gate", "source_id",
                              "source_state"}
             if contract_version >= 2:
-                allowed_group.add("legacy_release_mode")
+                allowed_group.update({"legacy_release_mode", "lifecycle_state"})
             if set(raw) - allowed_group:
                 raise _invalid("groups", "unsupported group fields", fields=sorted(set(raw) - allowed_group))
             gid = _identifier("group_id", raw.get("id"), _GROUP_ID)
@@ -437,7 +438,11 @@ class TaskServices:
             mode = raw.get("legacy_release_mode", "probada") if contract_version >= 2 else None
             if mode is not None and mode not in release_policy.RELEASE_MODES:
                 raise _invalid("legacy_release_mode", "legacy_release_mode must be null or a known release mode", group_id=gid)
+            lifecycle_state = raw.get("lifecycle_state", "open") if contract_version >= 2 else "open"
+            if lifecycle_state not in ("open", "closed"):
+                raise _invalid("lifecycle_state", "lifecycle_state must be open or closed", group_id=gid)
             groups.append({"id": gid, "title": title, "authorized": authorized,
+                           "lifecycle_state": lifecycle_state,
                            "default_requires": req, "default_gate": gate,
                            "legacy_release_mode": mode,
                            "source_id": _text("source_id", raw.get("source_id", ""), maximum=200, required=False),
@@ -634,7 +639,8 @@ class TaskServices:
                 self.store.insert_group(conn, group["id"], group["title"], actor=actor,
                                         authorized=group["authorized"], default_requires=group["default_requires"],
                                         default_gate=group["default_gate"],
-                                        legacy_release_mode=group["legacy_release_mode"])
+                                        legacy_release_mode=group["legacy_release_mode"],
+                                        lifecycle_state=group["lifecycle_state"])
             for task in batch["tasks"]:
                 self.store.insert_snapshot_task(conn, task, actor=actor)
                 for name in ("context_refs", "constraints"):
@@ -770,7 +776,9 @@ class TaskServices:
                         or current["authorized"] != expected["authorized"]
                         or current["default_requires"] != expected["default_requires"]
                         or current.get("default_gate", []) != expected["default_gate"]
-                        or current.get("legacy_release_mode") != expected["legacy_release_mode"]):
+                        or current.get("legacy_release_mode") != expected["legacy_release_mode"]
+                        or current.get("lifecycle_state", "open") != expected["lifecycle_state"]
+                        or current.get("revision", 1) != 1):
                     raise _conflict("Snapshot group differs from its import baseline; rollback is unsafe",
                                     source_key=source_key, group_id=expected["id"])
             expected_edges = sorted((d["task_id"], d["depends_on_id"], d["requires"])
@@ -869,9 +877,49 @@ class TaskServices:
             changes["default_requires"] = _requires(default_requires, "default_requires")
         with self.store.transaction() as conn:
             self._group_or_missing(group_id, conn)
+            prior = self._group_or_missing(group_id, conn)
             group = self.store.update_group(conn, group_id, **changes)
-            self.store.append_event(conn, "group.updated", actor=actor, group_id=group_id, payload=changes)
+            if group["revision"] != prior["revision"]:
+                self.store.append_event(conn, "group.updated", actor=actor, group_id=group_id, payload=changes)
             return self._group_view(group, conn)  # type: ignore[arg-type]
+
+    @service_errors
+    def set_group_state(self, group_id: str, state: str, *, actor: str, cause: str,
+                        expected_revision: int) -> dict[str, Any]:
+        if state not in ("open", "closed"):
+            raise _invalid("state", "state must be open or closed")
+        actor = _text("actor", actor, maximum=100)
+        cause = _text("cause", cause, maximum=500)
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
+            raise _invalid("expected_revision", "expected_revision must be a positive integer")
+        with self.store.transaction() as conn:
+            group = self._group_or_missing(group_id, conn)
+            if group["revision"] != expected_revision:
+                raise _conflict("Stale group revision", group_id=group_id, expected_revision=expected_revision,
+                                revision=group["revision"])
+            if group["lifecycle_state"] == state:
+                return self._group_view(group, conn)
+            if state == "closed":
+                tasks = self.store.list_tasks(group_id=group_id, conn=conn)
+                if not tasks or any(t["state"] not in ("submitted", "accepted") for t in tasks):
+                    raise _conflict("A group can close only when non-empty and every task is submitted or accepted",
+                                    group_id=group_id)
+                for task in tasks:
+                    facts = self.store.release_fact(task["id"], conn=conn)
+                    if not facts or not facts.get("delivery_sha256"):
+                        raise _conflict("Every task needs valid delivery evidence before group closure",
+                                        group_id=group_id, task_id=task["id"])
+                    if facts.get("has_patch") and not (facts.get("integration_commit") and facts.get("integration_ref")):
+                        raise _conflict("Patched tasks need verified integration before group closure",
+                                        group_id=group_id, task_id=task["id"])
+            updated = self.store.set_group_lifecycle(conn, group_id, state=state, expected_revision=expected_revision)
+            if updated is None:
+                raise _missing("Group", group_id)
+            if updated["revision"] != group["revision"]:
+                self.store.append_event(conn, "group.lifecycle_changed", actor=actor, group_id=group_id, cause=cause,
+                                        payload={"from": group["lifecycle_state"], "to": state,
+                                                 "revision": updated["revision"]})
+            return self._group_view(updated, conn)
 
     @service_errors
     def get_group(self, group_id: str) -> dict[str, Any]:
@@ -890,7 +938,9 @@ class TaskServices:
     def create_task(self, group_id: str, task_id: str, title: str, *, actor: str, objective: str = "",
                     depends_on: Iterable[str | Mapping[str, str]] = (), file_scope: Iterable[str] = (),
                     requirements: Iterable[str] = (), preferred: str = "",
-                    release_dependencies: Iterable[Mapping[str, str]] = ()) -> dict[str, Any]:
+                    release_dependencies: Iterable[Mapping[str, str]] = (), reopen_group: bool = False,
+                    expected_group_revision: int | None = None, cause: str = "",
+                    context_refs: Iterable[str] = ()) -> dict[str, Any]:
         """Create an ``open`` task; events ``task.created`` (with its initial status) and ``dependency.added``.
 
         ``depends_on`` holds task ids or ``{"task_id": ..., "requires": ...}``;
@@ -907,8 +957,26 @@ class TaskServices:
         actor = _text("actor", actor, maximum=100)
         objective = _text("objective", objective, maximum=4000, required=False)
         preferred = _text("preferred", preferred, maximum=100, required=False)
+        if expected_group_revision is not None and (isinstance(expected_group_revision, bool) or not isinstance(expected_group_revision, int)):
+            raise _invalid("expected_group_revision", "expected_group_revision must be an integer")
+        if reopen_group:
+            cause = _text("cause", cause, maximum=500)
+            if expected_group_revision is None:
+                raise _invalid("expected_group_revision", "reopening a group requires its revision")
         scope = _paths(file_scope)
         labels = _labels(requirements)
+        if isinstance(context_refs, (str, bytes)):
+            raise _invalid("context_refs", "context_refs must be a list")
+        refs: list[str] = []
+        try:
+            for raw in context_refs:
+                ref = validate_reference(raw, field="context_refs")
+                if ref not in refs:
+                    refs.append(ref)
+        except EnvelopeError as error:
+            raise _invalid(error.field, str(error)) from None
+        if len(refs) > MAX_CONTEXT_REFS:
+            raise _invalid("context_refs", f"context_refs has more than {MAX_CONTEXT_REFS} references")
         if isinstance(depends_on, (str, Mapping)):
             raise _invalid("depends_on", "depends_on must be a list")
         wanted: list[tuple[str, str | None]] = []
@@ -944,6 +1012,15 @@ class TaskServices:
                 group = self._group_or_missing(group_id, conn)
                 if self.store.get_task(task_id, conn=conn) is not None:
                     raise _conflict(f"Task already exists: {task_id}", task_id=task_id)
+                if group["lifecycle_state"] == "closed":
+                    if not reopen_group:
+                        raise _conflict("Cannot create a task in a closed group", group_id=group_id,
+                                        revision=group["revision"])
+                    if group["revision"] != expected_group_revision:
+                        raise _conflict("Stale group revision", group_id=group_id,
+                                        expected_revision=expected_group_revision, revision=group["revision"])
+                elif reopen_group:
+                    raise _conflict("reopen_group applies only to a closed group", group_id=group_id)
                 for dep_id, _ in [*wanted, *wanted_release]:
                     if dep_id == task_id:
                         raise _invalid("depends_on", "A task cannot depend on itself", cycle=[task_id, task_id])
@@ -961,8 +1038,14 @@ class TaskServices:
                     graph.validate_union([*current_tasks, task_id], planned_native, planned_legacy)
                 except graph.GraphError as error:
                     raise _invalid("depends_on", str(error), cycle=getattr(error, "cycle", None)) from None
+                if group["lifecycle_state"] == "closed":
+                    group = self.store.set_group_lifecycle(conn, group_id, state="open",
+                                                          expected_revision=expected_group_revision)
+                    self.store.append_event(conn, "group.lifecycle_changed", actor=actor, group_id=group_id,
+                                            cause=cause, payload={"from": "closed", "to": "open",
+                                                                  "revision": group["revision"]})
                 self.store.insert_task(conn, task_id, group_id, title, actor=actor, objective=objective,
-                                       preferred=preferred, requirements=labels, file_scope=scope)
+                                       preferred=preferred, requirements=labels, file_scope=scope, context_refs=refs)
                 added = []
                 for dep_id, requires in wanted:
                     requires = requires or group["default_requires"]
@@ -983,6 +1066,80 @@ class TaskServices:
                 return view
         except sqlite3.IntegrityError:
             raise _conflict(f"Task already exists: {task_id}", task_id=task_id) from None
+
+    @service_errors
+    def update_scope(self, task_id: str, *, file_scope: Iterable[str], actor: str,
+                     expected_revision: int, lock_policy: Mapping[str, Any] | None = None,
+                     workspace_domain: str | None = None) -> dict[str, Any]:
+        task_id = _identifier("task_id", task_id, _TASK_ID)
+        actor = _text("actor", actor, maximum=100)
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
+            raise _invalid("expected_revision", "expected_revision must be an integer")
+        scope = _paths(file_scope)
+        domain = _text("workspace_domain", workspace_domain, maximum=200, required=False) if workspace_domain is not None else None
+        if lock_policy is not None:
+            if not isinstance(lock_policy, Mapping) or set(lock_policy) != {"shared_scope", "workspace_scope"}:
+                raise _invalid("lock_policy", "lock_policy requires shared_scope and workspace_scope")
+            shared = _paths(lock_policy["shared_scope"]); workspace = _paths(lock_policy["workspace_scope"])
+        else:
+            shared, workspace = [], []
+        if any(path not in scope for path in shared + workspace) or set(shared) & set(workspace):
+            raise _invalid("lock_policy", "lock scopes must be disjoint and contained in file_scope")
+        with self.store.transaction() as conn:
+            task = self.store.get_task(task_id, conn=conn)
+            if task is None:
+                raise _missing("Task", task_id)
+            if task["revision"] != expected_revision:
+                raise _conflict("Stale task revision", task_id=task_id, expected_revision=expected_revision,
+                                revision=task["revision"])
+            state = task["state"]
+            if state in ("claimed", "paused", "needs_changes") and actor != task["assignee"]:
+                raise _conflict("Only the assignee may change the scope of assigned work",
+                                task_id=task_id, assignee=task["assignee"], actor=actor)
+            if lock_policy is None:
+                if state in ("claimed", "needs_changes"):
+                    shared = list(scope)
+                elif state == "paused":
+                    if scope == task["file_scope"]:
+                        current = task.get("lock_policy") or {}
+                        shared = list(current.get("shared_scope", task["file_scope"]))
+                        workspace = list(current.get("workspace_scope", []))
+                    else:
+                        # A scope change without a partition stays globally locked.
+                        shared, workspace = list(scope), []
+            if state not in ("open", "needs_changes", "claimed", "paused"):
+                raise _conflict("Scope can change only while open, needs_changes, claimed or paused",
+                                task_id=task_id, state=state)
+            if state == "open" and (shared or workspace):
+                raise _invalid("lock_policy", "open tasks cannot retain locks")
+            if state in ("claimed", "needs_changes") and (shared != scope or workspace):
+                raise _invalid("lock_policy", f"{state} tasks require a global lock over file_scope")
+            if state == "paused" and set(shared + workspace) != set(scope):
+                raise _invalid("lock_policy", "paused lock partitions must cover file_scope")
+            new_domain = domain if domain is not None else task.get("workspace_domain", "")
+            policy = {"shared_scope": shared, "workspace_scope": workspace}
+            conflicts = self._lock_conflicts(scope, task, self.store.list_tasks(conn=conn), actor=actor,
+                                             actor_domain=new_domain or None, requested_policy=policy,
+                                             requested_state=state)
+            if conflicts:
+                raise _conflict("Updated file_scope overlaps another active task", task_id=task_id,
+                                conflicts=conflicts)
+            current_policy = task.get("lock_policy") or {"shared_scope": [], "workspace_scope": []}
+            if (scope == task["file_scope"] and policy == current_policy
+                    and new_domain == task.get("workspace_domain", "")):
+                return self._task_view(task_id, conn)
+            try:
+                self.store.update_task(conn, task_id, expected_revision=task["revision"], file_scope=scope,
+                                       lock_policy=policy, workspace_domain=new_domain)
+            except StaleRevision as stale:
+                raise _conflict(str(stale), task_id=task_id, revision=stale.current) from None
+            self.store.append_event(conn, "task.scope_updated", actor=actor, group_id=task["group_id"],
+                                    task_id=task_id, cause="scope updated", payload={
+                                        "paths_count": len(scope),
+                                        "file_scope_sha256": hashlib.sha256(_canonical_json(scope).encode()).hexdigest(),
+                                        "shared_count": len(shared), "workspace_count": len(workspace),
+                                        "workspace_domain": bool(new_domain)})
+            return self._task_view(task_id, conn)
 
     @service_errors
     def get_task(self, task_id: str) -> dict[str, Any]:
@@ -1345,6 +1502,10 @@ class TaskServices:
         cause = _text("cause", cause, maximum=500, required=False)
         if expected_revision is not None and (isinstance(expected_revision, bool) or not isinstance(expected_revision, int)):
             raise _invalid("expected_revision", "expected_revision must be an integer")
+        if action == "reopen":
+            if expected_revision is None:
+                raise _invalid("expected_revision", "reopen requires expected_revision")
+            cause = _text("cause", cause, maximum=500)
         with self.store.transaction() as conn:
             if actor_domain is not None:
                 actor_domain = _text("actor_domain", actor_domain, maximum=200)
@@ -1390,6 +1551,11 @@ class TaskServices:
         epoch_pending_update = None
         workspace_domain_update = None
         epoch_started = action == "resume" and bool(task.get("snapshot_epoch_pending"))
+        if action == "reopen":
+            assignee = ""
+            lock_policy_update = {"shared_scope": [], "workspace_scope": []}
+            workspace_domain_update = ""
+            epoch_pending_update = False
         if action == "accept":
             # With a gate (ORQ-2), passing it is the only way to accept.
             checks = task["gate"] or self._group_or_missing(task["group_id"], conn).get("default_gate", [])
@@ -1411,11 +1577,11 @@ class TaskServices:
         elif action == "unclaim":
             assignee = ""
         elif action == "start":
-            imported = self.store.snapshot_provenance("task", task_id, conn=conn) is not None
-            if task["state"] == "claimed" or task.get("snapshot_epoch_pending") or (imported and task["state"] == "needs_changes"):
+            if task["state"] == "claimed" or task["state"] == "needs_changes" or task.get("snapshot_epoch_pending"):
                 self._assert_global_lock(task, tasks.values(), actor=actor)
-            if task.get("snapshot_epoch_pending") or (imported and task["state"] == "needs_changes"):
+            if task["state"] == "needs_changes" or task.get("snapshot_epoch_pending"):
                 lock_policy_update = {"shared_scope": task["file_scope"], "workspace_scope": []}
+                workspace_domain_update = actor_domain if actor_domain is not None else task.get("workspace_domain", "")
                 epoch_pending_update = False
             attempt += 1
         elif action == "resume":
@@ -1424,6 +1590,12 @@ class TaskServices:
                 attempt += 1
                 lock_policy_update = {"shared_scope": task["file_scope"], "workspace_scope": []}
                 epoch_pending_update = False
+        if action in ("start", "resume"):
+            fresh_tasks, fresh_native = self._snapshot(conn)
+            fresh_context = self._release_context(conn)
+            blockers = self._blockers(task_id, self._states(fresh_tasks), fresh_native, fresh_tasks, fresh_context)
+            if blockers:
+                raise _conflict(f"Cannot {action}; task has unresolved blockers", task_id=task_id, blockers=blockers)
         try:
             self.store.update_task(conn, task_id, expected_revision=task["revision"], state=target,
                                    assignee=assignee, attempt=attempt, lock_policy=lock_policy_update,
@@ -1431,7 +1603,7 @@ class TaskServices:
                                    snapshot_epoch_pending=epoch_pending_update)
         except StaleRevision as stale:
             raise _conflict(str(stale), task_id=task_id, revision=stale.current) from None
-        reset_release = action in ("claim", "unclaim", "request_changes", "gate_fail") or (
+        reset_release = action in ("claim", "unclaim", "request_changes", "gate_fail", "reopen") or (
             action == "start" and task["state"] == "needs_changes")
         release_facts_reset = self.store.reset_release_fact(conn, task_id) if reset_release else False
         updated_tasks, updated_native = self._snapshot(conn)
@@ -1455,10 +1627,14 @@ class TaskServices:
         found = overlaps(one.get("shared_scope", []), two.get("shared_scope", []))
         same_or_unknown = not one_domain or not two_domain or one_domain == two_domain
         if paused_owner == 2:
+            found += overlaps(one.get("workspace_scope", []), two.get("shared_scope", []))
             if same_or_unknown:
                 found += overlaps(one.get("shared_scope", []), two.get("workspace_scope", []))
                 found += overlaps(one.get("workspace_scope", []), two.get("workspace_scope", []))
         elif paused_owner == 1:
+            # The first policy is paused and the second is active. Its shared
+            # partition is global; its workspace partition only conflicts in
+            # the same or an unknown domain with an active request.
             if same_or_unknown:
                 found += overlaps(one.get("workspace_scope", []), two.get("shared_scope", []))
                 found += overlaps(one.get("workspace_scope", []), two.get("workspace_scope", []))
@@ -1491,8 +1667,9 @@ class TaskServices:
                 # behave globally; domain metadata cannot bypass active locks.
                 active_policy = {"shared_scope": list(policy.get("shared_scope", []))
                                  + list(policy.get("workspace_scope", [])), "workspace_scope": []}
-                paths = TaskServices._policies_conflict(requested_policy, actor_domain, active_policy,
-                                                        other.get("workspace_domain") or None)
+                paths = TaskServices._policies_conflict(
+                    requested_policy, actor_domain, active_policy, other.get("workspace_domain") or None,
+                    paused_owner=1 if requested_state == "paused" else 0)
             if paths:
                 conflicts.append({"task_id": other["id"], "assignee": other["assignee"],
                                   "status": other["state"], "paths": list(dict.fromkeys(paths))})
