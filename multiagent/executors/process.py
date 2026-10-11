@@ -475,6 +475,19 @@ class ProcessHandle:
 
 # --------------------------------------------------------------------------- public API
 
+def check_launch(argv: list[str], *, cwd: Path | str) -> str:
+    """The checks ``start`` applies before it spawns, without starting anything; returns the resolved program path.
+
+    Raises ``ProcessLaunchError`` for a bad argv or folder, a program that is not found (or sits in the folder), or a
+    ``.cmd`` shim argument cmd.exe would interpret. The executor service (ORQ-T51) calls it before it changes a task.
+    """
+    arguments = validate_argv(argv)
+    executable = resolve_executable(arguments[0], validate_cwd(cwd))
+    if _is_shim(executable):
+        _check_shim_arguments(arguments[1:])
+    return executable
+
+
 def start(argv: list[str], *, cwd: Path | str, stdin_text: str | None, timeout_seconds: float,
           env_extra: Mapping[str, str] | None = None, output_cap_bytes: int = DEFAULT_OUTPUT_CAP_BYTES) -> ProcessHandle:
     """Validate and start the program; returns at once with a handle (``handle.wait()`` for the outcome)."""

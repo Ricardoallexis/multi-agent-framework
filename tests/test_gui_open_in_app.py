@@ -166,6 +166,32 @@ def test_launch_uses_an_exact_argument_list_in_a_new_console(world, launcher):
         assert stream not in call.kwargs  # the new console keeps its own handles
 
 
+def opened_events(world) -> list[dict]:
+    return [e for e in world.services.tasks.events() if e["type"] == "session.opened_in_app"]
+
+
+def test_a_launch_is_recorded_so_the_framework_does_not_resume_that_session(world, launcher):
+    """ORQ-T51 (contract ORQ-6 section 6): a session the app just opened is not resumed for the next 12 hours."""
+    assert opened_events(world) == []
+    assert post(world).status_code == 200
+    (event,) = opened_events(world)
+    assert event["ref"] == CLAUDE_ID.lower() and event["actor"] == "gui" and event["payload"]["source"] == "claude"
+    assert "opened_at" in event["payload"]
+
+
+def test_a_launch_that_did_not_happen_records_nothing_and_a_broken_record_never_breaks_the_open(world, launcher, monkeypatch):
+    monkeypatch.setattr(open_in_app.shutil, "which", lambda *a, **k: None)
+    assert post(world).status_code == 409 and opened_events(world) == []
+    monkeypatch.setattr(open_in_app.shutil, "which", lambda name, *a, **k: FAKE_CLAUDE if name == "claude" else None)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("the event log is unavailable")
+
+    monkeypatch.setattr(world.services.executors, "record_app_open", broken)
+    response = post(world)
+    assert response.status_code == 200 and response.json()["launched"] is True and len(launcher) == 1
+
+
 def test_environment_is_a_copy_without_claude_or_anthropic_variables(world, launcher, monkeypatch):
     for name in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "anthropic_lower"):
         monkeypatch.setenv(name, "secret-value")

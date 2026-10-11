@@ -651,7 +651,10 @@ def test_the_registry_resolves_the_adapter_once_the_catalog_names_it(tmp_path):
     config = validate_executor_config(_declaration(tmp_path))
     declaration = config["executors"]["copilot_cli"]
     registry = ExecutorRegistry(config, [CopilotAdapter()])
-    assert registry.get("copilot_cli").enabled is False and registry.resolve("copilot_cli") is None   # adapter_id null
+    # ORQ-T51: the bundled catalog names the adapter but keeps the executor disabled.
+    assert registry.get("copilot_cli").enabled is False and registry.resolve("copilot_cli") is not None
+    unnamed = {**config, "executors": {"copilot_cli": {**declaration, "adapter_id": None}}}
+    assert ExecutorRegistry(unnamed, [CopilotAdapter()]).resolve("copilot_cli") is None   # adapter_id null
 
     wired = {**config, "executors": {"copilot_cli": {**declaration, "adapter_id": "copilot_cli", "enabled": True}}}
     registry = ExecutorRegistry(wired, [CopilotAdapter()])

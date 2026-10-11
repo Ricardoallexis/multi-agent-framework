@@ -7,7 +7,7 @@ import base64
 from dataclasses import replace
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from ..executors.registry import ExecutorRegistry
@@ -65,11 +65,14 @@ def _jsonable(value: Any) -> Any:
 class AssignmentServices:
     """Recompute assignment decisions from trusted task, catalog and registry snapshots."""
 
-    def __init__(self, services: Any, *, registry: ExecutorRegistry | None = None):
+    def __init__(self, services: Any, *, registry: ExecutorRegistry | None = None,
+                 adapters: Callable[[], Iterable[Any]] | None = None):
+        """``adapters`` builds the executor adapters registered when the registry is loaded from the catalog (ORQ-T51)."""
         self._services = services
         self._catalog = None
         self._registry = registry
         self._registry_loaded = registry is not None
+        self._adapters = adapters
         self._config_valid = True
 
     def _ensure_runtime_config(self) -> None:
@@ -81,12 +84,18 @@ class AssignmentServices:
         raw_config = getattr(self._catalog, "executor_routing", {})
         try:
             validated = validate_executor_config(raw_config)
-            self._registry = ExecutorRegistry(validated)
+            self._registry = ExecutorRegistry(validated, list(self._adapters() or ()) if self._adapters else ())
         except (TypeError, ValueError):
             self._config_valid = False
             self._registry = ExecutorRegistry({"version": 1, "profiles": {}, "executors": {},
                                                "requirement_map": {}, "operator_boundary": {}})
         self._registry_loaded = True
+
+    @property
+    def registry(self) -> ExecutorRegistry:
+        """The executor registry (adapters and descriptors); loaded from the catalog on first use."""
+        self._ensure_runtime_config()
+        return self._registry
 
     @property
     def _config(self) -> dict[str, Any]:

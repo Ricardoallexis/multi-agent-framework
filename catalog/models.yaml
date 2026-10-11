@@ -208,9 +208,12 @@ executor_routing:
       permission_ceiling: null
       allowed_data_classes: null
       execution_modes: null
-    # ORQ-T46 executor applications (CLI-driven agent apps, contract ORQ-6 section 2). Declared DISABLED and
-    # without an adapter: they are never selected or launched until the operator enables them and an adapter
-    # (ORQ-T48..T50) is registered. Evidence comes from the P-384 manual tests (operator_test, 2026-10-10).
+    # ORQ-T46 executor applications (CLI-driven agent apps, contract ORQ-6 section 2). Declared DISABLED: they are
+    # never selected or launched until the operator enables them (ORQ-T51 wires their adapters, T48..T50, by adapter_id).
+    # Optional keys read by the executor service (ORQ-T51), all trusted configuration: workdir (an existing absolute
+    # folder the framework owns), timeout_seconds and quota_pause_minutes. A top-level task_workdirs map (task id ->
+    # folder) sets the folder of one task. Without them the framework creates <local_dir>/executor_runs/task-<id>.
+    # Evidence comes from the P-384 manual tests (operator_test, 2026-10-10).
     # model_support/effort_support list only the values observed in those tests (extend after probing);
     # Claude model/effort stay unknown (no model ID or effort value was recorded). quota_signal and terms
     # were not probed and stay unknown. blocks_when_open: "supported" = the app blocks writes while open.
@@ -219,7 +222,7 @@ executor_routing:
       version: "1"
       mode: manual
       enabled: false
-      adapter_id: null
+      adapter_id: codex_cli
       capabilities_available: null
       roles_available: null
       permissions_available: null
@@ -243,7 +246,7 @@ executor_routing:
       version: "1"
       mode: manual
       enabled: false
-      adapter_id: null
+      adapter_id: claude_cli
       capabilities_available: null
       roles_available: null
       permissions_available: null
@@ -267,7 +270,7 @@ executor_routing:
       version: "1"
       mode: manual
       enabled: false
-      adapter_id: null
+      adapter_id: copilot_cli
       capabilities_available: null
       roles_available: null
       permissions_available: null

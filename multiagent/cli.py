@@ -237,6 +237,26 @@ def cmd_task_assignment_accept(args) -> None:
                      json_body={"preview_token": args.preview_token, "acknowledge": args.acknowledge}))
 
 
+def cmd_executors(args) -> None:
+    """Run, resume or open a task in an executor application, or show the executors (ORQ-T51)."""
+    if args.executors_command == "status":
+        pretty(_api_json("GET", "/api/v1/executors/status", params={"task": args.task} if args.task else None))
+        return
+    body = {"task_id": args.task_id}
+    if args.executors_command == "open":
+        if args.actor:
+            body["actor"] = args.actor
+        pretty(_api_json("POST", "/api/v1/executors/open", json_body=body))
+        return
+    body.update({key: value for key, value in (("model", args.model), ("effort", args.effort), ("actor", args.actor),
+                                               ("timeout_seconds", args.timeout)) if value is not None})
+    if args.executors_command == "run":
+        body.update({key: value for key, value in (("executor_id", args.executor), ("profile_id", args.profile_id))
+                     if value is not None})
+    # ``timeout=None``: the attempt can take minutes and the server answers when it ends.
+    pretty(_api_json("POST", f"/api/v1/executors/{args.executors_command}", json_body=body, timeout=None))
+
+
 def cmd_task_create(args) -> None:
     pretty(_api_json("POST", "/api/v1/tasks", json_body={
         "group_id": args.group_id, "id": args.task_id, "title": args.title, "actor": args.actor,
@@ -952,6 +972,22 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--type", action="append", help="For events: keep only this event type; repeatable")
     x.add_argument("--mine", action="store_true", help="For events: only tasks assigned to the consumer")
     x.add_argument("--limit", type=int, default=100); x.set_defaults(func=cmd_cursor)
+    executors = sub.add_parser("executors", help="Run a task in an executor application (Codex, Claude, Copilot), "
+                               "resume or open its session, or show the executors").add_subparsers(dest="executors_command", required=True)
+    x = executors.add_parser("run", help="Launch a ready task in a new session and submit its result (the gate decides)")
+    x.add_argument("task_id"); x.add_argument("--executor", help="Executor id, e.g. codex_cli; without it --profile-id chooses")
+    x.add_argument("--profile-id", help="Assignment profile whose preview selects the executor (needs a verified operator)")
+    x.add_argument("--model"); x.add_argument("--effort"); x.add_argument("--actor", help="Default: executor:<executor id>")
+    x.add_argument("--timeout", type=int, help="Seconds before the attempt is stopped")
+    x.set_defaults(func=cmd_executors)
+    x = executors.add_parser("resume", help="Continue the session the framework created for the task")
+    x.add_argument("task_id"); x.add_argument("--model"); x.add_argument("--effort")
+    x.add_argument("--actor", help="Default: the task's assignee"); x.add_argument("--timeout", type=int)
+    x.set_defaults(func=cmd_executors)
+    x = executors.add_parser("open", help="Show the target that opens the task's session in its app (it records the open)")
+    x.add_argument("task_id"); x.add_argument("--actor"); x.set_defaults(func=cmd_executors)
+    x = executors.add_parser("status", help="Show the executors with an adapter and, with --task, its sessions and attempts")
+    x.add_argument("--task"); x.set_defaults(func=cmd_executors)
     x = sub.add_parser("project-commands", help="List the project commands configured on the server (names, timeouts, folders)")
     x.set_defaults(func=cmd_project_commands)
     x = sub.add_parser("team-events", help="List team events, optionally only those after a sequence number")

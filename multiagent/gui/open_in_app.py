@@ -21,9 +21,14 @@ Errors (``ServiceError``): ``not_found`` (404, unknown session), ``invalid_sessi
 valid UUID to resume), ``launch_disabled`` (403), ``claude_not_found`` (409, ``claude`` is not on PATH),
 ``launch_unsupported`` (409, not Windows), ``too_many_launches`` (429, another launch less than 2 seconds ago) and
 ``launch_failed`` (409).
+
+Every Claude launch is also recorded in the team event log (``executors.record_app_open``, ORQ-T51): the framework does
+not resume a session the app opened in the last 12 hours. Codex and Copilot sessions open through a link that the
+browser follows, so the server never sees that open and cannot record it (Codex blocks writes by itself).
 """
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 import sys
@@ -53,6 +58,7 @@ LAUNCH_UNSUPPORTED = "launch_unsupported"
 LAUNCH_FAILED = "launch_failed"
 TOO_MANY_LAUNCHES = "too_many_launches"
 
+_logger = logging.getLogger(__name__)
 _launch_lock = threading.Lock()
 _last_launch: float | None = None  # ``time.monotonic()`` of the last launch attempt of this process
 
@@ -134,6 +140,20 @@ def launch_claude_desktop(summary: dict[str, Any], *, allow: bool) -> dict[str, 
     return {"launched": True, "session_id": summary["id"], "command": [*COMMAND_PREFIX, uuid], "cwd": folder_kind}
 
 
+def record_open(services: Any, summary: dict[str, Any]) -> None:
+    """Record that the app was just opened on this Claude session (the framework will not resume it for 12 hours).
+
+    The app is already open at this point, so a failure to write the record is logged, never turned into an error.
+    """
+    executors = getattr(services, "executors", None)
+    if executors is None:
+        return
+    try:
+        executors.record_app_open(str(summary.get("native_id")), source="claude", actor="gui")
+    except Exception:  # noqa: BLE001 - the launch happened; only the safety record is missing
+        _logger.warning("could not record the app open of a Claude session", exc_info=True)
+
+
 def add_open_routes(api: APIRouter, sessions: SessionServices) -> None:
     def allow_launch(request: Request) -> bool:
         return bool(request.app.state.services.system.settings.gui_allow_launch)
@@ -147,4 +167,6 @@ def add_open_routes(api: APIRouter, sessions: SessionServices) -> None:
     def open_session(session_id: str, request: Request):
         """Launch the Claude app on this session. The body is not read: the id in the path is only a key."""
         summary = sessions.get_session(session_id)  # 400 for a malformed id, 404 for an unknown one
-        return launch_claude_desktop(summary, allow=allow_launch(request))
+        launched = launch_claude_desktop(summary, allow=allow_launch(request))
+        record_open(request.app.state.services, summary)
+        return launched

@@ -151,7 +151,10 @@ def test_bundled_catalog_declares_the_cli_executors_disabled(tmp_path):
     for executor_id in CLI_EXECUTORS:
         declaration = config["executors"][executor_id]
         assert declaration["enabled"] is False
-        assert declaration["surface"] == executor_id and declaration["adapter_id"] is None
+        # ORQ-T51: the catalog names the adapter of each CLI executor (still disabled); a registry that is not given
+        # the adapter resolves nothing and keeps the manual, catalog-declared descriptor.
+        assert declaration["surface"] == executor_id and declaration["adapter_id"] == executor_id
+        assert registry.resolve(executor_id) is None
         descriptor = registry.get(executor_id)
         assert descriptor.enabled is False and descriptor.mode == "manual" and descriptor.adapter_id is None
         assert descriptor.provenance == "catalog_declared"

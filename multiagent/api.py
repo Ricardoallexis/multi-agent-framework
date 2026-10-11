@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Union
 from urllib.parse import urlsplit
 
+import anyio
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -280,6 +281,29 @@ class AssignmentPreviewRequest(_Body):
 class AssignmentAcceptRequest(_Body):
     preview_token: str
     acknowledge: bool
+
+
+class ExecutorRunRequest(_Body):
+    task_id: str
+    executor_id: str | None = None
+    model: str | None = None
+    effort: str | None = None
+    profile_id: str | None = None
+    actor: str | None = None
+    timeout_seconds: int | None = None
+
+
+class ExecutorResumeRequest(_Body):
+    task_id: str
+    model: str | None = None
+    effort: str | None = None
+    actor: str | None = None
+    timeout_seconds: int | None = None
+
+
+class ExecutorOpenRequest(_Body):
+    task_id: str
+    actor: str | None = None
 
 
 class CursorAck(_Body):
@@ -652,6 +676,34 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
             operator_context = await operator_context
         return services.assignment.accept(task_id, body.preview_token, body.acknowledge,
                                           operator_context=operator_context)
+
+    # --- executor applications (ORQ-T51) ---------------------------------------------
+
+    @app.get("/api/v1/executors/status")
+    def executors_status(task: str | None = None):
+        """Executors with an adapter (enabled, paused until) and, with ``task``, its sessions and attempts."""
+        return services.executors.status(task)
+
+    @app.post("/api/v1/executors/run")
+    async def run_executor_task(body: ExecutorRunRequest, request: Request):
+        """Launch a task in an executor application; waits for the attempt, so it can take minutes."""
+        operator_context = operator_context_provider(request) if operator_context_provider else None
+        if inspect.isawaitable(operator_context):
+            operator_context = await operator_context
+        return await anyio.to_thread.run_sync(lambda: services.executors.run_task(
+            body.task_id, body.executor_id, body.model, body.effort, body.actor, profile_id=body.profile_id,
+            timeout_seconds=body.timeout_seconds, operator_context=operator_context))
+
+    @app.post("/api/v1/executors/resume")
+    async def resume_executor_task(body: ExecutorResumeRequest):
+        """Continue the session the framework created for the task (never one opened in an app in the last 12 hours)."""
+        return await anyio.to_thread.run_sync(lambda: services.executors.resume_task(
+            body.task_id, body.model, body.effort, body.actor, timeout_seconds=body.timeout_seconds))
+
+    @app.post("/api/v1/executors/open")
+    def open_executor_session(body: ExecutorOpenRequest):
+        """The target that opens the task's session in its app; it also records the open (12 hour resume guard)."""
+        return services.executors.open_target(body.task_id, body.actor)
 
     @app.get("/api/v1/results")
     def get_result(ref: str):

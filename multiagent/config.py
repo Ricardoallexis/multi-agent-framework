@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     # makes the screen show the command to copy instead; the endpoint then answers 403 and starts nothing.
     gui_allow_launch: bool = True
 
+    # ORQ-T51 executor applications. ``executor_workdir_root`` holds the work folders the framework creates for tasks
+    # (empty means <local_dir>/executor_runs); a launch is stopped after ``executor_timeout_seconds``; a quota stop
+    # pauses the executor for ``executor_quota_pause_minutes``. A catalog declaration may override the last two.
+    executor_workdir_root: Optional[Path] = None
+    executor_timeout_seconds: int = Field(default=1800, ge=1, le=86400)
+    executor_quota_pause_minutes: int = Field(default=300, ge=1, le=10080)
+
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:8b"
     ollama_num_ctx: int = Field(default=4096, ge=1024)
@@ -163,6 +170,7 @@ class Settings(BaseSettings):
         self.runs_dir = Path(self.runs_dir or self.data_dir / "runs").resolve()
         self.assets_dir = Path(self.assets_dir or self.data_dir / "assets").resolve()
         self.project_commands_file = Path(self.project_commands_file or self.local_dir / "project_commands.toml").resolve()
+        self.executor_workdir_root = Path(self.executor_workdir_root or self.local_dir / "executor_runs").resolve()
         self.gui_token_file = Path(self.gui_token_file or Path.home() / ".multiagent" / "gui-token").expanduser().resolve()
         return self
 

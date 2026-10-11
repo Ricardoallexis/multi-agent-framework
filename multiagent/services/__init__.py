@@ -11,6 +11,7 @@ notebooks), so they all behave the same way::
     services.runs.approve(run["id"])
     services.tasks.ready_tasks(group_id="ORQ")
     services.envelopes.get_envelope("ORQ-T25")
+    services.executors.run_task("ORQ-T25", "codex_cli", actor="executor:codex_cli")
     services.sessions.list_sessions(source="codex")
 
 Methods return JSON-ready data and report known failures as ``ServiceError``
@@ -30,6 +31,7 @@ from .assignment import AssignmentServices
 from .definitions import DefinitionServices
 from .envelopes import EnvelopeServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
+from .executors import ExecutorServices
 from .gates import GateServices
 from .runs import RunServices
 from .sessions import SessionServices
@@ -43,6 +45,7 @@ __all__ = [
     "ApplicationServices",
     "DefinitionServices",
     "EnvelopeServices",
+    "ExecutorServices",
     "GateServices",
     "RunServices",
     "ServiceError",
@@ -56,7 +59,8 @@ _BUNDLE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,119}$")
 
 
 class ApplicationServices:
-    """Facade over one ``System``: ``definitions``, ``runs``, ``tasks``, ``gates``, ``envelopes`` and ``sessions``."""
+    """Facade over one ``System``: ``definitions``, ``runs``, ``tasks``, ``gates``, ``envelopes``, ``assignment``,
+    ``executors`` and ``sessions``."""
 
     def __init__(self, system: System, *, bundles: Mapping[str, str | Path] | None = None):
         self.system = system
@@ -70,7 +74,9 @@ class ApplicationServices:
         self.tasks = TaskServices(self)
         self.gates = GateServices(self)
         self.envelopes = EnvelopeServices(self)
-        self.assignment = AssignmentServices(self)
+        # The executor service goes first: its adapters (with its session guard) are what the assignment registry loads.
+        self.executors = ExecutorServices(self)
+        self.assignment = AssignmentServices(self, adapters=self.executors.build_adapters)
         self.sessions = SessionServices(self)
 
     @classmethod
