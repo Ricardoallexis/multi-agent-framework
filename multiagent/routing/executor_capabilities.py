@@ -20,6 +20,19 @@ def _set(value: Any) -> frozenset[str] | None:
     return frozenset(str(item) for item in value)
 
 
+# Evidence kept since T15 (model/effort per call, context isolation, cancellation).
+BASE_EVIDENCE_FIELDS = ("model_support", "effort_support", "context_isolation", "cancellation")
+# ORQ-T46 (contract ORQ-6 section 2): what an executor application (a CLI-driven agent app) declares.
+# SUPPORTED means the property holds (for ``blocks_when_open``: the app blocks writes while a session is
+# open); UNSUPPORTED means it was observed not to hold; UNKNOWN (default) means no evidence either way.
+EXECUTOR_EVIDENCE_FIELDS = ("noninteractive_launch", "structured_output", "session_store", "resume",
+                            "blocks_when_open", "open_in_app", "quota_signal", "terms")
+EVIDENCE_FIELDS = BASE_EVIDENCE_FIELDS + EXECUTOR_EVIDENCE_FIELDS
+_SET_FIELDS = ("capabilities_available", "roles_available", "permissions_available",
+               "permissions_required", "permissions_consumed", "permission_ceiling",
+               "allowed_data_classes", "execution_modes")
+
+
 @dataclass(frozen=True)
 class CapabilityEvidence:
     status: SupportState = SupportState.UNKNOWN
@@ -77,15 +90,27 @@ class ExecutorDescriptor:
     context_isolation: CapabilityEvidence = field(default_factory=CapabilityEvidence)
     cancellation: CapabilityEvidence = field(default_factory=CapabilityEvidence)
     provenance: str = "catalog_declared"
+    # ORQ-T46: executor-application capabilities (launch, structured output, sessions, resume, blocking,
+    # open in app, quota, terms). Every one is unknown until evidence is declared.
+    noninteractive_launch: CapabilityEvidence = field(default_factory=CapabilityEvidence)
+    structured_output: CapabilityEvidence = field(default_factory=CapabilityEvidence)
+    session_store: CapabilityEvidence = field(default_factory=CapabilityEvidence)
+    resume: CapabilityEvidence = field(default_factory=CapabilityEvidence)
+    blocks_when_open: CapabilityEvidence = field(default_factory=CapabilityEvidence)
+    open_in_app: CapabilityEvidence = field(default_factory=CapabilityEvidence)
+    quota_signal: CapabilityEvidence = field(default_factory=CapabilityEvidence)
+    terms: CapabilityEvidence = field(default_factory=CapabilityEvidence)
+    # An executor declared ``enabled: false`` is never selected, whatever its mode or evidence.
+    enabled: bool = True
 
     def __post_init__(self) -> None:
-        for name in ("capabilities_available", "roles_available", "permissions_available",
-                     "permissions_required", "permissions_consumed", "permission_ceiling",
-                     "allowed_data_classes", "execution_modes"):
+        for name in _SET_FIELDS:
             object.__setattr__(self, name, _set(getattr(self, name)))
-        for name in ("model_support", "effort_support", "context_isolation", "cancellation"):
+        for name in EVIDENCE_FIELDS:
             value = getattr(self, name)
-            if isinstance(value, Mapping):
+            if value is None:
+                object.__setattr__(self, name, CapabilityEvidence())
+            elif isinstance(value, Mapping):
                 object.__setattr__(self, name, CapabilityEvidence(**value))
 
     def to_dict(self) -> dict[str, Any]:
@@ -122,7 +147,31 @@ def validate_executor_descriptor(value: ExecutorDescriptor | Mapping[str, Any]) 
             raise ValueError(f"supported {name} requires explicit {expected}")
         if not evidence.source or evidence.provenance in {"", "unknown", None} or not evidence.scope:
             raise ValueError(f"supported {name} requires source, provenance, and scope")
+    if not isinstance(descriptor.enabled, bool):
+        raise ValueError("executor enabled must be true or false")
+    for name in EXECUTOR_EVIDENCE_FIELDS:
+        evidence = getattr(descriptor, name)
+        if not isinstance(evidence, CapabilityEvidence):
+            raise ValueError(f"{name} must be capability evidence")
+        if evidence.status is SupportState.UNKNOWN:
+            continue
+        # Both a positive and a negative claim need a verifiable origin and a date.
+        if (not evidence.source or evidence.provenance in {"", "unknown", None}
+                or not evidence.scope or not evidence.observed_at):
+            raise ValueError(f"{name} evidence requires source, provenance, scope, and observed_at")
+        if evidence.status is SupportState.SUPPORTED and name != "blocks_when_open" and not evidence.values:
+            raise ValueError(f"supported {name} requires explicit values")
     return descriptor
+
+
+def descriptor_from_declaration(executor_id: str, declaration: Mapping[str, Any]) -> ExecutorDescriptor:
+    """Manual descriptor from a catalog declaration (no adapter): never automatic, evidence as declared."""
+    kwargs: dict[str, Any] = {name: declaration.get(name) for name in _SET_FIELDS}
+    kwargs.update({name: declaration.get(name) for name in EVIDENCE_FIELDS if declaration.get(name) is not None})
+    return validate_executor_descriptor(ExecutorDescriptor(
+        executor_id=str(executor_id), surface=str(declaration.get("surface", "unknown")),
+        version=str(declaration.get("version", "1")), mode="manual", provenance="catalog_declared",
+        enabled=declaration.get("enabled", True) is True, **kwargs))
 
 
 def validate_executor_config(config: Mapping[str, Any]) -> dict[str, Any]:
@@ -145,6 +194,20 @@ def validate_executor_config(config: Mapping[str, Any]) -> dict[str, Any]:
         surface = entry.get("surface")
         if not isinstance(surface, str) or not surface.strip() or surface != surface.strip():
             raise ValueError(f"executor {executor_id} requires a nonempty surface ID")
+        if "enabled" in entry and not isinstance(entry["enabled"], bool):
+            raise ValueError(f"executor {executor_id} enabled must be true or false")
+        for name in EVIDENCE_FIELDS:
+            evidence = entry.get(name)
+            if evidence is None:
+                continue
+            if not isinstance(evidence, Mapping):
+                raise ValueError(f"executor {executor_id} {name} must be a mapping")
+            if evidence.get("observed_at") is not None and not isinstance(evidence["observed_at"], str):
+                raise ValueError(f"executor {executor_id} {name} observed_at must be a quoted string")
+        try:
+            descriptor_from_declaration(executor_id, entry)
+        except TypeError as exc:
+            raise ValueError(f"executor {executor_id} declaration is invalid: {exc}") from exc
     for scope, data_class in data_classifications.items():
         if (not isinstance(scope, str) or not any(scope.startswith(prefix) for prefix in ("task:", "group:", "envelope:"))
                 or not isinstance(data_class, str) or not data_class.strip()):

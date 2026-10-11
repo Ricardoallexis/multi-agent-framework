@@ -208,10 +208,17 @@ executor_routing:
       permission_ceiling: null
       allowed_data_classes: null
       execution_modes: null
-    copilot_cli:
-      surface: copilot_cli
+    # ORQ-T46 executor applications (CLI-driven agent apps, contract ORQ-6 section 2). Declared DISABLED and
+    # without an adapter: they are never selected or launched until the operator enables them and an adapter
+    # (ORQ-T48..T50) is registered. Evidence comes from the P-384 manual tests (operator_test, 2026-10-10).
+    # model_support/effort_support list only the values observed in those tests (extend after probing);
+    # Claude model/effort stay unknown (no model ID or effort value was recorded). quota_signal and terms
+    # were not probed and stay unknown. blocks_when_open: "supported" = the app blocks writes while open.
+    codex_cli:
+      surface: codex_cli
       version: "1"
       mode: manual
+      enabled: false
       adapter_id: null
       capabilities_available: null
       roles_available: null
@@ -221,6 +228,64 @@ executor_routing:
       permission_ceiling: null
       allowed_data_classes: null
       execution_modes: null
+      model_support: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: codex_cli, observed_at: "2026-10-10", values: ["gpt-6.1-sol"]}
+      effort_support: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: codex_cli, observed_at: "2026-10-10", values: ["ultra"]}
+      noninteractive_launch: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: codex_cli, observed_at: "2026-10-10", values: ["codex exec --json"]}
+      structured_output: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: codex_cli, observed_at: "2026-10-10", values: ["--json"]}
+      session_store: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: codex_cli, observed_at: "2026-10-10", values: ["~/.codex/sessions/**/rollout-*.jsonl"]}
+      resume: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: codex_cli, observed_at: "2026-10-10", values: ["codex exec resume <id>"]}
+      blocks_when_open: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: codex_cli, observed_at: "2026-10-10", values: ["active writer"]}
+      open_in_app: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: codex_cli, observed_at: "2026-10-10", values: ["target:codex://threads/<id>", "live:continue_in_app"]}
+      quota_signal: {status: unknown}
+      terms: {status: unknown}
+    claude_cli:
+      surface: claude_cli
+      version: "1"
+      mode: manual
+      enabled: false
+      adapter_id: null
+      capabilities_available: null
+      roles_available: null
+      permissions_available: null
+      permissions_required: null
+      permissions_consumed: null
+      permission_ceiling: null
+      allowed_data_classes: null
+      execution_modes: null
+      model_support: {status: unknown}
+      effort_support: {status: unknown}
+      noninteractive_launch: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: claude_cli, observed_at: "2026-10-10", values: ["claude -p --output-format json"]}
+      structured_output: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: claude_cli, observed_at: "2026-10-10", values: ["--output-format json"]}
+      session_store: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: claude_cli, observed_at: "2026-10-10", values: ["~/.claude/projects/**/<id>.jsonl"]}
+      resume: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: claude_cli, observed_at: "2026-10-10", values: ["--resume <id>"]}
+      blocks_when_open: {status: unsupported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: claude_cli, observed_at: "2026-10-10"}
+      open_in_app: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: claude_cli, observed_at: "2026-10-10", values: ["target:claude --desktop --resume <id>", "console:visible", "live:on_reopen"]}
+      quota_signal: {status: unknown}
+      terms: {status: unknown}
+    copilot_cli:
+      surface: copilot_cli
+      version: "1"
+      mode: manual
+      enabled: false
+      adapter_id: null
+      capabilities_available: null
+      roles_available: null
+      permissions_available: null
+      permissions_required: null
+      permissions_consumed: null
+      permission_ceiling: null
+      allowed_data_classes: null
+      execution_modes: null
+      model_support: {status: supported, source: "P-384 #390 (claude-sonnet-5.5); GUI-T08 run (gpt-6-luna)", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-11", values: ["claude-sonnet-5.5", "gpt-6-luna"]}
+      effort_support: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["low"]}
+      noninteractive_launch: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["copilot -p --output-format=json --no-ask-user"]}
+      structured_output: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["--output-format=json"]}
+      session_store: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["~/.copilot/session-state/<id>/"]}
+      resume: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["--resume=<id>"]}
+      blocks_when_open: {status: unsupported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10"}
+      open_in_app: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["target:ghapp://sessions/<id>", "confirmation:required", "live:on_reopen"]}
+      quota_signal: {status: unknown}
+      terms: {status: unknown}
     claude_app:
       surface: claude_app
       version: "1"

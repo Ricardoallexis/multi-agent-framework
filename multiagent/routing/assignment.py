@@ -191,6 +191,9 @@ def select_assignment(request: AssignmentRequest, *, profile: Mapping[str, Any] 
             reasons.append("executor_descriptor_invalid")
             continue
         hashes[descriptor.executor_id] = _hash(descriptor.to_dict())
+        if descriptor.enabled is not True:
+            reasons.append("executor_disabled")
+            continue
         if descriptor.mode != "automatic":
             reasons.append("executor_not_automatic")
             continue

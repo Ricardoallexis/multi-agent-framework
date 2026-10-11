@@ -5,7 +5,8 @@ from collections.abc import Mapping, Iterable
 from typing import Any, Protocol, runtime_checkable
 
 from ..routing.executor_capabilities import (
-    CapabilityEvidence, ExecutorDescriptor, SupportState, validate_executor_descriptor,
+    CapabilityEvidence, ExecutorDescriptor, SupportState, descriptor_from_declaration,
+    validate_executor_descriptor,
 )
 
 
@@ -54,25 +55,9 @@ class ExecutorRegistry:
                 continue
             adapter = self.resolve(str(executor_id))
             if adapter is None:
-                descriptor = ExecutorDescriptor(
-                    executor_id=str(executor_id),
-                    surface=str(declaration.get("surface", "unknown")),
-                    version=str(declaration.get("version", "1")),
-                    mode="manual",
-                    capabilities_available=declaration.get("capabilities_available"),
-                    roles_available=declaration.get("roles_available"),
-                    permissions_available=declaration.get("permissions_available"),
-                    permissions_required=declaration.get("permissions_required"),
-                    permissions_consumed=declaration.get("permissions_consumed"),
-                    permission_ceiling=declaration.get("permission_ceiling"),
-                    allowed_data_classes=declaration.get("allowed_data_classes"),
-                    execution_modes=declaration.get("execution_modes"),
-                    model_support=CapabilityEvidence(),
-                    effort_support=CapabilityEvidence(),
-                    context_isolation=CapabilityEvidence(),
-                    cancellation=CapabilityEvidence(),
-                    provenance="catalog_declared",
-                )
+                # No adapter: a manual descriptor. Declared evidence is carried for display and audit,
+                # but a manual descriptor is never selected (the selector requires mode "automatic").
+                descriptor = descriptor_from_declaration(str(executor_id), declaration)
             else:
                 described = adapter.describe(dict(declaration))
                 descriptor = validate_executor_descriptor(described)
@@ -80,9 +65,12 @@ class ExecutorRegistry:
                     raise ValueError("adapter descriptor executor_id differs from config")
                 if descriptor.adapter_id not in (None, adapter.adapter_id):
                     raise ValueError("adapter descriptor adapter_id differs from registered adapter")
+                # A declaration with ``enabled: false`` (or a non-boolean) always wins over the adapter.
+                enabled = descriptor.enabled and declaration.get("enabled", True) is True
                 descriptor = ExecutorDescriptor(
                     **{**descriptor.to_dict(), "adapter_id": adapter.adapter_id,
-                       "adapter_version": str(adapter.version), "provenance": "adapter_declaration"}
+                       "adapter_version": str(adapter.version), "provenance": "adapter_declaration",
+                       "enabled": enabled}
                 )
             descriptors[str(executor_id)] = validate_executor_descriptor(descriptor)
         self._descriptors = descriptors

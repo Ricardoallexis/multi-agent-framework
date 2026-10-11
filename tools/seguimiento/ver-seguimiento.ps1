@@ -22,6 +22,9 @@ param(
     [ValidateRange(1, 120)][int]$ApiTimeoutSeconds = 5,
     # SEG-T11: where subagent transcripts live, and the activity thresholds (minutes).
     [string[]]$SubagentRoots = @((Join-Path $HOME '.claude\projects')),
+    # SEG-T15: roots of the local Copilot (session-state\<id>\events.jsonl) and Codex (sessions\**\rollout-*-<id>.jsonl) data.
+    [string]$CopilotRoot = (Join-Path $HOME '.copilot'),
+    [string]$CodexRoot = (Join-Path $HOME '.codex'),
     [ValidateRange(1, 1440)][int]$ActiveMinutes = 15,
     [ValidateRange(1, 10080)][int]$StoppedMinutes = 60,
     [Nullable[datetime]]$NowOverride = $null
@@ -31,6 +34,8 @@ $ErrorActionPreference = 'Stop'
 $script:apiBaseUrl = $ApiBaseUrl.TrimEnd('/')
 $script:apiTimeoutSeconds = $ApiTimeoutSeconds
 $script:subagentRoots = @($SubagentRoots)
+$script:copilotRoot = $CopilotRoot
+$script:codexRoot = $CodexRoot
 $script:activeMinutes = $ActiveMinutes
 $script:stoppedMinutes = $StoppedMinutes
 $script:nowOverride = $NowOverride
@@ -187,7 +192,8 @@ function Get-TokenEntries([string]$value) {
     foreach ($part in ($value -split ';')) {
         if ($part -match '^\s*↳\s*(.+)\s\(delegado por\s+([^,)]+?)\s*(?:,\s*([^)]*?))?\s*\)\s*(?::\s*(.*?))?\s*$') {
             $name = $Matches[1].Trim(); $orch = $Matches[2].Trim(); $kind = "$($Matches[3])".Trim(); $rest = "$($Matches[4])"
-            $tag = if ($kind -match '(?i)estimad') { 'estimado' } elseif ($kind -match '(?i)exact') { 'exacto' } elseif ($kind -match '(?i)sin datos' -or $rest -match '(?i)sin datos') { 'sin datos' } else { $kind }
+            # SEG-T15: "exacto por ventana" (a Copilot / Codex worker measured inside its delegation window) keeps its full tag.
+            $tag = if ($kind -match '(?i)estimad') { 'estimado' } elseif ($kind -match '(?i)exact[a-z]*\s+por\s+ventana') { 'exacto por ventana' } elseif ($kind -match '(?i)exact') { 'exacto' } elseif ($kind -match '(?i)sin datos' -or $rest -match '(?i)sin datos') { 'sin datos' } else { $kind }
             if ($rest -match '(?i)total\s+(\d+)\s*=\s*entrada\s+(\d+)\s*\+\s*cacheados\s+(\d+)\s*\+\s*salida\s+(\d+)') {
                 [pscustomobject]@{ Kind = 'worker'; Agent = $name; Orchestrator = $orch; Total = [long]$Matches[1]; Input = [long]$Matches[2]; Cached = [long]$Matches[3]; Output = [long]$Matches[4]; Source = $tag }
             } else {
@@ -517,7 +523,10 @@ function Get-CardDelegations([string]$history, [string]$state = 'en curso') {
         if ($row.Detail -notmatch '^(?<w>[^(:]+?)(?:\s*\((?<p>[^)]*)\))?\s*:\s*(?<rest>.*)$') { continue }
         $worker = $Matches['w'].Trim(); $paren = $Matches['p']; $rest = $Matches['rest'].Trim()
         $reference = ''
-        if ($rest -match '\s*\[ref:\s*(agent-[A-Za-z0-9]+)\s*\]\s*$') { $reference = $Matches[1]; $rest = ($rest -replace '\s*\[ref:\s*agent-[A-Za-z0-9]+\s*\]\s*$', '').Trim() }
+        # SEG-T15: also copilot:<id de sesión> and codex:<id de hilo> (registrar-delegacion.ps1 -Referencia).
+        if ($rest -match '\s*\[ref:\s*(agent-[A-Za-z0-9]+|(?:copilot|codex):[0-9A-Fa-f][0-9A-Fa-f-]{7,63})\s*\]\s*$') {
+            $reference = $Matches[1]; $rest = ($rest -replace '\s*\[ref:\s*(?:agent-[A-Za-z0-9]+|(?:copilot|codex):[0-9A-Fa-f][0-9A-Fa-f-]{7,63})\s*\]\s*$', '').Trim()
+        }
         if (-not $worker) { continue }
         if ($row.Action -eq 'delegada') {
             # SEG-T12: "etiqueta x" (label) and "integración" (marker of -Integracion) share the parenthesis with the level and effort.
@@ -574,7 +583,8 @@ function Get-ExecutionLines([string]$taskId) {
 }
 function Format-WorkerLabel($entry) {
     $detail = @($entry.Level; if ($entry.Effort) { "esfuerzo $($entry.Effort)" }) | Where-Object { $_ }
-    if ($detail) { "$($entry.Worker) ($($detail -join ', '))" } else { $entry.Worker }
+    $name = Get-WorkerDisplayName $entry.Worker (Get-EntryReference $entry)
+    if ($detail) { "$name ($($detail -join ', '))" } else { $name }
 }
 # SEG-T11: activity status of a delegated worker from the tail of its subagent transcript. Only times and
 # the status are exposed, never the content.
@@ -594,49 +604,217 @@ function ConvertTo-LocalStamp($value) {
     if ($value -is [datetime]) { if ($value.Kind -eq 'Local') { return $value } return [datetime]::SpecifyKind($value, 'Utc').ToLocalTime() }
     try { ([datetimeoffset]::Parse([string]$value, [cultureinfo]::InvariantCulture, 'AssumeUniversal')).LocalDateTime } catch { $null }
 }
+# SEG-T15: Copilot sessions and Codex threads are workers like the Claude subagents. A reference is agent-<id> (Claude),
+# copilot:<id de sesión> or codex:<id de hilo>. Only times, the status and the model name are read, never the content.
+function Get-WorkerReference([string]$reference) {
+    if ($reference -match '^(copilot|codex):([0-9A-Fa-f][0-9A-Fa-f-]{7,63})$') { return [pscustomobject]@{ Kind = $Matches[1].ToLowerInvariant(); Id = $Matches[2].ToLowerInvariant() } }
+    if ($reference -match '^[A-Za-z0-9._-]+$') { return [pscustomobject]@{ Kind = 'claude'; Id = $reference } }
+    $null
+}
+function Get-EntryReference($entry) {
+    if ($entry -and $entry.PSObject.Properties['Reference'] -and $null -ne $entry.Reference) { [string]$entry.Reference } else { '' }
+}
+$script:WorkerFileCache = @{}
+$script:WorkerModelCache = @{}
+function Find-WorkerFile($ref) {
+    if ($ref.Kind -eq 'claude') { return Find-SubagentFile $ref.Id }
+    $key = "$($ref.Kind):$($ref.Id)"
+    if ($script:WorkerFileCache.ContainsKey($key)) { return $script:WorkerFileCache[$key] }
+    $found = $null
+    try {
+        if ($ref.Kind -eq 'copilot') {
+            $path = Join-Path $script:copilotRoot "session-state\$($ref.Id)\events.jsonl"
+            if (Test-Path -LiteralPath $path -PathType Leaf) { $found = Get-Item -LiteralPath $path }
+        } else {
+            foreach ($sub in 'sessions', 'archived_sessions') {
+                $dir = Join-Path $script:codexRoot $sub
+                if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
+                $found = Get-ChildItem -LiteralPath $dir -Recurse -File -Filter "rollout-*-$($ref.Id).jsonl" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($found) { break }
+            }
+        }
+    } catch { $found = $null }
+    $script:WorkerFileCache[$key] = $found
+    $found
+}
+# Parsed JSON records of the last $maxBytes of a transcript (the first, possibly cut, line is dropped).
+function Read-TailRecords([string]$path, [int]$maxBytes) {
+    $stream = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
+    try {
+        $length = $stream.Length
+        $take = [int][Math]::Min($maxBytes, $length)
+        $null = $stream.Seek(-$take, 'End')
+        $buffer = New-Object byte[] $take
+        $read = $stream.Read($buffer, 0, $take)
+        $text = [Text.Encoding]::UTF8.GetString($buffer, 0, $read)
+    } finally { $stream.Dispose() }
+    $lines = @($text -split "`r?`n" | Where-Object { $_.Trim() })
+    if ($take -lt $length -and $lines.Count) { $lines = @($lines | Select-Object -Skip 1) }
+    $records = foreach ($line in $lines) { try { $line | ConvertFrom-Json -ErrorAction Stop } catch { } }
+    @($records)
+}
+# Lines from the start of a transcript, stopping at $maxLines lines or about $maxChars characters.
+function Read-HeadLines([string]$path, [int]$maxLines, [int]$maxChars) {
+    $stream = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
+    try {
+        $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8)
+        $chars = 0
+        for ($i = 0; $i -lt $maxLines -and $chars -lt $maxChars; $i++) {
+            $line = $reader.ReadLine()
+            if ($null -eq $line) { break }
+            $chars += $line.Length
+            $line
+        }
+    } finally { $stream.Dispose() }
+}
+function Get-StringField($object, [string[]]$names) {
+    foreach ($name in $names) {
+        if ($null -eq $object) { return '' }
+        $property = $object.PSObject.Properties[$name]
+        if ($property -and $property.Value -is [string] -and $property.Value.Trim()) { return $property.Value.Trim() }
+    }
+    ''
+}
+# Model of a Copilot session / Codex thread: the last one named in the tail of its transcript, else the first in its head.
+function Get-WorkerModel($ref) {
+    $key = "$($ref.Kind):$($ref.Id)"
+    if ($script:WorkerModelCache.ContainsKey($key)) { return $script:WorkerModelCache[$key] }
+    $model = ''
+    $file = if ($ref.Kind -eq 'claude') { $null } else { Find-WorkerFile $ref }
+    if ($file) {
+        try {
+            $records = @(Read-TailRecords $file.FullName 262144)
+            for ($i = $records.Count - 1; $i -ge 0 -and -not $model; $i--) {
+                $rec = $records[$i]
+                if ($ref.Kind -eq 'copilot') { $model = Get-StringField $rec.data @('model', 'newModel', 'selectedModel', 'currentModel') }
+                elseif ($rec.type -eq 'turn_context') { $model = Get-StringField $rec.payload @('model') }
+            }
+            if (-not $model) {
+                foreach ($line in Read-HeadLines $file.FullName 300 2000000) {
+                    $wanted = if ($ref.Kind -eq 'copilot') { $line -like '*"selectedModel"*' -or $line -like '*"model":*' } else { $line -like '*"type":"turn_context"*' }
+                    if (-not $wanted) { continue }
+                    try { $rec = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+                    $model = if ($ref.Kind -eq 'copilot') { Get-StringField $rec.data @('selectedModel', 'model') } else { Get-StringField $rec.payload @('model') }
+                    if ($model) { break }
+                }
+            }
+        } catch { $model = '' }
+    }
+    $script:WorkerModelCache[$key] = $model
+    $model
+}
+# "Copilot · <modelo>" / "Codex · <modelo>" for those workers; any other worker keeps its registered name.
+function Get-WorkerDisplayName([string]$worker, [string]$reference) {
+    $ref = if ($reference) { Get-WorkerReference $reference } else { $null }
+    if (-not $ref -or $ref.Kind -eq 'claude') { return $worker }
+    $app = if ($ref.Kind -eq 'copilot') { 'Copilot' } else { 'Codex' }
+    $model = Get-WorkerModel $ref
+    if ($model) { return "$app · $model" }
+    if (-not $worker) { return $app }
+    if ($worker -match [regex]::Escape($app)) { return $worker }
+    "$app · $worker"
+}
+# Caches live for one page generation only (the watcher regenerates inside the same process).
+function Reset-WorkerCaches {
+    $script:SubagentFileCache = @{}
+    $script:WorkerFileCache = @{}
+    $script:WorkerModelCache = @{}
+    $script:ExecutionLines = $null
+}
+$script:TestCommandPattern = 'pytest|probar\.ps1|integrar-sin-ventanas\.ps1'
+# Running test of a Claude subagent: its last tool_use without a tool_result whose command is a test run. Returns its start time.
+function Get-ClaudePendingTest($records, [datetime]$last) {
+    $resolved = @{}
+    $pending = $null
+    foreach ($rec in $records) {
+        $content = $null
+        try { $content = $rec.message.content } catch { }
+        foreach ($block in @($content)) {
+            if ($block -isnot [pscustomobject]) { continue }
+            if ($block.type -eq 'tool_result' -and $block.tool_use_id) { $resolved[[string]$block.tool_use_id] = $true }
+            elseif ($block.type -eq 'tool_use') {
+                $cmd = ''
+                try { $cmd = ($block.input | ConvertTo-Json -Depth 4 -Compress) } catch { }
+                if ($rec.type -eq 'assistant') { $pending = [pscustomobject]@{ Id = [string]$block.id; Cmd = $cmd; Time = $null; Stamp = $rec.timestamp } }
+            }
+        }
+    }
+    if ($pending -and -not $resolved.ContainsKey($pending.Id) -and $pending.Cmd -match $script:TestCommandPattern) {
+        $since = $last
+        if ($pending.Stamp) { $t = ConvertTo-LocalStamp $pending.Stamp; if ($t) { $since = $t } }
+        return $since
+    }
+    $null
+}
+# Copilot: tool.execution_start of a shell tool without its tool.execution_complete, running a test command.
+function Get-CopilotPendingTest($records, [datetime]$last) {
+    $resolved = @{}
+    foreach ($rec in $records) {
+        if ($rec.type -eq 'tool.execution_complete' -and $rec.data -and $rec.data.toolCallId) { $resolved[[string]$rec.data.toolCallId] = $true }
+    }
+    $since = $null
+    foreach ($rec in $records) {
+        if ($rec.type -ne 'tool.execution_start' -or -not $rec.data) { continue }
+        $id = [string]$rec.data.toolCallId
+        if (-not $id -or $resolved.ContainsKey($id)) { continue }
+        if ([string]$rec.data.toolName -notmatch '(?i)^(powershell|pwsh|bash|sh|zsh|cmd|shell|run_in_terminal)$') { continue }
+        $command = ''
+        try { $command = [string]$rec.data.arguments.command } catch { }
+        if ($command -notmatch $script:TestCommandPattern) { continue }
+        $t = if ($rec.timestamp) { ConvertTo-LocalStamp $rec.timestamp } else { $null }
+        if (-not $t) { $t = $last }
+        if (-not $since -or $t -lt $since) { $since = $t }
+    }
+    $since
+}
+# Codex: a function_call / custom_tool_call / local_shell_call of an exec tool without its *_output, running a test command.
+function Get-CodexPendingTest($records, [datetime]$last) {
+    $resolved = @{}
+    foreach ($rec in $records) {
+        if ($rec.type -ne 'response_item' -or -not $rec.payload) { continue }
+        if ([string]$rec.payload.type -like '*_output' -and $rec.payload.call_id) { $resolved[[string]$rec.payload.call_id] = $true }
+    }
+    $since = $null
+    foreach ($rec in $records) {
+        if ($rec.type -ne 'response_item' -or -not $rec.payload) { continue }
+        $payload = $rec.payload
+        $kind = [string]$payload.type
+        if ($kind -notin 'function_call', 'custom_tool_call', 'local_shell_call') { continue }
+        $id = [string]$payload.call_id
+        if (-not $id -or $resolved.ContainsKey($id)) { continue }
+        if ($kind -ne 'local_shell_call' -and [string]$payload.name -notmatch '(?i)(exec|shell|bash|powershell)') { continue }
+        $text = ''
+        try {
+            if ($payload.arguments) { $text = [string]$payload.arguments }
+            elseif ($payload.input) { $text = [string]$payload.input }
+            elseif ($payload.action) { $text = ($payload.action | ConvertTo-Json -Depth 4 -Compress) }
+        } catch { }
+        if ($text -notmatch $script:TestCommandPattern) { continue }
+        $t = if ($rec.timestamp) { ConvertTo-LocalStamp $rec.timestamp } else { $null }
+        if (-not $t) { $t = $last }
+        if (-not $since -or $t -lt $since) { $since = $t }
+    }
+    $since
+}
 function Get-WorkerActivity($entry) {
-    $reference = if ($entry.PSObject.Properties['Reference']) { [string]$entry.Reference } else { '' }
+    $reference = Get-EntryReference $entry
     if (-not $reference) { return 'sin señal de actividad' }
-    $file = Find-SubagentFile $reference
+    $ref = Get-WorkerReference $reference
+    if (-not $ref) { return 'sin señal de actividad' }
+    $file = Find-WorkerFile $ref
     if (-not $file) { return 'sin señal de actividad' }
     $now = if ($null -ne $script:nowOverride) { [datetime]$script:nowOverride } else { Get-Date }
     $last = $file.LastWriteTime
     $running = $null
     try {
-        $stream = [IO.File]::Open($file.FullName, 'Open', 'Read', 'ReadWrite')
-        try {
-            $take = [int][Math]::Min(65536, $stream.Length)
-            $null = $stream.Seek(-$take, 'End')
-            $buffer = New-Object byte[] $take
-            $read = $stream.Read($buffer, 0, $take)
-            $text = [Text.Encoding]::UTF8.GetString($buffer, 0, $read)
-        } finally { $stream.Dispose() }
-        $lines = @($text -split "`r?`n" | Where-Object { $_.Trim() })
-        if ($take -lt $file.Length -and $lines.Count) { $lines = @($lines | Select-Object -Skip 1) }
-        $records = foreach ($line in $lines) { try { $line | ConvertFrom-Json -ErrorAction Stop } catch { } }
-        $records = @($records)
+        $records = @(Read-TailRecords $file.FullName $(if ($ref.Kind -eq 'claude') { 65536 } else { 262144 }))
         if ($records.Count) {
             $stamp = $records[-1].timestamp
             if ($stamp) { $t = ConvertTo-LocalStamp $stamp; if ($t -and $t -gt $last) { $last = $t } }
-            $resolved = @{}
-            $pending = $null
-            foreach ($rec in $records) {
-                $content = $null
-                try { $content = $rec.message.content } catch { }
-                foreach ($block in @($content)) {
-                    if ($block -isnot [pscustomobject]) { continue }
-                    if ($block.type -eq 'tool_result' -and $block.tool_use_id) { $resolved[[string]$block.tool_use_id] = $true }
-                    elseif ($block.type -eq 'tool_use') {
-                        $cmd = ''
-                        try { $cmd = ($block.input | ConvertTo-Json -Depth 4 -Compress) } catch { }
-                        if ($rec.type -eq 'assistant') { $pending = [pscustomobject]@{ Id = [string]$block.id; Cmd = $cmd; Time = $null; Stamp = $rec.timestamp } }
-                    }
-                }
-            }
-            if ($pending -and -not $resolved.ContainsKey($pending.Id) -and $pending.Cmd -match 'pytest|probar\.ps1|integrar-sin-ventanas\.ps1') {
-                $since = $last
-                if ($pending.Stamp) { $t = ConvertTo-LocalStamp $pending.Stamp; if ($t) { $since = $t } }
-                $running = $since
+            $running = switch ($ref.Kind) {
+                'claude' { Get-ClaudePendingTest $records $last }
+                'copilot' { Get-CopilotPendingTest $records $last }
+                'codex' { Get-CodexPendingTest $records $last }
             }
         }
     } catch { }
@@ -650,7 +828,8 @@ function Format-ActiveDelegation($entry) {
     $level = if ($entry.Level) { " ($($entry.Level))" } else { '' }
     $piece = if ($entry.Piece) { " · $($entry.Piece)" } else { '' }
     $activity = Get-WorkerActivity $entry
-    "$($entry.Worker)$level desde $($entry.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture)) · $activity$piece"
+    $name = Get-WorkerDisplayName $entry.Worker (Get-EntryReference $entry)
+    "$name$level desde $($entry.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture)) · $activity$piece"
 }
 # Merged delegation summary of a task: orchestrator and distinct workers (card rows win over JSONL lines).
 function Get-DelegationSummary([string]$taskId, $cardDelegations, [string]$cardAgent) {
@@ -670,13 +849,16 @@ function Get-DelegationSummary([string]$taskId, $cardDelegations, [string]$cardA
         $model = if ($item.PSObject.Properties['requested_model']) { ([string]$item.requested_model).Trim() } else { '' }
         $effort = if ($item.PSObject.Properties['requested_effort']) { ([string]$item.requested_effort).Trim() } else { '' }
         $itemOrchestrator = if ($item.PSObject.Properties['orchestrator']) { ([string]$item.orchestrator).Trim() } else { '' }
+        # SEG-T15: a Copilot session / Codex thread reference shows the app and the model it really ran.
+        $jsonReference = [string](@(Get-ExecutionLines $taskId | Where-Object { ([string]$_.worker).Trim() -ieq $worker -and $_.PSObject.Properties['reference'] -and $_.reference } | ForEach-Object { [string]$_.reference } | Select-Object -Last 1))
+        $shown = Get-WorkerDisplayName $worker $jsonReference
         if ($itemOrchestrator) {
             if (-not $orchestrator) { $orchestrator = $itemOrchestrator }
             $detail = @($model; if ($effort) { "esfuerzo $effort" }) | Where-Object { $_ }
-            $label = if ($detail) { "$worker ($($detail -join ', '))" } else { $worker }
+            $label = if ($detail) { "$shown ($($detail -join ', '))" } else { $shown }
         } else {
             # Older Codex lines: no orchestrator, the requested model is the useful name.
-            $label = if ($model) { "$model ($worker)" } else { $worker }
+            $label = if ($shown -ne $worker) { $shown } elseif ($model) { "$model ($worker)" } else { $worker }
         }
         $workers.Add($label)
         $details.Add([pscustomobject]@{ Worker = $worker; Items = @(Get-WorkItemsFromLines @(Get-ExecutionLines $taskId | Where-Object { ([string]$_.worker).Trim() -ieq $worker })) })
@@ -981,6 +1163,7 @@ function Format-TodoGroup([string]$heading, [object[]]$items) {
     "<h3>$(Encode $heading) <span class=""meta"">($($items.Count))</span></h3><ul>$($lis -join '')</ul>"
 }
 function Build-Page {
+Reset-WorkerCaches   # SEG-T15: transcripts, models and execution lines are read again on every generation
 $agentBoard = Get-AgentBoardData
 $apiBoardHtml = if ($LeerApi) { Get-ApiBoardHtml } else { '' }
 $readsText = if (Test-Path -LiteralPath $integrationReads -PathType Leaf) {
