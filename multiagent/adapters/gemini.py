@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from .base import LLMAdapter, LLMResponse
+from .base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
 from ..catalog import ModelSpec
 from ..config import Settings
 from ..errors import (
@@ -17,6 +17,15 @@ from ..errors import (
     RateLimitExceeded,
     StructuredOutputError,
 )
+from ..routing_policy import EFFORT_LEVELS
+
+# Generic effort -> ``generation_config.thinking_level`` of the Interactions API, whose levels
+# are minimal, low, medium and high. Gemini 3 models cannot switch thinking off, so ``none``
+# maps to the lowest level (``minimal``, the same value the bundled catalog uses for its
+# fast models), and ``max`` has no level above ``high``. The catalog's per-model ``thinking``
+# value is only recorded in the response metadata today; an explicit effort overrides it
+# for that call and nothing is sent when no effort is requested.
+GEMINI_THINKING_LEVEL = {"none": "minimal", "low": "low", "medium": "medium", "high": "high", "max": "high"}
 
 
 def _classify_gemini_error(exc: Exception) -> Exception:
@@ -56,8 +65,18 @@ class GeminiAdapter(LLMAdapter):
         self._client = genai.Client(api_key=self.settings.gemini_api_key)
         return self._client
 
-    def generate_structured(self, *, spec: ModelSpec, prompt: str, output_schema: type[BaseModel], requires_web: bool = False) -> LLMResponse:
+    def translate_effort(self, spec: ModelSpec, effort: str | None) -> EffortTranslation:
+        """See ``GEMINI_THINKING_LEVEL`` for the mapping."""
+        if effort is None:
+            return EffortTranslation(None)
+        if effort not in EFFORT_LEVELS:
+            return ignored_effort(effort, "unknown_effort")
+        return EffortTranslation(effort, True, {"thinking_level": GEMINI_THINKING_LEVEL[effort]})
+
+    def generate_structured(self, *, spec: ModelSpec, prompt: str, output_schema: type[BaseModel], requires_web: bool = False,
+                            effort: str | None = None) -> LLMResponse:
         client = self._client_or_raise()
+        translation = self.translate_effort(spec, effort)
         kwargs: dict[str, Any] = {
             "model": spec.model,
             "input": prompt,
@@ -65,6 +84,8 @@ class GeminiAdapter(LLMAdapter):
         }
         if requires_web:
             kwargs["tools"] = [{"type": "google_search"}]
+        if translation.applied:
+            kwargs["generation_config"] = dict(translation.setting)
         started = time.perf_counter()
         try:
             interaction = client.interactions.create(**kwargs)
@@ -97,7 +118,7 @@ class GeminiAdapter(LLMAdapter):
             tokens_out=tokens_out,
             latency_ms=latency_ms,
             sources=sources,
-            metadata={"grounded": requires_web, "thinking": spec.thinking},
+            metadata={"grounded": requires_web, "thinking": spec.thinking, **translation.metadata()},
         )
 
     def health(self) -> dict[str, Any]:

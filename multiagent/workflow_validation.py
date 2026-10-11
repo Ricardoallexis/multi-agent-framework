@@ -19,7 +19,8 @@ as a :class:`WorkflowIssue` with a stable ``code``:
 ``unknown_field``         A root or step field is not part of the format.
 ``invalid_steps``         ``steps`` is not a non-empty list.
 ``invalid_type``          A field has the wrong type.
-``invalid_value``         A field has the right type but an unusable value.
+``invalid_value``         A field has the right type but an unusable value (includes an
+                          unknown step ``kind`` or ``effort``).
 ``invalid_identifier``    A workflow or step id is not ``[A-Za-z0-9_][A-Za-z0-9_-]*``.
 ``workflow_id_mismatch``  The declared ``id`` differs from the requested one.
 ``duplicate_step_id``     Two steps share an id.
@@ -49,12 +50,13 @@ import difflib
 import os
 import re
 from collections.abc import Hashable, Iterable, Mapping
-from dataclasses import dataclass, fields
+from dataclasses import MISSING, dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from .routing_policy import EFFORT_LEVELS, STEP_KINDS
 from .workflows import SUPPORTED_CONDITIONS, WorkflowDefinition, WorkflowStep
 
 if TYPE_CHECKING:
@@ -71,6 +73,11 @@ DEFAULT_MAX_ITERATIONS = 2
 ROOT_FIELDS = ("id", "max_iterations", "steps")
 REQUIRED_ROOT_FIELDS = ("id", "steps")
 STEP_FIELDS = tuple(field.name for field in fields(WorkflowStep))
+# Fields with a default (``kind``, ``effort``) may be omitted from a document.
+REQUIRED_STEP_FIELDS = tuple(
+    field.name for field in fields(WorkflowStep)
+    if field.default is MISSING and field.default_factory is MISSING
+)
 
 DOCUMENT = "<document>"
 ROOT = "<root>"
@@ -233,12 +240,13 @@ def parse_workflow_document(document: bytes | str, *, workflow_id: str, source: 
                     issues.append(WorkflowIssue("invalid_type", location, f"Expected a step mapping; got {_kind(step)}"))
                     continue
                 issues += _field_set_issues(
-                    step, required=STEP_FIELDS, allowed=STEP_FIELDS, prefix=f"{location}.", step_id=_step_label(step.get("id")),
+                    step, required=REQUIRED_STEP_FIELDS, allowed=STEP_FIELDS, prefix=f"{location}.",
+                    step_id=_step_label(step.get("id")),
                 )
     # Unknown fields do not prevent building the definition, so value problems are
     # still reported alongside them; missing fields and malformed steps do.
     constructible = "id" in raw and isinstance(steps, list) and bool(steps) and all(
-        isinstance(step, dict) and all(name in step for name in STEP_FIELDS) for step in steps
+        isinstance(step, dict) and all(name in step for name in REQUIRED_STEP_FIELDS) for step in steps
     )
     if not constructible:
         fail(issues)
@@ -246,7 +254,7 @@ def parse_workflow_document(document: bytes | str, *, workflow_id: str, source: 
     definition = WorkflowDefinition(
         id=raw["id"],
         max_iterations=raw.get("max_iterations", DEFAULT_MAX_ITERATIONS),
-        steps=[WorkflowStep(**{name: step[name] for name in STEP_FIELDS}) for step in steps],
+        steps=[WorkflowStep(**{name: step[name] for name in STEP_FIELDS if name in step}) for step in steps],
     )
     if isinstance(definition.id, str) and definition.id != workflow_id:
         issues.append(WorkflowIssue(
@@ -328,6 +336,20 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
         # Any step may request a review: approving an intermediate one resumes at the next step.
         if not isinstance(step.checkpoint_after, bool):
             add("invalid_type", "checkpoint_after", f"Expected true or false; got {_kind(step.checkpoint_after)}")
+
+        if not isinstance(step.kind, str):
+            add("invalid_type", "kind", f"Expected one of {', '.join(STEP_KINDS)}; got {_kind(step.kind)}")
+        elif step.kind not in STEP_KINDS:
+            add("invalid_value", "kind", f"Unknown step kind {step.kind!r}; use one of {', '.join(STEP_KINDS)}")
+        # ``effort`` null (or omitted) leaves the provider default. In YAML, ``none`` is the
+        # string "none" (no reasoning); ``off``/``no`` parse as booleans and are rejected.
+        if step.effort is not None:
+            if not isinstance(step.effort, str):
+                add("invalid_type", "effort",
+                    f"Expected one of {', '.join(EFFORT_LEVELS)} (or null for the provider default); got {_kind(step.effort)}")
+            elif step.effort not in EFFORT_LEVELS:
+                add("invalid_value", "effort",
+                    f"Unknown effort {step.effort!r}; use one of {', '.join(EFFORT_LEVELS)}")
     return issues
 
 

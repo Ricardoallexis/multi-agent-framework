@@ -5,10 +5,16 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .base import LLMAdapter, LLMResponse
+from .base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
 from ..catalog import ModelSpec
 from ..config import Settings
 from ..errors import ProviderUnavailable, StructuredOutputError
+from ..routing_policy import EFFORT_LEVELS
+
+# Generic effort -> Responses API ``reasoning.effort``. ``max`` has no level above ``high``.
+# ``none`` has no portable value (models differ between "minimal" and "none"), so it is
+# ignored and recorded as not applied rather than guessed.
+OPENAI_REASONING_EFFORT = {"low": "low", "medium": "medium", "high": "high", "max": "high"}
 
 
 class OpenAIAdapter(LLMAdapter):
@@ -47,6 +53,17 @@ class OpenAIAdapter(LLMAdapter):
                     return item.parsed
         return None
 
+    def translate_effort(self, spec: ModelSpec, effort: str | None) -> EffortTranslation:
+        """See ``OPENAI_REASONING_EFFORT`` for the mapping."""
+        if effort is None:
+            return EffortTranslation(None)
+        if effort not in EFFORT_LEVELS:
+            return ignored_effort(effort, "unknown_effort")
+        level = OPENAI_REASONING_EFFORT.get(effort)
+        if level is None:
+            return ignored_effort(effort, "no_portable_openai_level_for_none")
+        return EffortTranslation(effort, True, {"reasoning_effort": level})
+
     def generate_structured(
         self,
         *,
@@ -54,17 +71,23 @@ class OpenAIAdapter(LLMAdapter):
         prompt: str,
         output_schema: type[BaseModel],
         requires_web: bool = False,
+        effort: str | None = None,
     ) -> LLMResponse:
         if requires_web:
             raise ProviderUnavailable("OpenAI is not enabled as a grounded provider in the current routing configuration")
 
         client = self._client_or_raise()
+        translation = self.translate_effort(spec, effort)
+        extra: dict[str, Any] = {}
+        if translation.applied:
+            extra["reasoning"] = {"effort": translation.setting["reasoning_effort"]}
         started = time.perf_counter()
         try:
             response = client.responses.parse(
                 model=spec.model,
                 input=prompt,
                 text_format=output_schema,
+                **extra,
             )
             parsed = self._extract_parsed(response)
             if parsed is None:
@@ -83,6 +106,7 @@ class OpenAIAdapter(LLMAdapter):
             tokens_in=int(getattr(usage, "input_tokens", 0) or 0) if usage else 0,
             tokens_out=int(getattr(usage, "output_tokens", 0) or 0) if usage else 0,
             latency_ms=int((time.perf_counter() - started) * 1000),
+            metadata=translation.metadata(),
         )
 
     def health(self) -> dict[str, Any]:

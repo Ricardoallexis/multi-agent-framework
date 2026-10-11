@@ -259,6 +259,9 @@ class WorkflowEngine:
                         requires_web=requires_web,
                         output_schema=step.contract,
                         estimated_input_tokens=estimated_input,
+                        step_kind=step.kind,
+                        effort=step.effort,
+                        attempt=attempt,
                     )
                     evidence_summary = summarize_routing_evidence(
                         run_id, list(fresh.get("events", [])), read_usage(self.store, run_id)
@@ -324,6 +327,8 @@ class WorkflowEngine:
                     "prompt_id": step.prompt_id,
                     "prompt_version": step.prompt_version,
                     "execution_mode": execution_mode.value,
+                    "step_kind": step.kind,
+                    "effort": step.effort,
                 })
 
                 if execution_mode == ExecutionMode.HUMAN_GUIDED:
@@ -434,6 +439,7 @@ class WorkflowEngine:
                     validate_response=validate_response,
                     on_failed_attempt=record_failed_attempt,
                     on_attempt=record_attempt,
+                    effort=step.effort,
                 )
 
                 # Soft cancellation discards the result before persisting an artifact if a human

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Settings
+from .routing_policy import DEFAULT_STEP_KIND
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,11 @@ class WorkflowStep:
     requires_web: bool | str
     when: str | None
     checkpoint_after: bool
+    # Optional fields: a document that omits them behaves exactly as before.
+    # ``kind`` is one of routing_policy.STEP_KINDS; ``effort`` is one of
+    # routing_policy.EFFORT_LEVELS, or None to leave the provider default.
+    kind: str = DEFAULT_STEP_KIND
+    effort: str | None = None
 
 
 @dataclass(frozen=True)

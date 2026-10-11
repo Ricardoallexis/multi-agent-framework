@@ -40,6 +40,31 @@ routing_profiles:
 
 This binding fragment does not enable the profile. Review the candidate list, permissions, privacy classes, evidence requirements, and budget before setting enabled to true. The local/cloud tier describes where a model runs; it is not a quality or context-size ranking. Model IDs refer to entries in the same catalog, not provider model names.
 
+## Step kind and reasoning effort
+
+Every workflow step may declare two optional fields. A workflow without them behaves exactly as before.
+
+~~~yaml
+steps:
+  - id: review_plan
+    # ...the usual step fields...
+    kind: review      # orchestration | planning | review | work (default: work)
+    effort: medium    # none | low | medium | high | max (default: unset, provider default)
+~~~
+
+Unknown values are rejected when the workflow loads (`invalid_value`; a wrong type is `invalid_type`). In YAML, `none` is the level "no reasoning"; leave the field out (or `null`) to keep the provider default. `kind` is generic and has no effect by itself; it is carried in `RoutingRequest.step_kind` together with `effort` and the 1-based `attempt` of the step, so a profile can use them. Selection does not read them yet.
+
+The step's `effort` is passed to the provider adapter, which translates it only where the provider can express it:
+
+| Adapter | Setting sent | Mapping |
+| --- | --- | --- |
+| Ollama | `think` | `none` = false; `low`, `medium`, `high`, `max` = true |
+| Gemini | `generation_config.thinking_level` (Interactions API) | `none` = minimal (Gemini 3 cannot turn thinking off), `low` = low, `medium` = medium, `high` = high, `max` = high |
+| OpenAI | `reasoning.effort` (Responses API) | `low`, `medium`, `high` as is; `max` = high; `none` has no portable value and is ignored |
+| Fake (tests) | simulated `effort` | applied unless built with `supports_effort=False` |
+
+An explicit effort overrides the model's catalog `thinking` value for that call; without an effort the adapters send exactly what they sent before. An adapter that cannot express the effort ignores it and the call proceeds. Each `model_attempt` event of a step with an effort records `effort_requested`, `effort_applied` (true only when the provider call carried the setting), `effective_config_effort` (the provider setting sent, or null) and `effort_note` (why it was not applied). The adapter also copies these into the response metadata. The record says what was requested and sent, not that the provider honored it or what it cost. The adapters do not know which models support the setting: a model that rejects it fails the call as a provider error.
+
 ## What a decision tells you
 
 The selector is a pure in-process operation. It consumes a RoutingRequest and optional RoutingEvidence; it does not probe a provider or call a model. The result status is selected, manual, or blocked. Reason codes and provenance explain why a candidate was kept or rejected.

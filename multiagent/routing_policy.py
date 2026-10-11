@@ -12,6 +12,12 @@ from typing import Any, Mapping
 
 CONTRACT_VERSION = 1
 
+# Generic step kinds and reasoning-effort levels shared by workflow definitions,
+# routing requests and provider adapters. They carry no domain meaning.
+STEP_KINDS = ("orchestration", "planning", "review", "work")
+DEFAULT_STEP_KIND = "work"
+EFFORT_LEVELS = ("none", "low", "medium", "high", "max")
+
 
 def _strings(value: Any) -> frozenset[str] | None:
     if value is None:
@@ -73,10 +79,22 @@ class RoutingRequest:
     output_schema: str | None = None
     estimated_input_tokens: int | None = None
     estimated_output_tokens: int | None = None
+    # Step kind (one of ``STEP_KINDS``), requested reasoning effort (one of
+    # ``EFFORT_LEVELS`` or None for the provider default) and the 1-based attempt
+    # of the step. The defaults describe a plain work step on its first attempt.
+    step_kind: str = DEFAULT_STEP_KIND
+    effort: str | None = None
+    attempt: int = 1
 
     def __post_init__(self) -> None:
         for name in ("required_capabilities", "required_permissions", "effective_permissions", "authorized_data_classes"):
             object.__setattr__(self, name, _strings(getattr(self, name)))
+        if self.step_kind not in STEP_KINDS:
+            raise ValueError(f"step_kind must be one of {', '.join(STEP_KINDS)}; got {self.step_kind!r}")
+        if self.effort is not None and self.effort not in EFFORT_LEVELS:
+            raise ValueError(f"effort must be one of {', '.join(EFFORT_LEVELS)} or None; got {self.effort!r}")
+        if type(self.attempt) is not int or self.attempt < 1:
+            raise ValueError(f"attempt must be an integer of 1 or more; got {self.attempt!r}")
 
     def to_dict(self) -> dict[str, Any]:
         result = {name: getattr(self, name) for name in self.__dataclass_fields__}

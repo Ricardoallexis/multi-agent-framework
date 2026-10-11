@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import inspect
 import logging
 import math
 import time
@@ -9,7 +10,7 @@ from typing import Any, Callable, Mapping
 
 from pydantic import BaseModel
 
-from .adapters.base import LLMAdapter, LLMResponse
+from .adapters.base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
 from .catalog import Catalog, ModelSpec
 from .contracts import TaskRequirements
 from .routing_policy import RoutingCandidate, RoutingDecision, RoutingEvidence, RoutingRequest
@@ -416,7 +417,8 @@ class ModelRouter:
     def _attempt_payload(*, model_id: str, spec: ModelSpec, retry: int, ordinal: int,
                          stage: str, provider_invoked: bool, status: str,
                          response: LLMResponse | None = None, error: Exception | None = None,
-                         duration_ms: int | None = None) -> dict[str, Any]:
+                         duration_ms: int | None = None,
+                         effort_translation: EffortTranslation | None = None) -> dict[str, Any]:
         metadata = dict(response.metadata) if response is not None else dict(getattr(error, "metadata", {}) or {})
         observed_model = ModelRouter._observed_model(metadata)
         if observed_model is None and error is not None:
@@ -426,7 +428,7 @@ class ModelRouter:
         tokens_in = response.tokens_in if response is not None else getattr(error, "tokens_in", None)
         tokens_out = response.tokens_out if response is not None else getattr(error, "tokens_out", None)
         num_ctx = metadata.get("num_ctx", getattr(error, "num_ctx", None))
-        return {
+        payload = {
             "model": model_id,
             "provider": response.provider if response is not None else spec.provider,
             "ok": status == "success",
@@ -451,11 +453,60 @@ class ModelRouter:
             "effective_model": spec.model if provider_invoked else None,
             "observed_model": observed_model,
         }
+        if effort_translation is not None and effort_translation.requested is not None:
+            # Added only when a step asked for an effort, so attempts without one keep their shape.
+            # ``effort_applied`` is True only when the provider call actually carried the setting;
+            # ``effective_config_effort`` is that provider setting (None when ignored).
+            applied = provider_invoked and effort_translation.applied
+            if applied and metadata.get("effort_applied") is False:
+                applied = False  # the adapter itself reported that it ignored the effort
+            note = effort_translation.note
+            if not provider_invoked:
+                note = "provider_not_invoked"
+            elif metadata.get("effort_applied") is False and metadata.get("effort_note"):
+                note = str(metadata["effort_note"])
+            payload.update({
+                "effort_requested": effort_translation.requested,
+                "effort_applied": applied,
+                "effective_config_effort": dict(effort_translation.setting) if applied and effort_translation.setting else None,
+                "effort_note": None if applied else note,
+            })
+        return payload
+
+    @staticmethod
+    def _not_sent(effort: str | None) -> EffortTranslation | None:
+        """Translation recorded for an attempt that never reached a provider."""
+        return None if effort is None else ignored_effort(effort, "provider_not_invoked")
+
+    @staticmethod
+    def _accepts_effort(adapter: LLMAdapter) -> bool:
+        """True when ``generate_structured`` takes ``effort`` (directly or through ``**kwargs``)."""
+        try:
+            parameters = inspect.signature(adapter.generate_structured).parameters
+        except (TypeError, ValueError):
+            return False
+        return "effort" in parameters or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+
+    @classmethod
+    def _plan_effort(cls, adapter: LLMAdapter, spec: ModelSpec, effort: str | None) -> tuple[dict[str, Any], EffortTranslation | None]:
+        """Extra call arguments and the translation to record for one adapter.
+
+        Without an effort nothing is passed, so adapters written before ``effort`` existed keep
+        working untouched. An adapter that cannot take it is skipped and the effort is recorded as
+        not applied; an unsupported effort never fails the call.
+        """
+        if effort is None:
+            return {}, None
+        if not cls._accepts_effort(adapter):
+            return {}, ignored_effort(effort, "adapter_does_not_accept_effort")
+        translate = getattr(adapter, "translate_effort", None)
+        translation = translate(spec, effort) if callable(translate) else ignored_effort(effort, "provider_does_not_support_effort")
+        return {"effort": effort}, translation
 
     def execute(self, *, binding: ModelBinding, requirements: TaskRequirements, prompt: str,
                 output_schema: type[BaseModel], before_call=None,
                 validate_response: ResponseValidator | None = None, on_failed_attempt=None,
-                on_attempt: AttemptCallback | None = None):
+                on_attempt: AttemptCallback | None = None, effort: str | None = None):
         if self.dry_run:
             adapter = self.adapters["fake"]
             fake_spec = ModelSpec(id="fixture", provider="fake", model="fixture", tier=requirements.tier.value,
@@ -463,12 +514,13 @@ class ModelRouter:
             started = time.perf_counter()
             response: LLMResponse | None = None
             provider_invoked = False
+            effort_kwargs, translation = self._plan_effort(adapter, fake_spec, effort)
             try:
                 if before_call:
                     before_call()
                 provider_invoked = True
                 response = adapter.generate_structured(spec=fake_spec, prompt=prompt, output_schema=output_schema,
-                                                       requires_web=requirements.requires_web)
+                                                       requires_web=requirements.requires_web, **effort_kwargs)
                 if validate_response:
                     try:
                         validate_response(response.parsed, response)
@@ -477,14 +529,16 @@ class ModelRouter:
                 response.metadata["catalog_model_id"] = "fixture"
                 event = self._attempt_payload(model_id="fixture", spec=fake_spec, retry=0, ordinal=1,
                                               stage="provider", provider_invoked=True, status="success",
-                                              response=response, duration_ms=int((time.perf_counter() - started) * 1000))
+                                              response=response, duration_ms=int((time.perf_counter() - started) * 1000),
+                                              effort_translation=translation)
                 self._notify_attempt(on_attempt, event)
                 return response, [{"model": "fixture", "provider": "fake", "ok": True, "retry": 0}]
             except _ROUTABLE_ERRORS as exc:
                 failure = self._attempt_payload(model_id="fixture", spec=fake_spec, retry=0, ordinal=1,
                                                 stage="provider", provider_invoked=True, status="failed",
                                                 response=response, error=exc,
-                                                duration_ms=(response.latency_ms if response is not None else int((time.perf_counter() - started) * 1000)))
+                                                duration_ms=(response.latency_ms if response is not None else int((time.perf_counter() - started) * 1000)),
+                                                effort_translation=translation)
                 self._notify_failed_attempt(on_failed_attempt, failure)
                 self._notify_attempt(on_attempt, failure)
                 raise
@@ -494,6 +548,7 @@ class ModelRouter:
                     stage="provider" if provider_invoked else "preflight",
                     provider_invoked=provider_invoked, status="failed", response=response, error=exc,
                     duration_ms=(response.latency_ms if response is not None else int((time.perf_counter() - started) * 1000)),
+                    effort_translation=translation,
                 )
                 if provider_invoked:
                     self._notify_failed_attempt(on_failed_attempt, failure)
@@ -513,7 +568,8 @@ class ModelRouter:
                 last_exc = exc
                 failure = self._attempt_payload(model_id=model_id, spec=spec, retry=0, ordinal=ordinal,
                                                 stage="preflight", provider_invoked=False,
-                                                status="failed", error=exc)
+                                                status="failed", error=exc,
+                                                effort_translation=self._not_sent(effort))
                 attempts.append(failure)
                 self._notify_failed_attempt(on_failed_attempt, failure)
                 self._notify_attempt(on_attempt, failure)
@@ -524,13 +580,15 @@ class ModelRouter:
                 last_exc = ProviderUnavailable(f"No adapter is configured for {spec.provider}")
                 failure = self._attempt_payload(model_id=model_id, spec=spec, retry=0, ordinal=ordinal,
                                                 stage="preflight", provider_invoked=False,
-                                                status="failed", error=last_exc)
+                                                status="failed", error=last_exc,
+                                                effort_translation=self._not_sent(effort))
                 attempts.append(failure)
                 self._notify_failed_attempt(on_failed_attempt, failure)
                 self._notify_attempt(on_attempt, failure)
                 continue
 
             retries = binding.max_retries if candidate_index == 0 else binding.fallback_max_retries
+            effort_kwargs, translation = self._plan_effort(adapter, spec, effort)
             for retry in range(retries + 1):
                 ordinal += 1
                 response: LLMResponse | None = None
@@ -541,13 +599,13 @@ class ModelRouter:
                     except Exception as exc:
                         failure = self._attempt_payload(model_id=model_id, spec=spec, retry=retry,
                                                         ordinal=ordinal, stage="preflight", provider_invoked=False,
-                                                        status="failed", error=exc)
+                                                        status="failed", error=exc, effort_translation=translation)
                         attempts.append(failure)
                         self._notify_attempt(on_attempt, failure)
                         raise
                 try:
                     response = adapter.generate_structured(spec=spec, prompt=prompt, output_schema=output_schema,
-                                                           requires_web=requirements.requires_web)
+                                                           requires_web=requirements.requires_web, **effort_kwargs)
                     if validate_response:
                         try:
                             validate_response(response.parsed, response)
@@ -559,7 +617,8 @@ class ModelRouter:
                                    else int((time.perf_counter() - started) * 1000))
                     failure = self._attempt_payload(model_id=model_id, spec=spec, retry=retry, ordinal=ordinal,
                                                    stage="provider", provider_invoked=True, status="failed",
-                                                   response=response, error=exc, duration_ms=duration_ms)
+                                                   response=response, error=exc, duration_ms=duration_ms,
+                                                   effort_translation=translation)
                     attempts.append(failure)
                     self._notify_failed_attempt(on_failed_attempt, failure)
                     self._notify_attempt(on_attempt, failure)
@@ -571,6 +630,7 @@ class ModelRouter:
                         stage="provider", provider_invoked=True, status="failed", response=response,
                         error=exc, duration_ms=(response.latency_ms if response is not None and response.latency_ms > 0
                                                 else int((time.perf_counter() - started) * 1000)),
+                        effort_translation=translation,
                     )
                     attempts.append(failure)
                     self._notify_failed_attempt(on_failed_attempt, failure)
@@ -580,7 +640,8 @@ class ModelRouter:
                     response.metadata["catalog_model_id"] = model_id
                     event = self._attempt_payload(model_id=model_id, spec=spec, retry=retry, ordinal=ordinal,
                                                   stage="provider", provider_invoked=True, status="success",
-                                                  response=response, duration_ms=int((time.perf_counter() - started) * 1000))
+                                                  response=response, duration_ms=int((time.perf_counter() - started) * 1000),
+                                                  effort_translation=translation)
                     attempts.append(event)
                     self._notify_attempt(on_attempt, event)
                     return response, attempts

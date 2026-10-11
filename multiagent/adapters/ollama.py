@@ -6,10 +6,11 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from .base import LLMAdapter, LLMResponse
+from .base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
 from ..catalog import ModelSpec
 from ..config import Settings
 from ..errors import ContextBudgetError, ProviderRequestError, ProviderUnavailable, StructuredOutputError
+from ..routing_policy import EFFORT_LEVELS
 from ..schema_utils import estimate_tokens_conservative, flatten_json_schema
 
 
@@ -21,7 +22,16 @@ class OllamaAdapter(LLMAdapter):
         self.client = client or httpx.Client(base_url=settings.ollama_base_url, timeout=settings.ollama_timeout_seconds)
         self._digest_cache: dict[str, str] = {}
 
-    def generate_structured(self, *, spec: ModelSpec, prompt: str, output_schema: type[BaseModel], requires_web: bool = False) -> LLMResponse:
+    def translate_effort(self, spec: ModelSpec, effort: str | None) -> EffortTranslation:
+        """Ollama only has an on/off switch: ``none`` -> ``think: false``; any other level -> ``think: true``."""
+        if effort is None:
+            return EffortTranslation(None)
+        if effort not in EFFORT_LEVELS:
+            return ignored_effort(effort, "unknown_effort")
+        return EffortTranslation(effort, True, {"think": effort != "none"})
+
+    def generate_structured(self, *, spec: ModelSpec, prompt: str, output_schema: type[BaseModel], requires_web: bool = False,
+                            effort: str | None = None) -> LLMResponse:
         if requires_web:
             raise ProviderUnavailable("The local runtime does not provide web grounding for this step")
         num_ctx = int(spec.num_ctx or self.settings.ollama_num_ctx)
@@ -32,11 +42,14 @@ class OllamaAdapter(LLMAdapter):
                 f"Estimated prompt size {estimate} tokens > soft limit {soft_limit} for num_ctx={num_ctx}"
             )
         schema = flatten_json_schema(output_schema.model_json_schema())
+        translation = self.translate_effort(spec, effort)
+        # Without an effort the model's catalog ``thinking`` flag decides, as before.
+        think = translation.setting["think"] if translation.applied else bool(spec.thinking is True)
         body = {
             "model": spec.model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
-            "think": bool(spec.thinking is True),
+            "think": think,
             "format": schema,
             "options": {"num_ctx": num_ctx, "temperature": 0.1},
             "keep_alive": spec.keep_alive or self.settings.ollama_keep_alive,
@@ -74,7 +87,8 @@ class OllamaAdapter(LLMAdapter):
                 "num_ctx": num_ctx,
                 "estimated_input_tokens": estimate,
                 "context_soft_limit": soft_limit,
-                "thinking": bool(spec.thinking is True),
+                "thinking": think,
+                **translation.metadata(),
                 "load_duration": data.get("load_duration"),
                 "prompt_eval_duration": data.get("prompt_eval_duration"),
                 "eval_duration": data.get("eval_duration"),

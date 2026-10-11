@@ -4,24 +4,41 @@ from copy import deepcopy
 from typing import Any, Mapping
 from pydantic import BaseModel
 
-from .base import LLMAdapter, LLMResponse
+from .base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
 from ..catalog import ModelSpec
 from ..contracts import (
     BrandField, BrandProfilePayload, ContentOutput, GroundingStatus,
     ResearchOutput, StrategyOutput, VisualBriefOutput,
 )
+from ..routing_policy import EFFORT_LEVELS
 
 
 class FakeAdapter(LLMAdapter):
     provider = "fake"
 
     def __init__(self, *, sample_outputs: Mapping[str, dict[str, Any]] | None = None,
-                 output_schemas: Mapping[str, type[BaseModel]] | None = None):
-        """Accept samples by contract name, resolving aliases through the registry."""
+                 output_schemas: Mapping[str, type[BaseModel]] | None = None,
+                 supports_effort: bool = True):
+        """Accept samples by contract name, resolving aliases through the registry.
+
+        ``supports_effort`` lets tests play a provider that can (default) or cannot express a
+        reasoning effort; the simulated setting is ``{"effort": <level>}``.
+        """
         self.sample_outputs = deepcopy(dict(sample_outputs or {}))
         self.output_schemas = dict(output_schemas) if output_schemas is not None else None
+        self.supports_effort = supports_effort
 
-    def generate_structured(self, *, spec: ModelSpec, prompt: str, output_schema: type[BaseModel], requires_web: bool = False) -> LLMResponse:
+    def translate_effort(self, spec: ModelSpec, effort: str | None) -> EffortTranslation:
+        if effort is None:
+            return EffortTranslation(None)
+        if effort not in EFFORT_LEVELS:
+            return ignored_effort(effort, "unknown_effort")
+        if not self.supports_effort:
+            return ignored_effort(effort, "provider_does_not_support_effort")
+        return EffortTranslation(effort, True, {"effort": effort})
+
+    def generate_structured(self, *, spec: ModelSpec, prompt: str, output_schema: type[BaseModel], requires_web: bool = False,
+                            effort: str | None = None) -> LLMResponse:
         names = ([name for name, schema in self.output_schemas.items() if schema is output_schema]
                  if self.output_schemas is not None else [output_schema.__name__])
         samples = [self.sample_outputs[name] for name in names if name in self.sample_outputs]
@@ -78,7 +95,8 @@ class FakeAdapter(LLMAdapter):
             )
         else:
             raise ValueError(f"FakeAdapter has no fixture for {output_schema.__name__}")
-        return LLMResponse(parsed=parsed, raw_text=parsed.model_dump_json(), provider=self.provider, model="fixture", tokens_in=10, tokens_out=20, latency_ms=1)
+        return LLMResponse(parsed=parsed, raw_text=parsed.model_dump_json(), provider=self.provider, model="fixture", tokens_in=10, tokens_out=20, latency_ms=1,
+                           metadata=self.translate_effort(spec, effort).metadata())
 
     def health(self) -> dict[str, Any]:
         return {"provider": self.provider, "available": True}

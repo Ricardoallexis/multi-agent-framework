@@ -72,7 +72,8 @@ class DefinitionServices:
 
         Returns ``{"id", "bundle", "max_iterations", "steps": [{"id", "agent",
         "prompt_id", "prompt_version", "skills", "contract", "preferred_model",
-        "fallback_model", "requires_web", "when", "checkpoint_after"}]}``.
+        "fallback_model", "requires_web", "when", "checkpoint_after", "kind", "effort"}]}``
+        (``kind`` is ``work`` and ``effort`` is ``None`` unless the document sets them).
         Errors: ``not_found``, ``invalid_definition``.
         """
         if bundle is not None:
