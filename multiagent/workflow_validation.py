@@ -16,14 +16,16 @@ as a :class:`WorkflowIssue` with a stable ``code``:
 ``yaml_invalid``          The document is not UTF-8 YAML or repeats a key.
 ``root_not_mapping``      The document root is not a mapping.
 ``missing_field``         A required root or step field is absent.
-``unknown_field``         A root or step field is not part of the format.
+``unknown_field``         A root, step or declared-input field is not part of the format.
 ``invalid_steps``         ``steps`` is not a non-empty list.
 ``invalid_type``          A field has the wrong type.
 ``invalid_value``         A field has the right type but an unusable value (includes an
-                          unknown step ``kind`` or ``effort``).
+                          unknown step ``kind`` or ``effort``, and an input ``type`` that is not
+                          ``text``, ``long_text`` or ``choice``, or ``choices`` that do not fit it).
 ``invalid_identifier``    A workflow or step id is not ``[A-Za-z0-9_][A-Za-z0-9_-]*``.
 ``workflow_id_mismatch``  The declared ``id`` differs from the requested one.
 ``duplicate_step_id``     Two steps share an id.
+``duplicate_input``       Two declared ``inputs`` share a name.
 ``unsupported_condition`` ``when`` is not null, ``requires_web`` or ``not_requires_web``.
 ``invalid_reference``     A prompt or skill reference is not a relative ``a/b`` path.
 ``unknown_agent``         The agent is not in the catalog.
@@ -57,7 +59,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from .routing_policy import EFFORT_LEVELS, STEP_KINDS
-from .workflows import SUPPORTED_CONDITIONS, WorkflowDefinition, WorkflowStep
+from .workflows import INPUT_TYPES, SUPPORTED_CONDITIONS, WorkflowDefinition, WorkflowInput, WorkflowStep
 
 if TYPE_CHECKING:
     from .catalog import Catalog
@@ -70,14 +72,23 @@ IDENTIFIER = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*")
 RESOURCE_REFERENCE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*(?:/[A-Za-z0-9_][A-Za-z0-9_-]*)*")
 
 DEFAULT_MAX_ITERATIONS = 2
-ROOT_FIELDS = ("id", "max_iterations", "steps")
+ROOT_FIELDS = ("id", "description", "max_iterations", "inputs", "steps")
 REQUIRED_ROOT_FIELDS = ("id", "steps")
 STEP_FIELDS = tuple(field.name for field in fields(WorkflowStep))
-# Fields with a default (``kind``, ``effort``) may be omitted from a document.
+# Fields with a default (``kind``, ``effort``, ``description``) may be omitted from a document.
 REQUIRED_STEP_FIELDS = tuple(
     field.name for field in fields(WorkflowStep)
     if field.default is MISSING and field.default_factory is MISSING
 )
+INPUT_FIELDS = tuple(field.name for field in fields(WorkflowInput))
+REQUIRED_INPUT_FIELDS = tuple(
+    field.name for field in fields(WorkflowInput)
+    if field.default is MISSING and field.default_factory is MISSING
+)
+# An input name is a prompt placeholder; the engine fills these runtime names itself.
+INPUT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+RESERVED_INPUT_NAMES = ("previous_output", "revision_feedback")
+RESERVED_INPUT_SUFFIX = "_output"
 
 DOCUMENT = "<document>"
 ROOT = "<root>"
@@ -245,9 +256,11 @@ def parse_workflow_document(document: bytes | str, *, workflow_id: str, source: 
                 )
     # Unknown fields do not prevent building the definition, so value problems are
     # still reported alongside them; missing fields and malformed steps do.
+    raw_inputs, input_issues = _raw_inputs(raw.get("inputs"))
+    issues += input_issues
     constructible = "id" in raw and isinstance(steps, list) and bool(steps) and all(
         isinstance(step, dict) and all(name in step for name in REQUIRED_STEP_FIELDS) for step in steps
-    )
+    ) and raw_inputs is not None
     if not constructible:
         fail(issues)
 
@@ -255,6 +268,14 @@ def parse_workflow_document(document: bytes | str, *, workflow_id: str, source: 
         id=raw["id"],
         max_iterations=raw.get("max_iterations", DEFAULT_MAX_ITERATIONS),
         steps=[WorkflowStep(**{name: step[name] for name in STEP_FIELDS if name in step}) for step in steps],
+        description=raw.get("description"),
+        inputs=[
+            WorkflowInput(**{
+                name: ([] if name == "choices" and entry[name] is None else entry[name])
+                for name in INPUT_FIELDS if name in entry
+            })
+            for entry in raw_inputs
+        ],
     )
     if isinstance(definition.id, str) and definition.id != workflow_id:
         issues.append(WorkflowIssue(
@@ -265,6 +286,33 @@ def parse_workflow_document(document: bytes | str, *, workflow_id: str, source: 
     if issues:
         fail(issues)
     return definition
+
+
+def _raw_inputs(value: Any) -> tuple[list[dict] | None, list[WorkflowIssue]]:
+    """Declared inputs of a parsed document: ``(entries, issues)``; entries is None when they cannot be built.
+
+    An absent or null ``inputs`` means "nothing declared". Value checks happen in
+    :func:`structural_issues`, on the built definition.
+    """
+    if value is None:
+        return [], []
+    if not isinstance(value, list):
+        return None, [WorkflowIssue("invalid_type", "inputs", f"Expected a list of input mappings; got {_kind(value)}")]
+    issues: list[WorkflowIssue] = []
+    entries: list[dict] | None = []
+    for index, entry in enumerate(value):
+        location = f"inputs[{index}]"
+        if not isinstance(entry, dict):
+            issues.append(WorkflowIssue("invalid_type", location, f"Expected an input mapping; got {_kind(entry)}"))
+            entries = None
+            continue
+        found = _field_set_issues(entry, required=REQUIRED_INPUT_FIELDS, allowed=INPUT_FIELDS, prefix=f"{location}.")
+        issues += found
+        if any(issue.code == "missing_field" for issue in found):
+            entries = None
+        elif entries is not None:
+            entries.append(entry)
+    return entries, issues
 
 
 def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
@@ -280,6 +328,10 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
         issues.append(WorkflowIssue("invalid_type", "max_iterations", f"Expected an integer; got {_kind(max_iterations)}"))
     elif max_iterations < 0:
         issues.append(WorkflowIssue("invalid_value", "max_iterations", f"Expected 0 or more revisions; got {max_iterations}"))
+
+    _check_text(lambda code, field, message: issues.append(WorkflowIssue(code, field, message)),
+                "description", definition.description)
+    issues += _input_issues(definition.inputs)
 
     steps = definition.steps
     if not isinstance(steps, list) or not steps:
@@ -306,6 +358,7 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
         else:
             seen[step.id] = index
 
+        _check_text(add, "description", step.description)
         for field in ("agent", "contract", "preferred_model"):
             _check_name(add, field, getattr(step, field))
         if step.fallback_model is not None:
@@ -431,6 +484,72 @@ def _check_name(add, field: str, value: Any) -> None:
         add("invalid_type", field, f"Expected a string; got {_kind(value)}")
     elif not value.strip():
         add("invalid_value", field, "Expected a non-empty name")
+
+
+def _check_text(add, field: str, value: Any) -> None:
+    """An optional human-readable text: absent (None) or a non-blank string."""
+    if value is None:
+        return
+    if not isinstance(value, str):
+        add("invalid_type", field, f"Expected a string; got {_kind(value)}")
+    elif not value.strip():
+        add("invalid_value", field, "Expected text, or leave the field out")
+
+
+def _input_issues(inputs: Any) -> list[WorkflowIssue]:
+    """Value checks of the declared inputs (their shape was already checked while parsing)."""
+    if not isinstance(inputs, list):
+        return [WorkflowIssue("invalid_type", "inputs", f"Expected a list of inputs; got {_kind(inputs)}")]
+    issues: list[WorkflowIssue] = []
+    seen: dict[str, int] = {}
+    for index, item in enumerate(inputs):
+        location = f"inputs[{index}]"
+        if not isinstance(item, WorkflowInput):
+            issues.append(WorkflowIssue("invalid_type", location, f"Expected a WorkflowInput; got {_kind(item)}"))
+            continue
+
+        def add(code: str, field: str, message: str, _location: str = location) -> None:
+            issues.append(WorkflowIssue(code, f"{_location}.{field}", message))
+
+        name = item.name
+        if not isinstance(name, str):
+            add("invalid_type", "name", f"Expected a string; got {_kind(name)}")
+        elif not INPUT_NAME.fullmatch(name):
+            add("invalid_identifier", "name", f"Input name {name!r} must match {INPUT_NAME.pattern}")
+        elif name in RESERVED_INPUT_NAMES or name.endswith(RESERVED_INPUT_SUFFIX):
+            add("invalid_value", "name",
+                f"Input name {name!r} is filled by the engine (runtime context), so it cannot be declared as an input")
+        elif name in seen:
+            add("duplicate_input", "name", f"Input {name!r} is already declared by inputs[{seen[name]}]")
+        else:
+            seen[name] = index
+
+        for field in ("label", "description", "example"):
+            _check_text(add, field, getattr(item, field))
+        if item.required is not None and not isinstance(item.required, bool):
+            add("invalid_type", "required", f"Expected true or false; got {_kind(item.required)}")
+
+        choices = item.choices
+        if not isinstance(item.type, str):
+            add("invalid_type", "type", f"Expected one of {', '.join(INPUT_TYPES)}; got {_kind(item.type)}")
+        elif item.type not in INPUT_TYPES:
+            add("invalid_value", "type", f"Unknown input type {item.type!r}; use one of {', '.join(INPUT_TYPES)}")
+        if not isinstance(choices, list):
+            add("invalid_type", "choices", f"Expected a list of strings; got {_kind(choices)}")
+        elif item.type != "choice":
+            if choices and item.type in INPUT_TYPES:
+                add("invalid_value", "choices", "choices is only allowed when type is 'choice'")
+        else:
+            bad = [choice for choice in choices if not isinstance(choice, str) or not choice.strip()]
+            if bad:
+                add("invalid_value", "choices", f"Every choice must be a non-blank string; got {bad[0]!r}")
+            elif not choices:
+                add("invalid_value", "choices", "An input of type 'choice' needs at least one choice")
+            elif len(set(choices)) != len(choices):
+                add("invalid_value", "choices", "Choices must not repeat")
+            elif isinstance(item.example, str) and item.example not in choices:
+                add("invalid_value", "example", f"The example {item.example!r} is not one of the choices")
+    return issues
 
 
 def _step_label(value: Any) -> str | None:

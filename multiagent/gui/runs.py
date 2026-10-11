@@ -277,7 +277,10 @@ def build_router(services) -> APIRouter:
 
     @router.get("/workflows/{workflow_id}/inputs")
     def workflow_inputs(workflow_id: str, bundle: str | None = None):
-        """Inputs the workflow expects (derived from its prompt placeholders) and its steps."""
+        """What the create-run form needs: the workflow description, its steps, and its inputs.
+
+        Declared inputs carry label, description, example, type and choices; placeholders nobody
+        declared are derived and carry the prompt line where they appear (item ``source``)."""
         return services.definitions.workflow_inputs(workflow_id, bundle=bundle)
 
     @router.post("/runs/preview")

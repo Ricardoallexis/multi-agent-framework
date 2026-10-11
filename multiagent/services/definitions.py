@@ -72,8 +72,10 @@ class DefinitionServices:
 
         Returns ``{"id", "bundle", "max_iterations", "steps": [{"id", "agent",
         "prompt_id", "prompt_version", "skills", "contract", "preferred_model",
-        "fallback_model", "requires_web", "when", "checkpoint_after", "kind", "effort"}]}``
-        (``kind`` is ``work`` and ``effort`` is ``None`` unless the document sets them).
+        "fallback_model", "requires_web", "when", "checkpoint_after", "kind", "effort",
+        "description"}], "description", "inputs": [declared inputs]}``
+        (``kind`` is ``work`` and ``effort``, ``description`` and ``inputs`` are ``None``/empty
+        unless the document sets them).
         Errors: ``not_found``, ``invalid_definition``.
         """
         if bundle is not None:
@@ -114,11 +116,14 @@ class DefinitionServices:
 
     @service_errors
     def workflow_inputs(self, workflow_id: str, *, bundle: str | None = None) -> dict[str, Any]:
-        """Inputs the workflow expects, derived from its prompt placeholders.
+        """Inputs the workflow expects: the ones it declares merged with its prompt placeholders.
 
-        Returns ``{"id", "bundle", "source", "inputs": [{"name", "label", "required",
-        "skipped_only", "context", "used_in", "needed_by", "prompt_line"}], "steps": [...]}``;
-        see ``workflow_inputs`` for the rules. Errors: ``not_found``, ``invalid_definition``.
+        Returns ``{"id", "bundle", "source", "description", "inputs": [{"name", "label",
+        "description", "example", "type", "choices", "source", "required", "skipped_only",
+        "context", "used_in", "needed_by", "prompt_line"}], "steps": [...], "warnings": [...]}``
+        (item ``source`` is ``declared`` or ``derived``; ``description`` and ``example`` are
+        ``None`` for derived inputs); see ``workflow_inputs`` for the rules.
+        Errors: ``not_found``, ``invalid_definition``.
         """
         definition, prompts = self._read_parts(workflow_id, bundle)
         return {"id": workflow_id, "bundle": bundle, **workflow_inputs.derive_inputs(definition, prompts)}

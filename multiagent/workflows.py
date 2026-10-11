@@ -1,11 +1,35 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .config import Settings
 from .routing_policy import DEFAULT_STEP_KIND
+
+
+# Values of WorkflowInput.type; the GUI shows a one-line field, a text area or a select.
+INPUT_TYPES = ("text", "long_text", "choice")
+DEFAULT_INPUT_TYPE = "text"
+
+
+@dataclass(frozen=True)
+class WorkflowInput:
+    """One input a workflow declares for the person who starts a run.
+
+    Declaring inputs is optional: a workflow that omits them gets its inputs
+    derived from the prompt placeholders. ``required`` None means "decide as
+    the derived rule does" (needed by a step that is not skipped by default).
+    """
+
+    name: str
+    label: str | None = None
+    description: str | None = None
+    example: str | None = None
+    required: bool | None = None
+    type: str = DEFAULT_INPUT_TYPE
+    # Only for type "choice": the values the person may pick.
+    choices: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -26,6 +50,8 @@ class WorkflowStep:
     # routing_policy.EFFORT_LEVELS, or None to leave the provider default.
     kind: str = DEFAULT_STEP_KIND
     effort: str | None = None
+    # Short sentence for people: what the step does.
+    description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +59,10 @@ class WorkflowDefinition:
     id: str
     max_iterations: int
     steps: list[WorkflowStep]
+    # Optional, for people: what the workflow produces and when to use it.
+    description: str | None = None
+    # Optional declared inputs; see WorkflowInput.
+    inputs: list[WorkflowInput] = field(default_factory=list)
 
 
 class WorkflowCatalog:

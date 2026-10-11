@@ -10,8 +10,8 @@ operator view, not a public API or a separate orchestration layer.
 From an installed project environment, run either command:
 
 ```console
-multiagent gui [--port N] [--real] [--no-browser]
-python -m multiagent.gui
+multiagent gui [--port N] [--real] [--no-browser] [--bundle NAME=FOLDER]...
+python -m multiagent.gui [--port N] [--real] [--no-browser] [--bundle NAME=FOLDER]...
 ```
 
 The GUI defaults to Mock mode. Use `--real` to leave the configured provider
@@ -21,6 +21,65 @@ in `~/.multiagent/gui-token` and opens
 `http://127.0.0.1:<port>/gui/#token=…`. The page stores the token in
 `sessionStorage` and removes it from the URL. `--no-browser` prints the URL
 without opening it. The default port is `APP_PORT` (8000).
+
+## Register bundles
+
+Without options the GUI offers only the built-in origin and its two social-post
+workflows. A *definition bundle* is a folder with its own workflows, agents,
+prompts and output contracts (see the [bundle contract](API.md)); registering one
+adds it to the **Origen del workflow** selector of **Ejecuciones**, with its own workflows.
+
+Register bundles when you start the GUI with `--bundle NAME=FOLDER`, repeated
+once per bundle. It is the same option, with the same parser, as in
+`multiagent ui`:
+
+```console
+multiagent gui --bundle general=examples/bundles/general --bundle team=examples/teams/software_development
+python -m multiagent.gui --bundle general=examples/bundles/general
+```
+
+- `NAME` is what the selector shows (`Bundle: NAME`). It uses letters, digits, `_` and
+  `-`, starts with a letter or digit, and has at most 120 characters.
+- `FOLDER` must exist; a relative path is read from the folder where you run
+  the command, and `~` is expanded. The GUI never shows folder paths.
+- Registration lasts for that start only. There is no environment variable or
+  settings entry for it, so pass the option each time.
+- A wrong option stops the launch before the server starts and prints one line,
+  for example `ERROR: --bundle uses the format name=folder` or
+  `ERROR: Bundle folder not found: ...`.
+- Register only bundles you trust: the bundle's `contracts.py` is imported and
+  runs as code.
+
+The repository ships two bundles to try. Both run in Mock mode (the default),
+with synthetic results, no model calls and no API keys.
+
+| Bundle | Folder | Workflows |
+| --- | --- | --- |
+| General (neutral example) | `examples/bundles/general` | `summarize_document`, `research_options`, `review_checklist` |
+| Software development team | `examples/teams/software_development` | `software_development` |
+
+The general bundle is not tied to any field. Its workflows declare a
+description, a description per step, and their inputs with a label, a
+description and an example, all in Spanish:
+
+- `summarize_document` (2 steps) summarizes a document for a given audience and
+  length; you review the summary.
+- `research_options` (3 steps) gathers findings from your question and context,
+  compares at least two options, and recommends one; you review the
+  recommendation. It does not browse the web.
+- `review_checklist` (2 steps) checks a specification or other document against a
+  checklist and issues a verdict; you review it.
+
+The software development bundle has seven steps, so each run needs seven model
+calls and the default limit of 4 stops it early. Start the GUI with
+`MAX_LLM_CALLS=7` (`$env:MAX_LLM_CALLS = "7"` in PowerShell,
+`export MAX_LLM_CALLS=7` in a POSIX shell); a limit of 10 leaves room for
+requested changes. Its input is `feature_request`, and it pauses for review twice
+(see its [README](../examples/teams/software_development/README.md)).
+
+To make your own bundle, copy `examples/bundles/general`, rename the workflow
+ids, and edit the prompts, agents and contracts; keep a sample output for each
+contract in `SAMPLE_OUTPUTS` so Mock runs work.
 
 ## Views
 

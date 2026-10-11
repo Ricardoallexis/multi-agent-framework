@@ -7,11 +7,15 @@ import argparse
 import os
 import threading
 import webbrowser
+from collections.abc import Mapping
+from pathlib import Path
 
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 
 
-def run(*, port: int = 0, real: bool = False, no_browser: bool = False) -> None:
+def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
+        bundles: Mapping[str, str | Path] | None = None) -> None:
+    """Start the server; ``bundles`` maps a name to a trusted definition-bundle folder (as in ``multiagent ui``)."""
     import uvicorn
 
     from ..api import create_app
@@ -33,12 +37,14 @@ def run(*, port: int = 0, real: bool = False, no_browser: bool = False) -> None:
     port = port or settings.app_port
     _check_port_free(host, port)
     token = ensure_token(settings.gui_token_file)
-    app = create_app(build_system(settings))
+    app = create_app(build_system(settings), bundles=bundles)
 
     url = f"http://{f'[{host}]' if ':' in host else host}:{port}/gui/#token={token}"
     print(f"Multi-Agent Framework GUI: {url}")
     print(f"Token file: {settings.gui_token_file}")
     print("Mode: " + ("REAL models (provider calls may cost money)" if real else "Mock (synthetic results)"))
+    if bundles:
+        print(f"Bundles: {', '.join(sorted(bundles))}")
     if not settings.gui_session_roots:
         print("Sessions: no folder is allowed yet; set GUI_SESSION_ROOTS to choose which sessions the viewer shows.")
     print("Press Ctrl+C to stop.")
@@ -48,14 +54,14 @@ def run(*, port: int = 0, real: bool = False, no_browser: bool = False) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    from ..cli import add_gui_arguments  # the options are defined once, for `multiagent gui` too
+    from ..cli import _parse_ui_bundles, add_gui_arguments  # options and --bundle parsing are shared with the CLI
 
     parser = argparse.ArgumentParser(prog="python -m multiagent.gui", description="Start the local GUI")
     add_gui_arguments(parser)
     args = parser.parse_args(argv)
     try:
-        run(port=args.port, real=args.real, no_browser=args.no_browser)
-    except RuntimeError as exc:  # a refused launch (host, token folder, busy port): the message, no traceback
+        run(port=args.port, real=args.real, no_browser=args.no_browser, bundles=_parse_ui_bundles(args.bundle))
+    except (RuntimeError, ValueError) as exc:  # a refused launch (host, token folder, busy port, bad --bundle): no traceback
         raise SystemExit(f"ERROR: {exc}") from None
 
 

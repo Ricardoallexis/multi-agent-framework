@@ -95,9 +95,9 @@ def test_a_decision_without_the_token_changes_nothing(env):
 
 # --- inputs and form ---------------------------------------------------------------
 
-def test_workflow_inputs_come_from_prompt_placeholders(env):
+def test_workflow_inputs_come_from_the_workflow_and_its_prompt_placeholders(env):
     spec = get(env, "/workflows/social_post/inputs").json()
-    assert spec["source"] == "prompt_placeholders"
+    assert spec["source"] == "declared"  # the workflow declares them; GUI-T11 tests cover the details
     by_name = {item["name"]: item for item in spec["inputs"]}
     assert {name for name, item in by_name.items() if item["required"]} == {
         "topic", "platform", "audience", "instructions"}
@@ -117,7 +117,8 @@ def test_full_pipeline_makes_objective_required(env):
 def test_bundle_workflow_inputs_exclude_runtime_context(env):
     spec = get(env, "/workflows/spec_review/inputs", params={"bundle": "team"}).json()
     assert [(i["name"], i["required"]) for i in spec["inputs"]] == [("spec_text", True)]
-    assert spec["bundle"] == "team"
+    assert spec["bundle"] == "team" and spec["source"] == "prompt_placeholders"
+    assert [i["source"] for i in spec["inputs"]] == ["derived"]
 
 
 def test_unknown_workflow_or_bundle_is_not_found(env):
@@ -147,7 +148,7 @@ def test_creation_rejects_empty_required_inputs(env, blank):
 
 def test_creation_rejects_absent_inputs_and_allows_missing_optional_ones(env):
     assert post(env, "/runs", create_body(inputs={})).json()["detail"]["details"]["missing_inputs"] == [
-        "topic", "audience", "instructions", "platform"]
+        "topic", "platform", "audience", "instructions"]  # in the order the workflow declares them
     ok = post(env, "/runs", create_body())  # objective and *_context were not given
     assert ok.status_code == 202
 
@@ -192,7 +193,7 @@ def test_preview_renders_the_prompt_as_text_without_creating_anything(env):
     response = post(env, "/runs/preview", {"workflow_id": "social_post", "inputs": POST_INPUTS})
     assert response.status_code == 200
     preview = response.json()
-    assert preview["missing_inputs"] == [] and preview["source"] == "prompt_placeholders"
+    assert preview["missing_inputs"] == [] and preview["source"] == "declared"
     research, create = preview["steps"]
     assert research["skipped"] is True and research["skip"] == {"condition": "requires_web"} and research["text"] is None
     assert create["skipped"] is False and create["contract"] == "ContentOutput"
@@ -205,7 +206,7 @@ def test_preview_renders_the_prompt_as_text_without_creating_anything(env):
 
 def test_preview_reports_missing_inputs_and_blank_holes(env):
     preview = post(env, "/runs/preview", {"workflow_id": "social_post", "inputs": {"topic": "Solo tema"}}).json()
-    assert preview["missing_inputs"] == ["audience", "instructions", "platform"]
+    assert preview["missing_inputs"] == ["platform", "audience", "instructions"]
     assert "brand_context" in preview["empty_optional_inputs"]
     assert "Platform: \n" in preview["steps"][1]["text"]
 

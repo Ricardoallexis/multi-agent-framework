@@ -73,6 +73,9 @@ fieldset.inputs { border: 1px solid var(--line); border-radius: 8px; padding: 8p
 fieldset.inputs legend { padding: 0 6px; font-weight: 600; }
 .req { color: var(--bad); font-weight: 600; font-size: .85rem; }
 .help { color: var(--muted); font-size: .85rem; margin: 2px 0 0; font-weight: 400; }
+.field-description { margin: 0 0 4px; }
+.workflow-description { margin: 0; }
+.step-list { margin: 2px 0 0; padding-left: 1.2rem; font-size: .85rem; }
 .field-error, .message.error, .error-text { color: var(--bad); }
 [aria-invalid="true"] { border-color: var(--bad); }
 .field-error { margin: 2px 0 0; font-size: .85rem; }

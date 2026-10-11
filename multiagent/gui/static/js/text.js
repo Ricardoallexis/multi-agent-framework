@@ -109,6 +109,21 @@ export function actorText(entry) {
   return "Operador";
 }
 
+// Example shown as placeholder text; a choice field has no free text, so it shows none.
+export function exampleText(item) {
+  return item.example && item.type !== "choice" ? "Ej.: " + item.example : null;
+}
+
+// Where the form's inputs come from, in one sentence.
+export function inputsNote(spec) {
+  const derived = spec.inputs.filter((item) => item.source !== "declared").length;
+  if (spec.inputs.length === 0) return "Este workflow no pide entradas.";
+  if (derived === 0) return "Las entradas las declara el propio workflow.";
+  const rule = "Se deducen de los marcadores {nombre} de los prompts de esos pasos y se muestra la línea del prompt donde aparecen.";
+  if (derived === spec.inputs.length) return "Este workflow no declara sus entradas. " + rule;
+  return "Las entradas sin descripción no las declara el workflow. " + rule;
+}
+
 export function inputHelp(item) {
   const parts = [];
   if (item.skipped_only) {
@@ -117,7 +132,8 @@ export function inputHelp(item) {
   } else if (item.used_in.length) {
     parts.push("Se usa en: " + item.used_in.join(", ") + ".");
   }
-  if (item.prompt_line) parts.push("En el prompt: «" + item.prompt_line + "».");
+  // A declared input explains itself (description and example); the prompt line is for the ones that do not.
+  if (item.source !== "declared" && item.prompt_line) parts.push("En el prompt: «" + item.prompt_line + "».");
   return parts.join(" ");
 }
 

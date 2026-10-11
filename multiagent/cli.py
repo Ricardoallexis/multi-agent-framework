@@ -680,6 +680,12 @@ def _parse_ui_bundles(values: list[str] | None) -> dict[str, Path]:
     return bundles
 
 
+def _add_bundle_argument(parser: argparse.ArgumentParser) -> None:
+    """The ``--bundle NAME=FOLDER`` option of ``multiagent ui`` and ``multiagent gui`` (defined once)."""
+    parser.add_argument("--bundle", action="append", metavar="NAME=FOLDER",
+                        help="Register a trusted definition bundle (its contracts.py is imported); repeatable")
+
+
 def _check_port_free(host: str, port: int) -> None:
     import socket
 
@@ -729,13 +735,14 @@ def add_gui_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--port", type=int, default=0, help="Port (default: app_port from settings)")
     parser.add_argument("--real", action="store_true", help="Use real models (default: Mock mode)")
     parser.add_argument("--no-browser", action="store_true", help="Print the URL without opening the browser")
+    _add_bundle_argument(parser)
 
 
 def cmd_gui(args) -> None:
     """Start the local server with the new GUI; same as ``python -m multiagent.gui``."""
     from .gui import __main__ as gui_main
 
-    gui_main.run(port=args.port, real=args.real, no_browser=args.no_browser)
+    gui_main.run(port=args.port, real=args.real, no_browser=args.no_browser, bundles=_parse_ui_bundles(args.bundle))
 
 
 def _session_services():
@@ -781,7 +788,7 @@ def build_parser() -> argparse.ArgumentParser:
     x = sub.add_parser("ui", help="Start the API with the Stage 0 UI (Mock mode unless --real) and open the browser")
     x.add_argument("--real", action="store_true", help="Use the configured model providers instead of Mock mode")
     x.add_argument("--port", type=int, help="Port to listen on (default: APP_PORT, 8000)")
-    x.add_argument("--bundle", action="append", metavar="NAME=FOLDER", help="Register a trusted definition bundle; repeatable")
+    _add_bundle_argument(x)
     x.add_argument("--no-browser", action="store_true", help="Do not open the browser")
     x.set_defaults(func=cmd_ui)
 

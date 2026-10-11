@@ -1,0 +1,63 @@
+# Bundle "general" (ejemplo neutral de dominio): reúne hallazgos, compara opciones y recomienda una.
+# No consulta la web: trabaja con la pregunta y el contexto que aportes, y declara lo que no sabe.
+id: research_options
+description: Investiga una pregunta con el contexto que aportes, compara las opciones posibles y propone una recomendación razonada.
+max_iterations: 2
+inputs:
+  - name: question
+    label: Pregunta o decisión
+    description: Lo que quieres resolver, formulado como una pregunta o como una decisión por tomar.
+    example: ¿Conviene que un equipo de ocho personas pase de reuniones semanales en directo a resúmenes escritos?
+    required: true
+    type: long_text
+  - name: background
+    label: Contexto
+    description: Datos, antecedentes o documentos que ya tienes y que ayudan a responder. Si lo dejas vacío, solo se usa la pregunta.
+    example: El equipo trabaja en dos zonas horarias, con tres horas de diferencia, y hoy dedica unas seis horas a la semana a reuniones.
+    required: false
+    type: long_text
+  - name: constraints
+    label: Restricciones
+    description: Límites que la recomendación debe respetar, como presupuesto, plazos o condiciones obligatorias.
+    example: Sin gasto adicional y con una prueba de cuatro semanas como máximo
+    required: false
+    type: text
+steps:
+  - id: gather_findings
+    description: Reúne los hallazgos relevantes, indica cuánta confianza merecen y señala lo que falta saber.
+    agent: research_analyst
+    prompt_id: general/gather_findings
+    prompt_version: 1
+    skills: []
+    contract: ResearchFindings
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+
+  - id: compare_options
+    description: Define criterios y compara al menos dos opciones con sus ventajas e inconvenientes.
+    agent: decision_advisor
+    prompt_id: general/compare_options
+    prompt_version: 1
+    skills: []
+    contract: OptionsComparison
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+
+  - id: recommend
+    description: Recomienda una opción, explica por qué, señala los riesgos y propone los siguientes pasos; tú lo revisas.
+    agent: decision_advisor
+    prompt_id: general/recommend
+    prompt_version: 1
+    skills: []
+    contract: Recommendation
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

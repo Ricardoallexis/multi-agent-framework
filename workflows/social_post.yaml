@@ -1,7 +1,58 @@
 id: social_post
+description: >-
+  Redacta una publicación para una red social a partir de un tema, una audiencia y unas
+  instrucciones. Si la ejecución pide búsqueda web, antes investiga datos y fuentes.
+  Úsalo para una publicación rápida; al terminar espera tu revisión.
 max_iterations: 2
+inputs:
+  - name: topic
+    label: Tema
+    description: De qué trata la publicación y por qué le importa a quien la lea.
+    example: Lanzamiento de nuestro soporte técnico 24/7
+    type: text
+  - name: platform
+    label: Plataforma
+    description: Red social donde se publicará. De ella dependen la longitud, el formato y el tono.
+    example: LinkedIn
+    type: text
+  - name: audience
+    label: Audiencia
+    description: Quién va a leer la publicación y qué le interesa o le preocupa.
+    example: Dueños de pequeñas empresas sin equipo de informática
+    type: text
+  - name: instructions
+    label: Instrucciones
+    description: >-
+      Indicaciones para quien redacta: tono, longitud, palabras que usar o evitar, número de hashtags.
+      Si no tienes ninguna, escribe «Ninguna».
+    example: Tono cercano y profesional, máximo 120 palabras, sin emojis, exactamente 3 hashtags
+    type: long_text
+  - name: objective
+    label: Objetivo
+    description: Qué debe lograr la publicación (dar a conocer algo, generar consultas, captar suscriptores). Orienta qué datos busca la investigación.
+    example: Que los clientes sepan que ya pueden pedir ayuda a cualquier hora
+    type: text
+  - name: research_context
+    label: Investigación previa
+    description: Datos y fuentes verificados sobre el tema, con sus enlaces. Son la única base de hechos de la publicación. Déjalo vacío si no tienes ninguno.
+    example: "Según el informe interno de 2026, 7 de cada 10 consultas llegan fuera de horario. Fuente: https://ejemplo.com/informe"
+    type: long_text
+    required: false
+  - name: strategy_context
+    label: Estrategia
+    description: Plan ya decidido para la publicación (ángulo, mensaje central, cierre). Déjalo vacío si no tienes uno.
+    example: "Ángulo: ahorro de tiempo. Mensaje: siempre hay alguien disponible. Cierre: invitar a escribir por mensaje directo."
+    type: long_text
+    required: false
+  - name: brand_context
+    label: Marca
+    description: Cómo habla la marca (tono, vocabulario, lo que nunca debe decir). Marca el estilo, no los hechos. Déjalo vacío si no hay guía de marca.
+    example: Tono cercano y claro, tuteo, sin tecnicismos ni promesas exageradas
+    type: long_text
+    required: false
 steps:
   - id: research
+    description: Busca datos y fuentes sobre el tema en la web. Solo se ejecuta si la ejecución pide búsqueda web.
     agent: researcher
     prompt_id: researcher/research
     prompt_version: 2
@@ -14,6 +65,7 @@ steps:
     checkpoint_after: false
 
   - id: create
+    description: Redacta la publicación (título, gancho, texto, llamada a la acción y hashtags) y espera tu revisión.
     agent: creator
     prompt_id: creator/social_post
     prompt_version: 2

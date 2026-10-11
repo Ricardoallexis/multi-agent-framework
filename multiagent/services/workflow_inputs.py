@@ -2,9 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """Workflow inputs and prompt previews, read from the definition files.
 
-Workflow YAML files do not declare their inputs (their format has no field for
-them), so the expected inputs are derived from the ``{placeholders}`` of the
-prompt templates the steps use, exactly as the engine fills them:
+A workflow may declare its inputs (``inputs:``: label, description, example,
+type, choices, required; see ``WorkflowInput``). Declaring is optional: every
+``{placeholder}`` of the prompt templates the steps use is an input anyway,
+exactly as the engine fills them, and a declaration only adds the words for
+people. The two are merged:
+
+* a declared input wins: its label, description, example, type, choices and
+  ``required`` (when given) replace the derived ones (``source`` is
+  ``"declared"``);
+* a placeholder nobody declared is still an input (``source`` is
+  ``"derived"``) and carries the prompt line where it appears;
+* a declared name that no prompt uses is not offered; ``warnings`` says so.
+
+The derivation rules are:
 
 * ``previous_output``, ``revision_feedback`` and every ``<name>_output`` are
   runtime context (``RunRequest`` reserves them); they are never inputs.
@@ -16,8 +27,7 @@ prompt templates the steps use, exactly as the engine fills them:
   stored context).
 
 Nothing here executes a step or calls a model: it reads templates, renders
-text and reports it. A future explicit ``inputs:`` section in the workflow
-format can replace the derivation without changing these return shapes.
+text and reports it.
 """
 from __future__ import annotations
 
@@ -26,10 +36,14 @@ import string
 from typing import Any, Mapping
 
 from ..prompts import PromptManager
-from ..workflows import WorkflowDefinition, condition_is_true
+from ..workflow_validation import WorkflowIssue
+from ..workflows import DEFAULT_INPUT_TYPE, WorkflowDefinition, WorkflowInput, condition_is_true
 from .errors import INVALID_DEFINITION, INVALID_REQUEST, ServiceError
 
 SOURCE = "prompt_placeholders"
+SOURCE_DECLARED = "declared"
+ITEM_DECLARED = "declared"
+ITEM_DERIVED = "derived"
 RUNTIME_NAMES = frozenset({"previous_output", "revision_feedback"})
 OPTIONAL_SUFFIX = "_context"
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -79,8 +93,46 @@ def _template(prompts: PromptManager, prompt_id: str, version: int, step_id: str
                            status=422, details={"step_id": step_id, "prompt_id": prompt_id}) from None
 
 
+def unused_input_warnings(definition: WorkflowDefinition, used: set[str] | frozenset[str]) -> list[WorkflowIssue]:
+    """A warning (not an error) for each declared input that no step prompt uses."""
+    return [
+        WorkflowIssue("unused_input", f"inputs[{index}].name",
+                      f"Declared input {item.name!r} is not used by any step prompt, so it is not offered; "
+                      "check the name against the prompt placeholders")
+        for index, item in enumerate(definition.inputs) if item.name not in used
+    ]
+
+
+def _merged(usage: dict[str, Any], declared: WorkflowInput | None) -> dict[str, Any]:
+    """One input as the interfaces see it: usage facts plus the declared words, when there are any."""
+    item = dict(usage)
+    context = item["name"].endswith(OPTIONAL_SUFFIX)
+    default_required = bool(item["needed_by"]) and not context
+    item.update({
+        "context": context,
+        "skipped_only": bool(item["used_in"]) and not item["needed_by"],
+        "source": ITEM_DERIVED, "description": None, "example": None, "type": DEFAULT_INPUT_TYPE, "choices": [],
+        "required": default_required,
+    })
+    if declared is not None:
+        item.update({
+            "source": ITEM_DECLARED,
+            "label": declared.label or item["label"],
+            "description": declared.description,
+            "example": declared.example,
+            "type": declared.type,
+            "choices": list(declared.choices),
+            "required": default_required if declared.required is None else declared.required,
+        })
+    return item
+
+
 def derive_inputs(definition: WorkflowDefinition, prompts: PromptManager) -> dict[str, Any]:
-    """``{"source", "inputs": [...], "steps": [...]}`` for one workflow definition."""
+    """``{"source", "description", "inputs": [...], "steps": [...], "warnings": [...]}`` for one workflow.
+
+    Declared inputs come first, in the order the workflow declares them, then the
+    placeholders nobody declared, in order of first use.
+    """
     request = _request_for(definition)
     skipped = {step.id: not condition_is_true(step.when, request) for step in definition.steps}
     found: dict[str, dict[str, Any]] = {}
@@ -97,17 +149,16 @@ def derive_inputs(definition: WorkflowDefinition, prompts: PromptManager) -> dic
                 item["used_in"].append(step.id)
             if not skipped[step.id] and step.id not in item["needed_by"]:
                 item["needed_by"].append(step.id)
-    inputs = []
-    for item in found.values():
-        item["context"] = item["name"].endswith(OPTIONAL_SUFFIX)
-        item["required"] = bool(item["needed_by"]) and not item["context"]
-        item["skipped_only"] = not item["needed_by"]
-        inputs.append(item)
+    declared = {item.name: item for item in definition.inputs}
+    inputs = [_merged(found[name], item) for name, item in declared.items() if name in found]
+    inputs += [_merged(usage, None) for name, usage in found.items() if name not in declared]
     return {
-        "source": SOURCE,
+        "source": SOURCE_DECLARED if any(item["source"] == ITEM_DECLARED for item in inputs) else SOURCE,
+        "description": definition.description,
         "inputs": inputs,
-        "steps": [{"id": step.id, "agent": step.agent, "when": step.when, "skipped_by_default": skipped[step.id]}
-                  for step in definition.steps],
+        "steps": [{"id": step.id, "agent": step.agent, "description": step.description, "when": step.when,
+                   "skipped_by_default": skipped[step.id]} for step in definition.steps],
+        "warnings": [issue.to_dict() for issue in unused_input_warnings(definition, set(found))],
     }
 
 

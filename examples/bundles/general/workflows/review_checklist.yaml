@@ -1,0 +1,49 @@
+# Bundle "general" (ejemplo neutral de dominio): revisa un documento contra una lista de comprobación.
+id: review_checklist
+description: Revisa una especificación u otro documento contra una lista de criterios y emite un veredicto con los problemas y las sugerencias.
+max_iterations: 2
+inputs:
+  - name: document_text
+    label: Documento a revisar
+    description: Texto de la especificación, el plan o el documento que se va a revisar.
+    example: "3.2 El sistema enviará un aviso al cliente cuando el pedido salga del almacén. 3.4 Los avisos deben llegar rápido. Entrega prevista: 15 de noviembre."
+    required: true
+    type: long_text
+  - name: checklist
+    label: Lista de comprobación
+    description: Un criterio por línea. Si la dejas vacía, se revisan la claridad, la integridad, la coherencia y si se puede verificar cada punto.
+    example: "Cada requisito tiene un responsable\nLos plazos son concretos\nSe describen los riesgos"
+    required: false
+    type: long_text
+  - name: document_kind
+    label: Tipo de documento
+    description: Qué clase de documento es. Ayuda a elegir qué mirar con más atención. Si lo dejas vacío, se trata como un documento genérico.
+    example: Especificación de requisitos de una aplicación de pedidos
+    required: false
+    type: text
+steps:
+  - id: check_items
+    description: Comprueba el documento criterio por criterio y anota si se cumple, se cumple en parte o no se cumple.
+    agent: document_analyst
+    prompt_id: general/check_items
+    prompt_version: 1
+    skills: []
+    contract: ChecklistResult
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+
+  - id: summarize_review
+    description: Resume la revisión en un veredicto con los problemas que bloquean y las mejoras sugeridas; tú lo revisas.
+    agent: quality_reviewer
+    prompt_id: general/summarize_review
+    prompt_version: 1
+    skills: []
+    contract: ReviewReport
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

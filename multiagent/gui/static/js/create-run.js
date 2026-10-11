@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Create a run: workflow inputs as named fields (required ones marked and enforced), and a text
 // preview of the prompt rendered by the server. The server rejects empty required inputs too.
+// A declared input shows its label, a short description under it, the example as placeholder text,
+// and a select for choices or a text area for long text; an undeclared one is derived from the
+// prompt and shows the prompt line where it appears. Everything is plain text.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost } from "./api.js";
-import { MODE_LABELS, errorText, inputHelp, skipReason } from "./text.js";
+import { MODE_LABELS, errorText, exampleText, inputHelp, inputsNote, skipReason } from "./text.js";
 
 const PREVIEW_DEBOUNCE_MS = 400;
 const MODES = ["auto", "local", "cloud", "human_guided"];
@@ -12,19 +15,40 @@ const MODES = ["auto", "local", "cloud", "human_guided"];
 const newKey = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 const asError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
 
+function FieldControl({ item, id, value, invalid, disabled, describedBy, onChange, onBlur }) {
+  const common = {
+    id, disabled, "aria-required": item.required ? "true" : null, "aria-invalid": invalid ? "true" : null,
+    "aria-describedby": describedBy, onBlur: () => onBlur(item.name),
+  };
+  const change = (event) => onChange(item.name, event.target.value);
+  if (item.type === "choice") {
+    return html`<select ...${common} value=${value} onChange=${change}>
+      <option value="">${item.required ? "Elige una opción" : "Sin elegir"}</option>
+      ${(item.choices || []).map((choice) => html`<option key=${choice} value=${choice}>${choice}</option>`)}
+    </select>`;
+  }
+  const placeholder = exampleText(item);
+  // A declared "text" input is one line; long text and every derived input (its kind is unknown) use a text area.
+  if (item.source === "declared" && item.type !== "long_text") {
+    return html`<input type="text" ...${common} value=${value} placeholder=${placeholder} onInput=${change} />`;
+  }
+  const rows = item.type === "long_text" ? 5 : item.context ? 3 : 2;
+  return html`<textarea ...${common} rows=${rows} value=${value} placeholder=${placeholder} onInput=${change}></textarea>`;
+}
+
 function Field({ item, value, touched, disabled, onChange, onBlur }) {
   const id = "input-" + item.name;
   const empty = !value.trim();
   const invalid = item.required && touched && empty;
+  const describedBy = (item.description ? id + "-description " : "") + id + "-help";
   return html`<div class="field">
     <label for=${id}>${item.label} <code>${item.name}</code>
       ${item.required
         ? html`<span class="req"><span aria-hidden="true">*</span> obligatorio</span>`
         : html`<span class="muted">(opcional)</span>`}</label>
-    <textarea id=${id} rows=${item.context ? 3 : 2} value=${value} disabled=${disabled}
-      aria-required=${item.required ? "true" : null} aria-invalid=${invalid ? "true" : null}
-      aria-describedby=${id + "-help"} onInput=${(event) => onChange(item.name, event.target.value)}
-      onBlur=${() => onBlur(item.name)}></textarea>
+    ${item.description && html`<p id=${id + "-description"} class="help field-description">${item.description}</p>`}
+    <${FieldControl} item=${item} id=${id} value=${value} invalid=${invalid} disabled=${disabled}
+      describedBy=${describedBy} onChange=${onChange} onBlur=${onBlur} />
     <p id=${id + "-help"} class="help">${inputHelp(item)}</p>
     ${invalid && html`<p class="field-error" role="alert">Este campo es obligatorio: escribe un valor.</p>`}
   </div>`;
@@ -172,7 +196,7 @@ export function CreateRun({ token, mock, onCreated, onClose }) {
   const all = spec ? spec.inputs : [];
   const required = all.filter((item) => item.required);
   const optional = all.filter((item) => !item.required && !item.context);
-  const context = all.filter((item) => item.context);
+  const context = all.filter((item) => item.context && !item.required);
 
   return html`<div class="create-run">
     <header class="row">
@@ -194,8 +218,11 @@ export function CreateRun({ token, mock, onCreated, onClose }) {
             ${workflows.map((item) => html`<option key=${item.id} value=${item.id}>${item.id}</option>`)}
           </select></div>
       </div>
-      ${spec && html`<p class="muted">Pasos: ${spec.steps.map((step) => step.id + (step.skipped_by_default ? " (se salta por defecto)" : "")).join(" → ")}.
-        Las entradas se deducen de los marcadores <code>{nombre}</code> de los prompts de esos pasos.</p>`}
+      ${spec && spec.description && html`<p class="workflow-description">${spec.description}</p>`}
+      ${spec && html`<div class="muted">
+        <p class="help">Pasos:</p>
+        <ol class="step-list">${spec.steps.map((step) => html`<li key=${step.id}><strong>${step.id}</strong>${step.skipped_by_default ? " (se salta por defecto)" : ""}${step.description ? ": " + step.description : ""}</li>`)}</ol>
+        <p class="help">${inputsNote(spec)}</p></div>`}
       <div><label for="cr-project">Proyecto <span class="req"><span aria-hidden="true">*</span> obligatorio</span></label>
         <input id="cr-project" maxlength="120" autocomplete="off" value=${project} disabled=${busy}
           aria-required="true" onInput=${(event) => setProject(event.target.value)} /></div>
