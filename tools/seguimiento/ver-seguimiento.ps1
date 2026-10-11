@@ -392,8 +392,10 @@ function Get-StageClosure([string]$stageName, [string]$stageText, [object[]]$tas
     }
 
     $reportText = Get-Field $stageText 'Reporte de integración'
-    $reportId = if ($reportText -match '(\d{4}-\d{2}-\d{2}_\d{4})') { $Matches[1] }
-        elseif ((Get-Field $stageText 'Commit de cierre') -match '(?i)integraci[oó]n[^0-9]*(\d{4}-\d{2}-\d{2}_\d{4})') { $Matches[1] }
+    # SEG-T14: report ids are yyyy-MM-dd_HHmm (old) or yyyy-MM-dd_HHmmss_fff (probar.ps1 since ORQ-T37). Written inline on
+    # purpose: verificar-etapas.ps1 loads only a fixed list of functions from this file, so this function needs no new helper.
+    $reportId = if ($reportText -match '(\d{4}-\d{2}-\d{2}_\d{4}(?:\d{2}_\d{3})?)') { $Matches[1] }
+        elseif ((Get-Field $stageText 'Commit de cierre') -match '(?i)integraci[oó]n[^0-9]*(\d{4}-\d{2}-\d{2}_\d{4}(?:\d{2}_\d{3})?)') { $Matches[1] }
         else { '' }
     if (-not $reportId) {
         return [pscustomobject]@{ Status = 'unknown'; Reason = 'La ficha no identifica un reporte de integración.'; Commit = $closeCommit; Report = ''; Stage = $stageName }
@@ -415,6 +417,18 @@ function Get-StageClosure([string]$stageName, [string]$stageText, [object[]]$tas
         return [pscustomobject]@{ Status = 'unknown'; Reason = 'El registro del reporte no confirma un resultado OK con pruebas pasadas.'; Commit = $closeCommit; Report = $reportName; Stage = $stageName }
     }
     [pscustomobject]@{ Status = 'complete'; Reason = ''; Commit = $closeCommit; Report = $reportName; Stage = $stageName }
+}
+
+# SEG-T14: sortable time key of a report name in either format. yyyy-MM-dd_HHmm becomes yyyy-MM-dd_HHmm00_000 so old and
+# new names compare correctly as plain strings (a name sorted on its own text would put _1200 after _011321_133).
+# Returns '' when the text is not a report name.
+function Get-ReportTimeKey([string]$name) {
+    if ($name -match '^(\d{4}-\d{2}-\d{2})_(\d{4})(?:(\d{2})_(\d{3}))?_integracion\.md$') {
+        $seconds = if ($Matches[3]) { $Matches[3] } else { '00' }
+        $millis = if ($Matches[4]) { $Matches[4] } else { '000' }
+        return "$($Matches[1])_$($Matches[2])${seconds}_$millis"
+    }
+    ''
 }
 
 # SEG-T13: integration round in progress. parches\ronda.txt lists the patches applied since the last integration commit
@@ -1462,7 +1476,14 @@ $archiveLinks = @(Sort-NewestFirst $archiveLinkEntries | ForEach-Object Html)
 
 # Resumen: integration state from the channel and the repository, never from a hand-kept file.
 $pendingPatches = @(Get-ChildItem -LiteralPath $pendingPatchesDir -Filter '*.patch' -File -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object Name)
-$lastReport = @($readsText -split "`r?`n" | Where-Object { $_ -match '^\|\s*\d{4}-\d{2}-\d{2}_\d{4}_integracion\.md\s*\|' }) | Select-Object -Last 1
+# SEG-T14: the latest reading by report time (both name formats); the later row wins a tie.
+$lastReport = $null
+$lastReportKey = ''
+foreach ($readLine in ($readsText -split "`r?`n")) {
+    if ($readLine -notmatch '^\|\s*(\d{4}-\d{2}-\d{2}_\d{4}(?:\d{2}_\d{3})?_integracion\.md)\s*\|') { continue }
+    $readKey = Get-ReportTimeKey $Matches[1]
+    if ($readKey -and [string]::CompareOrdinal($readKey, $lastReportKey) -ge 0) { $lastReport = $readLine; $lastReportKey = $readKey }
+}
 $lastReportHtml = if ($lastReport) {
     $columns = @($lastReport.Trim().Trim('|').Split('|') | ForEach-Object { $_.Trim() })
     $resultClass = if ($columns[1] -eq 'OK') { 's-integrada' } else { 's-requiere-cambios' }

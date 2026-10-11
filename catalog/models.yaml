@@ -12,6 +12,19 @@ models:
     output_cost_per_million: 0.0
     free_tier_eligible: true
     capabilities: [text_generation]
+    level: T1
+    classification: classified
+    pricing:
+      input: &local_no_charge_price
+        amount: 0
+        denominator: 1000000
+        unit: token
+        currency: USD
+        source: "Local Ollama model: no per-token charge by the framework (hardware and energy costs are out of scope)"
+        valid_from: "2026-01-01T00:00:00Z"
+        valid_until: "2036-01-01T00:00:00Z"
+        provenance: local_no_charge
+      output: *local_no_charge_price
     roles: [researcher, strategist, creator, designer]
     permissions: []
     permissions_required: []
@@ -30,6 +43,11 @@ models:
     output_cost_per_million: 0.0
     free_tier_eligible: true
     capabilities: [text_generation]
+    level: T1
+    classification: classified
+    pricing:
+      input: *local_no_charge_price
+      output: *local_no_charge_price
     roles: [researcher, strategist, creator, designer]
     permissions: []
     permissions_required: []

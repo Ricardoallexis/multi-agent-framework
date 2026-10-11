@@ -11,3 +11,62 @@ models:
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: true
+    # Level and price evidence (both optional). A local Ollama model has no per-token charge, so it is
+    # declared as level T1 with a price of 0 and provenance `local_no_charge`.
+    level: T1
+    classification: classified
+    pricing:
+      input:
+        amount: 0
+        denominator: 1000000
+        unit: token
+        currency: USD
+        source: "Local Ollama model: no per-token charge by the framework (hardware and energy costs are out of scope)"
+        valid_from: "2026-01-01T00:00:00Z"
+        valid_until: "2036-01-01T00:00:00Z"
+        provenance: local_no_charge
+      output:
+        amount: 0
+        denominator: 1000000
+        unit: token
+        currency: USD
+        source: "Local Ollama model: no per-token charge by the framework (hardware and energy costs are out of scope)"
+        valid_from: "2026-01-01T00:00:00Z"
+        valid_until: "2036-01-01T00:00:00Z"
+        provenance: local_no_charge
+
+  # EXAMPLE ONLY, commented out: how a cloud model declares its level and price evidence.
+  # Every number below is a placeholder to show the shape and is NOT a real price. Copy the block,
+  # then replace the model, the amounts, the source and the dates with your provider's current rate
+  # card. Without a `pricing` block (or after `valid_until`) the model has no price evidence, and a
+  # model stays `unclassified` until you have measured it; only `classified` models with a `level`
+  # (T1 economic, T2 standard, T3 advanced, T4 maximum) take part in cost-based selection.
+  # The legacy input_cost_per_million/output_cost_per_million fields are not price evidence.
+  #
+  # example_cloud_model:
+  #   provider: gemini
+  #   model: replace-with-a-real-model-id
+  #   tier: cloud
+  #   structured_output: true
+  #   web: false
+  #   level: T2
+  #   classification: unclassified
+  #   pricing:
+  #     input:
+  #       amount: 1.00                 # EXAMPLE VALUE, not a real price
+  #       denominator: 1000000         # the amount is per this many units
+  #       unit: token
+  #       currency: USD
+  #       source: "EXAMPLE ONLY - not a real price; replace with your provider's rate card"
+  #       valid_from: "2026-01-01T00:00:00Z"
+  #       valid_until: "2026-01-31T00:00:00Z"    # short window on purpose; renew it when you confirm the price
+  #       provenance: example
+  #     output:
+  #       amount: 2.00                 # EXAMPLE VALUE, not a real price
+  #       denominator: 1000000
+  #       unit: token
+  #       currency: USD
+  #       source: "EXAMPLE ONLY - not a real price; replace with your provider's rate card"
+  #       valid_from: "2026-01-01T00:00:00Z"
+  #       valid_until: "2026-01-31T00:00:00Z"
+  #       provenance: example
