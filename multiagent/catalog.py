@@ -24,6 +24,18 @@ _PRICE_FIELDS = ("amount", "denominator", "unit", "currency", "source", "valid_f
 _PRICE_TEXT_FIELDS = ("unit", "currency", "source", "provenance")
 _PRICE_WINDOW_FIELDS = ("valid_from", "valid_until")
 
+# Context window evidence (CMP-T08). ``provider_docs`` is the only provenance a catalog file may declare (cloud
+# models, copied from the provider's official documentation); ``runtime_setting`` is produced by the loader for
+# Ollama models from the ``num_ctx`` the adapter sends. Anything else has no evidence and stays unknown.
+PROVIDER_DOCS = "provider_docs"
+RUNTIME_SETTING = "runtime_setting"
+CONTEXT_WINDOW_PROVENANCES = (PROVIDER_DOCS, RUNTIME_SETTING)
+_CONTEXT_WINDOW_FIELDS = ("tokens", "source", "checked_at", "provenance", "model")
+_CONTEXT_WINDOW_OPTIONAL = ("note",)
+OLLAMA_NUM_CTX_SOURCE = (
+    "num_ctx sent to Ollama on every call (the model's catalog num_ctx, or OLLAMA_NUM_CTX when it sets none)"
+)
+
 # Routing profile fields that make a profile an "economic" one (ECO-T05). A profile that declares none
 # of them is a legacy profile and is validated and routed exactly as before.
 ROUTING_MODES = ("supervised", "automatic", "single")
@@ -170,6 +182,88 @@ def current_price(pricing: Any, *, now: datetime) -> list[tuple[float, str, int,
     return components
 
 
+def _evidence_date(where: str, value: Any) -> str:
+    """Return ``YYYY-MM-DD`` for a date, a datetime or an ISO 8601 date/timestamp string, or raise ``CatalogError``."""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str) and value.strip():
+        text = value.strip()
+        try:
+            return date.fromisoformat(text).isoformat()
+        except ValueError:
+            pass
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+        except ValueError:
+            pass
+    raise CatalogError(f"{where}.checked_at {value!r} must be the date the source was read (YYYY-MM-DD)")
+
+
+def validate_context_window(model_id: str, window: Any) -> dict[str, Any]:
+    """Check a model's declared ``context_window`` block and return a normalized copy.
+
+    A catalog file may only declare window evidence copied from the provider's official documentation:
+    ``tokens`` (a positive integer), ``source`` (the page or reference), ``checked_at`` (the date it was read),
+    ``provenance: provider_docs`` and ``model`` (the provider model name that source describes), plus an
+    optional ``note``. The window of a local Ollama model is not declared; the catalog derives it from ``num_ctx``.
+    An unknown window is expressed by leaving the block out, never by a guess.
+    """
+    where = f"Model {model_id!r}: context_window"
+    if not isinstance(window, dict):
+        raise CatalogError(f"{where} must be a mapping with {', '.join(_CONTEXT_WINDOW_FIELDS)}")
+    allowed = _CONTEXT_WINDOW_FIELDS + _CONTEXT_WINDOW_OPTIONAL
+    extra = sorted(str(key) for key in window if key not in allowed)
+    if extra:
+        raise CatalogError(f"{where} has unknown keys {extra}; expected {', '.join(allowed)}")
+    missing = [name for name in _CONTEXT_WINDOW_FIELDS if window.get(name) is None]
+    if missing:
+        raise CatalogError(f"{where} is incomplete: missing {', '.join(missing)} (leave the block out if the window is unknown)")
+    tokens = window["tokens"]
+    if type(tokens) is not int or tokens <= 0:
+        raise CatalogError(f"{where}.tokens must be a positive integer, got {tokens!r}")
+    result: dict[str, Any] = {"tokens": tokens}
+    for name in ("source", "provenance", "model"):
+        value = window[name]
+        if not isinstance(value, str) or not value.strip():
+            raise CatalogError(f"{where}.{name} must be a non-empty string, got {value!r}")
+        result[name] = value.strip()
+    if result["provenance"] != PROVIDER_DOCS:
+        raise CatalogError(
+            f"{where}.provenance must be {PROVIDER_DOCS!r} (a declared window comes from the provider's official "
+            f"documentation; {RUNTIME_SETTING!r} is derived by the catalog for Ollama models), got {window['provenance']!r}")
+    result["checked_at"] = _evidence_date(where, window["checked_at"])
+    if window.get("note") is not None:
+        note = window["note"]
+        if not isinstance(note, str) or not note.strip():
+            raise CatalogError(f"{where}.note must be a non-empty string when present, got {note!r}")
+        result["note"] = note.strip()
+    order = ("tokens", "source", "checked_at", "provenance", "model", "note")
+    return {name: result[name] for name in order if name in result}
+
+
+def usable_context_window(window: Any) -> dict[str, Any] | None:
+    """Return a copy of ``window`` when it is usable evidence of a context window, else ``None`` (unknown).
+
+    Usable means a positive integer ``tokens``, a ``source``, a known ``provenance`` and, for
+    ``provider_docs``, the date it was checked. The compaction guard and anything else that needs the window
+    of a model rely on this single check, as price consumers rely on ``current_price``: ``None`` is "no
+    evidence", never a number to assume.
+    """
+    if not isinstance(window, dict):
+        return None
+    tokens, source, provenance = window.get("tokens"), window.get("source"), window.get("provenance")
+    if type(tokens) is not int or tokens <= 0 or not isinstance(source, str) or not source.strip():
+        return None
+    if provenance not in CONTEXT_WINDOW_PROVENANCES:
+        return None
+    checked_at = window.get("checked_at")
+    if provenance == PROVIDER_DOCS and not (isinstance(checked_at, str) and checked_at.strip()):
+        return None
+    return dict(window)
+
+
 def _level_index(level: str) -> int:
     return MODEL_LEVELS.index(level)
 
@@ -290,6 +384,9 @@ class ModelSpec:
     pricing: dict[str, Any] | None = None
     level: str | None = None
     classification: str = "unclassified"
+    # Window evidence (see ``validate_context_window``); ``None`` means unknown. Read it through
+    # ``Catalog.context_window`` or ``usable_context_window`` rather than assuming a number.
+    context_window: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.level is not None and self.level not in MODEL_LEVELS:
@@ -346,6 +443,7 @@ class Catalog:
                 raw["model"] = settings.openai_model
             if raw.get("pricing") is not None:
                 raw["pricing"] = validate_pricing(model_id, raw["pricing"], tier=raw.get("tier"))
+            raw["context_window"] = self._resolve_context_window(model_id, raw)
             spec = ModelSpec(id=model_id, **raw)
             self._warn_legacy_cost(spec)
             self.models[model_id] = spec
@@ -353,6 +451,43 @@ class Catalog:
             if isinstance(profile, dict) and profile.get("mode") == "single" and profile["model_id"] not in self.models:
                 raise CatalogError(
                     f"Routing profile {str(profile_id)!r}: model_id {profile['model_id']!r} is not a model in the catalog")
+
+    def _resolve_context_window(self, model_id: str, raw: dict[str, Any]) -> dict[str, Any] | None:
+        """The model's window evidence, or ``None`` when it is unknown.
+
+        An Ollama model has no declared window: the window is the ``num_ctx`` the adapter sends (the model's
+        own, else ``OLLAMA_NUM_CTX``), with provenance ``runtime_setting``. Any other model has a window only
+        if its catalog entry declares evidence for the very model name in force; a name changed by a setting
+        after the evidence was written (for example ``GEMINI_MODEL``) makes the evidence not apply.
+        """
+        declared = raw.get("context_window")
+        model = raw.get("model")
+        if str(raw.get("provider") or "").strip().casefold() == "ollama":
+            if declared is not None:
+                raise CatalogError(
+                    f"Model {model_id!r}: context_window cannot be declared for an Ollama model; its window is the "
+                    f"num_ctx sent on every call (set num_ctx, or OLLAMA_NUM_CTX)")
+            configured = raw.get("num_ctx") or self.settings.ollama_num_ctx
+            if isinstance(configured, bool):
+                return None
+            try:
+                num_ctx = int(configured)
+            except (TypeError, ValueError):
+                return None
+            if num_ctx <= 0:
+                return None
+            return {"tokens": num_ctx, "source": OLLAMA_NUM_CTX_SOURCE, "checked_at": None,
+                    "provenance": RUNTIME_SETTING, "model": str(model) if model is not None else None}
+        if declared is None:
+            return None
+        window = validate_context_window(model_id, declared)
+        if str(model or "").strip().casefold() != window["model"].casefold():
+            _logger.warning(
+                "Model %r: context_window evidence is for provider model %r but the model in force is %r; "
+                "treating the window as unknown.", model_id, window["model"], model,
+            )
+            return None
+        return window
 
     @staticmethod
     def _warn_legacy_cost(spec: ModelSpec) -> None:
@@ -387,3 +522,12 @@ class Catalog:
             return self.models[model_id]
         except KeyError as exc:
             raise KeyError(f"Model is not configured: {model_id}") from exc
+
+    def context_window(self, model_id: str) -> dict[str, Any] | None:
+        """The model's context window as ``{tokens, source, checked_at, provenance, model}`` (plus ``note``).
+
+        ``None`` means the window is unknown: the model is not in the catalog, declares no evidence, or the
+        evidence is not usable. Callers must treat ``None`` as unknown and never substitute a number.
+        """
+        spec = self.models.get(model_id)
+        return usable_context_window(spec.context_window) if spec is not None else None

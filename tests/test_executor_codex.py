@@ -424,11 +424,11 @@ def test_stream_collects_error_events():
 @pytest.mark.parametrize("stderr, kind", [
     (ACTIVE_WRITER, FailureKind.BLOCKED_OPEN_SESSION),
     ("ERROR: thread already has an active writer (Codex Desktop)", FailureKind.BLOCKED_OPEN_SESSION),
-    (USAGE_LIMIT, FailureKind.QUOTA),
-    (USAGE_LIMIT_CODE, FailureKind.QUOTA),
-    (RATE_LIMIT, FailureKind.QUOTA),
-    (INSUFFICIENT_QUOTA, FailureKind.QUOTA),
-    ("HTTP 429 from the provider", FailureKind.QUOTA),
+    (USAGE_LIMIT, FailureKind.PLAN_LIMIT),
+    (USAGE_LIMIT_CODE, FailureKind.PLAN_LIMIT),
+    (RATE_LIMIT, FailureKind.RATE_LIMITED),
+    (INSUFFICIENT_QUOTA, FailureKind.CREDITS_EXHAUSTED),
+    ("HTTP 429 from the provider", FailureKind.RATE_LIMITED),
     (NOT_LOGGED_IN, FailureKind.AUTHENTICATION),
     (REFRESH_TOKEN, FailureKind.AUTHENTICATION),
     (UNAUTHORIZED, FailureKind.AUTHENTICATION),
@@ -437,7 +437,7 @@ def test_stream_collects_error_events():
     ("", FailureKind.OTHER),
     ("line 4290 of the log", FailureKind.OTHER),
     (f"{ACTIVE_WRITER}\n{USAGE_LIMIT}", FailureKind.BLOCKED_OPEN_SESSION),      # blocked beats quota
-    (f"{USAGE_LIMIT}\n{NOT_LOGGED_IN}", FailureKind.QUOTA),                     # quota beats authentication
+    (f"{USAGE_LIMIT}\n{NOT_LOGGED_IN}", FailureKind.PLAN_LIMIT),                     # quota beats authentication
 ])
 def test_classify_failure_patterns(pure, stderr, kind):
     assert pure.classify_failure(1, stderr) is kind

@@ -5,5 +5,6 @@ pydantic==2.13.4
 pydantic-settings==2.14.1
 httpx==0.28.1
 PyYAML==6.0.3
+tzdata==2026.5; sys_platform == "win32"
 google-genai==2.13.0
 openai==2.46.0

@@ -354,8 +354,8 @@ OTHER_TEXTS = ["", "boom", "Traceback (most recent call last):\n  File x.py\nVal
 
 @pytest.mark.parametrize("text", QUOTA_TEXTS)
 def test_quota_and_rate_limit_messages_are_quota(text):
-    assert ClaudeAdapter().classify_failure(1, text) is FailureKind.QUOTA
-    assert ClaudeAdapter().classify_failure(None, "prefix\n" + text.upper()) is FailureKind.QUOTA
+    assert ClaudeAdapter().classify_failure(1, text).is_limit
+    assert ClaudeAdapter().classify_failure(None, "prefix\n" + text.upper()).is_limit
 
 
 @pytest.mark.parametrize("text", AUTH_TEXTS)

@@ -38,7 +38,11 @@ Failure classification (``classify_failure``; case-insensitive text patterns, fi
 
 - ``blocked_open_session``: "already has an active writer" (``codex exec resume`` while Codex Desktop holds the thread,
   P-384 #389).
-- ``quota``: "usage limit", "usage_limit_reached", "quota", "rate limit", "too many requests", HTTP 429.
+- a limit (CNT-T02), in four classes, evaluated in this order: ``rate_limited`` ("too many requests", "rate limit"),
+  ``plan_limit`` ("usage limit", "usage_limit_reached"; the reset comes from ``rate_limits`` of the rollout, the window
+  with ``used_percent`` >= 100, or from "try again at 4:12 PM"), ``credits_exhausted`` ("exceeded your current quota",
+  "out of credits", or a usage-limit message with no time while ``credits.has_credits`` is false), a bare HTTP 429
+  (``rate_limited``) and any other "quota" text (``limit_unknown``). ``classify_limit`` gives the details.
 - ``authentication``: "not logged in", "codex login", "sign in again", "unauthorized", "invalid api key", "refresh
   token", "token expired", HTTP 401.
 - anything else is ``other``. An exit code of 0 is never a failure.
@@ -51,7 +55,8 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,10 +69,11 @@ from ..tasks.envelopes import (
     MAX_SUMMARY_CHARS, MAX_TEST_NOT_RUN_CHARS, MAX_TESTS_NOT_RUN, TASK_RESULT_SCHEMA, EnvelopeError,
     canonical_json, validate_task_envelope, validate_task_result,
 )
-from . import process
+from . import limits, process
 from .contract import (
-    ExecutorLaunchRequest, ExecutorRunResult, FailureKind, OpenTarget, Permission, RunStatus,
+    ExecutorLaunchRequest, ExecutorRunResult, FailureKind, LimitInfo, LimitWindow, OpenTarget, Permission, RunStatus,
 )
+from .limits import LimitContext
 
 ADAPTER_ID = "codex_cli"
 ADAPTER_VERSION = "1"
@@ -166,6 +172,7 @@ class CodexStream:
     envelope: Mapping[str, Any] | None
     usage: Mapping[str, Any] | None
     errors: tuple[str, ...]
+    rate_limits: Mapping[str, Any] | None = None     # the last ``rate_limits`` of a ``token_count`` event (CNT-T02)
 
 
 def _events(stdout: str) -> Iterator[Mapping[str, Any]]:
@@ -248,6 +255,7 @@ def parse_stream(stdout: str) -> CodexStream:
     final_message: str | None = None
     totals: dict[str, int] | None = None
     last_cumulative: dict[str, int] | None = None
+    rate_limits: Mapping[str, Any] | None = None
     errors: list[str] = []
     for event in _events(stdout):
         kind = event.get("type")
@@ -274,35 +282,123 @@ def parse_stream(stdout: str) -> CodexStream:
                 errors.append(message)
         else:
             body = _event_body(event)
-            if body.get("type") == "token_count" and isinstance(body.get("info"), Mapping):
-                counts = _usage_counts(body["info"].get("total_token_usage"))
-                if counts:
-                    last_cumulative = counts
+            if body.get("type") == "token_count":
+                if isinstance(body.get("rate_limits"), Mapping):
+                    rate_limits = body["rate_limits"]
+                if isinstance(body.get("info"), Mapping):
+                    counts = _usage_counts(body["info"].get("total_token_usage"))
+                    if counts:
+                        last_cumulative = counts
     usage = totals or last_cumulative
     if usage and "total_tokens" not in usage and "input_tokens" in usage and "output_tokens" in usage:
         usage = {**usage, "total_tokens": usage["input_tokens"] + usage["output_tokens"]}
     return CodexStream(session_id=session_id, final_message=final_message,
-                       envelope=extract_result_envelope(final_message), usage=usage, errors=tuple(errors))
+                       envelope=extract_result_envelope(final_message), usage=usage, errors=tuple(errors),
+                       rate_limits=rate_limits)
 
 
 # --------------------------------------------------------------------------- failure classification
 
-def _classify_text(text: str) -> FailureKind:
+_RATE_EXPLICIT = re.compile(r"too many requests|rate[ _-]?limit", re.IGNORECASE)
+_PLAN = re.compile(r"usage[ _-]?limit", re.IGNORECASE)
+_CREDITS = re.compile(
+    r"insufficient[ _]quota|exceeded your current quota|out of credits|no credits (?:left|remaining)|insufficient credits"
+    r"|credits? (?:have been )?(?:exhausted|depleted)", re.IGNORECASE)
+_BARE_429 = re.compile(r"(?:status|http|code)[^\n]{0,20}\b429\b|\b429 ", re.IGNORECASE)
+
+
+def _window_of_minutes(minutes: object) -> LimitWindow:
+    """``window_minutes`` of a rollout window: 300 is the 5-hour window, 10080 the weekly one."""
+    value = limits.number_of(minutes)
+    if value is None:
+        return LimitWindow.UNKNOWN
+    if value == 300 or value <= 12 * 60:
+        return LimitWindow.FIVE_HOUR
+    if value >= 6 * 24 * 60:
+        return LimitWindow.WEEKLY
+    return LimitWindow.UNKNOWN
+
+
+def _exhausted_window(rate_limits: Mapping[str, Any] | None, start: datetime) -> tuple[object, LimitWindow]:
+    """``(resets_at, window)`` of the window at 100 %: the one that resets last, preferring one still in the future."""
+    found: list[tuple[datetime, object, LimitWindow]] = []
+    for name in ("primary", "secondary"):
+        window = limits.mapping_or_none((rate_limits or {}).get(name))
+        if window is None:
+            continue
+        used, reset = limits.number_of(window.get("used_percent")), limits.epoch_to_utc(window.get("resets_at"))
+        if used is not None and used >= 100 and reset is not None:
+            found.append((reset, window.get("resets_at"), _window_of_minutes(window.get("window_minutes"))))
+    if not found:
+        return None, LimitWindow.UNKNOWN
+    future = [item for item in found if start < item[0] <= start + limits.MAX_RESET_AHEAD]
+    _, epoch, window_kind = max(future or found, key=lambda item: item[0])
+    return epoch, window_kind
+
+
+def classify_codex_limit(text: object, *, observed_at: datetime | None = None, context: LimitContext | None = None,
+                         rate_limits: Mapping[str, Any] | None = None) -> LimitInfo | None:
+    """The limit a Codex message describes, or ``None`` when the text is not a limit message.
+
+    Order (CNT-T01 section 2): an explicit rate limit, then the plan ("usage limit"), then credits, then a bare 429
+    (rate limited), then any other quota text (``limit_unknown``). ``rate_limits`` is the record of the rollout
+    (``primary`` and ``secondary`` windows with ``used_percent`` and ``resets_at`` epoch seconds, and ``credits``):
+    the window at 100 % gives the exact reset (``high``) and beats "try again at 4:12 PM" (``medium``); with no time
+    at all and ``credits.has_credits`` false the limit is ``credits_exhausted``.
+    """
+    context = context or limits.DEFAULT_CONTEXT
+    text = limits.clip(text)
+    start = context.observed(observed_at)
+    explicit = False
+    if match := _RATE_EXPLICIT.search(text):
+        kind, explicit = FailureKind.RATE_LIMITED, True
+    elif match := _PLAN.search(text):
+        kind = FailureKind.PLAN_LIMIT
+    elif match := _CREDITS.search(text):
+        kind = FailureKind.CREDITS_EXHAUSTED
+    elif match := _BARE_429.search(text):
+        kind = FailureKind.RATE_LIMITED
+    elif match := _QUOTA.search(text):
+        kind = FailureKind.LIMIT_UNKNOWN
+    else:
+        return None
+    structured = limits.mapping_or_none(rate_limits)
+    epoch, window = _exhausted_window(structured, start)
+    exact = limits.epoch_to_utc(epoch)
+    if (not explicit and kind in (FailureKind.RATE_LIMITED, FailureKind.LIMIT_UNKNOWN) and exact is not None
+            and start < exact <= start + limits.MAX_RESET_AHEAD):
+        kind = FailureKind.PLAN_LIMIT
+    line = limits.evidence_line(text, match.start())
+    if kind is not FailureKind.PLAN_LIMIT:
+        epoch, window = None, LimitWindow.UNKNOWN
+        if kind is FailureKind.CREDITS_EXHAUSTED:
+            window = LimitWindow.SPEND
+    elif epoch is None:
+        found = limits.EPOCH_IN_JSON.search(text)
+        epoch = int(found.group(1)) if found else None
+    info = limits.make_limit(kind, window, observed_at=start, context=context, evidence=line, epoch=epoch,
+                             text=limits.find_reset_text(text), wants_reset=kind is not FailureKind.RATE_LIMITED)
+    credits = limits.mapping_or_none((structured or {}).get("credits"))
+    if info.kind is FailureKind.PLAN_LIMIT and info.reset_at is None and credits and credits.get("has_credits") is False:
+        info = replace(info, kind=FailureKind.CREDITS_EXHAUSTED, window=LimitWindow.SPEND,
+                       notes=(*info.notes, "has_credits_false"))
+    return info
+
+
+def _classify_text(text: str, rate_limits: Mapping[str, Any] | None = None,
+                   context: LimitContext | None = None) -> tuple[FailureKind, LimitInfo | None]:
     if _BLOCKED.search(text):
-        return FailureKind.BLOCKED_OPEN_SESSION
-    if _QUOTA.search(text):
-        return FailureKind.QUOTA
-    if _AUTH.search(text):
-        return FailureKind.AUTHENTICATION
-    return FailureKind.OTHER
+        return FailureKind.BLOCKED_OPEN_SESSION, None
+    limit = classify_codex_limit(text, context=context, rate_limits=rate_limits)
+    if limit is not None:
+        return limit.kind, limit
+    return (FailureKind.AUTHENTICATION if _AUTH.search(text) else FailureKind.OTHER), None
 
 
-_STATUS_OF_FAILURE = {
-    FailureKind.QUOTA: RunStatus.QUOTA_EXHAUSTED,
-    FailureKind.BLOCKED_OPEN_SESSION: RunStatus.BLOCKED_OPEN_SESSION,
-    FailureKind.AUTHENTICATION: RunStatus.FAILED,
-    FailureKind.OTHER: RunStatus.FAILED,
-}
+def _status_of(kind: FailureKind) -> RunStatus:
+    if kind.is_limit:
+        return RunStatus.QUOTA_EXHAUSTED
+    return RunStatus.BLOCKED_OPEN_SESSION if kind is FailureKind.BLOCKED_OPEN_SESSION else RunStatus.FAILED
 
 
 def _excerpt(text: str, limit: int = NOTE_EXCERPT_CHARS) -> str:
@@ -327,7 +423,7 @@ class CodexExecutorAdapter:
     version = ADAPTER_VERSION
 
     def __init__(self, *, command: str | Sequence[str] = "codex", executor_id: str = DEFAULT_EXECUTOR_ID,
-                 output_cap_bytes: int = DEFAULT_OUTPUT_CAP_BYTES):
+                 output_cap_bytes: int = DEFAULT_OUTPUT_CAP_BYTES, limit_context: LimitContext | None = None):
         parts = (command,) if isinstance(command, str) else tuple(command)
         if not parts or any(not isinstance(part, str) or not part.strip() for part in parts):
             raise CodexRequestError("command", "command must be a program name or path, plus optional string arguments")
@@ -336,6 +432,7 @@ class CodexExecutorAdapter:
         self.command: tuple[str, ...] = parts
         self.executor_id = executor_id
         self.output_cap_bytes = output_cap_bytes
+        self.limit_context = limit_context or limits.DEFAULT_CONTEXT       # clock, machine zone and IANA resolver
 
     # -- description
 
@@ -421,11 +518,20 @@ class CodexExecutorAdapter:
         stream = parse_stream(stdout if isinstance(stdout, str) else "")
         return stream.session_id, stream.envelope, stream.usage
 
+    def classify_limit(self, text: str, *, observed_at: datetime | None = None,
+                       rate_limits: Mapping[str, Any] | None = None) -> LimitInfo | None:
+        """The limit ``text`` describes (class, window, ``reset_at`` with source and confidence), or ``None`` (CNT-T02)."""
+        return classify_codex_limit(text, observed_at=observed_at, context=self.limit_context, rate_limits=rate_limits)
+
     def classify_failure(self, exit_code: int | None, stderr: str) -> FailureKind:
-        """Quota, open-session block, authentication or other, from the text patterns in the module docstring."""
+        """A limit class, open-session block, authentication or other, from the text patterns in the module docstring."""
+        return self._classify(exit_code, stderr)[0]
+
+    def _classify(self, exit_code: int | None, text: object,
+                  rate_limits: Mapping[str, Any] | None = None) -> tuple[FailureKind, LimitInfo | None]:
         if exit_code == 0:
-            return FailureKind.OTHER
-        return _classify_text(stderr if isinstance(stderr, str) else "")
+            return FailureKind.OTHER, None
+        return _classify_text(text if isinstance(text, str) else "", rate_limits, self.limit_context)
 
     def open_target(self, session_id: str) -> OpenTarget | None:
         """``codex://threads/<uuid>`` (the Codex app), or ``None`` when the id is not a UUID."""
@@ -484,6 +590,7 @@ class CodexExecutorAdapter:
         if outcome.stdout_truncated:
             notes.append("stdout_truncated: the start of the event stream was dropped; the thread id may be missing")
         session_id = stream.session_id or fallback_session
+        limit: LimitInfo | None = None
         if session_id is None:
             notes.append("session_id_missing: the stream has no thread.started event")
         envelope: Mapping[str, Any] | None = None
@@ -494,27 +601,32 @@ class CodexExecutorAdapter:
             status = RunStatus.CANCELLED
             notes.append("cancelled")
         elif outcome.exit_code != 0:
-            status = self._failure(outcome.exit_code, outcome.stderr_tail, stream, notes)
+            status, limit = self._failure(outcome.exit_code, outcome.stderr_tail, stream, notes)
         else:
             envelope, problem = self._validate_envelope(stream, request)
             if envelope is not None:
                 status = RunStatus.COMPLETED
             else:
                 # exit 0 without a usable answer: only error events (never stderr) may say it was quota or similar
-                status = _STATUS_OF_FAILURE[_classify_text("\n".join(stream.errors))] if stream.errors else RunStatus.FAILED
+                if stream.errors:
+                    kind, limit = _classify_text("\n".join(stream.errors), stream.rate_limits, self.limit_context)
+                    status = _status_of(kind)
+                else:
+                    status = RunStatus.FAILED
                 notes.append(problem or "no_result_envelope")
                 if stream.errors:
                     notes.append(f"error_events: {_excerpt(' | '.join(stream.errors))}")
         return ExecutorRunResult(status=status, session_id=session_id, result_envelope=envelope, usage=stream.usage,
                                  command=outcome.command, stdout_tail=_tail(outcome.stdout_tail),
-                                 stderr_tail=_tail(outcome.stderr_tail), notes=tuple(notes))
+                                 stderr_tail=_tail(outcome.stderr_tail), notes=tuple(notes), limit=limit)
 
-    def _failure(self, exit_code: int | None, stderr: str, stream: CodexStream, notes: list[str]) -> RunStatus:
+    def _failure(self, exit_code: int | None, stderr: str, stream: CodexStream,
+                 notes: list[str]) -> tuple[RunStatus, LimitInfo | None]:
         text = "\n".join([stderr, *stream.errors])
-        kind = self.classify_failure(exit_code, text)
+        kind, limit = self._classify(exit_code, text, stream.rate_limits)
         notes.append(f"exit_code={exit_code}")
-        notes.append(f"failure_kind={kind.value}: {_excerpt(' | '.join(stream.errors) or stderr)}")
-        return _STATUS_OF_FAILURE[kind]
+        notes.append(f"failure_kind={kind.legacy_value}: {_excerpt(' | '.join(stream.errors) or stderr)}")
+        return _status_of(kind), limit
 
 
 __all__ = [

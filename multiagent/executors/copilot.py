@@ -33,8 +33,11 @@ Command (``build_command``), in this order; ``--model``, ``--effort`` and ``--re
   object), and the ``result`` event gives ``sessionId``, ``exitCode`` and ``usage`` (``premiumRequests`` or AI credits
   depending on the billing platform; keys are converted to snake_case). ``parse_output`` does not validate the envelope
   as a task result: ``tasks.envelopes.validate_task_result`` does that in the service.
-* **Failures.** ``classify_failure`` reads the text with documented fixtures (see the patterns below): quota or limit
-  (rate limit, premium requests, AI credits, session limit, 402/429), authentication, or other. Copilot cannot be blocked
+* **Failures.** ``classify_failure`` reads the text with documented fixtures (see the patterns below): a limit,
+  authentication, or other. A limit has four classes (CNT-T02): ``rate_limited`` (429, "rate limit"), ``plan_limit``
+  (402 ``quota_exceeded`` / "monthly quota", premium requests of the billing period: window ``monthly``, reset on day 1 of
+  the next month at 00:00 UTC by the documented rule, source ``rule``), ``credits_exhausted`` (402 "payment required"
+  without a monthly quota, AI credits, the session credit limit) and ``limit_unknown`` (any other quota text). Copilot cannot be blocked
   by an open session (``blocks_when_open`` is unsupported), so ``BLOCKED_OPEN_SESSION`` is never returned.
 
 A rule of ``process`` broken by the request (bad folder, program not found, a character that cmd.exe would read) raises
@@ -50,6 +53,7 @@ import re
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -58,10 +62,11 @@ from ..routing.executor_capabilities import (
     CapabilityEvidence, ExecutorDescriptor, SupportState, descriptor_from_declaration, validate_executor_descriptor,
 )
 from ..tasks.envelopes import TASK_ENVELOPE_SCHEMA, TASK_RESULT_SCHEMA, canonical_json, validate_task_envelope
-from . import process
+from . import limits, process
 from .contract import (
-    ExecutorLaunchRequest, ExecutorRunResult, FailureKind, OpenTarget, Permission, RunStatus,
+    ExecutorLaunchRequest, ExecutorRunResult, FailureKind, LimitInfo, LimitWindow, OpenTarget, Permission, RunStatus,
 )
+from .limits import LimitContext
 
 _logger = logging.getLogger(__name__)
 
@@ -88,7 +93,7 @@ _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 # Documented fixtures (tests/test_executor_copilot.py). Quota is checked before authentication.
 _BAD = r"(?:exceed\w*|exhaust\w*|reach\w*|used (?:all|up)|no (?:more|remaining)|out of|ran out of|run out|insufficient)"
 _QUOTA = re.compile("|".join((
-    r"\brate[ -]?limit",
+    r"\brate[ _-]?limit",
     r"\btoo many requests",
     r"\bpayment required",
     r"\b(?:http|status|error|code)\W{0,3}(?:402|429)\b",
@@ -100,6 +105,22 @@ _QUOTA = re.compile("|".join((
     r"\b(?:limit|" + _BAD + r")\b[^\n]{0,60}\bpremium requests?\b",
     r"\bai credits?\b[^\n]{0,80}\b(?:limit|depleted|" + _BAD + r")",
     r"\b(?:limit|depleted|" + _BAD + r")\b[^\n]{0,40}\bai credits?\b",
+    r"\bquota[_ ]exceeded\b",                                       # errorCode of a 402
+    r"\bstatuscode\W{1,4}(?:402|429)\b",                           # the raw JSON of a session.error
+)), re.IGNORECASE)
+_RATE_EXPLICIT = re.compile("|".join((
+    r"\brate[ _-]?limit", r"\btoo many requests", r"\b(?:http|status|error|code)\W{0,3}429\b",
+    r"\bstatuscode\W{1,4}429\b")), re.IGNORECASE)
+_PLAN = re.compile("|".join((
+    r"\bquota[_ ]exceeded\b",
+    r"\bmonthly\b[^\n]{0,40}\b(?:quota|premium|usage|billing|limit|allowance)",
+    r"\bpremium requests?\b",
+    r"\bbilling period\b",
+    r"\b402\b[^\n]{0,80}\bquota\b", r"\bquota\b[^\n]{0,80}\b402\b",
+)), re.IGNORECASE)
+_CREDITS = re.compile("|".join((
+    r"\bpayment required\b", r"\b(?:http|status|error|code)\W{0,3}402\b", r"\bstatuscode\W{1,4}402\b",
+    r"\bai credits?\b", r"\bcredits?\b[^\n]{0,40}\b(?:depleted|exhausted)",
 )), re.IGNORECASE)
 _AUTH = re.compile("|".join((
     r"\bnot (?:logged|signed) in",
@@ -344,8 +365,12 @@ def _normalize_usage(raw: object) -> dict[str, Any] | None:
 
 
 def _error_text(event: dict[str, Any], data: dict[str, Any]) -> str:
-    parts = [str(part) for part in (data.get("errorType") or event.get("errorType"), data.get("statusCode"),
-                                    data.get("message") or event.get("message") or data.get("error")) if part]
+    """``errorType HTTP <status> <errorCode> <message>`` of an error event (the pieces that are there)."""
+    status = data.get("statusCode")
+    parts = [str(part) for part in (
+        data.get("errorType") or event.get("errorType"),
+        f"HTTP {status}" if isinstance(status, int) and not isinstance(status, bool) else status,
+        data.get("errorCode"), data.get("message") or event.get("message") or data.get("error")) if part]
     return " ".join(parts)[:MAX_ERROR_CHARS]
 
 
@@ -383,6 +408,44 @@ def _scan(stdout: object) -> _Parsed:
     return _Parsed(session_id or started_id, _extract_envelope(final), usage, exit_code, tuple(errors))
 
 
+# --------------------------------------------------------------------------- classifying a limit (CNT-T02)
+
+def _error_to_text(error: Mapping[str, Any] | None) -> str:
+    """A ``session.error`` event body (``errorType``, ``statusCode``, ``errorCode``, ``message``) as one line of text."""
+    if not isinstance(error, Mapping):
+        return ""
+    return _error_text({}, dict(error))
+
+
+def classify_copilot_limit(text: object, *, observed_at: datetime | None = None, context: LimitContext | None = None,
+                           error: Mapping[str, Any] | None = None) -> LimitInfo | None:
+    """The limit a Copilot message describes, or ``None`` when the text is not a limit message.
+
+    Order (CNT-T01 section 2): an explicit rate limit (429), then the plan (402 ``quota_exceeded`` / "monthly quota" /
+    premium requests: window ``monthly``), then credits (402 "payment required" without a monthly quota, AI
+    credits, the session credit limit), then any other quota text (``limit_unknown``). The plan reset is the next
+    day 1 at 00:00 UTC by the documented monthly rule (``rule``, ``medium``); a time stated in the message beats it.
+    ``error`` is the body of a ``session.error`` event; it is appended to the text.
+    """
+    context = context or limits.DEFAULT_CONTEXT
+    text = limits.clip("\n".join(part for part in (text if isinstance(text, str) else "", _error_to_text(error)) if part))
+    start = context.observed(observed_at)
+    if not _QUOTA.search(text):
+        return None
+    window, rule = LimitWindow.UNKNOWN, None
+    if match := _RATE_EXPLICIT.search(text):
+        kind = FailureKind.RATE_LIMITED
+    elif match := _PLAN.search(text):
+        kind, window, rule = FailureKind.PLAN_LIMIT, LimitWindow.MONTHLY, limits.next_month_start(start)
+    elif match := _CREDITS.search(text):
+        kind, window = FailureKind.CREDITS_EXHAUSTED, LimitWindow.SPEND
+    else:
+        kind, match = FailureKind.LIMIT_UNKNOWN, _QUOTA.search(text)
+    return limits.make_limit(kind, window, observed_at=start, context=context,
+                             evidence=limits.evidence_line(text, match.start()), text=limits.find_reset_text(text),
+                             wants_reset=kind is not FailureKind.RATE_LIMITED, rule_reset=rule)
+
+
 # --------------------------------------------------------------------------- the adapter
 
 class CopilotAdapter:
@@ -399,7 +462,7 @@ class CopilotAdapter:
 
     def __init__(self, executable: str | Sequence[str] = DEFAULT_PROGRAM, *, env_extra: Mapping[str, str] | None = None,
                  output_cap_bytes: int = process.DEFAULT_OUTPUT_CAP_BYTES,
-                 session_guard: Callable[[str], bool] | None = None):
+                 session_guard: Callable[[str], bool] | None = None, limit_context: LimitContext | None = None):
         program = [executable] if isinstance(executable, str) else list(executable)
         if not program or any(not isinstance(item, str) or not item.strip() for item in program):
             raise ValueError("executable must be a program name or path, or a non-empty list of strings")
@@ -407,6 +470,7 @@ class CopilotAdapter:
         self._env_extra = dict(env_extra or {})
         self._output_cap = output_cap_bytes
         self._session_guard = session_guard
+        self.limit_context = limit_context or limits.DEFAULT_CONTEXT       # clock, machine zone and IANA resolver
         self._created: set[str] = set()
         self._lock = threading.Lock()
 
@@ -465,15 +529,22 @@ class CopilotAdapter:
         parsed = _scan(stdout)
         return parsed.session_id, parsed.envelope, parsed.usage
 
+    def classify_limit(self, text: str, *, observed_at: datetime | None = None,
+                       error: Mapping[str, Any] | None = None) -> LimitInfo | None:
+        """The limit ``text`` (and the optional ``session.error`` body) describes, or ``None`` (CNT-T02)."""
+        return classify_copilot_limit(text, observed_at=observed_at, context=self.limit_context, error=error)
+
     def classify_failure(self, exit_code: int | None, stderr: str) -> FailureKind:
-        """Quota or limit, authentication, or other, from the text Copilot printed (exit code 0 is never a failure)."""
-        if exit_code == 0 or not isinstance(stderr, str):
-            return FailureKind.OTHER
-        if _QUOTA.search(stderr):
-            return FailureKind.QUOTA
-        if _AUTH.search(stderr):
-            return FailureKind.AUTHENTICATION
-        return FailureKind.OTHER
+        """A limit class, authentication, or other, from the text Copilot printed (exit code 0 is never a failure)."""
+        return self._classify(exit_code, stderr)[0]
+
+    def _classify(self, exit_code: int | None, text: object) -> tuple[FailureKind, LimitInfo | None]:
+        if exit_code == 0 or not isinstance(text, str):
+            return FailureKind.OTHER, None
+        limit = self.classify_limit(text)
+        if limit is not None:
+            return limit.kind, limit
+        return (FailureKind.AUTHENTICATION if _AUTH.search(text) else FailureKind.OTHER), None
 
     def open_target(self, session_id: str) -> OpenTarget | None:
         """``ghapp://sessions/<uuid>``: the Copilot app asks for confirmation before it opens a session."""
@@ -530,6 +601,7 @@ class CopilotAdapter:
             with self._lock:
                 self._created.add(parsed.session_id)
         failed = outcome.exit_code != 0 or parsed.result_exit_code not in (None, 0)
+        limit: LimitInfo | None = None
         if outcome.cancelled:
             status = RunStatus.CANCELLED
         elif outcome.timed_out:
@@ -538,9 +610,9 @@ class CopilotAdapter:
             status = RunStatus.COMPLETED
         else:
             code = outcome.exit_code if outcome.exit_code != 0 else parsed.result_exit_code
-            kind = self.classify_failure(code, "\n".join((outcome.stderr_tail, *parsed.errors)))
-            status = RunStatus.QUOTA_EXHAUSTED if kind is FailureKind.QUOTA else RunStatus.FAILED
-            notes.append(f"failure:{kind.value}")
+            kind, limit = self._classify(code, "\n".join((outcome.stderr_tail, *parsed.errors)))
+            status = RunStatus.QUOTA_EXHAUSTED if kind.is_limit else RunStatus.FAILED
+            notes.append(f"failure:{kind.legacy_value}")
         if outcome.stdout_truncated:
             notes.append("stdout_truncated")
         if status is RunStatus.COMPLETED:
@@ -555,7 +627,7 @@ class CopilotAdapter:
         return ExecutorRunResult(
             status=status, session_id=parsed.session_id, result_envelope=parsed.envelope, usage=parsed.usage,
             command=outcome.command, stdout_tail=outcome.stdout_tail[-OUTPUT_TAIL_CHARS:],
-            stderr_tail=outcome.stderr_tail[-OUTPUT_TAIL_CHARS:], notes=tuple(notes))
+            stderr_tail=outcome.stderr_tail[-OUTPUT_TAIL_CHARS:], notes=tuple(notes), limit=limit)
 
 
 def _without_claude(evidence: CapabilityEvidence) -> CapabilityEvidence:

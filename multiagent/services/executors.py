@@ -11,8 +11,9 @@ executor (the one asked for, or the one an assignment preview selects), builds t
 of ORQ-3, a work folder the framework owns, the permission the task scope allows) and launches it through the
 adapter. The session id and the attempt are recorded as team events. The result envelope the app printed goes in
 through ``envelopes.submit_result``: the task becomes ``submitted`` and the gate (ORQ-2) decides, never this service.
-This module changes a task only through ``tasks.transition`` (``claim``, ``start``, ``resume``, ``pause``) and
-``submit_result``; it never accepts, fails or reopens a task and writes no task row itself.
+This module changes a task only through ``tasks.transition`` (``claim``, ``start``, ``resume``, ``pause``),
+``submit_result`` and, for a checkpoint, ``envelopes.set_task_context``; it never accepts, fails or reopens a task and
+writes no task row itself.
 
 Failures are recorded, not retried. An attempt without a valid result envelope, a timeout, a cancellation or a block
 by an open session leaves the task ``paused`` with trimmed evidence in the ``executor.attempt_finished`` event; a quota
@@ -28,6 +29,17 @@ itself. ``session_guard`` is the same check as a function, passed to the adapter
 
 ``open_target`` returns the adapter's open target for the recorded session (the one the GUI uses) and records the open.
 
+Checkpoint (CNT-T03, contract ``CNT-T01-contrato.md`` section 5): when an attempt ends at a limit, ``checkpoint_limit``
+saves what the agent did. The diff of the work folder (``git diff --binary HEAD`` plus the untracked files) is stored as a
+blob, a summary is written without a model (changed files and last agent message; objective and gate), the blob goes in the
+task's ``context_refs`` and the summary, as text, in up to three ``constraints`` (the next agent does not read blobs), and
+the events ``continuity.limit_detected`` and ``task.checkpointed`` are recorded. It is idempotent per task, attempt and
+session: a second detection returns the first checkpoint and writes nothing. ``latest_checkpoint`` reads it back.
+``retire_session`` marks a session as retired (``session.retired``): the framework never resumes it
+(``resume_task`` refuses it, ``session_guard`` is False) and never writes inside the app. The checkpoint does not retire
+the session by itself, because a wait that ends can resume it with its history (contract section 10); the hand-off and the
+relaunch retire it (``retire="handoff"`` or ``"superseded"``).
+
 Model and effort (ECO-T08) come from the caller or, when a profile is given, from the model routing decision of the
 assignment profile's routing profile (economic or not) for the task's ``step_kind``, through ``_routing_selection``.
 The caller's values always win (source ``user``). A value from the profile is sent only when the executor declares it
@@ -40,12 +52,15 @@ Events (team event log, no migration): ``executor.session_recorded`` (``ref`` is
 ``executor.routing_selected`` (``ref`` is the executor id: the model and effort of the attempt, where each came from,
 the routing profile, mode, step kind, level, price source, effort source and the candidates skipped for this executor),
 ``executor.attempt_finished`` (outcome, exit code, usage, trimmed evidence), ``executor.paused`` (``ref`` is the
-executor id) and ``session.opened_in_app`` (``ref`` is the session id).
+executor id), ``session.opened_in_app`` (``ref`` is the session id), ``continuity.limit_detected`` (``ref`` is the
+executor id), ``task.checkpointed`` (``ref`` is the patch blob, empty without a patch) and ``session.retired`` (``ref`` is
+the session id).
 
 Errors (``ServiceError``): ``not_found`` (task, executor), ``invalid_request`` (malformed ids or limits, a request the
 adapter refuses) and ``invalid_state`` (``details.reason`` says why: ``executor_disabled``, ``executor_without_adapter``,
 ``executor_paused``, ``executor_unavailable``, ``task_not_runnable``, ``no_stored_session``, ``session_open_in_app``,
-``assignment_not_selected``, ``model_not_supported``, ``effort_not_supported``, ``workdir_invalid``). ``model_not_supported``
+``assignment_not_selected``, ``model_not_supported``, ``effort_not_supported``, ``workdir_invalid``, ``session_retired``).
+``model_not_supported``
 and ``effort_not_supported`` refuse a value the caller named; one that came from the profile is dropped instead.
 """
 from __future__ import annotations
@@ -54,12 +69,14 @@ import json
 import logging
 import os
 import re
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..db.envelope_store import HARD_MAX_BLOB_BYTES
 from ..errors import MultiAgentError
 from ..executors import process
 from ..executors.contract import ExecutorApplicationAdapter, ExecutorLaunchRequest, OpenTarget, Permission
@@ -67,7 +84,8 @@ from ..executors.selection import ExecutorSelection, select_for_executor, select
 from ..routing.executor_capabilities import CapabilityEvidence, SupportState
 from ..routing_policy import STEP_KINDS
 from ..sessions.models import is_uuid
-from ..tasks.envelopes import EnvelopeError
+from ..tasks.envelopes import MAX_CONSTRAINTS, MAX_CONTEXT_REFS, EnvelopeError
+from . import checkpoint as _checkpoint
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
 from .tasks import _TASK_ID, _text
 
@@ -83,7 +101,12 @@ ATTEMPT_EVENT = "executor.attempt_finished"
 ROUTING_EVENT = "executor.routing_selected"
 PAUSE_EVENT = "executor.paused"
 OPEN_EVENT = "session.opened_in_app"
-EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, PAUSE_EVENT, OPEN_EVENT)
+LIMIT_EVENT = "continuity.limit_detected"
+CHECKPOINT_EVENT = "task.checkpointed"
+RETIRED_EVENT = "session.retired"
+EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, PAUSE_EVENT, OPEN_EVENT, LIMIT_EVENT, CHECKPOINT_EVENT,
+               RETIRED_EVENT)
+RETIRE_REASONS = ("handoff", "superseded")
 
 APP_OPEN_GUARD = timedelta(hours=12)      # a session opened in an app is not resumed for this long (ORQ-6 section 6)
 MAX_TIMEOUT_SECONDS = 86400
@@ -94,6 +117,7 @@ EVENT_PAYLOAD_BUDGET = 1900               # the team event payload limit is 2048
 _PROBE_SESSION = "00000000-0000-4000-8000-000000000000"   # only to build an argv for the pre-flight check of Claude
 _EXECUTOR_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _SOURCE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+_SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$")
 _FAILURE_OUTCOMES = ("timeout", "cancelled", "quota_exhausted", "blocked_open_session")
 
 
@@ -193,6 +217,8 @@ class _Attempt:
     exit_code: int | None = None
     notes: list[str] = field(default_factory=list)
     evidence: str = ""
+    limit: Mapping[str, Any] | None = None        # what the adapter says about a limit (CNT-T02), as it came
+    last_message: str = ""                        # the last text the agent wrote, from the tail of its output
 
 
 class ExecutorServices:
@@ -202,6 +228,7 @@ class ExecutorServices:
         self._registry = registry
         # A test sets ``clock`` to move time; every "until" and the 12 hour rule read it.
         self.clock: Callable[[], datetime] = clock or (lambda: datetime.now(timezone.utc))
+        self._checkpoint_lock = threading.Lock()      # one checkpoint at a time: the second detection finds the first
 
     # -------- wiring --------
     @property
@@ -270,7 +297,8 @@ class ExecutorServices:
         return until if until is not None and self.clock() < until else None
 
     def session_guard(self, session_id: str) -> bool:
-        """True when the framework created ``session_id`` (it is recorded) and no app opened it in the last 12 hours.
+        """True when the framework created ``session_id`` (it is recorded), it is not retired and no app opened it
+        in the last 12 hours.
 
         This is the check handed to the adapters that need one (``CopilotAdapter(session_guard=...)``) and the one
         ``resume_task`` applies before it continues a session (ORQ-6 section 6).
@@ -279,7 +307,7 @@ class ExecutorServices:
             return False
         sid = session_id.lower()
         with self._store.db.connect() as conn:
-            if self._latest(conn, SESSION_EVENT, ref=sid) is None:
+            if self._latest(conn, SESSION_EVENT, ref=sid) is None or self._latest(conn, RETIRED_EVENT, ref=sid):
                 return False
             return self._opened_until(conn, sid) is None
 
@@ -409,7 +437,8 @@ class ExecutorServices:
         takes (see ``_routing_selection``).
 
         Returns ``{outcome, run_status, task_id, executor_id, attempt, actor, session_id, open_target, model, effort,
-        selection, permission, usage, command, evidence, notes, executor_paused_until, result, gate, task}``.
+        selection, permission, usage, command, evidence, notes, executor_paused_until, checkpoint, result, gate, task}``.
+        ``checkpoint`` is what ``checkpoint_limit`` saved when the attempt ended at a limit, else None.
         ``selection`` says where ``model`` and ``effort`` came from (``user``, ``profile`` or none), what was not sent
         and why, and the routing evidence (profile, mode, step kind, level, price source, effort source). ``outcome`` is
         ``submitted`` (the result is stored and the gate decides) or what stopped the attempt: ``failed``,
@@ -437,7 +466,8 @@ class ExecutorServices:
         Only a session recorded by this service is continued, never one the GUI or ``open_target`` opened in an app
         in the last 12 hours. The task must be paused, claimed or in ``needs_changes`` (``actor`` defaults to its
         assignee). ``model`` and ``effort`` default to those of the recorded session. Returns the same shape as
-        ``run_task``. Errors: ``no_stored_session``, ``session_open_in_app`` and the ones of ``run_task``.
+        ``run_task``. Errors: ``no_stored_session``, ``session_retired``, ``session_open_in_app`` and the ones of
+        ``run_task``.
         """
         task_id = self._task_id(task_id)
         model, effort = self._optional_token("model", model), self._optional_token("effort", effort)
@@ -448,7 +478,11 @@ class ExecutorServices:
                             "only those are resumed", task_id=task_id)
         session_id = str(session["session_id"])
         with self._store.db.connect() as conn:
+            retired = self._latest(conn, RETIRED_EVENT, ref=session_id)
             blocked = self._opened_until(conn, session_id)
+        if retired is not None:
+            raise _conflict("session_retired", "The session was retired (hand-off or relaunch): the framework never "
+                            "resumes it", task_id=task_id, session_id=session_id, retired_as=retired["payload"].get("reason"))
         if blocked is not None:
             raise _conflict("session_open_in_app", "The session was opened in an app in the last 12 hours",
                             task_id=task_id, session_id=session_id, blocked_until=_iso(blocked))
@@ -519,11 +553,15 @@ class ExecutorServices:
             "result_ref": submission["result"]["ref"] if submission else None})
         paused_until: str | None = None
         task_note: str | None = None
+        saved: dict[str, Any] | None = None
+        checkpoint_note: str | None = None
         if submission is None:
             if outcome == "quota_exhausted":
                 paused_until = self._pause_executor(plan, view, actor)
             task_note = self._pause_task(task_id, actor, f"attempt {view['attempt']} {outcome}")
-        notes = list(attempt.notes) + ([task_note] if task_note else [])
+            if outcome == "quota_exhausted":
+                saved, checkpoint_note = self._save_checkpoint(attempt, plan, view, actor, workdir)
+        notes = list(attempt.notes) + [note for note in (task_note, checkpoint_note) if note]
         target = plan.adapter.open_target(attempt.session_id) if attempt.session_id else None
         return {
             "outcome": outcome, "run_status": attempt.status, "task_id": task_id, "executor_id": plan.executor_id,
@@ -531,7 +569,7 @@ class ExecutorServices:
             "open_target": _target_view(target) if target else None, "model": plan.model, "effort": plan.effort,
             "selection": plan.selection.to_dict() if plan.selection else None, "permission": permission.value, "usage": dict(attempt.usage) if attempt.usage else None,
             "command": attempt.command, "evidence": evidence or None, "notes": notes,
-            "executor_paused_until": paused_until, "result": submission,
+            "executor_paused_until": paused_until, "checkpoint": saved, "result": submission,
             "gate": self._services.gates.get_gate(task_id), "task": self._tasks.get_task(task_id)}
 
     def _preflight(self, plan: _Plan, request: ExecutorLaunchRequest, resume_session: str | None) -> None:
@@ -583,7 +621,8 @@ class ExecutorServices:
             evidence = " | ".join(part for part in parts if part)
         return _Attempt(status=result.status.value, session_id=result.session_id, envelope=result.result_envelope,
                         usage=result.usage, command=_command_view(result.command), exit_code=result.command.exit_code,
-                        notes=notes, evidence=evidence)
+                        notes=notes, evidence=evidence, limit=getattr(result, "limit", None),
+                        last_message=_checkpoint.extract_last_message(result.stdout_tail))
 
     def _pause_executor(self, plan: _Plan, view: Mapping[str, Any], actor: str) -> str:
         minutes = self._limit(plan, "quota_pause_minutes", self._services.settings.executor_quota_pause_minutes)
@@ -600,6 +639,245 @@ class ExecutorServices:
         except ServiceError as exc:
             return f"task_not_paused: {exc.code}"
         return None
+
+    # -------- checkpoint (CNT-T03) --------
+    def _save_checkpoint(self, attempt: _Attempt, plan: _Plan, view: Mapping[str, Any], actor: str,
+                         workdir: Path) -> tuple[dict[str, Any] | None, str | None]:
+        """Checkpoint an attempt that ended at a limit; a failure here is a note of the run, never an error of it."""
+        try:
+            saved = self.checkpoint_limit(str(view["id"]), attempt.limit, session_id=attempt.session_id or "",
+                                          executor_id=plan.executor_id, attempt=int(view["attempt"]), workdir=workdir,
+                                          last_message=attempt.last_message, actor=actor)
+        except ServiceError as exc:
+            return None, f"checkpoint_failed: {exc.code}"
+        except Exception as exc:        # the attempt is already recorded: nothing the checkpoint does may lose it
+            _logger.exception("checkpoint of %s failed", view["id"])
+            return None, f"checkpoint_failed: {type(exc).__name__}"
+        return saved, None
+
+    @staticmethod
+    def _checkpoint_of(conn: Any, task_id: str, attempt: int, session_id: str, ref: str | None,
+                       reason: str | None) -> dict[str, Any] | None:
+        """The latest checkpoint of this task, attempt and session when it holds the same work (``session_id`` empty when none).
+
+        The same work is the same patch blob or, without a patch, the same reason for having none. A session that
+        was resumed and did more work after a limit has the same attempt and session but another patch: that is a new
+        checkpoint, not a second detection of the old one.
+        """
+        for row in conn.execute("SELECT * FROM team_events WHERE type=? AND task_id=? ORDER BY seq DESC",
+                                (CHECKPOINT_EVENT, task_id)):
+            event = ExecutorServices._row(row)
+            payload = event["payload"]
+            if payload.get("attempt") == attempt and (payload.get("session_id") or "") == session_id:
+                same = payload.get("patch") == ref and (ref is not None or payload.get("patch_reason") == reason)
+                return event if same else None
+        return None
+
+    def _known_workdir(self, task_id: str, executor_id: str) -> Path | None:
+        """The work folder of the task as ``_workdir`` would pick it, without creating it; None when there is none yet."""
+        catalog = getattr(self._services.system, "catalog", None)
+        routing = getattr(catalog, "executor_routing", {}) or {}
+        per_task = routing.get("task_workdirs", {}) if isinstance(routing, Mapping) else {}
+        declaration = (self.registry.config.get("executors", {}) or {}).get(executor_id, {}) if executor_id else {}
+        configured = (per_task.get(task_id) if isinstance(per_task, Mapping) else None) or (
+            declaration.get("workdir") if isinstance(declaration, Mapping) else None)
+        folder = (Path(str(configured)) if configured
+                  else self._services.settings.executor_workdir_root / f"task-{task_id}")
+        return folder if folder.is_absolute() and folder.is_dir() else None
+
+    @staticmethod
+    def _checkpoint_view(event: Mapping[str, Any], *, created: bool) -> dict[str, Any]:
+        """The checkpoint a ``task.checkpointed`` event records, in the shape ``checkpoint_limit`` returns."""
+        payload = event["payload"]
+        return {
+            "task_id": event["task_id"], "saved": True, "created": created, "skipped": None,
+            "attempt": payload.get("attempt"), "session_id": payload.get("session_id"),
+            "executor_id": payload.get("executor_id"), "limit_kind": payload.get("limit_kind"),
+            "base_commit": payload.get("base_commit", ""),
+            "patch": {"ref": payload["patch"], "size": payload.get("patch_size")} if payload.get("patch") else None,
+            "patch_reason": payload.get("patch_reason"), "summary": payload.get("summary"),
+            "files": payload.get("files", []), "files_total": payload.get("files_total", 0),
+            "seq": event["seq"], "created_at": event["created_at"]}
+
+    @service_errors
+    def checkpoint_limit(self, task_id: str, limit: Any = None, *, session_id: str | None = None,
+                         executor_id: str | None = None, attempt: int | None = None, workdir: Path | str | None = None,
+                         last_message: str = "", actor: str | None = None, retries_left: int = 0,
+                         retire: str | None = None) -> dict[str, Any]:
+        """Save the work of an executor that hit a limit (contract section 5); idempotent per task, attempt and session.
+
+        ``limit`` is what the adapter reported (CNT-T02: ``{kind, window, reset_at, reset_source, reset_confidence,
+        reset_zone, evidence}``, a mapping or an object; none means ``limit_unknown``). The diff of ``workdir`` (default:
+        the task's work folder) is stored as a blob; a summary is written without a model; the blob is added to the
+        task's ``context_refs`` (the patch of an earlier checkpoint is replaced) and the summary, as text, to up to three
+        ``constraints`` (those of an earlier checkpoint are replaced); ``continuity.limit_detected`` and
+        ``task.checkpointed`` are recorded. ``session_id``, ``executor_id`` and ``attempt`` default to the task's latest
+        recorded session and its current attempt (``session_id=""`` says the attempt has no session);
+        ``last_message`` is the last text the agent wrote.
+
+        Idempotent: a second detection with the same work (the same patch, or the same reason for having none) for the
+        same task, attempt and session returns the first checkpoint (``created`` false) and writes nothing. A session
+        resumed after a wait that did more work before the next limit has the same attempt and session but another
+        patch, and that is a new checkpoint.
+
+        A ``rate_limited`` limit with ``retries_left`` above zero saves nothing (``skipped``): the attempt will be retried.
+        ``retire`` (``handoff`` or ``superseded``) also retires the session (``retire_session``); without it the session
+        stays resumable, because a wait that ends may continue it with its history.
+
+        Returns ``{task_id, saved, created, skipped, attempt, session_id, executor_id, limit_kind, base_commit, patch,
+        patch_reason, summary, files, files_total, seq, created_at, limit, constraints, context_refs, context, retired}``.
+        ``patch`` is ``{ref, size}`` or None, then ``patch_reason`` says why (``not_git``, ``empty``, ``too_large`` or
+        ``git_error``); a task with no patch is not handed off automatically. ``created`` is false when the checkpoint
+        already existed (``limit``, ``constraints``, ``context_refs`` and ``context`` are then absent). ``context`` says
+        whether the references and constraints were ``attached``, ``unchanged`` or ``skipped`` (the task is closed or
+        being validated). Errors: ``not_found``, ``invalid_request``.
+        """
+        task_id = self._task_id(task_id)
+        task = self._tasks.get_task(task_id)
+        info = _checkpoint.normalize_limit(limit)
+        if retire is not None and retire not in RETIRE_REASONS:
+            raise _invalid("retire", f"retire must be one of {', '.join(RETIRE_REASONS)}")
+        if isinstance(retries_left, bool) or not isinstance(retries_left, int) or retries_left < 0:
+            raise _invalid("retries_left", "retries_left must be an integer of zero or more")
+        if attempt is not None and (isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1):
+            raise _invalid("attempt", "attempt must be an integer of one or more")
+        if executor_id is not None and (not isinstance(executor_id, str) or not _EXECUTOR_ID.fullmatch(executor_id)):
+            raise _invalid("executor_id", f"Invalid executor_id: {executor_id!r}")
+        if session_id is not None and (not isinstance(session_id, str)
+                                       or (session_id and not _SESSION_ID.fullmatch(session_id))):
+            raise _invalid("session_id", "session_id must be a short token such as a UUID, or empty for none")
+        if workdir is not None and not (isinstance(workdir, (str, os.PathLike)) and Path(workdir).is_absolute()):
+            raise _invalid("workdir", "workdir must be an absolute path")
+        stored = self._stored_session(task_id)
+        # Without session_id the latest recorded session is the one; an empty one says the attempt has none.
+        sid = (session_id if session_id is not None else (str(stored["session_id"]) if stored else "")).lower()
+        executor_id = executor_id or (str(stored.get("executor_id", "")) if stored else "")
+        attempt = attempt or int(task["attempt"])
+        actor = _text("actor", actor if actor is not None else (f"executor:{executor_id}" if executor_id else "framework"),
+                      maximum=100)
+        if info["kind"] == "rate_limited" and retries_left > 0:
+            return {"task_id": task_id, "saved": False, "created": False, "skipped": "rate_limited_retry",
+                    "attempt": attempt, "session_id": sid or None, "executor_id": executor_id or None, "limit": info,
+                    "retired": None}
+        with self._checkpoint_lock:
+            result = self._write_checkpoint(task, info, sid, executor_id, attempt, workdir, last_message, actor)
+        result["retired"] = (self.retire_session(sid, reason=retire, actor=actor)
+                             if retire and sid and is_uuid(sid) else None)
+        return result
+
+    def _write_checkpoint(self, task: Mapping[str, Any], info: dict[str, Any], sid: str, executor_id: str, attempt: int,
+                          workdir: Path | str | None, last_message: str, actor: str) -> dict[str, Any]:
+        task_id = str(task["id"])
+        envelopes = self._services.envelopes
+        folder = Path(workdir) if workdir is not None else self._known_workdir(task_id, executor_id)
+        limit_bytes = min(envelopes.blob_max_bytes, HARD_MAX_BLOB_BYTES)
+        patch = (_checkpoint.collect_patch(folder, max_bytes=limit_bytes) if folder is not None
+                 else _checkpoint.WorkPatch(None, _checkpoint.NOT_GIT))
+        ref, size = None, None
+        if patch.content is not None:
+            blob = envelopes.put_blob(patch.content, actor=actor, media_type="text/x-diff")
+            ref, size = blob["ref"], blob["size"]
+        with self._store.db.connect() as conn:
+            done = self._checkpoint_of(conn, task_id, attempt, sid, ref, patch.reason)
+        if done is not None:                # a second detection of the same work: nothing more is written
+            return self._checkpoint_view(done, created=False)
+        try:
+            envelope = envelopes.get_envelope(task_id)
+        except ServiceError:                # for example a task with legacy release dependencies: no gate to show
+            envelope = {}
+        objective = str(envelope.get("objective") or task.get("objective") or task.get("title") or "")
+        gate = [str(check) for check in envelope.get("gate", [])]
+        files, message = list(patch.files), _checkpoint.clip_message(last_message)
+        summary = _checkpoint.build_summary(files=files, files_total=len(files), last_message=message,
+                                            objective=objective, gate=gate)
+        constraints = _checkpoint.checkpoint_constraints(attempt=attempt, files=files, files_total=len(files),
+                                                         last_message=message, objective=objective, gate=gate)
+        with self._store.db.connect() as conn:
+            earlier = self._latest(conn, CHECKPOINT_EVENT, task_id=task_id)
+        context = self._attach_context(task_id, ref, constraints, earlier["payload"].get("patch") if earlier else None,
+                                       actor)
+        payload = _checkpoint.fit_payload({
+            "attempt": attempt, "session_id": sid or None, "executor_id": executor_id or None,
+            "base_commit": patch.base_commit, "patch": ref, "patch_size": size, "patch_reason": patch.reason,
+            "limit_kind": info["kind"], "summary": summary, "files": files[:20], "files_total": len(files)},
+            EVENT_PAYLOAD_BUDGET, ("files", "summary"))
+        detected = _checkpoint.fit_payload({"attempt": attempt, "session_id": sid or None,
+                                            "executor_id": executor_id or None, **info},
+                                           EVENT_PAYLOAD_BUDGET, ("evidence",))
+        group_id = str(task["group_id"])
+        with self._store.transaction() as conn:
+            again = self._checkpoint_of(conn, task_id, attempt, sid, ref, patch.reason)
+            if again is not None:           # another process wrote it between the check and now
+                return self._checkpoint_view(again, created=False)
+            # Both events in one transaction: a checkpoint never lacks its detection, nor the reverse.
+            self._store.append_event(conn, LIMIT_EVENT, actor=actor, group_id=group_id, task_id=task_id,
+                                     cause="limit detected", ref=executor_id, payload=detected)
+            seq = self._store.append_event(conn, CHECKPOINT_EVENT, actor=actor, group_id=group_id, task_id=task_id,
+                                           cause="checkpoint saved", ref=ref or "", payload=payload)
+        event = {"task_id": task_id, "payload": payload, "seq": seq, "created_at": _iso(self.clock())}
+        return {**self._checkpoint_view(event, created=True), "limit": info, "constraints": constraints,
+                "context_refs": context["context_refs"], "context": context["state"]}
+
+    def _attach_context(self, task_id: str, ref: str | None, constraints: list[str], earlier_ref: str | None,
+                        actor: str) -> dict[str, Any]:
+        """Put the patch reference and the summary constraints in the task, replacing those of an earlier checkpoint."""
+        current = self._services.envelopes.store.task_context(task_id) or {}
+        refs, texts = list(current.get("context_refs", [])), list(current.get("constraints", []))
+        if ref is not None:
+            refs = [item for item in refs if item not in (earlier_ref, ref)] + [ref]
+            refs = refs[-MAX_CONTEXT_REFS:]
+        texts = [item for item in texts if not item.startswith(_checkpoint.CHECKPOINT_TAG)]
+        texts = texts[: MAX_CONSTRAINTS - len(constraints)] + constraints
+        if refs == current.get("context_refs", []) and texts == current.get("constraints", []):
+            return {"context_refs": refs, "state": "unchanged"}
+        try:
+            self._services.envelopes.set_task_context(task_id, actor=actor, context_refs=refs, constraints=texts)
+        except ServiceError as exc:         # the task is closed or being validated: the checkpoint is still kept
+            return {"context_refs": current.get("context_refs", []), "state": f"skipped: {exc.code}"}
+        return {"context_refs": refs, "state": "attached"}
+
+    @service_errors
+    def latest_checkpoint(self, task_id: str) -> dict[str, Any] | None:
+        """The latest checkpoint of the task in the shape of ``checkpoint_limit`` (without ``limit``, ``constraints`` or
+        ``context``), or None when it has none. The patch is read with ``envelopes.get_artifact(patch["ref"])``."""
+        task_id = self._task_id(task_id)
+        self._tasks.get_task(task_id)
+        with self._store.db.connect() as conn:
+            event = self._latest(conn, CHECKPOINT_EVENT, task_id=task_id)
+        return self._checkpoint_view(event, created=False) if event else None
+
+    @service_errors
+    def retire_session(self, session_id: str, *, reason: str, actor: str | None = None) -> dict[str, Any]:
+        """Retire a session the framework created: it is never resumed again and nothing is written inside the app.
+
+        ``reason`` is ``handoff`` (the task went to another agent) or ``superseded`` (a new session continues it).
+        ``resume_task`` then refuses the session (``session_retired``) and ``session_guard`` is False; ``open_target``
+        still shows it, so the user can read it. Idempotent: a session retired already keeps its first reason and writes
+        no second event. Returns ``{session_id, retired, created, reason, task_id, executor_id, attempt}``. Errors:
+        ``invalid_request``, ``not_found`` (a session the framework did not record).
+        """
+        if not is_uuid(session_id):
+            raise _invalid("session_id", "session_id must be a UUID")
+        if reason not in RETIRE_REASONS:
+            raise _invalid("reason", f"reason must be one of {', '.join(RETIRE_REASONS)}")
+        actor = _text("actor", actor if actor is not None else "framework", maximum=100)
+        sid = session_id.lower()
+        with self._store.transaction() as conn:
+            stored = self._latest(conn, SESSION_EVENT, ref=sid)
+            if stored is None:
+                raise _missing("Session", sid)
+            event = self._latest(conn, RETIRED_EVENT, ref=sid)
+            created = event is None
+            if event is None:
+                payload = {"reason": reason, "executor_id": stored["payload"].get("executor_id"),
+                           "attempt": stored["payload"].get("attempt")}
+                self._store.append_event(conn, RETIRED_EVENT, actor=actor, group_id=stored["group_id"],
+                                         task_id=stored["task_id"], ref=sid, cause=f"session retired: {reason}",
+                                         payload=payload)
+                event = {"payload": payload, "task_id": stored["task_id"]}
+        data = event["payload"]
+        return {"session_id": sid, "retired": True, "created": created, "reason": data.get("reason"),
+                "task_id": event["task_id"], "executor_id": data.get("executor_id"), "attempt": data.get("attempt")}
 
     # -------- opening and status --------
     @service_errors
@@ -682,6 +960,12 @@ class ExecutorServices:
                         routings.append({"seq": event["seq"], "created_at": event["created_at"], **event["payload"]})
                     else:
                         attempts.append({"seq": event["seq"], "created_at": event["created_at"], **event["payload"]})
+                for row in conn.execute("SELECT * FROM team_events WHERE task_id=? AND type=? ORDER BY seq",
+                                        (task_id, RETIRED_EVENT)):
+                    event = self._row(row)
+                    for item in sessions:
+                        if item["session_id"] == event["ref"]:
+                            item["retired"] = {"reason": event["payload"].get("reason"), "at": event["created_at"]}
                 blocked = None
                 if sessions:
                     until = self._opened_until(conn, sessions[-1]["session_id"])

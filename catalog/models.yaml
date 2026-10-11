@@ -1,3 +1,13 @@
+# Context window (CMP-T08), optional per model: the largest prompt, in tokens, the model accepts.
+#   context_window: {tokens, source, checked_at, provenance, model, note?}
+# - Cloud models: copy it ONLY from the provider's official documentation. `source` is the page,
+#   `checked_at` the date (YYYY-MM-DD) you read it, `model` the provider model name that page describes,
+#   `provenance` is `provider_docs`. The window is dropped (unknown, with a warning) if the model name in
+#   force at load time is not `model` (for example after GEMINI_MODEL changes it). A model with no evidence
+#   has no window: it is unknown, never guessed. `note` is optional free text for caveats.
+# - Local Ollama models declare nothing: the window is the `num_ctx` sent on every call (the model's
+#   `num_ctx`, or OLLAMA_NUM_CTX), with provenance `runtime_setting`.
+# Read it with Catalog.context_window(model_id); it returns None when the window is unknown.
 models:
   local_default:
     provider: ollama
@@ -60,6 +70,13 @@ models:
     structured_output: true
     web: false
     thinking: minimal
+    context_window: &ctx_gemini_35_flash_lite
+      tokens: 1048576
+      source: "https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite (Input token limit 1,048,576; page last updated 2026-07-30 UTC)"
+      checked_at: "2026-10-11"
+      provenance: provider_docs
+      model: gemini-3.5-flash-lite
+      note: "Documented limit. Unconfirmed community reports (discuss.ai.google.dev, June-August 2026) describe intermittent 400 errors citing 32768 tokens on Gemini 3.x models, mostly through the Interactions API that the gemini adapter uses; Google documents no such limit."
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: true
@@ -76,6 +93,13 @@ models:
     structured_output: true
     web: false
     thinking: low
+    context_window:
+      tokens: 1048576
+      source: "https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash (Input token limit 1,048,576; page last updated 2026-07-30 UTC)"
+      checked_at: "2026-10-11"
+      provenance: provider_docs
+      model: gemini-3.6-flash
+      note: "Documented limit. Unconfirmed community reports (discuss.ai.google.dev, June-August 2026) describe intermittent 400 errors citing 32768 tokens on Gemini 3.x models, mostly through the Interactions API that the gemini adapter uses; Google documents no such limit."
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: true
@@ -92,6 +116,13 @@ models:
     structured_output: true
     web: true
     thinking: minimal
+    context_window:
+      tokens: 1048576
+      source: "https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash (Input token limit 1,048,576; page last updated 2026-10-09 UTC; the page marks the model deprecated and routed to gemini-3.6-flash)"
+      checked_at: "2026-10-11"
+      provenance: provider_docs
+      model: gemini-3.5-flash
+      note: "Documented limit. Unconfirmed community reports (discuss.ai.google.dev, June-August 2026) describe intermittent 400 errors citing 32768 tokens on Gemini 3.x models, mostly through the Interactions API that the gemini adapter uses; Google documents no such limit."
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: true
@@ -108,6 +139,7 @@ models:
     structured_output: true
     web: false
     thinking: minimal
+    context_window: *ctx_gemini_35_flash_lite
     input_cost_per_million: 0.0
     output_cost_per_million: 0.0
     free_tier_eligible: true
@@ -120,6 +152,8 @@ models:
   openai_optional:
     provider: openai
     model: configure-me
+    # No context_window: no model is configured, so there is no documentation to cite. It stays unknown
+    # until you set a real model and declare `context_window` (provider_docs) for exactly that model name.
     tier: cloud
     structured_output: true
     web: false

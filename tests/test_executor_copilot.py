@@ -567,7 +567,7 @@ OTHER_FIXTURES = [
 
 @pytest.mark.parametrize("text", QUOTA_FIXTURES)
 def test_quota_and_limit_messages(adapter, text):
-    assert adapter.classify_failure(1, text) is FailureKind.QUOTA
+    assert adapter.classify_failure(1, text).is_limit
 
 
 @pytest.mark.parametrize("text", AUTH_FIXTURES)
@@ -581,9 +581,9 @@ def test_other_failures(adapter, text):
 
 
 def test_quota_is_checked_before_authentication_and_exit_zero_is_no_failure(adapter):
-    assert adapter.classify_failure(1, "401 Unauthorized: rate limit exceeded") is FailureKind.QUOTA
+    assert adapter.classify_failure(1, "401 Unauthorized: rate limit exceeded") is FailureKind.RATE_LIMITED
     assert adapter.classify_failure(0, "rate limit exceeded") is FailureKind.OTHER
-    assert adapter.classify_failure(None, "rate limit exceeded") is FailureKind.QUOTA
+    assert adapter.classify_failure(None, "rate limit exceeded") is FailureKind.RATE_LIMITED
     assert adapter.classify_failure(1, None) is FailureKind.OTHER  # type: ignore[arg-type]
     assert FailureKind.BLOCKED_OPEN_SESSION not in {adapter.classify_failure(1, t) for t in QUOTA_FIXTURES + AUTH_FIXTURES}
 

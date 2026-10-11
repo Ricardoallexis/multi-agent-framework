@@ -24,6 +24,12 @@ only way a program is started here. Rules of the adapter (contract ORQ-6 section
   them. ``--max-turns`` is not listed by ``claude --help`` 2.1.295: check it before configuring a value.
 - The environment (``CLAUDE*`` / ``ANTHROPIC*`` removed, ``NoDefaultCurrentDirectoryInExePath=1``), the real path of the
   executable, ``cwd`` as an existing absolute folder, the time limit and the output cap are the process executor's.
+- **A limit is classified, not just detected** (CNT-T02): ``classify_limit`` tells ``rate_limited`` (429, "not your usage
+  limit", ``rate_limit_error``), ``plan_limit`` ("hit your session/weekly/Opus limit", ``usage limit reached|epoch``),
+  ``credits_exhausted`` ("monthly spend limit", "credit balance is too low", "out of extra usage") and
+  ``limit_unknown`` (any other quota text) and reads ``reset_at``: ``quotaLimits.resetsAt`` (an epoch, ``high``) beats
+  the clock time in the text (``resets 3:45pm``, ``resets 3:30am (America/Mexico_City)``, ``resets Mon 12:00am``;
+  ``medium``). See ``limits.py`` for how a time without a date is anchored.
 - A launch that cannot even start (``ProcessLaunchError``, ``EnvelopeError``) raises: there is no run to report.
   Timeouts, a non-zero exit, a quota or login error or an answer without a result envelope are run results.
   Nothing is retried; ``quota_exhausted`` is the signal for the service to pause this executor.
@@ -41,6 +47,7 @@ import re
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
 from itertools import islice
 from typing import Any
 
@@ -49,8 +56,11 @@ from ..routing.executor_capabilities import (
 )
 from ..sessions.models import is_uuid
 from ..tasks.envelopes import TASK_RESULT_SCHEMA, EnvelopeError, canonical_json, validate_task_envelope
-from . import process
-from .contract import ExecutorLaunchRequest, ExecutorRunResult, FailureKind, OpenTarget, Permission, RunStatus
+from . import limits, process
+from .contract import (
+    ExecutorLaunchRequest, ExecutorRunResult, FailureKind, LimitInfo, LimitWindow, OpenTarget, Permission, RunStatus,
+)
+from .limits import LimitContext
 from .process import INVALID_ARGV, ProcessLaunchError
 
 ADAPTER_ID = "claude_cli"
@@ -188,6 +198,7 @@ class ParsedOutput:
     subtype: str | None = None
     json_ok: bool = False
     problem: str | None = None
+    quota_limits: Mapping[str, Any] | None = None       # ``quotaLimits`` / ``rate_limit_info`` of the answer, if it has one
 
 
 def _result_object(stdout: str) -> Mapping[str, Any] | None:
@@ -277,13 +288,128 @@ def parse(stdout: str) -> ParsedOutput:
     usage = _usage(data)
     if is_error:
         return ParsedOutput(session_id=session_id, usage=usage, is_error=True, error_text=result, subtype=subtype,
-                            json_ok=True, problem=f"Claude reported an error ({subtype or 'is_error'})")
+                            json_ok=True, problem=f"Claude reported an error ({subtype or 'is_error'})",
+                            quota_limits=_quota_limits_of(data))
     envelope = extract_envelope(result) if result else None
     problem = None
     if envelope is None:
         problem = "the result text is empty" if not result else "no task result envelope found in the result text"
     return ParsedOutput(session_id=session_id, envelope=envelope, usage=usage, subtype=subtype, json_ok=True,
                         problem=problem)
+
+
+# --------------------------------------------------------------------------- classifying a limit (CNT-T02)
+
+_RATE_EXPLICIT = re.compile("|".join((
+    r"\bnot your usage limit\b",           # "API Error: 429 · Server is temporarily limiting requests (not your usage limit)"
+    r"\btemporarily limiting requests\b",
+    r"\brate[ _-]?limit",                  # rate_limit_error, "would exceed your rate limit"
+    r"\btoo many requests\b",
+    r"\brequest rejected \(429\)",
+)), re.IGNORECASE)
+_CREDITS = re.compile("|".join((
+    r"\bspend limit\b",                    # "hit your monthly spend limit", "org's ... spend limit"
+    r"\bcredit balance is too low\b",
+    r"\bout of extra usage\b",
+    r"\binsufficient[ _]quota\b",          # API billing quota
+    r"\bexceeded your current quota\b",
+)), re.IGNORECASE)
+_PLAN = re.compile("|".join((
+    r"\b(?:hit|reached|exceeded)\s+your\s+(?:(?!spend\b)[\w'\u2019-]+\s+){0,3}limit\b",   # "hit your session limit"
+    r"\b(?:\d+-hour|five-hour|session|weekly|daily|monthly|usage|plan|message|opus|sonnet|fable|haiku)\s+limit\s+"
+    r"(?:reached|exceeded|hit)\b",
+    r"\busage limit\b",                    # "Claude AI usage limit reached|1760000000"
+)), re.IGNORECASE)
+_BARE_429 = re.compile(r"\b(?:api error|http|status|code|error)\D{0,12}429\b", re.IGNORECASE)
+_MODEL_WORD = re.compile(r"\b(?:opus|sonnet|fable|haiku)\b", re.IGNORECASE)
+_WINDOW_OF_TYPE = {"five_hour": LimitWindow.FIVE_HOUR, "seven_day": LimitWindow.WEEKLY, "overage": LimitWindow.SPEND}
+
+
+def _quota_limits_of(data: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """The structured limit record of a result object: ``quotaLimits`` or ``rate_limit_info`` (also under ``apiErrorParams``)."""
+    for container in (data, data.get("apiErrorParams")):
+        if isinstance(container, Mapping):
+            for key in ("quotaLimits", "rate_limit_info"):
+                if isinstance(container.get(key), Mapping):
+                    return container[key]
+    return None
+
+
+def _quota_fields(record: Mapping[str, Any] | None) -> tuple[object, str | None, bool]:
+    """``(resetsAt, rateLimitType, rejected)`` of a ``quotaLimits`` record; ``rejected`` is false for an "allowed" status."""
+    if record is None:
+        return None, None, False
+    status = record.get("status")
+    rate_type = record.get("rateLimitType", record.get("rate_limit_type"))
+    return (record.get("resetsAt", record.get("resets_at")), rate_type if isinstance(rate_type, str) else None,
+            status is None or status == "rejected")
+
+
+def _window_of(line: str, rate_type: str | None) -> LimitWindow:
+    low = line.lower()
+    if _MODEL_WORD.search(low):
+        return LimitWindow.MODEL_WEEKLY
+    if "spend limit" in low or "extra usage" in low or "credit balance" in low:
+        return LimitWindow.SPEND
+    if re.search(r"\bsession\b|\b5[- ]hour\b|\bfive[- ]hour\b", low):
+        return LimitWindow.FIVE_HOUR
+    if re.search(r"\bweekly\b|\b7[- ]day\b|\bseven[- ]day\b", low):
+        return LimitWindow.WEEKLY
+    if "monthly" in low:
+        return LimitWindow.MONTHLY
+    if rate_type:
+        if rate_type in _WINDOW_OF_TYPE:
+            return _WINDOW_OF_TYPE[rate_type]
+        if rate_type.startswith("seven_day_"):                 # seven_day_opus, seven_day_sonnet
+            return LimitWindow.MODEL_WEEKLY
+    return LimitWindow.UNKNOWN
+
+
+def classify_claude_limit(text: object, *, observed_at: datetime | None = None, context: LimitContext | None = None,
+                          quota_limits: Mapping[str, Any] | None = None) -> LimitInfo | None:
+    """The limit a Claude message describes, or ``None`` when the text is not a limit message.
+
+    Order (CNT-T01 section 2): an explicit rate limit, then credits, then the plan, then a bare 429 (rate limited),
+    then any other quota text (``limit_unknown``). Credits come before the plan only so that "monthly spend limit"
+    is not read as a plan window. ``quota_limits`` is the ``quotaLimits`` record of the session
+    (``status``, ``resetsAt`` epoch seconds, ``rateLimitType``): a rejected record with a reset still in the future
+    lifts a bare 429 or an unknown limit to ``plan_limit`` and supplies the exact reset (``high``).
+    """
+    context = context or limits.DEFAULT_CONTEXT
+    text = limits.clip(text)
+    start = context.observed(observed_at)
+    epoch, rate_type, rejected = _quota_fields(limits.mapping_or_none(quota_limits))
+    explicit = False
+    if match := _RATE_EXPLICIT.search(text):
+        kind, explicit = FailureKind.RATE_LIMITED, True
+    elif match := _CREDITS.search(text):
+        kind = FailureKind.CREDITS_EXHAUSTED
+    elif match := _PLAN.search(text):
+        kind = FailureKind.PLAN_LIMIT
+    elif match := _BARE_429.search(text):
+        kind = FailureKind.RATE_LIMITED
+    elif match := QUOTA_RE.search(text):
+        kind = FailureKind.LIMIT_UNKNOWN
+    else:
+        return None
+    exact = limits.epoch_to_utc(epoch) if rejected else None
+    if (not explicit and kind in (FailureKind.RATE_LIMITED, FailureKind.LIMIT_UNKNOWN) and exact is not None
+            and start < exact <= start + limits.MAX_RESET_AHEAD):
+        kind = FailureKind.PLAN_LIMIT
+    line = limits.evidence_line(text, match.start())
+    if kind is FailureKind.RATE_LIMITED:
+        window, epoch = LimitWindow.UNKNOWN, None
+    else:
+        window = _window_of(line, rate_type if rejected else None)
+        if kind is FailureKind.CREDITS_EXHAUSTED and window is LimitWindow.UNKNOWN:
+            window = LimitWindow.SPEND
+        if not rejected:
+            epoch = None
+    if epoch is None and kind is not FailureKind.RATE_LIMITED:
+        found = limits.EPOCH_AFTER_BAR.search(text) or limits.EPOCH_IN_JSON.search(text)
+        epoch = int(found.group(1)) if found else None
+    return limits.make_limit(kind, window, observed_at=start, context=context, evidence=line, epoch=epoch,
+                             text=limits.find_reset_text(text), wants_reset=kind is not FailureKind.RATE_LIMITED)
 
 
 # --------------------------------------------------------------------------- the adapter
@@ -295,9 +421,14 @@ class ClaudeAdapter:
     version = ADAPTER_VERSION
 
     def __init__(self, *, command: Sequence[str] = (PROGRAM,), executor_id: str = DEFAULT_EXECUTOR_ID,
-                 max_turns: int | None = None, max_budget_usd: float | None = None):
-        """``command`` is the program and its fixed leading arguments (a test passes ``(python, fake_claude.py)``)."""
+                 max_turns: int | None = None, max_budget_usd: float | None = None,
+                 limit_context: LimitContext | None = None):
+        """``command`` is the program and its fixed leading arguments (a test passes ``(python, fake_claude.py)``).
+
+        ``limit_context`` fixes the clock, the machine zone and the IANA resolver used to read a reset time (a test passes one).
+        """
         self.command = _check_command(command)
+        self.limit_context = limit_context or limits.DEFAULT_CONTEXT
         self.executor_id = executor_id
         self.max_turns = _check_max_turns(max_turns)
         self._budget = _check_max_budget(max_budget_usd)
@@ -357,14 +488,21 @@ class ClaudeAdapter:
         parsed = parse(stdout)
         return parsed.session_id, parsed.envelope, parsed.usage
 
+    def classify_limit(self, text: str, *, observed_at: datetime | None = None,
+                       quota_limits: Mapping[str, Any] | None = None) -> LimitInfo | None:
+        """The limit ``text`` describes (class, window, ``reset_at`` with source and confidence), or ``None`` (CNT-T02)."""
+        return classify_claude_limit(text, observed_at=observed_at, context=self.limit_context, quota_limits=quota_limits)
+
     def classify_failure(self, exit_code: int | None, stderr: str) -> FailureKind:
-        """Quota or rate limit, login problem, or other. Claude never blocks on an open session."""
-        text = stderr if isinstance(stderr, str) else ""
-        if QUOTA_RE.search(text):
-            return FailureKind.QUOTA
-        if AUTH_RE.search(text):
-            return FailureKind.AUTHENTICATION
-        return FailureKind.OTHER
+        """A limit class, login problem, or other. Claude never blocks on an open session."""
+        return self._classify(stderr)[0]
+
+    def _classify(self, text: object, quota_limits: Mapping[str, Any] | None = None) -> tuple[FailureKind, LimitInfo | None]:
+        text = text if isinstance(text, str) else ""
+        limit = self.classify_limit(text, quota_limits=quota_limits)
+        if limit is not None:
+            return limit.kind, limit
+        return (FailureKind.AUTHENTICATION if AUTH_RE.search(text) else FailureKind.OTHER), None
 
     def open_target(self, session_id: str) -> OpenTarget | None:
         """``claude --desktop --resume <uuid>`` in a visible console, as the GUI launches it (None if not a UUID)."""
@@ -394,6 +532,7 @@ class ClaudeAdapter:
         if outcome.stdout_truncated:
             notes.append("stdout was truncated at the output cap; the JSON may be incomplete")
         envelope: Mapping[str, Any] | None = None
+        limit: LimitInfo | None = None
         if outcome.timed_out:
             status = RunStatus.TIMEOUT
             notes.append(f"timed out after {request.timeout_seconds} s; the process tree was killed")
@@ -403,10 +542,10 @@ class ClaudeAdapter:
             diagnostic = "\n".join(part for part in (
                 outcome.stderr_tail, parsed.error_text,
                 outcome.stdout_tail[-DIAGNOSTIC_STDOUT_CHARS:] if not parsed.json_ok else None) if part)
-            kind = self.classify_failure(outcome.exit_code, diagnostic)
-            status = RunStatus.QUOTA_EXHAUSTED if kind is FailureKind.QUOTA else (
+            kind, limit = self._classify(diagnostic, parsed.quota_limits)
+            status = RunStatus.QUOTA_EXHAUSTED if kind.is_limit else (
                 RunStatus.BLOCKED_OPEN_SESSION if kind is FailureKind.BLOCKED_OPEN_SESSION else RunStatus.FAILED)
-            notes.append(f"failure: {kind.value} (exit code {outcome.exit_code})")
+            notes.append(f"failure: {kind.legacy_value} (exit code {outcome.exit_code})")
             if parsed.problem and parsed.is_error:
                 notes.append(parsed.problem)
         elif parsed.envelope is None:
@@ -417,4 +556,4 @@ class ClaudeAdapter:
         return ExecutorRunResult(
             status=status, session_id=parsed.session_id or session_id, result_envelope=envelope, usage=parsed.usage,
             command=outcome.command, stdout_tail=_tail(outcome.stdout_tail), stderr_tail=_tail(outcome.stderr_tail),
-            notes=tuple(notes))
+            notes=tuple(notes), limit=limit)
