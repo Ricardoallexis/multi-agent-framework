@@ -91,11 +91,11 @@ The economic fields are all optional; a profile that declares none of them behav
 
 | Field | Meaning |
 | --- | --- |
-| `mode` | `supervised` (default), `automatic` or `single`. Selection is the same in `supervised` and `automatic`; they differ only in how escalation will be approved (ECO-T06). `single` uses only `model_id`. |
+| `mode` | `supervised` (default), `automatic` or `single`. Selection is the same in `supervised` and `automatic`; they differ only in how an [escalation](#bounded-escalation) is approved. `single` uses only `model_id` and never escalates. |
 | `levels` | Per step kind (`orchestration`, `planning`, `review`, `work`) a `min` and/or `max` model level (`T1` to `T4`). A step kind that is not listed is blocked (`step_kind_levels_missing`). |
 | `effort` | Per step kind, one of `none`, `low`, `medium`, `high`, `max`. It is used only when the step declares no effort of its own; a step's own effort always wins. |
 | `model_id` | The catalog model of `mode: single`; required there, ignored in the other modes. |
-| `escalation` | `max_escalations_per_step` (0 or 1) and `ceiling` (`T1` to `T3`; T4 is never automatic). It is validated and stored only: this profile does not escalate, and selection ignores it. |
+| `escalation` | `max_escalations_per_step` (0 or 1) and `ceiling` (`T1` to `T3`; T4 is never automatic). Without this block, or with a limit of 0, a step fails as it always did. See [Bounded escalation](#bounded-escalation). |
 | `candidate_model_ids` | Optional allowlist. Without it every model in the catalog is a candidate (the 2-candidate limit of the other profiles does not apply). |
 | `economic_selection` | For `work`, `true` (the default here) takes the cheapest candidate and `false` takes the first eligible one in the order of `candidate_model_ids`. Orchestration, planning and review always take the cheapest. |
 
@@ -120,6 +120,17 @@ To enable it:
 With the bundled catalog nothing is T3, so orchestration, planning and review steps block until a T3 or T4 model is classified and priced; that is the intended behavior and not a fault.
 
 To turn it off, remove the assignment (steps return to their static binding) or set `enabled: false` (a step still assigned to a disabled profile blocks). No migration is needed either way.
+
+## Bounded escalation
+
+A step whose cheaper model fails on the **quality of its output** can move up one model level, once. It applies only to an economic profile in `supervised` or `automatic` mode that declares `escalation` with `max_escalations_per_step: 1`; every other profile, `single` mode, a limit of 0 and a dry run behave as before.
+
+- **Trigger.** The step exhausts its per-candidate retries (and its same-level fallback) with a `StructuredOutputError` or a failed semantic validation. Provider errors (network, authentication, quota, rate limit, a model that does not fit the request) never escalate: they keep the fallback to a peer. If the last failure of the call is a provider error, nothing escalates.
+- **Action.** The step is routed again with the same profile, role, permissions, data class and execution mode, restricted to the models of the **next level** after the one that failed (T1 to T2, T2 to T3), never above `ceiling` and never to T4. Those models must be classified, have current price evidence and pass the profile's normal eligibility; sensitive data is still sent only to a model that is allowed to receive it. If none qualifies, or the ceiling is reached, the step fails with a message that asks for human intervention. A level is never skipped. While escalation is enabled, a model's fallback is a peer of its own level; a stronger model is reached only by escalating.
+- **Budgets.** Checked before escalating, with no escalation if one is exhausted: `max_llm_calls`, the profile's `max_provider_invocations`, `max_run_seconds`, and the profile's planning budgets (`planning_max_cost`, `planning_max_input_tokens`, `planning_max_output_tokens`) applied to the candidate of the next level. The calls of the failed tries already count.
+- **Limit.** One escalation per attempt of a step. A human "request changes" revision is not an escalation trigger: it repeats the step at the profile's normal level, and the ORQ-2 gate only records its result.
+- **Modes.** `automatic` escalates up to the ceiling without asking. `supervised` (the default) escalates automatically below T3 and, to reach T3 or above, **pauses the step**: the run waits as `waiting_human` with `waiting_reason: escalation_approval` and an `escalation_requested` event (reason, error, the model proposed with its price evidence, and the estimated cost so far). `POST /api/v1/runs/{id}/approve` resumes the same step with the escalated model, selected again so a changed catalog, grant or budget still applies; `reject` fails the step and the run with the reason. A pending escalation takes no other review action (`changes`, `regenerate`). `single` never escalates.
+- **Record.** Run events `model_escalated` (step, attempt, escalation number, mode, from and to level and model, `reason` = `structured_output_failed` or `semantic_validation_failed`, the error, `estimated_cost_so_far` for the run and for the step with unknown costs apart, and `approved_by_human`), `escalation_requested`, `escalation_approved`, `escalation_rejected` and `escalation_blocked` (with a `code` such as `ceiling_reached`, `no_eligible_candidate`, `max_llm_calls_reached` or `max_escalations_reached`). The `routing_decision` of the escalation carries `escalation` (number, attempt, from and to level, from model, reason, `ceiling`, `max_escalations_per_step`) and the request's `RoutingRequest.escalation`; later `model_attempt` events of the step carry `escalation: 1`, and `model_selected` lists the attempts of both levels. The estimated cost is an estimate from catalog prices, not a bill, and it is `null` for a call whose tokens or price are unknown.
 
 ## What a decision tells you
 

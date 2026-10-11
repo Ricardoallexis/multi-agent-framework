@@ -39,8 +39,18 @@ class RunService:
     def list(self, *, limit: int = 20, status: str = "", project: str = "") -> list[dict[str, Any]]:
         return self.store.list_runs(limit=limit, status=status, project=project)
 
+    @staticmethod
+    def _awaits_escalation(run: dict[str, Any]) -> bool:
+        """True while a supervised economic profile waits for a human to approve a step's escalation."""
+        return (run["status"] == RunStatus.WAITING_HUMAN.value
+                and run.get("waiting_reason") == WaitingReason.ESCALATION.value)
+
     def approve(self, run_id: str) -> dict[str, Any]:
         run = self.store.get_run(run_id)
+        if self._awaits_escalation(run):
+            # Approving an escalation resumes the same step with the stronger model; no artifact is under review.
+            self.store.finish_escalation(run, approve=True)
+            return self.store.get_run(run_id)
         if run["status"] != RunStatus.WAITING_HUMAN.value or run.get("waiting_reason") not in {
             WaitingReason.REVIEW.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
         }:
@@ -80,6 +90,10 @@ class RunService:
         run = self.store.get_run(run_id)
         if run["status"] != RunStatus.WAITING_HUMAN.value:
             raise InvalidStateTransition("A run can only be rejected in WAITING_HUMAN")
+        if self._awaits_escalation(run):
+            # Rejecting an escalation fails the step (and the run) with the reason; nothing was produced to reject.
+            self.store.finish_escalation(run, approve=False, feedback=feedback)
+            return self.store.get_run(run_id)
         self.store.update_run(
             run_id,
             status=RunStatus.REJECTED.value,

@@ -18,6 +18,10 @@ CONTRACT_VERSION = 1
 STEP_KINDS = ("orchestration", "planning", "review", "work")
 DEFAULT_STEP_KIND = "work"
 EFFORT_LEVELS = ("none", "low", "medium", "high", "max")
+# Model levels, cheapest first (T1 economic .. T4 maximum). Escalation climbs them one at a time.
+MODEL_LEVELS = ("T1", "T2", "T3", "T4")
+# Supervised mode (ECO-T06): escalating to this level or above waits for a human to approve it.
+ESCALATION_APPROVAL_LEVEL = "T3"
 
 
 def _strings(value: Any) -> frozenset[str] | None:
@@ -86,6 +90,12 @@ class RoutingRequest:
     step_kind: str = DEFAULT_STEP_KIND
     effort: str | None = None
     attempt: int = 1
+    # Escalation (ECO-T06). Set only for the re-selection of a step whose cheaper model failed on the
+    # quality of its output: ``to_level`` is the one level the candidates are restricted to (the
+    # profile's per-kind bounds do not apply), and ``number`` (1-based), ``from_level``, ``from_model``
+    # and ``reason`` say what is being escalated. The selector still applies every other rule of the
+    # profile and refuses a profile that does not allow escalation or a level above its ceiling.
+    escalation: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         for name in ("required_capabilities", "required_permissions", "effective_permissions", "authorized_data_classes"):
@@ -96,12 +106,18 @@ class RoutingRequest:
             raise ValueError(f"effort must be one of {', '.join(EFFORT_LEVELS)} or None; got {self.effort!r}")
         if type(self.attempt) is not int or self.attempt < 1:
             raise ValueError(f"attempt must be an integer of 1 or more; got {self.attempt!r}")
+        if self.escalation is not None:
+            if not isinstance(self.escalation, Mapping) or self.escalation.get("to_level") not in MODEL_LEVELS:
+                raise ValueError(f"escalation must be a mapping whose to_level is one of {', '.join(MODEL_LEVELS)}")
+            object.__setattr__(self, "escalation", dict(self.escalation))
 
     def to_dict(self) -> dict[str, Any]:
         result = {name: getattr(self, name) for name in self.__dataclass_fields__}
         for name in ("required_capabilities", "required_permissions", "effective_permissions", "authorized_data_classes"):
             value = result[name]
             result[name] = sorted(value) if value is not None else None
+        if result["escalation"] is not None:
+            result["escalation"] = dict(result["escalation"])
         return result
 
 
@@ -207,6 +223,11 @@ class RoutingDecision:
     price_evidence: Mapping[str, Any] | None = None
     effort: str | None = None
     effort_source: str | None = None
+    # Escalation evidence (ECO-T06): present only on the decision made to escalate a step. It repeats the
+    # request's escalation (number, from/to level, from model, reason) with the profile's ``ceiling`` and
+    # ``max_escalations_per_step``. A decision that is not an escalation has none, and ``to_dict`` leaves
+    # the key out so those records keep their shape.
+    escalation: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result = {name: getattr(self, name) for name in self.__dataclass_fields__}
@@ -222,6 +243,10 @@ class RoutingDecision:
         result["budget_scope"] = dict(self.budget_scope)
         if self.price_evidence is not None:
             result["price_evidence"] = json.loads(json.dumps(self.price_evidence, default=str))
+        if self.escalation is None:
+            del result["escalation"]
+        else:
+            result["escalation"] = json.loads(json.dumps(dict(self.escalation), default=str))
         return result
 
 

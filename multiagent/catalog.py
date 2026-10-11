@@ -13,11 +13,10 @@ import yaml
 
 from .config import Settings
 from .errors import MultiAgentError
-from .routing_policy import EFFORT_LEVELS, STEP_KINDS
+from .routing_policy import EFFORT_LEVELS, MODEL_LEVELS, STEP_KINDS
 
 _logger = logging.getLogger(__name__)
 
-MODEL_LEVELS = ("T1", "T2", "T3", "T4")
 MODEL_CLASSIFICATIONS = ("classified", "unclassified")
 LOCAL_NO_CHARGE = "local_no_charge"
 _PRICE_COMPONENTS = ("input", "output")
@@ -181,7 +180,7 @@ def validate_routing_profile(profile_id: str, profile: Any) -> Any:
     The economic fields are ``mode`` (``supervised`` by default, ``automatic`` or ``single``), ``levels``
     (per step kind a ``min`` and/or ``max`` model level), ``effort`` (per step kind), ``model_id``
     (required when ``mode`` is ``single``) and ``escalation`` (``max_escalations_per_step`` and
-    ``ceiling``). Escalation is only declared here; nothing in this module or in the selector acts on it.
+    ``ceiling``). Escalation is only declared here; the selector and the workflow engine act on it (ECO-T06).
     A profile that declares none of them, or a value that is not a mapping, is returned unchanged. A
     malformed declaration raises ``CatalogError`` naming the profile.
     """

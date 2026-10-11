@@ -398,6 +398,56 @@ class Store:
                     (run_id, utcnow(), "workflow_completed", "{}"),
                 )
 
+    def finish_escalation(self, run: dict[str, Any], *, approve: bool, feedback: str = "") -> None:
+        """Commit a human's decision on a paused escalation (ECO-T06): approve queues the run, reject fails it.
+
+        Like ``finish_review`` it compares the persisted wait again inside the transaction, so a duplicate
+        or a decision after a cancellation is refused. The decision is tied to the latest
+        ``escalation_requested`` event of the waiting step and attempt, which has no decision yet.
+        Approval records ``escalation_approved`` (the engine resumes the step with the escalated model);
+        rejection records ``escalation_rejected`` and fails the run with the reason.
+        """
+        run_id = run["id"]
+        with self.db.tx() as conn:
+            fresh = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            fields = ("status", "current_step", "waiting_reason", "waiting_step", "waiting_attempt", "cancel_requested")
+            if (fresh is None or fresh["status"] != RunStatus.WAITING_HUMAN.value
+                    or fresh["waiting_reason"] != "escalation_approval" or fresh["cancel_requested"]
+                    or any(fresh[key] != run[key] for key in fields)):
+                raise InvalidStateTransition("The persisted escalation changed; read the run again")
+            requested = None
+            for row in conn.execute(
+                    """SELECT event_type,payload_json FROM run_events WHERE run_id=? AND event_type IN
+                       ('escalation_requested','escalation_approved','escalation_rejected') ORDER BY id""",
+                    (run_id,)):
+                payload = json.loads(row["payload_json"])
+                if payload.get("step_id") != fresh["waiting_step"] or payload.get("attempt") != fresh["waiting_attempt"]:
+                    continue
+                requested = payload if row["event_type"] == "escalation_requested" else None
+            if requested is None:
+                raise InvalidStateTransition("The run has no escalation waiting for a decision")
+            now = utcnow()
+            if approve:
+                conn.execute(
+                    """UPDATE runs SET status=?,waiting_reason='',waiting_step='',waiting_attempt=NULL,updated_at=?
+                       WHERE id=?""", (RunStatus.QUEUED.value, now, run_id))
+                conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                             (run_id, now, "escalation_approved", json.dumps(requested, ensure_ascii=False)))
+                return
+            error = (f"Escalation of step {requested['step_id']!r} from {requested['from_level']} to "
+                     f"{requested['to_level']} ({requested['to_model']}) was rejected by a human"
+                     + (f": {feedback}" if feedback.strip() else "") + "; the step failed")
+            conn.execute(
+                """UPDATE runs SET status=?,error=?,revision_feedback=?,waiting_reason='',waiting_step='',
+                   waiting_attempt=NULL,updated_at=? WHERE id=?""",
+                (RunStatus.FAILED.value, error, feedback, now, run_id))
+            conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                         (run_id, now, "escalation_rejected",
+                          json.dumps({**requested, "feedback": feedback}, ensure_ascii=False)))
+            conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                         (run_id, now, "workflow_failed",
+                          json.dumps({"error": error, "type": "EscalationRejected"}, ensure_ascii=False)))
+
     def increment_llm_calls(self, run_id: str) -> int:
         with self.db.connect() as conn:
             conn.execute("UPDATE runs SET llm_calls=llm_calls+1, updated_at=? WHERE id=?", (utcnow(), run_id))

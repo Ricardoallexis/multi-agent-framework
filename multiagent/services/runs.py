@@ -155,7 +155,11 @@ class RunServices:
 
     @service_errors
     def approve(self, run_id: str) -> dict[str, Any]:
-        """Approve the artifact under review and continue or complete the run."""
+        """Approve the artifact under review and continue or complete the run.
+
+        A run paused on a supervised escalation (``waiting_reason`` ``escalation_approval``) has no artifact
+        under review: approving it queues the run so the step resumes with the escalated model.
+        """
         runtime = self._find(run_id)
         return self._tag(runtime, runtime.service.approve(run_id))
 
@@ -173,7 +177,10 @@ class RunServices:
 
     @service_errors
     def reject(self, run_id: str, feedback: str = "") -> dict[str, Any]:
-        """Reject the run while it waits for a human."""
+        """Reject the run while it waits for a human.
+
+        Rejecting a paused escalation fails the step and the run (status ``failed``) with the reason.
+        """
         runtime = self._find(run_id)
         return self._tag(runtime, runtime.service.reject(run_id, feedback))
 

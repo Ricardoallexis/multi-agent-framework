@@ -29,6 +29,8 @@ class WaitingReason(str, Enum):
     RECOVERY = "recovery"
     RECONCILE = "reconcile"
     BUDGET_EXHAUSTED = "budget_exhausted"
+    # Supervised economic profile (ECO-T06): the step waits for a human to approve a move to a stronger model.
+    ESCALATION = "escalation_approval"
 
 
 class HumanAction(str, Enum):

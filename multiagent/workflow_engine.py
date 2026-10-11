@@ -5,14 +5,15 @@ import json
 import logging
 import re
 import time
-from typing import TYPE_CHECKING, Any, Mapping
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Mapping, NamedTuple
 
 from pydantic import BaseModel, ValidationError
 
 from .adapters.base import LLMResponse
 from .adapters.fake import FakeAdapter
 from .artifacts import ArtifactWriter
-from .catalog import Catalog
+from .catalog import Catalog, CatalogError, validate_routing_profile
 from .contracts import (
     ContentOutput,
     ExecutionMode,
@@ -28,12 +29,18 @@ from .contracts import (
     WaitingReason,
 )
 from .db.store import Store
-from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition, ValidationFailed
-from .model_router import ModelBinding, ModelRouter
+from .errors import (
+    BudgetExceeded, EscalationBlocked, HumanSubmissionError, InvalidStateTransition, StructuredOutputError,
+    ValidationFailed,
+)
+from .model_router import ModelBinding, ModelRouter, failure_kind
 from .observability import TokenUsageRecord, UsageRecorder, estimate_call_cost
 from .prompts import PromptManager
-from .routing_policy import RoutingEvidence, RoutingRequest, summarize_routing_evidence
-from .observability.usage import read_usage
+from .routing_policy import (
+    ESCALATION_APPROVAL_LEVEL, MODEL_LEVELS, RoutingDecision, RoutingEvidence, RoutingRequest,
+    summarize_routing_evidence,
+)
+from .observability.usage import read_usage, summarize_usage
 from .schema_utils import estimate_tokens_conservative
 from .workflows import WorkflowCatalog, WorkflowDefinition, WorkflowStep, condition_is_true
 from .workflow_validation import (
@@ -45,6 +52,33 @@ if TYPE_CHECKING:
     from .bundles import DefinitionBundle
 
 _logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _EscalationPolicy:
+    """What an economic profile allows when a step fails on the quality of its output (ECO-T06)."""
+
+    mode: str  # supervised | automatic
+    ceiling: str
+    max_escalations: int
+
+
+class _Route(NamedTuple):
+    """The outcome of resolving a routing profile for one step: the decision and what to run."""
+
+    decision: RoutingDecision
+    binding: ModelBinding | None
+    requirements: TaskRequirements | None
+    reason: str
+    effort: str | None
+
+
+class _Escalation(NamedTuple):
+    """Result of trying to escalate a step: paused for a human, or the route to continue with."""
+
+    route: _Route | None
+    info: dict[str, Any] | None
+    paused: bool = False
 
 
 class WorkflowEngine:
@@ -234,88 +268,32 @@ class WorkflowEngine:
                     requires_web=requires_web,
                     sensitive=bool(request.get("sensitive", False)),
                 )
+                static_binding = binding  # the workflow's own binding; escalation re-routes from it, not from the selection
                 routing_decision = None
                 effective_effort = step.effort
+                escalation_policy = self._escalation_policy(profile_id, profile)
+                escalations_done = (self._escalations_made(fresh.get("events", []), step.id, attempt)
+                                    if escalation_policy is not None else 0)
+                # A supervised escalation a human approved earlier: this run resumes the step with the stronger model.
+                approved_escalation = (self._approved_escalation(fresh.get("events", []), step.id, attempt)
+                                       if escalation_policy is not None else None)
+                escalation_info: dict[str, Any] | None = None
                 if profile_id is not None:
-                    profile_required = profile.get("required_permissions", []) if isinstance(profile, dict) else []
-                    caller_grants = request.get("effective_permissions")
-                    if caller_grants is None:
-                        caller_grants = request.get("permissions")
-                    requested_model = (
-                        profile.get("requested_model") if isinstance(profile, dict) else None
-                    ) or (binding.preferred_model if binding is not None else None)
-                    authorized_classes = request.get("authorized_data_classes")
-                    if authorized_classes is None:
-                        authorized_classes = request.get("data_classes")
-                    routing_request = RoutingRequest(
-                        profile_id=profile_id,
-                        workflow_id=run["workflow_id"],
-                        step_id=step.id,
-                        requested_model=requested_model,
-                        required_capabilities=frozenset({"structured_output"} | ({"web"} if requires_web else set())),
-                        required_role=step.agent,
-                        required_permissions=frozenset(profile_required or ()),
-                        effective_permissions=frozenset(caller_grants) if caller_grants is not None else None,
-                        authorized_data_classes=frozenset(authorized_classes) if authorized_classes is not None else None,
-                        authorization_provenance=request.get("authorization_provenance"),
-                        data_class="sensitive" if request.get("sensitive") else request.get("data_class", "non_sensitive"),
-                        execution_mode=execution_mode.value,
-                        requires_web=requires_web,
-                        output_schema=step.contract,
-                        estimated_input_tokens=estimated_input,
-                        step_kind=step.kind,
-                        effort=step.effort,
-                        attempt=attempt,
+                    route = self._route_with_profile(
+                        run_id=run_id, run=run, state=fresh, step=step, attempt=attempt, profile_id=profile_id,
+                        profile=profile, request=request, execution_mode=execution_mode, requires_web=requires_web,
+                        estimated_input=estimated_input, binding=static_binding, requirements=requirements,
+                        routing_reason=routing_reason,
+                        escalation=self._escalation_request(approved_escalation, attempt)
+                        if approved_escalation is not None else None,
                     )
-                    evidence_summary = summarize_routing_evidence(
-                        run_id, list(fresh.get("events", [])), read_usage(self.store, run_id)
-                    )
-                    routing_decision = self.router.select(
-                        routing_request,
-                        RoutingEvidence(scope=run_id, stats_by_model=evidence_summary,
-                                        provenance="single_run_snapshot"),
-                    )
-                    decision_data = routing_decision.to_dict()
-                    decision_data.update({
-                        "step_id": step.id,
-                        "execution_mode": execution_mode.value,
-                        "research_mode": fresh.get("research_mode", "none"),
-                        "estimated_input_tokens": estimated_input,
-                        "requires_web": requires_web,
-                        "evidence": evidence_summary,
-                    })
-                    self.store.db.log_event(run_id, "routing_decision", decision_data)
-                    if routing_decision.status == "selected":
-                        selected = routing_decision.selected_model
-                        if not selected:
-                            raise ValidationFailed("Routing profile selected no model")
-                        selected_spec = self.catalog.model(selected)
-                        fallbacks = [model for model in routing_decision.fallback_models if model != selected]
-                        retries = int(profile.get("max_retries_per_candidate", 0))
-                        binding = ModelBinding(
-                            preferred_model=selected,
-                            fallback_model=fallbacks[0] if fallbacks else None,
-                            max_retries=retries,
-                            fallback_max_retries=retries,
+                    routing_decision, binding, requirements, routing_reason, effective_effort = route
+                    if approved_escalation is not None:
+                        escalation_info = self._resume_escalation(
+                            run_id=run_id, step=step, attempt=attempt, profile_id=profile_id,
+                            approved=approved_escalation, decision=routing_decision,
                         )
-                        requirements = TaskRequirements(
-                            requires_web=requires_web,
-                            output_schema=step.contract,
-                            tier=ModelTier.CLOUD if str(selected_spec.tier).casefold() == "cloud" else ModelTier.LOCAL,
-                        )
-                        routing_reason = "explicit routing profile selected"
-                        if routing_decision.effort is not None:
-                            # The decision keeps the step's own effort and only adds the profile's per-kind one
-                            # when the step asked for none.
-                            effective_effort = routing_decision.effort
-                    elif routing_decision.status == "manual" and execution_mode == ExecutionMode.HUMAN_GUIDED:
-                        binding, requirements = None, None
-                        routing_reason = "human_guided requested"
-                    else:
-                        raise ValidationFailed(
-                            "Routing profile requires manual selection or is blocked: "
-                            + ", ".join(routing_decision.reason_codes)
-                        )
+                        escalations_done += 1
                 else:
                     self.store.db.log_event(run_id, "routing_decision", {
                         "step_id": step.id,
@@ -337,6 +315,7 @@ class WorkflowEngine:
                     "execution_mode": execution_mode.value,
                     "step_kind": step.kind,
                     "effort": effective_effort,
+                    **({"escalation": escalation_info} if escalation_info is not None else {}),
                 })
 
                 if execution_mode == ExecutionMode.HUMAN_GUIDED:
@@ -419,8 +398,11 @@ class WorkflowEngine:
                         error_type=failure.get("error_type", "UnknownError"),
                     ))
 
+                captured_attempts: list[dict[str, Any]] = []  # attempts of the router call in flight
+
                 def record_attempt(event: dict[str, Any]) -> None:
                     nonlocal next_profile_model
+                    captured_attempts.append(dict(event))
                     if (profile_models and event.get("stage") == "preflight"
                             and event.get("provider_invoked") is False
                             and (event.get("attempted_model") or event.get("model")) == profile_models[0]
@@ -438,20 +420,52 @@ class WorkflowEngine:
                     self.store.db.log_event(run_id, "model_attempt", {
                         "step_id": step.id,
                         **({"profile_id": profile_id} if profile_id is not None else {}),
+                        **({"escalation": escalations_done} if escalations_done else {}),
                         **attempt_event,
                     })
 
-                response, attempts = self.router.execute(
-                    binding=binding,
-                    requirements=requirements,
-                    prompt=final_prompt,
-                    output_schema=output_schema,
-                    before_call=consume_llm_call,
-                    validate_response=validate_response,
-                    on_failed_attempt=record_failed_attempt,
-                    on_attempt=record_attempt,
-                    effort=effective_effort,
-                )
+                carried_attempts: list[dict[str, Any]] = []  # attempts made before an escalation
+                while True:
+                    captured_attempts.clear()
+                    try:
+                        response, attempts = self.router.execute(
+                            binding=binding,
+                            requirements=requirements,
+                            prompt=final_prompt,
+                            output_schema=output_schema,
+                            before_call=consume_llm_call,
+                            validate_response=validate_response,
+                            on_failed_attempt=record_failed_attempt,
+                            on_attempt=record_attempt,
+                            effort=effective_effort,
+                        )
+                        break
+                    except StructuredOutputError as failure:
+                        # Only a quality failure that survived its retries (and the fallback) can escalate;
+                        # provider errors (network, authentication, quota) never reach this handler, and a
+                        # profile without escalation, or a dry run, keeps raising exactly as before.
+                        if escalation_policy is None or self.router.dry_run:
+                            raise
+                        carried_attempts += captured_attempts
+                        outcome = self._escalate_step(
+                            failure=failure, attempts=captured_attempts, policy=escalation_policy,
+                            escalations_done=escalations_done, run_id=run_id, run=run, index=index, step=step,
+                            attempt=attempt, profile_id=profile_id, profile=profile, request=request,
+                            execution_mode=execution_mode, requires_web=requires_web,
+                            estimated_input=estimated_input, binding=static_binding, requirements=requirements,
+                            routing_reason=routing_reason, decision=routing_decision,
+                            base_active=base_active, started_mono=started_mono,
+                        )
+                        if outcome.paused:
+                            return self._finalize_return(run_id)
+                        routing_decision, binding, requirements, routing_reason, effective_effort = outcome.route
+                        escalation_info = outcome.info
+                        escalations_done += 1
+                        profile_models = [binding.preferred_model] + (
+                            [binding.fallback_model] if binding.fallback_model else [])
+                        next_profile_model = profile_models[0]
+                if carried_attempts:
+                    attempts = carried_attempts + attempts
 
                 # Soft cancellation discards the result before persisting an artifact if a human
                 # requested cancellation while inference was still running.
@@ -470,6 +484,7 @@ class WorkflowEngine:
                     response=response,
                     attempts=attempts,
                     fresh=fresh,
+                    escalation=escalation_info,
                 )
                 self._check_cancel(run_id)
 
@@ -683,6 +698,324 @@ class WorkflowEngine:
             )
         return self._finalize_return(run_id)
 
+    # ---------- routing with a profile and bounded escalation (ECO-T06) ----------
+    def _route_with_profile(self, *, run_id: str, run: dict[str, Any], state: dict[str, Any], step: WorkflowStep,
+                            attempt: int, profile_id: str, profile: dict[str, Any] | None, request: dict[str, Any],
+                            execution_mode: ExecutionMode, requires_web: bool, estimated_input: int,
+                            binding: ModelBinding | None, requirements: TaskRequirements | None,
+                            routing_reason: str, escalation: dict[str, Any] | None = None) -> _Route:
+        """Select a model with the step's routing profile, record the decision and build what to run.
+
+        ``state`` is a fresh read of the run (its events feed the routing evidence). With ``escalation`` the
+        request asks for one exact model level instead of the step kind's bounds (see ``RoutingRequest``);
+        a decision that cannot be satisfied then raises ``EscalationBlocked`` instead of ``ValidationFailed``.
+        """
+        profile_required = profile.get("required_permissions", []) if isinstance(profile, dict) else []
+        caller_grants = request.get("effective_permissions")
+        if caller_grants is None:
+            caller_grants = request.get("permissions")
+        requested_model = (
+            profile.get("requested_model") if isinstance(profile, dict) else None
+        ) or (binding.preferred_model if binding is not None else None)
+        authorized_classes = request.get("authorized_data_classes")
+        if authorized_classes is None:
+            authorized_classes = request.get("data_classes")
+        routing_request = RoutingRequest(
+            profile_id=profile_id,
+            workflow_id=run["workflow_id"],
+            step_id=step.id,
+            requested_model=requested_model,
+            required_capabilities=frozenset({"structured_output"} | ({"web"} if requires_web else set())),
+            required_role=step.agent,
+            required_permissions=frozenset(profile_required or ()),
+            effective_permissions=frozenset(caller_grants) if caller_grants is not None else None,
+            authorized_data_classes=frozenset(authorized_classes) if authorized_classes is not None else None,
+            authorization_provenance=request.get("authorization_provenance"),
+            data_class="sensitive" if request.get("sensitive") else request.get("data_class", "non_sensitive"),
+            execution_mode=execution_mode.value,
+            requires_web=requires_web,
+            output_schema=step.contract,
+            estimated_input_tokens=estimated_input,
+            step_kind=step.kind,
+            effort=step.effort,
+            attempt=attempt,
+            escalation=escalation,
+        )
+        evidence_summary = summarize_routing_evidence(
+            run_id, list(state.get("events", [])), read_usage(self.store, run_id)
+        )
+        routing_decision = self.router.select(
+            routing_request,
+            RoutingEvidence(scope=run_id, stats_by_model=evidence_summary,
+                            provenance="single_run_snapshot"),
+        )
+        decision_data = routing_decision.to_dict()
+        decision_data.update({
+            "step_id": step.id,
+            "execution_mode": execution_mode.value,
+            "research_mode": state.get("research_mode", "none"),
+            "estimated_input_tokens": estimated_input,
+            "requires_web": requires_web,
+            "evidence": evidence_summary,
+        })
+        self.store.db.log_event(run_id, "routing_decision", decision_data)
+        effective_effort = step.effort
+        if routing_decision.status == "selected":
+            selected = routing_decision.selected_model
+            if not selected:
+                raise ValidationFailed("Routing profile selected no model")
+            selected_spec = self.catalog.model(selected)
+            fallbacks = [model for model in routing_decision.fallback_models if model != selected]
+            retries = int(profile.get("max_retries_per_candidate", 0))
+            binding = ModelBinding(
+                preferred_model=selected,
+                fallback_model=fallbacks[0] if fallbacks else None,
+                max_retries=retries,
+                fallback_max_retries=retries,
+            )
+            requirements = TaskRequirements(
+                requires_web=requires_web,
+                output_schema=step.contract,
+                tier=ModelTier.CLOUD if str(selected_spec.tier).casefold() == "cloud" else ModelTier.LOCAL,
+            )
+            routing_reason = "explicit routing profile selected"
+            if routing_decision.effort is not None:
+                # The decision keeps the step's own effort and only adds the profile's per-kind one
+                # when the step asked for none.
+                effective_effort = routing_decision.effort
+        elif routing_decision.status == "manual" and execution_mode == ExecutionMode.HUMAN_GUIDED:
+            binding, requirements = None, None
+            routing_reason = "human_guided requested"
+        elif escalation is not None:
+            codes = tuple(routing_decision.reason_codes)
+            raise self._escalation_blocked(
+                run_id, step, attempt,
+                code="no_eligible_candidate" if "no_eligible_candidate" in codes else "selection_blocked",
+                message=(f"Step {step.id!r} cannot be escalated to level {escalation['to_level']}: no model of that "
+                         f"level is eligible under the profile ({', '.join(codes)}). Human intervention is required."),
+                reason_codes=codes,
+                details={"from_level": escalation.get("from_level"), "from_model": escalation.get("from_model"),
+                         "to_level": escalation["to_level"]},
+            )
+        else:
+            raise ValidationFailed(
+                "Routing profile requires manual selection or is blocked: "
+                + ", ".join(routing_decision.reason_codes)
+            )
+        return _Route(routing_decision, binding, requirements, routing_reason, effective_effort)
+
+    def _escalation_policy(self, profile_id: str | None, profile: Any) -> _EscalationPolicy | None:
+        """The escalation a step's profile allows, or None: then a failed step fails exactly as it always did.
+
+        Only an economic profile in ``supervised`` or ``automatic`` mode that declares ``escalation`` with a
+        limit of at least 1 escalates. Profiles without it, ``single`` mode, a limit of 0 and an invalid
+        declaration all behave as before. A dry run never escalates.
+        """
+        if profile_id is None or not isinstance(profile, dict) or "escalation" not in profile or self.router.dry_run:
+            return None
+        try:
+            checked = validate_routing_profile(profile_id, profile)
+        except CatalogError:
+            return None  # the selector blocks an invalid profile before any step could fail
+        declared = checked.get("escalation")
+        if checked.get("mode") not in ("supervised", "automatic") or not isinstance(declared, dict):
+            return None
+        if declared["max_escalations_per_step"] < 1:
+            return None
+        return _EscalationPolicy(checked["mode"], declared["ceiling"], declared["max_escalations_per_step"])
+
+    @staticmethod
+    def _events_of(events: list[dict[str, Any]], step_id: str, attempt: int):
+        for event in events:
+            payload = event.get("payload") or {}
+            if payload.get("step_id") == step_id and payload.get("attempt") == attempt:
+                yield event["event_type"], payload
+
+    @classmethod
+    def _escalations_made(cls, events: list[dict[str, Any]], step_id: str, attempt: int) -> int:
+        """Escalations already carried out for this attempt of the step (the limit applies per attempt)."""
+        return sum(1 for kind, _ in cls._events_of(events, step_id, attempt) if kind == "model_escalated")
+
+    @classmethod
+    def _approved_escalation(cls, events: list[dict[str, Any]], step_id: str, attempt: int) -> dict[str, Any] | None:
+        """The escalation a human approved for this attempt and the engine has not yet carried out."""
+        approved = None
+        for kind, payload in cls._events_of(events, step_id, attempt):
+            if kind == "escalation_approved":
+                approved = payload
+            elif kind == "model_escalated":
+                approved = None
+        return approved
+
+    @staticmethod
+    def _escalation_request(proposal: Mapping[str, Any], attempt: int) -> dict[str, Any]:
+        """The ``RoutingRequest.escalation`` mapping for an escalation a human approved."""
+        return {
+            "number": proposal["escalation"], "attempt": attempt, "from_level": proposal["from_level"],
+            "from_model": proposal["from_model"], "to_level": proposal["to_level"], "reason": proposal["reason"],
+            "approved_by_human": True,
+        }
+
+    def _cost_so_far(self, run_id: str, step_id: str) -> dict[str, Any]:
+        """Estimated cost spent so far by the run and by the step; unknown costs stay apart, never 0."""
+        records = read_usage(self.store, run_id)
+        keys = ("estimated_cost_usd", "cost_known_records", "cost_unknown_records", "cost_other_currencies",
+                "cost_complete")
+
+        def totals(rows):
+            summary = summarize_usage(rows)["run"]
+            return {"currency": "USD", **{key: summary[key] for key in keys}}
+
+        return {"run": totals(records), "step": totals([row for row in records if row["step_id"] == step_id])}
+
+    def _escalation_blocked(self, run_id: str, step: WorkflowStep, attempt: int, *, code: str, message: str,
+                            reason_codes: tuple[str, ...] = (),
+                            details: dict[str, Any] | None = None) -> EscalationBlocked:
+        """Record why a step could not be escalated and return the error that fails it."""
+        self.store.db.log_event(run_id, "escalation_blocked", {
+            "step_id": step.id, "attempt": attempt, "code": code, "reason_codes": list(reason_codes),
+            "message": message, **(details or {}),
+        })
+        return EscalationBlocked(message, code=code, reason_codes=reason_codes)
+
+    def _resume_escalation(self, *, run_id: str, step: WorkflowStep, attempt: int, profile_id: str,
+                           approved: dict[str, Any], decision: RoutingDecision) -> dict[str, Any]:
+        """Carry out an escalation a human approved: the step was just re-routed to the escalated level.
+
+        The selection is made again, so a changed catalog, grant or budget still applies. If it no longer
+        picks the model the human approved, nothing runs and the step fails asking for a person.
+        """
+        if decision.selected_model != approved["to_model"]:
+            raise self._escalation_blocked(
+                run_id, step, attempt, code="approved_model_no_longer_selected",
+                message=(f"Step {step.id!r}: the approved escalation to {approved['to_model']!r} no longer matches "
+                         f"the eligible choice ({decision.selected_model!r}). Human intervention is required."),
+                details={"from_level": approved["from_level"], "from_model": approved["from_model"],
+                         "to_level": approved["to_level"]},
+            )
+        info = self._escalation_info(
+            run_id, step, attempt, profile_id, decision=decision, number=approved["escalation"],
+            mode=approved["mode"], from_level=approved["from_level"], from_model=approved["from_model"],
+            reason=approved["reason"], error=approved.get("error"), error_type=approved.get("error_type"),
+            approved_by_human=True,
+        )
+        self.store.db.log_event(run_id, "model_escalated", info)
+        return info
+
+    def _escalation_info(self, run_id: str, step: WorkflowStep, attempt: int, profile_id: str, *,
+                         decision: RoutingDecision, number: int, mode: str, from_level: str, from_model: str,
+                         reason: str, error: str | None, error_type: str | None,
+                         approved_by_human: bool) -> dict[str, Any]:
+        """The record of an escalation, shared by ``escalation_requested`` and ``model_escalated``."""
+        evidence = decision.price_evidence or {}
+        projected = evidence.get("estimated_cost")
+        return {
+            "step_id": step.id, "attempt": attempt, "escalation": number, "mode": mode, "profile_id": profile_id,
+            "from_level": from_level, "from_model": from_model,
+            "to_level": decision.selected_level, "to_model": decision.selected_model,
+            "reason": reason, "error": error, "error_type": error_type,
+            "estimated_cost_so_far": self._cost_so_far(run_id, step.id),
+            # Projected cost of the escalated call: null while the request carries no output-token estimate.
+            "estimated_cost": ({"amount": projected, "currency": evidence.get("estimated_cost_currency")}
+                               if projected is not None else None),
+            "price_evidence": evidence or None,
+            "approved_by_human": approved_by_human,
+        }
+
+    def _escalate_step(self, *, failure: StructuredOutputError, attempts: list[dict[str, Any]],
+                       policy: _EscalationPolicy, escalations_done: int, run_id: str, run: dict[str, Any],
+                       index: int, step: WorkflowStep, attempt: int, profile_id: str, profile: dict[str, Any] | None,
+                       request: dict[str, Any], execution_mode: ExecutionMode, requires_web: bool,
+                       estimated_input: int, binding: ModelBinding | None, requirements: TaskRequirements | None,
+                       routing_reason: str, decision: RoutingDecision | None, base_active: float,
+                       started_mono: float) -> _Escalation:
+        """A step exhausted its retries on the quality of its output: escalate once to the next level, or stop.
+
+        Raises ``EscalationBlocked`` (recording ``escalation_blocked``) when the profile's limit or ceiling is
+        reached, a budget is exhausted, or no model of the next level is eligible. Otherwise either pauses the
+        step for a human (supervised mode and a target level of T3 or above) or logs ``model_escalated`` and
+        returns the route of the escalated model.
+        """
+        self._check_cancel(run_id)
+        invoked = [item for item in attempts if item.get("provider_invoked")]
+        if invoked:
+            from_model = invoked[-1].get("attempted_model") or invoked[-1].get("model")
+        else:
+            from_model = decision.selected_model if decision is not None else None
+        spec = self.catalog.models.get(str(from_model)) if from_model else None
+        from_level = spec.level if spec is not None and spec.classification == "classified" else None
+        error_type = type(failure).__name__
+        reason = failure_kind(failure)
+        context = {"from_level": from_level, "from_model": from_model, "reason": reason}
+
+        def blocked(code: str, message: str) -> EscalationBlocked:
+            return self._escalation_blocked(run_id, step, attempt, code=code, message=message, details={
+                **context, "error": str(failure), "error_type": error_type, "ceiling": policy.ceiling})
+
+        failed = f"Step {step.id!r} failed at level {from_level} with model {from_model!r}: {failure}"
+        if from_level is None:
+            raise blocked("from_level_unknown", f"{failed}. Its level is unknown, so it cannot be escalated. "
+                                               "Human intervention is required.")
+        if escalations_done >= policy.max_escalations:
+            raise blocked("max_escalations_reached",
+                          f"{failed}. The step was already escalated {escalations_done} time(s), the profile's "
+                          "limit. Human intervention is required.")
+        position = MODEL_LEVELS.index(from_level)
+        if position >= MODEL_LEVELS.index(policy.ceiling):
+            raise blocked("ceiling_reached", f"{failed}. The profile's escalation ceiling is {policy.ceiling} "
+                                             "(T4 is never automatic). Human intervention is required.")
+        to_level = MODEL_LEVELS[position + 1]
+
+        # Budgets are checked before anything is proposed or run: an exhausted one means no escalation.
+        latest = self.store.get_run(run_id)
+        if int(latest["llm_calls"]) >= int(latest["max_llm_calls"]):
+            raise blocked("max_llm_calls_reached", f"{failed}. Escalation to {to_level} needs another model call "
+                                                   "but max_llm_calls is reached.")
+        profile_limit = profile.get("max_provider_invocations") if isinstance(profile, dict) else None
+        if profile_limit is not None:
+            used = sum(1 for event in latest.get("events", [])
+                       if event.get("event_type") == "routing_dispatch_reserved"
+                       and event.get("payload", {}).get("profile_id") == profile_id)
+            if used >= int(profile_limit):
+                raise blocked("max_provider_invocations_reached",
+                              f"{failed}. Escalation to {to_level} needs another dispatch but the profile's "
+                              "max_provider_invocations is reached.")
+        try:
+            self._check_active_budget(run_id, base_active, started_mono)
+        except BudgetExceeded as exc:
+            raise blocked("max_run_seconds_reached", f"{failed}. Escalation to {to_level} is skipped: {exc}.") from exc
+
+        escalation = {"number": escalations_done + 1, "attempt": attempt, "from_level": from_level,
+                      "from_model": from_model, "to_level": to_level, "reason": reason}
+        # Same profile, role, permissions, data class and mode as the first selection; only the level differs.
+        # The profile's planning budgets apply to the candidate, and no eligible one blocks the step.
+        route = self._route_with_profile(
+            run_id=run_id, run=run, state=latest, step=step, attempt=attempt, profile_id=profile_id, profile=profile,
+            request=request, execution_mode=execution_mode, requires_web=requires_web,
+            estimated_input=estimated_input, binding=binding, requirements=requirements,
+            routing_reason=routing_reason, escalation=escalation,
+        )
+        info = self._escalation_info(
+            run_id, step, attempt, profile_id, decision=route.decision, number=escalations_done + 1,
+            mode=policy.mode, from_level=from_level, from_model=from_model, reason=reason, error=str(failure),
+            error_type=error_type, approved_by_human=False,
+        )
+        if (policy.mode == "supervised"
+                and MODEL_LEVELS.index(to_level) >= MODEL_LEVELS.index(ESCALATION_APPROVAL_LEVEL)):
+            # A move to T3 or above waits for a person, through the same human checkpoint as a review.
+            self.store.db.log_event(run_id, "escalation_requested", info)
+            self.store.update_run(
+                run_id,
+                status=RunStatus.WAITING_HUMAN.value,
+                current_step=index,
+                waiting_reason=WaitingReason.ESCALATION.value,
+                waiting_step=step.id,
+                waiting_attempt=attempt,
+            )
+            return _Escalation(None, None, paused=True)
+        self.store.db.log_event(run_id, "model_escalated", info)
+        return _Escalation(route, info)
+
     # ---------- helpers ----------
     def _pause_for_human(self, *, run_id: str, index: int, step: WorkflowStep, attempt: int,
                          context: dict[str, str], final_prompt: str, prompt_sha256: str,
@@ -744,7 +1077,8 @@ class WorkflowEngine:
 
     def _persist_completed_step(self, *, run_id: str, index: int, step: WorkflowStep, attempt: int,
                                 context: dict[str, Any], data: dict[str, Any], model_id: str,
-                                prompt_sha256: str, response: LLMResponse, attempts: list[dict], fresh: dict[str, Any]) -> None:
+                                prompt_sha256: str, response: LLMResponse, attempts: list[dict], fresh: dict[str, Any],
+                                escalation: dict[str, Any] | None = None) -> None:
         self.store.record_step(
             run_id=run_id,
             step_id=step.id,
@@ -789,6 +1123,7 @@ class WorkflowEngine:
             "attempts": attempts,
             "estimated_input_tokens": response.metadata.get("estimated_input_tokens"),
             "thinking": response.metadata.get("thinking"),
+            **({"escalation": escalation} if escalation is not None else {}),
         })
         self.store.db.log_event(run_id, "step_completed", {"step_id": step.id, "attempt": attempt, "artifact_path": str(relative_path)})
 

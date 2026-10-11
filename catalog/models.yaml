@@ -165,7 +165,7 @@ routing_profiles:
         work: {max: T2}
       effort: {work: low, review: medium}   # fills a step's effort only when the step sets none
       economic_selection: true
-      escalation: {max_escalations_per_step: 1, ceiling: T3}   # stored for ECO-T06; selection does not read it
+      escalation: {max_escalations_per_step: 1, ceiling: T3}   # one step failure on output quality may move up one level (docs/model-routing.md)
       required_capabilities: [structured_output]
       required_roles: []
       required_permissions: []

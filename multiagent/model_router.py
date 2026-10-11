@@ -56,6 +56,23 @@ _ROUTABLE_ERRORS = (
 )
 
 
+# Why a step failed on the quality of its output; escalation (ECO-T06) records it as the reason.
+STRUCTURED_OUTPUT_FAILED = "structured_output_failed"
+SEMANTIC_VALIDATION_FAILED = "semantic_validation_failed"
+
+
+def _semantic_failure(exc: Exception) -> StructuredOutputError:
+    """The error for an output that parsed but failed the step's own validation (same type as before)."""
+    error = StructuredOutputError(f"Semantically invalid output: {exc}")
+    error.failure_kind = SEMANTIC_VALIDATION_FAILED
+    return error
+
+
+def failure_kind(error: BaseException) -> str:
+    """``semantic_validation_failed`` or ``structured_output_failed`` for a ``StructuredOutputError``."""
+    return getattr(error, "failure_kind", STRUCTURED_OUTPUT_FAILED)
+
+
 class ModelRouter:
     """Route a step through one explicitly bound primary model and at most one fallback."""
 
@@ -122,6 +139,7 @@ class ModelRouter:
             step_kind=request.step_kind,
             effort=request.effort,
             effort_source="step" if request.effort is not None else None,
+            escalation=dict(request.escalation) if request.escalation is not None else None,
         )
         if profile_id is None:
             return RoutingDecision(status="manual", reason_codes=("no_profile_requested",), **base)
@@ -183,7 +201,20 @@ class ModelRouter:
             # The profile only fills a gap: a step that asked for an effort keeps it.
             base["effort"], base["effort_source"] = profile_effort[step_kind], "profile"
         bounds = None
-        if levels is not None:
+        if request.escalation is not None:
+            # An escalation looks at exactly one model level and nothing else about the profile changes. The
+            # selector refuses on its own what the engine should never ask for: a profile that does not allow
+            # escalation (no ``escalation`` block, a limit of 0, ``single`` mode) or a level above its ceiling.
+            declared = profile.get("escalation") if profile_mode in ("supervised", "automatic") else None
+            target = request.escalation["to_level"]
+            if not isinstance(declared, dict) or declared.get("max_escalations_per_step", 0) < 1:
+                return RoutingDecision(status="blocked", reason_codes=("escalation_not_enabled_for_profile",), **base)
+            base["escalation"] = {**base["escalation"], "ceiling": declared["ceiling"],
+                                  "max_escalations_per_step": declared["max_escalations_per_step"]}
+            if MODEL_LEVELS.index(target) > MODEL_LEVELS.index(declared["ceiling"]):
+                return RoutingDecision(status="blocked", reason_codes=("escalation_above_ceiling",), **base)
+            bounds = {"min": target, "max": target}
+        elif levels is not None:
             bounds = levels.get(step_kind)
             if bounds is None:
                 return RoutingDecision(status="blocked", reason_codes=("step_kind_levels_missing",), **base)
@@ -420,6 +451,11 @@ class ModelRouter:
             return RoutingDecision(status="blocked", reason_codes=("output_token_budget_unknown_or_exceeded",), candidates=tuple(candidates), **base)
 
         selected, *alternatives = eligible_specs
+        escalation_declared = profile.get("escalation") if profile_mode in ("supervised", "automatic") else None
+        if isinstance(escalation_declared, dict) and escalation_declared.get("max_escalations_per_step", 0) >= 1:
+            # A profile that escalates keeps the fallback inside the selected model's own level (a provider
+            # error is answered by a peer); going up a level is what escalation does, once and recorded.
+            alternatives = [spec for spec in alternatives if spec.level == selected.level]
         fallback = tuple(spec.id for spec in alternatives[:1])
         chosen = next(candidate for candidate in candidates if candidate.model_id == selected.id)
         if single:
@@ -428,6 +464,8 @@ class ModelRouter:
             reasons = ("lowest_estimated_cost_for_common_token_quantities_or_dominant_rates",)
         else:
             reasons = ("first_eligible_configured_candidate_after_planning_filters",)
+        if request.escalation is not None:
+            reasons = ("escalated_to_next_level", *reasons)
         price_evidence = self._price_evidence(selected, now=now, request=request, ranking=ranking)
         limit_keys = ("max_candidates", "max_retries_per_candidate", "max_provider_invocations",
                       "planning_max_input_tokens", "planning_max_output_tokens", "planning_max_cost")
@@ -451,6 +489,7 @@ class ModelRouter:
             manual_required=False,
             step_kind=step_kind, profile_mode=profile_mode, selected_level=selected.level,
             price_evidence=price_evidence, effort=base["effort"], effort_source=base["effort_source"],
+            escalation=base["escalation"],
         )
     def _validate_compat(self, spec: ModelSpec, req: TaskRequirements) -> None:
         if req.requires_web and not spec.web:
@@ -596,7 +635,7 @@ class ModelRouter:
                     try:
                         validate_response(response.parsed, response)
                     except (ValueError, TypeError) as exc:
-                        raise StructuredOutputError(f"Semantically invalid output: {exc}") from exc
+                        raise _semantic_failure(exc) from exc
                 response.metadata["catalog_model_id"] = "fixture"
                 event = self._attempt_payload(model_id="fixture", spec=fake_spec, retry=0, ordinal=1,
                                               stage="provider", provider_invoked=True, status="success",
@@ -681,7 +720,7 @@ class ModelRouter:
                         try:
                             validate_response(response.parsed, response)
                         except (ValueError, TypeError) as exc:
-                            raise StructuredOutputError(f"Semantically invalid output: {exc}") from exc
+                            raise _semantic_failure(exc) from exc
                 except _ROUTABLE_ERRORS as exc:
                     last_exc = exc
                     duration_ms = (response.latency_ms if response is not None and response.latency_ms > 0

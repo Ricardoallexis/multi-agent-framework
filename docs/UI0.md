@@ -156,6 +156,7 @@ Controls follow the selected Run's current API state:
 | `waiting_human` / `review` | Approve, request changes with non-empty feedback, regenerate, reject, cancel. |
 | `waiting_human` / `budget_exhausted` | Approve the existing result, reject, or cancel. |
 | `waiting_human` / `execute_step` or `research` | Human Bridge and cancel. |
+| `waiting_human` / `escalation_approval` | Not offered by this prototype: approve or reject the escalation with the API or CLI (`approve`, `reject`), see [model routing](model-routing.md#bounded-escalation). |
 | `queued`, `running`, `paused`, `interrupted` | Cancel when cancellation has not already been requested. |
 | `completed`, `failed`, `cancelled`, `rejected` | Inspect results; no mutation controls. |
 | Other states | Refresh and inspect; no generic resume action. |
