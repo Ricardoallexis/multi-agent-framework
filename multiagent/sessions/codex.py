@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,16 @@ from ._common import (
     select_rows,
     summarize_args,
     text_item,
+)
+from .children import (
+    MAX_LABEL_CHARS,
+    MAX_NAME_CHARS,
+    ChildAgent,
+    LevelOf,
+    clean_text,
+    derive_status,
+    is_test_call,
+    parse_ts,
 )
 from .config import SessionsConfig
 from .models import (
@@ -45,7 +56,11 @@ SEEN_VERSIONS = ("cli_version 0.x",)
 _ROLLOUT_UUID = re.compile(r"rollout-.*?([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.jsonl")
 _IGNORED_TOP = {"session_meta", "turn_context", "event_msg"}
 _THREAD_COLS = ("id", "title", "cwd", "archived", "created_at", "updated_at", "tokens_used", "source",
-                "rollout_path", "model")
+                "rollout_path", "model", "agent_nickname", "agent_role")
+_TURN_STARTS = {"task_started", "turn_started"}
+_TURN_ENDS = {"task_complete", "turn_complete", "turn_aborted", "shutdown_complete"}
+_CALLS = {"function_call", "custom_tool_call", "local_shell_call"}
+_OUTPUTS = {"function_call_output", "custom_tool_call_output", "local_shell_call_output"}
 
 
 def _surface(*hints: object) -> Surface:
@@ -242,6 +257,100 @@ class CodexReader:
                 "name": None, "call_id": payload.get("call_id"), "summary": ""}), text)]
         counter.unknown_type(f"response_item:{ptype}")
         return [SessionItem(Kind.UNKNOWN, timestamp=ts, model=model)]
+
+
+    # ---- children (GUI2-T04): metadata only, never the messages ----
+    def _edge_status(self) -> dict[str, str]:
+        """``child thread id -> edge status`` ('open'/'closed'); empty when the index has no such column."""
+        db = self.config.codex_home / "state_5.sqlite" if self.config.codex_home else None
+        if db is None or not db.is_file():
+            return {}
+        try:
+            conn = open_ro(db)
+            try:
+                rows = select_rows(conn, "thread_spawn_edges", ("child_thread_id", "status"))
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            return {}
+        return {str(r["child_thread_id"]).lower(): str(r["status"]).lower() for r in rows
+                if is_uuid(r.get("child_thread_id")) and r.get("status") is not None}
+
+    def _child_scan(self, path: Path) -> dict[str, Any]:
+        """Times, models, tokens, in-flight test calls and whether the last turn ended (cached)."""
+        def build() -> dict[str, Any]:
+            info: dict[str, Any] = {"first": None, "last": None, "models": [], "tokens": None,
+                                    "open_tests": set(), "turn_ended": False}
+            for rec, _, status in iter_records(path):
+                if rec is None or status != "ok":
+                    continue
+                ts = normalize_ts(rec.get("timestamp"))
+                if ts:
+                    info["first"] = info["first"] or ts
+                    info["last"] = ts
+                rtype = rec.get("type")
+                payload = rec.get("payload") if isinstance(rec.get("payload"), dict) else {}
+                ptype = payload.get("type")
+                if rtype == "turn_context" and isinstance(payload.get("model"), str):
+                    if payload["model"] not in info["models"]:
+                        info["models"].append(payload["model"])
+                elif rtype == "event_msg":
+                    if ptype == "token_count" and isinstance(payload.get("info"), dict):
+                        usage = payload["info"].get("total_token_usage")
+                        if isinstance(usage, dict):
+                            info["tokens"] = _tokens(usage)
+                    elif ptype in _TURN_STARTS:
+                        info["turn_ended"] = False
+                    elif ptype in _TURN_ENDS:
+                        info["turn_ended"] = True
+                elif rtype == "response_item":
+                    call_id = payload.get("call_id")
+                    if not isinstance(call_id, str):
+                        continue
+                    if ptype in _CALLS and is_test_call(payload.get("arguments", payload.get("input", payload.get("action")))):
+                        info["open_tests"].add(call_id)
+                    elif ptype in _OUTPUTS:
+                        info["open_tests"].discard(call_id)
+            return info
+
+        return self.index.get("codex-child", path, build)
+
+    def list_children(self, native_id: str, now: datetime, level_of: LevelOf) -> tuple[list[ChildAgent], list[str]]:
+        """The threads spawned by a thread (``thread_spawn_edges``), with their rollout activity."""
+        if not is_uuid(native_id):
+            raise SessionNotFound(native_id)
+        native = native_id.lower()
+        threads, children, warns = self._threads()
+        rollouts = self._rollouts()
+        if native not in threads and native not in rollouts:
+            raise SessionNotFound(native_id)
+        edges = self._edge_status()
+        out: list[ChildAgent] = []
+        for child in dict.fromkeys(children.get(native, [])):
+            row = threads.get(child) or {}
+            path = rollouts.get(child)
+            info = self._child_scan(path) if path is not None else {
+                "first": None, "last": None, "models": [], "tokens": None, "open_tests": set(), "turn_ended": False}
+            row_updated = normalize_ts(row.get("updated_at"))
+            last = max(filter(None, (info["last"], row_updated)), key=parse_ts, default=None)
+            started = normalize_ts(row.get("created_at")) or info["first"]
+            closed = edges.get(child) == "closed" or bool(row.get("archived"))
+            status = derive_status(now=now, last_activity=last, finished=closed or info["turn_ended"],
+                                   testing=bool(info["open_tests"]))
+            model = clean_text(row.get("model"), MAX_NAME_CHARS) or (info["models"][-1] if info["models"] else None)
+            # The nickname and role Codex gave the thread name it; its title comes from the first message, so
+            # it is only a last resort when the thread has neither.
+            who = [text for text in (clean_text(row.get("agent_nickname"), MAX_NAME_CHARS),
+                                     clean_text(row.get("agent_role"), MAX_NAME_CHARS)) if text]
+            tokens = info["tokens"]
+            if tokens is None and int_or_none(row.get("tokens_used")) is not None:
+                tokens = TokenUsage(total=row["tokens_used"])
+            out.append(ChildAgent(
+                id=f"codex:{child}", source="codex", kind="thread", name=" · ".join(who) or None,
+                label=None if who else clean_text(row.get("title"), MAX_LABEL_CHARS), model=model,
+                level=level_of(model), status=status, started_at=started, last_activity_at=last, tokens=tokens,
+                link_id=f"codex:{child}"))
+        return out, list(warns)
 
 
 def _tokens(usage: dict) -> TokenUsage:

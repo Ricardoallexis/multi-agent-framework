@@ -8,6 +8,7 @@ does not match this model (GUI-T02 section 3 allows using it only when it does).
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,16 @@ from ._common import (
     select_rows,
     summarize_args,
     text_item,
+)
+from .children import (
+    MAX_LABEL_CHARS,
+    MAX_NAME_CHARS,
+    ChildAgent,
+    LevelOf,
+    clean_text,
+    derive_status,
+    is_test_call,
+    safe_id,
 )
 from .config import SessionsConfig
 from .models import (
@@ -269,6 +280,82 @@ class CopilotReader:
             return [SessionItem(Kind.USAGE, timestamp=ts, model=model, usage=_usage(data))]
         counter.unknown_type(rtype)
         return [SessionItem(Kind.UNKNOWN, timestamp=ts, model=model)]
+
+
+    # ---- children (GUI2-T04): the subagent.* events, metadata only ----
+    def _children_scan(self, events: Path) -> dict[str, dict[str, Any]]:
+        """One entry per subagent (by ``toolCallId``/``agentId``) with its times, model, tokens and test calls."""
+        def build() -> dict[str, dict[str, Any]]:
+            kids: dict[str, dict[str, Any]] = {}
+            tool_owner: dict[str, str] = {}
+
+            def kid(child_id: str) -> dict[str, Any]:
+                return kids.setdefault(child_id, {
+                    "name": None, "label": None, "model": None, "started": None, "last": None, "ended": False,
+                    "failed": False, "tokens": None, "open_tests": set()})
+
+            for rec, _, status in iter_records(events):
+                if rec is None or status != "ok":
+                    continue
+                ts = normalize_ts(rec.get("timestamp"))
+                rtype = rec.get("type")
+                data = rec.get("data") if isinstance(rec.get("data"), dict) else {}
+                if isinstance(rtype, str) and rtype.startswith("subagent."):
+                    child_id = safe_id(data.get("toolCallId")) or safe_id(data.get("agentId"))
+                    if child_id is None:
+                        continue
+                    entry = kid(child_id)
+                    entry["name"] = entry["name"] or clean_text(data.get("agentName"), MAX_NAME_CHARS)
+                    entry["label"] = entry["label"] or clean_text(
+                        data.get("agentDisplayName") or data.get("agentDescription"), MAX_LABEL_CHARS)
+                    if isinstance(data.get("model"), str):
+                        entry["model"] = clean_text(data["model"], MAX_NAME_CHARS) or entry["model"]
+                    if ts:
+                        entry["started"] = entry["started"] or ts
+                        entry["last"] = ts
+                    if rtype in ("subagent.completed", "subagent.failed"):
+                        entry["ended"] = True
+                        entry["failed"] = rtype == "subagent.failed"
+                        total = int_or_none(data.get("totalTokens"))
+                        if total is not None:
+                            entry["tokens"] = TokenUsage(total=total)
+                    continue
+                owner = safe_id(data.get("parentToolCallId"))
+                call_id = data.get("toolCallId")
+                if rtype == "tool.execution_complete" and isinstance(call_id, str) and call_id in tool_owner:
+                    kids[tool_owner.pop(call_id)]["open_tests"].discard(call_id)
+                if owner in kids:
+                    entry = kids[owner]
+                    entry["last"] = ts or entry["last"]
+                    if rtype == "tool.execution_start" and isinstance(call_id, str):
+                        if is_test_call(data.get("arguments")):
+                            entry["open_tests"].add(call_id)
+                            tool_owner[call_id] = owner
+                    elif rtype == "assistant.message" and isinstance(data.get("model"), str) and not entry["model"]:
+                        entry["model"] = clean_text(data["model"], MAX_NAME_CHARS)
+            return kids
+
+        return self.index.get("copilot-children", events, build)
+
+    def list_children(self, native_id: str, now: datetime, level_of: LevelOf) -> tuple[list[ChildAgent], list[str]]:
+        """The subagents a session started. They have no conversation of their own to open (``link_id`` is None)."""
+        d = self._dirs().get(native_id.lower()) if is_uuid(native_id) else None
+        if d is None:
+            raise SessionNotFound(native_id)
+        events = d / "events.jsonl"
+        if not events.is_file():
+            return [], ["no_local_history"]
+        out: list[ChildAgent] = []
+        for child_id, entry in self._children_scan(events).items():
+            last = entry["last"]
+            status = derive_status(now=now, last_activity=last, finished=entry["ended"], failed=entry["failed"],
+                                   testing=bool(entry["open_tests"]))
+            out.append(ChildAgent(
+                id=f"copilot:{native_id.lower()}#{child_id}", source="copilot", kind="subagent",
+                name=entry["name"], label=entry["label"], model=entry["model"], level=level_of(entry["model"]),
+                status=status, started_at=entry["started"], last_activity_at=last, tokens=entry["tokens"],
+                link_id=None))
+        return out, []
 
 
 _KNOWN = {"user.message", "assistant.message", "assistant.reasoning", "assistant.thinking", "tool.execution_start",

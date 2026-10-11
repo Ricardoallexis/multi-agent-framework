@@ -3,7 +3,10 @@
 """Facade over the per-source readers: list, get and paginated items, restricted to allowed folders."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from ._common import MetaIndex, normalize_ts, within_root
+from .children import MAX_CHILDREN, ChildAgent, LevelOf, no_level, sort_children
 from .claude import ClaudeReader
 from .codex import CodexReader
 from .config import SessionsConfig
@@ -104,6 +107,28 @@ class SessionRegistry:
         if reader is None:
             raise SessionNotFound(session_id)
         return reader.read_items(native, after, max(1, min(int(limit), MAX_PAGE)))
+
+    def list_children(self, session_id: str, *, now: datetime | None = None, level_of: LevelOf = no_level,
+                      check: bool = True) -> tuple[list[ChildAgent], list[str]]:
+        """Subagents / spawned threads of a session, most recent first, plus warnings.
+
+        Same existence and allowed-folder check as ``get_session``. ``now`` is injectable for tests; metadata
+        only (no message text). At most ``MAX_CHILDREN`` come back, with a warning when more exist.
+        ``check=False`` skips the folder check for a caller that already ran ``get_session`` (live polling).
+        """
+        if check:
+            self.get_session(session_id)  # existence + allowed folders
+        source, native = self._parse_id(session_id)
+        reader = self._readers.get(source)
+        if reader is None:
+            raise SessionNotFound(session_id)
+        children, warnings = reader.list_children(native, now or datetime.now(UTC), level_of)
+        children = sort_children(children)
+        warnings = list(warnings)
+        if len(children) > MAX_CHILDREN:
+            children = children[:MAX_CHILDREN]
+            warnings.append(f"children_truncated: only the {MAX_CHILDREN} most recent are listed")
+        return children, warnings
 
 
 def list_sessions(config: SessionsConfig, filters: SessionFilters | None = None) -> SessionPage:

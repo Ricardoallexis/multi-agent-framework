@@ -18,6 +18,11 @@ One session (GUI-T04): ``?session=<id>`` narrows the stream to one session. A fr
 (``"0:<offset>"``), ``event: item`` carries the normalized item, and ``event: notice`` the reader's
 warnings (once each), so ``Last-Event-ID`` resumes exactly where the client stopped. A session that
 disappears ends the stream with ``event: error``.
+
+Children (GUI2-T04): ``?session=<id>&only=children`` is a lighter stream for the subagents panel. It sends no
+items; it sends ``event: children`` (no ``id:``) with ``{"version", "counts"}`` when it connects and again each
+time a child appears, disappears or changes status, and the panel then fetches
+``/gui/api/sessions/<id>/children``. Polling that route every 10 seconds is the fallback when the stream is down.
 """
 from __future__ import annotations
 
@@ -125,3 +130,35 @@ async def stream_session(read: Callable[[str], dict[str, Any]], *, after: str, h
         if moved and not page["done"]:
             continue  # more is already in the file
         await asyncio.sleep(poll)
+
+
+async def stream_children(read: Callable[[], dict[str, Any]], *, interval: float, heartbeat: float,
+                          max_seconds: float) -> AsyncIterator[str]:
+    """Tell the client when the children of one session changed.
+
+    ``read()`` returns the children answer (``version`` and ``counts`` are what is sent). It runs at most
+    every ``interval`` seconds; nothing else is sent between changes except heartbeats.
+    """
+    started = last_beat = time.monotonic()
+    yield ": connected\n\n"
+    version: object = None
+    while True:
+        try:
+            answer = await anyio.to_thread.run_sync(read)
+        except Exception as exc:  # the session vanished or is no longer readable
+            code, message = getattr(exc, "code", None), getattr(exc, "message", None)
+            yield format_notice("error", {"code": code if isinstance(code, str) else "session_unavailable",
+                                          "message": message if isinstance(message, str)
+                                          else "The session can no longer be read"})
+            return
+        now = time.monotonic()
+        if answer["version"] != version:
+            version = answer["version"]
+            last_beat = now
+            yield format_notice("children", {"version": version, "counts": answer["counts"]})
+        elif now - last_beat >= heartbeat:
+            last_beat = now
+            yield ": heartbeat\n\n"
+        if max_seconds and now - started >= max_seconds:
+            return
+        await asyncio.sleep(interval)

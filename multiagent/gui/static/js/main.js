@@ -8,6 +8,7 @@ import { publishEvent } from "./bus.js";
 import { navigate, useRoute } from "./route.js";
 import { Runs } from "./runs.js";
 import { Sessions } from "./sessions.js";
+import "./subagents-mount.js"; // subagents column next to an open session (GUI2-T04)
 
 const STATUS_TEXT = {
   connected: "Conectado",

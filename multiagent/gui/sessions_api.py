@@ -33,4 +33,9 @@ def add_session_routes(api: APIRouter, sessions: SessionServices) -> None:
         """Items after the cursor (``next_cursor`` of the previous page); text is plain text, never HTML."""
         return sessions.read_items(session_id, after=after, limit=limit)
 
+    @api.get("/sessions/{session_id}/children")
+    def session_children(session_id: str, status: str | None = None):
+        """Subagents, spawned threads and workers; ``status`` is ``active`` or ``done`` (omit for both)."""
+        return sessions.list_children(session_id, status=status)
+
     add_open_routes(api, sessions)  # POST /sessions/{id}/open and GET /open-in-app (GUI-T06)

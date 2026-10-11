@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from ._common import (
+    ACTIVE_WINDOW_SECONDS,
     MetaIndex,
     WarningCounter,
     blocks_text,
@@ -22,6 +24,16 @@ from ._common import (
     read_page,
     summarize_args,
     text_item,
+)
+from .children import (
+    MAX_LABEL_CHARS,
+    MAX_NAME_CHARS,
+    ChildAgent,
+    LevelOf,
+    age_seconds,
+    clean_text,
+    derive_status,
+    is_test_call,
 )
 from .config import SessionsConfig
 from .models import (
@@ -41,6 +53,7 @@ from .models import (
 READER = "claude-jsonl/1"
 SEEN_VERSIONS = ("2.x",)  # `version` field of the CLI records
 _SUBAGENT_RE = re.compile(r"agent-[A-Za-z0-9_-]{1,64}")
+MAX_CHILD_META_BYTES = 64 * 1024  # agent-<id>.meta.json is a few lines
 # Internal bookkeeping records: ignored without a warning (contract section 3).
 _IGNORED = {"file-history-snapshot", "queue-operation", "cost-state", "custom-title", "agent-name",
             "last-prompt", "permission-mode", "mode", "pr-link", "progress", "attachment", "ai-title",
@@ -294,3 +307,89 @@ class ClaudeReader:
         if usage is not None and items:
             items[0].usage = usage
         return items
+
+    # ---- children (GUI2-T04): metadata only, never the messages ----
+    def _child_scan(self, path: Path) -> dict[str, Any]:
+        """Times, models, tokens and in-flight test calls of one subagent file (cached by path+mtime+size)."""
+        def build() -> dict[str, Any]:
+            info: dict[str, Any] = {"first": None, "last": None, "models": [], "usage": {}, "open_tests": set(),
+                                    "last_kind": None, "last_stop": None}
+            for rec, _, status in iter_records(path):
+                if rec is None or status != "ok":
+                    continue
+                ts = normalize_ts(rec.get("timestamp"))
+                if ts:
+                    info["first"] = info["first"] or ts
+                    info["last"] = ts
+                msg = rec.get("message") if isinstance(rec.get("message"), dict) else None
+                if msg is None:
+                    continue
+                parts = msg.get("content") if isinstance(msg.get("content"), list) else []
+                if rec.get("type") == "assistant":
+                    model = msg.get("model")
+                    if isinstance(model, str) and model != "<synthetic>" and model not in info["models"]:
+                        info["models"].append(model)
+                    usage = _usage_from(msg)
+                    if usage is not None:
+                        info["usage"][msg.get("id") or f"anon{len(info['usage'])}"] = usage
+                    kinds = {p.get("type") for p in parts if isinstance(p, dict)}
+                    for part in parts:
+                        if (isinstance(part, dict) and part.get("type") == "tool_use"
+                                and isinstance(part.get("id"), str) and is_test_call(part.get("input"))):
+                            info["open_tests"].add(part["id"])
+                    if "tool_use" in kinds:
+                        info["last_kind"] = "assistant_tool"
+                    elif "text" in kinds or isinstance(msg.get("content"), str):
+                        info["last_kind"] = "assistant_text"
+                    else:
+                        info["last_kind"] = "assistant_other"
+                    info["last_stop"] = msg.get("stop_reason")
+                elif rec.get("type") == "user":
+                    for part in parts:
+                        if (isinstance(part, dict) and part.get("type") == "tool_result"
+                                and isinstance(part.get("tool_use_id"), str)):
+                            info["open_tests"].discard(part["tool_use_id"])
+                    info["last_kind"] = "user"
+            return info
+
+        return self.index.get("claude-child", path, build)
+
+    @staticmethod
+    def _child_meta(path: Path) -> dict[str, str | None]:
+        """Agent type, one-line description and model alias from ``agent-<id>.meta.json`` (all optional)."""
+        meta = path.with_suffix(".meta.json")
+        try:
+            if meta.stat().st_size > MAX_CHILD_META_BYTES:
+                return {}
+            data = json.loads(meta.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {"name": clean_text(data.get("agentType"), MAX_NAME_CHARS),
+                "label": clean_text(data.get("description"), MAX_LABEL_CHARS),
+                "model": clean_text(data.get("model"), MAX_NAME_CHARS)}
+
+    def list_children(self, native_id: str, now: datetime, level_of: LevelOf) -> tuple[list[ChildAgent], list[str]]:
+        """The subagents of a session (``agent-*.jsonl`` files). A subagent has no children of its own."""
+        session, agent, main = self._locate(native_id)
+        if agent is not None:
+            return [], []
+        out: list[ChildAgent] = []
+        for aid, path in self._subagent_files(main).items():
+            info = self._child_scan(path)
+            meta = self._child_meta(path)
+            last = info["last"] or mtime_ts(path)
+            quiet = age_seconds(last, now)
+            # The final answer is a text-only assistant record with nothing after it; a streamed record that
+            # is still being completed has the same shape, so a quiet moment (or end_turn) confirms it.
+            finished = info["last_kind"] == "assistant_text" and (
+                info["last_stop"] == "end_turn" or (quiet is not None and quiet >= ACTIVE_WINDOW_SECONDS))
+            status = derive_status(now=now, last_activity=last, finished=finished, testing=bool(info["open_tests"]))
+            model = info["models"][-1] if info["models"] else meta.get("model")
+            out.append(ChildAgent(
+                id=f"claude:{session}:{aid}", source="claude", kind="subagent", name=meta.get("name"),
+                label=meta.get("label"), model=model, level=level_of(model), status=status,
+                started_at=info["first"] or mtime_ts(path), last_activity_at=last, tokens=self._tokens(info),
+                link_id=f"claude:{session}:{aid}"))
+        return out, []

@@ -15,6 +15,11 @@ Cursors are opaque to callers. File sessions use the reader's ``"0:<offset>"``; 
 the id of its last ``run_events`` row (the same number the GUI event stream sends as ``id:``), so a
 client can read items and then follow the live stream from the last cursor it holds.
 
+Children (GUI2-T04): ``list_children`` gives the subagents, spawned threads and workers of one session in a
+single model (Claude ``subagents/``, Codex child threads, Copilot ``subagent.*`` events and the steps of a
+framework run), with status derived from recent activity; see ``sessions.children``. It never returns message
+text, and ``version`` changes whenever a child appears or changes status (the GUI event stream sends it).
+
 Errors (``ServiceError``): ``invalid_session_id`` (400), ``invalid_cursor`` (400), ``invalid_request``
 (422, bad filter or limit) and ``not_found`` (404, also for a session outside the allowed folders).
 The framework's runs are not tied to a folder (contract section 3), so ``get_session``/``read_items``
@@ -23,16 +28,20 @@ are configured, like every other source.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from ..config import SESSION_SOURCES
 from ..sessions import (
+    ChildAgent,
+    ChildStatus,
     InvalidCursor,
     InvalidSessionId,
     ItemsPage,
@@ -51,6 +60,7 @@ from ..sessions import (
     decode_cursor,
 )
 from ..sessions._common import clip, normalize_ts
+from ..sessions.children import GROUPS, LevelOf, derive_status, group_of, sort_children
 from .errors import INVALID_CURSOR, INVALID_REQUEST, INVALID_SESSION_ID, NOT_FOUND, ServiceError
 
 if TYPE_CHECKING:
@@ -73,6 +83,9 @@ _RUN_STATUS = {
     "cancelled": Status.IDLE, "rejected": Status.IDLE,
 }
 FRAMEWORK_READER = "framework-runs/1"
+_STEP_EVENTS = ("step_started", "step_completed", "step_skipped", "human_step_requested", "human_step_submitted",
+                "model_selected")
+_RUN_ENDED_BADLY = frozenset({"failed", "cancelled", "rejected"})
 
 
 def _invalid(message: str, **details: Any) -> ServiceError:
@@ -367,6 +380,140 @@ class SessionServices:
         _file_cursor(after)
         with self._lock, _session_errors():
             return self._get_registry().read_items(session_id, after, limit).to_dict()
+
+    # --- children: subagents, spawned threads and workers (GUI2-T04) ---------------
+
+    def _level_of(self) -> LevelOf:
+        """Model name or catalog id -> level (T1..T4) when the catalog classifies it, else ``None``."""
+        models = getattr(getattr(self._services.system, "catalog", None), "models", None) or {}
+        table: dict[str, str] = {}
+        for model_id, spec in models.items():
+            level = getattr(spec, "level", None)
+            if not level:
+                continue
+            table[str(model_id).casefold()] = level
+            name = getattr(spec, "model", None)
+            if isinstance(name, str) and name:
+                table.setdefault(name.casefold(), level)
+
+        def level_of(model: str | None) -> str | None:
+            return table.get(model.casefold()) if isinstance(model, str) and model else None
+
+        return level_of
+
+    @staticmethod
+    def _framework_children(store: Any, run_id: str, now: datetime, level_of: LevelOf) -> list[ChildAgent]:
+        """Each step of a run that started (skipped ones never ran) as a child, from events and telemetry."""
+        marks = ",".join("?" * len(_STEP_EVENTS))
+        with store.db.connect() as conn:
+            run = conn.execute("SELECT status,waiting_step FROM runs WHERE id=?", (run_id,)).fetchone()
+            events = conn.execute(
+                f"SELECT ts,event_type,payload_json FROM run_events WHERE run_id=? AND event_type IN ({marks}) "
+                "ORDER BY id", (run_id, *_STEP_EVENTS)).fetchall()
+            usage = conn.execute(
+                "SELECT step_id,model,SUM(tokens_in) AS tin,SUM(tokens_out) AS tout FROM telemetry "
+                "WHERE run_id=? GROUP BY step_id,model ORDER BY MIN(id)", (run_id,)).fetchall()
+            catalog_ids = conn.execute(
+                "SELECT step_id,model_id FROM run_steps WHERE run_id=? AND model_id<>'' ORDER BY attempt",
+                (run_id,)).fetchall()
+        steps: dict[str, dict[str, Any]] = {}
+        for event in events:
+            try:
+                payload = json.loads(event["payload_json"])
+            except ValueError:
+                continue
+            step_id = payload.get("step_id") if isinstance(payload, dict) else None
+            if not isinstance(step_id, str) or not step_id:
+                continue
+            step = steps.setdefault(step_id, {"state": "open", "started": None, "last": None, "model": None})
+            ts, kind = normalize_ts(event["ts"]), event["event_type"]
+            step["last"] = ts or step["last"]
+            if kind in ("step_started", "human_step_requested"):
+                step["state"] = "open"
+                step["started"] = step["started"] or ts
+            elif kind == "step_completed":
+                step["state"] = "done"
+            elif kind == "step_skipped":
+                step["state"] = "skipped"
+            if kind in ("model_selected", "human_step_submitted") and isinstance(payload.get("model"), str):
+                step["model"] = payload["model"] or step["model"]
+        tokens: dict[str, TokenUsage | None] = {}
+        models: dict[str, str] = {}
+        for row in usage:
+            step_id = row["step_id"]
+            if row["model"]:
+                models.setdefault(step_id, row["model"])
+            if row["tin"] is not None or row["tout"] is not None:
+                before = tokens.get(step_id) or TokenUsage()
+                tokens[step_id] = TokenUsage(input=_add(before.input, row["tin"]),
+                                             output=_add(before.output, row["tout"]))
+        catalog_of = {row["step_id"]: row["model_id"] for row in catalog_ids}
+        run_status, waiting_step = (run["status"], run["waiting_step"]) if run is not None else ("", "")
+        children: list[ChildAgent] = []
+        for step_id, step in steps.items():
+            if step["state"] == "skipped":
+                continue
+            note = None
+            if step["state"] == "done" or run_status == "completed":
+                status = ChildStatus.DONE
+            elif run_status in _RUN_ENDED_BADLY:
+                status = derive_status(now=now, last_activity=step["last"], failed=True)
+            elif run_status == "waiting_human" and waiting_step == step_id:
+                status, note = ChildStatus.IDLE, "waiting_human"
+            else:
+                status = derive_status(now=now, last_activity=step["last"])
+            model = models.get(step_id) or step["model"] or catalog_of.get(step_id)
+            children.append(ChildAgent(
+                id=f"framework:{run_id}#{step_id}", source="framework", kind="step", name=step_id, label=None,
+                model=model, level=level_of(model) or level_of(catalog_of.get(step_id)), status=status, note=note,
+                started_at=step["started"], last_activity_at=step["last"], tokens=tokens.get(step_id),
+                link_id=None))
+        return children
+
+    def list_children(self, session_id: str, *, status: str | None = None,
+                      now: datetime | None = None) -> dict[str, Any]:
+        """Subagents, spawned threads and workers of one session, most recent activity first.
+
+        ``{session_id, children, counts, version, warnings}``. ``status`` filters the list: ``active``
+        (running, testing, idle) or ``done`` (done, stopped, unknown); ``counts`` always covers all the
+        children so both tabs can show their number. Each child has ``id``, ``source``, ``kind``, ``name``,
+        ``label``, ``model``, ``level`` (T1..T4 when the catalog maps the model), ``status``, ``note``,
+        ``started_at``, ``last_activity_at``, ``tokens`` (``None`` = unknown) and ``link_id`` (the session that
+        opens its conversation, ``None`` when it has none). No message text is ever returned. Errors:
+        ``invalid_session_id``, ``not_found`` and ``invalid_request`` (a ``status`` that is not active/done).
+        """
+        return self._children(session_id, status, now, check=True)
+
+    def poll_children(self, session_id: str) -> dict[str, Any]:
+        """``list_children`` for a session the caller already validated (the GUI stream polls it every few seconds)."""
+        return self._children(session_id, None, None, check=False)
+
+    def _children(self, session_id: str, status: str | None, now: datetime | None, *, check: bool) -> dict[str, Any]:
+        source, native = _parse_id(session_id)
+        if status in (None, ""):
+            group = None
+        elif status in GROUPS:
+            group = status
+        else:
+            raise _invalid("status must be 'active' or 'done'", field="status")
+        when = now if isinstance(now, datetime) else datetime.now(UTC)
+        level_of = self._level_of()
+        warnings: list[str] = []
+        if source == "framework":
+            if "framework" not in self._sources():
+                raise ServiceError(NOT_FOUND, f"Session not found: {session_id}", status=404)
+            store = self._find_run(native)[0]
+            children = sort_children(self._framework_children(store, native, when, level_of))
+        else:
+            with self._lock, _session_errors():
+                children, warnings = self._get_registry().list_children(
+                    session_id, now=when, level_of=level_of, check=check)
+        counts = {name: sum(1 for c in children if group_of(c.status.value) == name) for name in GROUPS}
+        counts["total"] = len(children)
+        digest = hashlib.sha1("|".join(f"{c.id}:{c.status.value}" for c in children).encode("utf-8")).hexdigest()[:12]
+        shown = [c for c in children if group is None or group_of(c.status.value) == group]
+        return {"session_id": session_id, "children": [c.to_dict() for c in shown], "counts": counts,
+                "version": digest, "warnings": warnings}
 
     # --- live follow (GUI event stream) ------------------------------------------
 

@@ -684,6 +684,66 @@ export const HELP = {
       "Se usa cuando el visor no puede lanzar la app por sí mismo.",
       "Ejecútalo dentro de la carpeta que se indica junto al comando, si aparece."
     ]
+  },
+
+  "subagents.panel": {
+    "title": "Subagentes de la sesión",
+    "hint": "Los agentes auxiliares que trabajan o trabajaron para esta sesión.",
+    "more": [
+      "Reúne los subagentes de Claude, los hilos hijos de Codex, los subagentes de Copilot y los pasos de una ejecución del framework.",
+      "De cada uno ves su nombre o descripción, el modelo, el estado, cuándo tuvo actividad y los tokens que usó.",
+      "La lista se actualiza sola; si se pierde la conexión en vivo, se vuelve a leer cada diez segundos."
+    ]
+  },
+  "subagents.refresh": {
+    "title": "Actualizar subagentes",
+    "hint": "Vuelve a leer la lista de subagentes ahora mismo.",
+    "more": [
+      "La lista ya se actualiza sola; el botón sirve para forzar la lectura sin esperar.",
+      "No cambia nada en las apps: solo lee sus archivos."
+    ]
+  },
+  "subagents.retry": {
+    "title": "Reintentar la lectura de subagentes",
+    "hint": "Vuelve a pedir la lista cuando falló.",
+    "more": [
+      "Este botón solo aparece si no se pudo leer la lista de subagentes.",
+      "Si el fallo continúa, comprueba que el servidor local sigue en marcha y que la sesión está en una carpeta permitida."
+    ]
+  },
+  "subagents.back": {
+    "title": "Volver a la sesión principal",
+    "hint": "Regresa a la conversación de la sesión que lanzó este subagente.",
+    "more": [
+      "Mientras ves la conversación de un subagente, la lista sigue mostrando a sus hermanos.",
+      "Este enlace te devuelve a la conversación principal."
+    ]
+  },
+  "subagents.tabs": {
+    "title": "Subagentes activos y terminados",
+    "hint": "Cambia entre los subagentes en marcha y los que ya acabaron.",
+    "more": [
+      "«Activos» son los que trabajan, ejecutan una prueba o llevan menos de una hora sin actividad.",
+      "«Terminados» son los que acabaron, los que llevan más de una hora detenidos y los de estado desconocido.",
+      "Con las flechas del teclado pasas de una pestaña a otra."
+    ]
+  },
+  "subagents.item": {
+    "title": "Abrir un subagente",
+    "hint": "Pulsa uno para ver su conversación completa.",
+    "more": [
+      "La conversación se abre en esta misma pantalla y la lista sigue a la vista.",
+      "Los pasos de una ejecución del framework abren la ejecución que los contiene.",
+      "Los subagentes sin conversación propia no son enlaces: su actividad solo aparece como avisos dentro de la sesión."
+    ]
+  },
+  "subagents.more": {
+    "title": "Ver más subagentes",
+    "hint": "Muestra el resto de la pestaña o vuelve a plegarla.",
+    "more": [
+      "La lista enseña primero los diez con actividad más reciente.",
+      "El botón despliega los demás y, una vez abierta la lista, vuelve a dejar solo los diez primeros."
+    ]
   }
 };
 

@@ -24,7 +24,7 @@ NODE = shutil.which("node")
 # The modules that draw the screens: every control they render must have help.
 VIEW_FILES = [
     "main.js", "runs.js", "create-run.js", "run-detail.js", "human-actions.js",
-    "sessions.js", "session-detail.js", "session-items.js", "open-in-app.js",
+    "sessions.js", "session-detail.js", "session-items.js", "open-in-app.js", "subagents-panel.js",
 ]
 CONTROL_TAGS = {"input", "select", "textarea", "button"}
 
@@ -53,7 +53,7 @@ SECTION_TOPICS = {
     "sessions-title": "sessions.list", "children-title": "session.children", "items-title": "session.items",
     "roots-title": "sessions.roots", "preview-title": "preview.panel", "counters-title": "run.counters",
     "steps-title": "run.steps", "history-title": "run.history", "results-title": "run.results",
-    "inputs-title": "run.inputs", "human-actions-title": "human.section",
+    "inputs-title": "run.inputs", "human-actions-title": "human.section", "sub-title": "subagents.panel",
 }
 DATA_HEADINGS = {"run-title", "session-title"}
 
