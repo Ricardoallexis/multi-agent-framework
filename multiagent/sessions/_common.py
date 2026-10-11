@@ -3,11 +3,15 @@
 """Shared read-only helpers: streaming JSONL, truncation, timestamps, read-only SQLite."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import sqlite3
+import threading
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -15,6 +19,9 @@ from typing import Any
 from .models import ItemsPage, SessionItem, decode_cursor, encode_cursor
 
 MAX_LINE_BYTES = 1024 * 1024
+HEAD_BYTES = 2048   # prefix of a transcript that is hashed to tell an append from a rewrite
+ANCHOR_BYTES = 128  # bytes just before the resume point that are hashed for the same purpose
+MAX_INDEX_ENTRIES = 5000  # bound of the per-file metadata index (least recently used goes first)
 MAX_TEXT_CHARS = 20_000
 MAX_TOOL_SUMMARY_CHARS = 500
 ACTIVE_WINDOW_SECONDS = 120
@@ -143,13 +150,14 @@ def int_or_none(value: object) -> int | None:
 
 
 # -------- streaming JSONL --------
-def iter_records(path: Path, start: int = 0) -> Iterator[tuple[dict | None, int, str]]:
+def iter_records(path: Path, start: int = 0,
+                 on_bytes: Callable[[int], None] | None = None) -> Iterator[tuple[dict | None, int, str]]:
     """Yield ``(record, end_offset, status)`` per line, never holding more than one line.
 
     ``status``: ``ok``, ``broken`` (not a JSON object, or nested too deeply to parse), ``oversized``
     (> 1 MB, skipped) and ``unavailable`` (the file cannot be opened: yielded once, with no path in it).
     A final line without newline that is not yet valid JSON (being written) stops the iteration
-    without advancing past it.
+    without advancing past it. ``on_bytes`` (optional) is told how many bytes each read took.
     """
     try:
         fh = open(path, "rb")
@@ -160,12 +168,16 @@ def iter_records(path: Path, start: int = 0) -> Iterator[tuple[dict | None, int,
     with fh:
         while True:
             line = fh.readline(MAX_LINE_BYTES + 1)
+            if on_bytes is not None:
+                on_bytes(len(line))
             if not line:
                 return
             complete = line.endswith(b"\n")
             if not complete and len(line) > MAX_LINE_BYTES:
                 while True:  # skip the rest of the oversized line in bounded chunks
                     rest = fh.readline(MAX_LINE_BYTES)
+                    if on_bytes is not None:
+                        on_bytes(len(rest))
                     if not rest or rest.endswith(b"\n"):
                         break
                 yield None, fh.tell(), "oversized"
@@ -197,6 +209,12 @@ class WarningCounter:
         self.unavailable = False
         self.unknown: dict[str, int] = {}
         self.extra: list[str] = []
+
+    def copy(self) -> WarningCounter:
+        other = WarningCounter()
+        other.broken, other.oversized, other.unavailable = self.broken, self.oversized, self.unavailable
+        other.unknown, other.extra = dict(self.unknown), list(self.extra)
+        return other
 
     def line(self, status: str) -> None:
         if status == "broken":
@@ -298,19 +316,166 @@ def within_root(cwd: str | None, roots: tuple[str, ...]) -> bool:
     return False
 
 
-class MetaIndex:
-    """In-memory metadata cache keyed by path+mtime+size (never content)."""
+class JsonlFold:
+    """Accumulator over the records of one JSONL file that can continue where it stopped.
 
-    def __init__(self) -> None:
-        self._data: dict[tuple, Any] = {}
+    ``add`` takes the next ``(record, status)`` of ``iter_records``; ``result`` gives what the reader
+    needs (called once, when a read ends); ``copy`` makes an independent accumulator, because a published
+    result is shared with other threads and must never change afterwards.
+    """
+
+    def add(self, rec: dict | None, status: str) -> None:
+        raise NotImplementedError
+
+    def copy(self) -> JsonlFold:
+        raise NotImplementedError
+
+    def result(self) -> Any:
+        raise NotImplementedError
+
+
+def _digest(data: bytes) -> bytes:
+    return hashlib.blake2b(data, digest_size=8).digest()
+
+
+@dataclass(frozen=True)
+class _Entry:
+    mtime_ns: int
+    size: int
+    value: Any
+    # Only for JSONL scans that may continue: the accumulator as it was, the offset where the next read
+    # starts (end of the last line folded) and short hashes of the head and of the bytes before ``offset``.
+    fold: JsonlFold | None = None
+    offset: int = 0
+    head: bytes = b""
+    anchor: bytes = b""
+
+
+class MetaIndex:
+    """In-memory metadata cache keyed by path+mtime+size (never content).
+
+    One entry per ``(kind, absolute path)``, bounded to ``max_entries`` (least recently used first).
+    Thread-safe: the lock only guards the table, never the file reads or the builders, so a slow read
+    cannot block another thread that is polling; the result is published when the read ends.
+
+    ``get`` caches whatever ``build`` returns. ``scan_jsonl`` is for transcripts that only grow: when the
+    file grew and was not rewritten it reads just the appended bytes and continues the cached
+    accumulator; otherwise (shrunk, same size but touched, head or bytes before the old end changed, or
+    unreadable meanwhile) it reads the whole file again. ``on_read(path, nbytes, phase)`` is an optional
+    probe told every read: ``"records"`` for the lines folded and ``"verify"`` for the few bytes hashed
+    to tell an append from a rewrite.
+    """
+
+    def __init__(self, max_entries: int = MAX_INDEX_ENTRIES,
+                 on_read: Callable[[Path, int, str], None] | None = None) -> None:
+        self._data: OrderedDict[tuple[str, str], _Entry] = OrderedDict()
+        self._lock = threading.RLock()
+        self._max_entries = max_entries
+        self._on_read = on_read
+
+    # -- table --
+    def _hit(self, slot: tuple[str, str], st: os.stat_result) -> tuple[_Entry | None, bool]:
+        """The entry of ``slot`` and whether it still describes the file as ``st`` shows it."""
+        with self._lock:
+            entry = self._data.get(slot)
+            if entry is not None and entry.mtime_ns == st.st_mtime_ns and entry.size == st.st_size:
+                self._data.move_to_end(slot)
+                return entry, True
+            return entry, False
+
+    def _publish(self, slot: tuple[str, str], entry: _Entry) -> Any:
+        """Store ``entry`` and return the value to use: a concurrent equal one wins so all callers share it."""
+        with self._lock:
+            current = self._data.get(slot)
+            if current is not None:
+                if (current.mtime_ns, current.size) == (entry.mtime_ns, entry.size):
+                    self._data.move_to_end(slot)
+                    return current.value
+            self._data[slot] = entry
+            self._data.move_to_end(slot)
+            while len(self._data) > self._max_entries:
+                self._data.popitem(last=False)
+        return entry.value
+
+    def peek(self, kind: str, path: Path) -> Any | None:
+        """The cached value if it is current, else ``None``; never reads the file."""
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        entry, current = self._hit((kind, os.path.abspath(path)), st)
+        return entry.value if current and entry is not None else None
 
     def get(self, kind: str, path: Path, build: Callable[[], Any]) -> Any:
         try:
             st = path.stat()
         except OSError:
             return build()
-        key = (kind, str(path), st.st_mtime_ns, st.st_size)
-        if key not in self._data:
-            self._data = {k: v for k, v in self._data.items() if not (k[0] == kind and k[1] == str(path))}
-            self._data[key] = build()
-        return self._data[key]
+        slot = (kind, os.path.abspath(path))
+        entry, current = self._hit(slot, st)
+        if current and entry is not None:
+            return entry.value
+        return self._publish(slot, _Entry(st.st_mtime_ns, st.st_size, build()))
+
+    # -- incremental JSONL --
+    def _note(self, path: Path, nbytes: int, phase: str) -> None:
+        if self._on_read is not None:
+            self._on_read(path, nbytes, phase)
+
+    def _marks(self, path: Path, offset: int) -> tuple[bytes, bytes] | None:
+        """Hashes of the first bytes and of the bytes just before ``offset``; ``None`` if unreadable."""
+        low = max(0, offset - ANCHOR_BYTES)
+        try:
+            with open(path, "rb") as fh:
+                head = fh.read(min(offset, HEAD_BYTES))
+                fh.seek(low)
+                anchor = fh.read(offset - low)
+        except OSError:
+            return None
+        self._note(path, len(head) + len(anchor), "verify")
+        if len(head) < min(offset, HEAD_BYTES) or len(anchor) < offset - low:
+            return None  # shorter than the point we claim to have read to: not an append
+        return _digest(head), _digest(anchor)
+
+    def _fold(self, path: Path, fold: JsonlFold, start: int) -> tuple[int, bool]:
+        """Feed ``fold`` with the records from ``start``; return where the next read starts and whether the file was readable."""
+        count = (lambda n: self._on_read(path, n, "records")) if self._on_read is not None else None
+        offset, readable = start, True
+        for rec, end, status in iter_records(path, start, count):
+            fold.add(rec, status)
+            if status == "unavailable":
+                readable = False
+            else:
+                offset = end
+        return offset, readable
+
+    def scan_jsonl(self, kind: str, path: Path, new_fold: Callable[[], JsonlFold]) -> Any:
+        """``new_fold()``'s result over the whole file, cached; reads only the appended bytes when possible."""
+        try:
+            st = path.stat()
+        except OSError:
+            fold = new_fold()
+            self._fold(path, fold, 0)  # reports the file as unavailable, like any unreadable file
+            return fold.result()
+        slot = (kind, os.path.abspath(path))
+        entry, current = self._hit(slot, st)
+        if current and entry is not None:
+            return entry.value
+        fold, start = new_fold(), 0
+        if (entry is not None and entry.fold is not None and st.st_size > entry.size
+                and self._marks(path, entry.offset) == (entry.head, entry.anchor)):
+            fold, start = entry.fold.copy(), entry.offset  # appended only: continue where the last read ended
+        offset, readable = self._fold(path, fold, start)
+        marks = self._marks(path, offset) if readable else None
+        try:
+            after = path.stat()
+            stable = (after.st_mtime_ns, after.st_size) == (st.st_mtime_ns, st.st_size)
+        except OSError:
+            stable = False
+        # A file that changed while it was read can not be continued later (the marks may describe
+        # other bytes than the ones folded): the next change reads it whole, as it always did.
+        resume = stable and marks is not None
+        value = fold.result()
+        return self._publish(slot, _Entry(
+            st.st_mtime_ns, st.st_size, value, fold if resume else None, offset,
+            marks[0] if resume and marks else b"", marks[1] if resume and marks else b""))

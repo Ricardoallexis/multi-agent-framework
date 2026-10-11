@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ._common import (
+    JsonlFold,
     MetaIndex,
     WarningCounter,
     blocks_text,
@@ -17,7 +18,6 @@ from ._common import (
     files_from_args,
     int_or_none,
     is_recent,
-    iter_records,
     mtime_ts,
     normalize_ts,
     open_ro,
@@ -61,6 +61,111 @@ _TURN_STARTS = {"task_started", "turn_started"}
 _TURN_ENDS = {"task_complete", "turn_complete", "turn_aborted", "shutdown_complete"}
 _CALLS = {"function_call", "custom_tool_call", "local_shell_call"}
 _OUTPUTS = {"function_call_output", "custom_tool_call_output", "local_shell_call_output"}
+_META_KEYS = ("cwd", "originator", "source", "timestamp")  # the only session_meta fields a row uses
+
+
+class _RolloutFold(JsonlFold):
+    """Row fields of one rollout: head (``session_meta``, first time), tail (last time, last token count) and
+    the models and warnings counted over every record.
+
+    The whole file is read once because the row shows the models used and the warning counters, and those
+    come from records anywhere in it; after that only the bytes appended since are folded in
+    (``MetaIndex.scan_jsonl``). Of ``session_meta`` only the fields a row uses are kept: its payload also
+    carries the whole base instructions, which would be dead weight in a cache of thousands of entries.
+    """
+
+    def __init__(self) -> None:
+        self.info: dict[str, Any] = {"meta": {}, "models": [], "first": None, "last": None, "tokens": None}
+        self.meta_seen = False
+        self.counter = WarningCounter()
+
+    def copy(self) -> _RolloutFold:
+        other = _RolloutFold()
+        other.info = {**self.info, "models": list(self.info["models"])}
+        other.meta_seen = self.meta_seen
+        other.counter = self.counter.copy()
+        return other
+
+    def add(self, rec: dict | None, status: str) -> None:
+        info = self.info
+        self.counter.line(status)
+        if rec is None:
+            return
+        ts = normalize_ts(rec.get("timestamp"))
+        if ts:
+            info["first"] = info["first"] or ts
+            info["last"] = ts
+        rtype = rec.get("type")
+        payload = rec.get("payload") if isinstance(rec.get("payload"), dict) else {}
+        if rtype == "session_meta" and not self.meta_seen:
+            self.meta_seen = bool(payload)
+            info["meta"] = {key: payload[key] for key in _META_KEYS if key in payload}
+        elif rtype == "turn_context":
+            model = payload.get("model")
+            if isinstance(model, str) and model not in info["models"]:
+                info["models"].append(model)
+        elif rtype == "event_msg" and payload.get("type") == "token_count":
+            usage = (payload.get("info") or {}).get("total_token_usage") if isinstance(payload.get("info"), dict) else None
+            if isinstance(usage, dict):
+                info["tokens"] = _tokens(usage)
+        elif rtype not in ("response_item", "compacted", *_IGNORED_TOP):
+            self.counter.unknown_type(rtype)
+
+    def result(self) -> dict[str, Any]:
+        self.info["warnings"] = self.counter.render()
+        return self.info
+
+
+class _ThreadFold(JsonlFold):
+    """Times, models, tokens, in-flight test calls and whether the last turn ended, for one child thread.
+
+    Whole file once, then only the appended bytes: the models, the last token count and the test calls
+    still open are state built from every record, not from the head or the tail alone.
+    """
+
+    def __init__(self) -> None:
+        self.info: dict[str, Any] = {"first": None, "last": None, "models": [], "tokens": None,
+                                     "open_tests": set(), "turn_ended": False}
+
+    def copy(self) -> _ThreadFold:
+        other = _ThreadFold()
+        other.info = {**self.info, "models": list(self.info["models"]), "open_tests": set(self.info["open_tests"])}
+        return other
+
+    def add(self, rec: dict | None, status: str) -> None:
+        if rec is None or status != "ok":
+            return
+        info = self.info
+        ts = normalize_ts(rec.get("timestamp"))
+        if ts:
+            info["first"] = info["first"] or ts
+            info["last"] = ts
+        rtype = rec.get("type")
+        payload = rec.get("payload") if isinstance(rec.get("payload"), dict) else {}
+        ptype = payload.get("type")
+        if rtype == "turn_context" and isinstance(payload.get("model"), str):
+            if payload["model"] not in info["models"]:
+                info["models"].append(payload["model"])
+        elif rtype == "event_msg":
+            if ptype == "token_count" and isinstance(payload.get("info"), dict):
+                usage = payload["info"].get("total_token_usage")
+                if isinstance(usage, dict):
+                    info["tokens"] = _tokens(usage)
+            elif ptype in _TURN_STARTS:
+                info["turn_ended"] = False
+            elif ptype in _TURN_ENDS:
+                info["turn_ended"] = True
+        elif rtype == "response_item":
+            call_id = payload.get("call_id")
+            if not isinstance(call_id, str):
+                return
+            if ptype in _CALLS and is_test_call(payload.get("arguments", payload.get("input", payload.get("action")))):
+                info["open_tests"].add(call_id)
+            elif ptype in _OUTPUTS:
+                info["open_tests"].discard(call_id)
+
+    def result(self) -> dict[str, Any]:
+        return self.info
 
 
 def _surface(*hints: object) -> Surface:
@@ -115,37 +220,9 @@ class CodexReader:
                 children.setdefault(str(e["parent_thread_id"]).lower(), []).append(str(e["child_thread_id"]).lower())
         return threads, children, []
 
-    # ---- scan a rollout ----
+    # ---- scan a rollout (cached by path+mtime+size, continued when the file only grew) ----
     def _scan(self, path: Path) -> dict[str, Any]:
-        def build() -> dict[str, Any]:
-            info: dict[str, Any] = {"meta": {}, "models": [], "first": None, "last": None, "tokens": None}
-            counter = WarningCounter()
-            for rec, _, status in iter_records(path):
-                counter.line(status)
-                if rec is None:
-                    continue
-                ts = normalize_ts(rec.get("timestamp"))
-                if ts:
-                    info["first"] = info["first"] or ts
-                    info["last"] = ts
-                rtype = rec.get("type")
-                payload = rec.get("payload") if isinstance(rec.get("payload"), dict) else {}
-                if rtype == "session_meta" and not info["meta"]:
-                    info["meta"] = payload
-                elif rtype == "turn_context":
-                    model = payload.get("model")
-                    if isinstance(model, str) and model not in info["models"]:
-                        info["models"].append(model)
-                elif rtype == "event_msg" and payload.get("type") == "token_count":
-                    usage = (payload.get("info") or {}).get("total_token_usage") if isinstance(payload.get("info"), dict) else None
-                    if isinstance(usage, dict):
-                        info["tokens"] = _tokens(usage)
-                elif rtype not in ("response_item", "compacted", *_IGNORED_TOP):
-                    counter.unknown_type(rtype)
-            info["warnings"] = counter.render()
-            return info
-
-        return self.index.get("codex", path, build)
+        return self.index.scan_jsonl("codex", path, _RolloutFold)
 
     def _summary(self, native: str, row: dict | None, path: Path | None,
                  children: dict[str, list[str]], parent: str | None, extra: list[str]) -> SessionSummary:
@@ -278,42 +355,7 @@ class CodexReader:
 
     def _child_scan(self, path: Path) -> dict[str, Any]:
         """Times, models, tokens, in-flight test calls and whether the last turn ended (cached)."""
-        def build() -> dict[str, Any]:
-            info: dict[str, Any] = {"first": None, "last": None, "models": [], "tokens": None,
-                                    "open_tests": set(), "turn_ended": False}
-            for rec, _, status in iter_records(path):
-                if rec is None or status != "ok":
-                    continue
-                ts = normalize_ts(rec.get("timestamp"))
-                if ts:
-                    info["first"] = info["first"] or ts
-                    info["last"] = ts
-                rtype = rec.get("type")
-                payload = rec.get("payload") if isinstance(rec.get("payload"), dict) else {}
-                ptype = payload.get("type")
-                if rtype == "turn_context" and isinstance(payload.get("model"), str):
-                    if payload["model"] not in info["models"]:
-                        info["models"].append(payload["model"])
-                elif rtype == "event_msg":
-                    if ptype == "token_count" and isinstance(payload.get("info"), dict):
-                        usage = payload["info"].get("total_token_usage")
-                        if isinstance(usage, dict):
-                            info["tokens"] = _tokens(usage)
-                    elif ptype in _TURN_STARTS:
-                        info["turn_ended"] = False
-                    elif ptype in _TURN_ENDS:
-                        info["turn_ended"] = True
-                elif rtype == "response_item":
-                    call_id = payload.get("call_id")
-                    if not isinstance(call_id, str):
-                        continue
-                    if ptype in _CALLS and is_test_call(payload.get("arguments", payload.get("input", payload.get("action")))):
-                        info["open_tests"].add(call_id)
-                    elif ptype in _OUTPUTS:
-                        info["open_tests"].discard(call_id)
-            return info
-
-        return self.index.get("codex-child", path, build)
+        return self.index.scan_jsonl("codex-child", path, _ThreadFold)
 
     def list_children(self, native_id: str, now: datetime, level_of: LevelOf) -> tuple[list[ChildAgent], list[str]]:
         """The threads spawned by a thread (``thread_spawn_edges``), with their rollout activity."""

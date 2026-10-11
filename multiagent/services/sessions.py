@@ -164,7 +164,9 @@ class Follow:
 class SessionServices:
     def __init__(self, services: ApplicationServices):
         self._services = services
-        self._lock = threading.RLock()  # the readers' metadata index is not thread-safe
+        # Guards only the creation of the registry. File reads never run under it (the registry and its
+        # metadata index have their own short locks), so a slow listing cannot block the live stream's polls.
+        self._lock = threading.RLock()
         self._registry: SessionRegistry | None = None
         self._registry_key: tuple | None = None
 
@@ -330,27 +332,40 @@ class SessionServices:
         warnings: list[str] = []
         rows: list[SessionSummary] = []
         run_stores: dict[str, Any] = {}
-        with self._lock:
-            if source != "framework":
-                with _session_errors():
-                    registry = self._get_registry()
-                    cursor: str | None = None
-                    while True:
-                        page = registry.list_sessions(replace(filters, limit=1000, after=cursor))
-                        rows += page.sessions
-                        warnings += [w for w in page.warnings if w not in warnings]
-                        if page.next_cursor is None:
-                            break
-                        cursor = page.next_cursor
-            if source in (None, "framework") and "framework" in self._sources():
-                for summary, store in self._framework_matches(filters):
-                    rows.append(summary)
-                    run_stores[summary.native_id] = store
-            rows.sort(key=lambda s: (s.updated_at or "", s.id), reverse=True)
-            page_rows = rows[start:start + limit]
-            self._with_usage(page_rows, run_stores)
+        if source != "framework":
+            with _session_errors():  # no lock held: the registry reads files, and the stream polls this service
+                found, found_warnings = self._get_registry().find_sessions(filters)
+            rows += found
+            warnings += [w for w in found_warnings if w not in warnings]
+        if source in (None, "framework") and "framework" in self._sources():
+            for summary, store in self._framework_matches(filters):
+                rows.append(summary)
+                run_stores[summary.native_id] = store
+        rows.sort(key=lambda s: (s.updated_at or "", s.id), reverse=True)
+        page_rows = [replace(s) for s in rows[start:start + limit]]
+        self._with_usage(page_rows, run_stores)
         nxt = f"0:{start + limit}" if start + limit < len(rows) else None
         return {"sessions": [s.to_dict() for s in page_rows], "next_cursor": nxt, "warnings": warnings, "hint": None}
+
+    def counts(self) -> dict[str, Any]:
+        """Counts by source and status of the same allowed sessions the list shows: ``{counts, hint}``.
+
+        ``counts[source]`` is ``{total, active, idle, archived, unknown}`` for every known source (zeros when
+        it is off or empty). With no ``gui_session_roots`` everything is zero and ``hint`` says why.
+        """
+        counts = {source: {"total": 0, "active": 0, "idle": 0, "archived": 0, "unknown": 0}
+                  for source in SESSION_SOURCES}
+        if not self._roots():
+            return {"counts": counts, "hint": ROOTS_HINT}
+        with _session_errors():
+            for source, row in self._get_registry().count_sessions().items():
+                counts[source].update(row)
+        if "framework" in self._sources():
+            for summary, _ in self._framework_matches(SessionFilters(source="framework")):
+                row = counts["framework"]
+                row["total"] += 1
+                row[summary.status.value if summary.status.value in row else "unknown"] += 1
+        return {"counts": counts, "hint": None}
 
     def get_session(self, session_id: str) -> dict[str, Any]:
         """Summary of one session. ``not_found`` also covers a session outside the allowed folders."""
@@ -363,7 +378,7 @@ class SessionServices:
                 raise ServiceError(NOT_FOUND, f"Session not found: {session_id}", status=404)
             store, row = self._find_run(native)
             return self._framework_summary(row, self._usage_by_run(store, [native]).get(native))
-        with self._lock, _session_errors():
+        with _session_errors():
             return self._get_registry().get_session(session_id)
 
     def read_items(self, session_id: str, *, after: str | None = None, limit: int = DEFAULT_ITEMS_LIMIT) -> dict[str, Any]:
@@ -378,7 +393,7 @@ class SessionServices:
             seq = _framework_cursor(after)
             return self._framework_event_items(self._framework_store(native), native, seq, limit).to_dict()
         _file_cursor(after)
-        with self._lock, _session_errors():
+        with _session_errors():
             return self._get_registry().read_items(session_id, after, limit).to_dict()
 
     # --- children: subagents, spawned threads and workers (GUI2-T04) ---------------
@@ -505,7 +520,7 @@ class SessionServices:
             store = self._find_run(native)[0]
             children = sort_children(self._framework_children(store, native, when, level_of))
         else:
-            with self._lock, _session_errors():
+            with _session_errors():
                 children, warnings = self._get_registry().list_children(
                     session_id, now=when, level_of=level_of, check=check)
         counts = {name: sum(1 for c in children if group_of(c.status.value) == name) for name in GROUPS}
@@ -545,7 +560,7 @@ class SessionServices:
         Cheap at the end of the file (one seek and read), so the stream can call it every poll.
         """
         _parse_id(session_id)
-        with self._lock, _session_errors():
+        with _session_errors():
             return self._get_registry().read_items_unchecked(session_id, after, _check_limit(limit)).to_dict()
 
     # --- filters ---------------------------------------------------------------------

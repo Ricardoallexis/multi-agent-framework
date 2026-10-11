@@ -11,6 +11,7 @@ from typing import Any
 
 from ._common import (
     ACTIVE_WINDOW_SECONDS,
+    JsonlFold,
     MetaIndex,
     WarningCounter,
     blocks_text,
@@ -77,6 +78,131 @@ def _usage_from(message: dict) -> TokenUsage | None:
     return TokenUsage(*vals) if any(v is not None for v in vals) else None
 
 
+class _SessionFold(JsonlFold):
+    """Row fields of one transcript: head (cwd, entrypoint, first time), tail (last time, titles) and the
+    models, usage and warnings counted over every record.
+
+    The whole file is read once because the row shows the models, the summed usage and the warning counters,
+    and those come from records anywhere in it; after that only the bytes appended since are folded in
+    (``MetaIndex.scan_jsonl``), so a growing transcript is never read twice.
+    """
+
+    def __init__(self) -> None:
+        self.info: dict[str, Any] = {"cwd": None, "entrypoint": None, "models": [], "first": None, "last": None,
+                                     "custom": None, "agent": None, "usage": {}, "version": None}
+        self.counter = WarningCounter()
+
+    def copy(self) -> _SessionFold:
+        other = _SessionFold()
+        other.info = {**self.info, "models": list(self.info["models"]), "usage": dict(self.info["usage"])}
+        other.counter = self.counter.copy()
+        return other
+
+    def add(self, rec: dict | None, status: str) -> None:
+        info = self.info
+        self.counter.line(status)
+        if rec is None:
+            return
+        rtype = rec.get("type")
+        ts = normalize_ts(rec.get("timestamp"))
+        if ts:
+            info["first"] = info["first"] or ts
+            info["last"] = ts
+        if info["cwd"] is None:
+            info["cwd"] = clean_cwd(rec.get("cwd"))
+        info["entrypoint"] = info["entrypoint"] or rec.get("entrypoint")
+        info["version"] = info["version"] or rec.get("version")
+        if rtype == "custom-title" and isinstance(rec.get("customTitle"), str):
+            info["custom"] = rec["customTitle"]
+        elif rtype == "agent-name" and isinstance(rec.get("agentName"), str):
+            info["agent"] = rec["agentName"]
+        elif rtype == "assistant" and isinstance(rec.get("message"), dict):
+            msg = rec["message"]
+            model = msg.get("model")
+            if isinstance(model, str) and model != "<synthetic>" and model not in info["models"]:
+                info["models"].append(model)
+            usage = _usage_from(msg)
+            if usage is not None:
+                info["usage"][msg.get("id") or f"anon{len(info['usage'])}"] = usage
+        elif rtype not in ("user", "system", "summary") and rtype not in _IGNORED:
+            self.counter.unknown_type(rtype)
+
+    def result(self) -> dict[str, Any]:
+        self.info["warnings"] = self.counter.render()
+        return self.info
+
+
+class _ChildFold(JsonlFold):
+    """Times, models, tokens and in-flight test calls of one subagent transcript.
+
+    Whole file once, then only the appended bytes: the models, the summed usage and the test calls still
+    open are state built from every record, not from the head or the tail alone.
+    """
+
+    def __init__(self) -> None:
+        self.info: dict[str, Any] = {"first": None, "last": None, "models": [], "usage": {}, "open_tests": set(),
+                                     "last_kind": None, "last_stop": None}
+
+    def copy(self) -> _ChildFold:
+        other = _ChildFold()
+        other.info = {**self.info, "models": list(self.info["models"]), "usage": dict(self.info["usage"]),
+                      "open_tests": set(self.info["open_tests"])}
+        return other
+
+    def add(self, rec: dict | None, status: str) -> None:
+        if rec is None or status != "ok":
+            return
+        info = self.info
+        ts = normalize_ts(rec.get("timestamp"))
+        if ts:
+            info["first"] = info["first"] or ts
+            info["last"] = ts
+        msg = rec.get("message") if isinstance(rec.get("message"), dict) else None
+        if msg is None:
+            return
+        parts = msg.get("content") if isinstance(msg.get("content"), list) else []
+        if rec.get("type") == "assistant":
+            model = msg.get("model")
+            if isinstance(model, str) and model != "<synthetic>" and model not in info["models"]:
+                info["models"].append(model)
+            usage = _usage_from(msg)
+            if usage is not None:
+                info["usage"][msg.get("id") or f"anon{len(info['usage'])}"] = usage
+            kinds = {p.get("type") for p in parts if isinstance(p, dict)}
+            for part in parts:
+                if (isinstance(part, dict) and part.get("type") == "tool_use"
+                        and isinstance(part.get("id"), str) and is_test_call(part.get("input"))):
+                    info["open_tests"].add(part["id"])
+            if "tool_use" in kinds:
+                info["last_kind"] = "assistant_tool"
+            elif "text" in kinds or isinstance(msg.get("content"), str):
+                info["last_kind"] = "assistant_text"
+            else:
+                info["last_kind"] = "assistant_other"
+            info["last_stop"] = msg.get("stop_reason")
+        elif rec.get("type") == "user":
+            for part in parts:
+                if (isinstance(part, dict) and part.get("type") == "tool_result"
+                        and isinstance(part.get("tool_use_id"), str)):
+                    info["open_tests"].discard(part["tool_use_id"])
+            info["last_kind"] = "user"
+
+    def result(self) -> dict[str, Any]:
+        return self.info
+
+
+def _first_cwd(path: Path) -> str | None:
+    """Working folder of a transcript: the first record that has one. Reads from the head and stops there."""
+    records = iter_records(path)
+    try:
+        for rec, _, _ in records:
+            if rec is not None and (cwd := clean_cwd(rec.get("cwd"))) is not None:
+                return cwd
+    finally:
+        records.close()
+    return None
+
+
 class ClaudeReader:
     source = Source.CLAUDE
 
@@ -110,12 +236,15 @@ class ClaudeReader:
         if base is None or not base.is_dir():
             return out
         for f in base.rglob("local_*.json"):
-            try:
-                if f.stat().st_size > 2_000_000:
-                    continue
-                data = json.loads(f.read_text(encoding="utf-8", errors="replace"))
-            except (OSError, ValueError):
-                continue
+            def build(path: Path = f) -> dict:
+                try:
+                    if path.stat().st_size > 2_000_000:
+                        return {}
+                    data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+                    return data if isinstance(data, dict) else {}
+                except (OSError, ValueError):
+                    return {}
+            data = self.index.get("claude-desktop", f, build)
             if not isinstance(data, dict):
                 continue
             ids = [data.get("cliSessionId")] + list(data.get("priorCliSessionIds") or [])
@@ -124,43 +253,9 @@ class ClaudeReader:
                     out.setdefault(sid.lower(), data)
         return out
 
-    # ---- scan one jsonl (metadata only, cached by path+mtime+size) ----
+    # ---- scan one jsonl (metadata only, cached by path+mtime+size, continued when the file only grew) ----
     def _scan(self, path: Path) -> dict[str, Any]:
-        def build() -> dict[str, Any]:
-            info: dict[str, Any] = {"cwd": None, "entrypoint": None, "models": [], "first": None, "last": None,
-                                    "custom": None, "agent": None, "usage": {}, "version": None}
-            counter = WarningCounter()
-            for rec, _, status in iter_records(path):
-                counter.line(status)
-                if rec is None:
-                    continue
-                rtype = rec.get("type")
-                ts = normalize_ts(rec.get("timestamp"))
-                if ts:
-                    info["first"] = info["first"] or ts
-                    info["last"] = ts
-                if info["cwd"] is None:
-                    info["cwd"] = clean_cwd(rec.get("cwd"))
-                info["entrypoint"] = info["entrypoint"] or rec.get("entrypoint")
-                info["version"] = info["version"] or rec.get("version")
-                if rtype == "custom-title" and isinstance(rec.get("customTitle"), str):
-                    info["custom"] = rec["customTitle"]
-                elif rtype == "agent-name" and isinstance(rec.get("agentName"), str):
-                    info["agent"] = rec["agentName"]
-                elif rtype == "assistant" and isinstance(rec.get("message"), dict):
-                    msg = rec["message"]
-                    model = msg.get("model")
-                    if isinstance(model, str) and model != "<synthetic>" and model not in info["models"]:
-                        info["models"].append(model)
-                    usage = _usage_from(msg)
-                    if usage is not None:
-                        info["usage"][msg.get("id") or f"anon{len(info['usage'])}"] = usage
-                elif rtype not in ("user", "system", "summary") and rtype not in _IGNORED:
-                    counter.unknown_type(rtype)
-            info["warnings"] = counter.render()
-            return info
-
-        return self.index.get("claude", path, build)
+        return self.index.scan_jsonl("claude", path, _SessionFold)
 
     @staticmethod
     def _tokens(info: dict[str, Any]) -> TokenUsage | None:
@@ -223,25 +318,36 @@ class ClaudeReader:
                 out.append(self._summary(session, apath, desktop.get(session), 0, parent_info, agent))
         return out, []
 
-    def _locate(self, native_id: str) -> tuple[str, str | None, Path]:
+    def _resolve(self, native_id: str) -> tuple[str, str | None, Path, Path]:
+        """``(session, subagent id | None, file of the id, main transcript of the session)``."""
         session, agent = _split_native(native_id)
         main = self._project_files().get(session.lower())
         if main is None:
             raise SessionNotFound(native_id)
         if agent is None:
-            return session, None, main
+            return session, None, main, main
         sub = self._subagent_files(main).get(agent)
         if sub is None:
             raise SessionNotFound(native_id)
-        return session, agent, sub
+        return session, agent, sub, main
+
+    def _locate(self, native_id: str) -> tuple[str, str | None, Path]:
+        session, agent, path, _ = self._resolve(native_id)
+        return session, agent, path
+
+    def _parent_cwd(self, main: Path) -> str | None:
+        """Working folder a subagent inherits from its session: it sits in the first records, so the head is enough."""
+        scanned = self.index.peek("claude", main)
+        if scanned is not None:  # the whole-file scan is already cached: free
+            return scanned["cwd"]
+        return self.index.get("claude-cwd", main, lambda: _first_cwd(main))
 
     def get_summary(self, native_id: str) -> SessionSummary:
-        session, agent, path = self._locate(native_id)
-        main = self._project_files()[session.lower()]
+        session, agent, path, main = self._resolve(native_id)
         desktop = self._desktop_meta().get(session.lower())
         if agent is None:
             return self._summary(session, path, desktop, len(self._subagent_files(main)))
-        return self._summary(session, path, desktop, 0, self._scan(main), agent)
+        return self._summary(session, path, desktop, 0, {"cwd": self._parent_cwd(main)}, agent)
 
     def read_items(self, native_id: str, after: str | None, limit: int) -> ItemsPage:
         _, _, path = self._locate(native_id)
@@ -311,64 +417,30 @@ class ClaudeReader:
     # ---- children (GUI2-T04): metadata only, never the messages ----
     def _child_scan(self, path: Path) -> dict[str, Any]:
         """Times, models, tokens and in-flight test calls of one subagent file (cached by path+mtime+size)."""
-        def build() -> dict[str, Any]:
-            info: dict[str, Any] = {"first": None, "last": None, "models": [], "usage": {}, "open_tests": set(),
-                                    "last_kind": None, "last_stop": None}
-            for rec, _, status in iter_records(path):
-                if rec is None or status != "ok":
-                    continue
-                ts = normalize_ts(rec.get("timestamp"))
-                if ts:
-                    info["first"] = info["first"] or ts
-                    info["last"] = ts
-                msg = rec.get("message") if isinstance(rec.get("message"), dict) else None
-                if msg is None:
-                    continue
-                parts = msg.get("content") if isinstance(msg.get("content"), list) else []
-                if rec.get("type") == "assistant":
-                    model = msg.get("model")
-                    if isinstance(model, str) and model != "<synthetic>" and model not in info["models"]:
-                        info["models"].append(model)
-                    usage = _usage_from(msg)
-                    if usage is not None:
-                        info["usage"][msg.get("id") or f"anon{len(info['usage'])}"] = usage
-                    kinds = {p.get("type") for p in parts if isinstance(p, dict)}
-                    for part in parts:
-                        if (isinstance(part, dict) and part.get("type") == "tool_use"
-                                and isinstance(part.get("id"), str) and is_test_call(part.get("input"))):
-                            info["open_tests"].add(part["id"])
-                    if "tool_use" in kinds:
-                        info["last_kind"] = "assistant_tool"
-                    elif "text" in kinds or isinstance(msg.get("content"), str):
-                        info["last_kind"] = "assistant_text"
-                    else:
-                        info["last_kind"] = "assistant_other"
-                    info["last_stop"] = msg.get("stop_reason")
-                elif rec.get("type") == "user":
-                    for part in parts:
-                        if (isinstance(part, dict) and part.get("type") == "tool_result"
-                                and isinstance(part.get("tool_use_id"), str)):
-                            info["open_tests"].discard(part["tool_use_id"])
-                    info["last_kind"] = "user"
-            return info
+        return self.index.scan_jsonl("claude-child", path, _ChildFold)
 
-        return self.index.get("claude-child", path, build)
+    def _child_meta(self, path: Path) -> dict[str, str | None]:
+        """Agent type, one-line description and model alias from ``agent-<id>.meta.json`` (all optional).
 
-    @staticmethod
-    def _child_meta(path: Path) -> dict[str, str | None]:
-        """Agent type, one-line description and model alias from ``agent-<id>.meta.json`` (all optional)."""
+        Cached by path+mtime+size like the transcripts: the children list is polled, and this file never
+        changes once written.
+        """
         meta = path.with_suffix(".meta.json")
-        try:
-            if meta.stat().st_size > MAX_CHILD_META_BYTES:
+
+        def build() -> dict[str, str | None]:
+            try:
+                if meta.stat().st_size > MAX_CHILD_META_BYTES:
+                    return {}
+                data = json.loads(meta.read_text(encoding="utf-8", errors="replace"))
+            except (OSError, ValueError):
                 return {}
-            data = json.loads(meta.read_text(encoding="utf-8", errors="replace"))
-        except (OSError, ValueError):
-            return {}
-        if not isinstance(data, dict):
-            return {}
-        return {"name": clean_text(data.get("agentType"), MAX_NAME_CHARS),
-                "label": clean_text(data.get("description"), MAX_LABEL_CHARS),
-                "model": clean_text(data.get("model"), MAX_NAME_CHARS)}
+            if not isinstance(data, dict):
+                return {}
+            return {"name": clean_text(data.get("agentType"), MAX_NAME_CHARS),
+                    "label": clean_text(data.get("description"), MAX_LABEL_CHARS),
+                    "model": clean_text(data.get("model"), MAX_NAME_CHARS)}
+
+        return self.index.get("claude-child-meta", meta, build)
 
     def list_children(self, native_id: str, now: datetime, level_of: LevelOf) -> tuple[list[ChildAgent], list[str]]:
         """The subagents of a session (``agent-*.jsonl`` files). A subagent has no children of its own."""

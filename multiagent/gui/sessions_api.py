@@ -16,6 +16,11 @@ from .open_in_app import add_open_routes
 
 
 def add_session_routes(api: APIRouter, sessions: SessionServices) -> None:
+    @api.get("/sessions/counts")
+    def session_counts():
+        """Counts of allowed sessions by source and status."""
+        return sessions.counts()
+
     @api.get("/sessions")
     def list_sessions(source: str | None = None, surface: str | None = None, cwd: str | None = None,
                       since: str | None = None, until: str | None = None, text: str | None = None,

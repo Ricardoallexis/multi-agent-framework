@@ -6,7 +6,7 @@ The shell is a client of ``/gui/api`` only. Static files carry no data, so
 they need no token; every ``/gui/api/*`` route requires the local token.
 Host and Origin checks come from ``LocalAPISecurityMiddleware`` in ``api.py``.
 
-``/gui/api/sessions`` (list, one session, its items, its children) and ``/gui/api/stream?session=`` (live
+``/gui/api/sessions`` (list, counts, one session, its items, its children) and ``/gui/api/stream?session=`` (live
 follow; ``&only=children`` for the subagents panel) serve the session viewer; see ``sessions_api`` and ``events``.
 """
 from __future__ import annotations

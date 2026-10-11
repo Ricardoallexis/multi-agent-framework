@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ._common import (
+    JsonlFold,
     MetaIndex,
     WarningCounter,
     blocks_text,
@@ -20,7 +21,6 @@ from ._common import (
     files_from_args,
     int_or_none,
     is_recent,
-    iter_records,
     mtime_ts,
     normalize_ts,
     open_ro,
@@ -84,6 +84,131 @@ def parse_flat_yaml(text: str) -> dict[str, str]:
     return out
 
 
+class _EventsFold(JsonlFold):
+    """Row fields of one ``events.jsonl``: head (first time, version), tail (last time) and the models, summed
+    usage, subagent count and warnings counted over every event.
+
+    The whole file is read once because the row shows the models, the summed usage, ``child_count`` and the
+    warning counters, and those come from events anywhere in it; after that only the bytes appended since
+    are folded in (``MetaIndex.scan_jsonl``).
+    """
+
+    def __init__(self) -> None:
+        self.info: dict[str, Any] = {"models": [], "first": None, "last": None, "tokens": None,
+                                     "subagents": 0, "version": None, "warnings": []}
+        self.counter = WarningCounter()
+        self.tokens = TokenUsage()
+        self.have = False
+
+    def copy(self) -> _EventsFold:
+        other = _EventsFold()
+        other.info = {**self.info, "models": list(self.info["models"])}
+        other.counter = self.counter.copy()
+        other.tokens, other.have = self.tokens, self.have
+        return other
+
+    def add(self, rec: dict | None, status: str) -> None:
+        info = self.info
+        self.counter.line(status)
+        if rec is None:
+            return
+        ts = normalize_ts(rec.get("timestamp"))
+        if ts:
+            info["first"] = info["first"] or ts
+            info["last"] = ts
+        rtype = rec.get("type")
+        data = rec.get("data") if isinstance(rec.get("data"), dict) else {}
+        if rtype == "session.start":
+            info["version"] = data.get("copilotVersion")
+        model = data.get("newModel") or data.get("selectedModel") or data.get("model")
+        if isinstance(model, str) and model not in info["models"] and rtype in (
+                "session.model_change", "session.start", "assistant.message"):
+            info["models"].append(model)
+        if rtype == "subagent.started":
+            info["subagents"] += 1
+        elif rtype == "session.usage_record":
+            u = _usage(data)
+            if u is not None:
+                self.have = True
+                self.tokens = TokenUsage(*(_add(getattr(self.tokens, a), getattr(u, a))
+                                           for a in ("input", "output", "cache_read", "cache_write")))
+        elif not _known(rtype):
+            self.counter.unknown_type(rtype)
+
+    def result(self) -> dict[str, Any]:
+        self.info["tokens"] = self.tokens if self.have else None
+        self.info["warnings"] = self.counter.render()
+        return self.info
+
+
+class _SubagentsFold(JsonlFold):
+    """The ``subagent.*`` events of one ``events.jsonl``: one entry per subagent with its times, model, tokens
+    and open test calls.
+
+    Whole file once, then only the appended bytes: an entry is built from the events of the subagent and of
+    the tool calls it owns, wherever they sit in the file.
+    """
+
+    def __init__(self) -> None:
+        self.kids: dict[str, dict[str, Any]] = {}
+        self.tool_owner: dict[str, str] = {}
+
+    def copy(self) -> _SubagentsFold:
+        other = _SubagentsFold()
+        other.kids = {key: {**entry, "open_tests": set(entry["open_tests"])} for key, entry in self.kids.items()}
+        other.tool_owner = dict(self.tool_owner)
+        return other
+
+    def _kid(self, child_id: str) -> dict[str, Any]:
+        return self.kids.setdefault(child_id, {
+            "name": None, "label": None, "model": None, "started": None, "last": None, "ended": False,
+            "failed": False, "tokens": None, "open_tests": set()})
+
+    def add(self, rec: dict | None, status: str) -> None:
+        if rec is None or status != "ok":
+            return
+        kids, tool_owner = self.kids, self.tool_owner
+        ts = normalize_ts(rec.get("timestamp"))
+        rtype = rec.get("type")
+        data = rec.get("data") if isinstance(rec.get("data"), dict) else {}
+        if isinstance(rtype, str) and rtype.startswith("subagent."):
+            child_id = safe_id(data.get("toolCallId")) or safe_id(data.get("agentId"))
+            if child_id is None:
+                return
+            entry = self._kid(child_id)
+            entry["name"] = entry["name"] or clean_text(data.get("agentName"), MAX_NAME_CHARS)
+            entry["label"] = entry["label"] or clean_text(
+                data.get("agentDisplayName") or data.get("agentDescription"), MAX_LABEL_CHARS)
+            if isinstance(data.get("model"), str):
+                entry["model"] = clean_text(data["model"], MAX_NAME_CHARS) or entry["model"]
+            if ts:
+                entry["started"] = entry["started"] or ts
+                entry["last"] = ts
+            if rtype in ("subagent.completed", "subagent.failed"):
+                entry["ended"] = True
+                entry["failed"] = rtype == "subagent.failed"
+                total = int_or_none(data.get("totalTokens"))
+                if total is not None:
+                    entry["tokens"] = TokenUsage(total=total)
+            return
+        owner = safe_id(data.get("parentToolCallId"))
+        call_id = data.get("toolCallId")
+        if rtype == "tool.execution_complete" and isinstance(call_id, str) and call_id in tool_owner:
+            kids[tool_owner.pop(call_id)]["open_tests"].discard(call_id)
+        if owner in kids:
+            entry = kids[owner]
+            entry["last"] = ts or entry["last"]
+            if rtype == "tool.execution_start" and isinstance(call_id, str):
+                if is_test_call(data.get("arguments")):
+                    entry["open_tests"].add(call_id)
+                    tool_owner[call_id] = owner
+            elif rtype == "assistant.message" and isinstance(data.get("model"), str) and not entry["model"]:
+                entry["model"] = clean_text(data["model"], MAX_NAME_CHARS)
+
+    def result(self) -> dict[str, dict[str, Any]]:
+        return self.kids
+
+
 class CopilotReader:
     source = Source.COPILOT
 
@@ -138,61 +263,26 @@ class CopilotReader:
         return meta, usage, warns
 
     def _scan(self, events: Path | None) -> dict[str, Any]:
-        def build() -> dict[str, Any]:
-            info: dict[str, Any] = {"models": [], "first": None, "last": None, "tokens": None,
-                                    "subagents": 0, "version": None, "warnings": []}
-            if events is None:
-                return info
-            counter = WarningCounter()
-            tokens = TokenUsage()
-            have = False
-            for rec, _, status in iter_records(events):
-                counter.line(status)
-                if rec is None:
-                    continue
-                ts = normalize_ts(rec.get("timestamp"))
-                if ts:
-                    info["first"] = info["first"] or ts
-                    info["last"] = ts
-                rtype = rec.get("type")
-                data = rec.get("data") if isinstance(rec.get("data"), dict) else {}
-                if rtype == "session.start":
-                    info["version"] = data.get("copilotVersion")
-                model = data.get("newModel") or data.get("selectedModel") or data.get("model")
-                if isinstance(model, str) and model not in info["models"] and rtype in (
-                        "session.model_change", "session.start", "assistant.message"):
-                    info["models"].append(model)
-                if rtype == "subagent.started":
-                    info["subagents"] += 1
-                elif rtype == "session.usage_record":
-                    u = _usage(data)
-                    if u is not None:
-                        have = True
-                        tokens = TokenUsage(*(_add(getattr(tokens, a), getattr(u, a))
-                                              for a in ("input", "output", "cache_read", "cache_write")))
-                elif not _known(rtype):
-                    counter.unknown_type(rtype)
-            info["tokens"] = tokens if have else None
-            info["warnings"] = counter.render()
-            return info
-
         if events is None:
-            return build()
-        return self.index.get("copilot", events, build)
+            return _EventsFold().result()
+        return self.index.scan_jsonl("copilot", events, _EventsFold)
 
     def _summary(self, native: str, d: Path, dbmeta: dict[str, dict], usage: dict[str, TokenUsage],
                  extra: list[str]) -> SessionSummary:
-        ws: dict[str, str] = {}
+        workspace = d / "workspace.yaml"
+        def parse_workspace() -> tuple[dict[str, str], bool]:
+            try:
+                with open(workspace, "rb") as fh:
+                    raw = fh.read(MAX_WORKSPACE_YAML_BYTES + 1)
+                if len(raw) > MAX_WORKSPACE_YAML_BYTES:
+                    return {}, True
+                return parse_flat_yaml(raw.decode("utf-8", errors="replace")), False
+            except OSError:
+                return {}, False
+        ws, too_large = self.index.get("copilot-workspace", workspace, parse_workspace)
         extra = list(extra)
-        try:
-            with open(d / "workspace.yaml", "rb") as fh:
-                raw = fh.read(MAX_WORKSPACE_YAML_BYTES + 1)
-            if len(raw) > MAX_WORKSPACE_YAML_BYTES:
-                extra.append("workspace_yaml_skipped: file is larger than 1 MB")
-            else:
-                ws = parse_flat_yaml(raw.decode("utf-8", errors="replace"))
-        except OSError:
-            pass
+        if too_large:
+            extra.append("workspace_yaml_skipped: file is larger than 1 MB")
         events = d / "events.jsonl"
         has_events = events.is_file()
         info = self._scan(events if has_events else None)
@@ -285,57 +375,7 @@ class CopilotReader:
     # ---- children (GUI2-T04): the subagent.* events, metadata only ----
     def _children_scan(self, events: Path) -> dict[str, dict[str, Any]]:
         """One entry per subagent (by ``toolCallId``/``agentId``) with its times, model, tokens and test calls."""
-        def build() -> dict[str, dict[str, Any]]:
-            kids: dict[str, dict[str, Any]] = {}
-            tool_owner: dict[str, str] = {}
-
-            def kid(child_id: str) -> dict[str, Any]:
-                return kids.setdefault(child_id, {
-                    "name": None, "label": None, "model": None, "started": None, "last": None, "ended": False,
-                    "failed": False, "tokens": None, "open_tests": set()})
-
-            for rec, _, status in iter_records(events):
-                if rec is None or status != "ok":
-                    continue
-                ts = normalize_ts(rec.get("timestamp"))
-                rtype = rec.get("type")
-                data = rec.get("data") if isinstance(rec.get("data"), dict) else {}
-                if isinstance(rtype, str) and rtype.startswith("subagent."):
-                    child_id = safe_id(data.get("toolCallId")) or safe_id(data.get("agentId"))
-                    if child_id is None:
-                        continue
-                    entry = kid(child_id)
-                    entry["name"] = entry["name"] or clean_text(data.get("agentName"), MAX_NAME_CHARS)
-                    entry["label"] = entry["label"] or clean_text(
-                        data.get("agentDisplayName") or data.get("agentDescription"), MAX_LABEL_CHARS)
-                    if isinstance(data.get("model"), str):
-                        entry["model"] = clean_text(data["model"], MAX_NAME_CHARS) or entry["model"]
-                    if ts:
-                        entry["started"] = entry["started"] or ts
-                        entry["last"] = ts
-                    if rtype in ("subagent.completed", "subagent.failed"):
-                        entry["ended"] = True
-                        entry["failed"] = rtype == "subagent.failed"
-                        total = int_or_none(data.get("totalTokens"))
-                        if total is not None:
-                            entry["tokens"] = TokenUsage(total=total)
-                    continue
-                owner = safe_id(data.get("parentToolCallId"))
-                call_id = data.get("toolCallId")
-                if rtype == "tool.execution_complete" and isinstance(call_id, str) and call_id in tool_owner:
-                    kids[tool_owner.pop(call_id)]["open_tests"].discard(call_id)
-                if owner in kids:
-                    entry = kids[owner]
-                    entry["last"] = ts or entry["last"]
-                    if rtype == "tool.execution_start" and isinstance(call_id, str):
-                        if is_test_call(data.get("arguments")):
-                            entry["open_tests"].add(call_id)
-                            tool_owner[call_id] = owner
-                    elif rtype == "assistant.message" and isinstance(data.get("model"), str) and not entry["model"]:
-                        entry["model"] = clean_text(data["model"], MAX_NAME_CHARS)
-            return kids
-
-        return self.index.get("copilot-children", events, build)
+        return self.index.scan_jsonl("copilot-children", events, _SubagentsFold)
 
     def list_children(self, native_id: str, now: datetime, level_of: LevelOf) -> tuple[list[ChildAgent], list[str]]:
         """The subagents a session started. They have no conversation of their own to open (``link_id`` is None)."""
