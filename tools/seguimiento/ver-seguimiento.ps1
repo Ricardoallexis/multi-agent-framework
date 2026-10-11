@@ -959,7 +959,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             "<td>$stateCell</td>" +
             "<td>$(Inline $record.Agent)</td><td>$(Inline $record.Preferred)</td>" +
             "<td>$dependencyHtml</td><td>$integrationHtml</td><td>$(Inline $record.Patch)</td><td>$(Encode $record.Workers)$delegationHtml</td><td>$(Get-TokensHtml $record.Tokens)</td></tr>"
-            $taskRows.Add([pscustomobject]@{ Id = $record.Code; State = $record.State; Patch = $record.Patch; Html = $rowHtml; Date = if ($record.LastRow) { $record.LastRow.Date } else { $null } })
+            $taskRows.Add([pscustomobject]@{ Id = $record.Code; State = $record.State; Patch = $record.Patch; WaitingFor = @($record.WaitingFor); Html = $rowHtml; Date = if ($record.LastRow) { $record.LastRow.Date } else { $null } })
         }
         # SEG-T05: tasks inside a stage follow their code (T01, T02, ...); each row still shows its own last activity.
         $taskRows = @($taskRows | Sort-Object @{ Expression = { if ($_.Id -match '^T(\d+)') { [int]$Matches[1] } else { [int]::MaxValue } } }, @{ Expression = 'Id' })
@@ -1067,7 +1067,11 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                     elseif ($phaseBlocked) { '<span class="state s-requiere-cambios">Con cambios requeridos</span>' }
                     elseif ($phaseIntegrated -eq $phaseTaskRows.Count) { '<span class="state s-integrada">Fase completa</span>' }
                     elseif ($phaseDone -eq $phaseTaskRows.Count) { '<span class="state s-pendiente">Fase terminada · falta integrar</span>' }
-                    else { '<span class="state s-en-curso">En progreso</span>' }
+                    elseif (@($phaseTaskRows | Where-Object { $_.State -eq 'en curso' }).Count) { '<span class="state s-en-curso">En progreso</span>' }
+                    elseif ($phaseDone) { "<span class=""state s-pendiente"">Avance parcial · $phaseDone de $($phaseTaskRows.Count)</span>" }
+                    # SEG-T10: takeable = disponible/liberada/reabierta with no dependency wait (reuses WaitingFor).
+                    elseif (@($phaseTaskRows | Where-Object { $_.State -in 'disponible', 'liberada', 'reabierta' -and -not $_.WaitingFor.Count }).Count) { '<span class="state s-disponible">Disponible</span>' }
+                    else { '<span class="state s-idle">En espera de dependencias</span>' }
                 $phaseContent = if ($phaseTaskRows.Count) {
                     "$tableHeader$($phaseTaskRows.Html -join "`n")</table>"
                 } else {
@@ -1579,6 +1583,7 @@ summary { cursor:pointer; }
 .s-requiere-cambios { background:#f0a830; color:#2b1d00; }
 .s-terminada { background:#bfe8d3; color:#10442b; }
 .s-integrada { background:var(--ok); color:#fff; }
+.s-disponible { background:var(--accent-soft); border:1px solid var(--accent); }
 .s-idle { background:var(--accent-soft); color:var(--muted); }
 .s-unknown { background:var(--warn-bg); border:1px solid var(--warn-line); }
 .s-bloqueada { background:var(--accent-soft); color:var(--muted); border:1px dashed var(--warn-line); }
