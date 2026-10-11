@@ -5,6 +5,7 @@ import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalo
 import { ApiError, apiGet } from "./api.js";
 import { debounce, subscribe } from "./bus.js";
 import { CreateRun } from "./create-run.js";
+import { Help, helpFor } from "./help.js";
 import { RunDetail } from "./run-detail.js";
 import { errorText, fmtDate, statusInfo } from "./text.js";
 
@@ -40,7 +41,7 @@ function RunList({ token, status, selected, version, onSelect }) {
     ${runs.map((run) => {
       const info = statusInfo(run.status);
       return html`<li key=${run.id}>
-        <button type="button" aria-current=${run.id === selected ? "true" : null} onClick=${() => onSelect(run.id)}>
+        <button type="button" data-help-exempt="data-row" aria-current=${run.id === selected ? "true" : null} onClick=${() => onSelect(run.id)}>
           <span class="run-title">${run.workflow_id} <span class="muted">· ${run.project_name}</span></span>
           <span class=${"badge tone-" + info.tone}>${info.label}</span>
           <span class="muted small">${fmtDate(run.created_at)}${run.bundle ? " · " + run.bundle : ""}</span>
@@ -68,12 +69,19 @@ export function Runs({ token, status, mock, initialRunId = null }) {
   } else {
     main = html`<p class="muted">Elige una ejecución de la lista o crea una nueva.</p>`;
   }
-  return html`<div class="runs">
-    <aside class="runs-side" aria-label="Lista de ejecuciones">
-      <button type="button" class="btn" onClick=${() => { setCreating(true); }}>Nueva ejecución</button>
-      <${RunList} token=${token} status=${status} selected=${creating ? null : selected} version=${version}
-        onSelect=${(id) => { setCreating(false); setSelected(id); }} />
-    </aside>
-    <section class="runs-main" aria-live="off">${main}</section>
+  return html`<div class="runs-page">
+    <${Help} topic="runs.section" />
+    <div class="runs">
+      <aside class="runs-side" aria-label="Lista de ejecuciones">
+        <div>
+          <button type="button" class="btn" ...${helpFor("runs.new")} onClick=${() => { setCreating(true); }}>Nueva ejecución</button>
+          <${Help} topic="runs.new" />
+        </div>
+        <${Help} topic="runs.list" />
+        <${RunList} token=${token} status=${status} selected=${creating ? null : selected} version=${version}
+          onSelect=${(id) => { setCreating(false); setSelected(id); }} />
+      </aside>
+      <section class="runs-main" aria-live="off">${main}</section>
+    </div>
   </div>`;
 }

@@ -4,6 +4,7 @@
 // The server decides what is possible; every action answers with the updated run.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost, runPath } from "./api.js";
+import { Help, helpFor } from "./help.js";
 import { errorText } from "./text.js";
 
 // Pasted answers survive a rejection or a re-render; memory only, keyed by run, step and attempt.
@@ -22,9 +23,9 @@ function Confirm({ title, children, confirmLabel, keepLabel, danger, busy, onCon
     <p><strong>${title}</strong></p>
     ${children}
     <div class="actions">
-      <button type="button" ref=${confirmButton} class=${danger ? "btn danger" : "btn"} disabled=${busy}
+      <button type="button" ref=${confirmButton} data-help-exempt="confirm" class=${danger ? "btn danger" : "btn"} disabled=${busy}
         onClick=${onConfirm}>${confirmLabel}</button>
-      <button type="button" class="btn secondary" disabled=${busy} onClick=${onKeep}>${keepLabel}</button>
+      <button type="button" data-help-exempt="confirm" class="btn secondary" disabled=${busy} onClick=${onKeep}>${keepLabel}</button>
     </div>
   </div>`;
 }
@@ -76,7 +77,9 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
   const cancelControl = !view.terminal && !view.cancel_requested
     ? (confirm === "cancel"
       ? cancelBox(view.status === "running")
-      : html`<button type="button" class="btn secondary" disabled=${busy} onClick=${() => setConfirm("cancel")}>Cancelar ejecución…</button>`)
+      : html`<div class="action-item"><button type="button" class="btn secondary" disabled=${busy} ...${helpFor("human.cancel")}
+          onClick=${() => setConfirm("cancel")}>Cancelar ejecución…</button>
+        <${Help} topic="human.cancel" /></div>`)
     : null;
 
   let body;
@@ -87,12 +90,16 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
     body = html`<div>
       ${exhausted && html`<p class="notice">El presupuesto está agotado: puedes aprobar el resultado que ya existe, rechazarlo o cancelar. Pedir cambios o regenerar ya no es posible.</p>`}
       <p class="muted">Revisa el resultado del paso en «Resultados» y decide.</p>
-      <div class="actions">
-        <button type="button" class="btn" disabled=${busy} onClick=${() => act(runPath(id, "approve"), {},
+      <div class="action-item">
+        <button type="button" class="btn" disabled=${busy} ...${helpFor("human.approve")} onClick=${() => act(runPath(id, "approve"), {},
           (v) => v.status === "completed" ? "Aprobado. La ejecución terminó." : "Aprobado. La ejecución continúa con el siguiente paso.")}>Aprobar</button>
-        ${!exhausted && html`<button type="button" class="btn secondary" disabled=${busy}
-          onClick=${() => act(runPath(id, "regenerate"), {}, () => "Se pidió repetir el paso sin comentarios.")}>Regenerar sin comentarios</button>`}
+        <${Help} topic="human.approve" />
       </div>
+      ${!exhausted && html`<div class="action-item">
+        <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("human.regenerate")}
+          onClick=${() => act(runPath(id, "regenerate"), {}, () => "Se pidió repetir el paso sin comentarios.")}>Regenerar sin comentarios</button>
+        <${Help} topic="human.regenerate" />
+      </div>`}
       ${!exhausted && html`<form class="stack" noValidate onSubmit=${(event) => {
         event.preventDefault();
         if (!feedback.trim()) { setFeedbackInvalid(true); setMessage({ kind: "error", text: "Escribe qué debe cambiar antes de enviar la petición." }); return; }
@@ -101,43 +108,48 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
           .then((ok) => { if (ok) setFeedback(""); });
       }}>
         <label for="changes-feedback">Pedir cambios <span class="req">(obligatorio para enviar)</span></label>
+        <${Help} topic="human.changes" />
         <textarea id="changes-feedback" rows="3" maxlength="4000" value=${feedback} aria-invalid=${feedbackInvalid ? "true" : null}
-          disabled=${busy} onInput=${(event) => setFeedback(event.target.value)}></textarea>
-        <div class="actions"><button type="submit" class="btn secondary" disabled=${busy}>Pedir cambios</button></div>
+          disabled=${busy} ...${helpFor("human.changes")} onInput=${(event) => setFeedback(event.target.value)}></textarea>
+        <div class="actions"><button type="submit" class="btn secondary" disabled=${busy} ...${helpFor("human.changes")}>Pedir cambios</button></div>
       </form>`}
-      <div class="actions">
+      <div class="action-list">
         ${confirm === "reject"
           ? html`<${Confirm} title="¿Rechazar la ejecución?" confirmLabel="Sí, rechazar" keepLabel="Mantenerla" danger=${true}
               busy=${busy} onKeep=${() => setConfirm(null)}
               onConfirm=${() => act(runPath(id, "reject"), { feedback: reason.trim() }, () => "La ejecución quedó rechazada.")}>
               <p class="muted">La ejecución terminará como rechazada; no se puede deshacer.</p>
               <label for="reject-reason">Motivo (opcional)</label>
-              <textarea id="reject-reason" rows="2" maxlength="4000" value=${reason}
+              <${Help} topic="human.reject_reason" />
+              <textarea id="reject-reason" rows="2" maxlength="4000" value=${reason} ...${helpFor("human.reject_reason")}
                 onInput=${(event) => setReason(event.target.value)}></textarea>
             <//>`
-          : html`<button type="button" class="btn secondary" disabled=${busy} onClick=${() => setConfirm("reject")}>Rechazar ejecución…</button>`}
+          : html`<div class="action-item"><button type="button" class="btn secondary" disabled=${busy} ...${helpFor("human.reject")}
+              onClick=${() => setConfirm("reject")}>Rechazar ejecución…</button>
+            <${Help} topic="human.reject" /></div>`}
         ${cancelControl}
       </div>
     </div>`;
   } else if (waiting && view.pending_human) {
     body = html`<div>
       <${HumanStep} token=${token} view=${view} busy=${busy} act=${act} setMessage=${setMessage} onStale=${onStale} />
-      <div class="actions">${cancelControl}</div>
+      <div class="action-list">${cancelControl}</div>
     </div>`;
   } else if (waiting) {
     body = html`<div><p class="muted">Esta ejecución espera una acción humana que esta pantalla no sabe mostrar (${waiting.reason}).</p>
-      <div class="actions">${cancelControl}</div></div>`;
+      <div class="action-list">${cancelControl}</div></div>`;
   } else {
     body = html`<div>
       <p class="muted">${view.cancel_requested
         ? "Se pidió cancelar; se detendrá cuando termine el paso en curso."
         : "No hay ninguna acción humana pendiente. Esta vista se actualiza sola cuando la ejecución cambia."}</p>
-      <div class="actions">${cancelControl}</div>
+      <div class="action-list">${cancelControl}</div>
     </div>`;
   }
 
   return html`<section class="panel" aria-labelledby="human-actions-title">
     <h4 id="human-actions-title">Acciones humanas</h4>
+    <${Help} topic="human.section" />
     ${body}
     <${Message} message=${message} />
   </section>`;
@@ -206,24 +218,28 @@ function HumanStep({ token, view, busy, act, setMessage, onStale }) {
     <p>El paso «${pending.step_id}» (intento ${pending.attempt}) hay que hacerlo fuera del framework. La respuesta debe cumplir
       el contrato <code>${pending.expected_contract}</code>.</p>
     <label for="human-prompt">Prompt a copiar <span class="muted">(${pending.prompt_id} v${pending.prompt_version})</span></label>
-    <textarea id="human-prompt" ref=${promptBox} rows="10" readOnly value=${pending.prompt}></textarea>
-    <div class="actions"><button type="button" class="btn secondary" onClick=${copyPrompt}>Copiar prompt</button></div>
+    <${Help} topic="human.prompt" />
+    <textarea id="human-prompt" ref=${promptBox} rows="10" readOnly value=${pending.prompt} ...${helpFor("human.prompt")}></textarea>
+    <div class="actions"><button type="button" class="btn secondary" ...${helpFor("human.copy_prompt")} onClick=${copyPrompt}>Copiar prompt</button>
+      <${Help} topic="human.copy_prompt" compact=${true} /></div>
     <form class="stack" noValidate onSubmit=${submit}>
       <label for="human-response">Respuesta pegada <span class="req">(obligatoria)</span></label>
+      <${Help} topic="human.response" />
       <textarea id="human-response" rows="10" value=${draft.response} disabled=${busy}
-        aria-invalid=${invalid ? "true" : null} aria-describedby="human-response-help"
+        aria-invalid=${invalid ? "true" : null} ...${helpFor("human.response")}
         onInput=${(event) => update({ response: event.target.value })}></textarea>
-      <p id="human-response-help" class="help">Pega la respuesta completa. El servidor la valida; si falla, se queda aquí para que la corrijas.</p>
       <div class="two">
         <div><label for="human-provider">Proveedor</label>
+          <${Help} topic="human.provider" />
           <input id="human-provider" maxlength="120" autocomplete="off" value=${draft.provider} disabled=${busy}
-            onInput=${(event) => update({ provider: event.target.value })} /></div>
+            ...${helpFor("human.provider")} onInput=${(event) => update({ provider: event.target.value })} /></div>
         <div><label for="human-model">Modelo <span class="muted">(opcional)</span></label>
+          <${Help} topic="human.model" />
           <input id="human-model" maxlength="200" autocomplete="off" value=${draft.model} disabled=${busy}
-            onInput=${(event) => update({ model: event.target.value })} /></div>
+            ...${helpFor("human.model")} onInput=${(event) => update({ model: event.target.value })} /></div>
       </div>
-      <p class="help">Proveedor y modelo los declaras tú: quedan en el historial como «declarado», sin verificar.</p>
-      <div class="actions"><button type="submit" class="btn" disabled=${busy}>Enviar respuesta</button></div>
+      <div class="action-item"><button type="submit" class="btn" disabled=${busy} ...${helpFor("human.submit")}>Enviar respuesta</button>
+        <${Help} topic="human.submit" /></div>
     </form>
   </div>`;
 }

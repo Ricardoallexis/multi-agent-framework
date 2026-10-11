@@ -54,7 +54,7 @@ function App({ token }) {
       <span class=${"badge " + status} role="status" aria-live="polite">${STATUS_TEXT[status]}</span>
     </header>
     <nav class="nav" aria-label="Secciones">
-      ${SECTIONS.map((s) => html`<button key=${s.id} type="button" aria-current=${s.id === section ? "page" : null}
+      ${SECTIONS.map((s) => html`<button key=${s.id} type="button" data-help-exempt="navigation" aria-current=${s.id === section ? "page" : null}
         onClick=${() => navigate(s.id)}>${s.label}</button>`)}
     </nav>
     <main class="content">

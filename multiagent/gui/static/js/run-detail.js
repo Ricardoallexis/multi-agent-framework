@@ -6,6 +6,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, runPath } from "./api.js";
 import { debounce, subscribe } from "./bus.js";
+import { Help, helpFor } from "./help.js";
 import { HumanActions } from "./human-actions.js";
 import {
   actorText, cursorText, errorText, executorText, fmtDate, fmtJson, historyText, skipReason,
@@ -19,16 +20,20 @@ function Counters({ view }) {
   const counters = view.counters;
   return html`<section class="panel" aria-labelledby="counters-title">
     <h4 id="counters-title">Contadores</h4>
+    <${Help} topic="run.counters" />
     <dl class="facts">
       <dt>Llamadas al modelo</dt>
       <dd>${counters.model_calls} de ${counters.max_model_calls} máximo
-        <span class="help">Solo cuentan las llamadas que el framework hace a un modelo. Los pasos que hace una persona o un modelo externo (modo guiado) no cuentan.</span></dd>
+        <${Help} topic="counter.model_calls" /></dd>
       <dt>Pasos hechos por una persona</dt>
-      <dd>${counters.human_steps}</dd>
+      <dd>${counters.human_steps}
+        <${Help} topic="counter.human_steps" /></dd>
       <dt>Pasos</dt>
-      <dd>${counters.steps_done} hechos de ${counters.steps_total}${counters.steps_skipped ? " (" + counters.steps_skipped + (counters.steps_skipped === 1 ? " saltado)" : " saltados)") : ""}</dd>
+      <dd>${counters.steps_done} hechos de ${counters.steps_total}${counters.steps_skipped ? " (" + counters.steps_skipped + (counters.steps_skipped === 1 ? " saltado)" : " saltados)") : ""}
+        <${Help} topic="counter.steps" /></dd>
       <dt>Tiempo activo</dt>
-      <dd>${counters.active_seconds} s de ${counters.max_seconds} s máximo</dd>
+      <dd>${counters.active_seconds} s de ${counters.max_seconds} s máximo
+        <${Help} topic="counter.time" /></dd>
     </dl>
   </section>`;
 }
@@ -37,6 +42,8 @@ function Steps({ view }) {
   return html`<section class="panel" aria-labelledby="steps-title">
     <h4 id="steps-title">Pasos</h4>
     <p class="muted">${cursorText(view)}</p>
+    <${Help} topic="run.steps" />
+    ${view.steps.some((step) => step.skip) && html`<${Help} topic="run.skipped" />`}
     <ol class="steps">
       ${view.steps.map((step) => html`<li key=${step.id} class=${"step " + step.state}>
         <span class="step-name">${step.id}</span>
@@ -52,6 +59,7 @@ function Steps({ view }) {
 function History({ view }) {
   return html`<section class="panel" aria-labelledby="history-title">
     <h4 id="history-title">Historial de acciones humanas</h4>
+    <${Help} topic="run.history" />
     ${view.history.length === 0
       ? html`<p class="muted">Todavía no hay acciones humanas en esta ejecución.</p>`
       : html`<ol class="history">
@@ -69,6 +77,7 @@ function History({ view }) {
 function Results({ view }) {
   return html`<section class="panel" aria-labelledby="results-title">
     <h4 id="results-title">Resultados</h4>
+    <${Help} topic="run.results" />
     ${view.artifacts.length === 0
       ? html`<p class="muted">Todavía no hay resultados guardados.</p>`
       : view.artifacts.map((artifact, index) => html`<details key=${artifact.step_id + ":" + artifact.attempt}
@@ -82,6 +91,7 @@ function Results({ view }) {
 function Technical({ view }) {
   return html`<details class="panel technical">
     <summary>Eventos técnicos (${view.events_total}${view.events_total > view.events.length ? ", últimos " + view.events.length : ""})</summary>
+    <${Help} topic="run.events" />
     <ol class="events">
       ${view.events.map((event) => html`<li key=${event.seq}><code>#${event.seq}</code> ${fmtDate(event.ts)} · ${event.type}
         ${Object.keys(event.payload || {}).length > 0 && html`<pre class="data">${fmtJson(event.payload)}</pre>`}</li>`)}
@@ -144,11 +154,13 @@ export function RunDetail({ token, runId, status, onChanged }) {
   return html`<article class="run-detail" aria-labelledby="run-title">
     <header>
       <h3 id="run-title">${view.workflow_id} <span class="muted">· ${view.project_name || "sin proyecto"}</span></h3>
-      <p>
+      <div class="status-line">
         <span class=${"badge tone-" + info.tone}>${info.label}</span>
         ${!view.terminal && html`<span class=${"badge " + (live ? "connected" : "reconnecting")}>${live ? "En vivo" : "Sin conexión en vivo"}</span>`}
-        <button type="button" class="btn secondary small" onClick=${load}>Actualizar</button>
-      </p>
+        <button type="button" class="btn secondary small" ...${helpFor("run.refresh")} onClick=${load}>Actualizar</button>
+        <${Help} topic="run.refresh" compact=${true} />
+      </div>
+      ${!view.terminal && html`<${Help} topic="run.live" />`}
       <p class="muted">Ejecución <code>${view.id}</code>${" · creada " + fmtDate(view.created_at) + " · actualizada " + fmtDate(view.updated_at) +
         " · " + (view.bundle ? "bundle «" + view.bundle + "»" : "workflow incluido") +
         " · modo: " + (MODE_LABELS[view.execution_mode] || view.execution_mode)}</p>
@@ -166,6 +178,7 @@ export function RunDetail({ token, runId, status, onChanged }) {
     <${Results} view=${view} />
     <section class="panel" aria-labelledby="inputs-title">
       <h4 id="inputs-title">Entradas de la ejecución</h4>
+      <${Help} topic="run.inputs" />
       ${Object.keys(view.inputs).length === 0
         ? html`<p class="muted">Esta ejecución no recibió entradas.</p>`
         : html`<dl class="facts">${Object.entries(view.inputs).map(([name, value]) => html`<${Input} key=${name} name=${name} value=${value} />`)}</dl>`}

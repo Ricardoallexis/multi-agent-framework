@@ -58,7 +58,7 @@ code { font: .88em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; bac
 .btn:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible,
 summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
-.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 label { display: block; font-weight: 600; margin-bottom: 3px; }
@@ -184,3 +184,24 @@ code.command { font: .9rem ui-monospace, Consolas, monospace; overflow-wrap: any
   .item-head .when { margin-left: 0; flex-basis: 100%; }
 }
 .note .when { margin-left: .6em; }
+
+/* --- Ayuda contextual (GUI-T12) --- */
+.help-block { margin: 2px 0 6px; min-width: 0; }
+.help-block.compact { display: inline-block; vertical-align: middle; margin: 0; }
+.help-block.compact.open { display: block; flex: 1 1 100%; margin: 4px 0; }
+.hint-row { display: flex; align-items: flex-start; gap: 6px; }
+.hint-text { color: var(--muted); font-size: .85rem; font-weight: 400; overflow-wrap: anywhere; }
+.help-toggle { flex: none; width: 1.5rem; height: 1.5rem; padding: 0; border: 1px solid var(--accent); border-radius: 50%;
+  background: none; color: var(--accent); font: 600 .85rem/1 system-ui, sans-serif; cursor: pointer; }
+.help-toggle:hover, .help-toggle[aria-expanded="true"] { background: var(--accent); color: var(--bg); }
+.help-more { margin: 4px 0 6px; padding: 8px 12px; max-width: 65ch; border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0; background: var(--panel); font-size: .88rem; overflow-wrap: anywhere; }
+.header-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; max-width: 100%; }
+.row > h3 { flex: 1 1 10rem; }
+.back-bar { justify-content: flex-start; margin: 0 0 8px; }
+.status-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 4px 0; }
+.action-item { margin: 12px 0; }
+.action-list { display: flex; flex-direction: column; gap: 4px; }
+.live-bar .help-block { flex: 1 1 100%; }
+.facts dd .help-block { margin-top: 2px; }
+.check-block { margin: 8px 0 0; }

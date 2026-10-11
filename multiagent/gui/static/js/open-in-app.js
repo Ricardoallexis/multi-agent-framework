@@ -6,6 +6,7 @@
 // of its own source (the identifier is a UUID); titles, folders and every other field never build a link.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet, apiPost } from "./api.js";
+import { Help, helpFor } from "./help.js";
 import { errorText } from "./text.js";
 
 const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -66,7 +67,8 @@ function CopyCommand({ command, cwd }) {
   return html`<div class="open-copy">
     <p class="note small">Ejecuta este comando en una terminal${cwd ? html`, dentro de la carpeta <code>${cwd}</code>` : ""}:</p>
     <p><code class="command">${command}</code>
-      <button type="button" class="btn secondary small" onClick=${copy}>Copiar comando</button></p>
+      <button type="button" class="btn secondary small" ...${helpFor("open.copy", { scope: "command" })} onClick=${copy}>Copiar comando</button></p>
+    <${Help} topic="open.copy" scope="command" compact=${true} />
     <p class="note small" role="status" aria-live="polite">${copied === "ok" ? "Comando copiado." : copied === "failed" ? "No se pudo copiar: selecciónalo y cópialo a mano." : ""}</p>
   </div>`;
 }
@@ -75,7 +77,8 @@ function LinkOpen({ summary, url }) {
   const app = LINK_APPS.get(summary.source);
   const asks = Boolean(summary.open_in_app.needs_confirmation);
   return html`<div class="open-in-app">
-    <a class="btn secondary" href=${url}>Abrir en ${app.label}</a>
+    <a class="btn secondary" href=${url} ...${helpFor("open." + summary.source)}>Abrir en ${app.label}</a>
+    <${Help} topic=${"open." + summary.source} />
     <ul class="open-notes note small">
       ${asks && html`<li>${app.label} pedirá confirmación antes de abrir la sesión.</li>`}
       ${summary.source === "copilot" && html`<li>${NOTE_REOPEN(app.label)}</li>`}
@@ -126,15 +129,16 @@ function ClaudeOpen({ token, summary, command }) {
     </div>`;
   }
   return html`<div class="open-in-app">
-    ${step === "idle" && html`<button type="button" class="btn secondary" onClick=${() => { setResult(null); setError(null); setStep("confirm"); }}>
-      Abrir en Claude</button>`}
+    ${step === "idle" && html`<button type="button" class="btn secondary" ...${helpFor("open.claude")}
+      onClick=${() => { setResult(null); setError(null); setStep("confirm"); }}>Abrir en Claude</button>`}
+    <${Help} topic="open.claude" />
     ${step !== "idle" && html`<div class="panel open-confirm" role="group" aria-label="Confirmar la apertura en Claude">
       <p>Se abrirá una consola nueva de Windows con <code class="command">${command}</code>, en tu carpeta personal
         (nunca en la carpeta de la sesión, por seguridad). ¿Continuar?</p>
       <div class="actions">
-        <button type="button" class="btn" ref=${confirmButton} disabled=${step === "sending"} onClick=${launch}>
+        <button type="button" class="btn" ref=${confirmButton} data-help-exempt="confirm" disabled=${step === "sending"} onClick=${launch}>
           ${step === "sending" ? "Abriendo…" : "Abrir"}</button>
-        <button type="button" class="btn secondary" disabled=${step === "sending"} onClick=${() => setStep("idle")}>Cancelar</button>
+        <button type="button" class="btn secondary" data-help-exempt="confirm" disabled=${step === "sending"} onClick=${() => setStep("idle")}>Cancelar</button>
       </div>
     </div>`}
     ${result && html`<p class="message ok" role="status">Se lanzó <code class="command">${result.command.join(" ")}</code> en una consola

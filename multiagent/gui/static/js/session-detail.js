@@ -5,6 +5,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet } from "./api.js";
 import { debounce } from "./bus.js";
+import { Help, helpFor } from "./help.js";
 import { OpenInApp } from "./open-in-app.js";
 import { routeHref } from "./route.js";
 import { Items } from "./session-items.js";
@@ -71,6 +72,7 @@ function Children({ token, summary }) {
 
   return html`<section class="panel" aria-labelledby="children-title">
     <h4 id="children-title">Subagentes (${summary.child_count})</h4>
+    <${Help} topic="session.children" />
     ${state.loading && html`<p class="muted" aria-busy="true">Buscando los subagentes…</p>`}
     ${state.error && html`<p class="message error" role="alert">No se pudieron listar: ${errorText(state.error)}</p>`}
     ${!state.loading && !state.error && state.found.length === 0 && html`<p class="muted">Los subagentes de esta sesión no
@@ -105,9 +107,12 @@ function Header({ token, summary, onRefresh }) {
       <dt>Subagentes</dt><dd>${summary.child_count}</dd>
       <dt>Identificador</dt><dd><code>${summary.id}</code></dd>
     </dl>
+    <${Help} topic="session.facts" />
     <div class="header-actions">
-      ${isRun && html`<a class="btn secondary" href=${routeHref("runs", summary.native_id)}>Ver la ejecución en «Ejecuciones»</a>`}
-      <button type="button" class="btn secondary small" onClick=${onRefresh}>Actualizar datos</button>
+      ${isRun && html`<a class="btn secondary" href=${routeHref("runs", summary.native_id)} ...${helpFor("session.run_link")}>Ver la ejecución en «Ejecuciones»</a>
+        <${Help} topic="session.run_link" compact=${true} />`}
+      <button type="button" class="btn secondary small" ...${helpFor("session.refresh")} onClick=${onRefresh}>Actualizar datos</button>
+      <${Help} topic="session.refresh" compact=${true} />
     </div>
     <div id="open-in-app-slot" class="open-in-app-slot"><${OpenInApp} token=${token} summary=${summary} /></div>
   </header>`;
@@ -239,8 +244,9 @@ export function SessionDetail({ token, sessionId, onBack }) {
   const retryable = followState === "failed" || followState === "ended";
   const followText = FOLLOW_TEXT[followState] + (follow.message && retryable ? ": " + follow.message : "");
 
-  const back = html`<p><button type="button" class="btn secondary small" onClick=${onBack}>← Volver a la lista</button>
-      <span class="muted small"> Atajo: tecla Esc</span></p>`;
+  const back = html`<div class="header-tools back-bar"><button type="button" class="btn secondary small" ...${helpFor("session.back")} onClick=${onBack}>← Volver a la lista</button>
+      <${Help} topic="session.back" compact=${true} />
+      <span class="muted small"> Atajo: tecla Esc</span></div>`;
   if (error && !summary) {
     return html`<article class="session-detail" aria-labelledby="session-title" tabindex="-1" ref=${article}>
       ${back}
@@ -255,25 +261,33 @@ export function SessionDetail({ token, sessionId, onBack }) {
     ${summary && summary.child_count > 0 && html`<${Children} token=${token} summary=${summary} />`}
     <section class="panel live-bar" aria-label="Seguimiento en vivo">
       <span class=${"badge live live-" + followState} role="status" aria-live="polite">${followText}</span>
-      ${page.done && !retryable && html`<button type="button" class="btn secondary small" onClick=${() => setPaused(!paused)}>
-        ${paused ? "Reanudar seguimiento" : "Pausar seguimiento"}</button>`}
-      ${page.done && retryable && html`<button type="button" class="btn secondary small" onClick=${() => { setPaused(false); setRetry(retry + 1); }}>
-        Reintentar</button>`}
+      ${page.done && !retryable && html`<button type="button" class="btn secondary small" ...${helpFor("session.pause")} onClick=${() => setPaused(!paused)}>
+        ${paused ? "Reanudar seguimiento" : "Pausar seguimiento"}</button>
+        <${Help} topic="session.pause" compact=${true} />`}
+      ${page.done && retryable && html`<button type="button" class="btn secondary small" ...${helpFor("session.retry")} onClick=${() => { setPaused(false); setRetry(retry + 1); }}>
+        Reintentar</button>
+        <${Help} topic="session.retry" compact=${true} />`}
+      <${Help} topic="session.live" />
     </section>
     ${allWarnings.length > 0 && html`<details class="panel" open=${allWarnings.length <= 3}>
       <summary>Avisos de lectura (${allWarnings.length})</summary>
+      <${Help} topic="session.warnings" />
       <ul class="warnings">${allWarnings.map((warning) => html`<li key=${warning} class="note small">${warningText(warning)}</li>`)}</ul>
     </details>`}
     <section class="panel" aria-labelledby="items-title">
       <h4 id="items-title">Contenido de la sesión</h4>
-      ${itemsError && html`<p class="message error" role="alert">No se pudo leer el contenido: ${errorText(itemsError)}
-        <button type="button" class="btn secondary small" onClick=${() => loadPage(cursor.current)}>Reintentar</button></p>`}
+      <${Help} topic="session.items" />
+      ${items.some((item) => item.kind === "reasoning_omitted") && html`<${Help} topic="session.reasoning" />`}
+      ${itemsError && html`<div class="message error" role="alert">No se pudo leer el contenido: ${errorText(itemsError)}
+        <button type="button" class="btn secondary small" ...${helpFor("session.items_retry")} onClick=${() => loadPage(cursor.current)}>Reintentar</button>
+        <${Help} topic="session.items_retry" compact=${true} /></div>`}
       ${!page.loaded && !itemsError && html`<p class="muted" aria-busy="true">Cargando el contenido…</p>`}
       ${page.loaded && items.length === 0 && html`<p class="muted">Esta sesión no tiene mensajes que mostrar todavía.</p>`}
       ${items.length > 0 && html`<${Items} items=${items} />`}
-      ${page.loaded && !page.done && html`<p><button type="button" class="btn secondary" disabled=${loadingMore}
+      ${page.loaded && !page.done && html`<div><button type="button" class="btn secondary" disabled=${loadingMore} ...${helpFor("session.more")}
         onClick=${() => loadPage(cursor.current)}>${loadingMore ? "Cargando…" : "Cargar más"}</button>
-        <span class="muted small"> Mostrando ${items.length} elementos; hay más.</span></p>`}
+        <span class="muted small"> Mostrando ${items.length} elementos; hay más.</span>
+        <${Help} topic="session.more" /></div>`}
       ${page.done && items.length > 0 && html`<p class="muted small">${items.length} elementos${followState === "live" ? "; los nuevos aparecen al final." : "."}</p>`}
     </section>
   </article>`;

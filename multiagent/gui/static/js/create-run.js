@@ -7,6 +7,8 @@
 // prompt and shows the prompt line where it appears. Everything is plain text.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost } from "./api.js";
+import { Help, helpFor } from "./help.js";
+import { fieldHelpEntry, modeHelpEntry } from "./help-text.js";
 import { MODE_LABELS, errorText, exampleText, inputHelp, inputsNote, skipReason } from "./text.js";
 
 const PREVIEW_DEBOUNCE_MS = 400;
@@ -15,14 +17,14 @@ const MODES = ["auto", "local", "cloud", "human_guided"];
 const newKey = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 const asError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
 
-function FieldControl({ item, id, value, invalid, disabled, describedBy, onChange, onBlur }) {
+function FieldControl({ item, id, value, invalid, disabled, onChange, onBlur }) {
   const common = {
     id, disabled, "aria-required": item.required ? "true" : null, "aria-invalid": invalid ? "true" : null,
-    "aria-describedby": describedBy, onBlur: () => onBlur(item.name),
+    onBlur: () => onBlur(item.name),
   };
   const change = (event) => onChange(item.name, event.target.value);
   if (item.type === "choice") {
-    return html`<select ...${common} value=${value} onChange=${change}>
+    return html`<select ...${common} ...${helpFor("field." + item.name, { also: id + "-help" })} value=${value} onChange=${change}>
       <option value="">${item.required ? "Elige una opción" : "Sin elegir"}</option>
       ${(item.choices || []).map((choice) => html`<option key=${choice} value=${choice}>${choice}</option>`)}
     </select>`;
@@ -30,25 +32,24 @@ function FieldControl({ item, id, value, invalid, disabled, describedBy, onChang
   const placeholder = exampleText(item);
   // A declared "text" input is one line; long text and every derived input (its kind is unknown) use a text area.
   if (item.source === "declared" && item.type !== "long_text") {
-    return html`<input type="text" ...${common} value=${value} placeholder=${placeholder} onInput=${change} />`;
+    return html`<input type="text" ...${common} ...${helpFor("field." + item.name, { also: id + "-help" })} value=${value} placeholder=${placeholder} onInput=${change} />`;
   }
   const rows = item.type === "long_text" ? 5 : item.context ? 3 : 2;
-  return html`<textarea ...${common} rows=${rows} value=${value} placeholder=${placeholder} onInput=${change}></textarea>`;
+  return html`<textarea ...${common} ...${helpFor("field." + item.name, { also: id + "-help" })} rows=${rows} value=${value} placeholder=${placeholder} onInput=${change}></textarea>`;
 }
 
 function Field({ item, value, touched, disabled, onChange, onBlur }) {
   const id = "input-" + item.name;
   const empty = !value.trim();
   const invalid = item.required && touched && empty;
-  const describedBy = (item.description ? id + "-description " : "") + id + "-help";
   return html`<div class="field">
     <label for=${id}>${item.label} <code>${item.name}</code>
       ${item.required
         ? html`<span class="req"><span aria-hidden="true">*</span> obligatorio</span>`
         : html`<span class="muted">(opcional)</span>`}</label>
-    ${item.description && html`<p id=${id + "-description"} class="help field-description">${item.description}</p>`}
+    <${Help} topic=${"field." + item.name} entry=${fieldHelpEntry(item)} hint=${item.description || null} />
     <${FieldControl} item=${item} id=${id} value=${value} invalid=${invalid} disabled=${disabled}
-      describedBy=${describedBy} onChange=${onChange} onBlur=${onBlur} />
+      onChange=${onChange} onBlur=${onBlur} />
     <p id=${id + "-help"} class="help">${inputHelp(item)}</p>
     ${invalid && html`<p class="field-error" role="alert">Este campo es obligatorio: escribe un valor.</p>`}
   </div>`;
@@ -63,8 +64,7 @@ function PreviewPanel({ preview, error, loading }) {
   const firstRunnable = preview ? preview.steps.findIndex((step) => !step.skipped) : -1;
   return html`<section class="panel" aria-labelledby="preview-title">
     <h4 id="preview-title">Vista previa del prompt</h4>
-    <p class="muted">Así quedará el prompt de cada paso con lo que escribiste. Solo se muestra: no se ejecuta nada ni se guarda nada.
-      Al ejecutar, el framework añade al final el contrato de salida (JSON) de cada paso.</p>
+    <${Help} topic="preview.panel" />
     ${error && html`<p class="message error" role="alert">No se pudo generar la vista previa: ${errorText(error)}</p>`}
     ${!preview && !error && html`<p class="muted">${loading ? "Generando la vista previa…" : "Elige un workflow para ver su prompt."}</p>`}
     ${preview && html`<div aria-busy=${loading ? "true" : "false"}>
@@ -76,7 +76,9 @@ function PreviewPanel({ preview, error, loading }) {
             <summary>Paso «${step.id}» · ${step.prompt_id} v${step.prompt_version} · contrato ${step.contract}</summary>
             ${step.needs_previous_outputs && html`<p class="muted">Este paso usa resultados de pasos anteriores: aparecen vacíos hasta que esos pasos se ejecuten.</p>`}
             <pre class="prompt">${step.text}</pre>
-            <button type="button" class="btn secondary small" onClick=${() => copy(step)}>Copiar este prompt</button>
+            <div class="actions"><button type="button" class="btn secondary small" ...${helpFor("preview.copy", { scope: step.id })}
+              onClick=${() => copy(step)}>Copiar este prompt</button>
+              <${Help} topic="preview.copy" scope=${step.id} compact=${true} /></div>
           </details>`)}
       <p class="muted" role="status">${copied}</p>
     </div>`}
@@ -187,8 +189,9 @@ export function CreateRun({ token, mock, onCreated, onClose }) {
     }
   }
 
-  const group = (title, items) => items.length === 0 ? null : html`<fieldset class="inputs">
+  const group = (title, items, help) => items.length === 0 ? null : html`<fieldset class="inputs">
     <legend>${title}</legend>
+    ${help}
     ${items.map((item) => html`<${Field} key=${item.name} item=${item} value=${values[item.name] || ""}
       touched=${Boolean(touched[item.name])} disabled=${busy} onChange=${change}
       onBlur=${(name) => setTouched((previous) => ({ ...previous, [name]: true }))} />`)}
@@ -201,18 +204,21 @@ export function CreateRun({ token, mock, onCreated, onClose }) {
   return html`<div class="create-run">
     <header class="row">
       <h3>Nueva ejecución</h3>
-      <button type="button" class="btn secondary small" onClick=${onClose}>Volver</button>
+      <div class="header-tools"><button type="button" class="btn secondary small" ...${helpFor("create.back")} onClick=${onClose}>Volver</button>
+        <${Help} topic="create.back" compact=${true} /></div>
     </header>
     ${loadError && html`<p class="message error" role="alert">${errorText(loadError)}</p>`}
     <form class="stack" noValidate onSubmit=${submit} aria-busy=${busy ? "true" : "false"}>
       <div class="two">
         <div><label for="cr-bundle">Origen del workflow</label>
-          <select id="cr-bundle" value=${bundle} disabled=${busy} onChange=${(event) => setBundle(event.target.value)}>
+          <${Help} topic="create.bundle" />
+          <select id="cr-bundle" ...${helpFor("create.bundle")} value=${bundle} disabled=${busy} onChange=${(event) => setBundle(event.target.value)}>
             <option value="">Workflows incluidos</option>
             ${bundles.map((item) => html`<option key=${item.name} value=${item.name}>Bundle: ${item.name}</option>`)}
           </select></div>
         <div><label for="cr-workflow">Workflow <span class="req"><span aria-hidden="true">*</span> obligatorio</span></label>
-          <select id="cr-workflow" value=${workflowId} disabled=${busy} aria-required="true"
+          <${Help} topic="create.workflow" />
+          <select id="cr-workflow" ...${helpFor("create.workflow")} value=${workflowId} disabled=${busy} aria-required="true"
             onChange=${(event) => setWorkflowId(event.target.value)}>
             <option value="">Elige un workflow</option>
             ${workflows.map((item) => html`<option key=${item.id} value=${item.id}>${item.id}</option>`)}
@@ -221,30 +227,37 @@ export function CreateRun({ token, mock, onCreated, onClose }) {
       ${spec && spec.description && html`<p class="workflow-description">${spec.description}</p>`}
       ${spec && html`<div class="muted">
         <p class="help">Pasos:</p>
+        <${Help} topic="create.steps" />
         <ol class="step-list">${spec.steps.map((step) => html`<li key=${step.id}><strong>${step.id}</strong>${step.skipped_by_default ? " (se salta por defecto)" : ""}${step.description ? ": " + step.description : ""}</li>`)}</ol>
         <p class="help">${inputsNote(spec)}</p></div>`}
       <div><label for="cr-project">Proyecto <span class="req"><span aria-hidden="true">*</span> obligatorio</span></label>
-        <input id="cr-project" maxlength="120" autocomplete="off" value=${project} disabled=${busy}
+        <${Help} topic="create.project" />
+        <input id="cr-project" ...${helpFor("create.project")} maxlength="120" autocomplete="off" value=${project} disabled=${busy}
           aria-required="true" onInput=${(event) => setProject(event.target.value)} /></div>
-      ${group("Entradas obligatorias", required)}
-      ${group("Entradas opcionales", optional)}
-      ${context.length > 0 && html`<details><summary>Contexto adicional opcional (${context.length})</summary>${group("Contexto", context)}</details>`}
+      ${group("Entradas obligatorias", required, html`<${Help} topic="create.inputs.required" />`)}
+      ${group("Entradas opcionales", optional, html`<${Help} topic="create.inputs.optional" />`)}
+      ${context.length > 0 && html`<details><summary>Contexto adicional opcional (${context.length})</summary>${group("Contexto", context, html`<${Help} topic="create.inputs.context" />`)}</details>`}
       <div class="two">
         <div><label for="cr-mode">Cómo se ejecuta</label>
-          <select id="cr-mode" value=${mode} disabled=${busy} onChange=${(event) => setMode(event.target.value)}>
+          <${Help} topic="create.mode" entry=${modeHelpEntry(mode)} />
+          <select id="cr-mode" ...${helpFor("create.mode")} value=${mode} disabled=${busy} onChange=${(event) => setMode(event.target.value)}>
             ${MODES.map((value) => html`<option key=${value} value=${value}>${MODE_LABELS[value]}</option>`)}
           </select></div>
-        <div class="check"><label><input type="checkbox" checked=${sensitive} disabled=${busy}
-          onChange=${(event) => setSensitive(event.target.checked)} /> Contenido sensible (no se enviará a la nube)</label></div>
+        <div class="check"><label><input type="checkbox" checked=${sensitive} disabled=${busy} ...${helpFor("create.sensitive")}
+          onChange=${(event) => setSensitive(event.target.checked)} /> Contenido sensible (no se enviará a la nube)</label>
+          <${Help} topic="create.sensitive" /></div>
       </div>
-      ${!mock && html`<div class="notice check"><label><input type="checkbox" checked=${confirmReal} disabled=${busy}
-        onChange=${(event) => setConfirmReal(event.target.checked)} /> Entiendo que el servidor no está en modo Mock y esta ejecución puede usar modelos reales.</label></div>`}
+      ${!mock && html`<div class="notice check"><label><input type="checkbox" checked=${confirmReal} disabled=${busy} ...${helpFor("create.confirm_real")}
+        onChange=${(event) => setConfirmReal(event.target.checked)} /> Entiendo que el servidor no está en modo Mock y esta ejecución puede usar modelos reales.</label>
+        <${Help} topic="create.confirm_real" /></div>`}
       ${submitError && html`<p class="message error" role="alert">${errorText(submitError)}</p>`}
       <p id="cr-blockers" class="hint" role="status">${blockers.length ? "No se puede crear todavía. " + blockers.join(" ") : "Todo listo para crear la ejecución."}</p>
       <div class="actions">
-        <button type="submit" class="btn" disabled=${busy || blockers.length > 0} aria-describedby="cr-blockers">${busy ? "Creando…" : "Crear ejecución"}</button>
-        <button type="button" class="btn secondary" disabled=${busy} onClick=${onClose}>Cancelar</button>
+        <button type="submit" class="btn" disabled=${busy || blockers.length > 0} ...${helpFor("create.submit", { also: "cr-blockers" })}>${busy ? "Creando…" : "Crear ejecución"}</button>
+        <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("create.cancel")} onClick=${onClose}>Cancelar</button>
+        <${Help} topic="create.cancel" compact=${true} />
       </div>
+      <${Help} topic="create.submit" />
     </form>
     <${PreviewPanel} preview=${preview} error=${previewError} loading=${previewing} />
   </div>`;
