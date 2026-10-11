@@ -172,12 +172,25 @@ function Get-CommitToken([string]$value) {
     else { '' }
 }
 # "Tokens" field of a task card: "Claude: total N = entrada a + cacheados b + salida c (medido); Copilot: no disponible".
+# SEG-T08: also "↳ Modelo (delegado por Orquestador, exacto|estimado por ventana): total N = ..." / "(..., sin datos)"
+# worker entries (name may hold spaces, dots, parentheses) and a final "Total de la tarea: N". Kind: agent | worker | total.
 function Get-TokenEntries([string]$value) {
     foreach ($part in ($value -split ';')) {
-        if ($part -match '^\s*([A-Za-z0-9-]+):\s*total\s+(\d+)\s*=\s*entrada\s+(\d+)\s*\+\s*cacheados\s+(\d+)\s*\+\s*salida\s+(\d+)\s*\(([^)]+)\)') {
-            [pscustomobject]@{ Agent = $Matches[1]; Total = [long]$Matches[2]; Input = [long]$Matches[3]; Cached = [long]$Matches[4]; Output = [long]$Matches[5]; Source = $Matches[6].Trim() }
+        if ($part -match '^\s*↳\s*(.+)\s\(delegado por\s+([^,)]+?)\s*(?:,\s*([^)]*?))?\s*\)\s*(?::\s*(.*?))?\s*$') {
+            $name = $Matches[1].Trim(); $orch = $Matches[2].Trim(); $kind = "$($Matches[3])".Trim(); $rest = "$($Matches[4])"
+            $tag = if ($kind -match '(?i)estimad') { 'estimado' } elseif ($kind -match '(?i)exact') { 'exacto' } elseif ($kind -match '(?i)sin datos' -or $rest -match '(?i)sin datos') { 'sin datos' } else { $kind }
+            if ($rest -match '(?i)total\s+(\d+)\s*=\s*entrada\s+(\d+)\s*\+\s*cacheados\s+(\d+)\s*\+\s*salida\s+(\d+)') {
+                [pscustomobject]@{ Kind = 'worker'; Agent = $name; Orchestrator = $orch; Total = [long]$Matches[1]; Input = [long]$Matches[2]; Cached = [long]$Matches[3]; Output = [long]$Matches[4]; Source = $tag }
+            } else {
+                if (-not $tag) { $tag = 'sin datos' }
+                [pscustomobject]@{ Kind = 'worker'; Agent = $name; Orchestrator = $orch; Total = $null; Input = $null; Cached = $null; Output = $null; Source = $tag }
+            }
+        } elseif ($part -match '^\s*Total de la tarea:\s*(\d+)\s*$') {
+            [pscustomobject]@{ Kind = 'total'; Agent = $null; Orchestrator = $null; Total = [long]$Matches[1]; Input = $null; Cached = $null; Output = $null; Source = '' }
+        } elseif ($part -match '^\s*([A-Za-z0-9-]+):\s*total\s+(\d+)\s*=\s*entrada\s+(\d+)\s*\+\s*cacheados\s+(\d+)\s*\+\s*salida\s+(\d+)\s*\(([^)]+)\)') {
+            [pscustomobject]@{ Kind = 'agent'; Agent = $Matches[1]; Orchestrator = $null; Total = [long]$Matches[2]; Input = [long]$Matches[3]; Cached = [long]$Matches[4]; Output = [long]$Matches[5]; Source = $Matches[6].Trim() }
         } elseif ($part -match '^\s*([A-Za-z0-9-]+):\s*(.+?)\s*$') {
-            [pscustomobject]@{ Agent = $Matches[1]; Total = $null; Input = $null; Cached = $null; Output = $null; Source = $Matches[2] }
+            [pscustomobject]@{ Kind = 'agent'; Agent = $Matches[1]; Orchestrator = $null; Total = $null; Input = $null; Cached = $null; Output = $null; Source = $Matches[2] }
         }
     }
 }
@@ -190,7 +203,17 @@ function Get-TokensHtml([string]$value) {
     $entries = @(Get-TokenEntries $value)
     if (-not $entries) { return '<span class="meta">Sin registro</span>' }
     $items = foreach ($entry in $entries) {
-        if ($null -eq $entry.Total) {
+        if ($entry.Kind -eq 'total') {
+            "<div class=""token-total""><strong>Total de la tarea: $(Format-TokenCount $entry.Total)</strong></div>"
+        } elseif ($entry.Kind -eq 'worker') {
+            $style = 'margin-left:1em'
+            if ($null -eq $entry.Total) {
+                "<div class=""token-worker"" style=""$style"">&#8627; $(Encode $entry.Agent) <span class=""meta"">(delegado por $(Encode $entry.Orchestrator))</span>: <span class=""meta"">$(Encode $entry.Source)</span></div>"
+            } else {
+                $detail = "Entrada $($entry.Input) · cacheados $($entry.Cached) · salida $($entry.Output) · $($entry.Source)"
+                "<div class=""token-worker"" style=""$style"" title=""$(Encode $detail)"">&#8627; $(Encode $entry.Agent) <span class=""meta"">(delegado por $(Encode $entry.Orchestrator))</span>: <strong>$(Format-TokenCount $entry.Total)</strong> <span class=""meta"">($(Encode $entry.Source) · salida $(Format-TokenCount $entry.Output))</span></div>"
+            }
+        } elseif ($null -eq $entry.Total) {
             "<div>$(Encode $entry.Agent): <span class=""meta"">$(Encode $entry.Source)</span></div>"
         } else {
             $detail = "Entrada $($entry.Input) · cacheados $($entry.Cached) · salida $($entry.Output) · $($entry.Source)"
@@ -1382,7 +1405,7 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
         '<p class="meta">Sin asignaciones cloud activas registradas para seguimiento.</p>'
     }
     # Tokens this agent used on board tasks (field "Tokens" of the cards; measured or reported).
-    $tokenEntries = @($agentBoard.Tasks | ForEach-Object { Get-TokenEntries $_.Tokens } | Where-Object Agent -ieq $name)
+    $tokenEntries = @($agentBoard.Tasks | ForEach-Object { Get-TokenEntries $_.Tokens } | Where-Object { $_.Kind -ne 'total' -and $_.Agent -ieq $name })
     $counted = @($tokenEntries | Where-Object { $null -ne $_.Total })
     $tokensHtml = if ($counted.Count) {
         $sum = ($counted | Measure-Object -Property Total -Sum).Sum
