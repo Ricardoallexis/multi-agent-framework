@@ -190,3 +190,8 @@ def summarize_usage(records: list[dict[str, Any]]) -> dict[str, Any]:
         "by_step": _group(records, "step_id"),
         "by_model": _group(records, "model"),
     }
+
+
+# Public names for the aggregators that group telemetry records their own way (``services.usage``).
+load_basis = _load_basis
+totals_of = _totals

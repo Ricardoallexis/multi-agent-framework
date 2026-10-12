@@ -695,6 +695,10 @@ SCRIPT: list[tuple[str, dict]] = [
     ("resume", {"task_id": "T1"}),                                               # opened in the app a moment ago
     ("resume", {"task_id": "T2"}),
     ("status", {"task_id": "T1"}),
+    ("resume-due", {}),                                                          # CNT-T04: nothing is held
+    ("resume-due", {"task_id": "NOPE", "dry_run": True}),
+    ("lift-pause", {"executor_id": "codex_cli"}),                                # not paused: nothing to lift
+    ("lift-pause", {"executor_id": "NOPE"}),
 ]
 
 
@@ -708,6 +712,10 @@ def run_facade(services, op: str, args: dict):
                                   args.pop("effort", None), args.pop("actor", None))
     if op == "open":
         return executors.open_target(args["task_id"])
+    if op == "resume-due":
+        return executors.resume_due(task_id=args.get("task_id"), dry_run=args.get("dry_run", False))
+    if op == "lift-pause":
+        return executors.lift_pause(args["executor_id"])
     return executors.resume_task(args["task_id"])
 
 
@@ -722,6 +730,11 @@ def run_http(client: TestClient, op: str, args: dict) -> tuple[int, object]:
 def cli_args(op: str, args: dict) -> list[str]:
     if op == "status":
         return ["executors", "status"] + (["--task", args["task_id"]] if "task_id" in args else [])
+    if op == "resume-due":
+        return ["executors", op] + (["--task", args["task_id"]] if "task_id" in args else []) \
+            + (["--dry-run"] if args.get("dry_run") else [])
+    if op == "lift-pause":
+        return ["executors", op, args["executor_id"]]
     argv = ["executors", op, args["task_id"]]
     for flag, key in (("--executor", "executor_id"), ("--model", "model"), ("--effort", "effort"), ("--actor", "actor")):
         if key in args:
@@ -777,7 +790,8 @@ def test_facade_http_and_cli_give_the_same_results(monkeypatch, capsys, tmp_path
 
 
 def test_the_script_covers_every_public_operation():
-    operations = {"status": "status", "run": "run_task", "open": "open_target", "resume": "resume_task"}
+    operations = {"status": "status", "run": "run_task", "open": "open_target", "resume": "resume_task",
+                  "resume-due": "resume_due", "lift-pause": "lift_pause"}
     assert {op for op, _ in SCRIPT} == set(operations)
     public = {name for name, member in vars(ExecutorServices).items() if callable(member) and not name.startswith("_")}
     assert set(operations.values()) <= public

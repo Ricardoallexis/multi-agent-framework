@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -43,6 +44,19 @@ DEFAULT_ROUTING_MODE = "supervised"
 ESCALATION_CEILINGS = ("T1", "T2", "T3")  # T4 is never reached automatically (ECO-T01, decision 2)
 DEFAULT_ESCALATION = {"max_escalations_per_step": 1, "ceiling": "T3"}
 ECONOMIC_PROFILE_KEYS = ("mode", "levels", "effort", "model_id", "escalation")
+
+# Context profiles (CMP-T02, contract CMP-T01 section 11): declared in ``models.yaml`` under ``context_profiles``,
+# apart from ``routing_profiles`` so compaction can be switched on without changing how models are chosen.
+CONTEXT_UNKNOWN_WINDOW_POLICIES = ("skip", "block")
+CONTEXT_SUMMARY_LEVELS = ("T1", "T2")  # the summary is never made by a T3 or T4 model
+DEFAULT_CONTEXT_SUMMARY: dict[str, Any] = {
+    "first_level": "T1", "retry_level": "T2", "effort": "low", "model_check": True, "max_calls": 4, "max_ratio": 0.5,
+}
+DEFAULT_CONTEXT_PROFILE: dict[str, Any] = {
+    "version": 1, "enabled": False, "warning_at": 0.62, "threshold": 0.70, "unknown_window": "skip",
+    "keep_recent": 1, "summary": DEFAULT_CONTEXT_SUMMARY, "tasks": {"window_tokens": None},
+}
+CONTEXT_TASKS_ASSIGNMENT = "tasks"  # the key of ``assignments`` that assigns a profile to task envelopes
 
 
 def normalize_price_unit(unit: Any) -> str:
@@ -362,6 +376,100 @@ def validate_routing_profile(profile_id: str, profile: Any) -> Any:
     return result
 
 
+def _context_fraction(where: str, name: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise CatalogError(f"{where}: {name} must be a number between 0 and 1, got {value!r}")
+    return float(value)
+
+
+def _context_positive_int(where: str, name: str, value: Any, *, allow_none: bool = False) -> int | None:
+    if value is None and allow_none:
+        return None
+    if type(value) is not int or value < 1:
+        raise CatalogError(f"{where}: {name} must be an integer of 1 or more{' or null' if allow_none else ''}, got {value!r}")
+    return value
+
+
+def _validate_context_summary(where: str, summary: Any) -> dict[str, Any]:
+    """The ``summary`` block of a context profile with every default filled in (see ``DEFAULT_CONTEXT_SUMMARY``)."""
+    if summary is None:
+        return dict(DEFAULT_CONTEXT_SUMMARY)
+    if not isinstance(summary, dict):
+        raise CatalogError(f"{where}: summary must be a mapping with {', '.join(DEFAULT_CONTEXT_SUMMARY)}")
+    unknown = sorted(str(key) for key in summary if key not in DEFAULT_CONTEXT_SUMMARY)
+    if unknown:
+        raise CatalogError(f"{where}: summary has unknown keys {unknown}; expected {', '.join(DEFAULT_CONTEXT_SUMMARY)}")
+    result = {**DEFAULT_CONTEXT_SUMMARY, **summary}
+    if result["first_level"] not in CONTEXT_SUMMARY_LEVELS:
+        raise CatalogError(f"{where}: summary.first_level must be one of {', '.join(CONTEXT_SUMMARY_LEVELS)} "
+                           f"(a summary is never made by T3 or T4), got {result['first_level']!r}")
+    retry = result["retry_level"]
+    if retry is not None:
+        if retry not in CONTEXT_SUMMARY_LEVELS:
+            raise CatalogError(f"{where}: summary.retry_level must be one of {', '.join(CONTEXT_SUMMARY_LEVELS)} "
+                               f"or null (no retry), got {retry!r}")
+        if _level_index(retry) <= _level_index(result["first_level"]):
+            raise CatalogError(f"{where}: summary.retry_level {retry} must be above first_level {result['first_level']}")
+    if result["effort"] is not None and result["effort"] not in EFFORT_LEVELS:
+        raise CatalogError(f"{where}: summary.effort must be one of {', '.join(EFFORT_LEVELS)} or null, "
+                           f"got {result['effort']!r}")
+    if type(result["model_check"]) is not bool:
+        raise CatalogError(f"{where}: summary.model_check must be true or false, got {result['model_check']!r}")
+    _context_positive_int(where, "summary.max_calls", result["max_calls"])
+    ratio = _context_fraction(where, "summary.max_ratio", result["max_ratio"])
+    if not 0 < ratio < 1:
+        raise CatalogError(f"{where}: summary.max_ratio must be above 0 and below 1, got {result['max_ratio']!r}")
+    result["max_ratio"] = ratio
+    return {name: result[name] for name in DEFAULT_CONTEXT_SUMMARY}
+
+
+def validate_context_profile(profile_id: str, profile: Any) -> dict[str, Any]:
+    """Check one entry of ``context_profiles.profiles`` and return a normalized copy with the defaults filled in.
+
+    Fields: ``version`` (1), ``enabled`` (``false`` unless set: a profile does nothing until it is switched on),
+    ``warning_at`` and ``threshold`` (fractions of the model window, ``0 < warning_at < threshold < 1``),
+    ``unknown_window`` (``skip`` lets a call to a model of unknown window go on with one warning, ``block``
+    stops it), ``keep_recent`` (outputs never summarized, at least 1), ``summary`` (how summaries are made; it is
+    the mapping ``SummaryPolicy.from_profile`` takes) and ``tasks.window_tokens`` (the window to measure task
+    context against, or ``null`` to use the requested model's). A malformed entry raises ``CatalogError``
+    naming the profile; an unknown key is an error, never ignored.
+    """
+    where = f"Context profile {profile_id!r}"
+    if not isinstance(profile, dict):
+        raise CatalogError(f"{where} must be a mapping ({', '.join(DEFAULT_CONTEXT_PROFILE)})")
+    unknown = sorted(str(key) for key in profile if key not in DEFAULT_CONTEXT_PROFILE)
+    if unknown:
+        raise CatalogError(f"{where}: unknown keys {unknown}; expected {', '.join(DEFAULT_CONTEXT_PROFILE)}")
+    merged = {**DEFAULT_CONTEXT_PROFILE, **profile}
+    if merged["version"] != 1 or type(merged["version"]) is not int:
+        raise CatalogError(f"{where}: version must be 1, got {merged['version']!r}")
+    if type(merged["enabled"]) is not bool:
+        raise CatalogError(f"{where}: enabled must be true or false, got {merged['enabled']!r}")
+    warning_at = _context_fraction(where, "warning_at", merged["warning_at"])
+    threshold = _context_fraction(where, "threshold", merged["threshold"])
+    if not 0 < warning_at < threshold < 1:
+        raise CatalogError(f"{where}: needs 0 < warning_at < threshold < 1, got warning_at={merged['warning_at']!r} "
+                           f"and threshold={merged['threshold']!r}")
+    if merged["unknown_window"] not in CONTEXT_UNKNOWN_WINDOW_POLICIES:
+        raise CatalogError(f"{where}: unknown_window must be one of {', '.join(CONTEXT_UNKNOWN_WINDOW_POLICIES)}, "
+                           f"got {merged['unknown_window']!r}")
+    _context_positive_int(where, "keep_recent", merged["keep_recent"])
+    tasks = merged["tasks"]
+    if tasks is None:
+        tasks = {}
+    if not isinstance(tasks, dict):
+        raise CatalogError(f"{where}: tasks must be a mapping with window_tokens")
+    extra = sorted(str(key) for key in tasks if key != "window_tokens")
+    if extra:
+        raise CatalogError(f"{where}: tasks has unknown keys {extra}; expected window_tokens")
+    window_tokens = _context_positive_int(where, "tasks.window_tokens", tasks.get("window_tokens"), allow_none=True)
+    return {
+        "version": 1, "enabled": merged["enabled"], "warning_at": warning_at, "threshold": threshold,
+        "unknown_window": merged["unknown_window"], "keep_recent": merged["keep_recent"],
+        "summary": _validate_context_summary(where, merged["summary"]), "tasks": {"window_tokens": window_tokens},
+    }
+
+
 @dataclass(frozen=True)
 class ModelSpec:
     id: str
@@ -419,6 +527,8 @@ class Catalog:
             for profile_id, profile in dict(routing.get("profiles", {}) or {}).items()
         }
         self.routing_assignments = dict(routing.get("assignments", {}) or {})
+        self.context_profiles, self.context_assignments = self._load_context_profiles(
+            models_document.get("context_profiles"))
         executor_routing = models_document.get("executor_routing", {}) or {}
         self.executor_routing_valid = isinstance(executor_routing, dict)
         self.executor_routing = dict(executor_routing) if self.executor_routing_valid else {}
@@ -451,6 +561,40 @@ class Catalog:
             if isinstance(profile, dict) and profile.get("mode") == "single" and profile["model_id"] not in self.models:
                 raise CatalogError(
                     f"Routing profile {str(profile_id)!r}: model_id {profile['model_id']!r} is not a model in the catalog")
+
+    @staticmethod
+    def _load_context_profiles(document: Any) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+        """The validated ``context_profiles`` of ``models.yaml`` and the profile assigned to each workflow.
+
+        ``assignments`` maps a workflow id (or ``tasks``, for task envelopes) to a profile. A profile that does
+        not exist is an error here, so a typo cannot silently leave compaction off.
+        """
+        if document is None:
+            return {}, {}
+        if not isinstance(document, dict):
+            raise CatalogError("context_profiles must be a mapping with 'profiles' and 'assignments'")
+        unknown = sorted(str(key) for key in document if key not in ("profiles", "assignments"))
+        if unknown:
+            raise CatalogError(f"context_profiles has unknown keys {unknown}; expected profiles, assignments")
+        declared = document.get("profiles", {})
+        if declared is None:
+            declared = {}
+        if not isinstance(declared, dict):
+            raise CatalogError("context_profiles.profiles must be a mapping from profile id to profile")
+        profiles = {str(profile_id): validate_context_profile(str(profile_id), profile)
+                    for profile_id, profile in declared.items()}
+        declared_assignments = document.get("assignments", {})
+        if declared_assignments is None:
+            declared_assignments = {}
+        if not isinstance(declared_assignments, dict):
+            raise CatalogError("context_profiles.assignments must be a mapping from workflow id (or 'tasks') to profile id")
+        assignments: dict[str, str] = {}
+        for target, profile_id in declared_assignments.items():
+            if not isinstance(profile_id, str) or profile_id not in profiles:
+                raise CatalogError(f"context_profiles.assignments.{target}: {profile_id!r} is not a declared context profile "
+                                   f"({', '.join(sorted(profiles)) or 'none declared'})")
+            assignments[str(target)] = profile_id
+        return profiles, assignments
 
     def _resolve_context_window(self, model_id: str, raw: dict[str, Any]) -> dict[str, Any] | None:
         """The model's window evidence, or ``None`` when it is unknown.
@@ -516,6 +660,29 @@ class Catalog:
         profile_id = str(profile_id)
         profile = self.routing_profiles.get(profile_id)
         return profile_id, dict(profile) if isinstance(profile, dict) else None
+
+    def context_profile_for(self, workflow_id: str) -> tuple[str | None, dict[str, Any] | None]:
+        """The context profile assigned to a workflow as ``(profile_id, profile)``, or ``(None, None)``.
+
+        Only an explicit assignment counts, as for routing: with none, compaction is off and prompts are exactly
+        what they were. The profile is returned even when it is ``enabled: false`` (callers check ``enabled``); a
+        copy, so a caller cannot change the catalog. ``tasks`` is reserved for task envelopes
+        (``context_profile_for_tasks``) and is never a workflow id here. The profile's ``summary`` mapping is what
+        ``SummaryPolicy.from_profile`` takes.
+        """
+        if workflow_id == CONTEXT_TASKS_ASSIGNMENT:
+            return None, None
+        return self._context_profile(self.context_assignments.get(workflow_id))
+
+    def context_profile_for_tasks(self) -> tuple[str | None, dict[str, Any] | None]:
+        """The context profile assigned to task envelopes (``assignments.tasks``), same shape as ``context_profile_for``."""
+        return self._context_profile(self.context_assignments.get(CONTEXT_TASKS_ASSIGNMENT))
+
+    def _context_profile(self, profile_id: Any) -> tuple[str | None, dict[str, Any] | None]:
+        if profile_id is None:
+            return None, None
+        profile = self.context_profiles.get(str(profile_id))
+        return str(profile_id), (copy.deepcopy(profile) if isinstance(profile, dict) else None)
 
     def model(self, model_id: str) -> ModelSpec:
         try:

@@ -13,7 +13,11 @@ from pydantic import BaseModel, ValidationError
 from .adapters.base import LLMResponse
 from .adapters.fake import FakeAdapter
 from .artifacts import ArtifactWriter
+from .call_guards import (
+    SCOPE_RUN_STEP, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
+)
 from .catalog import Catalog, CatalogError, validate_routing_profile
+from .context.estimate import context_settings_for
 from .contracts import (
     ContentOutput,
     ExecutionMode,
@@ -338,29 +342,45 @@ class WorkflowEngine:
                 profile_models = ([binding.preferred_model] + ([binding.fallback_model] if binding.fallback_model else [])) if profile_id is not None else []
                 next_profile_model = profile_models[0] if profile_models else None
 
-                def consume_llm_call() -> None:
-                    budget_state = self.store.get_run(run_id)
-                    attempted_model = next_profile_model
-                    self._check_cancel(run_id)
-                    if profile_id is not None:
-                        used = sum(
-                            1 for event in budget_state.get("events", [])
-                            if event.get("event_type") == "routing_dispatch_reserved"
-                            and event.get("payload", {}).get("profile_id") == profile_id
-                        )
-                        profile_limit = profile.get("max_provider_invocations") if isinstance(profile, dict) else None
-                        if profile_limit is not None and used >= int(profile_limit):
-                            raise BudgetExceeded("routing profile max_provider_invocations reached")
-                    if int(budget_state["llm_calls"]) >= int(budget_state["max_llm_calls"]):
-                        raise BudgetExceeded("max_llm_calls reached")
+                def reserve_llm_call(call: CallContext) -> None:
+                    """Book the call; the chain runs this only after every guard let the call through."""
                     if profile_id is not None:
                         self.store.db.log_event(run_id, "routing_dispatch_reserved", {
                             "profile_id": profile_id,
                             "step_id": step.id,
-                            "attempted_model": attempted_model,
+                            "attempted_model": next_profile_model,
                             "scope": {"run_id": run_id, "profile_id": profile_id},
                         })
                     self.store.increment_llm_calls(run_id)
+
+                # The checks before every model call, in the fixed order of call_guards.py: cancellation, the
+                # context estimate (only with an enabled context profile), the limits of this call, the budget
+                # guards that plug in there, and last the reservation. A dry run has no real model or window,
+                # so it is not measured.
+                call_guards = build_call_guards(
+                    GuardEnvironment(
+                        scope=SCOPE_RUN_STEP, catalog=self.catalog,
+                        routing_profile_id=profile_id, routing_profile=profile,
+                        context_settings=(None if self.router.dry_run
+                                          else context_settings_for(self.catalog, run["workflow_id"])),
+                        emit=lambda event_type, payload: self.store.db.log_event(run_id, event_type, payload),
+                    ),
+                    cancel=lambda call: self._check_cancel(run_id),
+                    reserve=reserve_llm_call,
+                )
+
+                def consume_llm_call(call: CallContext, *, skip: tuple[str, ...] = ()) -> None:
+                    """``before_call`` of the router for this step. ``skip`` names guards to leave out (the
+                    summarizer's own calls pass ``("context",)``, so they are not measured for compaction but
+                    still count in the limits and budgets)."""
+                    call = call.with_fields(
+                        scope=SCOPE_RUN_STEP, run_id=run_id, step_id=step.id, step_kind=step.kind, attempt=attempt,
+                        profile_id=profile_id,
+                        data_class="sensitive" if request.get("sensitive") else "non_sensitive",
+                    )
+                    verdict = call_guards.check(call, self.store.get_run(run_id), skip=skip)
+                    self._enforce_call_verdict(verdict, call=call, run_id=run_id, index=index, step=step,
+                                               attempt=attempt)
 
                 def validate_response(parsed, response: LLMResponse) -> None:
                     self._prepare_and_semantic_validate(
@@ -517,6 +537,10 @@ class WorkflowEngine:
                 waiting_attempt=None,
             )
             self.store.db.log_event(run_id, "workflow_cancelled", {})
+            return self._finalize_return(run_id)
+        except CallPaused:
+            # A call guard asked for a human before the call (the run is already WAITING_HUMAN, see
+            # _enforce_call_verdict); nothing else to record.
             return self._finalize_return(run_id)
         except BudgetExceeded as exc:
             if self.store.artifact_count(run_id) > 0:
@@ -1017,6 +1041,42 @@ class WorkflowEngine:
         return _Escalation(route, info)
 
     # ---------- helpers ----------
+    def _enforce_call_verdict(self, verdict: Verdict, *, call: CallContext, run_id: str, index: int,
+                              step: WorkflowStep, attempt: int) -> None:
+        """The one place the verdict of the call guards becomes engine behaviour (contract CMP-T01 section 4).
+
+        ``Proceed`` does nothing. ``Stop`` raises ``BudgetExceeded`` with the guard's message (its ``code`` and
+        ``guard`` are kept on the exception), which ``process_run`` already turns into a failed run or a run
+        waiting on its budget. ``Pause`` puts the step in ``WAITING_HUMAN`` with the guard's ``waiting_reason``,
+        the way a supervised escalation waits, records ``call_paused`` with what the guard asked, and raises
+        ``CallPaused`` to unwind the router; nothing was reserved, so no call is counted.
+        """
+        if isinstance(verdict, Stop):
+            error = BudgetExceeded(verdict.message)
+            error.code = verdict.code
+            error.guard = verdict.guard
+            raise error
+        if isinstance(verdict, Pause):
+            self.store.db.log_event(run_id, "call_paused", {
+                "step_id": step.id,
+                "attempt": attempt,
+                "guard": verdict.guard,
+                "waiting_reason": verdict.waiting_reason,
+                "model_id": call.model_id,
+                "ordinal": call.ordinal,
+                "message": verdict.message,
+                "request": dict(verdict.request),
+            })
+            self.store.update_run(
+                run_id,
+                status=RunStatus.WAITING_HUMAN.value,
+                current_step=index,
+                waiting_reason=verdict.waiting_reason,
+                waiting_step=step.id,
+                waiting_attempt=attempt,
+            )
+            raise CallPaused(verdict, call)
+
     def _pause_for_human(self, *, run_id: str, index: int, step: WorkflowStep, attempt: int,
                          context: dict[str, str], final_prompt: str, prompt_sha256: str,
                          requires_web: bool) -> dict[str, Any]:

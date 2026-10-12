@@ -308,6 +308,19 @@ class ExecutorOpenRequest(_Body):
     actor: str | None = None
 
 
+class ExecutorResumeDueRequest(_Body):
+    task_id: str | None = None
+    limit: int | None = None
+    dry_run: bool = False
+    timeout_seconds: int | None = None
+
+
+class ExecutorLiftPauseRequest(_Body):
+    executor_id: str
+    actor: str | None = None
+    reason: str = ""
+
+
 class CursorAck(_Body):
     seq: int
     scope: str = ""
@@ -452,6 +465,15 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def run_usage(run_id: str):
         """Token usage records and totals per run, agent and step (cost is an estimate)."""
         return services.runs.usage(run_id)
+
+    @app.get("/api/v1/usage/costs")
+    def usage_costs(since: str | None = None, until: str | None = None, limit: int = 100):
+        """Estimated cost of the framework's provider calls per run, model, day and month, each with its price evidence.
+
+        Window ``[since, until)`` in ISO-8601 (default: the last 31 days); an unknown cost is counted apart, never as 0.
+        The plan usage and the apps' own tokens are private and only served under ``/gui/api/usage`` with the token.
+        """
+        return services.usage.costs(since=since, until=until, limit=limit)
 
     @app.post("/api/v1/runs/{run_id}/approve")
     def approve(run_id: str):
@@ -800,6 +822,17 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         """Continue the session the framework created for the task (never one opened in an app in the last 12 hours)."""
         return await anyio.to_thread.run_sync(lambda: services.executors.resume_task(
             body.task_id, body.model, body.effort, body.actor, timeout_seconds=body.timeout_seconds))
+
+    @app.post("/api/v1/executors/resume-due")
+    async def resume_due_executor_tasks(body: ExecutorResumeDueRequest):
+        """Resume the tasks held by a usage limit whose time has come (CNT-T04); waits for every attempt it makes."""
+        return await anyio.to_thread.run_sync(lambda: services.executors.resume_due(
+            task_id=body.task_id, limit=body.limit, dry_run=body.dry_run, timeout_seconds=body.timeout_seconds))
+
+    @app.post("/api/v1/executors/lift-pause")
+    def lift_executor_pause(body: ExecutorLiftPauseRequest):
+        """Lift the pause of an executor (the only end of a credits_exhausted pause); its held tasks become due."""
+        return services.executors.lift_pause(body.executor_id, actor=body.actor or "user", reason=body.reason)
 
     @app.post("/api/v1/executors/open")
     def open_executor_session(body: ExecutorOpenRequest):

@@ -8,6 +8,7 @@ import { startStream } from "./stream.js";
 import { publishEvent } from "./bus.js";
 import { navigate, useRoute, NEW_SECTION } from "./route.js";
 import { RightPanel } from "./right-panel.js";
+import { AgentTree } from "./agent-tree.js";
 import { Runs } from "./runs.js";
 import { Sessions } from "./sessions.js";
 import { Shell } from "./shell.js";
@@ -28,6 +29,9 @@ const SECTIONS = [
 
 // "#new" is not a section of its own: for now it shows the create-run form (inside "Ejecuciones").
 const NEW_TITLE = "Nueva sesión";
+// "#tree/<session id>" (GUI2-T08) is a second view of one session: it has no entry in the sidebar of its own.
+const TREE_SECTION = "tree";
+const TREE_TITLE = "Árbol de agentes";
 
 function NoToken() {
   return html`<main class="notice">
@@ -62,12 +66,16 @@ function App({ token }) {
 
   const section = route.section;
   const creating = section === NEW_SECTION;
+  const tree = section === TREE_SECTION;
   const current = SECTIONS.find((s) => s.id === section);
-  const sidebar = html`<${Sidebar} token=${token} status=${status} route=${route} views=${html`<${Views} section=${section} />`} />`;
-  const panel = html`<${RightPanel} token=${token} route=${route} />`;
+  // The sidebar and the right panel treat the tree of a session as the session itself (it stays marked, its panel stays).
+  const context = tree ? { section: "sessions", id: route.id } : route;
+  const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} views=${html`<${Views} section=${context.section} />`} />`;
+  const panel = html`<${RightPanel} token=${token} route=${context} />`;
   return html`<${Shell} status=${status} statusText=${STATUS_TEXT[status]} mock=${mock} sidebar=${sidebar} panel=${panel}>
-    <h2>${creating ? NEW_TITLE : current.label}</h2>
+    <h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : current.label}</h2>
     <${Sessions} token=${token} route=${route} active=${section === "sessions"} />
+    ${tree && html`<${AgentTree} key=${route.id || ""} token=${token} sessionId=${route.id} />`}
     ${(section === "runs" || creating) && html`<${Runs} token=${token} status=${status} mock=${mock} initialRunId=${route.id} startCreating=${creating} />`}
     ${lastEvent && html`<p class="muted small">Último evento recibido: ${lastEvent}</p>`}
   <//>`;

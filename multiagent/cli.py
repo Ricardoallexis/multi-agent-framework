@@ -242,6 +242,18 @@ def cmd_executors(args) -> None:
     if args.executors_command == "status":
         pretty(_api_json("GET", "/api/v1/executors/status", params={"task": args.task} if args.task else None))
         return
+    if args.executors_command == "resume-due":
+        body = {key: value for key, value in (("task_id", args.task), ("limit", args.limit),
+                                              ("timeout_seconds", args.timeout)) if value is not None}
+        body["dry_run"] = bool(args.dry_run)
+        pretty(_api_json("POST", "/api/v1/executors/resume-due", json_body=body, timeout=None))
+        return
+    if args.executors_command == "lift-pause":
+        body = {"executor_id": args.executor_id, "reason": args.reason or ""}
+        if args.actor:
+            body["actor"] = args.actor
+        pretty(_api_json("POST", "/api/v1/executors/lift-pause", json_body=body))
+        return
     body = {"task_id": args.task_id}
     if args.executors_command == "open":
         if args.actor:
@@ -874,6 +886,36 @@ def cmd_sessions(args) -> None:
         pretty(result)
 
 
+def _usage_services():
+    """The usage service the GUI routes use, built in-process: plan usage and the apps' tokens are private local
+    data, so the CLI reads them directly instead of going through the (token-protected) HTTP routes."""
+    from .services import ApplicationServices
+
+    return ApplicationServices.create(get_settings()).usage
+
+
+def cmd_usage_report(args) -> None:
+    """Plan usage per app, tokens per app/model/level/role and the estimated cost of provider calls (read-only)."""
+    from .services import ServiceError
+
+    service = _usage_services()
+    try:
+        if args.usage_report_command == "plans":
+            result, rows = service.plans(), "apps"
+        elif args.usage_report_command == "tokens":
+            result = service.tokens(since=args.since, until=args.until, apps=args.apps, group_by=args.group_by)
+            rows = "rows"
+        else:
+            result, rows = service.costs(since=args.since, until=args.until, limit=args.limit), "by_run"
+    except ServiceError as exc:
+        raise RuntimeError(f"{exc.code}: {exc.message}") from exc
+    if getattr(args, "jsonl", False):
+        for row in result[rows]:
+            print(json.dumps(row, ensure_ascii=False, default=str))
+    else:
+        pretty(result)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="multiagent", description=f"Multi-Agent Framework {__version__} — Hybrid Human/AI Orchestration")
     p.add_argument("--version", action="version", version=__version__)
@@ -933,6 +975,21 @@ def build_parser() -> argparse.ArgumentParser:
     x = sub.add_parser("usage", help="Show a run's token usage with totals per run, agent and step (cost is an estimate)")
     x.add_argument("run_id"); x.add_argument("--jsonl", action="store_true", help="One JSON line per usage record")
     x.set_defaults(func=cmd_usage)
+    report = sub.add_parser("usage-report", help="Plan usage per app, tokens per app/model/level/role and estimated API cost "
+                                                   "(local, read-only)")
+    report = report.add_subparsers(dest="usage_report_command", required=True)
+    x = report.add_parser("plans", help="What each app's plan allows and how much is used; 'not_available' where the app leaves no number")
+    x.add_argument("--jsonl", action="store_true", help="One JSON line per app"); x.set_defaults(func=cmd_usage_report)
+    x = report.add_parser("tokens", help="Tokens per app, model, level and role inside a time window (default: the last 7 days)")
+    x.add_argument("--since", help="ISO-8601 start of the window"); x.add_argument("--until", help="ISO-8601 end of the window (exclusive)")
+    x.add_argument("--app", dest="apps", action="append", help="claude, codex, copilot or framework; repeat or comma separate")
+    x.add_argument("--group-by", help="Comma separated: app, model, level, role, day, month (default app,model,level,role)")
+    x.add_argument("--jsonl", action="store_true", help="One JSON line per row"); x.set_defaults(func=cmd_usage_report)
+    x = report.add_parser("costs", help="Estimated cost of the framework's provider calls per run, model, day and month, with evidence")
+    x.add_argument("--since", help="ISO-8601 start of the window (default: 31 days before --until)")
+    x.add_argument("--until", help="ISO-8601 end of the window (exclusive)")
+    x.add_argument("--limit", type=int, default=100, help="Runs listed, 1 to 500")
+    x.add_argument("--jsonl", action="store_true", help="One JSON line per run"); x.set_defaults(func=cmd_usage_report)
 
     # Tasks, dependencies and the team event log (ORQ-1).
     requires_choices = ["accepted", "submitted"]
@@ -1103,6 +1160,14 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("task_id"); x.add_argument("--actor"); x.set_defaults(func=cmd_executors)
     x = executors.add_parser("status", help="Show the executors with an adapter and, with --task, its sessions and attempts")
     x.add_argument("--task"); x.set_defaults(func=cmd_executors)
+    x = executors.add_parser("resume-due", help="Resume the tasks held by a usage limit whose time has come "
+                             "(only if still owned by the same agent; relaunches from the checkpoint on config drift)")
+    x.add_argument("--task", help="Only this task"); x.add_argument("--limit", type=int, help="At most this many resumptions")
+    x.add_argument("--dry-run", action="store_true", help="Only report what is due"); x.add_argument("--timeout", type=int)
+    x.set_defaults(func=cmd_executors)
+    x = executors.add_parser("lift-pause", help="Lift the pause of an executor (the only end of a credits_exhausted pause)")
+    x.add_argument("executor_id"); x.add_argument("--actor", help="Default: user"); x.add_argument("--reason")
+    x.set_defaults(func=cmd_executors)
     x = sub.add_parser("project-commands", help="List the project commands configured on the server (names, timeouts, folders)")
     x.set_defaults(func=cmd_project_commands)
     x = sub.add_parser("team-events", help="List team events, optionally only those after a sequence number")

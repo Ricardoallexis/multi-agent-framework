@@ -8,6 +8,7 @@ Host and Origin checks come from ``LocalAPISecurityMiddleware`` in ``api.py``.
 
 ``/gui/api/sessions`` (list, counts, one session, its items, its children) and ``/gui/api/stream?session=`` (live
 follow; ``&only=children`` for the subagents panel) serve the session viewer; see ``sessions_api`` and ``events``.
+``/gui/api/usage/{plans,tokens,costs}`` serve the usage view (plan usage, tokens and estimated cost); see ``usage_api``.
 """
 from __future__ import annotations
 
@@ -21,11 +22,13 @@ from fastapi.staticfiles import StaticFiles
 
 from ..services.errors import INVALID_REQUEST, ServiceError
 from ..services.sessions import SessionServices
+from ..services.usage import UsageServices
 from ..version import __version__
 from . import events
 from .runs import build_router as build_runs_router
 from .security import GUISecurityHeadersMiddleware, require_json, require_token
 from .sessions_api import add_session_routes
+from .usage_api import add_usage_routes
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 _INT_CURSOR = re.compile(r"[0-9]{1,15}")
@@ -39,6 +42,7 @@ def mount_gui(app: FastAPI) -> None:
     services = app.state.services
     settings = services.system.settings
     sessions = getattr(services, "sessions", None) or SessionServices(services)
+    usage = getattr(services, "usage", None) or UsageServices(services)
     app.state.gui_token_file = settings.gui_token_file
     app.add_middleware(GUISecurityHeadersMiddleware)
 
@@ -82,6 +86,7 @@ def mount_gui(app: FastAPI) -> None:
                                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
     add_session_routes(api, sessions)
+    add_usage_routes(api, usage)  # /gui/api/usage/{plans,tokens,costs} (USO-T02)
     api.include_router(build_runs_router(services))
     app.include_router(api)
     app.mount("/gui/static", StaticFiles(directory=STATIC_DIR), name="gui-static")

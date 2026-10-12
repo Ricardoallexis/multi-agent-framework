@@ -24,7 +24,7 @@ NODE = shutil.which("node")
 # The modules that draw the screens: every control they render must have help.
 VIEW_FILES = [
     "main.js", "runs.js", "create-run.js", "run-detail.js", "human-actions.js",
-    "sessions.js", "session-detail.js", "session-items.js", "open-in-app.js", "subagents-panel.js",
+    "sessions.js", "session-detail.js", "session-items.js", "open-in-app.js", "subagents-panel.js", "agent-tree.js",
 ]
 # The app shell (GUI2-T02: top bar, sidebar, right panel) draws controls too, under the same rules.
 VIEW_FILES += ["shell.js", "sidebar.js", "right-panel.js", "panel-slots.js", "subagents-mount.js"]
@@ -63,8 +63,9 @@ SECTION_TOPICS = {
     "inputs-title": "run.inputs", "human-actions-title": "human.section",
     "panel-changes-title": "panel.changes", "panel-subagents-title": "subagents.panel",
     "panel-tokens-title": "panel.tokens", "panel-sources-title": "panel.sources",
+    "agent-tree-title": "agent_tree.view", "at-log-title": "agent_tree.log",
 }
-DATA_HEADINGS = {"run-title", "session-title"}
+DATA_HEADINGS = {"run-title", "session-title", "at-detail-title"}   # the last one is the name of the chosen agent
 
 MAX_TITLE, MAX_HINT, MAX_SENTENCE, MAX_MORE = 60, 110, 220, 700
 FORBIDDEN_IN_TEXT = re.compile(r"[<>`]|\$\{|https?:|javascript:|\b(?:the|and|click|please|payload|endpoint)\b", re.I)

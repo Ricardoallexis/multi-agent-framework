@@ -47,6 +47,7 @@ from ..tasks import graph, labels, release as release_policy
 from ..tasks.envelopes import (EnvelopeError, MAX_CONTEXT_REFS, MAX_CONSTRAINTS, MAX_CONSTRAINT_CHARS,
                                parse_reference, validate_reference)
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
+from .hold import continuity_of, merge_continuity
 
 if TYPE_CHECKING:
     from . import ApplicationServices
@@ -171,6 +172,24 @@ def _labels(value: Iterable[str]) -> list[str]:
     if len(labels) > 50:
         raise _invalid("requirements", "requirements has more than 50 items")
     return list(dict.fromkeys(labels))
+
+
+MAX_CONTINUITY_BYTES = 16384
+
+
+def _continuity_changes(value: Any) -> dict[str, Any] | None:
+    """The changes to the continuity block, checked: a mapping of text keys to JSON data (``None`` removes a key)."""
+    if value is None:
+        return None
+    if not isinstance(value, Mapping) or not all(isinstance(key, str) and key for key in value):
+        raise _invalid("continuity", "continuity must be a mapping with non-empty text keys")
+    try:
+        encoded = json.dumps(dict(value), ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        raise _invalid("continuity", "continuity must hold JSON data") from None
+    if len(encoded.encode("utf-8")) > MAX_CONTINUITY_BYTES:
+        raise _invalid("continuity", f"continuity is larger than {MAX_CONTINUITY_BYTES} bytes")
+    return dict(value)
 
 
 def _overlaps(one: str, other: str) -> bool:
@@ -313,6 +332,10 @@ class TaskServices:
             "created_at": task["created_at"],
             "updated_at": task["updated_at"],
         }
+        continuity = continuity_of(task)
+        if continuity:
+            # The wait of a task that hit a limit (CNT-T04): the hold and the counters of the continuity block.
+            view["continuity"] = continuity
         provenance = self.store.snapshot_provenance("task", str(task["id"]))
         if provenance:
             view["provenance"] = provenance
@@ -1537,7 +1560,8 @@ class TaskServices:
 
     @service_errors
     def transition(self, task_id: str, action: str, *, actor: str, cause: str = "",
-                   expected_revision: int | None = None, actor_domain: str | None = None) -> dict[str, Any]:
+                   expected_revision: int | None = None, actor_domain: str | None = None,
+                   continuity: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """The single entry point for state changes (see ``TRANSITIONS``).
 
         ``claim`` also requires an authorized group and a ``file_scope`` that
@@ -1546,6 +1570,9 @@ class TaskServices:
         are for the assignee only. ``start`` increments ``attempt``. After the
         change, every dependent that became ``ready`` gets a ``task.ready``
         event. With ``expected_revision``, a different current revision fails.
+        ``continuity`` (CNT-T04) is merged into the ``continuity`` block of the task's ``execution`` in the same
+        update, so a task paused by a limit and its hold commit together (a ``None`` value removes that key; see
+        ``_edit_continuity``).
         Errors: ``not_found``, ``invalid_request`` (unknown action),
         ``invalid_state`` (status, authorization, assignee, overlap or revision;
         ``details`` names what failed).
@@ -1560,21 +1587,55 @@ class TaskServices:
             if expected_revision is None:
                 raise _invalid("expected_revision", "reopen requires expected_revision")
             cause = _text("cause", cause, maximum=500)
+        changes = _continuity_changes(continuity)
         with self.store.transaction() as conn:
             if actor_domain is not None:
                 actor_domain = _text("actor_domain", actor_domain, maximum=200)
             return self._apply(conn, task_id, action, actor=actor, cause=cause,
-                               expected_revision=expected_revision, actor_domain=actor_domain)
+                               expected_revision=expected_revision, actor_domain=actor_domain, continuity=changes)
+
+    @service_errors
+    def _edit_continuity(self, task_id: str, changes: Mapping[str, Any], *, actor: str,
+                          expected_revision: int | None = None) -> dict[str, Any]:
+        """Merge ``changes`` into the ``continuity`` block of the task's ``execution`` (CNT-T04); no state changes.
+
+        A key with the value ``None`` is removed. The other blocks of ``execution`` are kept. ``revision`` goes up (the
+        caller writes the event that tells why). Returns the task view, which shows the block as ``continuity``.
+        Errors: ``not_found``, ``invalid_request`` (not a mapping of JSON data, or too big) and ``invalid_state`` (the
+        task is ``accepted``, ``failed`` or ``cancelled``, or ``expected_revision`` is stale).
+        """
+        actor = _text("actor", actor, maximum=100)
+        edited = _continuity_changes(changes)
+        if not edited:
+            raise _invalid("changes", "Give at least one key of the continuity block")
+        if expected_revision is not None and (isinstance(expected_revision, bool) or not isinstance(expected_revision, int)):
+            raise _invalid("expected_revision", "expected_revision must be an integer")
+        with self.store.transaction() as conn:
+            task = self.store.get_task(task_id, conn=conn)
+            if task is None:
+                raise _missing("Task", task_id)
+            if task["state"] in TERMINAL_STATES:
+                raise _conflict(f"Cannot change the continuity of a task that is {task['state']}", task_id=task_id,
+                                status=task["state"])
+            try:
+                self.store.update_task(conn, task_id, execution=merge_continuity(task.get("execution"), edited),
+                                       expected_revision=task["revision"] if expected_revision is None
+                                       else expected_revision)
+            except StaleRevision as stale:
+                raise _conflict(str(stale), task_id=task_id, revision=stale.current) from None
+            return self._task_view(task_id, conn)
 
     def _apply(self, conn: sqlite3.Connection, task_id: str, action: str, *, actor: str, cause: str = "",
                expected_revision: int | None = None, gate: bool = False, event: str | None = None,
-               payload: Mapping[str, Any] | None = None, actor_domain: str | None = None) -> dict[str, Any]:
+               payload: Mapping[str, Any] | None = None, actor_domain: str | None = None,
+               continuity: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Apply one transition inside the caller's transaction (the body of ``transition``).
 
         ``gate=True`` allows the internal gate actions (``GATE_TRANSITIONS``);
         the gate services use it so that results, events and the state change
         commit together. ``event`` and ``payload`` override the event type and
-        extend its payload for gate actions.
+        extend its payload for gate actions. ``continuity`` (already checked by ``_continuity_changes``) is merged into
+        the task's ``execution`` in the same update (CNT-T04).
         """
         table = GATE_TRANSITIONS if gate else TRANSITIONS
         if action not in table:
@@ -1655,7 +1716,9 @@ class TaskServices:
             self.store.update_task(conn, task_id, expected_revision=task["revision"], state=target,
                                    assignee=assignee, attempt=attempt, lock_policy=lock_policy_update,
                                    workspace_domain=workspace_domain_update,
-                                   snapshot_epoch_pending=epoch_pending_update)
+                                   snapshot_epoch_pending=epoch_pending_update,
+                                   execution=(merge_continuity(task.get("execution"), continuity)
+                                              if continuity else None))
         except StaleRevision as stale:
             raise _conflict(str(stale), task_id=task_id, revision=stale.current) from None
         reset_release = action in ("claim", "unclaim", "request_changes", "gate_fail", "reopen") or (

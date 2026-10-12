@@ -11,11 +11,13 @@ from typing import Any, Callable, Mapping
 from pydantic import BaseModel
 
 from .adapters.base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
+from .call_guards import CallContext
 from .catalog import (
     MODEL_LEVELS, Catalog, CatalogError, ModelSpec, current_price, validate_routing_profile,
 )
 from .contracts import TaskRequirements
 from .routing_policy import RoutingCandidate, RoutingDecision, RoutingEvidence, RoutingRequest
+from .schema_utils import estimate_tokens_conservative
 from .errors import (
     AuthenticationError,
     ContextBudgetError,
@@ -615,10 +617,43 @@ class ModelRouter:
         translation = translate(spec, effort) if callable(translate) else ignored_effort(effort, "provider_does_not_support_effort")
         return {"effort": effort}, translation
 
+    @staticmethod
+    def _takes_call(before_call: Callable[..., None]) -> bool:
+        """True when ``before_call`` accepts the :class:`CallContext` of the candidate (one positional argument).
+
+        A callable written before the guard chain existed takes no arguments and is called as it always was.
+        """
+        try:
+            parameters = inspect.signature(before_call).parameters.values()
+        except (TypeError, ValueError):
+            return False
+        return any(p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                              inspect.Parameter.VAR_POSITIONAL) for p in parameters)
+
+    @classmethod
+    def _before_call_runner(cls, before_call: Callable[..., None] | None, prompt: str):
+        """``run(model_id, spec, retry, ordinal)`` that calls ``before_call`` for one candidate, or ``None``.
+
+        The check receives a :class:`CallContext` with what the router knows (candidate, retry, ordinal and
+        the estimate of ``prompt``, the exact text about to be sent); the host completes the rest of it.
+        """
+        if not before_call:
+            return None
+        if not cls._takes_call(before_call):
+            return lambda model_id, spec, retry, ordinal: before_call()
+        estimated = estimate_tokens_conservative(prompt)
+
+        def run(model_id: str, spec: ModelSpec, retry: int, ordinal: int) -> None:
+            before_call(CallContext(model_id=model_id, spec=spec, retry=retry, ordinal=ordinal,
+                                    estimated_input_tokens=estimated))
+
+        return run
+
     def execute(self, *, binding: ModelBinding, requirements: TaskRequirements, prompt: str,
                 output_schema: type[BaseModel], before_call=None,
                 validate_response: ResponseValidator | None = None, on_failed_attempt=None,
                 on_attempt: AttemptCallback | None = None, effort: str | None = None):
+        check_before_call = self._before_call_runner(before_call, prompt)
         if self.dry_run:
             adapter = self.adapters["fake"]
             fake_spec = ModelSpec(id="fixture", provider="fake", model="fixture", tier=requirements.tier.value,
@@ -628,8 +663,8 @@ class ModelRouter:
             provider_invoked = False
             effort_kwargs, translation = self._plan_effort(adapter, fake_spec, effort)
             try:
-                if before_call:
-                    before_call()
+                if check_before_call:
+                    check_before_call("fixture", fake_spec, 0, 1)
                 provider_invoked = True
                 response = adapter.generate_structured(spec=fake_spec, prompt=prompt, output_schema=output_schema,
                                                        requires_web=requirements.requires_web, **effort_kwargs)
@@ -705,9 +740,9 @@ class ModelRouter:
                 ordinal += 1
                 response: LLMResponse | None = None
                 started = time.perf_counter()
-                if before_call:
+                if check_before_call:
                     try:
-                        before_call()
+                        check_before_call(model_id, spec, retry, ordinal)
                     except Exception as exc:
                         failure = self._attempt_payload(model_id=model_id, spec=spec, retry=retry,
                                                         ordinal=ordinal, stage="preflight", provider_invoked=False,

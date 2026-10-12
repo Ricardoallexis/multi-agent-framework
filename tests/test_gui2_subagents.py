@@ -695,7 +695,7 @@ def test_new_files_exist_and_the_panel_lives_in_the_right_panel_slot_of_the_shel
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     assert re.findall(r"<script[^>]*>", html) == ['<script type="module" src="/gui/static/js/main.js">']
     assert re.findall(r'<link rel="stylesheet" href="([^"]+)">', html) == [
-        "/gui/static/app.css", "/gui/static/subagents-panel.css"]
+        "/gui/static/app.css", "/gui/static/subagents-panel.css", "/gui/static/agent-tree.css"]
 
 
 @pytest.mark.parametrize("name", NEW_JS)

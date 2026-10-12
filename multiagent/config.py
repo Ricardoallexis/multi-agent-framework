@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     gui_codex_home: Optional[Path] = None
     gui_copilot_home: Optional[Path] = None
     gui_claude_desktop_dir: Optional[Path] = None
+    # USO-T02 usage service. Both are the operator's own manual input (the apps leave neither on disk): the
+    # monthly AI credit cap of their Copilot plan, and a JSON file a Claude ``statusLine`` script saved (its
+    # ``rate_limits``). Empty means "not available" is shown instead of a percent.
+    usage_copilot_monthly_credits: Optional[int] = Field(default=None, ge=1)
+    usage_claude_statusline_file: Optional[Path] = None
     # GUI-T06: may the viewer launch ``claude --desktop --resume <id>`` in a new console (Windows)? False
     # makes the screen show the command to copy instead; the endpoint then answers 403 and starts nothing.
     gui_allow_launch: bool = True

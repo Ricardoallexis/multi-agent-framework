@@ -231,8 +231,12 @@ class TaskStore:
                     state: str | None = None, assignee: str | None = None,
                     attempt: int | None = None, lock_policy: dict[str, Any] | None = None,
                     workspace_domain: str | None = None, file_scope: list[str] | None = None,
-                    snapshot_epoch_pending: bool | None = None) -> dict[str, Any] | None:
+                    snapshot_epoch_pending: bool | None = None,
+                    execution: dict[str, Any] | None = None) -> dict[str, Any] | None:
         """Change the given fields and bump ``revision``, only if it is still ``expected_revision``.
+
+        ``execution`` replaces the whole ``execution_json`` column (CNT-T04: the hold of a task that waits lives in it);
+        the caller merges its block into the current value first, inside the same transaction.
 
         Returns the updated task, ``None`` when it does not exist, or raises
         ``StaleRevision`` when another change came first. With no fields it only
@@ -253,6 +257,8 @@ class TaskStore:
             changes["file_scope_json"] = _dumps(file_scope)
         if snapshot_epoch_pending is not None:
             changes["snapshot_epoch_pending"] = int(snapshot_epoch_pending)
+        if execution is not None:
+            changes["execution_json"] = _dumps(execution)
         changes["updated_at"] = utcnow()
         assignments = ",".join(f"{column}=?" for column in changes)
         cursor = conn.execute(

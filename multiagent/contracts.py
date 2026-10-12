@@ -31,6 +31,9 @@ class WaitingReason(str, Enum):
     BUDGET_EXHAUSTED = "budget_exhausted"
     # Supervised economic profile (ECO-T06): the step waits for a human to approve a move to a stronger model.
     ESCALATION = "escalation_approval"
+    # CNT-T04 (contract CNT-T01 section 4, decision 5): the router ran out of fallbacks of the same level because of a
+    # usage limit. The hold of a task (``tasks.execution_json``, ``services/hold.py``) is the model for the run's wait.
+    LIMIT_REACHED = "limit_reached"
 
 
 class HumanAction(str, Enum):

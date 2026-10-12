@@ -736,6 +736,68 @@ export const HELP = {
       "El botón despliega los demás y, una vez abierta la lista, vuelve a dejar solo los diez primeros."
     ]
   },
+  "agent_tree.open": {
+    "title": "Árbol de agentes",
+    "hint": "Abre el árbol de agentes de esta sesión.",
+    "more": [
+      "Muestra quién trabaja en la sesión y en qué: el orquestador y los agentes que lanzó, agrupados por nivel.",
+      "Es una vista de solo lectura; no inicia ni detiene ningún trabajo.",
+      "Se actualiza sola mientras la sesión cambia."
+    ]
+  },
+  "agent_tree.view": {
+    "title": "Árbol de la sesión",
+    "hint": "El orquestador y sus agentes, por nivel, con su estado.",
+    "more": [
+      "Arriba está el orquestador, que es la sesión que abriste; debajo, los agentes que lanzó, agrupados de T1 a T4.",
+      "Cada nodo dice su modelo, su nivel, su estado y en qué trabaja; el nivel y el estado siempre van escritos, nunca solo en color.",
+      "El registro de abajo anota los cambios de estado desde que abriste esta pantalla."
+    ]
+  },
+  "agent_tree.back": {
+    "title": "Volver a la sesión",
+    "hint": "Regresa a la conversación de esta sesión.",
+    "more": [
+      "El árbol no cambia la sesión ni ejecuta acciones.",
+      "Puedes volver a abrirlo desde la cabecera de la sesión."
+    ]
+  },
+  "agent_tree.filter": {
+    "title": "Solo activos",
+    "hint": "Oculta los agentes que ya terminaron.",
+    "more": [
+      "Deja los que trabajan, los que llevan un rato sin actividad y los que esperan un límite de uso o a una persona.",
+      "Quita los terminados y los detenidos; el orquestador siempre se ve.",
+      "Desactívalo para volver a ver todos."
+    ]
+  },
+  "agent_tree.node": {
+    "title": "Moverse por el árbol",
+    "hint": "Flechas para moverte, Enter para elegir, Esc para soltar.",
+    "more": [
+      "Con el foco en el árbol, las flechas arriba y abajo pasan de un nodo al siguiente; Inicio y Fin saltan al primero y al último.",
+      "Enter o la barra espaciadora elige el nodo y muestra sus datos a un lado; Esc quita la elección.",
+      "También puedes elegir un nodo con el ratón o con el dedo."
+    ]
+  },
+  "agent_tree.log": {
+    "title": "Registro de cambios",
+    "hint": "Los cambios de estado de los agentes desde que abriste esta pantalla.",
+    "more": [
+      "Anota cuando un agente aparece o cambia de estado, con la hora local.",
+      "Guarda solo los últimos doce cambios y empieza vacío cada vez que abres la pantalla.",
+      "No es un historial de la sesión: para eso está su conversación."
+    ]
+  },
+  "agent_tree.open_child": {
+    "title": "Abrir su conversación",
+    "hint": "Abre la conversación del agente o la ejecución de su paso.",
+    "more": [
+      "Si el agente tiene conversación propia, se abre en esta misma pantalla.",
+      "Los pasos de una ejecución del framework abren la ejecución que los contiene.",
+      "Este enlace solo cambia la vista; no inicia ni modifica ningún trabajo."
+    ]
+  },
   "shell.menu": {
     "title": "Menú de sesiones",
     "hint": "Abre o cierra la lista de sesiones en pantallas estrechas.",

@@ -17,8 +17,31 @@ writes no task row itself.
 
 Failures are recorded, not retried. An attempt without a valid result envelope, a timeout, a cancellation or a block
 by an open session leaves the task ``paused`` with trimmed evidence in the ``executor.attempt_finished`` event; a quota
-or limit error also pauses the executor until a configured time (``executor.paused``). Nothing loops: the next run is
+or limit error also pauses the executor (``executor.paused``) and holds the task (below). Nothing loops: the next run is
 asked for by a person or by the orchestrator.
+
+Hold and resume (CNT-T04, contract ``CNT-T01-contrato.md`` sections 4 and 10, ``hold.py``): an attempt that ends at a
+usage limit leaves the task ``paused`` with a *hold* in ``tasks.execution_json`` (``continuity.hold``: the limit class,
+window, ``reset_at`` with its source and confidence, ``resume_after``, the executor, the agent that owned the task, the
+session, the attempt, the checkpoint and the settings the session started with). The task pause and its hold are one
+lifecycle update (``tasks.transition(..., continuity=...)``), so a task is never paused by a limit without its hold; the
+events ``executor.paused`` and ``continuity.held`` go with it. No state and no migration are added.
+
+- ``plan_limit`` and ``limit_unknown`` with a ``high`` or ``medium`` reset time wait until ``reset_at`` plus 2 minutes
+  (executor pause and hold alike); without a reliable time the operator's fixed pause applies (``with_configured_reset``:
+  source ``configured``, confidence ``low``), as before.
+- ``credits_exhausted`` pauses the executor with no end (``open_ended``) until a person calls ``lift_pause``
+  (``executor.pause_lifted``); the held tasks are then due.
+- ``rate_limited`` retries after 60 s and then 300 s (no checkpoint while retries remain, ``retries_left``); after that the
+  fixed pause applies.
+- ``resume_due`` (the orchestrator, or the CLI ``executors resume-due``) resumes every hold that is due, only when the task
+  is still ``paused`` and still owned by the agent that held it, one task at a time. It continues the session with its
+  history (``resume_task``, passing the recorded model, effort and permission again) when the executor declares ``resume``
+  and nothing drifted; otherwise it relaunches from the checkpoint and retires the old session
+  (``checkpoint_limit(retire="superseded")``). A session opened in an app in the last 12 hours is never resumed nor
+  replaced. If the resumed run hits a limit again it is classified again and held again with ``failed_resumes`` one
+  higher; three failed resumptions in a row stop the automatic resume (a person decides).
+- Running or resuming a held task by hand clears its hold (``continuity.resumed`` with ``trigger`` ``manual``).
 
 ``resume_task`` continues the session the framework created for the task (the latest ``executor.session_recorded``
 event), never one it did not create, and refuses a session that was opened in an app in the last 12 hours
@@ -52,19 +75,23 @@ Events (team event log, no migration): ``executor.session_recorded`` (``ref`` is
 ``executor.routing_selected`` (``ref`` is the executor id: the model and effort of the attempt, where each came from,
 the routing profile, mode, step kind, level, price source, effort source and the candidates skipped for this executor),
 ``executor.attempt_finished`` (outcome, exit code, usage, trimmed evidence), ``executor.paused`` (``ref`` is the
-executor id), ``session.opened_in_app`` (``ref`` is the session id), ``continuity.limit_detected`` (``ref`` is the
-executor id), ``task.checkpointed`` (``ref`` is the patch blob, empty without a patch) and ``session.retired`` (``ref`` is
-the session id).
+executor id; the limit class, ``reset_*`` and ``open_ended`` when a limit caused it), ``executor.pause_lifted`` (``ref``
+is the executor id: who lifted it and why), ``session.opened_in_app`` (``ref`` is the session id),
+``continuity.limit_detected`` (``ref`` is the executor id), ``task.checkpointed`` (``ref`` is the patch blob, empty
+without a patch), ``session.retired`` (``ref`` is the session id), ``continuity.held`` (the task now waits: reason,
+``resume_after``, mode, outcome, hand-offs) and ``continuity.resumed`` (``ref`` is the executor id: ``resume`` or
+``relaunch``, minutes waited, ``config_drift``).
 
 Errors (``ServiceError``): ``not_found`` (task, executor), ``invalid_request`` (malformed ids or limits, a request the
 adapter refuses) and ``invalid_state`` (``details.reason`` says why: ``executor_disabled``, ``executor_without_adapter``,
 ``executor_paused``, ``executor_unavailable``, ``task_not_runnable``, ``no_stored_session``, ``session_open_in_app``,
-``assignment_not_selected``, ``model_not_supported``, ``effort_not_supported``, ``workdir_invalid``, ``session_retired``).
-``model_not_supported``
+``assignment_not_selected``, ``model_not_supported``, ``effort_not_supported``, ``workdir_invalid``, ``session_retired``,
+``hold_changed``, ``relaunch_failed``). ``model_not_supported``
 and ``effort_not_supported`` refuse a value the caller named; one that came from the profile is dropped instead.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -86,6 +113,7 @@ from ..routing_policy import STEP_KINDS
 from ..sessions.models import is_uuid
 from ..tasks.envelopes import MAX_CONSTRAINTS, MAX_CONTEXT_REFS, EnvelopeError
 from . import checkpoint as _checkpoint
+from . import hold as _hold
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
 from .tasks import _TASK_ID, _text
 
@@ -104,9 +132,13 @@ OPEN_EVENT = "session.opened_in_app"
 LIMIT_EVENT = "continuity.limit_detected"
 CHECKPOINT_EVENT = "task.checkpointed"
 RETIRED_EVENT = "session.retired"
+PAUSE_LIFTED_EVENT = "executor.pause_lifted"
+HELD_EVENT = "continuity.held"
+RESUMED_EVENT = "continuity.resumed"
 EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, PAUSE_EVENT, OPEN_EVENT, LIMIT_EVENT, CHECKPOINT_EVENT,
-               RETIRED_EVENT)
+               RETIRED_EVENT, PAUSE_LIFTED_EVENT, HELD_EVENT, RESUMED_EVENT)
 RETIRE_REASONS = ("handoff", "superseded")
+DEFAULT_MAX_HANDOFFS = 1                  # contract section 7 until the policy (CNT-T05) supplies one
 
 APP_OPEN_GUARD = timedelta(hours=12)      # a session opened in an app is not resumed for this long (ORQ-6 section 6)
 MAX_TIMEOUT_SECONDS = 86400
@@ -178,6 +210,34 @@ def _command_view(record: Any) -> dict[str, Any]:
     return {"argv": shown, "exit_code": getattr(record, "exit_code", None)}
 
 
+def _effective_of(value: Any) -> dict[str, Any] | None:
+    """What an adapter result says the app ran with: only the names a resume must keep (``hold.DRIFT_KEYS``)."""
+    if not isinstance(value, Mapping):
+        return None
+    found = {name: getattr(value[name], "value", value[name]) for name in _hold.DRIFT_KEYS if name in value}
+    return found or None
+
+
+def _session_settings(session: Mapping[str, Any]) -> dict[str, Any]:
+    """The settings a recorded session started with (the ``executor.session_recorded`` payload), as ``hold.DRIFT_KEYS``."""
+    return {"model": session.get("model"), "effort": session.get("effort"), "permission": session.get("permission"),
+            "adapter": session.get("adapter_id")}
+
+
+def _workdir_id(folder: Path | str) -> str:
+    """A short fingerprint of a work folder: the events say whether it changed without carrying a local path."""
+    return hashlib.sha256(os.path.normcase(os.path.abspath(str(folder))).encode("utf-8")).hexdigest()[:12]
+
+
+def _supports(evidence: CapabilityEvidence, value: str | None) -> bool:
+    """False only when the executor's evidence says it does not take ``value`` (unknown evidence passes)."""
+    if value is None:
+        return True
+    if evidence.status is SupportState.UNSUPPORTED:
+        return False
+    return not (evidence.status is SupportState.SUPPORTED and evidence.values is not None and value not in evidence.values)
+
+
 def _target_view(target: OpenTarget) -> dict[str, Any]:
     value = list(target.value) if not isinstance(target.value, str) else target.value
     return {"kind": target.kind, "value": value, "needs_confirmation": bool(target.needs_confirmation)}
@@ -219,6 +279,7 @@ class _Attempt:
     evidence: str = ""
     limit: Mapping[str, Any] | None = None        # what the adapter says about a limit (CNT-T02), as it came
     last_message: str = ""                        # the last text the agent wrote, from the tail of its output
+    effective: Mapping[str, Any] | None = None    # what the app says it ran with (model, effort, permission), if it does
 
 
 class ExecutorServices:
@@ -252,11 +313,13 @@ class ExecutorServices:
 
     # -------- events --------
     def _append(self, event_type: str, *, actor: str, task: Mapping[str, Any] | None = None, ref: str = "",
-                cause: str = "", payload: dict[str, Any]) -> None:
+                cause: str = "", payload: dict[str, Any]) -> int:
+        """Append one team event and return its ``seq``."""
         with self._store.transaction() as conn:
-            self._store.append_event(conn, event_type, actor=actor, group_id=str(task["group_id"]) if task else "",
-                                     task_id=str(task["id"]) if task else "", cause=cause, ref=ref,
-                                     payload=_fit(payload))
+            return self._store.append_event(conn, event_type, actor=actor,
+                                            group_id=str(task["group_id"]) if task else "",
+                                            task_id=str(task["id"]) if task else "", cause=cause, ref=ref,
+                                            payload=_fit(payload))
 
     @staticmethod
     def _latest(conn: Any, event_type: str, *, task_id: str | None = None, ref: str | None = None) -> dict[str, Any] | None:
@@ -291,10 +354,33 @@ class ExecutorServices:
         until = opened + APP_OPEN_GUARD
         return until if self.clock() < until else None
 
-    def _paused_until(self, conn: Any, executor_id: str) -> datetime | None:
-        event = self._latest(conn, PAUSE_EVENT, ref=executor_id)
-        until = _parse_time(event["payload"].get("until")) if event else None
-        return until if until is not None and self.clock() < until else None
+    def _pause_of(self, conn: Any, executor_id: str) -> dict[str, Any] | None:
+        """The pause in force on an executor, or None: ``{until, open_ended, seq, payload}``.
+
+        The latest of its ``executor.paused`` and ``executor.pause_lifted`` events decides: a lift ends the pause, whatever its
+        time. A pause with an ``until`` ends at that time; an ``open_ended`` one (``credits_exhausted``, decision 3) has no
+        time and only a lift ends it.
+        """
+        row = conn.execute("SELECT * FROM team_events WHERE type IN (?,?) AND ref=? ORDER BY seq DESC LIMIT 1",
+                           (PAUSE_EVENT, PAUSE_LIFTED_EVENT, executor_id)).fetchone()
+        event = self._row(row) if row is not None else None
+        if event is None or event["type"] == PAUSE_LIFTED_EVENT:
+            return None
+        payload = event["payload"]
+        if payload.get("open_ended") is True:
+            return {"until": None, "open_ended": True, "seq": event["seq"], "payload": payload}
+        until = _parse_time(payload.get("until"))
+        if until is not None and self.clock() < until:
+            return {"until": until, "open_ended": False, "seq": event["seq"], "payload": payload}
+        return None
+
+    @staticmethod
+    def _lifted_since(conn: Any, executor_id: str, seq: int | None) -> bool:
+        """True when a person lifted the executor's pause after the event ``seq`` (the pause that went with a hold)."""
+        if seq is None:
+            return False
+        return conn.execute("SELECT 1 FROM team_events WHERE type=? AND ref=? AND seq>? LIMIT 1",
+                            (PAUSE_LIFTED_EVENT, executor_id, seq)).fetchone() is not None
 
     def session_guard(self, session_id: str) -> bool:
         """True when the framework created ``session_id`` (it is recorded), it is not retired and no app opened it
@@ -349,10 +435,14 @@ class ExecutorServices:
             raise _conflict("executor_without_adapter", f"{executor_id} has no executor adapter registered",
                             executor_id=executor_id)
         with self._store.db.connect() as conn:
-            until = self._paused_until(conn, executor_id)
-        if until is not None:
-            raise _conflict("executor_paused", f"{executor_id} is paused until {_iso(until)}",
-                            executor_id=executor_id, until=_iso(until))
+            pause = self._pause_of(conn, executor_id)
+        if pause is not None:
+            until = pause["until"]
+            raise _conflict("executor_paused",
+                            f"{executor_id} is paused until {_iso(until)}" if until is not None
+                            else f"{executor_id} is paused with no end until a person lifts it",
+                            executor_id=executor_id, until=_iso(until) if until is not None else None,
+                            open_ended=pause["open_ended"])
         declaration = (registry.config.get("executors", {}) or {}).get(executor_id, {})
         return descriptor, adapter, declaration if isinstance(declaration, Mapping) else {}
 
@@ -437,13 +527,22 @@ class ExecutorServices:
         takes (see ``_routing_selection``).
 
         Returns ``{outcome, run_status, task_id, executor_id, attempt, actor, session_id, open_target, model, effort,
-        selection, permission, usage, command, evidence, notes, executor_paused_until, checkpoint, result, gate, task}``.
-        ``checkpoint`` is what ``checkpoint_limit`` saved when the attempt ended at a limit, else None.
-        ``selection`` says where ``model`` and ``effort`` came from (``user``, ``profile`` or none), what was not sent
-        and why, and the routing evidence (profile, mode, step kind, level, price source, effort source). ``outcome`` is
-        ``submitted`` (the result is stored and the gate decides) or what stopped the attempt: ``failed``,
-        ``timeout``, ``cancelled``, ``quota_exhausted`` or ``blocked_open_session``; those leave the task ``paused``.
+        selection, permission, usage, command, evidence, notes, executor_paused_until, checkpoint, hold, result, gate,
+        task}``. ``checkpoint`` is what ``checkpoint_limit`` saved when the attempt ended at a limit, else None, and
+        ``hold`` the hold the limit put on the task (``continuity.hold``), else None. ``selection`` says where ``model``
+        and ``effort`` came from (``user``, ``profile`` or none), what was not sent and why, and the routing evidence
+        (profile, mode, step kind, level, price source, effort source). ``outcome`` is ``submitted`` (the result is
+        stored and the gate decides) or what stopped the attempt: ``failed``, ``timeout``, ``cancelled``,
+        ``quota_exhausted`` or ``blocked_open_session``; those leave the task ``paused``. Running a task that is held
+        by a limit clears its hold (``continuity.resumed``, ``trigger`` ``manual``).
         """
+        return self._run_task(task_id, executor_id, model, effort, actor, profile_id=profile_id,
+                              timeout_seconds=timeout_seconds, operator_context=operator_context, step_kind=step_kind)
+
+    def _run_task(self, task_id: str, executor_id: str | None, model: str | None, effort: str | None,
+                  actor: str | None, *, profile_id: str | None = None, timeout_seconds: int | None = None,
+                  operator_context: Any = None, step_kind: str | None = None, hold: Mapping[str, Any] | None = None,
+                  trigger: str = "manual", drift: tuple[str, ...] = ()) -> dict[str, Any]:
         task_id = self._task_id(task_id)
         if executor_id is not None and (not isinstance(executor_id, str) or not _EXECUTOR_ID.fullmatch(executor_id)):
             raise _invalid("executor_id", f"Invalid executor_id: {executor_id!r}")
@@ -456,7 +555,7 @@ class ExecutorServices:
         actor = _text("actor", actor if actor is not None else f"executor:{plan.executor_id}", maximum=100)
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
-        return self._execute(task, plan, actor, timeout, resume_session=None)
+        return self._execute(task, plan, actor, timeout, resume_session=None, hold=hold, trigger=trigger, drift=drift)
 
     @service_errors
     def resume_task(self, task_id: str, model: str | None = None, effort: str | None = None,
@@ -467,8 +566,14 @@ class ExecutorServices:
         in the last 12 hours. The task must be paused, claimed or in ``needs_changes`` (``actor`` defaults to its
         assignee). ``model`` and ``effort`` default to those of the recorded session. Returns the same shape as
         ``run_task``. Errors: ``no_stored_session``, ``session_retired``, ``session_open_in_app`` and the ones of
-        ``run_task``.
+        ``run_task``. Resuming a task that is held by a limit clears its hold (``continuity.resumed``, ``trigger``
+        ``manual``).
         """
+        return self._resume_task(task_id, model, effort, actor, timeout_seconds=timeout_seconds)
+
+    def _resume_task(self, task_id: str, model: str | None, effort: str | None, actor: str | None, *,
+                     timeout_seconds: int | None = None, hold: Mapping[str, Any] | None = None,
+                     trigger: str = "manual", drift: tuple[str, ...] = ()) -> dict[str, Any]:
         task_id = self._task_id(task_id)
         model, effort = self._optional_token("model", model), self._optional_token("effort", effort)
         task = self._tasks.get_task(task_id)
@@ -497,12 +602,20 @@ class ExecutorServices:
         actor = _text("actor", actor or task.get("assignee") or f"executor:{executor_id}", maximum=100)
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
-        return self._execute(task, plan, actor, timeout, resume_session=session_id)
+        return self._execute(task, plan, actor, timeout, resume_session=session_id, recorded=_session_settings(session),
+                             hold=hold, trigger=trigger, drift=drift)
 
     def _execute(self, task: dict[str, Any], plan: _Plan, actor: str, timeout: int, *,
-                 resume_session: str | None) -> dict[str, Any]:
+                 resume_session: str | None, recorded: Mapping[str, Any] | None = None,
+                 hold: Mapping[str, Any] | None = None, trigger: str = "manual",
+                 drift: tuple[str, ...] = ()) -> dict[str, Any]:
+        """One attempt. ``hold`` and ``trigger`` (``auto`` from ``resume_due``, else ``manual``) say what hold this run
+        ends; ``drift`` is what ``resume_due`` found different before relaunching; ``recorded`` the settings of the
+        session being resumed (to compare with what the app reports)."""
         task_id = task["id"]
         mode = "resume" if resume_session else "launch"
+        prior = dict(task.get("continuity") or {})
+        held = dict(hold) if hold else (dict(prior["hold"]) if isinstance(prior.get("hold"), Mapping) else None)
         permission = Permission.WRITE if task["file_scope"] else Permission.READ
         workdir = self._workdir(task_id, plan)
         request = ExecutorLaunchRequest(
@@ -510,7 +623,8 @@ class ExecutorServices:
             model=plan.model, effort=plan.effort, permission=permission, timeout_seconds=timeout)
         self._preflight(plan, request, resume_session)
         cause = f"executor {mode} in {plan.executor_id}"
-        view = self._enter_running(task, actor, cause)
+        view = self._enter_running(task, actor, cause, hold=held, mode=mode, trigger=trigger, drift=drift,
+                                   executor_id=plan.executor_id)
         if plan.selection is not None:
             # What this attempt was asked to run with and why, kept even if the launch then fails.
             self._append(ROUTING_EVENT, actor=actor, task=view, ref=plan.executor_id, cause=cause,
@@ -530,6 +644,9 @@ class ExecutorServices:
                 "mode": mode, "model": plan.model, "effort": plan.effort, "permission": permission.value,
                 "model_source": plan.selection.model_source if plan.selection else None,
                 "effort_source": plan.selection.effort_source if plan.selection else None})
+        # What the app says it ran a resumed session with, against what the session started with (contract section 10).
+        reported = (_hold.detect_drift(recorded or {}, attempt.effective)
+                    if resume_session and attempt.effective and recorded else [])
         submission, problem = None, None
         if attempt.status == "completed" and attempt.envelope is not None:
             try:
@@ -550,17 +667,22 @@ class ExecutorServices:
             "effort_source": plan.selection.effort_source if plan.selection else None,
             "permission": permission.value, "usage": dict(attempt.usage) if attempt.usage else None,
             "notes": attempt.notes, "evidence": evidence,
-            "result_ref": submission["result"]["ref"] if submission else None})
+            "result_ref": submission["result"]["ref"] if submission else None,
+            **({"config_drift": reported} if reported else {})})
         paused_until: str | None = None
         task_note: str | None = None
         saved: dict[str, Any] | None = None
         checkpoint_note: str | None = None
-        if submission is None:
-            if outcome == "quota_exhausted":
-                paused_until = self._pause_executor(plan, view, actor)
-            task_note = self._pause_task(task_id, actor, f"attempt {view['attempt']} {outcome}")
-            if outcome == "quota_exhausted":
-                saved, checkpoint_note = self._save_checkpoint(attempt, plan, view, actor, workdir)
+        new_hold: dict[str, Any] | None = None
+        if submission is None and outcome == "quota_exhausted":
+            outcome_hold = self._hold_after_limit(attempt, plan, view, actor, workdir, permission, prior=prior,
+                                                  auto=trigger == "auto", drift=reported)
+            paused_until, new_hold, saved = outcome_hold["until"], outcome_hold["hold"], outcome_hold["checkpoint"]
+            task_note, checkpoint_note = outcome_hold["task_note"], outcome_hold["checkpoint_note"]
+        else:
+            if submission is None:
+                task_note = self._pause_task(task_id, actor, f"attempt {view['attempt']} {outcome}")
+            self._clear_streaks(task_id, prior, actor, reported)
         notes = list(attempt.notes) + [note for note in (task_note, checkpoint_note) if note]
         target = plan.adapter.open_target(attempt.session_id) if attempt.session_id else None
         return {
@@ -569,7 +691,7 @@ class ExecutorServices:
             "open_target": _target_view(target) if target else None, "model": plan.model, "effort": plan.effort,
             "selection": plan.selection.to_dict() if plan.selection else None, "permission": permission.value, "usage": dict(attempt.usage) if attempt.usage else None,
             "command": attempt.command, "evidence": evidence or None, "notes": notes,
-            "executor_paused_until": paused_until, "checkpoint": saved, "result": submission,
+            "executor_paused_until": paused_until, "checkpoint": saved, "hold": new_hold, "result": submission,
             "gate": self._services.gates.get_gate(task_id), "task": self._tasks.get_task(task_id)}
 
     def _preflight(self, plan: _Plan, request: ExecutorLaunchRequest, resume_session: str | None) -> None:
@@ -591,8 +713,14 @@ class ExecutorServices:
                            executor_id=plan.executor_id, code=str(getattr(exc, "code", None) or getattr(exc, "field", "") or "")
                            ) from None
 
-    def _enter_running(self, task: dict[str, Any], actor: str, cause: str) -> dict[str, Any]:
-        """Take the task to ``running`` with the lifecycle's own transitions (the single function of ORQ-1)."""
+    def _enter_running(self, task: dict[str, Any], actor: str, cause: str, *, hold: Mapping[str, Any] | None = None,
+                       mode: str = "launch", trigger: str = "manual", drift: tuple[str, ...] = (),
+                       executor_id: str = "") -> dict[str, Any]:
+        """Take the task to ``running`` with the lifecycle's own transitions (the single function of ORQ-1).
+
+        A paused task that is held leaves its hold in the same update as the ``resume`` (``continuity.hold`` removed,
+        and ``config_drift`` too when a new session starts) and ``continuity.resumed`` records how it ended.
+        """
         status = task["status"]
         steps = {"ready": ("claim", "start"), "claimed": ("start",), "needs_changes": ("start",),
                  "paused": ("resume",)}.get(status)
@@ -601,9 +729,27 @@ class ExecutorServices:
                             "or needs_changes task", task_id=task["id"], status=status)
         view = task
         for action in steps:
-            view = self._tasks.transition(task["id"], action, actor=actor, cause=cause,
-                                          expected_revision=view["revision"])
+            if hold is not None and action == "resume":
+                changes: dict[str, Any] = {"hold": None}
+                if mode == "launch":
+                    changes["config_drift"] = None              # a new session starts clean
+                view = self._tasks.transition(task["id"], action, actor=actor, cause=cause,
+                                              expected_revision=view["revision"], continuity=changes)
+                self._append(RESUMED_EVENT, actor=actor, task=view, ref=executor_id or str(hold.get("executor_id") or ""),
+                             cause=cause, payload=self._resumed_payload(hold, mode, trigger, drift, executor_id))
+            else:
+                view = self._tasks.transition(task["id"], action, actor=actor, cause=cause,
+                                              expected_revision=view["revision"])
         return view
+
+    def _resumed_payload(self, hold: Mapping[str, Any], mode: str, trigger: str, drift: tuple[str, ...],
+                         executor_id: str) -> dict[str, Any]:
+        since = _hold.parse_utc(hold.get("since"))
+        minutes = max(int((self.clock() - since).total_seconds() // 60), 0) if since is not None else None
+        return {"mode": "resume" if mode == "resume" else "relaunch", "trigger": trigger, "minutes": minutes,
+                "config_drift": list(drift), "reason": hold.get("reason"),
+                "executor_id": executor_id or hold.get("executor_id"), "previous_session": hold.get("session_id"),
+                "attempt": hold.get("attempt")}
 
     def _call_adapter(self, adapter: Any, request: ExecutorLaunchRequest, resume_session: str | None) -> _Attempt:
         try:
@@ -622,15 +768,117 @@ class ExecutorServices:
         return _Attempt(status=result.status.value, session_id=result.session_id, envelope=result.result_envelope,
                         usage=result.usage, command=_command_view(result.command), exit_code=result.command.exit_code,
                         notes=notes, evidence=evidence, limit=getattr(result, "limit", None),
-                        last_message=_checkpoint.extract_last_message(result.stdout_tail))
+                        last_message=_checkpoint.extract_last_message(result.stdout_tail),
+                        effective=_effective_of(getattr(result, "effective", None)))
 
-    def _pause_executor(self, plan: _Plan, view: Mapping[str, Any], actor: str) -> str:
-        minutes = self._limit(plan, "quota_pause_minutes", self._services.settings.executor_quota_pause_minutes)
-        until = _iso(self.clock() + timedelta(minutes=minutes))
-        self._append(PAUSE_EVENT, actor=actor, task=view, ref=plan.executor_id, cause="quota or limit reached",
-                     payload={"executor_id": plan.executor_id, "until": until, "minutes": minutes,
-                              "reason": "quota_exhausted"})
-        return until
+    def _hold_after_limit(self, attempt: _Attempt, plan: _Plan, view: Mapping[str, Any], actor: str, workdir: Path,
+                          permission: Permission, *, prior: Mapping[str, Any], auto: bool,
+                          drift: list[str]) -> dict[str, Any]:
+        """An attempt ended at a limit: pause the executor, hold the task and save the checkpoint (CNT-T04).
+
+        The executor pause is written first (``executor.paused``). The task pause and its ``continuity.hold`` are one
+        lifecycle ``pause`` (``tasks.transition(..., continuity=...)``: a single update, so a task is never ``paused``
+        by a limit without its hold), followed by ``continuity.held``; a task that is no longer ``running`` (it moved on
+        meanwhile) only has the executor paused and says so in ``task_note``. The checkpoint is saved afterwards, with the real ``retries_left`` (a ``rate_limited`` limit with
+        retries left saves nothing), and its patch blob is written into the hold. ``auto`` is true when ``resume_due`` made
+        the attempt: then a limit that returns counts as a failed resume.
+        """
+        task_id = str(view["id"])
+        now = self.clock()
+        info = _checkpoint.normalize_limit(attempt.limit)
+        rate_used = int(prior.get("rate_retries") or 0) if info["kind"] == "rate_limited" else 0
+        configured = self._limit(plan, "quota_pause_minutes", self._services.settings.executor_quota_pause_minutes)
+        held = _hold.plan_hold(info, now=now, configured_minutes=configured, rate_retries=rate_used)
+        retrying = info["kind"] == "rate_limited" and held.retries_left > 0     # a backoff retry is not a failed resume
+        failed = (int(prior.get("failed_resumes") or 0) + (0 if retrying else 1)) if auto else 0
+        blocked = "failed_resumes" if failed >= _hold.MAX_FAILED_RESUMES else None
+        settings = {"model": plan.model, "effort": plan.effort, "permission": permission.value,
+                    "adapter": plan.adapter.adapter_id, "workdir": _workdir_id(workdir)}
+        changes: dict[str, Any] = {
+            "failed_resumes": failed,
+            "rate_retries": (rate_used + 1 if retrying else rate_used) if info["kind"] == "rate_limited" else 0}
+        if "handoffs" not in prior:
+            changes["handoffs"] = 0                         # the hand-off (CNT-T05) owns both; this is only a first value
+        if not prior.get("chain"):
+            changes["chain"] = [plan.executor_id]
+        if drift:
+            changes["config_drift"] = list(drift)
+        minutes = None if held.until is None else -(-int((held.until - now).total_seconds()) // 60)
+        pause_payload = {
+            "executor_id": plan.executor_id, "until": _iso(held.until) if held.until is not None else None,
+            "minutes": minutes, "reason": "quota_exhausted", "limit_kind": held.reason, "window": held.window,
+            "reset_at": held.reset_at, "reset_source": held.reset_source, "reset_confidence": held.reset_confidence,
+            "open_ended": held.open_ended, "outcome": held.outcome}
+        # The executor is out of quota whatever happens to the task, so its pause is written first; its ``seq`` goes in the
+        # hold, which is how a later ``lift_pause`` is told apart from the pause that belongs to this hold.
+        seq = self._append(PAUSE_EVENT, actor=actor, task=view, ref=plan.executor_id, cause="quota or limit reached",
+                           payload=pause_payload)
+        block: dict[str, Any] | None = _hold.build_hold(
+            held, now=now, executor_id=plan.executor_id, actor=actor, session_id=attempt.session_id,
+            attempt=int(view["attempt"]), settings=settings, pause_seq=seq, blocked=blocked)
+        task_note: str | None = None
+        try:
+            # One update: the task goes to ``paused`` and the hold is written with it (no state, no migration).
+            self._tasks.transition(task_id, "pause", actor=actor, cause=f"attempt {view['attempt']} quota_exhausted",
+                                   continuity={**changes, "hold": block})
+            self._append(HELD_EVENT, actor=actor, task=view, cause="held by a limit",
+                         payload=self._held_payload(block, held, prior, failed))
+        except ServiceError as exc:             # the task is not running any more: only the executor stays paused
+            block, task_note = None, f"task_not_paused: {exc.code}"
+        saved, checkpoint_note = self._save_checkpoint(attempt, plan, view, actor, workdir,
+                                                       retries_left=held.retries_left)
+        if saved is not None and saved.get("skipped"):
+            # The checkpoint saved nothing (a retry is coming) and so wrote no detection: this is the event of it.
+            self._append(LIMIT_EVENT, actor=actor, task=view, ref=plan.executor_id, cause="limit detected",
+                         payload=_checkpoint.fit_payload(
+                             {"attempt": int(view["attempt"]), "session_id": attempt.session_id,
+                              "executor_id": plan.executor_id, **info}, EVENT_PAYLOAD_BUDGET, ("evidence",)))
+        if block is not None and saved is not None and saved.get("patch"):
+            block = self._set_hold_checkpoint(task_id, block, str(saved["patch"]["ref"]), actor)
+        return {"until": _iso(held.until) if held.until is not None else None, "hold": block, "checkpoint": saved,
+                "task_note": task_note, "checkpoint_note": checkpoint_note}
+
+    @staticmethod
+    def _held_payload(block: Mapping[str, Any], held: _hold.HoldPlan, prior: Mapping[str, Any],
+                      failed: int) -> dict[str, Any]:
+        payload = {
+            "reason": block["reason"], "window": block["window"], "resume_after": block["resume_after"],
+            "open_ended": block["open_ended"], "outcome": block["outcome"], "mode": block["mode"],
+            "executor_id": block["executor_id"], "attempt": block["attempt"], "reset_source": block["reset_source"],
+            "reset_confidence": block["reset_confidence"], "handoffs": int(prior.get("handoffs") or 0),
+            "max_handoffs": int(prior.get("max_handoffs") or DEFAULT_MAX_HANDOFFS), "failed_resumes": failed,
+            "retry": held.retry, "blocked": block.get("blocked")}
+        return {key: value for key, value in payload.items() if value is not None}
+
+    def _set_hold_checkpoint(self, task_id: str, block: dict[str, Any], ref: str, actor: str) -> dict[str, Any]:
+        """Write the patch blob into the hold it belongs to; a hold that changed meanwhile is left as it is."""
+        try:
+            task = self._tasks.get_task(task_id)
+            current = (task.get("continuity") or {}).get("hold")
+            if not current or current.get("pause_seq") != block.get("pause_seq"):
+                return block
+            updated = {**current, "checkpoint": ref}
+            self._tasks._edit_continuity(task_id, {"hold": updated}, actor=actor, expected_revision=task["revision"])
+            return updated
+        except ServiceError:
+            return block
+
+    def _clear_streaks(self, task_id: str, prior: Mapping[str, Any], actor: str, drift: list[str]) -> None:
+        """An attempt that did not end at a limit ends the streaks: ``failed_resumes`` and ``rate_retries`` go back to zero,
+        and the settings the app reported different (``config_drift``) are kept for the next resume. Writes nothing when
+        there is nothing to change; a task that cannot take the change is left alone."""
+        changes: dict[str, Any] = {}
+        for key in ("failed_resumes", "rate_retries"):
+            if prior.get(key):
+                changes[key] = 0
+        if drift:
+            changes["config_drift"] = list(drift)
+        if not changes:
+            return
+        try:
+            self._tasks._edit_continuity(task_id, changes, actor=actor)
+        except ServiceError:
+            _logger.info("continuity counters of %s were not reset", task_id)
 
     def _pause_task(self, task_id: str, actor: str, cause: str) -> str | None:
         """Pause the task after a failed attempt; a task that moved on meanwhile is left alone and said so."""
@@ -642,12 +890,13 @@ class ExecutorServices:
 
     # -------- checkpoint (CNT-T03) --------
     def _save_checkpoint(self, attempt: _Attempt, plan: _Plan, view: Mapping[str, Any], actor: str,
-                         workdir: Path) -> tuple[dict[str, Any] | None, str | None]:
+                         workdir: Path, *, retries_left: int = 0) -> tuple[dict[str, Any] | None, str | None]:
         """Checkpoint an attempt that ended at a limit; a failure here is a note of the run, never an error of it."""
         try:
             saved = self.checkpoint_limit(str(view["id"]), attempt.limit, session_id=attempt.session_id or "",
                                           executor_id=plan.executor_id, attempt=int(view["attempt"]), workdir=workdir,
-                                          last_message=attempt.last_message, actor=actor)
+                                          last_message=attempt.last_message, actor=actor,
+                                          retries_left=retries_left)
         except ServiceError as exc:
             return None, f"checkpoint_failed: {exc.code}"
         except Exception as exc:        # the attempt is already recorded: nothing the checkpoint does may lose it
@@ -879,6 +1128,204 @@ class ExecutorServices:
         return {"session_id": sid, "retired": True, "created": created, "reason": data.get("reason"),
                 "task_id": event["task_id"], "executor_id": data.get("executor_id"), "attempt": data.get("attempt")}
 
+    # -------- hold and resume (CNT-T04) --------
+    @service_errors
+    def lift_pause(self, executor_id: str, *, actor: str = "user", reason: str = "") -> dict[str, Any]:
+        """Lift the pause of an executor (``executor.pause_lifted``): the person says the executor can work again.
+
+        This is the only end of a ``credits_exhausted`` pause (decision 3) and it also cuts a timed one short. The tasks
+        held on that executor become due for ``resume_due`` at once, whatever their time. Idempotent: an executor that is
+        not paused writes nothing. Returns ``{executor_id, lifted, was_open_ended, was_until, held_tasks}``
+        (``held_tasks``: the tasks whose hold waits on this executor). Errors: ``invalid_request``, ``not_found``.
+        """
+        if not isinstance(executor_id, str) or not _EXECUTOR_ID.fullmatch(executor_id):
+            raise _invalid("executor_id", f"Invalid executor_id: {executor_id!r}")
+        if self.registry.get(executor_id) is None:
+            raise _missing("Executor", executor_id)
+        actor = _text("actor", actor, maximum=100)
+        if not isinstance(reason, str):
+            raise _invalid("reason", "reason must be a text")
+        reason = _collapse(reason, 200)
+        with self._store.transaction() as conn:
+            pause = self._pause_of(conn, executor_id)
+            if pause is not None:
+                until = _iso(pause["until"]) if pause["until"] is not None else None
+                self._store.append_event(
+                    conn, PAUSE_LIFTED_EVENT, actor=actor, ref=executor_id, cause="pause lifted",
+                    payload=_fit({"executor_id": executor_id, "by": actor, "reason": reason,
+                                  "was": {"until": until, "open_ended": pause["open_ended"],
+                                          "limit_kind": pause["payload"].get("limit_kind")}}))
+        held = [str(task["id"]) for task in self._store.list_tasks(states=["paused"])
+                if (hold := _hold.hold_of(task)) and _hold.is_limit_hold(hold) and hold.get("executor_id") == executor_id]
+        return {"executor_id": executor_id, "lifted": pause is not None,
+                "was_open_ended": bool(pause and pause["open_ended"]),
+                "was_until": _iso(pause["until"]) if pause and pause["until"] is not None else None,
+                "held_tasks": held}
+
+    def _judge_hold(self, conn: Any, task: Mapping[str, Any], hold: Mapping[str, Any],
+                    now: datetime) -> tuple[str, dict[str, Any]]:
+        """``("due" | "waiting" | "skipped", info)`` for one held task."""
+        info = {"task_id": task["id"], "reason": hold.get("reason"), "executor_id": hold.get("executor_id"),
+                "resume_after": hold.get("resume_after"), "open_ended": bool(hold.get("open_ended"))}
+        if not _hold.is_limit_hold(hold):
+            return "skipped", {**info, "why": "not_a_limit_hold"}     # another wait: its own watcher resumes it
+        if task["assignee"] != hold.get("actor"):
+            return "skipped", {**info, "why": "assignee_changed", "assignee": task["assignee"]}
+        executor_id = str(hold.get("executor_id") or "")
+        pause = self._pause_of(conn, executor_id)
+        lifted = self._lifted_since(conn, executor_id, hold.get("pause_seq"))
+        due, why = _hold.hold_due(hold, now=now, executor_paused=pause is not None, lifted=lifted)
+        if due:
+            return "due", {**info, "why": why}
+        if pause is not None and pause["until"] is not None:
+            info["paused_until"] = _iso(pause["until"])
+        return ("skipped" if why.startswith("blocked:") else "waiting"), {**info, "why": why}
+
+    @service_errors
+    def resume_due(self, *, task_id: str | None = None, limit: int | None = None, dry_run: bool = False,
+                   timeout_seconds: int | None = None) -> dict[str, Any]:
+        """Resume the tasks whose hold is due, one after the other (contract section 10); the orchestrator or the CLI calls it.
+
+        A task is resumed only when it is still ``paused``, still owned by the agent that held it, its executor is not
+        paused and its hold is due: ``resume_after`` has passed, or a person lifted the executor's pause
+        (``lift_pause``). A ``credits_exhausted`` hold has no time and waits for that lift. A hold that is not a limit
+        (another reason, CNT-T12) is left to its own watcher; three failed resumptions in a row (``failed_resumes``) stop
+        the automatic resume until a person decides.
+
+        The session is continued with its history (``resume_task``, passing the recorded model, effort and permission
+        again) when the executor declares ``resume``, the session is still the held one and nothing drifted (the
+        permission, model, effort, adapter or folder differ from the recorded ones, or an earlier resume reported
+        ``config_drift``). Otherwise the task is relaunched from the checkpoint: ``checkpoint_limit(retire="superseded")``
+        saves it if needed and retires the old session, and a new session starts with the recorded model and effort
+        (dropped when the executor no longer takes them). A session opened in an app in the last 12 hours is neither
+        resumed nor replaced (``session_open_in_app``). If the resumed run hits a limit again it is classified again and
+        held again (``failed_resumes`` one higher).
+
+        ``task_id`` limits the call to one task, ``limit`` to that many resumptions, ``dry_run`` only reports. Returns
+        ``{at, dry_run, held, due, resumed, waiting, skipped}``: ``due`` and ``waiting`` list ``{task_id, reason,
+        executor_id, resume_after, open_ended, why}``; ``resumed`` has ``{task_id, mode (resume or relaunch), outcome,
+        executor_id, session_id, attempt, config_drift, minutes_waited, hold}`` (``hold`` is the new one when the limit
+        came back); ``skipped`` has the ``why`` (``assignee_changed``, ``not_a_limit_hold``, ``blocked:failed_resumes``,
+        ``hold_changed``, ``session_open_in_app``, ``executor_paused``, ...).
+        """
+        if task_id is not None:
+            task_id = self._task_id(task_id)
+        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 1):
+            raise _invalid("limit", "limit must be an integer of one or more")
+        now = self.clock()
+        out: dict[str, Any] = {"at": _iso(now), "dry_run": bool(dry_run), "held": 0, "due": [], "resumed": [],
+                               "waiting": [], "skipped": []}
+        rows = [(task, hold) for task in self._store.list_tasks(states=["paused"])
+                if (hold := _hold.hold_of(task)) is not None and (task_id is None or task["id"] == task_id)]
+        out["held"] = len(rows)
+        queue: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        with self._store.db.connect() as conn:
+            for task, hold in rows:
+                verdict, info = self._judge_hold(conn, task, hold, now)
+                if verdict == "due":
+                    queue.append((info, hold))
+                else:
+                    out[verdict].append(info)
+        queue.sort(key=lambda item: (item[0]["resume_after"] or "", str(item[0]["task_id"])))
+        for info, hold in queue:
+            if limit is not None and len(out["due"]) >= limit:
+                out["waiting"].append({**info, "why": "limit"})
+                continue
+            out["due"].append(info)
+            if dry_run:
+                continue
+            try:
+                out["resumed"].append(self._resume_one(info, hold, timeout_seconds))
+            except ServiceError as exc:
+                out["skipped"].append({**info, "why": str(exc.details.get("reason") or exc.code),
+                                       "message": exc.message})
+        return out
+
+    def _resume_one(self, info: Mapping[str, Any], seen: Mapping[str, Any], timeout_seconds: int | None) -> dict[str, Any]:
+        task_id = str(info["task_id"])
+        task = self._tasks.get_task(task_id)
+        hold = dict((task.get("continuity") or {}).get("hold") or {})
+        if (task["state"] != "paused" or not hold or hold.get("since") != seen.get("since")
+                or hold.get("pause_seq") != seen.get("pause_seq") or task["assignee"] != hold.get("actor")):
+            raise _conflict("hold_changed", "The task or its hold changed since it was checked", task_id=task_id)
+        actor, executor_id = str(hold["actor"]), str(hold.get("executor_id") or "")
+        descriptor, adapter, _declaration = self._executor(executor_id)         # a paused or disabled executor waits
+        sid = str(hold["session_id"]).lower() if hold.get("session_id") else ""
+        session = self._stored_session(task_id)
+        with self._store.db.connect() as conn:
+            retired = bool(sid) and self._latest(conn, RETIRED_EVENT, ref=sid) is not None
+            blocked = self._opened_until(conn, sid) if sid else None
+        if blocked is not None:
+            raise _conflict("session_open_in_app", "The held session was opened in an app in the last 12 hours: it is "
+                            "neither resumed nor replaced", task_id=task_id, session_id=sid, blocked_until=_iso(blocked))
+        recorded = dict(hold.get("settings") or {})
+        before = self._drift_before(task, executor_id, descriptor, adapter, recorded)
+        earlier = [str(name) for name in (task.get("continuity") or {}).get("config_drift") or []]
+        drift = tuple(dict.fromkeys([*before, *earlier]))
+        history = (bool(sid) and session is not None and str(session["session_id"]).lower() == sid and not retired
+                   and descriptor.resume.status is SupportState.SUPPORTED and not drift)
+        if history:
+            result = self._resume_task(task_id, None, None, actor, timeout_seconds=timeout_seconds, hold=hold,
+                                       trigger="auto")
+        else:
+            self._supersede(task_id, hold, actor)
+            result = self._relaunch(task_id, executor_id, recorded.get("model"), recorded.get("effort"), actor, hold,
+                                    drift, timeout_seconds)
+        since = _hold.parse_utc(hold.get("since"))
+        waited = max(int((self.clock() - since).total_seconds() // 60), 0) if since is not None else None
+        return {"task_id": task_id, "mode": "resume" if history else "relaunch", "outcome": result["outcome"],
+                "executor_id": executor_id, "session_id": result["session_id"], "attempt": result["attempt"],
+                "config_drift": list(drift), "minutes_waited": waited, "hold": result.get("hold")}
+
+    def _drift_before(self, task: Mapping[str, Any], executor_id: str, descriptor: Any, adapter: Any,
+                      recorded: Mapping[str, Any]) -> list[str]:
+        """What a resume would pass now that differs from what the session started with (contract section 10)."""
+        current: dict[str, Any] = {
+            "permission": Permission.WRITE.value if task["file_scope"] else Permission.READ.value,
+            "adapter": adapter.adapter_id}
+        if recorded.get("model") is not None:
+            current["model"] = recorded["model"] if _supports(descriptor.model_support, recorded["model"]) else None
+        if recorded.get("effort") is not None:
+            current["effort"] = recorded["effort"] if _supports(descriptor.effort_support, recorded["effort"]) else None
+        folder = self._known_workdir(str(task["id"]), executor_id)
+        if folder is not None:
+            current["workdir"] = _workdir_id(folder)
+        return _hold.detect_drift(recorded, current)
+
+    def _supersede(self, task_id: str, hold: Mapping[str, Any], actor: str) -> None:
+        """Before a relaunch: make sure the checkpoint exists and retire the held session as ``superseded``."""
+        sid = str(hold["session_id"]).lower() if hold.get("session_id") else ""
+        limit = {"kind": hold.get("reason"), **{name: hold.get(name) for name in (
+            "window", "reset_at", "reset_source", "reset_confidence", "reset_zone", "evidence")}}
+        attempt = hold.get("attempt")
+        try:
+            self.checkpoint_limit(task_id, limit, session_id=sid, executor_id=hold.get("executor_id"),
+                                  attempt=attempt if isinstance(attempt, int) and not isinstance(attempt, bool)
+                                  and attempt >= 1 else None, actor=actor, retries_left=0, retire="superseded")
+        except ServiceError:
+            if sid and is_uuid(sid):
+                try:
+                    self.retire_session(sid, reason="superseded", actor=actor)
+                except ServiceError:
+                    _logger.info("session %s of %s was not retired", sid, task_id)
+
+    def _relaunch(self, task_id: str, executor_id: str, model: str | None, effort: str | None, actor: str,
+                  hold: Mapping[str, Any], drift: tuple[str, ...], timeout_seconds: int | None) -> dict[str, Any]:
+        """A new session with the recorded model and effort; one the executor no longer takes is dropped, not an error."""
+        for _ in range(3):
+            try:
+                return self._run_task(task_id, executor_id, model, effort, actor, timeout_seconds=timeout_seconds,
+                                      hold=hold, trigger="auto", drift=drift)
+            except ServiceError as exc:
+                reason = exc.details.get("reason")
+                if reason == "model_not_supported" and model is not None:
+                    model = None
+                elif reason == "effort_not_supported" and effort is not None:
+                    effort = None
+                else:
+                    raise
+        raise _conflict("relaunch_failed", "The relaunch could not choose a model and effort", task_id=task_id)
+
     # -------- opening and status --------
     @service_errors
     def open_target(self, task_id: str, actor: str | None = None) -> dict[str, Any]:
@@ -938,11 +1385,14 @@ class ExecutorServices:
                 adapter = registry.resolve(executor_id)
                 if adapter is None or not isinstance(adapter, ExecutorApplicationAdapter):
                     continue
-                until = self._paused_until(conn, executor_id)
+                pause = self._pause_of(conn, executor_id)
+                until = pause["until"] if pause else None
                 executors.append({"executor_id": executor_id, "surface": descriptor.surface,
                                   "adapter_id": adapter.adapter_id, "mode": descriptor.mode,
                                   "enabled": descriptor.enabled, "paused_until": _iso(until) if until else None,
-                                  "available": descriptor.enabled is True and until is None})
+                                  "paused_open_ended": bool(pause and pause["open_ended"]),
+                                  "pause_reason": pause["payload"].get("limit_kind") if pause else None,
+                                  "available": descriptor.enabled is True and pause is None})
         result: dict[str, Any] = {"executors": executors}
         if task_id is not None:
             task_id = self._task_id(task_id)
@@ -970,7 +1420,9 @@ class ExecutorServices:
                 if sessions:
                     until = self._opened_until(conn, sessions[-1]["session_id"])
                     blocked = _iso(until) if until else None
+            continuity = task.get("continuity") or {}
             result["task"] = {"task_id": task_id, "state": task["state"], "status": task["status"],
                               "attempt": task["attempt"], "assignee": task["assignee"], "sessions": sessions,
-                              "attempts": attempts, "routings": routings, "resume_blocked_until": blocked}
+                              "attempts": attempts, "routings": routings, "resume_blocked_until": blocked,
+                              "hold": continuity.get("hold"), "continuity": continuity or None}
         return result

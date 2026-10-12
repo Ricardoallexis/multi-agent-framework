@@ -71,6 +71,8 @@ function Header({ token, summary, onRefresh }) {
         <${Help} topic="session.run_link" compact=${true} />`}
       <button type="button" class="btn secondary small" ...${helpFor("session.refresh")} onClick=${onRefresh}>Actualizar datos</button>
       <${Help} topic="session.refresh" compact=${true} />
+      <a class="btn secondary small" href=${routeHref("tree", summary.id)} ...${helpFor("agent_tree.open")}>Árbol de agentes</a>
+      <${Help} topic="agent_tree.open" compact=${true} />
     </div>
     <div id="open-in-app-slot" class="open-in-app-slot"><${OpenInApp} token=${token} summary=${summary} /></div>
   </header>`;

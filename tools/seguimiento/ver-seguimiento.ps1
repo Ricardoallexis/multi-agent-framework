@@ -790,6 +790,7 @@ function Reset-WorkerCaches {
     $script:WorkerModelCache = @{}
     $script:ExecutionLines = $null
     $script:ActivityBoard = $null   # SEG-T18
+    $script:WaitBoard = $null       # SEG-T19
 }
 $script:TestCommandPattern = 'pytest|probar\.ps1|integrar-sin-ventanas\.ps1'
 # Running test of a Claude subagent: its last tool_use without a tool_result whose command is a test run. Returns its start time.
@@ -1219,7 +1220,208 @@ function Get-ActivitiesHtml($board) {
     }
     "<section class=""panel activities-group"" id=""fuera-de-tareas""><div class=""card-head""><h2>Fuera de tareas</h2><span class=""state $countClass"">$count</span></div>" +
     '<p class="meta">Trabajo que no cuelga de una ficha (auditorías, propuestas, investigaciones, revisiones, integraciones, mantenimiento, sesiones programadas), registrado con <code>registrar-delegacion.ps1 -Actividad</code>. Cada trabajador figura aquí y también en el área de su aplicación (regla 33). Solo se leen horas, estado y modelo de sus sesiones, nunca su contenido.</p>' +
-    "$notice$activeHtml$finishedHtml</section>"
+    "$notice$activeHtml$finishedHtml$(Get-WaitersHtml (Get-WaitBoard))</section>"
+}
+
+# SEG-T19 (REGLAS 36): «En espera de activación». An agent that only waits for something external leaves its task pendiente ("esperando: ...") and
+# ends its run; esperar-condicion.ps1 (no AI model) watches the condition and relaunches it. That watcher keeps one state file per wait in
+# <channel>\orquestacion\esperas\activas\<id>.json (moved to ...\terminadas when it is cumplida or vencida): id, motivo, tarea, agente, estado,
+# condiciones (tipo, valor, cumplida, avance, estimado, base), inicio, ultima_comprobacion, proxima_comprobacion, pid, and the overall avance /
+# estimado / base. A task or an agent that would read «sin actividad» but has a live watcher (tarea / agente) or a pendiente card that says
+# «esperando: ...» reads «En espera de activación», with the motivo, condition, who it reactivates, since when, the next check and the honest
+# progress («NN % · hacia las HH:MM · <base>» or «sin estimación»). Only registered text, times, status and numbers are shown, never content.
+$script:WaitBoard = $null
+$script:WaitLabel = 'En espera de activación'
+function ConvertTo-WaitTime($value) {
+    if ($null -eq $value -or "$value" -eq '') { return $null }
+    if ($value -is [datetime]) { if ($value.Kind -eq 'Utc') { return $value.ToLocalTime() } return $value }
+    $parsed = [datetimeoffset]::MinValue
+    if ([datetimeoffset]::TryParse([string]$value, [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeLocal, [ref]$parsed)) { return $parsed.LocalDateTime }
+    $null
+}
+# A percentage from the state file: a number from 0 to 100, else $null (never guessed).
+function ConvertTo-WaitPercent($value) {
+    if ($null -eq $value -or $value -is [bool]) { return $null }
+    if ($value -is [string]) { if ($value.Trim() -notmatch '^\d+(\.\d+)?$') { return $null } }
+    elseif ($value -isnot [ValueType]) { return $null }
+    try { $number = [double]$value } catch { return $null }
+    if ($number -lt 0 -or $number -gt 100) { return $null }
+    [int][Math]::Round($number)
+}
+function Get-WaitProperty($object, [string]$name) {
+    if ($null -eq $object) { return $null }
+    $property = $object.PSObject.Properties[$name]
+    if ($property) { $property.Value } else { $null }
+}
+# One state file as a wait. $null when it cannot be read (a watcher may be rewriting it: one retry).
+# Status: cumplida / vencida (finished); otherwise detenido (its process is gone), perdido (its heartbeat is older than 3 times its interval),
+# error (its last check failed; it retries) or vigilando. A percentage of 100 is only believed with its `met_at`.
+function Read-WaitFile([string]$path, [bool]$finished) {
+    $json = $null
+    foreach ($attempt in 1..2) {
+        try { $json = [IO.File]::ReadAllText($path) | ConvertFrom-Json -ErrorAction Stop; break } catch { if ($attempt -eq 1) { Start-Sleep -Milliseconds 150 } }
+    }
+    if ($json -isnot [pscustomobject]) { return $null }
+    $id = Get-StringField $json @('id')
+    if (-not $id) { $id = [IO.Path]::GetFileNameWithoutExtension($path) }
+    $percent = { param($source) $p = ConvertTo-WaitPercent (Get-WaitProperty $source 'avance'); if ($p -eq 100 -and -not (ConvertTo-WaitTime (Get-WaitProperty $source 'met_at'))) { $null } else { $p } }
+    $conditions = @(foreach ($item in @(Get-WaitProperty $json 'condiciones')) {
+        if ($item -isnot [pscustomobject]) { continue }
+        $type = Get-StringField $item @('tipo')
+        $value = Get-WaitProperty $item 'valor'
+        # The value of an entrada (a pattern over channel text) or archivo (a path) is not shown: it could carry content.
+        [pscustomobject]@{ Type = $type; Value = $(if ($null -ne $value -and $type -notin 'entrada', 'archivo') { Safe-Snippet ([string]$value) } else { '' })
+            Met = ((Get-WaitProperty $item 'cumplida') -eq $true); Progress = (& $percent $item)
+            Estimated = (ConvertTo-WaitTime (Get-WaitProperty $item 'estimado')); Base = (Safe-Snippet (Get-StringField $item @('base'))) }
+    })
+    $status = (Get-StringField $json @('estado')).ToLowerInvariant()
+    $isFinished = $finished -or $status -in 'cumplida', 'vencida'
+    $now = if ($null -ne $script:nowOverride) { [datetime]$script:nowOverride } else { Get-Date }
+    $lastCheck = ConvertTo-WaitTime (Get-WaitProperty $json 'ultima_comprobacion')
+    $nextCheck = ConvertTo-WaitTime (Get-WaitProperty $json 'proxima_comprobacion')
+    $state = if ($isFinished) { if ($status -in 'cumplida', 'vencida') { $status } else { 'terminada' } } else { 'vigilando' }
+    if (-not $isFinished) {
+        $processId = Get-WaitProperty $json 'pid'
+        $interval = if ($lastCheck -and $nextCheck) { ($nextCheck - $lastCheck).TotalSeconds } else { 0 }
+        if ($null -ne $processId -and "$processId" -match '^\d+$' -and -not (Get-Process -Id ([int]"$processId") -ErrorAction SilentlyContinue)) {
+            # A state file whose watcher process is gone (killed, rebooted) will never reactivate anyone.
+            $state = 'detenido'
+        } elseif ($interval -gt 0 -and ($now - $lastCheck).TotalSeconds -gt 3 * $interval) {
+            $state = 'perdido'
+        } elseif ($status -eq 'error') {
+            $state = 'error'
+        }
+    }
+    [pscustomobject]@{ Id = $id; Reason = (Safe-Snippet (Get-StringField $json @('motivo'))); Task = (Get-StringField $json @('tarea')); Agent = (Get-StringField $json @('agente'))
+        Status = $state; Conditions = $conditions; Start = (ConvertTo-WaitTime (Get-WaitProperty $json 'inicio')); LastCheck = $lastCheck; NextCheck = $nextCheck
+        Deadline = (ConvertTo-WaitTime (Get-WaitProperty $json 'vence')); Progress = (& $percent $json)
+        Estimated = (ConvertTo-WaitTime (Get-WaitProperty $json 'estimado')); Base = (Safe-Snippet (Get-StringField $json @('base'))); Source = 'vigilante' }
+}
+# The waits of the channel: Active (live watchers), Problem (error, perdido or detenido: shown in the list but they promise no reactivation) and
+# Finished (cumplida / vencida), read once.
+function Get-WaitBoard {
+    if ($null -ne $script:WaitBoard) { return $script:WaitBoard }
+    $available = $true
+    $read = @{}
+    $root = Join-Path $channel 'orquestacion\esperas'
+    foreach ($kind in 'activas', 'terminadas') {
+        $dir = Join-Path $root $kind
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
+        try { $files = @(Get-ChildItem -LiteralPath $dir -Filter '*.json' -File -ErrorAction Stop | Sort-Object LastWriteTime -Descending) }
+        catch { $available = $false; Write-Warning 'No se pudo leer la carpeta de esperas de activación.'; continue }
+        if ($kind -eq 'terminadas') { $files = @($files | Select-Object -First 20) }
+        foreach ($file in $files) {
+            $wait = Read-WaitFile $file.FullName ($kind -eq 'terminadas')
+            # A watcher finishing moves its file while the folders are read: the finished copy wins.
+            if ($wait -and (-not $read.ContainsKey($wait.Id) -or $kind -eq 'terminadas')) { $read[$wait.Id] = $wait }
+        }
+    }
+    $all = @($read.Values)
+    $script:WaitBoard = [pscustomobject]@{ Available = $available
+        Active = @($all | Where-Object { $_.Status -eq 'vigilando' }); Problem = @($all | Where-Object { $_.Status -in 'error', 'perdido', 'detenido' })
+        Finished = @($all | Where-Object { $_.Status -in 'cumplida', 'vencida', 'terminada' } | Sort-Object @{ Expression = { if ($_.LastCheck) { $_.LastCheck } else { [datetime]::MinValue } }; Descending = $true }) }
+    $script:WaitBoard
+}
+# The wait a pendiente card declares itself («esperando: ...» in «Qué falta», rule 36), for when no live watcher is registered for it.
+function Get-CardWait([string]$taskId, [string]$state, [string]$agent, [string]$missing) {
+    if ($state -ne 'pendiente' -or $missing -notmatch '(?i)esperando\s*:\s*(?<what>.+)$') { return $null }
+    [pscustomobject]@{ Id = ''; Reason = (Limit-Text $Matches['what'].Trim() 200); Task = $taskId; Agent = $agent; Status = 'vigilando'; Conditions = @(); Start = $null; LastCheck = $null
+        NextCheck = $null; Progress = $null; Estimated = $null; Base = 'sin vigilante activo registrado'; Source = 'ficha' }
+}
+# The waits of a task: its live watchers (tarea), else the one its own card declares.
+function Get-TaskWaits($board, [string]$taskId, [string]$state, [string]$agent, [string]$missing) {
+    $list = @($board.Active | Where-Object { $_.Task -and $_.Task -ieq $taskId })
+    if (-not $list.Count) { $card = Get-CardWait $taskId $state $agent $missing; if ($card) { $list = @($card) } }
+    $list
+}
+# The waits of an agent: the live watchers that reactivate it (agente) plus those of its active tasks.
+function Get-AgentWaits($board, [string]$name, [object[]]$tasks) {
+    $list = [System.Collections.Generic.List[object]]::new()
+    $seen = @{}
+    $candidates = @($board.Active | Where-Object { $_.Agent -and $_.Agent -ieq $name })
+    foreach ($task in $tasks) { $candidates += @(Get-TaskWaits $board $task.Id $task.State $task.Agent $task.Missing) }
+    foreach ($wait in $candidates) {
+        $key = if ($wait.Id) { $wait.Id } else { "ficha:$($wait.Task)" }
+        if (-not $seen.ContainsKey($key)) { $seen[$key] = $true; $list.Add($wait) }
+    }
+    @($list)
+}
+# «NN % · hacia las HH:MM · <base>», or «sin estimación» (with its base when there is one). A percentage never goes without its base.
+function Format-WaitProgress($progress, $estimated, [string]$base) {
+    if ($null -eq $progress -or -not $base) {
+        if (-not $base) { return 'sin estimación' }
+        if ($base -like 'sin estimación*') { return $base }
+        return "sin estimación · $base"
+    }
+    $when = if ($estimated) {
+        $now = if ($null -ne $script:nowOverride) { [datetime]$script:nowOverride } else { Get-Date }
+        if ($estimated.Date -eq $now.Date) { "hacia las $($estimated.ToString('HH:mm', [cultureinfo]::InvariantCulture))" } else { "hacia el $($estimated.ToString('yyyy-MM-dd HH:mm', [cultureinfo]::InvariantCulture))" }
+    } else { 'sin hora estimada' }
+    "$progress % · $when · $base"
+}
+function Format-WaitCondition($condition) {
+    $text = if ($condition.Value) { "$($condition.Type) $($condition.Value)" } else { $condition.Type }
+    "$text ($(if ($condition.Met) { 'cumplida' } else { 'pendiente' }))"
+}
+function Format-WaitChip { "<span class=""state s-espera"">$(Encode $script:WaitLabel)</span>" }
+# The detail of one wait: motivo, condition, who it reactivates, since when, last and next check, the progress, and apart from it the watcher's
+# time limit. -PerCondition adds one line per condition.
+function Format-WaitDetailHtml($wait, [switch]$PerCondition) {
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add("Motivo: $(Encode $(if ($wait.Reason) { $wait.Reason } else { 'no indicado' }))")
+    if ($wait.Conditions.Count) { $lines.Add("Condición: $(Encode (($wait.Conditions | ForEach-Object { Format-WaitCondition $_ }) -join '; '))") }
+    $who = if ($wait.Agent) { "Reactiva a: $(Encode $wait.Agent)" } else { 'Reactiva a: agente no indicado' }
+    $times = @()
+    if ($wait.Start) { $times += "desde $(Encode (Format-WorkTime $wait.Start))" }
+    if ($wait.LastCheck) { $times += "última revisión $(Encode (Format-WorkTime $wait.LastCheck))" }
+    if ($wait.NextCheck) { $times += "próxima revisión $(Encode (Format-WorkTime $wait.NextCheck))" }
+    $lines.Add((@($who) + $times) -join ' · ')
+    $lines.Add("Avance: $(Encode (Format-WaitProgress $wait.Progress $wait.Estimated $wait.Base))")
+    if ($wait.Deadline) { $lines.Add("Tiempo máximo del vigilante: hasta $(Encode (Format-WorkTime $wait.Deadline)) (no es avance)") }
+    $html = ($lines | ForEach-Object { "<div class=""meta"">$_</div>" }) -join ''
+    if ($PerCondition -and $wait.Conditions.Count -gt 1) {
+        $items = foreach ($condition in $wait.Conditions) { "<li>$(Encode (Format-WaitCondition $condition)): $(Encode (Format-WaitProgress $condition.Progress $condition.Estimated $condition.Base))</li>" }
+        $html += "<ul class=""wait-conditions"">$($items -join '')</ul>"
+    }
+    "<div class=""wait-detail"">$html</div>"
+}
+# The label and the detail of every wait of a task or an agent.
+function Get-WaitCellHtml([object[]]$waits) { "$(Format-WaitChip)$((@($waits) | ForEach-Object { Format-WaitDetailHtml $_ }) -join '')" }
+# The «Vigilantes» list of the «Fuera de tareas» section: live watchers, the ones with a problem (detenido, perdido, con error: they promise no
+# reactivation) and the finished ones collapsed. Never the message of an error, the action script or what a condition matched.
+function Get-WaitersHtml($board) {
+    $active = @($board.Active | Sort-Object @{ Expression = { if ($_.Start) { $_.Start } else { [datetime]::MinValue } }; Descending = $true })
+    $problems = @($board.Problem | Sort-Object @{ Expression = { if ($_.Start) { $_.Start } else { [datetime]::MinValue } }; Descending = $true })
+    if ($board.Available -and -not ($active.Count + $problems.Count + $board.Finished.Count)) { return '' }
+    $notice = if (-not $board.Available) { '<div class="stop"><strong>Vigilantes no disponibles</strong>No se pudo leer la carpeta de esperas de activación; no se presenta como una lista vacía.</div>' } else { '' }
+    $count = if ($active.Count) { "$($active.Count) $(if ($active.Count -eq 1) { 'activo' } else { 'activos' })" } else { 'ninguno activo' }
+    if ($problems.Count) { $count += " · $($problems.Count) con problemas" }
+    $countClass = if ($active.Count) { 's-espera' } elseif ($problems.Count) { 's-unknown' } else { 's-idle' }
+    $head = { param($wait) $task = if ($wait.Task) { " · $(Encode $wait.Task)" } else { '' }; "<strong>$(Encode $wait.Id)$task</strong>" }
+    $activeHtml = foreach ($wait in $active) { "<div class=""agent-task wait-item"">$(& $head $wait) $(Format-WaitChip)$(Format-WaitDetailHtml $wait -PerCondition)</div>" }
+    $problemHtml = foreach ($wait in $problems) {
+        $last = if ($wait.LastCheck) { Encode (Format-WorkTime $wait.LastCheck) } else { 'hora no registrada' }
+        $chip, $chipClass, $text = switch ($wait.Status) {
+            'detenido' { 'Vigilante detenido', 's-unknown', "El proceso del vigilante ya no existe: esta espera no se reactivará sola. Última revisión $last." }
+            'perdido' { 'Vigilante perdido', 's-unknown', "No da señales de vida: su última revisión fue a las $last, hace más de 3 intervalos. Puede estar colgado." }
+            default { 'Vigilante con error', 's-requiere-cambios', "Su última comprobación falló (última revisión $last); reintenta en la próxima$(if ($wait.NextCheck) { " ($(Encode (Format-WorkTime $wait.NextCheck)))" })." }
+        }
+        "<div class=""agent-task wait-item"">$(& $head $wait) <span class=""state $chipClass"">$chip</span>" +
+        "<div class=""meta"">Motivo: $(Encode $wait.Reason)</div><div class=""meta"">$text</div></div>"
+    }
+    $finishedHtml = ''
+    if ($board.Finished.Count) {
+        $items = foreach ($wait in $board.Finished) {
+            $span = "$(if ($wait.Start) { Encode (Format-WorkTime $wait.Start) } else { 'hora no registrada' })$(if ($wait.LastCheck) { " → $(Encode (Format-WorkTime $wait.LastCheck))" })"
+            $target = @(if ($wait.Task) { "tarea $(Encode $wait.Task)" }; if ($wait.Agent) { "reactivó a $(Encode $wait.Agent)" }) -join ' · '
+            "<li><strong>$(Encode $wait.Id)</strong> · $(Encode $wait.Status)$(if ($target) { " · $target" }) · $span · $(Encode $wait.Reason)</li>"
+        }
+        $finishedHtml = "<details class=""wait-finished""><summary>Terminados ($($board.Finished.Count))</summary><ul>$($items -join '')</ul></details>"
+    }
+    $empty = if (-not $active.Count -and -not $problems.Count) { '<p class="meta">No hay vigilantes activos.</p>' } else { '' }
+    "<div class=""wait-group"" id=""vigilantes""><div class=""card-head""><h3>Vigilantes</h3><span class=""state $countClass"">$count</span></div>" +
+    '<p class="meta">Esperas por condición (regla 36): un vigilante sin modelo de IA comprueba la condición y relanza al agente cuando se cumple. Solo se muestran horas, estado y números.</p>' +
+    "$notice$empty$($activeHtml -join '')$($problemHtml -join '')$finishedHtml</div>"
 }
 
 function Get-AgentBoardData {
@@ -1441,6 +1643,7 @@ function Format-TodoGroup([string]$heading, [object[]]$items) {
 }
 function Build-Page {
 Reset-WorkerCaches   # SEG-T15: transcripts, models and execution lines are read again on every generation
+$waitBoard = Get-WaitBoard   # SEG-T19: the watchers (esperas de activación) are read again too
 $agentBoard = Get-AgentBoardData
 $apiBoardHtml = if ($LeerApi) { Get-ApiBoardHtml } else { '' }
 $readsText = if (Test-Path -LiteralPath $integrationReads -PathType Leaf) {
@@ -1671,7 +1874,13 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $stateCell = if ($record.WaitingFor.Count) {
                 "<span class=""state s-bloqueada"">Bloqueada por dependencia</span><div class=""meta"">Espera: $(Encode ($record.WaitingFor -join '; '))</div><div class=""meta"">Estado en la ficha: $(Encode $record.State)</div>"
             } else { "<span class=""state $stateClass"">$(Encode $record.State)</span>" }
-            $lastActivityHtml = if ($record.LastRow) { "<div class=""meta"">Última actividad $(Encode (Format-ActivityDate $record.LastRow.Date))</div>" } else { '<div class="meta">Sin historial fechado</div>' }
+            # SEG-T19: a task with a live watcher (tarea), or a pendiente card that says «esperando: ...», reads «En espera de activación».
+            $taskWaits = @(Get-TaskWaits $waitBoard $record.Id $record.State $record.Agent $record.Missing)
+            if ($taskWaits.Count) {
+                $stateCell = if ($record.WaitingFor.Count) { $stateCell + (Get-WaitCellHtml $taskWaits) }
+                    else { (Get-WaitCellHtml $taskWaits) + "<div class=""meta"">Estado en la ficha: $(Encode $record.State)</div>" }
+            }
+            $lastActivityHtml =if ($record.LastRow) { "<div class=""meta"">Última actividad $(Encode (Format-ActivityDate $record.LastRow.Date))</div>" } else { '<div class="meta">Sin historial fechado</div>' }
             $delegationHtml = if ($record.Delegation) {
                 "<div class=""meta"">orquestó $(Encode $record.Delegation.Orchestrator)</div>" + (Get-WorkerListHtml $record.Delegation $record.Tokens)
             } else { '' }
@@ -2064,12 +2273,18 @@ $cloudAssignmentPanel = if ($cloudAssignmentsError) {
 $registeredAgents = @(Get-RegisteredAgents)
 $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq 'ACTIVO')) {
     $name = $agentRow.Name
+    $agentWaits = @()
+    $waiting = $false
     if (-not $agentBoard.Available) {
         $status = 'Estado no disponible'
         $statusClass = 's-unknown'
         $current = '<p class="meta">No se pudo consultar el tablero de tareas.</p>'
     } else {
         $active = @($agentBoard.Tasks | Where-Object { $_.Agent -ieq $name -and $_.State -in @('en curso', 'pendiente') })
+        # SEG-T19: the live watchers that reactivate this agent, those of its tasks and the «esperando: ...» of its pendiente cards. It reads
+        # «En espera de activación» unless it is working on a task en curso.
+        $agentWaits = @(Get-AgentWaits $waitBoard $name $active)
+        $waiting = $agentWaits.Count -gt 0 -and -not @($active | Where-Object State -eq 'en curso').Count
         if ($active) {
             $status = if (@($active | Where-Object State -eq 'en curso').Count) { 'Asignada · En curso' } else { 'Asignada · En espera' }
             $statusClass = if ($status -eq 'Asignada · En curso') { 's-en-curso' } else { 's-pendiente' }
@@ -2077,7 +2292,8 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
                 $taskState = if ($task.State -eq 'en curso') { 'En curso' } else { 'Pendiente' }
                 $context = if ($task.Missing) { "<p class=""agent-context"">Qué falta: $(Encode $task.Missing)</p>" } else { '' }
                 $delegated = (@($task.ActiveDelegations) | ForEach-Object { "<p class=""agent-context"">$(Encode (Format-ActiveDelegation $_))</p>" }) -join ''
-                "<div class=""agent-task""><strong>$(Encode $task.Id) · $(Encode $task.Title)</strong><span class=""state $(if ($task.State -eq 'en curso') { 's-en-curso' } else { 's-pendiente' })"">Asignada · $(Encode $taskState)</span>$context$delegated</div>"
+                $waitChip = if (@(Get-TaskWaits $waitBoard $task.Id $task.State $task.Agent $task.Missing).Count) { Format-WaitChip } else { '' }
+                "<div class=""agent-task""><strong>$(Encode $task.Id) · $(Encode $task.Title)</strong><span class=""state $(if ($task.State -eq 'en curso') { 's-en-curso' } else { 's-pendiente' })"">Asignada · $(Encode $taskState)</span>$waitChip$context$delegated</div>"
             }
             $current = $current -join "`n"
         } elseif ($agentBoard.Partial) {
@@ -2090,6 +2306,11 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
             $current = '<p class="meta">No tiene una tarea asignada en curso o en espera según el tablero.</p>'
         }
     }
+    # SEG-T19: the agent that only waits is not «sin actividad»: label and detail of every wait that will reactivate it.
+    if ($waiting) { $status = $script:WaitLabel; $statusClass = 's-espera' }
+    $waitsHtml = if ($agentWaits.Count) {
+        "<div class=""agent-current agent-waiting""><h4>$(Encode $script:WaitLabel)</h4>$((@($agentWaits) | ForEach-Object { Format-WaitDetailHtml $_ }) -join '')</div>"
+    } else { '' }
     $events = @($agentBoard.History | Where-Object Agent -ieq $name)
     $lastActivity = ''
     if ($events) {
@@ -2162,6 +2383,7 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
   <div class="card-head"><h3>$(Encode $name)</h3><span class="state $statusClass">$(Encode $status)</span></div>
   $identityHtml
   <div class="agent-current"><h4>Tarea actual según el tablero</h4>$current</div>
+  $waitsHtml
   <div class="agent-current"><h4>Tokens en tareas</h4>$tokensHtml</div>
   <div class="agent-current"><h4>Seguimiento de asignaciones cloud</h4>$cloudContext</div>
   $(Get-AlignmentHtml $name $agentRow.Application)
@@ -2169,7 +2391,7 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
 </div>
 "@
     $isActive = -not $agentBoard.Available -or [bool]$active
-    [pscustomobject]@{ Name = $name; Application = $agentRow.Application; Active = $isActive; Html = $card }
+    [pscustomobject]@{ Name = $name; Application = $agentRow.Application; Active = $isActive; Waiting = $waiting; Html = $card }
 }
 # SEG-T17 (REGLAS 33): delegated workers of another application than their orchestrator's, grouped under their own application.
 $foreignWorkers = if ($agentBoard.Available) { @(Get-ForeignWorkers $agentBoard $registeredAgents) } else { @() }
@@ -2184,19 +2406,23 @@ foreach ($application in @($agentCards | ForEach-Object Application) + @($foreig
 # SEG-T17: also the active workers of that application, so an application with active workers never says "sin actividad".
 $agentCards = foreach ($application in @($applications)) {
     $members = @($agentCards | Where-Object { $_.Application -ieq $application })
-    $activeMembers = @($members | Where-Object Active)
-    $idleMembers = @($members | Where-Object { -not $_.Active })
+    # SEG-T19: an agent that only waits for a watcher is «en espera de activación», not active and not idle.
+    $waitingMembers = @($members | Where-Object Waiting)
+    $activeMembers = @($members | Where-Object { $_.Active -and -not $_.Waiting })
+    $shownMembers = @($members | Where-Object { $_.Active -or $_.Waiting })
+    $idleMembers = @($members | Where-Object { -not $_.Active -and -not $_.Waiting })
     $appWorkers = @($foreignWorkers | Where-Object { $_.Application -ieq $application } | Sort-Object @{ Expression = { $_.Task.Id } }, @{ Expression = { $_.Entry.Since } })
     $appActivityWorkers = @($activityWorkers | Where-Object { $_.Application -ieq $application } | Sort-Object @{ Expression = { $_.Activity.Id } }, @{ Expression = { $_.Entry.Since } })
     $liveWorkers = @(@($appWorkers) + @($appActivityWorkers) | Where-Object { -not $_.Stopped })
     $stoppedWorkers = @(@($appWorkers) + @($appActivityWorkers) | Where-Object { $_.Stopped })
     $statusParts = @()
     if ($activeMembers.Count) { $statusParts += "$($activeMembers.Count) con tarea activa" }
+    if ($waitingMembers.Count) { $statusParts += "$($waitingMembers.Count) en espera de activación" }
     if ($liveWorkers.Count) { $statusParts += "$($liveWorkers.Count) $(if ($liveWorkers.Count -eq 1) { 'trabajador activo' } else { 'trabajadores activos' })" }
     if (-not $statusParts) { $statusParts += 'sin actividad' }
     if ($stoppedWorkers.Count) { $statusParts += "$($stoppedWorkers.Count) $(if ($stoppedWorkers.Count -eq 1) { 'trabajador probablemente detenido' } else { 'trabajadores probablemente detenidos' })" }
     $appStatus = $statusParts -join ' · '
-    $appClass = if ($activeMembers.Count -or $liveWorkers.Count) { 's-en-curso' } else { 's-idle' }
+    $appClass = if ($activeMembers.Count -or $liveWorkers.Count) { 's-en-curso' } elseif ($waitingMembers.Count) { 's-espera' } else { 's-idle' }
     $workersHtml = ''
     if ($appWorkers.Count) {
         $workersHtml = "<div class=""agent-name agent-workers""><h3>Trabajadores de otras aplicaciones</h3><p class=""meta"">Delegados por un agente de otra aplicación; también figuran como delegación en la tarjeta de quien los orquesta.</p>$(($appWorkers | ForEach-Object { Format-ForeignWorkerHtml $_ }) -join "`n")</div>"
@@ -2212,7 +2438,7 @@ $agentCards = foreach ($application in @($applications)) {
     @"
 <section class="panel agent-card">
   <div class="card-head"><h2>$(Encode $application)</h2><span class="state $appClass">$(Encode $appStatus)</span></div>
-  $(($activeMembers | ForEach-Object Html) -join "`n")
+  $(($shownMembers | ForEach-Object Html) -join "`n")
   $workersHtml
   $idleHtml
 </section>
@@ -2347,6 +2573,15 @@ summary { cursor:pointer; }
 .s-idle { background:var(--accent-soft); color:var(--muted); }
 .s-unknown { background:var(--warn-bg); border:1px solid var(--warn-line); }
 .s-bloqueada { background:var(--accent-soft); color:var(--muted); border:1px dashed var(--warn-line); }
+.s-espera { background:var(--accent-soft); border:1px dashed var(--accent); }
+.wait-detail { margin:2px 0 6px; }
+.wait-detail .meta { color:var(--muted); font-size:13px; margin:2px 0; }
+.wait-conditions { margin:4px 0; padding-left:18px; font-size:13px; color:var(--muted); }
+.wait-group { margin-top:14px; border-top:1px solid var(--line); padding-top:6px; }
+.wait-group h3 { margin:6px 0; font-size:16px; }
+.wait-finished { margin-top:10px; }
+.wait-finished ul { margin:6px 0 0; padding-left:20px; font-size:13px; }
+.wait-finished li { margin:3px 0; }
 .agent-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; }
 .agent-card h2 { margin:0; font-size:18px; }
 .agent-card h3 { margin:14px 0 6px; font-size:16px; }
@@ -2562,9 +2797,17 @@ function Get-Stamp {
     # SEG-T18: the activities outside tasks live only in their JSONL.
     $activityLog = Join-Path $channel 'orquestacion\ACTIVIDADES\ejecuciones.jsonl'
     if (Test-Path -LiteralPath $activityLog -PathType Leaf) { $files += Get-Item -LiteralPath $activityLog }
+    # SEG-T19: the watchers' state files (each check rewrites one, which moves the progress).
+    $liveWaitFiles = @(Get-ChildItem -LiteralPath (Join-Path $channel 'orquestacion\esperas\activas') -Filter '*.json' -File -ErrorAction SilentlyContinue)
+    $files += $liveWaitFiles
+    $files += @(Get-ChildItem -LiteralPath (Join-Path $channel 'orquestacion\esperas\terminadas') -Filter '*.json' -File -ErrorAction SilentlyContinue)
     if (Test-Path -LiteralPath $ideasStorePath -PathType Leaf) { $files += Get-Item -LiteralPath $ideasStorePath }
     if (Test-Path -LiteralPath $cloudAssignmentsPath -PathType Leaf) { $files += Get-Item -LiteralPath $cloudAssignmentsPath }
-    ($files | ForEach-Object { "$($_.Name):$($_.LastWriteTimeUtc.Ticks)" }) -join '-'
+    $stamp = ($files | ForEach-Object { "$($_.Name):$($_.LastWriteTimeUtc.Ticks)" }) -join '-'
+    # A watcher that stops writing (lost, killed) leaves its file as it is, yet its label must change: while one is live the page is also
+    # regenerated once a minute.
+    if ($liveWaitFiles.Count) { $stamp += "-esperas:$([long][Math]::Floor([datetime]::UtcNow.Ticks / [timespan]::TicksPerMinute))" }
+    $stamp
 }
 
 # The page opens in its own Edge app window with a separate profile, so its lifetime is observable.

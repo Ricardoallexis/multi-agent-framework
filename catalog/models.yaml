@@ -209,6 +209,31 @@ routing_profiles:
       require_health: false
       max_retries_per_candidate: 1
   assignments: {}
+# Context compaction (CMP-T02, contract CMP-T01 section 11). Declared apart from routing_profiles so it can be
+# switched on without changing how models are chosen. Off until a profile is `enabled: true` AND assigned:
+# with none assigned, prompts and events are exactly what they were. Before every model call the framework
+# estimates the prompt against the model's context window (`context_window` above):
+#   - at `warning_at` (62 % of the window) it records a `context_warning` event;
+#   - at `threshold` (70 %) it records one with `compaction_pending: true`; the call still goes ahead,
+#     and the compaction happens when the step finishes (never in the middle of it).
+#   - a model with no known window is never guessed: `unknown_window: skip` lets the call go ahead with one
+#     warning per run and model; `block` stops it instead.
+# `keep_recent` is how many of the latest outputs are never summarized; `summary` is how summaries are made
+# (levels T1/T2 only) and `tasks.window_tokens` the window to measure task context against (null = the
+# requested model's). `assignments` maps a workflow id, or `tasks` for task envelopes, to a profile:
+#   assignments: {social_post: standard, tasks: standard}
+context_profiles:
+  profiles:
+    standard:
+      version: 1
+      enabled: false
+      warning_at: 0.62
+      threshold: 0.70
+      unknown_window: skip        # skip | block
+      keep_recent: 1
+      summary: {first_level: T1, retry_level: T2, effort: low, model_check: true, max_calls: 4, max_ratio: 0.5}
+      tasks: {window_tokens: null}
+  assignments: {}
 # T15 executor declarations are intentionally manual until a conforming adapter
 # provides fixed, verifiable capability evidence. These are surface presets,
 # not claims that a particular client is present or available.
