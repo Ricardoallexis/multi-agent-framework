@@ -97,12 +97,27 @@ The views sit inside a three-zone shell (GUI2-T02):
 - **Centre** (`main`): the view of the current route. In a session, consecutive
   tool calls and results fold into one block, "Trabajó N min · K herramientas",
   that opens to show them.
-- **Right panel** (`aside`): Cambios, Subagentes, Tokens and Fuentes, empty for
-  now except Subagentes. A button in the top bar collapses it
+- **Right panel** (`aside`): Cambios, Subagentes, Tokens and Fuentes for the
+  session or run open in the centre. A button in the top bar collapses it
   (`aria-expanded`/`aria-controls`) and the browser remembers the choice in
-  `localStorage`. Each section body is a small component in `js/panel-slots.js`,
-  which is where later tasks plug in. Subagentes holds the subagents panel
-  (Activos/Terminados tabs) for the session open in the centre.
+  `localStorage`. Each section body is a small component in `js/panel-slots.js`.
+  Subagentes holds the subagents panel (Activos/Terminados tabs).
+  - *Cambios*: the files the session changed (tool calls that write or edit),
+    with the +/- lines only when the source counts them (the session readers do
+    not yet, so it shows the number of edits and never an invented count); for a
+    run, the files its results list (`files`, `changed_files` or `files_changed`).
+  - *Tokens*: orchestrator against workers (the session and its subagents; for a
+    run, the steps), the estimated cost and, for a run, the price evidence behind
+    it (`GET /gui/api/runs/{id}/usage`, the same read-only data as
+    `/api/v1/runs/{id}/usage`). A figure nobody reported reads «desconocido»,
+    never 0; the apps report no prices, so their sessions have no cost estimate.
+  - *Fuentes*: the working folder, files read, web pages (without query or
+    fragment), searches and attachments of a session; the workflow, prompts,
+    contracts and input names of a run. Paths and names only, never message text.
+
+  The three sections share one loader per session or run that reads only
+  `/gui/api` routes, page by page from a cursor, every 10 s (30 s for a session
+  that is not active, 60 s for a finished run) and only while the panel is visible.
 
 Below about 900 px the sidebar becomes a drawer opened by the "Menú" button
 (Esc or a click outside closes it) and the right panel stacks under the content.

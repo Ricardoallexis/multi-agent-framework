@@ -642,7 +642,8 @@ function Get-ExecutionLines([string]$taskId) {
             foreach ($line in $lines) {
                 if (-not $line.Trim()) { continue }
                 try { $item = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
-                if (-not $item -or -not $item.task -or -not $item.worker) { continue }
+                # Activity rows (orquestacion\ACTIVIDADES) carry "activity", not "task": check the properties first so StrictMode callers do not fail.
+                if (-not $item -or -not $item.PSObject.Properties['task'] -or -not $item.PSObject.Properties['worker'] -or -not $item.task -or -not $item.worker) { continue }
                 $key = ([string]$item.task).Trim().ToUpperInvariant()
                 if (-not $script:ExecutionLines.ContainsKey($key)) { $script:ExecutionLines[$key] = [System.Collections.Generic.List[object]]::new() }
                 $script:ExecutionLines[$key].Add($item)
@@ -2204,7 +2205,7 @@ if (Test-Path $summary) {
         if ($todoMarkdown.Trim()) { $todoNotes = '<h3>Notas</h3>' + (ConvertFrom-Markdown -InputObject $todoMarkdown).Html }
     }
 }
-$todoBody = if ($todoGroups.Count) { $todoGroups -join "`n" } else { '<p>Nada pendiente de tu parte.</p>' }
+$todoBody = if (@($todoGroups).Count) { @($todoGroups) -join "`n" } else { '<p>Nada pendiente de tu parte.</p>' }
 $todo = $todoBody + $todoNotes
 
 # "Plan de etapas": the Spanish summary in ROADMAP_VISTA.md ("## Etapas y features").

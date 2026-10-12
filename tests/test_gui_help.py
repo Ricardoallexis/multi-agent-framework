@@ -30,6 +30,8 @@ VIEW_FILES = [
 VIEW_FILES += ["shell.js", "sidebar.js", "right-panel.js", "panel-slots.js", "subagents-mount.js"]
 # The shared components with controls (GUI2-T11): StatusChip, Progress and LevelBadge draw no control; Tabs draws the tab buttons.
 VIEW_FILES += ["ui/tabs.js"]
+# The right-panel sections «Cambios», «Tokens» and «Fuentes» (GUI2-T05).
+VIEW_FILES += ["panel-parts.js", "panel-changes.js", "panel-tokens.js", "panel-sources.js"]
 CONTROL_TAGS = {"input", "select", "textarea", "button"}
 
 # The only controls without help, and why. A new exemption must be added here on purpose.

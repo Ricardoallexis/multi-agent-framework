@@ -313,6 +313,13 @@ def build_router(services) -> APIRouter:
     def get_run(run_id: str):
         return run_view(services, services.runs.get(run_id))
 
+    @router.get("/runs/{run_id}/usage")
+    def get_run_usage(run_id: str):
+        """Provider usage of the run for the Tokens panel (GUI2-T05): the same read-only answer as
+        ``/api/v1/runs/{id}/usage`` (records, totals per run/agent/step/model, estimated cost with its price
+        evidence). Unreported tokens and unknown costs are ``null``, never 0. ``not_found`` for an unknown run."""
+        return services.runs.usage(run_id)
+
     @router.get("/runs/{run_id}/human-next")
     def human_next(run_id: str):
         """The pending human-guided step with the exact prompt to copy."""

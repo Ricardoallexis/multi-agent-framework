@@ -835,27 +835,64 @@ export const HELP = {
   },
   "panel.changes": {
     "title": "Cambios",
-    "hint": "Archivos que la sesión ha modificado.",
+    "hint": "Archivos que la sesión o la ejecución abierta ha modificado.",
     "more": [
-      "Aquí irán los archivos que la sesión cambió, con las líneas añadidas y quitadas.",
-      "Mientras no haya datos se muestra un aviso vacío."
+      "En una sesión salen de las herramientas que escriben o editan archivos; en una ejecución, de los archivos que listan sus resultados.",
+      "Cada archivo muestra cuántas veces se tocó y, si la fuente lo cuenta, las líneas añadidas (+) y quitadas (−).",
+      "Muchas apps no registran esas líneas: en ese caso el recuento no se inventa y solo se ve el número de ediciones.",
+      "Solo se muestran rutas, nunca el contenido de los mensajes."
     ]
   },
   "panel.tokens": {
     "title": "Tokens",
-    "hint": "Cuánto texto procesaron los modelos de la sesión.",
+    "hint": "Cuánto texto procesaron los modelos y cuánto cuesta, por estimación.",
     "more": [
       "Un token es un trozo de texto que el modelo lee o escribe; cuantos más hay, más cuesta la sesión.",
-      "Aquí se sumarán los del orquestador y los de los trabajadores.",
-      "Mientras no haya datos se muestra un aviso vacío."
+      "El orquestador es la sesión abierta; los trabajadores son sus subagentes o los pasos de una ejecución.",
+      "Un dato que no se conoce se escribe «desconocido», nunca 0; el costo solo se estima con un precio vigente del catálogo.",
+      "Las apps no informan precios, así que el costo de sus sesiones queda desconocido."
     ]
   },
   "panel.sources": {
     "title": "Fuentes",
-    "hint": "De dónde salen los datos de la sesión.",
+    "hint": "Los archivos, las páginas y las referencias que usó la sesión o la ejecución.",
     "more": [
-      "Las fuentes son las apps o los archivos de los que se lee la sesión: Claude, Codex, Copilot o el propio framework.",
-      "Aquí se indicará cuál se usó y si alguna no estaba disponible."
+      "En una sesión: su carpeta de trabajo, los archivos y carpetas que consultó, las páginas web que abrió y cuántas búsquedas y adjuntos tuvo.",
+      "En una ejecución: el workflow, los prompts y los contratos de sus pasos y los nombres de sus entradas, nunca sus valores.",
+      "Las direcciones web se muestran sin lo que sigue a «?», porque ahí pueden ir claves."
+    ]
+  },
+  "panel.retry": {
+    "title": "Reintentar la lectura",
+    "hint": "Vuelve a pedir los datos de este apartado cuando falló.",
+    "more": [
+      "Este botón solo aparece si no se pudieron leer los datos del apartado.",
+      "Si el fallo continúa, comprueba que el servidor local sigue en marcha."
+    ]
+  },
+  "panel.more": {
+    "title": "Ver más o menos",
+    "hint": "Muestra el resto de la lista o la vuelve a plegar.",
+    "more": [
+      "La lista enseña primero los ocho elementos más recientes.",
+      "El botón despliega los demás y, una vez abierta la lista, vuelve a dejar solo los ocho primeros."
+    ]
+  },
+  "panel.by_model": {
+    "title": "Tokens por modelo",
+    "hint": "Reparte los tokens entre los modelos que trabajaron.",
+    "more": [
+      "Agrupa a los trabajadores por modelo y nivel, con las llamadas o subagentes que tuvo cada uno.",
+      "Los que no informaron tokens se cuentan aparte, sin sumarlos como cero."
+    ]
+  },
+  "panel.cost_evidence": {
+    "title": "Evidencia de precio",
+    "hint": "El precio por token con el que se calculó el costo.",
+    "more": [
+      "Para cada modelo se ve el precio de entrada y de salida, su fuente, desde y hasta cuándo vale y de dónde viene.",
+      "Si una llamada no tiene un precio vigente, su costo queda desconocido y no se suma.",
+      "El costo es una estimación: tokens por precio del catálogo, no un importe facturado."
     ]
   }
 };

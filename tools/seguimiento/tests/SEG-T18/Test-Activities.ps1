@@ -290,6 +290,15 @@ try {
     Assert-True ($section -match 'Actividades no disponibles' -and $section -match 'no se presenta como una lista vacía') 'unreadable registry is reported, not shown as empty'
     $agents = Get-AgentsTab (Run-Viewer)
     Assert-True ((Get-ActivitiesSection $agents) -notmatch 'Actividades no disponibles') 'readable again: warning gone'
+
+    # The integration regenerates Seguimiento under StrictMode Latest, and activity rows carry "activity", not "task".
+    $script:strictError = $null
+    & {
+        Set-StrictMode -Version Latest
+        try { & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot -CopilotRoot $copilotRoot -CodexRoot $codexRoot -NowOverride $now | Out-Null }
+        catch { $script:strictError = $_.Exception.Message + ' @ ' + (($_.ScriptStackTrace -split "`n") | Select-Object -First 2) -join ' < ' }
+    }
+    Assert-True (-not $script:strictError) "viewer runs under StrictMode with activity rows: $script:strictError"
 }
 catch {
     Write-Host $_.Exception.Message

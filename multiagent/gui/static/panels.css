@@ -1,0 +1,38 @@
+/* Copyright 2026 Ricardoallexis and contributors */
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Sections «Cambios», «Tokens» y «Fuentes» of the right panel (GUI2-T05). They sit inside the panel of the shell (GUI2-T02),
+   so they take its width and wrap at 375 px. Uses the colours of app.css; index.html links this file after it. */
+.ctx { min-width: 0; }
+.ctx p { margin: 4px 0; }
+.ctx-summary { font-weight: 600; overflow-wrap: anywhere; }
+.ctx-note { overflow-wrap: anywhere; }
+.ctx-block { min-width: 0; }
+.ctx-label { display: block; margin: 8px 0 2px; font-size: .8rem; font-weight: 600; color: var(--muted); }
+.ctx-line { margin: 6px 0; overflow-wrap: anywhere; }
+.ctx-line .ctx-label { display: inline; margin: 0; }
+.ctx-list { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ctx-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; min-width: 0; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.ctx-path { min-width: 0; flex: 1 1 100%; font: .85rem var(--mono); overflow-wrap: anywhere; }
+.ctx-line .ctx-path { flex: 0 1 auto; }
+.ctx-dir { color: var(--muted); }
+.ctx-name { font-weight: 600; overflow-wrap: anywhere; }
+.ctx-meta { flex: 0 1 auto; overflow-wrap: anywhere; }
+.ctx-value { flex: 1 1 100%; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ctx-delta { display: inline-flex; gap: 8px; font: .85rem var(--mono); }
+.ctx-plus { color: var(--ok); font-weight: 600; }
+.ctx-minus { color: var(--bad); font-weight: 600; }
+.ctx-cost { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; }
+.ctx-cost .ctx-label { margin: 0; }
+.ctx-cost .ctx-value { flex: 0 1 auto; }
+.ctx-more-row, .ctx-details-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.ctx-more { min-height: var(--target); padding: 4px 0; border: 0; background: none; color: var(--accent); font: inherit;
+  cursor: pointer; text-decoration: underline; }
+.ctx-details { flex: 1 1 10rem; min-width: 0; }
+.ctx-details > summary { display: flex; align-items: center; min-height: var(--target); cursor: pointer; font-weight: 500; list-style: none; }
+.ctx-details > summary::-webkit-details-marker { display: none; }
+.ctx-details > summary::before { content: "\25B8"; flex: none; width: 1em; color: var(--muted); }
+.ctx-details[open] > summary::before { content: "\25BE"; }
+.ctx-error { margin: 6px 0; font-size: .9rem; overflow-wrap: anywhere; }
+.ctx-error.stale { border-color: var(--warn); color: var(--text); }
+.ctx-more:focus-visible, .ctx-details > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
