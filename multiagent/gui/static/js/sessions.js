@@ -8,10 +8,11 @@ import { Help, helpFor } from "./help.js";
 import { navigate, routeHref } from "./route.js";
 import { SessionDetail } from "./session-detail.js";
 import {
-  ROOTS_HELP, SOURCES, SURFACES, modelsText, relativeTime, sessionTitle, sourceLabel, statusInfo, surfaceLabel,
+  ROOTS_HELP, SOURCES, SURFACES, modelsText, relativeTime, sessionTitle, sourceLabel, surfaceLabel,
   tokensText, warningText,
 } from "./session-text.js";
 import { errorText, fmtDate } from "./text.js";
+import { StatusChip } from "./ui/status-chip.js";
 
 const PAGE_SIZE = 50;
 const TEXT_APPLY_MS = 350;
@@ -100,7 +101,6 @@ function RootsHelp({ hint }) {
 }
 
 function Row({ session, now }) {
-  const info = statusInfo(session.status);
   return html`<li>
     <a class="session-row" href=${routeHref("sessions", session.id)} data-sid=${session.id}>
       <span class="row-top">
@@ -108,7 +108,7 @@ function Row({ session, now }) {
         <span class="badge">${surfaceLabel(session.surface)}</span>
         ${session.parent_id && html`<span class="badge">Subagente</span>`}
         <span class="session-title">${sessionTitle(session)}</span>
-        <span class=${"badge tone-" + info.tone}>${info.label}</span>
+        <${StatusChip} status=${session.status} labels="session" />
       </span>
       <span class="row-line muted small">Carpeta: ${session.cwd || (session.source === "framework" ? "no aplica" : "no consta")}</span>
       <span class="row-line small">Actualizada ${relativeTime(session.updated_at, now)} · ${fmtDate(session.updated_at)}</span>

@@ -13,9 +13,12 @@ import { parseBlock } from "./stream.js";
 import { errorText } from "./text.js";
 import { sourceLabel } from "./session-text.js";
 import {
-  GROUPS, NO_CONVERSATION, PAGE_SIZE, activityText, childTitle, childrenWarning, countsText, detailText, groupOf,
-  initials, statusInfo,
+  GROUPS, NO_CONVERSATION, PAGE_SIZE, activityText, childLabels, childTitle, childrenWarning, countsText, detailText,
+  groupOf, initials,
 } from "./subagents-text.js";
+import { LevelBadge } from "./ui/level-badge.js";
+import { StatusChip } from "./ui/status-chip.js";
+import { Tabs } from "./ui/tabs.js";
 
 const TICK_MS = 10000;          // fallback poll while the stream is down; also keeps "hace N min" honest
 const CONNECTED_EVERY = 3;      // while the stream is up, refresh anyway every 3rd tick (tokens and times)
@@ -84,18 +87,14 @@ function childHref(child, sessionId) {
 }
 
 function Item({ child, sessionId, currentId, now }) {
-  const info = statusInfo(child.status, child.note);
   const href = childHref(child, sessionId);
   const current = Boolean(child.link_id) && child.link_id === currentId;
   const body = html`
     <span class=${"sub-avatar src-" + child.source} aria-hidden="true" title=${sourceLabel(child.source)}>${initials(child)}</span>
     <span class="sub-text">
       <span class="sub-title">${childTitle(child)}</span>
-      <span class="sub-detail muted small">${detailText(child)}</span>
-      <span class="sub-state small">
-        <span class=${"sub-dot tone-" + info.tone} aria-hidden="true"></span>
-        <span class=${"sub-status tone-" + info.tone} title=${info.help}>${info.label}</span>
-      </span>
+      <span class="sub-detail muted small">${detailText(child, false)}<${LevelBadge} level=${child.level} /></span>
+      <span class="sub-state small"><${StatusChip} status=${child.status} labels=${childLabels(child)} variant="inline" /></span>
       <span class="sub-activity muted small">${activityText(child, now)}</span>
       ${!child.link_id && !href && html`<span class="muted small">${NO_CONVERSATION}</span>`}
     </span>`;
@@ -116,7 +115,6 @@ export function SubagentsPanel({ token, sessionId, currentId = null }) {
   const version = useRef(null);
   const ticket = useRef(0);
   const connected = useRef(false);
-  const tabs = useRef({});
 
   async function refresh() {
     const mine = ++ticket.current;
@@ -167,23 +165,6 @@ export function SubagentsPanel({ token, sessionId, currentId = null }) {
   const group = GROUPS.find((entry) => entry.id === tab);
   const noChildren = data.children.length === 0;
 
-  const selectTab = (id, focus) => {
-    setTab(id);
-    if (focus && tabs.current[id]) tabs.current[id].focus();
-  };
-  const onTabKey = (event) => {
-    const order = GROUPS.map((entry) => entry.id);
-    const at = order.indexOf(tab);
-    let next = -1;
-    if (event.key === "ArrowRight") next = (at + 1) % order.length;
-    else if (event.key === "ArrowLeft") next = (at - 1 + order.length) % order.length;
-    else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = order.length - 1;
-    if (next < 0) return;
-    event.preventDefault();
-    selectTab(order[next], true);
-  };
-
   const viewingChild = currentId && currentId !== sessionId;
   // The title "Subagentes" and its "?" (topic "subagents.panel") belong to the section of the right panel that holds this panel.
   return html`<div class="sub-panel">
@@ -199,16 +180,10 @@ export function SubagentsPanel({ token, sessionId, currentId = null }) {
         <${Help} topic="subagents.refresh" compact=${true} />
       </div>
     </div>
-    <div class="sub-tabs-row">
-      <div class="sub-tabs" role="tablist" aria-label="Estado de los subagentes" onKeyDown=${onTabKey}>
-        ${GROUPS.map((entry) => html`<button key=${entry.id} type="button" role="tab" id=${"sub-tab-" + entry.id}
-          class="sub-tab" ...${helpFor("subagents.tabs")} aria-selected=${tab === entry.id ? "true" : "false"} aria-controls="sub-list"
-          tabindex=${tab === entry.id ? 0 : -1} ref=${(node) => { tabs.current[entry.id] = node; }}
-          onClick=${() => selectTab(entry.id, false)}>${entry.label} · ${counts[entry.id]}</button>`)}
-      </div>
-      <${Help} topic="subagents.tabs" compact=${true} />
-    </div>
-    <div id="sub-list" role="tabpanel" aria-labelledby=${"sub-tab-" + tab} aria-busy=${data.loaded ? "false" : "true"}>
+    <${Tabs} id="sub" label="Estado de los subagentes" selected=${tab} onSelect=${setTab} ...${helpFor("subagents.tabs")}
+      tabs=${GROUPS.map((entry) => ({ id: entry.id, label: entry.label, count: counts[entry.id] }))}
+      after=${html`<${Help} topic="subagents.tabs" compact=${true} />`}
+      panelProps=${{ "aria-busy": data.loaded ? "false" : "true" }}>
       ${error && html`<div class="message error" role="alert">No se pudieron listar los subagentes: ${errorText(error)}
         <button type="button" class="btn secondary small" ...${helpFor("subagents.retry")} onClick=${refresh}>Reintentar</button>
         <${Help} topic="subagents.retry" compact=${true} /></div>`}
@@ -223,7 +198,7 @@ export function SubagentsPanel({ token, sessionId, currentId = null }) {
           onClick=${() => setExpanded({ ...expanded, [tab]: !expanded[tab] })}>${expanded[tab] ? "Ver menos" : "Ver " + hidden + " más"}</button>
         <${Help} topic="subagents.more" compact=${true} />
       </div>`}
-    </div>
+    <//>
     ${data.warnings.length > 0 && html`<p class="muted small">${data.warnings.map(childrenWarning).join(" ")}</p>`}
   </div>`;
 }

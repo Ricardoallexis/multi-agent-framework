@@ -2,17 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Texts of the runs screen (Spanish). The server sends codes and facts; the wording lives here.
 
-const STATUS = {
-  queued: { label: "En cola", tone: "muted", help: "Esperando a que el worker la tome." },
-  running: { label: "En ejecución", tone: "accent", help: "El framework está ejecutando un paso." },
-  waiting_human: { label: "Esperando a una persona", tone: "warn", help: "Necesita una decisión o una respuesta tuya." },
-  paused: { label: "Pausada", tone: "warn", help: "La ejecución está en pausa." },
-  completed: { label: "Completada", tone: "ok", help: "Todos los pasos terminaron." },
-  failed: { label: "Falló", tone: "bad", help: "La ejecución terminó con un error." },
-  cancelled: { label: "Cancelada", tone: "muted", help: "Se canceló antes de terminar." },
-  rejected: { label: "Rechazada", tone: "muted", help: "Una persona rechazó el resultado." },
-  interrupted: { label: "Interrumpida", tone: "warn", help: "El servidor se reinició mientras corría; puede reanudarse." },
-};
+import { labelEntry, labelSet, legacyInfo } from "./ui/labels.js";
 
 export const MODE_LABELS = {
   auto: "Automático (el framework elige el modelo)",
@@ -21,22 +11,10 @@ export const MODE_LABELS = {
   human_guided: "Guiado por una persona (copiar y pegar en otro modelo)",
 };
 
-export const statusInfo = (status) => STATUS[status] || { label: String(status), tone: "muted", help: "" };
+// The words of every status live in ui/labels.js (the single label map); these are the {label, tone, help} views of it.
+export const statusInfo = (status) => legacyInfo("run", status);
 
-const STEP_STATES = {
-  done: "Hecho",
-  skipped: "Saltado",
-  will_skip: "Se saltará",
-  waiting_review: "Espera tu revisión",
-  waiting_human: "Espera tu respuesta",
-  running: "En curso",
-  queued: "En cola",
-  pending: "Pendiente",
-  failed: "Falló",
-  not_run: "No llegó a ejecutarse",
-};
-
-export const stepStateLabel = (state) => STEP_STATES[state] || String(state);
+export const stepStateLabel = (state) => labelEntry(labelSet("step"), state).text;
 
 export function skipReason(skip) {
   const condition = skip && skip.condition;

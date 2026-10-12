@@ -10,8 +10,10 @@ import { Help, helpFor } from "./help.js";
 import { HumanActions } from "./human-actions.js";
 import {
   actorText, cursorText, errorText, executorText, fmtDate, fmtJson, historyText, skipReason,
-  statusInfo, stepStateLabel, waitingText, MODE_LABELS,
+  statusInfo, waitingText, MODE_LABELS,
 } from "./text.js";
+import { Progress } from "./ui/progress.js";
+import { StatusChip } from "./ui/status-chip.js";
 
 const DEGRADED_POLL_MS = 10000;
 const REFRESH_DEBOUNCE_MS = 250;
@@ -38,16 +40,25 @@ function Counters({ view }) {
   </section>`;
 }
 
+// "3 de 5 pasos" (done and skipped steps both count as passed); the skipped ones are named so the number is honest.
+function stepsProgressText(counters) {
+  const passed = counters.steps_done + counters.steps_skipped;
+  const skipped = counters.steps_skipped ? " (" + counters.steps_skipped + (counters.steps_skipped === 1 ? " saltado)" : " saltados)") : "";
+  return passed + " de " + counters.steps_total + (counters.steps_total === 1 ? " paso" : " pasos") + skipped;
+}
+
 function Steps({ view }) {
   return html`<section class="panel" aria-labelledby="steps-title">
     <h4 id="steps-title">Pasos</h4>
     <p class="muted">${cursorText(view)}</p>
+    ${view.counters.steps_total > 0 && html`<${Progress} label="Avance de los pasos" value=${view.counters.steps_done + view.counters.steps_skipped}
+      max=${view.counters.steps_total} valueText=${stepsProgressText(view.counters)} tone=${view.terminal && view.status !== "completed" ? "warning" : "active"} />`}
     <${Help} topic="run.steps" />
     ${view.steps.some((step) => step.skip) && html`<${Help} topic="run.skipped" />`}
     <ol class="steps">
       ${view.steps.map((step) => html`<li key=${step.id} class=${"step " + step.state}>
         <span class="step-name">${step.id}</span>
-        <span class=${"badge step-" + step.state}>${stepStateLabel(step.state)}</span>
+        <${StatusChip} status=${step.state} labels="step" />
         ${step.skip && html`<span class="step-note">${step.state === "will_skip" ? "Se saltará " : "Se saltó "}${skipReason(step.skip)}.</span>`}
         ${step.state === "done" && step.executor && html`<span class="step-note">${executorText(step.executor)}${step.attempts > 1 ? " · " + step.attempts + " intentos" : ""}.</span>`}
         ${step.state === "not_run" && html`<span class="step-note">La ejecución terminó antes de llegar a este paso.</span>`}
@@ -155,7 +166,7 @@ export function RunDetail({ token, runId, status, onChanged }) {
     <header>
       <h3 id="run-title">${view.workflow_id} <span class="muted">· ${view.project_name || "sin proyecto"}</span></h3>
       <div class="status-line">
-        <span class=${"badge tone-" + info.tone}>${info.label}</span>
+        <${StatusChip} status=${view.status} labels="run" />
         ${!view.terminal && html`<span class=${"badge " + (live ? "connected" : "reconnecting")}>${live ? "En vivo" : "Sin conexión en vivo"}</span>`}
         <button type="button" class="btn secondary small" ...${helpFor("run.refresh")} onClick=${load}>Actualizar</button>
         <${Help} topic="run.refresh" compact=${true} />

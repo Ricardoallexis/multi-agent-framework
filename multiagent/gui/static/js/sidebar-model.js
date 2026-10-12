@@ -5,6 +5,7 @@
 // Only fields the APIs already give are read: GET /gui/api/sessions (Claude, Codex, Copilot) and GET /gui/api/runs.
 import { sessionTitle, statusInfo as sessionStatus } from "./session-text.js";
 import { statusInfo as runStatus } from "./text.js";
+import { DEFAULT_LABELS, labelEntry, labelSet, statusText } from "./ui/labels.js";
 
 // The apps counted next to each project. "workflow" is a framework run; the other three are the apps' own sessions.
 export const APPS = [
@@ -16,8 +17,9 @@ export const APPS = [
 const APP_LABEL = Object.fromEntries(APPS.map((app) => [app.id, app.label]));
 export const appLabel = (id) => APP_LABEL[id] || String(id);
 
-// The three states of the dot. The words are what a screen reader says; the shape and colour are in app.css.
-export const DOTS = { working: "Trabajando", finished: "Terminada", error: "Con error" };
+// The three states of the dot. The words are what a screen reader says (they live in ui/labels.js, set "dot"); the
+// shape and colour are in app.css.
+export const DOTS = Object.fromEntries(Object.keys(DEFAULT_LABELS.dot).map((dot) => [dot, DEFAULT_LABELS.dot[dot].text]));
 
 // A session of an app is "active" when it had activity lately; anything else is finished (the apps do not report errors).
 export const sessionDot = (status) => (status === "active" ? "working" : "finished");
@@ -38,7 +40,7 @@ export function folderName(path) {
 }
 
 // Text a screen reader (and the tooltip) gets for a dot: "Trabajando (en ejecución)".
-export const dotText = (dot, detail) => DOTS[dot] + (detail ? " (" + String(detail).toLowerCase() + ")" : "");
+export const dotText = (dot, detail) => statusText(labelEntry(labelSet("dot"), dot), detail);
 
 // sessions: the "sessions" array of GET /gui/api/sessions. Framework runs that appear there are left out (the runs
 // list has them with their real status), and so are subagents (they belong to their parent session).

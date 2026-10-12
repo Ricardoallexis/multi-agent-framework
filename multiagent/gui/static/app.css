@@ -5,7 +5,7 @@
 :root {
   color-scheme: light dark;
   --bg: #fbfbfa; --panel: #fff; --chrome: #f3f3f1; --text: #1c1c1a; --muted: #5f5e59; --line: #e2e1dc; --line-strong: #c9c8c2;
-  --accent: #2457c5; --on-accent: #fff; --ok: #1a7f3c; --warn: #9a6700; --bad: #b42318;
+  --accent: #2457c5; --on-accent: #fff; --ok: #1a7f3c; --warn: #926000; --bad: #b42318; /* every tone has 4.5:1 on the page, panel and chrome colours (tests/test_gui2_components.py) */
   --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --side-w: clamp(220px, 22vw, 288px); --panel-w: clamp(240px, 24vw, 320px); --bar-h: 56px; --target: 44px;
@@ -87,12 +87,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(
 .side-text { display: flex; flex-direction: column; min-width: 0; }
 .side-title, .side-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-meta { font-size: .78rem; color: var(--muted); }
-/* Status dot: the shape differs as well as the colour (solid circle = working, ring = finished, square = error). */
-.dot { flex: none; width: 10px; height: 10px; border-radius: 50%; }
-.dot-working { background: var(--ok); animation: pulse 1.8s ease-in-out infinite; }
-.dot-finished { border: 2px solid var(--muted); }
-.dot-error { background: var(--bad); border-radius: 2px; }
-@media (prefers-reduced-motion: reduce) { .dot-working { animation: none; } }
+/* The status dot of the sidebar is a StatusChip (variant "dot"); its shape and colours are in "Shared components" below. */
 
 /* Right panel */
 .rp { display: flex; flex-direction: column; gap: 16px; }
@@ -129,6 +124,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(
   .topbar .badge { margin-left: auto; padding: 2px 6px; }
   .topbar .badge ~ .badge { margin-left: 0; }
   .tool-btn { gap: 6px; padding: 0 8px; }
+  .topbar .hint-text { display: none; } /* an open "?" would push its own button off the 375 px screen; its text is the popover */
 }
 .badge { padding: 2px 8px; border-radius: 999px; font-size: .8rem; border: 1px solid var(--line); }
 .badge.mock { color: var(--warn); border-color: var(--warn); font-weight: 600; }
@@ -164,11 +160,11 @@ summary:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px 
 .stack { display: flex; flex-direction: column; gap: 10px; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 label { display: block; font-weight: 600; margin-bottom: 3px; }
-.check label { font-weight: 400; }
+.check label { display: flex; align-items: center; gap: 8px; min-height: var(--target); margin: 0; font-weight: 400; }
 input, select, textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--panel); color: var(--text); font: inherit; }
 input:not([type="checkbox"]), select { min-height: var(--target); }
-input[type="checkbox"] { width: auto; }
+input[type="checkbox"] { flex: none; width: 1.25rem; height: 1.25rem; accent-color: var(--accent); }
 textarea { resize: vertical; }
 textarea[readonly] { background: var(--bg); font: .88rem var(--mono); }
 fieldset.inputs { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px 12px; display: flex;
@@ -200,10 +196,7 @@ fieldset.inputs legend { padding: 0 6px; font-weight: 600; }
 .step { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .step-name { font-weight: 600; }
 .step-note { color: var(--muted); flex-basis: 100%; }
-.badge.tone-ok, .badge.step-done { color: var(--ok); border-color: var(--ok); }
-.badge.tone-warn, .badge.step-waiting_review, .badge.step-waiting_human, .badge.step-will_skip { color: var(--warn); border-color: var(--warn); }
-.badge.tone-bad, .badge.step-failed { color: var(--bad); border-color: var(--bad); }
-.badge.tone-accent, .badge.step-running { color: var(--accent); border-color: var(--accent); }
+/* The tone of a status badge (StatusChip) comes from --tone, see "Shared components". */
 .history li { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; }
 .history .when { color: var(--muted); font-size: .85rem; }
 .history .who { font-weight: 600; grid-column: 2; }
@@ -211,7 +204,7 @@ fieldset.inputs legend { padding: 0 6px; font-weight: 600; }
 .history blockquote { border-left: 3px solid var(--line); padding-left: 8px; white-space: pre-wrap; }
 pre.data, pre.prompt { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); border: 1px solid var(--line);
   border-radius: 6px; padding: 8px 10px; max-height: 28rem; overflow: auto; font: .85rem var(--mono); }
-details > summary { cursor: pointer; padding: 4px 0; }
+details > summary { cursor: pointer; padding: 10px 0; min-height: var(--target); } /* a 44 px hit area, as every other control */
 .skipped-step { color: var(--muted); margin: 6px 0; }
 @media (max-width: 860px) {
   .runs { grid-template-columns: 1fr; }
@@ -232,7 +225,7 @@ details > summary { cursor: pointer; padding: 4px 0; }
 .filters { margin: 12px 0; }
 .filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 14px; }
 .filters .actions { align-items: center; }
-.check-inline { display: flex; align-items: center; gap: 6px; min-height: var(--target); font-weight: 400; margin: 0; }
+.check-inline { display: flex; align-items: center; gap: 8px; min-height: var(--target); font-weight: 400; margin: 0; }
 .session-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .session-row { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--panel); color: var(--text); text-decoration: none; }
@@ -308,3 +301,64 @@ code.command { font: .9rem var(--mono); overflow-wrap: anywhere; }
 .live-bar .help-block { flex: 1 1 100%; }
 .facts dd .help-block { margin-top: 2px; }
 .check-block { margin: 8px 0 0; }
+
+/* --- Shared components (GUI2-T11): tones, StatusChip, Progress, Tabs, LevelBadge ---------------------------------------
+   js/ui/*.js draws them; the colour of every one of them comes from the tone class (tone-<tone>) through --tone, so a status
+   is the same colour everywhere. None of them relies on colour alone: each also has text, a shape or a count. */
+.tone-success { --tone: var(--ok); }
+.tone-active, .tone-info { --tone: var(--accent); }
+.tone-warning, .tone-attention { --tone: var(--warn); }
+.tone-danger { --tone: var(--bad); }
+.tone-muted, .tone-neutral { --tone: var(--muted); }
+.badge[class*="tone-"] { color: var(--tone); border-color: var(--tone); }
+.badge.tone-attention { font-weight: 600; }
+
+/* StatusChip: variant "dot" (sidebar) and "inline" (item lines). The shape differs per state: circle = working,
+   ring = finished or quiet, square = error, diamond = needs attention. */
+.status-dot { display: inline-flex; flex: none; align-items: center; justify-content: center; color: var(--tone); }
+.status-inline { display: inline-flex; align-items: center; gap: 6px; color: var(--tone); font-weight: 600; }
+.dot, .mark { display: inline-block; flex: none; width: 10px; height: 10px; color: var(--tone); }
+.mark { width: .65em; height: .65em; }
+.dot[data-shape="disc"], .mark[data-shape="disc"] { background: currentColor; border-radius: 50%; }
+.dot[data-shape="ring"], .mark[data-shape="ring"] { border: 2px solid currentColor; border-radius: 50%; }
+.dot[data-shape="square"], .mark[data-shape="square"] { background: currentColor; border-radius: 2px; }
+.dot[data-shape="diamond"], .mark[data-shape="diamond"] { background: currentColor; border-radius: 1px; transform: rotate(45deg) scale(.8); }
+.dot.pulse, .mark.pulse { animation: pulse 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .dot.pulse, .mark.pulse { animation: none; } }
+
+/* Progress: a bar with its words above it; the fill is an SVG rect (no inline style under the CSP). */
+.progress { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; min-width: 0; }
+.progress-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; font-size: .85rem; }
+.progress-label { font-weight: 600; overflow-wrap: anywhere; }
+.progress-text { color: var(--muted); overflow-wrap: anywhere; }
+.progress-track { height: 10px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--bg); overflow: hidden; }
+.progress-svg { display: block; width: 100%; height: 100%; }
+.progress-fill { fill: var(--tone); }
+.progress.indeterminate .progress-fill { opacity: .5; animation: pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .progress.indeterminate .progress-fill { animation: none; } }
+@media (forced-colors: active) { .progress-fill { fill: Highlight; } .progress-track { border-color: CanvasText; } }
+
+/* Tabs: the selected tab is bold, has the accent border and an underline, so it is not only a colour. */
+.tabs-wrap, .tab-panel { min-width: 0; }
+.tabs-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tab { min-width: var(--target); min-height: var(--target); padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: none; color: var(--text); font: inherit; font-size: .85rem; cursor: pointer; }
+.tab:hover { background: var(--bg); }
+.tab[aria-selected="true"] { background: var(--bg); border-color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); font-weight: 600; }
+
+/* LevelBadge: T1..T4 with its own fill (the colours of the design), the text, and as many filled marks as the level. */
+:root {
+  --lvl-1-bg: #9fd8c6; --lvl-1-ink: #0f4a3b; --lvl-2-bg: #6f9be0; --lvl-2-ink: #0a2554;
+  --lvl-3-bg: #5b3fa8; --lvl-3-ink: #fff; --lvl-4-bg: #3b1d10; --lvl-4-ink: #fff;
+}
+.level { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; padding: 0 8px; border: 1px solid var(--line-strong);
+  border-radius: 999px; background: var(--lvl-bg); color: var(--lvl-ink); font: 600 .75rem/1.6 var(--mono); vertical-align: middle; white-space: nowrap; }
+.level-1 { --lvl-bg: var(--lvl-1-bg); --lvl-ink: var(--lvl-1-ink); }
+.level-2 { --lvl-bg: var(--lvl-2-bg); --lvl-ink: var(--lvl-2-ink); }
+.level-3 { --lvl-bg: var(--lvl-3-bg); --lvl-ink: var(--lvl-3-ink); }
+.level-4 { --lvl-bg: var(--lvl-4-bg); --lvl-ink: var(--lvl-4-ink); }
+.level-pips { display: inline-flex; gap: 2px; }
+.level-pips i { display: block; width: 4px; height: 9px; border: 1px solid currentColor; border-radius: 1px; opacity: .55; }
+.level-pips i.on { background: currentColor; opacity: 1; }
+@media (forced-colors: active) { .level { border-color: CanvasText; } }

@@ -789,6 +789,7 @@ function Reset-WorkerCaches {
     $script:WorkerFileCache = @{}
     $script:WorkerModelCache = @{}
     $script:ExecutionLines = $null
+    $script:ActivityBoard = $null   # SEG-T18
 }
 $script:TestCommandPattern = 'pytest|probar\.ps1|integrar-sin-ventanas\.ps1'
 # Running test of a Claude subagent: its last tool_use without a tool_result whose command is a test run. Returns its start time.
@@ -1049,6 +1050,176 @@ function Format-ForeignWorkerHtml($item) {
     "<div class=""agent-task agent-worker""><strong>$(Encode $name)$(Encode $level)</strong><span class=""state $badgeClass"">$(Encode $badge)</span>" +
     "<p class=""agent-context"">Tarea: $(Encode $item.Task.Id) · $(Encode $item.Task.Title)$(Encode $kind)</p>" +
     "<p class=""agent-context"">Actividad: $(Encode $item.Activity) · delegado desde $since$(Encode $piece)</p>$tokens</div>"
+}
+
+# SEG-T18: activities outside tasks (audits, proposals, research, reviews, integrations, maintenance, scheduled sessions). They hang off no task
+# card: registrar-delegacion.ps1 -Actividad writes them to <channel>\orquestacion\ACTIVIDADES\ejecuciones.jsonl, one line per event
+# (opened | delegated | returned | closed; the readable index ACTIVIDADES.md next to it is not read here). The events are folded into
+# activities; each worker becomes an entry shaped like a task delegation, so Get-WorkerActivity, Get-WorkerDisplayName and the table of
+# applications ($script:WorkerApps) serve it unchanged. Only the registered text (title, type, piece, result) and times, status and model
+# names of the worker transcripts are shown, never the content of the sessions.
+$script:ActivityBoard = $null
+function Get-ActivityBoard {
+    if ($null -ne $script:ActivityBoard) { return $script:ActivityBoard }
+    $path = Join-Path $channel 'orquestacion\ACTIVIDADES\ejecuciones.jsonl'
+    $available = $true
+    $lines = @()
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        try { $lines = @([IO.File]::ReadAllLines($path)) } catch { $available = $false; Write-Warning 'No se pudo leer el registro de actividades fuera de tareas.' }
+    }
+    $byId = [ordered]@{}
+    foreach ($line in $lines) {
+        if (-not $line.Trim()) { continue }
+        try { $event = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+        if ($event -isnot [pscustomobject]) { continue }
+        $id = Get-StringField $event @('activity')
+        $kind = Get-StringField $event @('event')
+        if (-not $id -or -not $kind) { continue }
+        $stamp = if ($event.PSObject.Properties['recorded_at']) { ConvertTo-LocalStamp $event.recorded_at } else { $null }
+        if ($kind -eq 'opened') {
+            if ($byId.Contains($id)) { continue }
+            $title = Get-StringField $event @('title')
+            $byId[$id] = [pscustomobject]@{ Id = $id; Title = $(if ($title) { $title } else { $id }); Type = (Get-StringField $event @('type')); Request = (Get-StringField $event @('request'))
+                Orchestrator = (Get-StringField $event @('orchestrator')); Start = $stamp; End = $null; Status = 'en curso'; Result = ''; Workers = [System.Collections.Generic.List[object]]::new() }
+            continue
+        }
+        if (-not $byId.Contains($id)) { continue }
+        $activity = $byId[$id]
+        if ($kind -eq 'delegated') {
+            $worker = Get-StringField $event @('worker')
+            if (-not $worker) { continue }
+            $orchestrator = Get-StringField $event @('orchestrator')
+            $activity.Workers.Add([pscustomobject]@{ Worker = $worker; Level = (Get-StringField $event @('level')); Effort = (Get-StringField $event @('requested_effort')); Since = $stamp
+                Piece = (Get-StringField $event @('reason')); Orchestrator = $(if ($orchestrator) { $orchestrator } else { $activity.Orchestrator }); Reference = (Get-StringField $event @('reference'))
+                Label = (Get-StringField $event @('label')); Integration = $false; Until = $null; Result = ''; IsActive = $true; Tokens = $null; Status = $null; ActivityId = $id })
+        } elseif ($kind -eq 'returned') {
+            $worker = Get-StringField $event @('worker')
+            $open = @($activity.Workers | Where-Object { $_.IsActive -and $_.Worker -ieq $worker }) | Select-Object -First 1
+            if ($open) {
+                $open.IsActive = $false; $open.Until = $stamp; $open.Result = (Get-StringField $event @('reason'))
+                if ($event.PSObject.Properties['usage_tokens']) { $open.Tokens = $event.usage_tokens }
+            }
+        } elseif ($kind -eq 'closed') {
+            $activity.End = $stamp; $activity.Status = 'terminada'; $activity.Result = (Get-StringField $event @('reason'))
+        }
+    }
+    $script:ActivityBoard = [pscustomobject]@{ Available = $available; Activities = @($byId.Values) }
+    $script:ActivityBoard
+}
+# Real activity of an activity worker (Trabajando / Ejecutando prueba / Sin actividad reciente / Probablemente detenido / sin señal), read once.
+function Get-ActivityWorkerStatus($entry) {
+    if ($null -eq $entry.Status) { $entry.Status = Get-WorkerActivity $entry }
+    $entry.Status
+}
+# Tokens recorded for a worker: a total (number) or an object { total, input, output }. '' when none was recorded.
+function Get-ActivityTokenText($value) {
+    if ($null -eq $value) { return '' }
+    $number = { param($source, $name) $p = $source.PSObject.Properties[$name]; if ($p -and $null -ne $p.Value -and "$($p.Value)" -match '^\d+$') { [long]$p.Value } else { $null } }
+    if ($value -is [pscustomobject]) {
+        $total = & $number $value 'total'; $in = & $number $value 'input'; $out = & $number $value 'output'
+    } elseif ("$value" -match '^\d+$') { $total = [long]"$value"; $in = $null; $out = $null } else { return '' }
+    if ($null -eq $total) { return '' }
+    $text = "Tokens: $(Format-TokenCount $total)"
+    if ($null -ne $in) { $text += " · entrada $(Format-TokenCount $in)" }
+    if ($null -ne $out) { $text += " · salida $(Format-TokenCount $out)" }
+    "$text · registrado"
+}
+# Chip class of a real-activity text.
+function Get-ActivityStatusClass([string]$status) {
+    if ($status -eq 'Probablemente detenido') { 's-unknown' }
+    elseif ($status -like 'Sin actividad reciente*') { 's-pendiente' }
+    elseif ($status -like 'sin señal*') { 's-idle' }
+    else { 's-en-curso' }
+}
+function Format-ActivitySince($value) { if ($value) { Format-WorkTime $value } else { 'hora no registrada' } }
+# Active workers of the activities en curso, for the card of THEIR application (REGLAS 33), whichever application orchestrates them.
+function Get-ActivityWorkers($board) {
+    foreach ($activity in @($board.Activities | Where-Object { $_.Status -eq 'en curso' })) {
+        foreach ($entry in @($activity.Workers | Where-Object IsActive)) {
+            $app = Get-WorkerEntryApp $entry
+            if (-not $app) { continue }
+            $status = Get-ActivityWorkerStatus $entry
+            [pscustomobject]@{ Application = $app.Application; Activity = $activity; Entry = $entry; Orchestrator = [string]$entry.Orchestrator
+                Status = $status; Stopped = ($status -eq 'Probablemente detenido') }
+        }
+    }
+}
+# One worker block of an application card: model and level, "trabajando para <orquestador> en <actividad>", real activity, tokens.
+function Format-ActivityWorkerHtml($item) {
+    $entry = $item.Entry
+    $activity = $item.Activity
+    $name = Format-WorkerLabel $entry
+    $badge = if ($item.Stopped) { "Probablemente detenido · delegado por $($item.Orchestrator) en $($activity.Title)" } else { "Activo · trabajando para $($item.Orchestrator) en $($activity.Title)" }
+    $badgeClass = if ($item.Stopped) { 's-unknown' } else { 's-en-curso' }
+    $piece = if ($entry.Piece) { " · $($entry.Piece)" } else { '' }
+    $kind = if ($activity.Type) { " · $($activity.Type)" } else { '' }
+    $tokenText = Get-ActivityTokenText $entry.Tokens
+    $tokens = if ($tokenText) { "<p class=""agent-context"">$(Encode $tokenText)</p>" } else { '' }
+    "<div class=""agent-task agent-worker""><strong>$(Encode $name)</strong><span class=""state $badgeClass"">$(Encode $badge)</span>" +
+    "<p class=""agent-context"">Fuera de tareas: $(Encode $activity.Id)$(Encode $kind) · $(Encode $activity.Title)</p>" +
+    "<p class=""agent-context"">Actividad: $(Encode $item.Status) · delegado desde $(Encode (Format-ActivitySince $entry.Since))$(Encode $piece)</p>$tokens</div>"
+}
+# A worker line of the «Fuera de tareas» section: name, application, tag, real activity (active) or result (returned), tokens.
+function Format-ActivityWorkerLine($entry, [string]$application) {
+    $appChip = if ($application) { " <span class=""state s-idle"">$(Encode $application)</span>" } else { '' }
+    $tagChip = if ($entry.Label) { " <span class=""state s-idle seg-tag"">$(Encode $entry.Label)</span>" } else { '' }
+    $piece = if ($entry.Piece) { " · $(Encode $entry.Piece)" } else { '' }
+    $tokenText = Get-ActivityTokenText $entry.Tokens
+    $tokens = if ($tokenText) { " · $(Encode $tokenText)" } else { '' }
+    if ($entry.IsActive) {
+        $status = Get-ActivityWorkerStatus $entry
+        $state = " <span class=""state $(Get-ActivityStatusClass $status)"">$(Encode $status)</span>"
+        $when = "delegado desde $(Encode (Format-ActivitySince $entry.Since))"
+        $tail = ''
+    } else {
+        $state = ' <span class="state s-integrada">Devuelto</span>'
+        $when = "desde $(Encode (Format-ActivitySince $entry.Since))$(if ($entry.Until) { " hasta $(Encode (Format-WorkTime $entry.Until))" })"
+        $tail = if ($entry.Result) { "<div class=""agent-context"">Resultado: $(Encode $entry.Result)</div>" } else { '' }
+    }
+    "<div class=""act-worker""><strong>$(Encode (Format-WorkerLabel $entry))</strong>$appChip$tagChip$state<span class=""meta""> · $when$piece$tokens</span>$tail</div>"
+}
+# The «Fuera de tareas» section of the Agentes tab: each activity en curso (type, title, orchestrator, workers), the finished ones folded.
+function Get-ActivitiesHtml($board) {
+    $active = @($board.Activities | Where-Object { $_.Status -eq 'en curso' } | Sort-Object @{ Expression = { if ($_.Start) { $_.Start } else { [datetime]::MinValue } }; Descending = $true })
+    $finished = @($board.Activities | Where-Object { $_.Status -ne 'en curso' } | Sort-Object @{ Expression = { if ($_.End) { $_.End } elseif ($_.Start) { $_.Start } else { [datetime]::MinValue } }; Descending = $true })
+    $count = if ($active.Count) { "$($active.Count) en curso" } else { 'sin actividades en curso' }
+    $countClass = if ($active.Count) { 's-en-curso' } else { 's-idle' }
+    $notice = if (-not $board.Available) { '<div class="stop"><strong>Actividades no disponibles</strong>No se pudo leer el registro de actividades fuera de tareas; no se presenta como una lista vacía.</div>' } else { '' }
+    $blocks = foreach ($activity in $active) {
+        $workers = @($activity.Workers)
+        $liveStates = @($workers | Where-Object IsActive | ForEach-Object { Get-ActivityWorkerStatus $_ })
+        $stopped = $liveStates.Count -gt 0 -and @($liveStates | Where-Object { $_ -ne 'Probablemente detenido' }).Count -eq 0
+        $badge = if ($stopped) { '<span class="state s-unknown">Probablemente detenida</span>' } else { '<span class="state s-en-curso">En curso</span>' }
+        $type = if ($activity.Type) { "<span class=""state s-idle"">$(Encode $activity.Type)</span> " } else { '' }
+        $since = if ($activity.Start) { " · desde $(Encode (Format-WorkTime $activity.Start))" } else { '' }
+        $request = if ($activity.Request) { "<p class=""agent-context"">Pedido: $(Encode $activity.Request)</p>" } else { '' }
+        $lines = foreach ($entry in $workers) {
+            $app = Get-WorkerEntryApp $entry
+            Format-ActivityWorkerLine $entry $(if ($app) { $app.Application } else { '' })
+        }
+        $body = if ($workers.Count) { $lines -join '' } else { '<div class="agent-context">Sin trabajadores delegados: lo hace el propio orquestador.</div>' }
+        "<div class=""agent-task act-item""><strong>$(Encode $activity.Id) · $(Encode $activity.Title)</strong> $type$badge" +
+        "<p class=""agent-context"">Orquesta: $(Encode $activity.Orchestrator)$since</p>$request$body</div>"
+    }
+    $activeHtml = if ($active.Count) { $blocks -join "`n" } else { '<p class="meta">No hay actividades en curso fuera de tareas.</p>' }
+    $finishedHtml = ''
+    if ($finished.Count) {
+        $items = foreach ($activity in ($finished | Select-Object -First 30)) {
+            $span = "$(Encode (Format-ActivitySince $activity.Start))$(if ($activity.End) { " → $(Encode (Format-WorkTime $activity.End))" })"
+            $names = @($activity.Workers | ForEach-Object {
+                $token = Get-ActivityTokenText $_.Tokens
+                if ($token) { "$(Format-WorkerLabel $_) ($($token -replace ' · registrado$', ''))" } else { Format-WorkerLabel $_ }
+            })
+            $workersText = if ($names.Count) { " · trabajaron: $(Encode ($names -join ', '))" } else { '' }
+            $result = if ($activity.Result) { " · Resultado: $(Encode $activity.Result)" } else { '' }
+            "<li><strong>$(Encode $activity.Id)</strong> · $(Encode $activity.Type) · $(Encode $activity.Title) · $(Encode $activity.Orchestrator) · $span$workersText$result</li>"
+        }
+        $more = if ($finished.Count -gt 30) { "<li class=""meta"">y $($finished.Count - 30) actividades terminadas más en ACTIVIDADES.md</li>" } else { '' }
+        $finishedHtml = "<details class=""act-finished""><summary>Terminadas ($($finished.Count))</summary><ul>$($items -join '')$more</ul></details>"
+    }
+    "<section class=""panel activities-group"" id=""fuera-de-tareas""><div class=""card-head""><h2>Fuera de tareas</h2><span class=""state $countClass"">$count</span></div>" +
+    '<p class="meta">Trabajo que no cuelga de una ficha (auditorías, propuestas, investigaciones, revisiones, integraciones, mantenimiento, sesiones programadas), registrado con <code>registrar-delegacion.ps1 -Actividad</code>. Cada trabajador figura aquí y también en el área de su aplicación (regla 33). Solo se leen horas, estado y modelo de sus sesiones, nunca su contenido.</p>' +
+    "$notice$activeHtml$finishedHtml</section>"
 }
 
 function Get-AgentBoardData {
@@ -2002,8 +2173,11 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
 }
 # SEG-T17 (REGLAS 33): delegated workers of another application than their orchestrator's, grouped under their own application.
 $foreignWorkers = if ($agentBoard.Available) { @(Get-ForeignWorkers $agentBoard $registeredAgents) } else { @() }
+# SEG-T18 (REGLAS 33): the active workers of the activities outside tasks are also listed in the card of their own application.
+$activityBoard = Get-ActivityBoard
+$activityWorkers = @(Get-ActivityWorkers $activityBoard)
 $applications = [System.Collections.Generic.List[string]]::new()
-foreach ($application in @($agentCards | ForEach-Object Application) + @($foreignWorkers | ForEach-Object Application)) {
+foreach ($application in @($agentCards | ForEach-Object Application) + @($foreignWorkers | ForEach-Object Application) + @($activityWorkers | ForEach-Object Application)) {
     if ($application -and $application -inotin $applications) { $applications.Add($application) }
 }
 # SEG-T05: one card per application; only names with an active task are listed, the rest in one line.
@@ -2013,8 +2187,9 @@ $agentCards = foreach ($application in @($applications)) {
     $activeMembers = @($members | Where-Object Active)
     $idleMembers = @($members | Where-Object { -not $_.Active })
     $appWorkers = @($foreignWorkers | Where-Object { $_.Application -ieq $application } | Sort-Object @{ Expression = { $_.Task.Id } }, @{ Expression = { $_.Entry.Since } })
-    $liveWorkers = @($appWorkers | Where-Object { -not $_.Stopped })
-    $stoppedWorkers = @($appWorkers | Where-Object { $_.Stopped })
+    $appActivityWorkers = @($activityWorkers | Where-Object { $_.Application -ieq $application } | Sort-Object @{ Expression = { $_.Activity.Id } }, @{ Expression = { $_.Entry.Since } })
+    $liveWorkers = @(@($appWorkers) + @($appActivityWorkers) | Where-Object { -not $_.Stopped })
+    $stoppedWorkers = @(@($appWorkers) + @($appActivityWorkers) | Where-Object { $_.Stopped })
     $statusParts = @()
     if ($activeMembers.Count) { $statusParts += "$($activeMembers.Count) con tarea activa" }
     if ($liveWorkers.Count) { $statusParts += "$($liveWorkers.Count) $(if ($liveWorkers.Count -eq 1) { 'trabajador activo' } else { 'trabajadores activos' })" }
@@ -2025,6 +2200,9 @@ $agentCards = foreach ($application in @($applications)) {
     $workersHtml = ''
     if ($appWorkers.Count) {
         $workersHtml = "<div class=""agent-name agent-workers""><h3>Trabajadores de otras aplicaciones</h3><p class=""meta"">Delegados por un agente de otra aplicación; también figuran como delegación en la tarjeta de quien los orquesta.</p>$(($appWorkers | ForEach-Object { Format-ForeignWorkerHtml $_ }) -join "`n")</div>"
+    }
+    if ($appActivityWorkers.Count) {
+        $workersHtml += "<div class=""agent-name agent-workers agent-activity-workers""><h3>Trabajadores en actividades fuera de tareas</h3><p class=""meta"">Delegados en una actividad que no cuelga de una tarea; también figuran en la sección «Fuera de tareas».</p>$(($appActivityWorkers | ForEach-Object { Format-ActivityWorkerHtml $_ }) -join "`n")</div>"
     }
     $idleHtml = ''
     if ($idleMembers.Count) {
@@ -2057,6 +2235,7 @@ $agentNotice = if (-not $agentBoard.Available) {
 $agentsView = @"
 <p class="meta">Fuente: tablero e historiales de tareas locales; las asignaciones cloud aparecen en una sección separada y son registros manuales. Esto no informa presencia de procesos ni actividad en vivo.</p>
 $(if ($agentNotice) { "<div class=""stop"">$(Encode $agentNotice)</div>" })
+$(Get-ActivitiesHtml $activityBoard)
 <div class="agent-grid">$($agentCards -join "`n")</div>
 <section class="panel cloud-assignment-group"><h2>Asignaciones externas registradas</h2><p class="meta">Los estados cloud proceden de acciones de preparación/importación o declaraciones manuales del operador; no son telemetría del proveedor.</p>$($cloudAssignmentPanel)</section>
 "@
@@ -2191,6 +2370,10 @@ summary { cursor:pointer; }
 .seg-tag { margin-left:4px; font-size:11px; }
 .seg-worker-items { margin:4px 0; padding-left:18px; }
 .seg-worker-items li { margin:3px 0; }
+.act-worker { margin:4px 0 4px 6px; }
+.act-finished { margin-top:10px; }
+.act-finished ul { margin:6px 0 0; padding-left:20px; font-size:13px; }
+.act-finished li { margin:3px 0; }
 </style>
 </head>
 <body>
@@ -2376,6 +2559,9 @@ function Get-Stamp {
     if (Test-Path -LiteralPath $integrationDir) {
         $files += Get-ChildItem -LiteralPath $integrationDir -Filter '*_integracion.md' -File -ErrorAction SilentlyContinue
     }
+    # SEG-T18: the activities outside tasks live only in their JSONL.
+    $activityLog = Join-Path $channel 'orquestacion\ACTIVIDADES\ejecuciones.jsonl'
+    if (Test-Path -LiteralPath $activityLog -PathType Leaf) { $files += Get-Item -LiteralPath $activityLog }
     if (Test-Path -LiteralPath $ideasStorePath -PathType Leaf) { $files += Get-Item -LiteralPath $ideasStorePath }
     if (Test-Path -LiteralPath $cloudAssignmentsPath -PathType Leaf) { $files += Get-Item -LiteralPath $cloudAssignmentsPath }
     ($files | ForEach-Object { "$($_.Name):$($_.LastWriteTimeUtc.Ticks)" }) -join '-'

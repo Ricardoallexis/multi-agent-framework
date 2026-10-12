@@ -11,10 +11,11 @@ import { OpenInApp } from "./open-in-app.js";
 import { routeHref } from "./route.js";
 import { Items } from "./session-items.js";
 import {
-  modelsText, relativeTime, sessionTitle, sourceLabel, statusInfo, surfaceLabel, tokensText, warningText,
+  modelsText, relativeTime, sessionTitle, sourceLabel, surfaceLabel, tokensText, warningText,
 } from "./session-text.js";
 import { startStream } from "./stream.js";
 import { errorText, fmtDate } from "./text.js";
+import { StatusChip } from "./ui/status-chip.js";
 
 const ITEMS_PAGE = 200;
 const SUMMARY_REFRESH_MS = 2000;
@@ -45,14 +46,13 @@ const FOLLOW_TEXT = {
 };
 
 function Header({ token, summary, onRefresh }) {
-  const info = statusInfo(summary.status);
   const isRun = summary.source === "framework";
   return html`<header class="session-header">
     <h3 id="session-title">${sessionTitle(summary)}</h3>
     <p class="badges">
       <span class=${"badge src src-" + summary.source}>${sourceLabel(summary.source)}</span>
       <span class="badge">${surfaceLabel(summary.surface)}</span>
-      <span class=${"badge tone-" + info.tone} title=${info.help}>${info.label}</span>
+      <${StatusChip} status=${summary.status} labels="session" />
       ${summary.parent_id && html`<span class="badge">Subagente</span>`}
     </p>
     ${summary.parent_id && html`<p>Es un subagente de <a href=${routeHref("sessions", summary.parent_id)}>su sesión principal</a>.</p>`}

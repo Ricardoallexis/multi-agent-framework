@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Texts and formatters of the subagents panel (Spanish). The server sends codes and facts; the wording lives here.
 import { relativeTime, sourceLabel, warningText } from "./session-text.js";
+import { labelEntry, labelSet, legacyInfo } from "./ui/labels.js";
 
 export const PAGE_SIZE = 10; // children shown per tab before "Ver más"
 
@@ -14,21 +15,19 @@ export const GROUPS = [
 const ACTIVE = ["running", "testing", "idle"];
 export const groupOf = (status) => (ACTIVE.includes(status) ? "active" : "done");
 
-// The dot is only a hint: the label is always written next to it. tone drives the colour and the animation.
-const STATUS = {
-  running: { label: "Trabajando", tone: "run", help: "Tuvo actividad hace menos de 15 minutos." },
-  testing: { label: "Ejecutando prueba", tone: "test",
-    help: "Tuvo actividad hace menos de 15 minutos y su última herramienta es una prueba (pytest, probar o integrar) que aún no devolvió resultado." },
-  idle: { label: "Sin actividad", tone: "quiet", help: "Entre 15 y 60 minutos sin actividad." },
-  done: { label: "Terminado", tone: "quiet", help: "Terminó su trabajo." },
-  stopped: { label: "Detenido", tone: "quiet", help: "Más de 60 minutos sin actividad, o falló." },
-  unknown: { label: "Estado desconocido", tone: "quiet", help: "La fuente no dice cuándo tuvo actividad." },
-};
 const NOTES = { waiting_human: "Esperando a una persona" };
 
+// {label, tone, help} of a child status (the words are in ui/labels.js, set "subagent"); a note can replace the label.
 export function statusInfo(status, note) {
-  const base = STATUS[status] || { label: String(status), tone: "quiet", help: "" };
+  const base = legacyInfo("subagent", status);
   return NOTES[note] ? { ...base, label: NOTES[note] } : base;
+}
+
+// What <StatusChip labels=...> gets for a child: the shared "subagent" set, or a one-status map when a note renames the label.
+export function childLabels(child) {
+  if (!NOTES[child.note]) return "subagent";
+  const entry = labelEntry(labelSet("subagent"), child.status);
+  return { [child.status]: { ...entry, text: NOTES[child.note], explanation: entry.explanation } };
 }
 
 const KIND_NAME = { subagent: "Subagente", thread: "Hilo", step: "Paso" };
@@ -67,12 +66,13 @@ export function compactTokens(tokens) {
   return number(total, 0) + " tokens";
 }
 
-// Second line: the type (when the title is the description), the model and the level.
-export function detailText(child) {
+// Second line: the type (when the title is the description), the model and the level. The panel draws the level as a
+// LevelBadge (ui/level-badge.js), so it asks for withLevel = false; the text form stays for anything that has no badge.
+export function detailText(child, withLevel = true) {
   const parts = [];
   if (child.label && child.name && child.name !== child.label) parts.push(child.name);
   parts.push(child.model || "modelo sin indicar");
-  if (child.level) parts.push("nivel " + child.level);
+  if (withLevel && child.level) parts.push("nivel " + child.level);
   return parts.join(" · ");
 }
 

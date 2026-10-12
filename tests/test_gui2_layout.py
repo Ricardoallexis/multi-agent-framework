@@ -155,7 +155,10 @@ def test_sidebar_has_new_session_search_groups_and_readable_status():
     assert "Nueva sesión" in sidebar and "navigate(NEW_SECTION)" in sidebar
     assert 'role="search"' in sidebar and '<label for="side-search">' in sidebar and 'id="side-search"' in sidebar
     assert 'type="search"' in sidebar and 'aria-live="polite"' in sidebar
-    assert 'class="sr-only"' in sidebar and "Estado: " in sidebar                  # the status is text too
+    # the status is text too: the dot is a StatusChip (GUI2-T11) whose component says the words for screen readers
+    chip = (JS / "ui" / "status-chip.js").read_text(encoding="utf-8")
+    assert '<${StatusChip} status=${item.dot} labels="dot" variant="dot"' in sidebar
+    assert 'class="sr-only"' in chip and "Estado: " in chip and 'aria-hidden="true"' in chip
     assert 'aria-current=${current ? "page" : null}' in sidebar
     assert "<details" in sidebar and "<summary" in sidebar                          # project groups fold natively
     assert "countsOf(group)" in sidebar                                             # a count per app
@@ -262,8 +265,8 @@ def test_stylesheet_has_visible_focus_touch_targets_and_reduced_motion():
     assert "outline: 2px solid var(--accent)" in focus and "a:focus-visible" in sheet and "summary:focus-visible" in sheet
     assert ".skip-link:focus" in sheet and ".sr-only" in sheet
     assert sheet.count("prefers-reduced-motion") >= 3
-    for state in ("working", "finished", "error"):
-        assert f".dot-{state}" in sheet
+    for shape in ("disc", "ring", "square", "diamond"):                           # the dot differs in shape, not only in colour
+        assert f'.dot[data-shape="{shape}"]' in sheet
 
 
 # --- the logic, run with Node ------------------------------------------------------------------------------------

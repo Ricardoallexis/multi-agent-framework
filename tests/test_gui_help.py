@@ -28,6 +28,8 @@ VIEW_FILES = [
 ]
 # The app shell (GUI2-T02: top bar, sidebar, right panel) draws controls too, under the same rules.
 VIEW_FILES += ["shell.js", "sidebar.js", "right-panel.js", "panel-slots.js", "subagents-mount.js"]
+# The shared components with controls (GUI2-T11): StatusChip, Progress and LevelBadge draw no control; Tabs draws the tab buttons.
+VIEW_FILES += ["ui/tabs.js"]
 CONTROL_TAGS = {"input", "select", "textarea", "button"}
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
@@ -35,12 +37,15 @@ ALLOWED_EXEMPT = {
     "navigation": "the section tabs: their label is the section name, and each section has its own help",
     "data-row": "a row of the list of runs: it is data, not a control that does something",
     "confirm": "the two buttons of a confirmation box, which already explains what is going to happen",
+    "component": "the tab buttons of the shared Tabs component: each view passes its help as aria-describedby (helpFor) "
+                 "and tests/test_gui2_components.py checks that every use of Tabs does",
 }
 EXPECTED_EXEMPT = Counter({
     ("main.js", "navigation"): 1,
     ("runs.js", "data-row"): 1,
     ("human-actions.js", "confirm"): 2,
     ("open-in-app.js", "confirm"): 2,
+    ("ui/tabs.js", "component"): 1,
 })
 
 # Topics built from data: the expression the view passes, and the HELP keys it can resolve to (None: the entry is

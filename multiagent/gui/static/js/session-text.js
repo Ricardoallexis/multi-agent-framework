@@ -1,6 +1,7 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Texts and formatters of the sessions screen (Spanish). The server sends codes and facts; the wording lives here.
+import { legacyInfo } from "./ui/labels.js";
 
 export const SOURCES = [
   { id: "claude", label: "Claude" },
@@ -16,18 +17,12 @@ export const SURFACES = [
   { id: "unknown", label: "Desconocida" },
 ];
 
-const STATUS = {
-  active: { label: "Activa", tone: "ok", help: "Tuvo actividad hace poco." },
-  idle: { label: "Sin actividad", tone: "muted", help: "No tuvo actividad reciente." },
-  archived: { label: "Archivada", tone: "muted", help: "La app la tiene archivada." },
-  unknown: { label: "Estado desconocido", tone: "muted", help: "La fuente no dice en qué estado está." },
-};
-
 const label = (list, id, fallback) => (list.find((entry) => entry.id === id) || { label: fallback || String(id) }).label;
 
 export const sourceLabel = (id) => label(SOURCES, id);
 export const surfaceLabel = (id) => label(SURFACES, id);
-export const statusInfo = (id) => STATUS[id] || { label: String(id), tone: "muted", help: "" };
+// The words of the statuses live in ui/labels.js (the single label map); this is its {label, tone, help} view.
+export const statusInfo = (id) => legacyInfo("session", id);
 
 // A subagent has no title of its own: it is named after its id ("agent-xxxx"); the others show the start of theirs.
 export function sessionTitle(session) {

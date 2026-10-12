@@ -716,10 +716,13 @@ def test_the_new_code_depends_only_on_shared_helpers_never_on_the_session_views(
 
 def test_panel_markup_is_accessible_and_keyboard_driven():
     panel, text = read("subagents-panel.js"), read("subagents-text.js")
-    assert 'role="tablist"' in panel and 'role="tab"' in panel and 'role="tabpanel"' in panel
-    assert "aria-selected" in panel and "aria-controls" in panel and "tabindex" in panel
+    # the tabs are the shared Tabs component (GUI2-T11): the roles, aria attributes and keys live in ui/tabs.js
+    tabs = (JS / "ui" / "tabs.js").read_text(encoding="utf-8")
+    assert 'import { Tabs } from "./ui/tabs.js"' in panel and "<${Tabs}" in panel and 'helpFor("subagents.tabs")' in panel
+    assert 'role="tablist"' in tabs and 'role="tab"' in tabs and 'role="tabpanel"' in tabs
+    assert "aria-selected" in tabs and "aria-controls" in tabs and "tabindex" in tabs
     for key in ("ArrowRight", "ArrowLeft", "Home", "End"):
-        assert f'"{key}"' in panel
+        assert f'"{key}"' in tabs
     assert 'aria-live="polite"' in panel and 'role="alert"' in panel and "aria-busy" in panel
     assert 'aria-hidden="true"' in panel                           # the avatar and the dot are decoration
     assert 'href=${href}' in panel and "aria-current" in panel     # items are real links; the open one is marked
@@ -730,13 +733,18 @@ def test_panel_markup_is_accessible_and_keyboard_driven():
 
 def test_status_is_never_colour_only_and_all_texts_are_spanish():
     text, panel = read("subagents-text.js"), read("subagents-panel.js")
-    for label in ("Trabajando", "Ejecutando prueba", "Sin actividad", "Terminado", "Detenido", "Estado desconocido",
-                  "Activos", "Terminados", "Esperando a una persona"):
+    labels = (JS / "ui" / "labels.js").read_text(encoding="utf-8")
+    # the words of the statuses are in the shared label map (GUI2-T11); the panel draws them with StatusChip, text next to the mark
+    for label in ("Trabajando", "Ejecutando prueba", "Sin actividad", "Terminado", "Detenido", "Estado desconocido"):
+        assert f'text: "{label}"' in labels, label
+    for label in ("Activos", "Terminados", "Esperando a una persona"):
         assert label in text, label
-    assert '<span class=${"sub-status tone-" + info.tone} title=${info.help}>${info.label}</span>' in panel
-    assert '<span class=${"sub-dot tone-" + info.tone} aria-hidden="true">' in panel
+    assert '<${StatusChip} status=${child.status} labels=${childLabels(child)} variant="inline" />' in panel
+    chip = (JS / "ui" / "status-chip.js").read_text(encoding="utf-8")
+    assert '<span class="status-text">${text}</span>' in chip and 'aria-hidden="true"' in chip   # the mark is decoration
     css = (STATIC_DIR / "subagents-panel.css").read_text(encoding="utf-8")
-    assert "prefers-reduced-motion" in css and "sub-pulse" in css and "min-height: 44px" in css
+    sheet = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+    assert "min-height: 44px" in css and "prefers-reduced-motion" in sheet and ".mark.pulse" in sheet
     assert "subagents-dock" not in css and "has-subagents" not in css and "position: fixed" not in css   # one right panel only
 
 
@@ -776,8 +784,8 @@ def test_new_client_files_and_the_stylesheet_are_served_with_the_csp(world):
 # --- the pure helpers, run under Node when it is installed -------------------------------------------------
 
 NODE_SCRIPT = """
-import { compactTokens, statusInfo, groupOf, initials, childTitle, detailText, activityText, countsText, childrenWarning }
-  from %s;
+import { compactTokens, statusInfo, groupOf, initials, childTitle, detailText, activityText, countsText, childrenWarning,
+  childLabels } from %s;
 const now = Date.parse("2026-10-11T12:00:00Z");
 const out = {
   tokens: [null, {}, { input: 1200, output: 300 }, { total: 2500000 }, { input: 5 }, { total: 12 }].map(compactTokens),
@@ -794,7 +802,10 @@ const out = {
     initials({ id: "x", kind: "subagent", name: "Explore", label: "Revisar el lector", source: "claude" }),
     initials({ id: "x", kind: "subagent", name: "---", label: null, source: "codex" })],
   detail: [detailText({ name: "Explore", label: "Revisar", model: "claude-sonnet-5-5", level: "T2" }),
-    detailText({ name: null, label: null, model: null, level: null })],
+    detailText({ name: null, label: null, model: null, level: null }),
+    detailText({ name: "Explore", label: "Revisar", model: "claude-sonnet-5-5", level: "T2" }, false)],
+  labels: [childLabels({ status: "idle", note: null }), Object.keys(childLabels({ status: "idle", note: "waiting_human" })),
+    childLabels({ status: "idle", note: "waiting_human" }).idle.text],
   activity: activityText({ last_activity_at: "2026-10-11T11:56:00Z", tokens: { input: 10, output: 5 } }, now),
   activityNone: activityText({ last_activity_at: null, tokens: null }, now),
   counts: [countsText({ active: 1, done: 0 }), countsText({ active: 2, done: 1 }), countsText(null)],
@@ -806,10 +817,11 @@ console.log(JSON.stringify(out));
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node is not installed")
 def test_text_helpers_under_node(tmp_path):
-    # Node needs a module extension; copy the two modules the helper imports next to each other.
-    for name in ("subagents-text.js", "session-text.js"):
-        (tmp_path / name.replace(".js", ".mjs")).write_text(read(name).replace("./session-text.js", "./session-text.mjs"),
-                                                              encoding="utf-8")
+    # Node needs a module extension; copy the modules the helper imports (they import each other) with their imports renamed.
+    (tmp_path / "ui").mkdir()
+    for name in ("subagents-text.js", "session-text.js", "ui/labels.js"):
+        source = re.sub(r'(from "\./[^"]+)\.js"', lambda match: match[1] + '.mjs"', read(name))
+        (tmp_path / name.replace(".js", ".mjs")).write_text(source, encoding="utf-8")
     script = tmp_path / "run.mjs"
     script.write_text(NODE_SCRIPT % json.dumps("./subagents-text.mjs"), encoding="utf-8")
     done = subprocess.run(["node", str(script)], capture_output=True, text=True, encoding="utf-8", timeout=60)
@@ -818,11 +830,12 @@ def test_text_helpers_under_node(tmp_path):
     assert out["tokens"] == ["tokens: desconocido", "tokens: desconocido", "1,5 k tokens", "2,5 M tokens", "5 tokens", "12 tokens"]
     assert out["status"] == ["Trabajando", "Ejecutando prueba", "Sin actividad", "Terminado", "Detenido",
                              "Estado desconocido", "weird"]
-    assert out["tone"] == ["run", "test", "quiet", "quiet"] and out["note"] == "Esperando a una persona"
+    assert out["tone"] == ["success", "warning", "muted", "muted"] and out["note"] == "Esperando a una persona"   # tones of ui/labels.js
     assert out["groups"] == ["active", "active", "active", "done", "done", "done"]
     assert out["titles"] == ["Revisar el lector", "Explore", "Subagente abcdef12", "Hilo 4444", "Paso s1"]
     assert out["initials"] == ["R", "RE", "Co"]
-    assert out["detail"] == ["Explore · claude-sonnet-5-5 · nivel T2", "modelo sin indicar"]
+    assert out["detail"] == ["Explore · claude-sonnet-5-5 · nivel T2", "modelo sin indicar", "Explore · claude-sonnet-5-5"]
+    assert out["labels"] == ["subagent", ["idle"], "Esperando a una persona"]
     assert out["activity"].startswith("actividad hace 4 minutos") and out["activity"].endswith("15 tokens")
     assert out["activityNone"] == "sin hora registrada · tokens: desconocido"
     assert out["counts"] == ["1 activo y 0 terminados", "2 activos y 1 terminado", "0 activos y 0 terminados"]

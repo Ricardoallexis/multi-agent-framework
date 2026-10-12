@@ -28,6 +28,12 @@ La aplicación sale de la referencia del trabajador (`agent-` Claude, `copilot:`
 
 Hay UNA tabla de aplicaciones, `$script:WorkerApps` en `ver-seguimiento.ps1`. Agregar una aplicación es agregar una entrada, sin casos especiales por agente: `Key`, `Application` (nombre de su tarjeta), `RefPattern` y `RefId` (su referencia), `BarePattern`, `NamePattern`, `ShowAppPrefix`, `TailBytes`, `FindFile` (dónde está su archivo de actividad), `ReadModel` (cómo se lee su modelo) y `PendingTest` (cómo se detecta una prueba en ejecución). Las pruebas están en `tests/SEG-T17/`.
 
+## Actividades fuera de tareas
+
+El trabajo que no cuelga de una ficha (auditorías, propuestas, investigaciones, revisiones, integraciones, mantenimiento, sesiones programadas) se registra con `registrar-delegacion.ps1 -Actividad "<título>" -Tipo <tipo> [-Pedido "<cita del usuario>"]` en lugar de `-Tarea`, con los mismos campos de trabajador (`-Trabajador`, `-Nivel`, `-Esfuerzo`, `-Etiqueta`, `-Referencia`, `-Pieza`); se cierra con `-Devuelta -Resultado`. El registro queda en `<canal>\orquestacion\ACTIVIDADES\ejecuciones.jsonl` (una línea por evento: `opened`, `delegated`, `returned`, `closed`) y en el índice legible `ACTIVIDADES.md`; cada actividad tiene un id estable (`ACT-AAAAMMDD-NN`).
+
+La pestaña «Agentes» muestra arriba la sección «Fuera de tareas»: cada actividad en curso con su tipo, título y orquestador, y cada trabajador con su aplicación, su modelo, su actividad real (Trabajando, Ejecutando prueba, Sin actividad reciente, Probablemente detenido) y sus tokens si constan (`usage_tokens`, un total o `{ total, input, output }`). Las terminadas quedan en una lista plegada. Cada trabajador activo figura además en la tarjeta de SU aplicación («trabajando para <orquestador> en <actividad>») y cuenta como activo; uno «probablemente detenido» se lista pero no cuenta. Si el registro existe pero no se puede leer, la sección lo dice en lugar de mostrar una lista vacía. Sólo se leen horas, estado y nombres de modelo de los archivos de actividad, nunca su contenido. El registro es también una fuente que vigila el visor (`Get-Stamp`). Las pruebas están en `tests/SEG-T18/`.
+
 ## Lector opcional de la API core
 
 El visor conserva Markdown como vista canónica y predeterminada. `-LeerApi` agrega una pestaña de solo lectura que obtiene grupos (`GET /api/v1/task-groups`), tareas (`GET /api/v1/tasks`) y eventos (`GET /api/v1/team-events`) desde `-ApiBaseUrl` (predeterminado `http://127.0.0.1:8000`). `-ApiTimeoutSeconds` fija el límite por petición. Ejemplo:

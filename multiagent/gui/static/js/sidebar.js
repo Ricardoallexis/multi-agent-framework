@@ -10,29 +10,24 @@ import { debounce, subscribe } from "./bus.js";
 import { Help, helpFor } from "./help.js";
 import { navigate, routeHref, NEW_SECTION } from "./route.js";
 import { relativeTime } from "./session-text.js";
-import { appLabel, buildGroups, countsOf, dotText, isCurrent, runItems, sessionItems } from "./sidebar-model.js";
+import { appLabel, buildGroups, countsOf, isCurrent, runItems, sessionItems } from "./sidebar-model.js";
+import { StatusChip } from "./ui/status-chip.js";
 
 const SESSION_LIMIT = 100;
 const RUN_LIMIT = 50;
 const EVENT_DEBOUNCE_MS = 1500; // runs change with the event stream
 const REFRESH_MS = 60000;       // sessions of the apps are files: they are looked at again once a minute
 
-function Dot({ dot, detail }) {
-  const text = dotText(dot, detail);
-  return html`<span class=${"dot dot-" + dot} aria-hidden="true" title=${text}></span>`;
-}
-
+// The dot is a StatusChip (ui/status-chip.js): a mark whose shape differs per state, with the words for screen readers.
 function Item({ item, current, now }) {
-  const text = dotText(item.dot, item.detail);
   return html`<li>
     <a class="side-item" href=${routeHref(item.route[0], item.route[1])} aria-current=${current ? "page" : null}
       title=${item.folder || item.title}>
-      <${Dot} dot=${item.dot} detail=${item.detail} />
+      <${StatusChip} status=${item.dot} labels="dot" variant="dot" detail=${item.detail} />
       <span class="side-text">
         <span class="side-title">${item.title}</span>
         <span class="side-meta">${appLabel(item.app)} · ${relativeTime(item.updatedAt, now)}</span>
       </span>
-      <span class="sr-only">Estado: ${text}</span>
     </a>
   </li>`;
 }

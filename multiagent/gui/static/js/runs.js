@@ -8,7 +8,8 @@ import { CreateRun } from "./create-run.js";
 import { Help, helpFor } from "./help.js";
 import { navigate } from "./route.js";
 import { RunDetail } from "./run-detail.js";
-import { errorText, fmtDate, statusInfo } from "./text.js";
+import { errorText, fmtDate } from "./text.js";
+import { StatusChip } from "./ui/status-chip.js";
 
 const LIST_DEBOUNCE_MS = 500;
 
@@ -39,16 +40,13 @@ function RunList({ token, status, selected, version, onSelect }) {
   if (!runs) return html`<p class="muted" aria-busy="true">Cargando ejecuciones…</p>`;
   if (runs.length === 0) return html`<p class="muted">Todavía no hay ejecuciones. Crea la primera con «Nueva ejecución».</p>`;
   return html`<ul class="run-list">
-    ${runs.map((run) => {
-      const info = statusInfo(run.status);
-      return html`<li key=${run.id}>
-        <button type="button" data-help-exempt="data-row" aria-current=${run.id === selected ? "true" : null} onClick=${() => onSelect(run.id)}>
-          <span class="run-title">${run.workflow_id} <span class="muted">· ${run.project_name}</span></span>
-          <span class=${"badge tone-" + info.tone}>${info.label}</span>
-          <span class="muted small">${fmtDate(run.created_at)}${run.bundle ? " · " + run.bundle : ""}</span>
-        </button>
-      </li>`;
-    })}
+    ${runs.map((run) => html`<li key=${run.id}>
+      <button type="button" data-help-exempt="data-row" aria-current=${run.id === selected ? "true" : null} onClick=${() => onSelect(run.id)}>
+        <span class="run-title">${run.workflow_id} <span class="muted">· ${run.project_name}</span></span>
+        <${StatusChip} status=${run.status} labels="run" />
+        <span class="muted small">${fmtDate(run.created_at)}${run.bundle ? " · " + run.bundle : ""}</span>
+      </button>
+    </li>`)}
   </ul>`;
 }
 
