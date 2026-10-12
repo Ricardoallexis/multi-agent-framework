@@ -1,0 +1,76 @@
+{
+  "schema": "maf.task-labels/1",
+  "task": {
+    "done": {
+      "text": "Terminada",
+      "tone": "success",
+      "explanation": "La tarea fue aceptada, o quedó entregada con evidencia que libera a las que dependen de ella."
+    },
+    "cancelled": {
+      "text": "Cancelada",
+      "tone": "muted",
+      "explanation": "Se descartó y no cuenta en el avance."
+    },
+    "failed": {
+      "text": "Falló",
+      "tone": "danger",
+      "explanation": "El intento terminó mal. Hay que reabrirla, cancelarla o rehacerla."
+    },
+    "review": {
+      "text": "Espera tu revisión",
+      "tone": "attention",
+      "explanation": "Quien la hacía ya la entregó. Falta que tú la apruebes o pidas cambios."
+    },
+    "changes": {
+      "text": "Cambios pedidos",
+      "tone": "warning",
+      "explanation": "La revisión pidió cambios y su responsable debe volver a trabajarla."
+    },
+    "doing": {
+      "text": "En curso",
+      "tone": "active",
+      "explanation": "Alguien la tomó y está trabajando en ella, la tiene en pausa o se comprueba automáticamente."
+    },
+    "todo": {
+      "text": "Pendiente",
+      "tone": "neutral",
+      "explanation": "Todavía no se puede empezar porque su etapa no está autorizada."
+    },
+    "blocked": {
+      "text": "Bloqueada",
+      "tone": "warning",
+      "explanation": "Espera a otra tarea de la que depende y que aún no cumple lo exigido."
+    },
+    "ready": {
+      "text": "Lista",
+      "tone": "info",
+      "explanation": "Su etapa está autorizada y nada la bloquea. Ya se puede tomar."
+    }
+  },
+  "stage": {
+    "closed": {
+      "text": "Cerrada",
+      "tone": "success",
+      "explanation": "La etapa se verificó y se cerró."
+    },
+    "verify": {
+      "text": "Espera tu verificación",
+      "tone": "attention",
+      "explanation": "Todas sus tareas están terminadas o canceladas. Falta que verifiques la etapa y la cierres."
+    },
+    "todo": {
+      "text": "Pendiente",
+      "tone": "neutral",
+      "explanation": "La etapa no está autorizada o todavía no tiene tareas."
+    },
+    "doing": {
+      "text": "En curso",
+      "tone": "active",
+      "explanation": "La etapa está autorizada y tiene trabajo por hacer."
+    }
+  },
+  "details": {
+    "paused": "en pausa",
+    "validating": "comprobación automática"
+  }
+}

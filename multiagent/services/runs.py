@@ -131,8 +131,13 @@ class RunServices:
         """Validate the workflow and queue a run; returns the new (or idempotent) run.
 
         ``bundle`` selects a registered bundle for ``request.workflow_id``.
-        Errors: ``not_found``, ``invalid_definition``, ``idempotency_conflict``.
+        A generic request may carry ``task_id``: the task must exist in the system database (a bundle's runs live in
+        another one) and the link never changes; usage and telemetry of the run are then counted for that task.
+        Errors: ``not_found`` (workflow, bundle or task), ``invalid_definition``, ``idempotency_conflict``.
         """
+        task_id = getattr(request, "task_id", None)
+        if task_id is not None and self._services.tasks.store.get_task(task_id) is None:
+            raise ServiceError(NOT_FOUND, f"Task not found: {task_id}", status=404, details={"task": task_id})
         runtime = self._system_runtime if bundle is None else self._bundle_runtime(bundle)
         return self._tag(runtime, runtime.service.create_run(request))
 

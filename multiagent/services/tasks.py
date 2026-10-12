@@ -43,7 +43,7 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from ..db.task_store import StaleRevision, TaskStore
-from ..tasks import graph, release as release_policy
+from ..tasks import graph, labels, release as release_policy
 from ..tasks.envelopes import (EnvelopeError, MAX_CONTEXT_REFS, MAX_CONSTRAINTS, MAX_CONSTRAINT_CHARS,
                                parse_reference, validate_reference)
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
@@ -96,6 +96,10 @@ EVENT_TYPES = (
     "task.claimed", "task.unclaimed", "task.started", "task.paused", "task.resumed",
     "task.submitted", "task.accepted", "task.changes_requested", "task.failed",
     "task.cancelled", "task.reopened", "task.scope_updated", "group.lifecycle_changed", "task.ready",
+    # PRY (contract PRY-T01 section 8): projects, the plans of stages and tasks, and the links to chats.
+    "project.created", "project.updated", "project.archived", "project.unarchived", "project.stage_attached",
+    "project.stages_reordered", "project.remote_model_acknowledged", "group.plan_updated", "task.plan_updated",
+    "task.session_linked", "task.session_unlinked",
 )
 MAX_EVENT_PAYLOAD_BYTES = 2048
 
@@ -253,20 +257,40 @@ class TaskServices:
     def _states(tasks: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
         return {task_id: task["state"] for task_id, task in tasks.items()}
 
+    @staticmethod
+    def _released(task: Mapping[str, Any], group: Mapping[str, Any], context: Mapping[str, Any]) -> bool:
+        """Whether a ``submitted`` task counts as done: its group has a legacy release mode and the evidence releases."""
+        mode = group.get("legacy_release_mode")
+        if task["state"] != "submitted" or mode is None:
+            return False
+        facts = context["facts"].get(task["id"], release_policy.empty_facts(task["id"]))
+        return release_policy.evaluate(mode, facts)[0]
+
+    def _label_key(self, task: Mapping[str, Any], status: str, group: Mapping[str, Any],
+                   context: Mapping[str, Any]) -> str:
+        return labels.task_label_key(task["state"], status, authorized=bool(group.get("authorized")),
+                                     released=self._released(task, group, context))
+
     def _view(self, task: Mapping[str, Any], states: Mapping[str, str], deps: list[dict[str, Any]],
               context: Mapping[str, Any] | None = None,
               tasks: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
         tasks = tasks or {str(task["id"]): task}
+        status = self._effective_status(task["id"], states, deps, tasks, context)
+        group = (context["groups"].get(task["group_id"]) if context is not None else None)             or self.store.get_group(task["group_id"]) or {}
+        label_context = context if context is not None else {"facts": {}}
         own = [dep for dep in deps if dep["task_id"] == task["id"]]
         legacy = ([edge for edge in context["dependencies"] if edge["task_id"] == task["id"]]
                   if context is not None else [])
         view = {
             "id": task["id"],
             "group_id": task["group_id"],
+            "kind": task.get("kind", "task"),
             "title": task["title"],
             "objective": task["objective"],
             "state": task["state"],
-            "status": self._effective_status(task["id"], states, deps, tasks, context),
+            "status": status,
+            "label": labels.task_label(task["state"], status, authorized=bool(group.get("authorized")),
+                                       released=self._released(task, group, label_context)),
             "blockers": self._blockers(task["id"], states, deps, tasks, context),
             "depends_on": [{"task_id": dep["depends_on_id"], "requires": dep["requires"],
                             "satisfied": graph.is_satisfied(dep["requires"], states.get(dep["depends_on_id"]))}
@@ -304,11 +328,14 @@ class TaskServices:
         context = self._release_context(conn)
         states = self._states(tasks)
         counts: dict[str, int] = {}
+        keys: list[str] = []
         for task_id, task in tasks.items():
             if task["group_id"] == group["id"]:
                 status = self._effective_status(task_id, states, deps, tasks, context)
                 counts[status] = counts.get(status, 0) + 1
-        result = {**group, "counts": counts}
+                keys.append(self._label_key(task, status, group, context))
+        result = {**group, "counts": counts,
+                  "label": labels.stage_label(group["lifecycle_state"], bool(group["authorized"]), keys)}
         provenance = self.store.snapshot_provenance("group", str(group["id"]), conn=conn)
         if provenance:
             result["provenance"] = provenance
@@ -319,6 +346,16 @@ class TaskServices:
         if group is None:
             raise _missing("Group", group_id)
         return group
+
+    @staticmethod
+    def _assert_project_active(conn: sqlite3.Connection, group: Mapping[str, Any]) -> None:
+        """An archived project admits no claim and no structure change in its stages (PRY-T01 section 2)."""
+        project_id = group.get("project_id")
+        if not project_id:
+            return
+        row = conn.execute("SELECT archived_at FROM projects WHERE id=?", (project_id,)).fetchone()
+        if row is not None and row["archived_at"] is not None:
+            raise _conflict(f"Project {project_id} is archived", project_id=project_id, group_id=group["id"])
 
     def _bump(self, conn: sqlite3.Connection, task: Mapping[str, Any]) -> None:
         self.store.update_task(conn, task["id"], expected_revision=task["revision"])
@@ -893,33 +930,45 @@ class TaskServices:
         if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
             raise _invalid("expected_revision", "expected_revision must be a positive integer")
         with self.store.transaction() as conn:
-            group = self._group_or_missing(group_id, conn)
-            if group["revision"] != expected_revision:
-                raise _conflict("Stale group revision", group_id=group_id, expected_revision=expected_revision,
-                                revision=group["revision"])
-            if group["lifecycle_state"] == state:
-                return self._group_view(group, conn)
-            if state == "closed":
-                tasks = self.store.list_tasks(group_id=group_id, conn=conn)
-                if not tasks or any(t["state"] not in ("submitted", "accepted") for t in tasks):
-                    raise _conflict("A group can close only when non-empty and every task is submitted or accepted",
-                                    group_id=group_id)
-                for task in tasks:
-                    facts = self.store.release_fact(task["id"], conn=conn)
-                    if not facts or not facts.get("delivery_sha256"):
-                        raise _conflict("Every task needs valid delivery evidence before group closure",
-                                        group_id=group_id, task_id=task["id"])
-                    if facts.get("has_patch") and not (facts.get("integration_commit") and facts.get("integration_ref")):
-                        raise _conflict("Patched tasks need verified integration before group closure",
-                                        group_id=group_id, task_id=task["id"])
-            updated = self.store.set_group_lifecycle(conn, group_id, state=state, expected_revision=expected_revision)
-            if updated is None:
-                raise _missing("Group", group_id)
-            if updated["revision"] != group["revision"]:
-                self.store.append_event(conn, "group.lifecycle_changed", actor=actor, group_id=group_id, cause=cause,
-                                        payload={"from": group["lifecycle_state"], "to": state,
-                                                 "revision": updated["revision"]})
-            return self._group_view(updated, conn)
+            return self._apply_group_state(conn, group_id, state, actor=actor, cause=cause,
+                                           expected_revision=expected_revision)
+
+    def _apply_group_state(self, conn: sqlite3.Connection, group_id: str, state: str, *, actor: str, cause: str,
+                           expected_revision: int, ignore_cancelled: bool = False) -> dict[str, Any]:
+        """The body of ``set_group_state`` inside the caller's transaction (``projects.close_stage`` shares it).
+
+        ``ignore_cancelled`` lets a group close with cancelled tasks, which the project labels do not count
+        as work; at least one task that is not cancelled must remain.
+        """
+        group = self._group_or_missing(group_id, conn)
+        if group["revision"] != expected_revision:
+            raise _conflict("Stale group revision", group_id=group_id, expected_revision=expected_revision,
+                            revision=group["revision"])
+        if group["lifecycle_state"] == state:
+            return self._group_view(group, conn)
+        if state == "closed":
+            tasks = self.store.list_tasks(group_id=group_id, conn=conn)
+            if ignore_cancelled:
+                tasks = [t for t in tasks if t["state"] != "cancelled"]
+            if not tasks or any(t["state"] not in ("submitted", "accepted") for t in tasks):
+                raise _conflict("A group can close only when non-empty and every task is submitted or accepted",
+                                group_id=group_id)
+            for task in tasks:
+                facts = self.store.release_fact(task["id"], conn=conn)
+                if not facts or not facts.get("delivery_sha256"):
+                    raise _conflict("Every task needs valid delivery evidence before group closure",
+                                    group_id=group_id, task_id=task["id"])
+                if facts.get("has_patch") and not (facts.get("integration_commit") and facts.get("integration_ref")):
+                    raise _conflict("Patched tasks need verified integration before group closure",
+                                    group_id=group_id, task_id=task["id"])
+        updated = self.store.set_group_lifecycle(conn, group_id, state=state, expected_revision=expected_revision)
+        if updated is None:
+            raise _missing("Group", group_id)
+        if updated["revision"] != group["revision"]:
+            self.store.append_event(conn, "group.lifecycle_changed", actor=actor, group_id=group_id, cause=cause,
+                                    payload={"from": group["lifecycle_state"], "to": state,
+                                             "revision": updated["revision"]})
+        return self._group_view(updated, conn)
 
     @service_errors
     def get_group(self, group_id: str) -> dict[str, Any]:
@@ -1010,6 +1059,7 @@ class TaskServices:
         try:
             with self.store.transaction() as conn:
                 group = self._group_or_missing(group_id, conn)
+                self._assert_project_active(conn, group)
                 if self.store.get_task(task_id, conn=conn) is not None:
                     raise _conflict(f"Task already exists: {task_id}", task_id=task_id)
                 if group["lifecycle_state"] == "closed":
@@ -1199,6 +1249,7 @@ class TaskServices:
             task = tasks[task_id]
             if task["state"] in TERMINAL_STATES:
                 raise _conflict(f"Task {task_id} is {task['state']}", task_id=task_id, state=task["state"])
+            self._assert_project_active(conn, self._group_or_missing(task["group_id"], conn))
             if any(d["task_id"] == task_id and d["depends_on_id"] == depends_on_id for d in deps):
                 raise _conflict(f"{task_id} already depends on {depends_on_id}", task_id=task_id,
                                 depends_on_id=depends_on_id)
@@ -1230,6 +1281,7 @@ class TaskServices:
             if task_id not in tasks:
                 raise _missing("Task", task_id)
             task = tasks[task_id]
+            self._assert_project_active(conn, self._group_or_missing(task["group_id"], conn))
             states = self._states(tasks)
             before = self._status_map(tasks, deps, context)
             if not self.store.delete_dependency(conn, task_id, depends_on_id):
@@ -1365,7 +1417,8 @@ class TaskServices:
             raise _invalid(error.field, str(error)) from None
 
     def _write_release_fact(self, conn: sqlite3.Connection, task_id: str, *, actor: str,
-                            fact: Mapping[str, Any], event: str, ref: str, cause: str) -> dict[str, Any]:
+                            fact: Mapping[str, Any], event: str, ref: str, cause: str,
+                            event_cause: str = "") -> dict[str, Any]:
         task = self.store.get_task(task_id, conn=conn)
         if task is None:
             raise _missing("Task", task_id)
@@ -1374,6 +1427,7 @@ class TaskServices:
         self.store.write_release_fact(conn, task_id, actor=actor, **fact)
         self._bump(conn, task)
         self.store.append_event(conn, event, actor=actor, group_id=task["group_id"], task_id=task_id, ref=ref,
+                                cause=event_cause,
                                 payload={key: value for key, value in fact.items()
                                          if key in {"delivery_sha256", "has_patch", "patchset_sha256",
                                                     "test_verdict", "test_patchset_sha256", "integration_commit"}})
@@ -1563,6 +1617,7 @@ class TaskServices:
                 raise _conflict(f"{task_id} has a gate; run it to accept the task", task_id=task_id, gate=checks)
         if action == "claim":
             group = self._group_or_missing(task["group_id"], conn)
+            self._assert_project_active(conn, group)
             if not group["authorized"]:
                 raise _conflict(f"Group {group['id']} is not authorized", task_id=task_id, group_id=group["id"])
             conflicts = self._lock_conflicts(task["file_scope"], task, tasks.values(), actor=actor,
@@ -1686,15 +1741,16 @@ class TaskServices:
     # -------- team event log --------
     @service_errors
     def events(self, *, after: int = 0, group_id: str | None = None, task_id: str | None = None,
-               limit: int = 500) -> list[dict[str, Any]]:
+               limit: int = 500, project_id: str | None = None) -> list[dict[str, Any]]:
         """Team events with ``seq`` greater than ``after``, oldest first, at most ``limit`` (1..1000).
 
         ``seq`` is one team-wide sequence: unfiltered reads see consecutive
         numbers; filtered reads skip the events of other groups or tasks.
+        ``project_id`` keeps the events about that project (``ref=project:<id>``) and those of its stages.
         Errors: ``invalid_request`` (``after`` or ``limit``).
         """
         if isinstance(after, bool) or not isinstance(after, int) or after < 0:
             raise _invalid("after", "after must be an integer >= 0", after=repr(after))
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise _invalid("limit", "limit must be an integer between 1 and 1000", limit=repr(limit))
-        return self.store.events(after=after, group_id=group_id, task_id=task_id, limit=limit)
+        return self.store.events(after=after, group_id=group_id, task_id=task_id, limit=limit, project_id=project_id)

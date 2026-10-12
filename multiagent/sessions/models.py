@@ -103,6 +103,7 @@ class SessionSummary:
     open_in_app: OpenInApp | None = None
     reader: str = ""
     warnings: list[str] = field(default_factory=list)
+    task_ids: list[str] = field(default_factory=list)   # tasks this session works on (PRY); filled by the services
 
     def to_dict(self) -> dict[str, Any]:
         return {"id": self.id, "source": self.source.value, "surface": self.surface.value,
@@ -111,7 +112,7 @@ class SessionSummary:
                 "status": self.status.value, "parent_id": self.parent_id, "child_count": self.child_count,
                 "tokens": self.tokens.to_dict() if self.tokens else None,
                 "open_in_app": self.open_in_app.to_dict() if self.open_in_app else None,
-                "reader": self.reader, "warnings": list(self.warnings)}
+                "reader": self.reader, "warnings": list(self.warnings), "task_ids": list(self.task_ids)}
 
 
 @dataclass

@@ -205,7 +205,7 @@ class SessionServices:
         for _, store in self._stores():
             with store.db.connect() as conn:
                 found = conn.execute(
-                    "SELECT id,workflow_id,status,created_at,updated_at FROM runs ORDER BY created_at DESC LIMIT ?",
+                    "SELECT id,workflow_id,status,created_at,updated_at,task_id FROM runs ORDER BY created_at DESC LIMIT ?",
                     (MAX_FRAMEWORK_RUNS,)).fetchall()
             rows.extend(dict(r) | {"_store": store} for r in found)
         return rows
@@ -213,7 +213,7 @@ class SessionServices:
     def _find_run(self, run_id: str) -> tuple[Any, dict[str, Any]]:
         for _, store in self._stores():
             with store.db.connect() as conn:
-                row = conn.execute("SELECT id,workflow_id,status,created_at,updated_at FROM runs WHERE id=?",
+                row = conn.execute("SELECT id,workflow_id,status,created_at,updated_at,task_id FROM runs WHERE id=?",
                                    (run_id,)).fetchone()
             if row is not None:
                 return store, dict(row)
@@ -248,7 +248,8 @@ class SessionServices:
             title=row["workflow_id"], cwd=None, created_at=normalize_ts(row["created_at"]),
             updated_at=normalize_ts(row["updated_at"]), models=list(models),
             status=_RUN_STATUS.get(row["status"], Status.UNKNOWN), tokens=tokens,
-            open_in_app=OpenInApp("url", f"/gui/#run={row['id']}", False), reader=FRAMEWORK_READER)
+            open_in_app=OpenInApp("url", f"/gui/#run={row['id']}", False), reader=FRAMEWORK_READER,
+            task_ids=[row["task_id"]] if row.get("task_id") else [])
 
     def _framework_matches(self, filters: SessionFilters) -> list[tuple[SessionSummary, Any]]:
         """``(summary, store)`` of the runs matching the filters, without usage (added for the page only)."""
@@ -285,6 +286,15 @@ class SessionServices:
             for summary in group:
                 if summary.native_id in usage:
                     summary.models, summary.tokens = usage[summary.native_id]
+
+    def _with_task_ids(self, summaries: list[SessionSummary]) -> None:
+        """Fill ``task_ids`` of the chats of other apps from their links to tasks (a run's own comes from the run)."""
+        external = [s for s in summaries if s.source is not Source.FRAMEWORK]
+        if not external:
+            return
+        linked = self._services.projects.store.task_ids_by_session([s.id for s in external])
+        for summary in external:
+            summary.task_ids = list(linked.get(summary.id, []))
 
     def _framework_event_items(self, store: Any, run_id: str, after: int, limit: int) -> ItemsPage:
         from ..gui.runs import _clean  # lazy: gui imports this module; same cleaning as the run view
@@ -344,6 +354,7 @@ class SessionServices:
         rows.sort(key=lambda s: (s.updated_at or "", s.id), reverse=True)
         page_rows = [replace(s) for s in rows[start:start + limit]]
         self._with_usage(page_rows, run_stores)
+        self._with_task_ids(page_rows)
         nxt = f"0:{start + limit}" if start + limit < len(rows) else None
         return {"sessions": [s.to_dict() for s in page_rows], "next_cursor": nxt, "warnings": warnings, "hint": None}
 
@@ -379,7 +390,9 @@ class SessionServices:
             store, row = self._find_run(native)
             return self._framework_summary(row, self._usage_by_run(store, [native]).get(native))
         with _session_errors():
-            return self._get_registry().get_session(session_id)
+            summary = replace(self._get_registry().get_session(session_id))
+        self._with_task_ids([summary])
+        return summary
 
     def read_items(self, session_id: str, *, after: str | None = None, limit: int = DEFAULT_ITEMS_LIMIT) -> dict[str, Any]:
         """A page of items after the cursor: ``{items, next_cursor, done, warnings}``.

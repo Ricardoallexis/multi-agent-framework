@@ -39,6 +39,7 @@ multiagent = "multiagent.cli:main"
 packages = [
   "multiagent",
   "multiagent.adapters",
+  "multiagent.context",
   "multiagent.db",
   "multiagent.observability",
   "multiagent.services",
@@ -65,6 +66,7 @@ packages = [
 "multiagent._resources.migrations" = "migrations"
 
 [tool.setuptools.package-data]
+"multiagent.tasks" = ["labels.json"]
 "multiagent.ui" = ["static/*.html", "static/*.css", "static/js/*.js"]
 "multiagent.gui" = ["static/*.html", "static/*.css", "static/js/*.js", "static/js/ui/*.js", "static/vendor/*"]
 "multiagent.project_templates" = ["*.yaml", "*.json"]

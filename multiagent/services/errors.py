@@ -21,6 +21,7 @@ from ..errors import (
     InvalidStateTransition,
     MultiAgentError,
 )
+from ..project_templates.errors import TemplateError, TemplateNotFound
 from ..workflow_validation import WorkflowDefinitionError
 
 # Stable error codes. Interfaces may rely on them; add new ones, never rename.
@@ -82,6 +83,11 @@ def translate(exc: BaseException) -> ServiceError | None:
         return ServiceError(HUMAN_SUBMISSION_INVALID, str(exc), status=422)
     if isinstance(exc, MultiAgentError):
         return ServiceError(OPERATION_FAILED, str(exc), status=409)
+    if isinstance(exc, TemplateError):
+        # A ValueError, so it goes before the generic fallback: an invalid template is a 422, not a 409.
+        return ServiceError(exc.code, str(exc), status=exc.status, details={"errors": list(exc.errors)})
+    if isinstance(exc, TemplateNotFound):
+        return ServiceError(exc.code, str(exc), status=exc.status, details={"template": exc.name})
     if isinstance(exc, ValueError):
         # Checked last: WorkflowDefinitionError and ValidationError are ValueErrors too.
         return ServiceError(INVALID_OPERATION, str(exc), status=409)

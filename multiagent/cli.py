@@ -467,7 +467,105 @@ def cmd_team_events(args) -> None:
         params["group"] = args.group
     if args.task:
         params["task"] = args.task
+    if args.project:
+        params["project"] = args.project
     pretty(_api_json("GET", "/api/v1/team-events", params=params))
+
+
+# --- projects (PRY): every command calls the project routes of the HTTP API -----------
+
+MAX_PLAN_FILE_BYTES = 256 * 1024
+
+
+def _plan_file(path: str) -> dict:
+    """A plan or template file (JSON or YAML) as a plain dict; the server validates it against the schema."""
+    try:
+        raw = Path(path).read_bytes()
+    except OSError as exc:
+        raise ValueError(f"Could not read plan file '{path}': {exc}") from exc
+    if len(raw) > MAX_PLAN_FILE_BYTES:
+        raise ValueError(f"Plan file '{path}' is larger than {MAX_PLAN_FILE_BYTES} bytes")
+    try:
+        text = raw.decode("utf-8")
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            import yaml
+            # An unquoted date in YAML is a date object: give it back as AAAA-MM-DD text.
+            data = json.loads(json.dumps(yaml.safe_load(text), default=lambda value: value.isoformat()))
+    except Exception as exc:  # undecodable bytes, invalid JSON or YAML, a value that is not data
+        raise ValueError(f"Plan file '{path}' is not valid JSON or YAML: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"Plan file '{path}' must contain an object")
+    return data
+
+
+def _plan_body(args) -> dict:
+    body = {"doc": _plan_file(args.file), "key": args.key}
+    if args.title is not None:
+        body["title"] = args.title
+    if args.visibility is not None:
+        body["visibility"] = args.visibility
+    return body
+
+
+def cmd_projects(args) -> None:
+    pretty(_api_json("GET", "/api/v1/projects", params={"archived": "true"} if args.archived else None))
+
+
+def cmd_project_show(args) -> None:
+    pretty(_api_json("GET", f"/api/v1/projects/{_segment(args.project_id)}"))
+
+
+def cmd_project_plan(args) -> None:
+    pretty(_api_json("POST", "/api/v1/projects/plan", json_body=_plan_body(args)))
+
+
+def cmd_project_create(args) -> None:
+    body = _plan_body(args)
+    # Without --plan-sha256 the file is planned first and its hash used: the command itself is the confirmation.
+    body["plan_sha256"] = args.plan_sha256 or _api_json("POST", "/api/v1/projects/plan", json_body=dict(body))["plan_sha256"]
+    body["actor"] = args.actor
+    pretty(_api_json("POST", "/api/v1/projects", json_body=body))
+
+
+def cmd_project_update(args) -> None:
+    body = {"actor": args.actor, "expected_revision": args.revision}
+    if args.title is not None:
+        body["title"] = args.title
+    if args.visibility is not None:
+        body["visibility"] = args.visibility
+    pretty(_api_json("PATCH", f"/api/v1/projects/{_segment(args.project_id)}", json_body=body))
+
+
+def cmd_project_archive(args) -> None:
+    pretty(_api_json("POST", f"/api/v1/projects/{_segment(args.project_id)}/{args.project_command}",
+                     json_body={"actor": args.actor, "expected_revision": args.revision}))
+
+
+def cmd_project_stage(args) -> None:
+    project = _segment(args.project_id)
+    base = {"actor": args.actor, "expected_revision": args.revision}
+    if args.stage_command == "attach":
+        pretty(_api_json("POST", f"/api/v1/projects/{project}/stages", json_body={**base, "group_id": args.group_id}))
+    elif args.stage_command == "order":
+        pretty(_api_json("PUT", f"/api/v1/projects/{project}/stages", json_body={**base, "group_ids": args.group_ids}))
+    else:  # close
+        pretty(_api_json("POST", f"/api/v1/projects/{project}/stages/{_segment(args.group_id)}/close", json_body=base))
+
+
+def cmd_task_session(args) -> None:
+    task = _segment(args.task_id)
+    if args.session_command == "link":
+        pretty(_api_json("POST", f"/api/v1/tasks/{task}/sessions",
+                         json_body={"session_id": args.session_id, "actor": args.actor}))
+    else:
+        pretty(_api_json("DELETE", f"/api/v1/tasks/{task}/sessions",
+                         params={"session_id": args.session_id, "actor": args.actor}))
+
+
+def cmd_task_labels(args) -> None:
+    pretty(_api_json("GET", "/api/v1/task-labels"))
 
 
 def cmd_usage(args) -> None:
@@ -864,6 +962,12 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--actor", required=True); x.add_argument("--cause", required=True); x.add_argument("--revision", type=int, required=True)
     x.set_defaults(func=cmd_task_group_state)
     x = task.add_parser("show"); x.add_argument("task_id"); x.set_defaults(func=cmd_task_show)
+    x = task.add_parser("labels", help="Show the shared map of task and stage labels"); x.set_defaults(func=cmd_task_labels)
+    session = task.add_parser("session", help="Link a chat of another app to a task, or remove the link")
+    session = session.add_subparsers(dest="session_command", required=True)
+    for name in ("link", "unlink"):
+        x = session.add_parser(name); x.add_argument("task_id"); x.add_argument("session_id", help="<source>:<id>, never framework:")
+        x.add_argument("--actor", required=True); x.set_defaults(func=cmd_task_session)
     assignment = task.add_parser("assignment", help="Preview or acknowledge a task assignment plan")
     assignment_sub = assignment.add_subparsers(dest="assignment_command", required=True)
     x = assignment_sub.add_parser("preview")
@@ -1003,7 +1107,49 @@ def build_parser() -> argparse.ArgumentParser:
     x.set_defaults(func=cmd_project_commands)
     x = sub.add_parser("team-events", help="List team events, optionally only those after a sequence number")
     x.add_argument("--after", type=int, default=0); x.add_argument("--group"); x.add_argument("--task")
+    x.add_argument("--project", help="Only the events about this project and its stages")
     x.add_argument("--limit", type=int, default=500); x.set_defaults(func=cmd_team_events)
+
+    # Projects, stages and the links of tasks to chats (PRY).
+    x = sub.add_parser("projects", help="List projects (the active ones, or only the archived ones with --archived)")
+    x.add_argument("--archived", action="store_true"); x.set_defaults(func=cmd_projects)
+    project = sub.add_parser("project", help="Show, plan, create or change a project and its stages").add_subparsers(
+        dest="project_command", required=True)
+    x = project.add_parser("show", help="The aggregated view: progress, stages, what needs you, who is working")
+    x.add_argument("project_id"); x.set_defaults(func=cmd_project_show)
+    for name, help_text in (("plan", "Validate a plan or template file (JSON or YAML) without writing"),
+                            ("create", "Create the project from a plan or template file, in one transaction")):
+        x = project.add_parser(name, help=help_text)
+        x.add_argument("file"); x.add_argument("--key", required=True, help="Project id and prefix of its stages and tasks")
+        x.add_argument("--title"); x.add_argument("--visibility", choices=["normal", "private"],
+                                                  help="Default: the file's, else private")
+        if name == "create":
+            x.add_argument("--actor", required=True, help="Must be user:...")
+            x.add_argument("--plan-sha256", help="The hash 'project plan' gave; without it the file is planned first")
+            x.set_defaults(func=cmd_project_create)
+        else:
+            x.set_defaults(func=cmd_project_plan)
+    x = project.add_parser("update", help="Change the title or the visibility")
+    x.add_argument("project_id"); x.add_argument("--actor", required=True); x.add_argument("--revision", type=int, required=True)
+    x.add_argument("--title"); x.add_argument("--visibility", choices=["normal", "private"]); x.set_defaults(func=cmd_project_update)
+    for name in ("archive", "unarchive"):
+        x = project.add_parser(name, help=f"{name.capitalize()} the project (nothing is deleted)")
+        x.add_argument("project_id"); x.add_argument("--actor", required=True)
+        x.add_argument("--revision", type=int, required=True); x.set_defaults(func=cmd_project_archive)
+    stage = project.add_parser("stage", help="Attach, order or close the stages of a project").add_subparsers(
+        dest="stage_command", required=True)
+    x = stage.add_parser("attach", help="Add an existing task group as the last stage")
+    x.add_argument("project_id"); x.add_argument("group_id")
+    x.add_argument("--actor", required=True); x.add_argument("--revision", type=int, required=True, help="The project's revision")
+    x.set_defaults(func=cmd_project_stage)
+    x = stage.add_parser("order", help="Put all the stages in this order")
+    x.add_argument("project_id"); x.add_argument("group_ids", nargs="+")
+    x.add_argument("--actor", required=True); x.add_argument("--revision", type=int, required=True, help="The project's revision")
+    x.set_defaults(func=cmd_project_stage)
+    x = stage.add_parser("close", help="Verify and close a stage that waits for verification")
+    x.add_argument("project_id"); x.add_argument("group_id")
+    x.add_argument("--actor", required=True); x.add_argument("--revision", type=int, required=True, help="The stage's revision")
+    x.set_defaults(func=cmd_project_stage)
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)

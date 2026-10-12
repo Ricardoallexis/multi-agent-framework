@@ -313,6 +313,43 @@ class CursorAck(_Body):
     scope: str = ""
 
 
+class ProjectPlanRequest(_Body):
+    doc: Union[dict[str, Any], str]
+    key: str
+    title: str | None = None
+    visibility: str | None = None
+
+
+class ProjectCreateRequest(ProjectPlanRequest):
+    plan_sha256: str
+    actor: str
+
+
+class ProjectUpdateRequest(_Body):
+    actor: str
+    expected_revision: int
+    title: str | None = None
+    visibility: str | None = None
+
+
+class ProjectRevisionRequest(_Body):
+    actor: str
+    expected_revision: int
+
+
+class ProjectStageAttach(ProjectRevisionRequest):
+    group_id: str
+
+
+class ProjectStageOrder(ProjectRevisionRequest):
+    group_ids: list[str]
+
+
+class TaskSessionLink(_Body):
+    session_id: str
+    actor: str
+
+
 def create_app(system=None, *, services: ApplicationServices | None = None,
                bundles: Mapping[str, str | Path] | None = None,
                operator_context_provider: Callable[[Request], Any] | None = None) -> FastAPI:
@@ -607,9 +644,71 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
 
     @app.get("/api/v1/team-events")
     def team_events(after: int = Query(0, ge=0), group: str | None = None, task: str | None = None,
-                    limit: int = Query(500, ge=1, le=1000)):
-        """Team events with ``seq`` greater than ``after``, oldest first."""
-        return services.tasks.events(after=after, group_id=group, task_id=task, limit=limit)
+                    project: str | None = None, limit: int = Query(500, ge=1, le=1000)):
+        """Team events with ``seq`` greater than ``after``, oldest first; ``project`` keeps those of that project."""
+        return services.tasks.events(after=after, group_id=group, task_id=task, limit=limit, project_id=project)
+
+    # --- projects (PRY) --------------------------------------------------------------
+
+    @app.get("/api/v1/task-labels")
+    def task_labels():
+        """The shared map of task and stage labels (text, tone and explanation)."""
+        return services.projects.labels()
+
+    @app.get("/api/v1/projects")
+    def list_projects(archived: bool = False):
+        return services.projects.list(archived=archived)
+
+    @app.post("/api/v1/projects/plan")
+    def plan_project(body: ProjectPlanRequest):
+        """Validate a plan or template without writing; the answer holds the ``plan_sha256`` that creating needs."""
+        return services.projects.plan(body.doc, key=body.key, title=body.title, visibility=body.visibility)
+
+    @app.post("/api/v1/projects", status_code=201)
+    def create_project(body: ProjectCreateRequest):
+        return services.projects.create(body.doc, key=body.key, title=body.title, visibility=body.visibility,
+                                        plan_sha256=body.plan_sha256, actor=body.actor)
+
+    @app.get("/api/v1/projects/{project_id}")
+    def get_project(project_id: str):
+        return services.projects.get(project_id)
+
+    @app.patch("/api/v1/projects/{project_id}")
+    def update_project(project_id: str, body: ProjectUpdateRequest):
+        return services.projects.update(project_id, actor=body.actor, expected_revision=body.expected_revision,
+                                        title=body.title, visibility=body.visibility)
+
+    @app.post("/api/v1/projects/{project_id}/archive")
+    def archive_project(project_id: str, body: ProjectRevisionRequest):
+        return services.projects.archive(project_id, actor=body.actor, expected_revision=body.expected_revision)
+
+    @app.post("/api/v1/projects/{project_id}/unarchive")
+    def unarchive_project(project_id: str, body: ProjectRevisionRequest):
+        return services.projects.unarchive(project_id, actor=body.actor, expected_revision=body.expected_revision)
+
+    @app.post("/api/v1/projects/{project_id}/stages")
+    def attach_project_stage(project_id: str, body: ProjectStageAttach):
+        return services.projects.attach_stage(project_id, body.group_id, actor=body.actor,
+                                              expected_revision=body.expected_revision)
+
+    @app.put("/api/v1/projects/{project_id}/stages")
+    def reorder_project_stages(project_id: str, body: ProjectStageOrder):
+        return services.projects.reorder(project_id, body.group_ids, actor=body.actor,
+                                         expected_revision=body.expected_revision)
+
+    @app.post("/api/v1/projects/{project_id}/stages/{group_id}/close")
+    def close_project_stage(project_id: str, group_id: str, body: ProjectRevisionRequest):
+        """``expected_revision`` is the stage's revision. Records the delivery of accepted tasks from their results."""
+        return services.projects.close_stage(project_id, group_id, actor=body.actor,
+                                             expected_revision=body.expected_revision)
+
+    @app.post("/api/v1/tasks/{task_id}/sessions")
+    def link_task_session(task_id: str, body: TaskSessionLink):
+        return services.projects.link_session(task_id, body.session_id, actor=body.actor)
+
+    @app.delete("/api/v1/tasks/{task_id}/sessions")
+    def unlink_task_session(task_id: str, session_id: str = Query(...), actor: str = Query(...)):
+        return services.projects.unlink_session(task_id, session_id, actor=actor)
 
     # --- envelopes, results, blobs and cursors (ORQ-3) ---------------------------
 

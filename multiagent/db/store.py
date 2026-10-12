@@ -24,6 +24,8 @@ from ..run_request import RunRequest
 def _canonical_request_fingerprint(req: SocialPostRequest | RunRequest) -> str:
     payload = req.model_dump(mode="json")
     payload.pop("idempotency_key", None)
+    if payload.get("task_id") is None:
+        payload.pop("task_id", None)   # a run without a task keeps the fingerprint it had before the field existed
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -39,7 +41,7 @@ class Store:
             if row:
                 return row["id"]
             pid = uuid.uuid4().hex
-            conn.execute("INSERT INTO projects(id,name,created_at) VALUES(?,?,?)", (pid, name, utcnow()))
+            conn.execute("INSERT INTO projects(id,name,created_at,title) VALUES(?,?,?,?)", (pid, name, utcnow(), name))
             conn.commit()
             return pid
 
@@ -89,8 +91,8 @@ class Store:
                     cancel_requested,idempotency_key,max_llm_calls,max_run_seconds,llm_calls,
                     created_at,updated_at,error,brand_profile_id,execution_mode,research_mode,pipeline_mode,step_modes_json,
                     request_fingerprint,waiting_reason,waiting_step,waiting_attempt,worker_id,started_at,
-                    heartbeat_at,active_seconds,budget_exhausted,successful_llm_calls
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    heartbeat_at,active_seconds,budget_exhausted,successful_llm_calls,task_id
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     run_id, project_id, workflow_id, RunStatus.QUEUED.value,
                     req.model_dump_json(), brand_version, 0, "", 0, req.idempotency_key or None,
@@ -99,6 +101,7 @@ class Store:
                     req.pipeline_mode.value if social else "custom",
                     json.dumps({k: v.value for k, v in req.step_modes.items()}, ensure_ascii=False),
                     fingerprint, "", "", None, "", "", "", 0.0, 0, 0,
+                    getattr(req, "task_id", None),
                 ),
             )
             conn.commit()
@@ -586,9 +589,11 @@ class Store:
         ]
         values = [data.get(k) for k in fields[:-1]] + [utcnow()]
         with self.db.connect() as conn:
+            # task_id is copied from the run when the row is written (PRY): usage can then be added up by task.
             conn.execute(
-                f"INSERT INTO telemetry({','.join(fields)}) VALUES({','.join('?' for _ in fields)})",
-                values,
+                f"INSERT INTO telemetry({','.join(fields)},task_id) "
+                f"VALUES({','.join('?' for _ in fields)},(SELECT task_id FROM runs WHERE id=?))",
+                [*values, data.get("run_id")],
             )
             conn.commit()
 

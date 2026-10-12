@@ -65,7 +65,12 @@
         },
         "title": {"type": "string", "minLength": 1, "maxLength": 200},
         "objective": {"type": "string", "maxLength": 4000},
-        "done_when": {"type": "string", "minLength": 1, "maxLength": 200},
+        "done_when": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 182,
+          "description": "stored as the restriction 'Terminado cuando: ...', which must fit the 200 characters of a task restriction (18 for the prefix)"
+        },
         "phase": {"type": "string", "maxLength": 60, "description": "one of the phases of its stage, or empty"},
         "assignee": {
           "type": "string",

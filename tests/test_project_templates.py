@@ -25,7 +25,8 @@ from multiagent.project_templates import (
 )
 from multiagent.project_templates import loader, validation
 from multiagent.services.errors import INVALID_REQUEST, NOT_FOUND
-from multiagent.tasks.envelopes import MAX_CONTEXT_REFS, MAX_DEPENDENCIES, MAX_OBJECTIVE_CHARS
+from multiagent.tasks.envelopes import (MAX_CONSTRAINT_CHARS, MAX_CONTEXT_REFS, MAX_DEPENDENCIES,
+                                        MAX_OBJECTIVE_CHARS)
 from multiagent.tasks.graph import REQUIRES
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +110,8 @@ def test_schema_limits_are_the_limits_of_the_task_envelope():
     assert task_node["context_refs"]["maxItems"] == MAX_CONTEXT_REFS
     assert task_node["depends_on"]["maxItems"] == MAX_DEPENDENCIES
     assert task_node["objective"]["maxLength"] == MAX_OBJECTIVE_CHARS
+    # done_when is stored as the restriction "Terminado cuando: ...", which must fit one task restriction
+    assert task_node["done_when"]["maxLength"] == MAX_CONSTRAINT_CHARS - len("Terminado cuando: ")
     assert MAX_TASKS == 200
     assert SCHEMA_ID == "maf.project-template/1"
 
@@ -191,8 +194,8 @@ REJECTIONS: list[tuple[str, Callable[[], Any], str]] = [
         stage("AAA", [task(f"T{i:03d}") for i in range(1, 151)]),
         stage("BBB", [task(f"T{i:03d}") for i in range(1, 52)]),
     ]), "at most 200 tasks in total (found 201)"),
-    ("done_when of 201 characters", lambda: one_stage([task("T01", done_when="x" * 201)]),
-     "at most 200 characters"),
+    ("done_when of 183 characters", lambda: one_stage([task("T01", done_when="x" * 183)]),
+     "at most 182 characters"),
     ("objective too long", lambda: one_stage([task("T01", objective="x" * (MAX_OBJECTIVE_CHARS + 1))]),
      "at most 4000 characters"),
     ("assignee without an actor prefix", lambda: one_stage([task("T01", assignee="claude")]),

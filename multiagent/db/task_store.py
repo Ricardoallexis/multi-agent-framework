@@ -56,6 +56,9 @@ def _group(row: sqlite3.Row) -> dict[str, Any]:
     # Migration 005 adds the group's default gate; decode it like the task JSON columns.
     if "default_gate_json" in item:
         item["default_gate"] = json.loads(item.pop("default_gate_json"))
+    # Migration 011 (PRY): the ordered phases of a stage; project_id, position and the planned dates come as columns.
+    if "phases_json" in item:
+        item["phases"] = json.loads(item.pop("phases_json"))
     return item
 
 
@@ -98,13 +101,18 @@ class TaskStore:
     def insert_group(self, conn: sqlite3.Connection, group_id: str, title: str, *, actor: str,
                      authorized: bool = False, default_requires: str = "accepted",
                      default_gate: Iterable[dict[str, Any]] = (),
-                     legacy_release_mode: str | None = None, lifecycle_state: str = "open") -> dict[str, Any]:
+                     legacy_release_mode: str | None = None, lifecycle_state: str = "open",
+                     project_id: str | None = None, position: int | None = None,
+                     phases: Iterable[str] = (), planned_start: str | None = None,
+                     planned_end: str | None = None) -> dict[str, Any]:
         now = utcnow()
         conn.execute(
-            "INSERT INTO task_groups(id,title,authorized,default_requires,created_by,created_at,updated_at,default_gate_json,legacy_release_mode,lifecycle_state) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO task_groups(id,title,authorized,default_requires,created_by,created_at,updated_at,default_gate_json,"
+            "legacy_release_mode,lifecycle_state,project_id,position,phases_json,planned_start,planned_end) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (group_id, title, int(authorized), default_requires, actor, now, now, _dumps(list(default_gate)),
-             legacy_release_mode, lifecycle_state),
+             legacy_release_mode, lifecycle_state, project_id, position, _dumps(list(phases)),
+             planned_start, planned_end),
         )
         return self.get_group(group_id, conn=conn)  # type: ignore[return-value]
 
@@ -153,21 +161,29 @@ class TaskStore:
             row = c.execute("SELECT * FROM task_groups WHERE id=?", (group_id,)).fetchone()
         return _group(row) if row else None
 
-    def list_groups(self, *, conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+    def list_groups(self, *, project_id: str | None = None,
+                    conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+        """Every group in creation order, or with ``project_id`` the stages of that project by position."""
         with self._reader(conn) as c:
-            return [_group(row) for row in c.execute("SELECT * FROM task_groups ORDER BY rowid")]
+            if project_id is None:
+                return [_group(row) for row in c.execute("SELECT * FROM task_groups ORDER BY rowid")]
+            return [_group(row) for row in c.execute(
+                "SELECT * FROM task_groups WHERE project_id=? ORDER BY position", (project_id,))]
 
     # -------- tasks --------
     def insert_task(self, conn: sqlite3.Connection, task_id: str, group_id: str, title: str, *, actor: str,
                     objective: str = "", preferred: str = "", requirements: Iterable[str] = (),
-                    file_scope: Iterable[str] = (), context_refs: Iterable[str] = ()) -> dict[str, Any]:
+                    file_scope: Iterable[str] = (), context_refs: Iterable[str] = (),
+                    constraints: Iterable[str] = (), phase: str = "", due_at: str | None = None) -> dict[str, Any]:
         """Insert an ``open`` task at revision 1 and attempt 0."""
         now = utcnow()
         conn.execute(
             "INSERT INTO tasks(id,group_id,title,objective,state,preferred,requirements_json,file_scope_json,"
-            "context_refs_json,created_by,created_at,updated_at) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?)",
+            "context_refs_json,constraints_json,phase,due_at,created_by,created_at,updated_at) "
+            "VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?)",
             (task_id, group_id, title, objective, preferred, _dumps(list(requirements)),
-             _dumps(list(file_scope)), _dumps(list(context_refs)), actor, now, now),
+             _dumps(list(file_scope)), _dumps(list(context_refs)), _dumps(list(constraints)), phase, due_at,
+             actor, now, now),
         )
         return self.get_task(task_id, conn=conn)  # type: ignore[return-value]
 
@@ -407,8 +423,12 @@ class TaskStore:
         return int(cursor.lastrowid)
 
     def events(self, *, after: int = 0, group_id: str | None = None, task_id: str | None = None,
-               limit: int = 500, conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
-        """Events with ``seq > after``, oldest first, at most ``limit``."""
+               limit: int = 500, project_id: str | None = None,
+               conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+        """Events with ``seq > after``, oldest first, at most ``limit``.
+
+        With ``project_id``: the events whose ``ref`` is ``project:<id>`` and those of the groups that belong to it.
+        """
         where = ["seq>?"]
         params: list[Any] = [after]
         if group_id is not None:
@@ -417,6 +437,9 @@ class TaskStore:
         if task_id is not None:
             where.append("task_id=?")
             params.append(task_id)
+        if project_id is not None:
+            where.append("(ref=? OR group_id IN (SELECT id FROM task_groups WHERE project_id=?))")
+            params.extend([f"project:{project_id}", project_id])
         params.append(limit)
         sql = f"SELECT * FROM team_events WHERE {' AND '.join(where)} ORDER BY seq LIMIT ?"
         with self._reader(conn) as c:

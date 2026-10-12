@@ -16,6 +16,8 @@ class RunRequest(StrictModel):
     execution_mode: ExecutionMode = ExecutionMode.AUTO
     step_modes: dict[str, ExecutionMode] = Field(default_factory=dict)
     sensitive: bool = False
+    # Optional link to a task (PRY): checked against the system database when the run is created and never changed.
+    task_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
     @field_validator("inputs")
     @classmethod
