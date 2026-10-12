@@ -1,0 +1,77 @@
+/* Copyright 2026 Ricardoallexis and contributors */
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Guided chat of "Nueva sesión" (GUI2-T03). Uses the colours and sizes of app.css (index.html links this file after it);
+   every target is at least var(--target) (44 px) and the layout works down to 375 px. */
+.ns { display: flex; flex-direction: column; gap: 14px; max-width: 760px; min-width: 0; }
+.ns-intro { display: flex; flex-direction: column; gap: 4px; }
+.ns-title { margin: 8px 0 0; font-size: 1.4rem; }
+.ns-lead { margin: 0; color: var(--muted); line-height: 1.6; }
+.ns-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ns-row .message { flex: 1 1 14rem; margin: 0; }
+
+/* Starters and choices: pill buttons */
+.ns-starters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ns-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ns-chip { min-height: var(--target); padding: 8px 16px; border: 1px solid var(--line-strong); border-radius: 999px;
+  background: var(--panel); color: var(--text); font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.ns-chip:hover { border-color: var(--accent); }
+.ns-chip:disabled { opacity: .55; cursor: not-allowed; }
+
+/* The conversation */
+.ns-thread { display: flex; flex-direction: column; gap: 10px; }
+.ns-msg { max-width: 85%; padding: 8px 12px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+.ns-user { align-self: flex-end; background: var(--chrome); border: 1px solid var(--line); }
+@supports (background: color-mix(in srgb, red, blue)) {
+  .ns-user { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+}
+.ns-bot { align-self: flex-start; }
+.ns-end { scroll-margin-bottom: 9rem; }
+
+/* Workflow cards and runs */
+.ns-suggest { display: flex; flex-direction: column; gap: 8px; }
+.ns-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 10px; }
+.ns-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; min-height: var(--target);
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text);
+  font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.ns-card:hover { border-color: var(--accent); }
+.ns-card:disabled { opacity: .6; cursor: not-allowed; }
+.ns-card-name { font-weight: 600; overflow-wrap: anywhere; }
+.ns-card-desc { color: var(--muted); font-size: .88rem; line-height: 1.5; overflow-wrap: anywhere; }
+.ns-card-meta { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+.ns-run-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ns-run { width: 100%; }
+
+/* One question */
+.ns-question { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--panel); }
+.ns-question p { margin: 0; }
+.ns-q-count { color: var(--muted); font-size: .85rem; }
+.ns-q-label { font-weight: 600; overflow-wrap: anywhere; }
+.ns-q-desc { color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.ns-q-example { font-size: .9rem; }
+.ns-example { font-family: var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The summary before launching */
+.ns-confirm { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.ns-confirm:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ns-confirm > p { margin: 0; }
+.ns-answers { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.ns-answer { display: flex; flex-direction: column; gap: 1px; }
+.ns-answer dt { color: var(--muted); font-size: .85rem; font-weight: 600; }
+.ns-answer dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The writing box stays in reach while the conversation grows */
+.ns-composer { position: sticky; bottom: 8px; z-index: 10; display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); }
+.ns-composer-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ns-composer-head label { margin: 0; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.ns-composer textarea { resize: vertical; min-height: var(--target); }
+.ns-composer .field-error { margin: 0; }
+.ns-composer-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ns-send { margin-left: auto; }
+.ns-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+@media (max-width: 640px) {
+  .ns-msg { max-width: 95%; }
+  .ns-composer { bottom: 4px; }
+}

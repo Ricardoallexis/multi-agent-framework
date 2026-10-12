@@ -7,6 +7,7 @@ import { loadToken, clearToken, getJSON } from "./auth.js";
 import { startStream } from "./stream.js";
 import { publishEvent } from "./bus.js";
 import { navigate, useRoute, NEW_SECTION } from "./route.js";
+import { NewSession } from "./new-session.js";
 import { RightPanel } from "./right-panel.js";
 import { AgentTree } from "./agent-tree.js";
 import { Runs } from "./runs.js";
@@ -27,7 +28,8 @@ const SECTIONS = [
   { id: "runs", label: "Ejecuciones" },
 ];
 
-// "#new" is not a section of its own: for now it shows the create-run form (inside "Ejecuciones").
+// "#new" is not a section of its own: it shows the guided chat of a new session (new-session.js), which falls back to the
+// create-run form on request.
 const NEW_TITLE = "Nueva sesión";
 // "#tree/<session id>" (GUI2-T08) is a second view of one session: it has no entry in the sidebar of its own.
 const TREE_SECTION = "tree";
@@ -76,7 +78,8 @@ function App({ token }) {
     <h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : current.label}</h2>
     <${Sessions} token=${token} route=${route} active=${section === "sessions"} />
     ${tree && html`<${AgentTree} key=${route.id || ""} token=${token} sessionId=${route.id} />`}
-    ${(section === "runs" || creating) && html`<${Runs} token=${token} status=${status} mock=${mock} initialRunId=${route.id} startCreating=${creating} />`}
+    ${creating && html`<${NewSession} token=${token} mock=${mock} />`}
+    ${section === "runs" && html`<${Runs} token=${token} status=${status} mock=${mock} initialRunId=${route.id} />`}
     ${lastEvent && html`<p class="muted small">Último evento recibido: ${lastEvent}</p>`}
   <//>`;
 }

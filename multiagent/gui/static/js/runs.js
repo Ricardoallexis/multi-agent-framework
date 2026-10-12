@@ -6,7 +6,6 @@ import { ApiError, apiGet } from "./api.js";
 import { debounce, subscribe } from "./bus.js";
 import { CreateRun } from "./create-run.js";
 import { Help, helpFor } from "./help.js";
-import { navigate } from "./route.js";
 import { RunDetail } from "./run-detail.js";
 import { errorText, fmtDate } from "./text.js";
 import { StatusChip } from "./ui/status-chip.js";
@@ -50,28 +49,22 @@ function RunList({ token, status, selected, version, onSelect }) {
   </ul>`;
 }
 
-// startCreating: the address is "#new" (the "Nueva sesión" button of the shell), so the create form is open; closing it
-// or creating the run moves the address on, which keeps the Back button and the shell's highlight honest.
-export function Runs({ token, status, mock, initialRunId = null, startCreating = false }) {
+// The guided chat of "Nueva sesión" (new-session.js, address "#new") is where a new session starts; the form below is the
+// classic way to create a run from this section.
+export function Runs({ token, status, mock, initialRunId = null }) {
   const [selected, setSelected] = useState(initialRunId);
-  const [creating, setCreating] = useState(startCreating);
+  const [creating, setCreating] = useState(false);
   const [version, setVersion] = useState(0);
-  const wasStarting = useRef(startCreating);
   const bump = () => setVersion((value) => value + 1);
 
   // A link from the sessions screen ("#runs/<id>") opens that run.
   useEffect(() => { if (initialRunId) { setSelected(initialRunId); setCreating(false); } }, [initialRunId]);
-  useEffect(() => {
-    if (startCreating) setCreating(true);
-    else if (wasStarting.current) setCreating(false);
-    wasStarting.current = startCreating;
-  }, [startCreating]);
 
   let main;
   if (creating) {
     main = html`<${CreateRun} token=${token} mock=${mock}
-      onClose=${() => { setCreating(false); if (startCreating) navigate("runs"); }}
-      onCreated=${(run) => { setCreating(false); setSelected(run.id); bump(); if (startCreating) navigate("runs", run.id); }} />`;
+      onClose=${() => setCreating(false)}
+      onCreated=${(run) => { setCreating(false); setSelected(run.id); bump(); }} />`;
   } else if (selected) {
     main = html`<${RunDetail} token=${token} runId=${selected} status=${status} onChanged=${bump} />`;
   } else {
@@ -87,7 +80,7 @@ export function Runs({ token, status, mock, initialRunId = null, startCreating =
         </div>
         <${Help} topic="runs.list" />
         <${RunList} token=${token} status=${status} selected=${creating ? null : selected} version=${version}
-          onSelect=${(id) => { setCreating(false); setSelected(id); if (startCreating) navigate("runs", id); }} />
+          onSelect=${(id) => { setCreating(false); setSelected(id); }} />
       </aside>
       <section class="runs-main" aria-live="off">${main}</section>
     </div>

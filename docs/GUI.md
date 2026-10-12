@@ -87,8 +87,8 @@ contract in `SAMPLE_OUTPUTS` so Mock runs work.
 
 The views sit inside a three-zone shell (GUI2-T02):
 
-- **Left sidebar** (`nav`): "Nueva sesión" (for now it opens the create-run
-  form at `#new`), a search box and the sessions of Claude, Codex and Copilot
+- **Left sidebar** (`nav`): "Nueva sesión" (the guided chat at `#new`, see
+  Views), a search box and the sessions of Claude, Codex and Copilot
   plus the framework runs, grouped by project (the folder name of a session, the
   project name of a run). Each item has a status dot (working, finished, error;
   also written as text for screen readers) and each group counts its items per
@@ -125,6 +125,24 @@ There is a skip link, visible focus and 44 px touch targets; the palette follows
 `prefers-color-scheme`.
 
 ## Views
+
+**Nueva sesión** (`#new`) is a guided chat (GUI2-T03). It greets with "¿Qué
+quieres hacer?" and three starters (Trabajar en un workflow, Continuar una
+ejecución, Ayuda), also available as the commands `/workflow`, `/continuar` and
+`/ayuda` in the writing box. Free text proposes workflows as cards (name,
+description, origin) by comparing the words with the names and descriptions of
+the workflows: deterministic, no model is called. The optional interpretation of
+free text with a cheap model is not wired yet; `interpret` in `js/new-session.js`
+and `hinted` in `js/new-session-model.js` are the hook for it. After choosing a
+workflow the chat asks its inputs one at a time ("Pregunta N de M", with the
+label, description and example; the project name comes last, and the optional
+extra-context inputs are left to the form). A summary card shows the answers and
+the rendered prompts with **Lanzar**, **Editar** and **Ver como formulario**;
+nothing is created until **Lanzar**, which posts to the same
+`POST /gui/api/runs` as the form (the real-model confirmation of a non-Mock
+server is kept). "Ver como formulario" opens the create-run form with the same
+workflow and answers. The conversation model is pure (`js/new-session-model.js`)
+and is tested with Node.
 
 **Sesiones** is the default view. It combines a read-only, filterable and
 paginated list of Claude Code, Claude Desktop, Codex, GitHub Copilot, and

@@ -41,7 +41,7 @@ export const HELP = {
     "title": "Volver",
     "hint": "Cierra el formulario sin crear nada.",
     "more": [
-      "Vuelves a la lista de ejecuciones.",
+      "Vuelves a la pantalla desde la que abriste el formulario: la lista de ejecuciones o el chat de nueva sesión.",
       "Lo que escribiste en el formulario se descarta."
     ]
   },
@@ -818,10 +818,157 @@ export const HELP = {
   },
   "shell.new_session": {
     "title": "Nueva sesión",
-    "hint": "Empieza un trabajo nuevo.",
+    "hint": "Empieza un trabajo nuevo con un chat guiado.",
     "more": [
-      "Por ahora abre el formulario de una ejecución nueva: eliges un workflow y rellenas sus entradas.",
-      "No se ejecuta nada hasta que pulsas «Crear ejecución»."
+      "Describes lo que necesitas o eliges una opción, y el chat te pregunta las entradas del workflow de una en una.",
+      "No se ejecuta nada hasta que pulsas «Lanzar» en el resumen final.",
+      "Si prefieres el formulario completo, lo abres desde el propio chat con «Ver como formulario»."
+    ]
+  },
+  "chat.welcome": {
+    "title": "Chat de nueva sesión",
+    "hint": "Aquí empiezas un trabajo: escribes lo que necesitas o eliges una opción.",
+    "more": [
+      "El chat propone workflows, te pregunta las entradas una a una y al final muestra un resumen.",
+      "Las propuestas salen de comparar tu texto con los nombres y las descripciones de los workflows, sin usar ningún modelo.",
+      "La ejecución solo se crea cuando pulsas «Lanzar»."
+    ]
+  },
+  "chat.starters": {
+    "title": "Opciones de inicio",
+    "hint": "Atajos para empezar sin escribir.",
+    "more": [
+      "«Trabajar en un workflow» muestra los workflows disponibles.",
+      "«Continuar una ejecución» lista las que puedes retomar.",
+      "«Ayuda» explica cómo funciona el chat y sus comandos."
+    ]
+  },
+  "chat.composer": {
+    "title": "Caja de escritura",
+    "hint": "Escribe aquí tu petición o tu respuesta; Intro la envía.",
+    "more": [
+      "Intro envía el mensaje y Mayús+Intro añade una línea nueva.",
+      "Puedes escribir los comandos /workflow, /continuar y /ayuda.",
+      "Durante las preguntas, lo que escribes es la respuesta a la entrada que se muestra."
+    ]
+  },
+  "chat.send": {
+    "title": "Enviar mensaje",
+    "hint": "Envía lo que escribiste en la caja.",
+    "more": [
+      "Hace lo mismo que pulsar Intro dentro de la caja.",
+      "En una pregunta opcional, enviar la caja vacía equivale a omitirla."
+    ]
+  },
+  "chat.skip": {
+    "title": "Omitir pregunta",
+    "hint": "Deja vacía esta entrada opcional y pasa a la siguiente.",
+    "more": [
+      "Solo aparece en las entradas opcionales.",
+      "Su hueco queda en blanco en el prompt.",
+      "Con «Editar» en el resumen puedes volver a rellenarla."
+    ]
+  },
+  "chat.back": {
+    "title": "Pregunta anterior",
+    "hint": "Vuelve a la pregunta anterior sin perder lo respondido.",
+    "more": [
+      "Tu respuesta anterior aparece en la caja para que la corrijas.",
+      "Volver atrás no ejecuta nada."
+    ]
+  },
+  "chat.restart": {
+    "title": "Empezar de nuevo",
+    "hint": "Descarta esta conversación y vuelve al inicio.",
+    "more": [
+      "Se borran las respuestas dadas hasta ahora.",
+      "No afecta a ninguna ejecución que ya hayas creado."
+    ]
+  },
+  "chat.form": {
+    "title": "Ver como formulario",
+    "hint": "Pasa al formulario completo con lo que ya respondiste.",
+    "more": [
+      "El formulario tiene los mismos campos y además los ajustes avanzados.",
+      "Lo que respondiste en el chat aparece ya escrito en él.",
+      "Si vuelves al chat, los cambios hechos en el formulario no se copian de vuelta."
+    ]
+  },
+  "chat.suggestion": {
+    "title": "Elegir un workflow",
+    "hint": "Pulsa una tarjeta para trabajar con ese workflow.",
+    "more": [
+      "Cada tarjeta muestra el nombre, la descripción y el origen del workflow.",
+      "Al elegir uno empiezan las preguntas; todavía no se ejecuta nada.",
+      "Si ninguno encaja, escribe otras palabras o usa «Ver todos los workflows»."
+    ]
+  },
+  "chat.all": {
+    "title": "Ver todos los workflows",
+    "hint": "Muestra la lista completa, sin filtrar por tu texto.",
+    "more": [
+      "Úsalo cuando ninguna propuesta encaje.",
+      "Las tarjetas son las mismas, ordenadas por origen y nombre."
+    ]
+  },
+  "chat.choice": {
+    "title": "Elegir una opción",
+    "hint": "Pulsa la opción que quieres como respuesta.",
+    "more": [
+      "Esta entrada solo admite las opciones mostradas.",
+      "También puedes escribir el nombre de la opción en la caja."
+    ]
+  },
+  "chat.runs": {
+    "title": "Ejecuciones para continuar",
+    "hint": "Pulsa una para abrir su detalle y seguir donde quedó.",
+    "more": [
+      "Primero aparecen las que esperan una acción tuya o se interrumpieron.",
+      "Si no hay ninguna, se muestran las más recientes.",
+      "Abrir una ejecución no la modifica."
+    ]
+  },
+  "chat.question": {
+    "title": "Pregunta del chat",
+    "hint": "Cada pregunta corresponde a una entrada del workflow.",
+    "more": [
+      "Ves su nombre, para qué sirve y un ejemplo.",
+      "Responde en la caja de abajo.",
+      "Puedes volver a la pregunta anterior y, si la entrada es opcional, omitirla."
+    ]
+  },
+  "chat.confirm": {
+    "title": "Resumen antes de lanzar",
+    "hint": "Revisa tus respuestas y el prompt antes de crear la ejecución.",
+    "more": [
+      "La vista previa es el texto que recibirá cada paso con tus respuestas.",
+      "No se crea ninguna ejecución hasta que pulses «Lanzar».",
+      "Con «Editar» vuelves a las preguntas y con «Ver como formulario» pasas al formulario."
+    ]
+  },
+  "chat.launch": {
+    "title": "Lanzar",
+    "hint": "Crea la ejecución con estas respuestas.",
+    "more": [
+      "Es el único botón del chat que ejecuta algo.",
+      "Si el servidor no está en modo Mock, antes debes confirmar que puede usar modelos reales.",
+      "Al terminar se abre el detalle de la ejecución."
+    ]
+  },
+  "chat.edit": {
+    "title": "Editar respuestas",
+    "hint": "Vuelve a las preguntas con tus respuestas ya escritas.",
+    "more": [
+      "Cada pregunta aparece con tu respuesta anterior en la caja.",
+      "Pulsa Intro para conservarla o escribe otra."
+    ]
+  },
+  "chat.retry": {
+    "title": "Reintentar la lista de workflows",
+    "hint": "Vuelve a pedir la lista cuando falló.",
+    "more": [
+      "Este botón solo aparece si no se pudo leer la lista de workflows.",
+      "Si el fallo continúa, abre el formulario con «Ver como formulario»."
     ]
   },
   "shell.search": {

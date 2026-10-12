@@ -33,6 +33,7 @@ VIEW_FILES += ["ui/tabs.js"]
 # The right-panel sections «Cambios», «Tokens» and «Fuentes» (GUI2-T05).
 VIEW_FILES += ["panel-parts.js", "panel-changes.js", "panel-tokens.js", "panel-sources.js"]
 CONTROL_TAGS = {"input", "select", "textarea", "button"}
+VIEW_FILES += ["new-session.js"]       # the guided chat of «Nueva sesión» (GUI2-T03); new-session-model.js draws nothing
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
 ALLOWED_EXEMPT = {

@@ -55,7 +55,7 @@ function Field({ item, value, touched, disabled, onChange, onBlur }) {
   </div>`;
 }
 
-function PreviewPanel({ preview, error, loading }) {
+export function PreviewPanel({ preview, error, loading }) {
   const [copied, setCopied] = useState("");
   async function copy(step) {
     try { await navigator.clipboard.writeText(step.text); setCopied("Prompt del paso «" + step.id + "» copiado."); }
@@ -85,17 +85,19 @@ function PreviewPanel({ preview, error, loading }) {
   </section>`;
 }
 
-export function CreateRun({ token, mock, onCreated, onClose }) {
+// initial (optional): { bundle, workflowId, project, values, mode, sensitive } to open the form with those answers already
+// in place; the guided chat (new-session.js) uses it for «Ver como formulario». Without it the form opens empty.
+export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {
   const [bundles, setBundles] = useState([]);
-  const [bundle, setBundle] = useState("");
+  const [bundle, setBundle] = useState(initial ? initial.bundle || "" : "");
   const [workflows, setWorkflows] = useState([]);
-  const [workflowId, setWorkflowId] = useState("");
+  const [workflowId, setWorkflowId] = useState(initial ? initial.workflowId || "" : "");
   const [spec, setSpec] = useState(null);
   const [values, setValues] = useState({});
   const [touched, setTouched] = useState({});
-  const [project, setProject] = useState("");
-  const [mode, setMode] = useState("auto");
-  const [sensitive, setSensitive] = useState(false);
+  const [project, setProject] = useState(initial ? initial.project || "" : "");
+  const [mode, setMode] = useState(initial && initial.mode ? initial.mode : "auto");
+  const [sensitive, setSensitive] = useState(Boolean(initial && initial.sensitive));
   const [confirmReal, setConfirmReal] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -105,6 +107,8 @@ export function CreateRun({ token, mock, onCreated, onClose }) {
   const [submitError, setSubmitError] = useState(null);
   const ticket = useRef(0);
   const attempt = useRef({ fingerprint: "", key: "" });
+  // The first load keeps the workflow and the values of `initial`; after that, changing the origin or the workflow clears them.
+  const seed = useRef(initial);
 
   useEffect(() => {
     apiGet("/gui/api/bundles", token).then((list) => setBundles(list)).catch((error) => setLoadError(asError(error)));
@@ -112,7 +116,8 @@ export function CreateRun({ token, mock, onCreated, onClose }) {
 
   useEffect(() => {
     let current = true;
-    setWorkflowId(""); setSpec(null); setWorkflows([]); setLoadError(null);
+    if (!seed.current) setWorkflowId("");
+    setSpec(null); setWorkflows([]); setLoadError(null);
     apiGet("/gui/api/workflows" + (bundle ? "?bundle=" + encodeURIComponent(bundle) : ""), token)
       .then((list) => { if (current) setWorkflows(list); })
       .catch((error) => { if (current) setLoadError(asError(error)); });
@@ -121,7 +126,9 @@ export function CreateRun({ token, mock, onCreated, onClose }) {
 
   useEffect(() => {
     let current = true;
-    setSpec(null); setValues({}); setTouched({}); setPreview(null); setPreviewError(null);
+    const first = seed.current;
+    seed.current = null;
+    setSpec(null); setValues(first && first.values ? { ...first.values } : {}); setTouched({}); setPreview(null); setPreviewError(null);
     if (!workflowId) return undefined;
     apiGet("/gui/api/workflows/" + encodeURIComponent(workflowId) + "/inputs" + (bundle ? "?bundle=" + encodeURIComponent(bundle) : ""), token)
       .then((result) => { if (current) setSpec(result); })
