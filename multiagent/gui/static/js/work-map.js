@@ -1,17 +1,19 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// Read-only project and session map (GUI2-T13). It uses the protected same-origin map API and renders only
+// Read-only project and session map (GUI2-T13/T14). It uses the protected same-origin map API and renders only
 // allowlisted names/titles; in particular, child.label is private source text and is never read here.
-import { html, useEffect, useMemo, useState } from "../vendor/htm-preact-standalone.module.js";
+import { html, useEffect, useMemo, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet } from "./api.js";
 import { Help, helpFor } from "./help.js";
 import { navigate } from "./route.js";
 import { LevelBadge } from "./ui/level-badge.js";
 import { Progress } from "./ui/progress.js";
 import { StatusChip } from "./ui/status-chip.js";
+import { followChildren } from "./subagents-panel.js";
 import { errorText } from "./text.js";
 
 const LIMIT = 300;
+const REFRESH_MS = 10000;
 const FINISHED = new Set(["done", "completed", "archived", "stopped", "failed", "cancelled", "integrated", "closed", "success"]);
 const appClass = (source) => ({ claude: "wm-app-claude", codex: "wm-app-codex", copilot: "wm-app-copilot", framework: "wm-app-framework" }[String(source || "").toLowerCase()] || "wm-app-other");
 const titleOf = (item, fallback) => item?.title || item?.name || fallback;
@@ -32,6 +34,147 @@ const tokenText = (tokens) => {
   const output = Number.isFinite(tokens.output) ? tokens.output : Number.isFinite(tokens.output_tokens) ? tokens.output_tokens : null;
   return input === null && output === null ? "Tokens: no disponibles" : `Tokens: ${input === null ? "—" : input} entrada · ${output === null ? "—" : output} salida`;
 };
+const snapshotKey = (value) => value && typeof value === "object"
+  ? value.id ?? value.group_id ?? (value.task_id && value.session_id ? `${value.task_id}\0${value.session_id}` : null)
+  : null;
+
+export function reconcileMapSnapshot(previous, next) {
+  if (Object.is(previous, next)) return previous;
+  if (!previous || !next || typeof previous !== "object" || typeof next !== "object") return next;
+  if (Array.isArray(previous) && Array.isArray(next)) {
+    const keyed = new Map(previous.map((item, index) => [snapshotKey(item) ?? `index:${index}`, item]));
+    let changed = previous.length !== next.length;
+    const result = next.map((item, index) => {
+      const key = snapshotKey(item) ?? `index:${index}`;
+      const stable = reconcileMapSnapshot(keyed.get(key), item);
+      if (stable !== previous[index]) changed = true;
+      return stable;
+    });
+    return changed ? result : previous;
+  }
+  if (Array.isArray(previous) || Array.isArray(next)) return next;
+  const oldKeys = Object.keys(previous);
+  const nextKeys = Object.keys(next);
+  if (oldKeys.length !== nextKeys.length || nextKeys.some((key) => !Object.prototype.hasOwnProperty.call(previous, key))) {
+    return Object.fromEntries(nextKeys.map((key) => [key, reconcileMapSnapshot(previous[key], next[key])]));
+  }
+  let changed = false;
+  const result = {};
+  for (const key of nextKeys) {
+    result[key] = reconcileMapSnapshot(previous[key], next[key]);
+    if (result[key] !== previous[key]) changed = true;
+  }
+  return changed ? result : previous;
+}
+
+export function createMapRefreshCoordinator({
+  fetchMap, onData, onError, onLoading, interval = REFRESH_MS,
+  setIntervalFn = setInterval, clearIntervalFn = clearInterval,
+}) {
+  let active = true;
+  let timer = null;
+  let inFlight = false;
+  let pending = false;
+  let pendingLoading = false;
+  let loading = false;
+  let authBlocked = false;
+
+  const setBusy = (value) => {
+    if (loading === value) return;
+    loading = value;
+    onLoading(value);
+  };
+  const refresh = ({ showLoading = false, manual = false } = {}) => {
+    if (!active) return;
+    if (manual) authBlocked = false;
+    if (authBlocked && !manual) return;
+    if (showLoading) setBusy(true);
+    if (inFlight) {
+      pending = true;
+      pendingLoading = pendingLoading || showLoading;
+      return;
+    }
+    inFlight = true;
+    Promise.resolve().then(fetchMap).then((value) => {
+      if (active) onData(value);
+    }).catch((failure) => {
+      if (failure?.status === 401 || failure?.status === 403) authBlocked = true;
+      if (active) onError(failure);
+    }).finally(() => {
+      inFlight = false;
+      if (!active) return;
+      if (pending && !authBlocked) {
+        const nextLoading = pendingLoading;
+        pending = false;
+        pendingLoading = false;
+        refresh({ showLoading: nextLoading });
+        return;
+      }
+      pending = false;
+      pendingLoading = false;
+      setBusy(false);
+    });
+  };
+  return {
+    refresh,
+    start() {
+      timer = setIntervalFn(() => refresh(), interval);
+      refresh({ showLoading: true });
+    },
+    stop() {
+      active = false;
+      pending = false;
+      if (timer !== null) clearIntervalFn(timer);
+      timer = null;
+    },
+  };
+}
+
+export function createRefreshQueue(refresh, delay = 60, { setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout } = {}) {
+  let timer = null;
+  return {
+    schedule() {
+      if (timer !== null) return;
+      timer = setTimeoutFn(() => {
+        timer = null;
+        refresh();
+      }, delay);
+    },
+    stop() {
+      if (timer !== null) clearTimeoutFn(timer);
+      timer = null;
+    },
+  };
+}
+
+export function followMapSessions({ token, sessionIds, onChange, follow = followChildren, versions = new Map() }) {
+  const stops = [];
+  const sessions = [...new Set(sessionIds)].slice(0, LIMIT);
+  const current = new Set(sessions);
+  for (const session of versions.keys()) if (!current.has(session)) versions.delete(session);
+  let stopped = false;
+  for (const session of sessions) {
+    stops.push(follow({
+      token,
+      session,
+      onState() {},
+      onChange(event) {
+        if (stopped || !event || typeof event.version !== "string" || versions.get(session) === event.version) return;
+        versions.set(session, event.version);
+        onChange(session, event);
+      },
+    }));
+  }
+  return () => {
+    stopped = true;
+    stops.forEach((stop) => stop());
+  };
+}
+
+export function mapCountAnnouncement(visible, total, remaining) {
+  return `${visible} elementos visibles; ${total} en total; ${remaining} ocultos por el límite.`;
+}
+
 export const progressText = (progress) => {
   if (!progress || !Number.isFinite(progress.done) || !Number.isFinite(progress.total)) return "Progreso no disponible";
   const cancelled = Number.isFinite(progress.cancelled) ? progress.cancelled : 0;
@@ -64,7 +207,7 @@ export function projectRows(data, onlyActive = false, query = "") {
     return children.map((child) => {
       const linked = child.link_id && sessions[child.link_id]
         ? sessionNode(child.link_id, depth + 2, ancestry, "aviso") : null;
-      return { kind: "child", id: "child:" + child.id, title: child.name || "Agente sin nombre", source: child.source,
+      return { kind: "child", id: `child:${encodeURIComponent(sid)}:${encodeURIComponent(child.id)}`, title: child.name || "Agente sin nombre", source: child.source,
         status: child.status, model: child.model, level: child.level, tokens: child.tokens, depth: depth + 1,
         linkedSessionId: child.link_id || null, children: linked ? [linked] : [] };
     });
@@ -213,18 +356,80 @@ export function WorkMap({ token }) {
   const [query, setQuery] = useState("");
   const [layout, setLayout] = useState(() => window.matchMedia?.("(max-width: 640px)").matches ? "list" : "tree");
   const [foldedIds, setFoldedIds] = useState(() => new Map());
-  const load = () => { setLoading(true); apiGet("/gui/api/map?only=all", token).then((value) => { setData(value); setError(null); }).catch(setError).finally(() => setLoading(false)); };
-  useEffect(() => { load(); }, [token]);
-  const projected = useMemo(() => projectRows(data, onlyActive, query.trim().toLocaleLowerCase("es")), [data, onlyActive, query]);
+  const refreshRef = useRef(null);
+  const projectionRef = useRef(null);
+  const childVersions = useRef(new Map());
+  const dataToken = useRef(token);
+  const currentData = dataToken.current === token ? data : null;
+  const load = () => refreshRef.current?.({ showLoading: true, manual: true });
+  useEffect(() => {
+    dataToken.current = token;
+    setData(null);
+    setError(null);
+    setLoading(true);
+    projectionRef.current = null;
+    childVersions.current.clear();
+    const coordinator = createMapRefreshCoordinator({
+      fetchMap: () => apiGet("/gui/api/map?only=all", token),
+      onData: (value) => {
+        setData((previous) => previous?.version && previous.version === value.version ? previous : reconcileMapSnapshot(previous, value));
+        setError(null);
+      },
+      onError: setError,
+      onLoading: setLoading,
+    });
+    refreshRef.current = coordinator.refresh;
+    coordinator.start();
+    return () => {
+      coordinator.stop();
+      if (refreshRef.current === coordinator.refresh) refreshRef.current = null;
+    };
+  }, [token]);
+  const projected = useMemo(() => {
+    const fresh = projectRows(currentData, onlyActive, query.trim().toLocaleLowerCase("es"));
+    const stable = reconcileMapSnapshot(projectionRef.current, fresh);
+    projectionRef.current = stable;
+    return stable;
+  }, [currentData, onlyActive, query]);
+  const sessionIds = useMemo(() => {
+    const found = [];
+    const visit = (nodes) => nodes.forEach((node) => {
+      if (node.kind === "session") found.push(node.sessionId);
+      visit(node.children || []);
+    });
+    visit(projected.tree);
+    return [...new Set(found)].slice(0, LIMIT);
+  }, [projected]);
+  const sessionSignature = sessionIds.join("\0");
+  useEffect(() => {
+    const queue = createRefreshQueue(() => refreshRef.current?.());
+    const stop = followMapSessions({
+      token, sessionIds, versions: childVersions.current, onChange: () => queue.schedule(),
+    });
+    return () => {
+      stop();
+      queue.stop();
+    };
+  }, [token, sessionSignature]);
   const toggleFold = (id, collapsed) => setFoldedIds((old) => { const next = new Map(old); next.set(id, !collapsed); return next; });
-  const applyFold = (node) => (foldedIds.has(node.id) ? foldedIds.get(node.id) : (folded && isFinished(node)))
-    ? { ...node, children: [] } : { ...node, children: (node.children || []).map(applyFold) };
-  const visible = projected.tree;
-  const listed = projected.tree.map(applyFold);
-  const flattened = [];
-  const flatten = (nodes) => nodes.forEach((node) => { flattened.push(node); flatten(node.children || []); });
-  flatten(listed);
+  const listed = useMemo(() => {
+    const applyFold = (node) => {
+      if ((foldedIds.has(node.id) ? foldedIds.get(node.id) : (folded && isFinished(node)))) {
+        return node.children?.length ? { ...node, children: [] } : node;
+      }
+      const children = (node.children || []).map(applyFold);
+      return children.every((child, index) => child === node.children[index]) ? node : { ...node, children };
+    };
+    return projected.tree.map(applyFold);
+  }, [projected.tree, foldedIds, folded]);
+  const flattened = useMemo(() => {
+    const result = [];
+    const flatten = (nodes) => nodes.forEach((node) => { result.push(node); flatten(node.children || []); });
+    flatten(listed);
+    return result;
+  }, [listed]);
   const visibleCount = layout === "tree" ? countNodes(listed) : flattened.length;
+  const countStatus = mapCountAnnouncement(visibleCount, projected.total, projected.remaining);
   return html`<section class="work-map" aria-labelledby="work-map-title" aria-busy=${loading ? "true" : "false"}>
     <header class="wm-head"><div><h3 id="work-map-title">Mapa de trabajo</h3><${Help} topic="work_map.refresh" compact=${true} /><${Help} topic="work_map.open_session" compact=${true} /><p class="muted">Proyectos, tareas y sesiones disponibles para esta interfaz.</p></div>
       <button type="button" class="btn secondary" ...${helpFor("work_map.refresh")} onClick=${load}>Actualizar</button></header>
@@ -234,12 +439,12 @@ export function WorkMap({ token }) {
       <label class="wm-check"><input type="checkbox" checked=${folded} ...${helpFor("work_map.fold_finished")} onChange=${(event) => setFolded(event.currentTarget.checked)} /> Plegar terminados</label><${Help} topic="work_map.fold_finished" compact=${true} />
       <div class="wm-layout" role="group" aria-label="Presentación del mapa"><button type="button" aria-pressed=${layout === "tree"} ...${helpFor("work_map.tree")} onClick=${() => setLayout("tree")}>Árbol</button><${Help} topic="work_map.tree" compact=${true} /><button type="button" aria-pressed=${layout === "list"} ...${helpFor("work_map.list")} onClick=${() => setLayout("list")}>Lista</button><${Help} topic="work_map.list" compact=${true} /></div><${Help} topic="work_map.fold" compact=${true} /><${Help} topic="work_map.assignment_edge" compact=${true} /><${Help} topic="work_map.notice_edge" compact=${true} />
     </div>
-    <p class="wm-count" role="status" aria-live="polite">${visibleCount} elementos visibles</p>
-    ${loading && !data && html`<p class="muted">Cargando el mapa…</p>`}
+    <p class="wm-count" role="status" aria-live="polite">${countStatus}</p>
+    ${loading && !currentData && html`<p class="muted">Cargando el mapa…</p>`}
     ${error && html`<p class="message error" role="alert">No se pudo cargar el mapa: ${errorText(error)}</p><button type="button" class="btn secondary" ...${helpFor("work_map.refresh")} onClick=${load}>Reintentar</button>`}
-    ${data?.warnings?.length > 0 && html`<p class="wm-private" role="note">Algunas fuentes no estuvieron disponibles. Los avisos se omitieron para no mostrar identificadores privados.</p>`}
+    ${currentData?.warnings?.length > 0 && html`<p class="wm-private" role="note">Algunas fuentes no estuvieron disponibles. Los avisos se omitieron para no mostrar identificadores privados.</p>`}
     ${projected.capped && html`<p class="wm-private" role="note">Se muestran ${LIMIT} elementos; ${projected.remaining} más están ocultos. Ajusta la búsqueda para acotar el mapa.</p>`}
-    ${layout === "tree" ? html`<ul class="wm-tree" aria-label="Árbol del proyecto y sesiones">${visible.map((node) => html`<${Node} key=${node.id} node=${node} onlyActive=${onlyActive} folded=${folded} foldedIds=${foldedIds} onToggleFold=${toggleFold} />`)}</ul>` : html`<div class="wm-list" role="list" aria-label="Elementos del mapa">${flattened.map((node) => html`<${ListItem} key=${node.id} node=${node} />`)}</div>`}
+    ${layout === "tree" ? html`<ul class="wm-tree" aria-label="Árbol del proyecto y sesiones">${listed.map((node) => html`<${Node} key=${node.id} node=${node} onlyActive=${onlyActive} folded=${folded} foldedIds=${foldedIds} onToggleFold=${toggleFold} />`)}</ul>` : html`<div class="wm-list" role="list" aria-label="Elementos del mapa">${flattened.map((node) => html`<${ListItem} key=${node.id} node=${node} />`)}</div>`}
     ${!loading && projected.count === 0 && html`<p class="muted">No hay elementos que coincidan con estos filtros.</p>`}
   </section>`;
 }
