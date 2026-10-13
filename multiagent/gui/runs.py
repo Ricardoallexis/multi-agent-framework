@@ -19,7 +19,9 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ..contracts import ExecutionMode, HumanStepSubmission
-from ..run_request import RunRequest
+from ..run_request import RunRequest, RoutingPreference
+from ..routing_preferences import preference_request, validate_run_preferences
+from ..routing_policy import EFFORT_LEVELS, RoutingRequest
 from ..services.errors import HUMAN_STEP_UNAVAILABLE, INVALID_REQUEST, ServiceError, translate
 from ..services.workflow_inputs import missing_required
 from ..workflows import condition_is_true
@@ -43,6 +45,7 @@ class PreviewBody(_Body):
     inputs: dict[str, str] = Field(default_factory=dict)
     execution_mode: ExecutionMode = ExecutionMode.AUTO
     sensitive: bool = False
+    routing_preferences: dict[str, RoutingPreference] = Field(default_factory=dict)
 
 
 class CreateBody(PreviewBody):
@@ -263,6 +266,106 @@ def _missing_error(missing: list[str]) -> ServiceError:
                         details={"missing_inputs": missing})
 
 
+def _routing_preview(services, workflow_id: str, bundle: str | None, inputs: dict[str, str],
+                     execution_mode: ExecutionMode, sensitive: bool, preferences=None) -> dict[str, list[dict[str, Any]]]:
+    """Read the configured model route for confirmation; no profile setting is changed or executed."""
+    preferences = preferences or {}
+    definition = services.definitions.get_workflow(workflow_id, bundle=bundle)
+    engine = services.system.engine if bundle is None else None
+    if preferences:
+        if engine is None:
+            raise ServiceError(INVALID_REQUEST, "Bundle preferences are unavailable in read-only preview", status=422)
+        draft = RunRequest(workflow_id=workflow_id, project_name="Preview", inputs=inputs,
+                           execution_mode=execution_mode, sensitive=sensitive, routing_preferences=preferences)
+        try:
+            validate_run_preferences(engine, draft, engine.preflight(workflow_id))
+        except ValueError as exc:
+            raise ServiceError(INVALID_REQUEST, str(exc), status=422) from exc
+    if bundle is None:
+        catalog, router = services.system.catalog, services.system.engine.router
+    else:
+        # Bundle routing is declared by the bundle. Use its catalog for profile details; model selection stays
+        # unavailable here because preview never builds or mutates a bundle runtime.
+        catalog, router = services.definitions._bundle(bundle).catalog, None
+    steps = []
+    for step in definition.get("steps", []):
+        try:
+            enabled = condition_is_true(step.get("when"), inputs)
+        except (TypeError, ValueError):
+            enabled = True
+        if not enabled:
+            steps.append({"step_id": step["id"], "step_kind": step.get("kind") or "work", "skipped": True,
+                          "profile_id": None, "mode": None, "level": None, "model": None, "effort": None,
+                          "status": "will_skip", "model_options": [], "effort_options": [], "budget_scope": None})
+            continue
+        preference = preferences.get(step["id"])
+        preference = preference.model_dump(exclude_unset=True) if hasattr(preference, "model_dump") else (preference or {})
+        if preference:
+            actual_step = next(item for item in engine.preflight(workflow_id).steps if item.id == step["id"])
+            selected_request, selected_profile = preference_request(engine, workflow_id, actual_step, inputs,
+                                                                  execution_mode, sensitive, preference)
+            profile_id, profile = selected_request.profile_id, selected_profile
+        else:
+            profile_id, profile = catalog.routing_profile_for(workflow_id, step["id"])
+        profile = profile if isinstance(profile, dict) else None
+        web_setting = step.get("requires_web")
+        requires_web = (str(inputs.get("requires_web", "")).strip().casefold() in {"true", "1", "yes", "sí", "si"}
+                        if web_setting == "from_request" else web_setting is True)
+        if sensitive or execution_mode is ExecutionMode.LOCAL:
+            preferred = "local_reasoning" if step["id"] == "strategy" else "local_default"
+        elif execution_mode is ExecutionMode.CLOUD:
+            preferred = "gemini_grounded" if requires_web else ("cloud_advanced" if step["id"] in {"strategy", "design"} else "cloud_fast")
+        else:
+            preferred = step.get("preferred_model") or None
+        mode = profile.get("mode", "supervised") if profile else None
+        model, effort, level, status, reasons = preferred, step.get("effort"), None, "catalog_default", []
+        model_options = [model] if model in getattr(catalog, "models", {}) else []
+        budget_scope = None
+        if execution_mode is ExecutionMode.HUMAN_GUIDED:
+            model, effort, status = None, None, "human_guided"
+        elif router is not None and profile_id and profile is not None:
+            request = RoutingRequest(
+                profile_id=profile_id, workflow_id=workflow_id, step_id=step["id"],
+                requested_model=profile.get("requested_model") or preferred,
+                required_capabilities=frozenset({"structured_output"} | ({"web"} if requires_web else set())),
+                required_role=step.get("agent"),
+                required_permissions=frozenset(profile.get("required_permissions") or ()),
+                data_class="sensitive" if sensitive else "non_sensitive",
+                execution_mode=execution_mode.value, requires_web=requires_web, output_schema=step.get("contract"),
+                step_kind=step.get("kind") or "work", effort=step.get("effort"),
+            )
+            try:
+                if preference:
+                    request = selected_request
+                decision = router.select(request, **({"profile_override": profile} if preference else {})).to_dict()
+                model = decision.get("selected_model")
+                effort = decision.get("effort") or step.get("effort")
+                level = decision.get("selected_level")
+                status = decision.get("status", "unknown")
+                reasons = decision.get("reason_codes", [])
+                model_options = list(dict.fromkeys(
+                    candidate["model_id"] for candidate in decision.get("candidates", [])
+                    if candidate.get("eligible") is True and candidate.get("model_id")
+                ))
+                budget_scope = decision.get("budget_scope")
+            except (TypeError, ValueError):
+                model, status = None, "selection_unavailable"
+                model_options = []
+        elif profile_id and bundle is not None:
+            model, status = None, "bundle_selection_unavailable"
+            model_options = []
+        steps.append({"step_id": step["id"], "step_kind": step.get("kind") or "work", "skipped": False,
+                      "profile_id": profile_id, "mode": mode, "level": level, "model": model,
+                      "effort": effort, "status": status, "reason_codes": reasons,
+                      "model_options": model_options, "effort_options": list(EFFORT_LEVELS),
+                      "budget_scope": budget_scope,
+                      "profile_options": [key for key, item in catalog.routing_profiles.items() if isinstance(item, dict) and item.get("enabled") is True],
+                      "mode_options": ["supervised", "automatic", "single"],
+                      "level_options": list(dict.fromkeys(catalog.model(key).level for key in model_options if catalog.model(key).level)),
+                      "preferences": preference})
+    return {"steps": steps}
+
+
 def build_router(services) -> APIRouter:
     """Routes for the runs screen; ``services`` is read at call time."""
     router = APIRouter()
@@ -286,9 +389,19 @@ def build_router(services) -> APIRouter:
     @router.post("/runs/preview")
     def preview(body: PreviewBody):
         """Render the prompts for these inputs as text. Nothing is executed or stored."""
-        return services.definitions.preview_prompts(
+        result = services.definitions.preview_prompts(
             body.workflow_id, body.inputs, bundle=body.bundle,
             execution_mode=body.execution_mode.value, sensitive=body.sensitive)
+        result["routing"] = _routing_preview(services, body.workflow_id, body.bundle, body.inputs,
+                                             body.execution_mode, body.sensitive, body.routing_preferences)
+        return result
+
+    @router.get("/composer/executors")
+    def composer_executors():
+        """Enabled executor choices and only the model/effort values supported by evidence."""
+        executors = getattr(services, "executors", None)
+        return executors._composer_options() if executors is not None else {"executors": []}
+
 
     @router.post("/runs", status_code=202)
     def create(body: CreateBody):
@@ -300,7 +413,8 @@ def build_router(services) -> APIRouter:
         try:
             request = RunRequest(
                 workflow_id=body.workflow_id, project_name=body.project_name.strip(), inputs=body.inputs,
-                execution_mode=body.execution_mode, idempotency_key=body.idempotency_key, sensitive=body.sensitive)
+                execution_mode=body.execution_mode, idempotency_key=body.idempotency_key, sensitive=body.sensitive,
+                routing_preferences=body.routing_preferences)
         except ValidationError as exc:
             raise translate(exc) from exc
         return run_view(services, services.runs.create(request, bundle=body.bundle))

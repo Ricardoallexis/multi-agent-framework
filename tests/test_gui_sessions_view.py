@@ -78,7 +78,9 @@ def test_main_registers_sessions_as_the_first_and_default_section():
     main = read("main.js")
     assert 'import { Sessions } from "./sessions.js"' in main
     sections = re.search(r"const SECTIONS = \[(.*?)\];", main, re.S)[1]
-    assert re.findall(r'id: "(\w+)"', sections) == ["sessions", "runs"]
+    section_ids = re.findall(r'id: "(\w+)"', sections)
+    assert section_ids[:2] == ["sessions", "runs"]
+    assert len(section_ids) == len(set(section_ids))
     assert "Sesiones" in sections and "pendiente de implementar" not in main
     assert re.search(r"<\$\{Sessions\}[^>]*route=\$\{route\}", main)
     route = read("route.js")

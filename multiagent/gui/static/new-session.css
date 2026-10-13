@@ -59,6 +59,12 @@
 .ns-answer { display: flex; flex-direction: column; gap: 1px; }
 .ns-answer dt { color: var(--muted); font-size: .85rem; font-weight: 600; }
 .ns-answer dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ns-routing { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.ns-routing-step { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
+.ns-routing-step .ns-chip:disabled { opacity: 1; color: var(--text); cursor: default; }
+.ns-route-chip { display: flex; align-items: center; gap: 6px; min-height: var(--target); color: var(--muted); font-size: .88rem; }
+.ns-route-chip select { max-width: min(100%, 18rem); min-height: var(--target); padding: 6px 30px 6px 12px; }
+.ns-route-chip select:disabled { opacity: .65; cursor: not-allowed; }
 
 /* The writing box stays in reach while the conversation grows */
 .ns-composer { position: sticky; bottom: 8px; z-index: 10; display: flex; flex-direction: column; gap: 6px;

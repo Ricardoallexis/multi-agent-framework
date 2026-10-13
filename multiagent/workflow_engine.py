@@ -40,6 +40,7 @@ from .errors import (
 from .model_router import ModelBinding, ModelRouter, failure_kind
 from .observability import TokenUsageRecord, UsageRecorder, estimate_call_cost
 from .prompts import PromptManager
+from .routing_preferences import resolve_profile
 from .routing_policy import (
     ESCALATION_APPROVAL_LEVEL, MODEL_LEVELS, RoutingDecision, RoutingEvidence, RoutingRequest,
     summarize_routing_evidence,
@@ -265,7 +266,8 @@ class WorkflowEngine:
                     elif research_mode == ResearchMode.NONE:
                         raise ValidationFailed("requires_web=True but research_mode=none")
 
-                profile_id, profile = self.catalog.routing_profile_for(run["workflow_id"], step.id)
+                preference = request.get("routing_preferences", {}).get(step.id, {})
+                profile_id, profile = resolve_profile(self.catalog, run["workflow_id"], step.id, step.kind, preference)
                 binding, requirements, routing_reason = self._routing_for_step(
                     step=step,
                     execution_mode=execution_mode,
@@ -734,11 +736,12 @@ class WorkflowEngine:
         request asks for one exact model level instead of the step kind's bounds (see ``RoutingRequest``);
         a decision that cannot be satisfied then raises ``EscalationBlocked`` instead of ``ValidationFailed``.
         """
+        preference = request.get("routing_preferences", {}).get(step.id, {})
         profile_required = profile.get("required_permissions", []) if isinstance(profile, dict) else []
         caller_grants = request.get("effective_permissions")
         if caller_grants is None:
             caller_grants = request.get("permissions")
-        requested_model = (
+        requested_model = preference.get("model") or (
             profile.get("requested_model") if isinstance(profile, dict) else None
         ) or (binding.preferred_model if binding is not None else None)
         authorized_classes = request.get("authorized_data_classes")
@@ -761,7 +764,7 @@ class WorkflowEngine:
             output_schema=step.contract,
             estimated_input_tokens=estimated_input,
             step_kind=step.kind,
-            effort=step.effort,
+            effort=preference.get("effort") if "effort" in preference else step.effort,
             attempt=attempt,
             escalation=escalation,
         )
@@ -772,6 +775,7 @@ class WorkflowEngine:
             routing_request,
             RoutingEvidence(scope=run_id, stats_by_model=evidence_summary,
                             provenance="single_run_snapshot"),
+            **({"profile_override": profile} if preference else {}),
         )
         decision_data = routing_decision.to_dict()
         decision_data.update({

@@ -7,6 +7,7 @@ from .contracts import HumanStepSubmission, RunStatus, SocialPostRequest, Waitin
 from .db.store import Store
 from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition
 from .run_request import RunRequest
+from .routing_preferences import validate_run_preferences
 
 
 class RunService:
@@ -30,7 +31,9 @@ class RunService:
             raise RuntimeError("RunService has no WorkflowEngine attached")
         # Loading/validation errors propagate with their original type and issues.
         # No project or run is persisted until the entire definition is valid.
-        self.engine.preflight(self.store.workflow_id_for(request))
+        definition = self.engine.preflight(self.store.workflow_id_for(request))
+        if getattr(request, "routing_preferences", None):
+            validate_run_preferences(self.engine, request, definition)
         return self.store.create_run(request, self.settings.max_llm_calls, self.settings.max_run_seconds)
 
     def get(self, run_id: str) -> dict[str, Any]:

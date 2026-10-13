@@ -26,6 +26,8 @@ def _canonical_request_fingerprint(req: SocialPostRequest | RunRequest) -> str:
     payload.pop("idempotency_key", None)
     if payload.get("task_id") is None:
         payload.pop("task_id", None)   # a run without a task keeps the fingerprint it had before the field existed
+    if not payload.get("routing_preferences"):
+        payload.pop("routing_preferences", None)  # keep existing idempotency fingerprints
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 

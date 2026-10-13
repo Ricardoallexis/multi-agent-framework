@@ -7,7 +7,7 @@
 import { useState, useEffect } from "../vendor/htm-preact-standalone.module.js";
 
 export const DEFAULT_SECTION = "sessions";
-const SECTION_IDS = ["sessions", "runs", "tree"];
+const SECTION_IDS = ["sessions", "runs", "usage", "tree", "map"];
 export const NEW_SECTION = "new";
 
 export function parseRoute(hash) {

@@ -124,7 +124,8 @@ class ModelRouter:
         evidence["estimated_cost_currency"] = current[0][1] if current is not None and cost is not None else None
         return evidence
 
-    def select(self, request: RoutingRequest, evidence: RoutingEvidence | None = None) -> RoutingDecision:
+    def select(self, request: RoutingRequest, evidence: RoutingEvidence | None = None, *,
+               profile_override: dict[str, Any] | None = None) -> RoutingDecision:
         """Resolve an explicitly requested, enabled profile without side effects or provider calls."""
         evidence = evidence or RoutingEvidence()
         profile_id = request.profile_id
@@ -145,7 +146,7 @@ class ModelRouter:
         )
         if profile_id is None:
             return RoutingDecision(status="manual", reason_codes=("no_profile_requested",), **base)
-        profile = getattr(self.catalog, "routing_profiles", {}).get(profile_id)
+        profile = profile_override if profile_override is not None else getattr(self.catalog, "routing_profiles", {}).get(profile_id)
         if not isinstance(profile, dict):
             return RoutingDecision(status="blocked", reason_codes=("unknown_profile",), **base)
         base["profile_version"] = profile.get("version")

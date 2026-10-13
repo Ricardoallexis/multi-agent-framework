@@ -1900,3 +1900,27 @@ class ExecutorServices:
                               "attempts": attempts, "routings": routings, "resume_blocked_until": blocked,
                               "hold": continuity.get("hold"), "continuity": continuity or None}
         return result
+
+    @service_errors
+    def _composer_options(self) -> dict[str, Any]:
+        """Only executors the user enabled and whose model and effort choices are evidenced."""
+        registry = self.registry
+        status_by_id = {row["executor_id"]: row for row in self.status()["executors"]}
+        options = []
+        for executor_id, descriptor in sorted(registry.snapshot().items()):
+            adapter = registry.resolve(executor_id)
+            if descriptor.enabled is not True or adapter is None or not isinstance(adapter, ExecutorApplicationAdapter):
+                continue
+            models = descriptor.model_support
+            efforts = descriptor.effort_support
+            options.append({
+                "executor_id": executor_id,
+                "surface": descriptor.surface,
+                "mode": descriptor.mode,
+                "available": bool(status_by_id.get(executor_id, {}).get("available"))
+                    and models.status is SupportState.SUPPORTED and bool(models.values)
+                    and efforts.status is SupportState.SUPPORTED and bool(efforts.values),
+                "models": sorted(models.values or ()) if models.status is SupportState.SUPPORTED else [],
+                "efforts": sorted(efforts.values or ()) if efforts.status is SupportState.SUPPORTED else [],
+            })
+        return {"executors": options}

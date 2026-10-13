@@ -23,16 +23,16 @@ NODE = shutil.which("node")
 
 # The modules that draw the screens: every control they render must have help.
 VIEW_FILES = [
-    "main.js", "runs.js", "create-run.js", "run-detail.js", "human-actions.js",
+    "main.js", "runs.js", "create-run.js", "run-detail.js", "human-actions.js", "usage.js",
     "sessions.js", "session-detail.js", "session-items.js", "open-in-app.js", "subagents-panel.js", "agent-tree.js",
 ]
 # The app shell (GUI2-T02: top bar, sidebar, right panel) draws controls too, under the same rules.
 VIEW_FILES += ["shell.js", "sidebar.js", "right-panel.js", "panel-slots.js", "subagents-mount.js"]
 # The shared components with controls (GUI2-T11): StatusChip, Progress and LevelBadge draw no control; Tabs draws the tab buttons.
-VIEW_FILES += ["ui/tabs.js"]
+VIEW_FILES += ["ui/tabs.js", "work-map.js"]
 # The right-panel sections «Cambios», «Tokens» and «Fuentes» (GUI2-T05).
 VIEW_FILES += ["panel-parts.js", "panel-changes.js", "panel-tokens.js", "panel-sources.js"]
-CONTROL_TAGS = {"input", "select", "textarea", "button"}
+CONTROL_TAGS = {"input", "select", "textarea", "button", "summary"}
 VIEW_FILES += ["new-session.js"]       # the guided chat of «Nueva sesión» (GUI2-T03); new-session-model.js draws nothing
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
@@ -60,13 +60,15 @@ DYNAMIC_TOPICS = {
 
 # Sections (headings with an id) and the topic that explains each; run and session titles are data, not sections.
 SECTION_TOPICS = {
+    "work-map-title": "work_map.refresh",
     "sessions-title": "sessions.list", "items-title": "session.items",
     "roots-title": "sessions.roots", "preview-title": "preview.panel", "counters-title": "run.counters",
     "steps-title": "run.steps", "history-title": "run.history", "results-title": "run.results",
     "inputs-title": "run.inputs", "human-actions-title": "human.section",
     "panel-changes-title": "panel.changes", "panel-subagents-title": "subagents.panel",
     "panel-tokens-title": "panel.tokens", "panel-sources-title": "panel.sources",
-    "agent-tree-title": "agent_tree.view", "at-log-title": "agent_tree.log",
+    "agent-tree-title": "agent_tree.view", "at-log-title": "agent_tree.log", "usage-title": "usage.section",
+    "usage-plans-title": "usage.plans", "usage-global-title": "usage.global", "usage-costs-title": "usage.costs",
 }
 DATA_HEADINGS = {"run-title", "session-title", "at-detail-title"}   # the last one is the name of the chosen agent
 
@@ -197,6 +199,10 @@ def opening_tags(source: str):
 def controls():
     for name in VIEW_FILES:
         for tag, text in opening_tags(read(name)):
+            # GUI2-T09 added summaries for source notes and price details; keep this new disclosure surface held to
+            # the same help rule without changing the existing views' long-standing summary exception.
+            if tag == "summary" and name != "usage.js":
+                continue
             yield name, tag, text
 
 

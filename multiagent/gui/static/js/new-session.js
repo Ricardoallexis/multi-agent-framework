@@ -103,9 +103,25 @@ function QuestionCard({ question, n, total, disabled, onChoose }) {
 }
 
 function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef }) {
-  const { mode, setMode, sensitive, setSensitive, confirmReal, setConfirmReal, preview, previewError, previewing, launchError } = state;
+  const { mode, setMode, sensitive, setSensitive, confirmReal, setConfirmReal, preview, previewError, previewing,
+    routing, routingError, routingLoading, launchError, routingOverrides, setRoutingOverrides } = state;
   const blockers = [];
   if (!mock && !confirmReal) blockers.push("Confirma que entiendes que el servidor no está en modo Mock.");
+  const routingSteps = routing && Array.isArray(routing.steps) ? routing.steps : [];
+  const changedRoutes = Object.entries(routingOverrides).filter(([, override]) => Object.keys(override).length > 0);
+  if (previewing) blockers.push("Espera a que se validen las preferencias.");
+  if (previewError) blockers.push("Corrige las preferencias o las entradas indicadas por la vista previa.");
+  const setRouteOverride = (step, field, value) => {
+    setRoutingOverrides((current) => {
+      const next = { ...current };
+      const override = { ...(next[step.step_id] || {}) };
+      if (!value) delete override[field];
+      else override[field] = value;
+      if (Object.keys(override).length) next[step.step_id] = override;
+      else delete next[step.step_id];
+      return next;
+    });
+  };
   return html`<section class="ns-confirm panel" aria-label="Resumen antes de lanzar" tabindex="-1" ref=${boxRef}>
     <p class="ns-confirm-title"><strong>Listo para lanzar: ${conv.workflow.id}</strong> <span class="muted">· ${originLabel(conv.workflow)}</span></p>
     <${Help} topic="chat.confirm" />
@@ -113,13 +129,58 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
       ${answerRows(conv).map((row) => html`<div key=${row.key} class="ns-answer"><dt>${row.label}</dt>
         <dd>${row.empty ? html`<span class="muted">(sin respuesta)</span>` : row.value}</dd></div>`)}
     </dl>
+    <section class="ns-routing" aria-label="Enrutamiento del workflow">
+      <div class="ns-row"><strong>Modelo y esfuerzo previstos</strong><${Help} topic="chat.routing" compact=${true} /></div>
+      ${routingLoading && html`<p class="muted small" role="status">Leyendo el perfil y el modelo previstos…</p>`}
+      ${routingError && html`<p class="message error" role="alert">${errorText(routingError)}</p>`}
+      ${routing && routingSteps.length === 0 && html`<p class="muted small">El servidor no devolvió pasos de routing; se muestran los prompts disponibles.</p>`}
+      ${routingSteps.map((step) => html`<div key=${step.step_id} class="ns-routing-step">
+        <span class="ns-card-name">${step.step_id}</span>
+        <div class="ns-chips" role="group" aria-label=${"Ajustes del paso " + step.step_id}>
+          ${[["mode", "Modo", step.mode_options || []], ["profile_id", "Perfil", step.profile_options || []],
+             ["level", "Nivel", step.level_options || []]].map(([field, label, options]) => html`
+            <label class="ns-route-chip" key=${field}>${label}
+              <select class="ns-chip" aria-label=${label + " del paso " + step.step_id}
+                disabled=${busy || routingLoading || options.length === 0 || (field !== "profile_id" && !step.profile_id)} ...${helpFor("chat.routing")}
+                value=${(routingOverrides[step.step_id] || {})[field] || ""}
+                onChange=${(event) => setRouteOverride(step, field, event.target.value)}>
+                <option value="">Según workflow${step[field] ? " (" + step[field] + ")" : ""}</option>
+                ${options.map((value) => html`<option key=${value} value=${value}>${field === "mode"
+                  ? ({ supervised: "Supervisado", automatic: "Automático", single: "Único" }[value] || value) : value}</option>`)}
+              </select>
+            </label>`)}
+          <label class="ns-route-chip">Modelo
+            <select class="ns-chip" aria-label=${"Modelo del paso " + step.step_id} disabled=${busy || routingLoading ||
+              !step.profile_id || !Array.isArray(step.model_options) || step.model_options.length === 0}
+              ...${helpFor("chat.routing")} value=${routingOverrides[step.step_id] &&
+                Object.prototype.hasOwnProperty.call(routingOverrides[step.step_id], "model")
+                ? routingOverrides[step.step_id].model || "" : step.model || ""}
+              onChange=${(event) => setRouteOverride(step, "model", event.target.value)}>
+              <option value="">Predeterminado${step.model ? " (" + step.model + ")" : ""}</option>
+              ${(step.model_options || []).map((model) => html`<option key=${model} value=${model}>${model}</option>`)}
+            </select>
+          </label>
+          <label class="ns-route-chip">Esfuerzo
+            <select class="ns-chip" aria-label=${"Esfuerzo del paso " + step.step_id} disabled=${busy || routingLoading || !step.profile_id}
+              ...${helpFor("chat.routing")} value=${routingOverrides[step.step_id] &&
+                Object.prototype.hasOwnProperty.call(routingOverrides[step.step_id], "effort")
+                ? routingOverrides[step.step_id].effort || "" : step.effort || ""}
+              onChange=${(event) => setRouteOverride(step, "effort", event.target.value)}>
+              <option value="">Predeterminado</option>
+              ${(step.effort_options || []).map((effort) => html`<option key=${effort} value=${effort}>${effort}</option>`)}
+            </select>
+          </label>
+        </div>
+        ${step.status !== "selected" && step.status !== "catalog_default" && html`<p class="hint">El router informó: ${(step.reason_codes || []).join(", ") || step.status}.</p>`}
+      </div>`)}
+    </section>
     <div class="two">
       <div><label for="ns-mode">Cómo se ejecuta</label>
         <${Help} topic="create.mode" entry=${modeHelpEntry(mode)} />
-        <select id="ns-mode" ...${helpFor("create.mode")} value=${mode} disabled=${busy} onChange=${(event) => setMode(event.target.value)}>
+        <select id="ns-mode" ...${helpFor("create.mode")} value=${mode} disabled=${busy || changedRoutes.length > 0} onChange=${(event) => setMode(event.target.value)}>
           ${MODES.map((value) => html`<option key=${value} value=${value}>${MODE_LABELS[value]}</option>`)}
         </select></div>
-      <div class="check"><label><input type="checkbox" checked=${sensitive} disabled=${busy} ...${helpFor("create.sensitive")}
+      <div class="check"><label><input type="checkbox" checked=${sensitive} disabled=${busy || changedRoutes.length > 0} ...${helpFor("create.sensitive")}
         onChange=${(event) => setSensitive(event.target.checked)} /> Contenido sensible (no se enviará a la nube)</label>
         <${Help} topic="create.sensitive" /></div>
     </div>
@@ -129,6 +190,8 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
     <${PreviewPanel} preview=${preview} error=${previewError} loading=${previewing} />
     ${launchError && html`<p class="message error" role="alert">${errorText(launchError)}</p>`}
     <p id="ns-blockers" class="hint" role="status">${blockers.length ? "No se puede lanzar todavía. " + blockers.join(" ") : "Todo listo: nada se ejecuta hasta que pulses «Lanzar»."}</p>
+    ${changedRoutes.length > 0 && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.routing")}
+      onClick=${() => setRoutingOverrides({})}>Revertir ajustes de routing</button>`}
     <div class="actions">
       <button type="button" class="btn" disabled=${busy || blockers.length > 0} ...${helpFor("chat.launch", { also: "ns-blockers" })}
         onClick=${onLaunch}>${busy ? "Lanzando…" : "Lanzar"}</button>
@@ -157,6 +220,7 @@ export function NewSession({ token, mock, interpret = null }) {
   const [previewError, setPreviewError] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [launchError, setLaunchError] = useState(null);
+  const [routingOverrides, setRoutingOverrides] = useState({});
   const alive = useRef(true);
   const catalogRun = useRef(null);
   const ticket = useRef(0);
@@ -226,13 +290,13 @@ export function NewSession({ token, mock, interpret = null }) {
     const body = runBody(conv, { mode, sensitive });
     setPreview(null); setPreviewError(null); setPreviewing(true);
     apiPost("/gui/api/runs/preview", token, {
-      workflow_id: body.workflow_id, bundle: body.bundle, inputs: body.inputs, execution_mode: mode, sensitive,
+      workflow_id: body.workflow_id, bundle: body.bundle, inputs: body.inputs, execution_mode: mode, sensitive, routing_preferences: routingOverrides,
     }).then(
       (result) => { if (mine === ticket.current) { setPreview(result); setPreviewing(false); } },
       (failure) => { if (mine === ticket.current) { setPreviewError(asError(failure)); setPreviewing(false); } },
     );
     return () => { ticket.current += 1; };
-  }, [conv.phase, mode, sensitive, token]);
+  }, [conv.phase, conv.workflow, conv.answers, mode, sensitive, routingOverrides, token]);
 
   const settledCatalog = async () => (catalogRun.current ? catalogRun.current : { entries: catalog.entries, error: catalog.error });
 
@@ -283,6 +347,7 @@ export function NewSession({ token, mock, interpret = null }) {
   async function pick(entry) {
     if (busy) return;
     setBusy(true);
+    setRoutingOverrides({});
     try {
       const spec = await apiGet(inputsPath(entry), token);
       dispatch({ type: "pick", workflow: entry, spec });
@@ -299,7 +364,8 @@ export function NewSession({ token, mock, interpret = null }) {
   async function launch() {
     const state = store.current;
     if (busy || state.phase !== "confirm" || (!mock && !confirmReal)) return;
-    const body = runBody(state, { mode, sensitive });
+    if (previewing || previewError || !preview) return;
+    const body = { ...runBody(state, { mode, sensitive }), routing_preferences: routingOverrides };
     const fingerprint = JSON.stringify(body);
     if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: newKey() };
     setBusy(true);
@@ -315,12 +381,17 @@ export function NewSession({ token, mock, interpret = null }) {
   }
 
   function openForm() {
+    if (Object.values(routingOverrides).some((override) => Object.keys(override).length > 0)) {
+      setLaunchError(new ApiError({ message: "No se puede abrir el formulario porque no admite estos ajustes de modelo/esfuerzo. Revierte los cambios primero." }));
+      return;
+    }
     setFormInitial(formSeed(store.current, { mode, sensitive }));
     setView("form");
   }
 
   function restart() {
     store.current = createConversation();
+    setRoutingOverrides({});
     setConv(store.current);
     setLaunchError(null);
     setDraft("");
@@ -370,7 +441,9 @@ export function NewSession({ token, mock, interpret = null }) {
     ${conv.phase === "continue" && html`<${RunsList} runs=${runs} />`}
     ${question && html`<${QuestionCard} question=${question} n=${n} total=${total} disabled=${busy} onChoose=${(choice) => submit(choice)} />`}
     ${conv.phase === "confirm" && html`<${ConfirmCard} conv=${conv} mock=${mock} busy=${busy} boxRef=${confirmBox}
-      state=${{ mode, setMode, sensitive, setSensitive, confirmReal, setConfirmReal, preview, previewError, previewing, launchError }}
+      state=${{ mode, setMode, sensitive, setSensitive, confirmReal, setConfirmReal, preview, previewError, previewing,
+        routing: preview && preview.routing, routingError: previewError, routingLoading: previewing, launchError,
+        routingOverrides, setRoutingOverrides }}
       onLaunch=${launch} onEdit=${() => dispatch({ type: "edit" })} onForm=${openForm} />`}
     <div class="ns-end" ref=${endMark}></div>
     <form class="ns-composer" onSubmit=${(event) => { event.preventDefault(); submit(draft); }} aria-busy=${busy ? "true" : "false"}>

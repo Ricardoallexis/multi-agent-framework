@@ -10,6 +10,57 @@
 // tests/test_gui_help.py checks that every control of the views has an entry and that the texts stay short.
 
 export const HELP = {
+
+  "work_map.refresh": {
+    "title": "Actualizar el mapa",
+    "hint": "Vuelve a leer proyectos y sesiones disponibles.",
+    "more": ["El mapa usa una lectura protegida del servidor local.", "Los avisos de las fuentes no muestran sus identificadores privados."]
+  },
+  "work_map.search": {
+    "title": "Buscar en el mapa",
+    "hint": "Filtra con el mismo texto el árbol y la lista.",
+    "more": ["Se conservan los ancestros de cada coincidencia.", "La búsqueda cubre proyectos, tareas, sesiones y agentes."]
+  },
+  "work_map.active": {
+    "title": "Solo activos",
+    "hint": "Muestra sesiones y agentes que siguen activos.",
+    "more": ["El filtro inicial incluye sesiones activas y sin actividad reciente.", "Puedes quitarlo para incluir elementos terminados."]
+  },
+  "work_map.fold_finished": {
+    "title": "Plegar terminados",
+    "hint": "Pliega los hijos de elementos terminados.",
+    "more": ["La vista inicia con esta opción activada.", "Usa el botón junto a cada elemento para abrir o cerrar sus hijos."]
+  },
+  "work_map.tree": {
+    "title": "Vista de árbol",
+    "hint": "Organiza proyectos, etapas, tareas y sesiones por relación.",
+    "more": ["Los botones de cada rama permiten plegar sus hijos.", "Las sesiones muestran los agentes enlazados que permite la fuente."]
+  },
+  "work_map.list": {
+    "title": "Vista de lista",
+    "hint": "Presenta los mismos elementos en filas para pantallas estrechas.",
+    "more": ["La búsqueda y el filtro activo se comparten con el árbol.", "Cada fila conserva su nivel de relación."]
+  },
+  "work_map.fold": {
+    "title": "Plegar rama",
+    "hint": "Oculta o muestra los elementos descendientes.",
+    "more": ["El nombre del botón indica la acción y la rama afectada.", "Los elementos terminados pueden iniciar plegados."]
+  },
+  "work_map.open_session": {
+    "title": "Abrir sesión",
+    "hint": "Abre el detalle de esta sesión en la vista Sesiones.",
+    "more": ["La navegación conserva el identificador de la sesión.", "El contenido se vuelve a leer desde el servidor local."]
+  },
+  "work_map.assignment_edge": {
+    "title": "Encargo de tarea",
+    "hint": "Abre la sesión enlazada a esta tarea.",
+    "more": ["La relación viene del registro de tareas del proyecto.", "El botón funciona con teclado y conserva el foco visible."]
+  },
+  "work_map.notice_edge": {
+    "title": "Aviso a sesión hija",
+    "hint": "Abre la sesión hija enlazada a este agente.",
+    "more": ["La relación usa el identificador de sesión permitido por la fuente.", "No se muestra el texto privado de la descripción del hijo."]
+  },
   "runs.section": {
     "title": "Ejecuciones",
     "hint": "Aquí lanzas workflows del framework y decides qué pasa en cada paso.",
@@ -660,6 +711,86 @@ export const HELP = {
       "Mientras la app tiene el hilo abierto bloquea las escrituras, pero este visor solo lee y no le afecta."
     ]
   },
+  "usage.section": {
+    "title": "Uso",
+    "hint": "Consulta el consumo medido de planes, modelos y llamadas del framework.",
+    "more": [
+      "Las cifras vienen de archivos locales y de la telemetría del framework.",
+      "Cada fuente puede medir ventanas distintas o no tener datos disponibles."
+    ]
+  },
+  "usage.plans": {
+    "title": "Planes por aplicación",
+    "hint": "Muestra el porcentaje y el reinicio solo cuando la fuente los conoce.",
+    "more": [
+      "Un porcentaje ausente significa que la fuente no permite calcularlo.",
+      "Si la ventana ya se reinició, el uso actual queda desconocido y no se reemplaza por cero."
+    ]
+  },
+  "usage.global": {
+    "title": "Consumo global",
+    "hint": "Agrupa tokens por aplicación, modelo, nivel y tipo de agente.",
+    "more": [
+      "Las filas reúnen los eventos que cada aplicación dejó disponibles.",
+      "Un dato ausente se conserva como desconocido y no se cuenta como cero."
+    ]
+  },
+  "usage.period": {
+    "title": "Intervalo del consumo",
+    "hint": "Cambia entre el día de hoy y los últimos siete días.",
+    "more": [
+      "Las fechas se muestran en la zona horaria de tu navegador.",
+      "Las filas y los totales corresponden al intervalo seleccionado."
+    ]
+  },
+  "usage.costs": {
+    "title": "API y presupuesto",
+    "hint": "Muestra costos estimados con su evidencia y separa los importes desconocidos.",
+    "more": [
+      "El costo se calcula con los tokens observados y los precios disponibles.",
+      "No es un importe facturado; una llamada sin precio vigente queda como desconocida."
+    ]
+  },
+  "usage.refresh": {
+    "title": "Actualizar uso",
+    "hint": "Vuelve a consultar los planes, los tokens y los costos.",
+    "more": [
+      "La pantalla conserva la última respuesta si una fuente falla.",
+      "Las aplicaciones pueden actualizar sus archivos en momentos distintos."
+    ]
+  },
+  "usage.view": {
+    "title": "Secciones de uso",
+    "hint": "Elige planes, consumo global o costos de la API.",
+    "more": [
+      "Cada sección muestra la información que su fuente local puede medir.",
+      "Usa las flechas del teclado para recorrer estas pestañas."
+    ]
+  },
+  "usage.plan_notes": {
+    "title": "Notas de la fuente",
+    "hint": "Aclaran qué datos pudo leer cada aplicación.",
+    "more": [
+      "Las notas describen límites o avisos de la medición local.",
+      "Un dato ausente no significa que el consumo sea cero."
+    ]
+  },
+  "usage.cost_reasons": {
+    "title": "Importes desconocidos",
+    "hint": "Explica por qué algunas llamadas no tienen costo calculado.",
+    "more": [
+      "Puede faltar el precio vigente, el conteo de tokens o tratarse de un paso humano.",
+      "Estos registros se separan del subtotal con precio conocido."
+    ]
+  },
+  "usage.cost_evidence": {
+    "title": "Evidencia de precios",
+    "hint": "Muestra el origen del precio usado en la estimación.",
+    "more": [
+      "La evidencia identifica el modelo, la moneda y la fuente del precio.",
+      "El subtotal sigue siendo una estimación y no un importe facturado."
+    ]
+  },
   "open.copilot": {
     "title": "Abrir en Copilot",
     "hint": "Abre esta sesión en la app de Copilot mediante un enlace.",
@@ -944,6 +1075,15 @@ export const HELP = {
       "La vista previa es el texto que recibirá cada paso con tus respuestas.",
       "No se crea ninguna ejecución hasta que pulses «Lanzar».",
       "Con «Editar» vuelves a las preguntas y con «Ver como formulario» pasas al formulario."
+    ]
+  },
+  "chat.routing": {
+    "title": "Ajustes de ejecución",
+    "hint": "Configura el modo y las preferencias de cada paso antes de lanzar.",
+    "more": [
+      "Puedes elegir por paso el modo supervisado, automático o único, activar el perfil ECO y ajustar el nivel, modelo y esfuerzo.",
+      "Estas preferencias se guardan al crear la ejecución y se validan con el catálogo ECO, las reglas de privacidad, los límites de nivel y el presupuesto.",
+      "Los chips muestran preferencias, no garantizan qué modelo se usará efectivamente; la vista previa solo muestra el prompt y no ejecuta nada."
     ]
   },
   "chat.launch": {

@@ -2,10 +2,20 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, field_serializer
 
 from .contracts import ExecutionMode, StrictModel
+
+
+class RoutingPreference(StrictModel):
+    """Run-scoped ECO choices; policy and budgets remain authoritative."""
+    mode: Literal["supervised", "automatic", "single"] | None = None
+    profile_id: str | None = Field(default=None, min_length=1, max_length=120)
+    level: Literal["T1", "T2", "T3", "T4"] | None = None
+    model: str | None = Field(default=None, min_length=1, max_length=120)
+    effort: Literal["none", "low", "medium", "high", "max"] | None = None
 
 
 class RunRequest(StrictModel):
@@ -16,8 +26,13 @@ class RunRequest(StrictModel):
     execution_mode: ExecutionMode = ExecutionMode.AUTO
     step_modes: dict[str, ExecutionMode] = Field(default_factory=dict)
     sensitive: bool = False
+    routing_preferences: dict[str, RoutingPreference] = Field(default_factory=dict, exclude_if=lambda values: not values)
     # Optional link to a task (PRY): checked against the system database when the run is created and never changed.
     task_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+    @field_serializer("routing_preferences")
+    def serialize_preferences(self, values):
+        return {key: choice.model_dump(exclude_unset=True) for key, choice in values.items()}
 
     @field_validator("inputs")
     @classmethod

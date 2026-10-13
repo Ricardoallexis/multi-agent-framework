@@ -139,7 +139,12 @@ class RunServices:
         if task_id is not None and self._services.tasks.store.get_task(task_id) is None:
             raise ServiceError(NOT_FOUND, f"Task not found: {task_id}", status=404, details={"task": task_id})
         runtime = self._system_runtime if bundle is None else self._bundle_runtime(bundle)
-        return self._tag(runtime, runtime.service.create_run(request))
+        try:
+            return self._tag(runtime, runtime.service.create_run(request))
+        except ValueError as exc:
+            if getattr(request, "routing_preferences", None):
+                raise ServiceError(INVALID_REQUEST, str(exc), status=422) from exc
+            raise
 
     @service_errors
     def get(self, run_id: str) -> dict[str, Any]:

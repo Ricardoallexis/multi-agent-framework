@@ -14,6 +14,8 @@ import { Runs } from "./runs.js";
 import { Sessions } from "./sessions.js";
 import { Shell } from "./shell.js";
 import { Sidebar } from "./sidebar.js";
+import { WorkMap } from "./work-map.js";
+import { Usage } from "./usage.js";
 
 const STATUS_TEXT = {
   connected: "Conectado",
@@ -26,6 +28,8 @@ const STATUS_TEXT = {
 const SECTIONS = [
   { id: "sessions", label: "Sesiones" },
   { id: "runs", label: "Ejecuciones" },
+  { id: "usage", label: "Uso" },
+  { id: "map", label: "Mapa" },
 ];
 
 // "#new" is not a section of its own: it shows the guided chat of a new session (new-session.js), which falls back to the
@@ -75,11 +79,13 @@ function App({ token }) {
   const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} views=${html`<${Views} section=${context.section} />`} />`;
   const panel = html`<${RightPanel} token=${token} route=${context} />`;
   return html`<${Shell} status=${status} statusText=${STATUS_TEXT[status]} mock=${mock} sidebar=${sidebar} panel=${panel}>
-    <h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : current.label}</h2>
+    ${section === "usage" ? html`<h2 id="usage-title">Uso</h2>` : html`<h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : current.label}</h2>`}
     <${Sessions} token=${token} route=${route} active=${section === "sessions"} />
     ${tree && html`<${AgentTree} key=${route.id || ""} token=${token} sessionId=${route.id} />`}
     ${creating && html`<${NewSession} token=${token} mock=${mock} />`}
     ${section === "runs" && html`<${Runs} token=${token} status=${status} mock=${mock} initialRunId=${route.id} />`}
+    ${section === "usage" && html`<${Usage} token=${token} />`}
+    ${section === "map" && html`<${WorkMap} token=${token} />`}
     ${lastEvent && html`<p class="muted small">Último evento recibido: ${lastEvent}</p>`}
   <//>`;
 }
