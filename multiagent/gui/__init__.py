@@ -29,6 +29,7 @@ from .runs import build_router as build_runs_router
 from .security import GUISecurityHeadersMiddleware, require_json, require_token
 from .sessions_api import add_session_routes
 from .usage_api import add_usage_routes
+from ..services.work_map import build_work_map
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 _INT_CURSOR = re.compile(r"[0-9]{1,15}")
@@ -84,6 +85,11 @@ def mount_gui(app: FastAPI) -> None:
                                              after=follow.cursor, **timing)
         return StreamingResponse(body, media_type="text/event-stream",
                                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+    @api.get("/map")
+    def work_map(project: str | None = Query(None, max_length=128),
+                 only: str = Query("active", pattern="^(active|all)$")):
+        return build_work_map(services, project_id=project, only=only)
 
     add_session_routes(api, sessions)
     add_usage_routes(api, usage)  # /gui/api/usage/{plans,tokens,costs} (USO-T02)
