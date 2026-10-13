@@ -27,6 +27,8 @@ param(
     [string]$CodexRoot = (Join-Path $HOME '.codex'),
     [ValidateRange(1, 1440)][int]$ActiveMinutes = 15,
     [ValidateRange(1, 10080)][int]$StoppedMinutes = 60,
+    # FLU-T06: a card «en curso» without «Espera» whose newest Historial row is older than this many hours reads «sin actividad».
+    [ValidateRange(1, 720)][int]$SinActividadHoras = 6,
     [Nullable[datetime]]$NowOverride = $null
 )
 
@@ -38,6 +40,7 @@ $script:copilotRoot = $CopilotRoot
 $script:codexRoot = $CodexRoot
 $script:activeMinutes = $ActiveMinutes
 $script:stoppedMinutes = $StoppedMinutes
+$script:sinActividadHoras = $SinActividadHoras
 $script:nowOverride = $NowOverride
 $channel = (Resolve-Path -LiteralPath $ChannelPath).Path
 $repoRoot = (Resolve-Path -LiteralPath $RepoPath).Path
@@ -47,6 +50,7 @@ $repoProgress = Join-Path $repoRoot 'PROGRESS.md'
 $repoStagePlan = Join-Path $repoRoot 'docs\ROADMAP_STAGES.md'
 $roadmap = Join-Path $channel 'ROADMAP_VISTA.md'
 $output = Join-Path $channel 'SEGUIMIENTO.html'
+$logPath = Join-Path $channel 'LOG.md'
 
 $tasksDir = Join-Path $channel 'tareas'
 $integrationDir = Join-Path $channel 'pruebas\integracion'
@@ -1425,6 +1429,155 @@ function Get-WaitersHtml($board) {
     "$notice$empty$($activeHtml -join '')$($problemHtml -join '')$finishedHtml</div>"
 }
 
+# FLU-T06 (P-615): esperas visibles. A task card may carry the row «Espera» (marcar-espera.ps1 writes it; the card's Estado does not change):
+#   | Espera | <quién> — <qué> (desde AAAA-MM-DD HH:mm, #<entrada>) |
+# quién: usuario | agente <Nombre> | tarea <ID> | cuota (reinicia <hora>) | ventana de integración. Absent or «—» means the card is working.
+# The Tareas tab shows a badge on the card («espera tu decisión», highlighted, for usuario; «espera a X», grey, otherwise); a panel at the top of the
+# page, «Esperan tu decisión», lists every wait for the user with a counter; and a card «en curso» without Espera whose newest Historial row is older
+# than -SinActividadHoras reads «sin actividad». A wait is resolved («resuelta, falta quitarla») when a LATER channel entry of type decisión or
+# respuesta cites the task in its title or in a «- tarea:» line; the counter then no longer includes it.
+function Get-ViewerNow { if ($null -ne $script:nowOverride) { [datetime]$script:nowOverride } else { Get-Date } }
+# The parsed «Espera» row, or $null when it is absent, empty or «—». Kind: usuario | agente | tarea | cuota | ventana | otro.
+function Get-EsperaInfo([string]$value) {
+    $raw = ("$value" -replace '\s+', ' ').Trim()
+    if (-not $raw -or $raw -match '^[—–\-]+$') { return $null }
+    $since = $null; $entry = $null; $body = $raw
+    $tail = [regex]::Match($raw, '\(\s*desde\s+(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}):(\d{2}))?\s*(?:,\s*#(\d+))?\s*\)\s*$')
+    if ($tail.Success) {
+        $since = ConvertTo-ActivityDate $tail.Groups[1].Value $tail.Groups[2].Value $tail.Groups[3].Value
+        if ($tail.Groups[4].Success) { $entry = [int]$tail.Groups[4].Value }
+        $body = $raw.Substring(0, $tail.Index).Trim()
+    }
+    $kind = 'otro'; $target = ''; $who = ''; $what = $body
+    $split = [regex]::Match($body, '^(?<who>usuario|agente\s+\S+|tarea\s+\S+|cuota(?:\s*\([^)]*\))?|ventana(?:\s+de\s+integraci[oó]n)?)\s*(?:[—–]|\s-\s|--)\s*(?<what>.*)$', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if ($split.Success) {
+        $who = $split.Groups['who'].Value.Trim()
+        $what = $split.Groups['what'].Value.Trim()
+        $kind = ($who -split '[\s(]', 2)[0].ToLowerInvariant()
+        if ($kind -in 'agente', 'tarea') { $target = ($who -split '\s+', 2)[1].Trim() }
+        elseif ($kind -eq 'cuota' -and $who -match '\(\s*(?:reinicia\s+)?([^)]*?)\s*\)') { $target = $Matches[1].Trim() }
+    }
+    [pscustomobject]@{ Raw = $raw; Kind = $kind; Who = $who; Target = $target; What = $what; Since = $since; Entry = $entry }
+}
+function Get-EsperaLabel($espera) {
+    switch ($espera.Kind) {
+        'usuario' { 'espera tu decisión' }
+        'agente' { if ($espera.Target) { "espera a $($espera.Target)" } else { 'espera a otro agente' } }
+        'tarea' { if ($espera.Target) { "espera a $($espera.Target)" } else { 'espera a otra tarea' } }
+        'cuota' { if ($espera.Target) { "espera a la cuota (reinicia $($espera.Target))" } else { 'espera a la cuota' } }
+        'ventana' { 'espera a la ventana de integración' }
+        default { 'espera a algo externo' }
+    }
+}
+# Who asked: the agent of the newest «espera» row of the Historial, else the card's Agente.
+function Get-EsperaAsker([string]$history, [string]$cardAgent) {
+    $asker = ''
+    foreach ($row in @(Get-HistoryRows $history)) { if ($row.Action -eq 'espera' -and $row.Agent) { $asker = $row.Agent } }
+    if ($asker) { $asker } else { $cardAgent }
+}
+# Entries of LOG.md of type decisión / respuesta, oldest first, read once per generation: Number, Date, Author, Type, Title, Tasks (the «- tarea:» line).
+$script:EsperaEntries = $null
+function Get-ResolutionEntries {
+    if ($null -ne $script:EsperaEntries) { return $script:EsperaEntries }
+    $list = [System.Collections.Generic.List[object]]::new()
+    if (Test-Path -LiteralPath $logPath -PathType Leaf) {
+        try {
+            $logText = [System.IO.File]::ReadAllText($logPath)
+            foreach ($m in [regex]::Matches($logText, '(?m)^### (\d{3,}) · (\d{4}-\d{2}-\d{2}) · ([^·\r\n]+?) · (decisi.n|respuesta) \(([^\r\n]*)\)[ \t]*\r?$')) {
+                $when = ConvertTo-ActivityDate $m.Groups[2].Value
+                if (-not $when) { continue }
+                $bodyStart = $m.Index + $m.Length
+                $next = $logText.IndexOf("`n### ", $bodyStart)
+                $body = if ($next -ge 0) { $logText.Substring($bodyStart, $next - $bodyStart) } else { $logText.Substring($bodyStart) }
+                $tasks = [regex]::Match($body, '(?m)^- tarea:[ \t]*([^\r\n]*)').Groups[1].Value
+                $list.Add([pscustomobject]@{ Number = [int]$m.Groups[1].Value; Date = $when; Author = $m.Groups[3].Value.Trim(); Type = $m.Groups[4].Value; Title = $m.Groups[5].Value; Tasks = $tasks })
+            }
+        } catch { Write-Warning 'No se pudo leer LOG.md; las esperas no se darán por resueltas.' }
+    }
+    $script:EsperaEntries = @($list)
+    $script:EsperaEntries
+}
+# The first LATER entry (decisión / respuesta) that cites the task, or $null. «Later» = a higher entry number than the wait's (or, if the row has
+# no entry number, the same day or after).
+function Find-EsperaResolution($espera, [string]$taskId) {
+    $idPattern = '(?<![A-Za-z0-9-])' + [regex]::Escape($taskId) + '(?![A-Za-z0-9])'
+    foreach ($candidate in (Get-ResolutionEntries)) {
+        $later = if ($null -ne $espera.Entry) { $candidate.Number -gt $espera.Entry } elseif ($espera.Since) { $candidate.Date.Date -ge $espera.Since.Date } else { $false }
+        if ($later -and "$($candidate.Title)`n$($candidate.Tasks)" -match $idPattern) { return $candidate }
+    }
+    $null
+}
+function Format-AgeSince($from, $now) {
+    $span = $now - [datetime]$from
+    if ($span.TotalMinutes -lt 1) { return 'hace menos de un minuto' }
+    if ($span.TotalMinutes -lt 60) { $n = [int][math]::Floor($span.TotalMinutes); return "hace $n $(if ($n -eq 1) { 'minuto' } else { 'minutos' })" }
+    if ($span.TotalHours -lt 24) { $n = [int][math]::Floor($span.TotalHours); return "hace $n $(if ($n -eq 1) { 'hora' } else { 'horas' })" }
+    $n = [int][math]::Floor($span.TotalDays)
+    "hace $n $(if ($n -eq 1) { 'día' } else { 'días' })"
+}
+function Format-EsperaSince($espera, $now) {
+    $parts = @()
+    if ($espera.Since) { $parts += "desde $(Format-ActivityDate $espera.Since) ($(Format-AgeSince $espera.Since $now))" } else { $parts += 'desde: hora no registrada' }
+    if ($null -ne $espera.Entry) { $parts += "entrada #$($espera.Entry)" }
+    $parts -join ' · '
+}
+# The badge shown in the state cell of the card (Tareas tab).
+function Get-EsperaBadgeHtml($espera, $resolution, [string]$asker) {
+    $now = Get-ViewerNow
+    $label = Get-EsperaLabel $espera
+    $what = if ($espera.What) { Encode (Limit-Text (Safe-Snippet $espera.What) 200) } else { '' }
+    $whatHtml = if ($what) { "<div class=""espera-what"">$what</div>" } else { '' }
+    $since = Format-EsperaSince $espera $now
+    if ($resolution) {
+        $kindText = if ($resolution.Type -like 'respuesta') { 'respuesta' } else { 'decisión' }
+        return "<div class=""espera espera-resuelta""><span class=""state s-espera-resuelta"">resuelta, falta quitarla</span>" +
+            "<div class=""espera-what"">Era: $(Encode $label)$(if ($what) { ' · ' + $what })</div>" +
+            "<div class=""meta"">La $kindText #$($resolution.Number) cita la tarea; quien la tiene ejecuta marcar-espera.ps1 -Quitar. $(Encode $since)</div></div>"
+    }
+    if ($espera.Kind -eq 'usuario') {
+        $askerHtml = if ($asker) { "pregunta: $(Encode $asker) · " } else { '' }
+        return "<div class=""espera espera-usuario""><span class=""state s-espera-usuario"">$(Encode $label)</span>$whatHtml<div class=""meta"">$askerHtml$(Encode $since)</div></div>"
+    }
+    "<div class=""espera""><span class=""state s-espera-otro"">$(Encode $label)</span>$whatHtml<div class=""meta"">$(Encode $since)</div></div>"
+}
+# «sin actividad»: a card en curso, without Espera and without a live watcher, whose newest Historial row is older than -SinActividadHoras.
+function Test-SinActividad($record, [bool]$hasWatcher) {
+    if ($record.State -ne 'en curso' -or $null -ne $record.Espera -or $hasWatcher -or -not $record.LastRow) { return $false }
+    ((Get-ViewerNow) - $record.LastRow.Date).TotalHours -gt $script:sinActividadHoras
+}
+function Get-SinActividadHtml($record) {
+    $now = Get-ViewerNow
+    "<div class=""espera espera-sin-actividad""><span class=""state s-sin-actividad"" title=""Sin fila nueva en el Historial en más de $($script:sinActividadHoras) h"">sin actividad</span>" +
+    "<div class=""meta"">Sin avance $(Encode (Format-AgeSince $record.LastRow.Date $now)) · última fila $(Encode (Format-ActivityDate $record.LastRow.Date))</div></div>"
+}
+# The panel «Esperan tu decisión» (top of the page). Items: cards with Espera (Id, Title, Href, Espera, Resolution, Asker). The counter counts the waits
+# for the user that are NOT resolved; the resolved ones stay listed below them, marked «resuelta, falta quitarla».
+function Get-UserWaitsPanel([object[]]$items) {
+    $now = Get-ViewerNow
+    $user = @($items | Where-Object { $_.Espera.Kind -eq 'usuario' })
+    $pending = @($user | Where-Object { -not $_.Resolution } | Sort-Object @{ Expression = { if ($_.Espera.Since) { $_.Espera.Since } else { [datetime]::MaxValue } } }, Id)
+    $resolved = @($user | Where-Object { $_.Resolution } | Sort-Object Id)
+    if (-not $user.Count) {
+        return [pscustomobject]@{ Count = 0; Html = '<div class="seg-esperas"><p class="espera-none" role="status">Esperan tu decisión: <strong>0</strong></p></div>' }
+    }
+    $lis = foreach ($item in @($pending + $resolved)) {
+        $link = "<a href=""$($item.Href)"">$(Encode $(if ($item.Title -like "$($item.Id)*") { $item.Title } else { "$($item.Id) · $($item.Title)" }))</a>"
+        $question = if ($item.Espera.What) { Encode (Limit-Text (Safe-Snippet $item.Espera.What) 220) } else { '<span class="meta">sin texto de la pregunta</span>' }
+        $asks = if ($item.Asker) { "pregunta: $(Encode $item.Asker) · " } else { '' }
+        if ($item.Resolution) {
+            $kindText = if ($item.Resolution.Type -like 'respuesta') { 'respuesta' } else { 'decisión' }
+            "<li class=""espera-item espera-resuelta""><div>$link <span class=""state s-espera-resuelta"">resuelta, falta quitarla</span></div><div class=""espera-q"">$question</div>" +
+            "<div class=""meta"">$asks$(Encode (Format-EsperaSince $item.Espera $now)) · la $kindText #$($item.Resolution.Number) cita la tarea</div></li>"
+        } else {
+            "<li class=""espera-item""><div>$link <span class=""state s-espera-usuario"">espera tu decisión</span></div><div class=""espera-q"">$question</div>" +
+            "<div class=""meta"">$asks$(Encode (Format-EsperaSince $item.Espera $now))</div></li>"
+        }
+    }
+    $count = $pending.Count
+    $note = if ($count) { '' } else { '<p class="meta">Ninguna espera tu decisión; solo faltan por quitar las ya resueltas.</p>' }
+    [pscustomobject]@{ Count = $count; Html = "<div class=""seg-esperas""><section class=""espera-panel"" id=""esperan-tu-decision"" aria-label=""Esperan tu decisión""><h2>Esperan tu decisión <span class=""espera-count"" title=""Esperas del usuario sin resolver"">$count</span></h2>$note<ul class=""espera-list"">$($lis -join '')</ul></section></div>" }
+}
+
 function Get-AgentBoardData {
     $registered = @((Get-RegisteredAgents).Name)
     $tasks = [System.Collections.Generic.List[object]]::new()
@@ -1644,6 +1797,8 @@ function Format-TodoGroup([string]$heading, [object[]]$items) {
 }
 function Build-Page {
 Reset-WorkerCaches   # SEG-T15: transcripts, models and execution lines are read again on every generation
+$script:EsperaEntries = $null   # FLU-T06: LOG.md (decisión / respuesta entries) is read again too
+$script:SinActividadWatch = $false
 $waitBoard = Get-WaitBoard   # SEG-T19: the watchers (esperas de activación) are read again too
 $agentBoard = Get-AgentBoardData
 $apiBoardHtml = if ($LeerApi) { Get-ApiBoardHtml } else { '' }
@@ -1702,6 +1857,8 @@ $stageIndex = @{}
 $todoReady = [System.Collections.Generic.List[object]]::new()
 $todoAuth = [System.Collections.Generic.List[object]]::new()
 $todoDecisions = [System.Collections.Generic.List[object]]::new()
+# FLU-T06: cards with an «Espera» row (for the panel «Esperan tu decisión»).
+$esperaItems = [System.Collections.Generic.List[object]]::new()
 $boardReadFailed = $false
 if (Test-Path -LiteralPath $tasksDir -PathType Container) {
     $boardReadFailed = $false
@@ -1790,6 +1947,9 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             }
             $record.Missing = if (($state -in 'liberada', 'pendiente', 'reabierta', 'requiere cambios') -and $text -match '(?s)## Qu. falta\s*(.+?)\s*## ') { Safe-Snippet $Matches[1] } else { '' }
             $record | Add-Member -NotePropertyName LeftHtml -NotePropertyValue $left
+            # FLU-T06: the «Espera» row of the card (see Get-EsperaInfo) and who asked.
+            $record | Add-Member -NotePropertyName Espera -NotePropertyValue (Get-EsperaInfo (Get-Field $text 'Espera'))
+            $record | Add-Member -NotePropertyName EsperaAsker -NotePropertyValue (Get-EsperaAsker $history $record.Agent)
             $record | Add-Member -NotePropertyName PideLines -NotePropertyValue @(Get-PideAlUsuarioLines $text)
             $record | Add-Member -NotePropertyName FileDate -NotePropertyValue $file.LastWriteTime
             $cardDelegations = Get-CardDelegations $history $state
@@ -1880,6 +2040,15 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             if ($taskWaits.Count) {
                 $stateCell = if ($record.WaitingFor.Count) { $stateCell + (Get-WaitCellHtml $taskWaits) }
                     else { (Get-WaitCellHtml $taskWaits) + "<div class=""meta"">Estado en la ficha: $(Encode $record.State)</div>" }
+            }
+            # FLU-T06: the card's own «Espera» row (a badge; the Estado does not change) or, for a card en curso without one, «sin actividad».
+            if ($null -ne $record.Espera -and $record.State -notin 'terminada', 'integrada') {
+                $resolution = Find-EsperaResolution $record.Espera $record.Id
+                $stateCell += Get-EsperaBadgeHtml $record.Espera $resolution $record.EsperaAsker
+                $esperaItems.Add([pscustomobject]@{ Id = $record.Id; Title = $record.Title; Href = $record.Href; Espera = $record.Espera; Resolution = $resolution; Asker = $record.EsperaAsker })
+            } elseif ($record.State -eq 'en curso' -and $null -eq $record.Espera) {
+                $script:SinActividadWatch = $true
+                if (Test-SinActividad $record ([bool]$taskWaits.Count)) { $stateCell += Get-SinActividadHtml $record }
             }
             $lastActivityHtml =if ($record.LastRow) { "<div class=""meta"">Última actividad $(Encode (Format-ActivityDate $record.LastRow.Date))</div>" } else { '<div class="meta">Sin historial fechado</div>' }
             $delegationHtml = if ($record.Delegation) {
@@ -2478,19 +2647,24 @@ $cloudTrackingButton = if ($flowListener -and $cloudTrackingToken) {
     '<button id="manage-cloud-assignments" class="action-button" type="button" disabled title="Abre el visualizador con Seguimiento.cmd">Actualizar seguimiento de asignaciones</button>'
 }
 
+# FLU-T06: the panel «Esperan tu decisión» (always visible, above the tabs) and its counter in the page title.
+$userWaits = Get-UserWaitsPanel $esperaItems.ToArray()
+$pageTitle = if ($userWaits.Count) { "($($userWaits.Count)) Seguimiento del proyecto" } else { 'Seguimiento del proyecto' }
 $html = @"
 <!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Seguimiento del proyecto</title>
+<title>$(Encode $pageTitle)</title>
 <style>
 :root { --bg:#f6f7f9; --panel:#ffffff; --text:#1d2330; --muted:#5d6675; --line:#dfe3ea;
-        --accent:#2f6fdb; --accent-soft:#e7effc; --ok:#1f9d61; --warn-bg:#fff6e0; --warn-line:#f0c24b; }
+        --accent:#2f6fdb; --accent-soft:#e7effc; --ok:#1f9d61; --warn-bg:#fff6e0; --warn-line:#f0c24b;
+        --ask-bg:#fff0d6; --ask-line:#e08a00; --grey-bg:#eceef2; }
 @media (prefers-color-scheme: dark) {
   :root { --bg:#14171c; --panel:#1c2027; --text:#e6e9ef; --muted:#9aa3b2; --line:#2e3440;
-          --accent:#6ea0ff; --accent-soft:#223149; --ok:#3ecf8e; --warn-bg:#2d2615; --warn-line:#b8912d; }
+          --accent:#6ea0ff; --accent-soft:#223149; --ok:#3ecf8e; --warn-bg:#2d2615; --warn-line:#b8912d;
+          --ask-bg:#3a2a0d; --ask-line:#f0a830; --grey-bg:#262b34; }
 }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--text);
@@ -2575,6 +2749,28 @@ summary { cursor:pointer; }
 .s-unknown { background:var(--warn-bg); border:1px solid var(--warn-line); }
 .s-bloqueada { background:var(--accent-soft); color:var(--muted); border:1px dashed var(--warn-line); }
 .s-espera { background:var(--accent-soft); border:1px dashed var(--accent); }
+/* FLU-T06: esperas visibles (panel «Esperan tu decisión», insignias de la ficha, «sin actividad»). */
+.seg-esperas { max-width:1100px; margin:8px auto 0; padding:0 16px; }
+.espera-panel { background:var(--ask-bg); border:1px solid var(--ask-line); border-left:6px solid var(--ask-line); border-radius:10px; padding:10px 16px; }
+.espera-panel h2 { margin:0 0 4px; font-size:18px; display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; }
+.espera-count { display:inline-block; min-width:26px; padding:0 9px; border-radius:13px; background:var(--ask-line); color:#2b1d00; font-weight:700; font-size:15px; text-align:center; }
+.espera-list { margin:0; padding:0; list-style:none; }
+.espera-item { padding:8px 0; border-top:1px solid var(--ask-line); }
+.espera-item:first-child { border-top:0; }
+.espera-q { margin:3px 0; overflow-wrap:anywhere; }
+.espera-item .meta, .espera-panel p.meta { color:var(--muted); font-size:13px; margin:2px 0; }
+.espera-none { margin:6px 0 0; font-size:13px; color:var(--muted); }
+.espera { margin-top:6px; }
+.espera .espera-what { margin:3px 0; font-size:13px; overflow-wrap:anywhere; }
+.espera .meta { color:var(--muted); font-size:12px; margin:2px 0; overflow-wrap:anywhere; }
+.s-espera-usuario { background:var(--ask-line); color:#2b1d00; font-weight:700; white-space:normal; }
+.s-espera-otro { background:var(--grey-bg); color:var(--muted); border:1px solid var(--line); white-space:normal; }
+.s-espera-resuelta { background:var(--accent-soft); color:var(--text); border:1px solid var(--ok); white-space:normal; }
+.s-sin-actividad { background:var(--warn-bg); color:var(--text); border:1px dashed var(--warn-line); white-space:normal; }
+@media (max-width: 600px) {
+  .seg-esperas { padding:0 8px; }
+  .espera-panel { padding:8px 10px; }
+}
 .wait-detail { margin:2px 0 6px; }
 .wait-detail .meta { color:var(--muted); font-size:13px; margin:2px 0; }
 .wait-conditions { margin:4px 0; padding-left:18px; font-size:13px; color:var(--muted); }
@@ -2618,6 +2814,7 @@ summary { cursor:pointer; }
   <p>Generado desde el tablero de tareas, el canal y el repositorio de integración a las $(Get-Date -Format 'HH:mm:ss'). Se recarga sola cada 30 s mientras la ventana de Seguimiento.cmd siga abierta.</p>
 </header>
 $integrationNoticeHtml
+$($userWaits.Html)
 <nav>
   <button data-tab="resumen">Resumen</button>
   <button data-tab="tareas">Tareas</button>
@@ -2808,6 +3005,8 @@ function Get-Stamp {
     # A watcher that stops writing (lost, killed) leaves its file as it is, yet its label must change: while one is live the page is also
     # regenerated once a minute.
     if ($liveWaitFiles.Count) { $stamp += "-esperas:$([long][Math]::Floor([datetime]::UtcNow.Ticks / [timespan]::TicksPerMinute))" }
+    # FLU-T06: «sin actividad» depends on the clock, not on a file: while a card en curso has no Espera, regenerate every 15 minutes.
+    if ($script:SinActividadWatch) { $stamp += "-ahora:$([long][Math]::Floor([datetime]::UtcNow.Ticks / (15 * [timespan]::TicksPerMinute)))" }
     $stamp
 }
 

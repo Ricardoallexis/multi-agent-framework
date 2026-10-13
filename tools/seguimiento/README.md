@@ -53,3 +53,14 @@ pwsh -File .\tools\seguimiento\ver-seguimiento.ps1 -ChannelPath <canal>\sistema 
 La pestaña valida los campos requeridos y comprueba los conteos de cada grupo contra la lista de tareas API. Errores HTTP, timeout, JSON o esquema se muestran como desconocidos/no disponibles; nunca como un tablero vacío exitoso. Sólo un conjunto vacío válido de grupos, tareas y eventos se rotula como vacío confirmado por API. Los estados se muestran con los nombres literales del core; `accepted` no se traduce a `integrada` o `probada`. Tokens y costo que la API no entrega quedan desconocidos. La evidencia Git y los reportes de integración siguen apareciendo por separado desde el checkout/canal local. El lector sólo hace GET y no usa la CLI privada ni lee SQLite.
 
 Las fixtures y pruebas de consumidor dirigidas están en `tests/ORQ-T40/`.
+
+## Esperas visibles (P-615)
+
+Una ficha de tarea puede llevar la fila `| Espera | <quién> — <qué> (desde AAAA-MM-DD HH:mm, #<entrada>) |` (la escribe `marcar-espera.ps1` del canal; el Estado de la ficha no cambia). «Quién» es `usuario`, `agente <Nombre>`, `tarea <ID>`, `cuota (reinicia <hora>)` o `ventana de integración`; sin la fila, o con `—`, la tarea está trabajando. El visor muestra:
+
+- **Insignia en la ficha** (pestaña Tareas): «espera tu decisión», resaltada, cuando se espera al usuario; «espera a X», en gris, para cualquier otra espera. Debajo van la pregunta, quién la hizo, desde cuándo y la entrada del canal. Una ficha `terminada` o `integrada` con la fila olvidada no muestra insignia.
+- **Panel «Esperan tu decisión»**, siempre visible sobre las pestañas, con un contador (también en el título de la página) de las esperas del usuario sin resolver: tarea, pregunta, quién pregunta, desde cuándo y número de entrada, la más antigua primero. Sin esperas muestra «Esperan tu decisión: 0».
+- **«resuelta, falta quitarla»**: una espera cuenta como resuelta cuando una entrada POSTERIOR del canal (`LOG.md`: número mayor que `#<entrada>` de la fila) de tipo `decisión` o `respuesta` cita el ID de la tarea en su título o en una línea `- tarea:`. El visor no borra nada: sigue listándola, marcada, hasta que quien tiene la tarea ejecute `marcar-espera.ps1 -Quitar`; la resuelta ya no suma al contador. Sin `LOG.md` ninguna espera se da por resuelta.
+- **«sin actividad»**: una ficha `en curso`, sin fila Espera y sin vigilante vivo (regla 36), cuya última fila del Historial es más vieja que `-SinActividadHoras` (6 por defecto) horas. Es una pista de que se detuvo sin avisar, no un estado de la ficha. Mientras haya fichas `en curso` sin espera, la página se regenera también cada 15 minutos para que la etiqueta aparezca sin que cambie ningún archivo.
+
+Las pruebas están en `tests/FLU-T06/` (fichas y `LOG.md` sintéticos; la parte de `marcar-espera.ps1` se prueba en el canal, en `validacion-esperas`).
