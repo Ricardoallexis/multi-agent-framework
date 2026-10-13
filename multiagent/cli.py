@@ -566,6 +566,21 @@ def cmd_project_stage(args) -> None:
         pretty(_api_json("POST", f"/api/v1/projects/{project}/stages/{_segment(args.group_id)}/close", json_body=base))
 
 
+def cmd_activity(args) -> None:
+    if args.activity_command == "start":
+        body = {"title": args.title, "actor": args.actor}
+        for name in ("executor", "idempotency_key", "objective"):
+            if getattr(args, name) is not None:
+                body[name] = getattr(args, name)
+        pretty(_api_json("POST", f"/api/v1/projects/{_segment(args.project_id)}/activities", json_body=body))
+    elif args.activity_command == "close":
+        pretty(_api_json("POST", f"/api/v1/activities/{_segment(args.activity_id)}/close",
+                         json_body={"summary": args.summary, "actor": args.actor}))
+    else:  # list
+        params = {name: getattr(args, name) for name in ("status", "since") if getattr(args, name) is not None}
+        pretty(_api_json("GET", f"/api/v1/projects/{_segment(args.project_id)}/activities", params=params or None))
+
+
 def cmd_task_session(args) -> None:
     task = _segment(args.task_id)
     if args.session_command == "link":
@@ -1215,6 +1230,21 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("project_id"); x.add_argument("group_id")
     x.add_argument("--actor", required=True); x.add_argument("--revision", type=int, required=True, help="The stage's revision")
     x.set_defaults(func=cmd_project_stage)
+
+    # Activities: lightweight tasks of a project, outside its stages (PRY-T09).
+    activity = sub.add_parser("activity", help="Start, close or list the activities of a project").add_subparsers(
+        dest="activity_command", required=True)
+    x = activity.add_parser("start", help="Start an activity (a person, an agent or an executor works on it now)")
+    x.add_argument("project_id"); x.add_argument("--title", required=True); x.add_argument("--actor", required=True)
+    x.add_argument("--executor", help="Leave it ready for this executor instead of starting it as --actor")
+    x.add_argument("--idempotency-key", dest="idempotency_key", help="A repeated key gives back the same activity")
+    x.add_argument("--objective"); x.set_defaults(func=cmd_activity)
+    x = activity.add_parser("close", help="Close a running activity with a short result")
+    x.add_argument("activity_id"); x.add_argument("--summary", required=True)
+    x.add_argument("--actor", required=True, help="Must be the one who started it"); x.set_defaults(func=cmd_activity)
+    x = activity.add_parser("list", help="The activities of a project, optionally of one label or changed since a day")
+    x.add_argument("project_id"); x.add_argument("--status", help="todo, ready, doing, done, failed or cancelled")
+    x.add_argument("--since", help="A day AAAA-MM-DD or an ISO date and time"); x.set_defaults(func=cmd_activity)
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)

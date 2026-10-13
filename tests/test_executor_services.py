@@ -796,5 +796,7 @@ def test_the_script_covers_every_public_operation():
     public = {name for name, member in vars(ExecutorServices).items() if callable(member) and not name.startswith("_")}
     assert set(operations.values()) <= public
     # The checkpoint operations (CNT-T03) are for the other services (hold and hand-off), not for HTTP or the CLI.
+    # The waits by condition (CNT-T12) are for the watcher process (CNT-T13), which calls the services itself.
     assert public - set(operations.values()) == {"build_adapters", "record_app_open", "session_guard",
-                                                 "checkpoint_limit", "latest_checkpoint", "retire_session"}
+                                                 "checkpoint_limit", "latest_checkpoint", "retire_session",
+                                                 "hold_on_condition", "record_approval", "check_waits", "resume_met"}

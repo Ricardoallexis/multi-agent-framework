@@ -7,7 +7,7 @@ from typing import Any, Callable, Mapping, Union
 from urllib.parse import urlsplit
 
 import anyio
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -360,6 +360,19 @@ class ProjectStageOrder(ProjectRevisionRequest):
 
 class TaskSessionLink(_Body):
     session_id: str
+    actor: str
+
+
+class ActivityStart(_Body):
+    title: str
+    actor: str
+    executor: str | None = None
+    idempotency_key: str | None = None
+    objective: str = ""
+
+
+class ActivityClose(_Body):
+    summary: str
     actor: str
 
 
@@ -723,6 +736,24 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         """``expected_revision`` is the stage's revision. Records the delivery of accepted tasks from their results."""
         return services.projects.close_stage(project_id, group_id, actor=body.actor,
                                              expected_revision=body.expected_revision)
+
+    # --- activities (PRY-T09, amendment 1 of the PRY contract) -----------------------
+
+    @app.post("/api/v1/projects/{project_id}/activities", status_code=201)
+    def start_activity(project_id: str, body: ActivityStart, response: Response):
+        """Start an activity of the project. 201 for a new one, 200 when ``idempotency_key`` found an earlier one."""
+        started = services.activities.start(project_id, body.title, actor=body.actor, executor=body.executor,
+                                            idempotency_key=body.idempotency_key, objective=body.objective)
+        response.status_code = 201 if started["created"] else 200
+        return started
+
+    @app.get("/api/v1/projects/{project_id}/activities")
+    def list_activities(project_id: str, status: str | None = None, since: str | None = None):
+        return services.activities.list(project_id, status=status, since=since)
+
+    @app.post("/api/v1/activities/{task_id}/close")
+    def close_activity(task_id: str, body: ActivityClose):
+        return services.activities.close(task_id, body.summary, actor=body.actor)
 
     @app.post("/api/v1/tasks/{task_id}/sessions")
     def link_task_session(task_id: str, body: TaskSessionLink):

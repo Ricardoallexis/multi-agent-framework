@@ -17,9 +17,11 @@ The ``continuity`` block::
 
 The ``hold``:
 
-- ``reason`` is why the task waits. Today it is one of ``LIMIT_REASONS`` (the four limit classes of CNT-T02). Other
-  waits (a dependency, an integration window, an approval, a restart: CNT-T12) are new values of ``reason`` with their
-  own condition; ``is_limit_hold`` tells them apart, and ``resume_due`` leaves any other reason to its own watcher.
+- ``reason`` is why the task waits. It is one of ``LIMIT_REASONS`` (the four limit classes of CNT-T02) or, for a wait by
+  condition (CNT-T12, ``waits.py``), ``dependency``, ``integration_window`` or ``approval``. ``is_limit_hold`` tells them
+  apart. A hold that carries a ``condition`` block (``is_condition_hold``), whatever its reason, is released by
+  ``resume_met`` after the condition is checked again, never by ``resume_due``; ``hold_due`` says ``has_condition`` for it
+  unless the caller has already checked the condition and passes ``condition_met``.
 - ``window``, ``reset_at``, ``reset_source``, ``reset_confidence``, ``reset_zone``: what the limit said (UTC, with source
   and confidence).
 - ``resume_after``: when the wait ends (UTC ``...Z``); ``None`` with ``open_ended`` true when only a person ends it.
@@ -51,8 +53,8 @@ from ..executors.limits import MAX_RESET_AHEAD, utc_iso, with_configured_reset
 
 __all__ = [
     "DEFAULT_MODE", "DRIFT_KEYS", "HoldPlan", "LIMIT_REASONS", "MAX_FAILED_RESUMES", "RATE_LIMIT_BACKOFF",
-    "RESUME_MARGIN", "build_hold", "continuity_of", "detect_drift", "hold_due", "hold_of", "is_limit_hold",
-    "merge_continuity", "parse_utc", "plan_hold",
+    "RESUME_MARGIN", "build_hold", "condition_of", "continuity_of", "detect_drift", "hold_due", "hold_of",
+    "is_condition_hold", "is_limit_hold", "merge_continuity", "parse_utc", "plan_hold",
 ]
 
 RESUME_MARGIN = timedelta(minutes=2)             # resume_after = reset_at + this (CNT-T01 section 3)
@@ -197,6 +199,17 @@ def is_limit_hold(hold: Mapping[str, Any] | None) -> bool:
     return bool(hold) and hold.get("reason") in LIMIT_REASONS      # type: ignore[union-attr]
 
 
+def condition_of(hold: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """The ``condition`` block of a hold (CNT-T12), or ``None``."""
+    block = hold.get("condition") if isinstance(hold, Mapping) else None
+    return dict(block) if isinstance(block, Mapping) and block else None
+
+
+def is_condition_hold(hold: Mapping[str, Any] | None) -> bool:
+    """True when the hold carries a condition: ``resume_met`` releases it, not ``resume_due``."""
+    return condition_of(hold) is not None
+
+
 def merge_continuity(execution: Mapping[str, Any] | None, changes: Mapping[str, Any]) -> dict[str, Any]:
     """``execution`` with ``changes`` merged into its ``continuity`` block; a ``None`` value removes that key.
 
@@ -219,9 +232,12 @@ def merge_continuity(execution: Mapping[str, Any] | None, changes: Mapping[str, 
 
 # --------------------------------------------------------------------------- due and drift
 
-def hold_due(hold: Mapping[str, Any], *, now: datetime, executor_paused: bool, lifted: bool = False) -> tuple[bool, str]:
+def hold_due(hold: Mapping[str, Any], *, now: datetime, executor_paused: bool, lifted: bool = False,
+             condition_met: bool | None = None) -> tuple[bool, str]:
     """Whether a limit hold may be resumed now, and why not when it may not: ``(due, reason)``.
 
+    - a hold with a condition (CNT-T12) is not due for ``resume_due`` (``has_condition``); a caller that has checked the
+      condition passes ``condition_met`` and then the hold is due only when it holds (``condition_pending`` otherwise);
     - another pause that is still in force on the executor waits (``executor_paused``);
     - a pause lifted by a person since the hold makes it due now (``lifted``), whatever its time;
     - an open ended hold (``credits_exhausted``) is due only that way;
@@ -231,6 +247,11 @@ def hold_due(hold: Mapping[str, Any], *, now: datetime, executor_paused: bool, l
         return False, "not_a_limit_hold"
     if hold.get("blocked"):
         return False, f"blocked:{hold['blocked']}"
+    if is_condition_hold(hold):
+        if condition_met is None:
+            return False, "has_condition"
+        if not condition_met:
+            return False, "condition_pending"
     if executor_paused:
         return False, "executor_paused"
     if lifted:

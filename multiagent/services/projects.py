@@ -30,6 +30,13 @@ Revisions
     Writes carry ``expected_revision``: the project's for ``update``, ``archive``, ``unarchive``, ``attach_stage``
     and ``reorder``; the stage's (group's) for ``close_stage``, which is what ``set_group_state`` checks.
 
+Activities (amendment 1 of PRY-T01)
+    A project may also have activities, lightweight tasks that live in the group ``<key>-ACT`` (kind ``activities``),
+    which sits outside the stages: it has no position, is never a stage of ``get`` or of ``reorder`` and ``close_stage``,
+    and its tasks count neither in the progress nor in «what you have to do». The view shows them apart as
+    ``activities`` (counts and their own progress); the ones in progress also appear in ``working_now``. The code
+    ``ACT`` is reserved in plans. The operations that start, close and list them are ``services.activities``.
+
 Every method returns JSON-ready data and raises only ``ServiceError``: ``not_found`` (project, stage, task),
 ``invalid_request`` (malformed data or plan, a dependency cycle, a payload over 2048 bytes) or ``invalid_state``
 (an existing id, a changed plan, a stale revision, a non-user actor, an archived project, or work in progress).
@@ -65,6 +72,7 @@ DEFAULT_VISIBILITY = "private"   # decision 5 of PRY-T01: a new project is priva
 DONE_PREFIX = "Terminado cuando: "
 MAX_DONE_WHEN = MAX_CONSTRAINT_CHARS - len(DONE_PREFIX)   # the whole restriction must fit the envelope's 200 characters
 _BUSY_STATES = ("claimed", "running", "paused", "validating")   # work in progress: the project cannot be archived
+ACTIVITIES_CODE = "ACT"   # the group <key>-ACT of a project's activities; not a valid stage code
 
 _KEY = re.compile(r"^[a-z][a-z0-9]{1,15}$")
 _CODE = re.compile(r"^[A-Z][A-Z0-9]{1,9}$")
@@ -82,6 +90,11 @@ _ACTOR_FORMS: dict[str, re.Pattern[str]] = {
     "agent": re.compile(r"^agent:(?P<app>[a-z0-9][a-z0-9_.-]{0,39})(?:/(?P<model>[A-Za-z0-9][A-Za-z0-9_.:+-]{0,59}))?$"),
     "executor": re.compile(r"^executor:[A-Za-z0-9][A-Za-z0-9_.-]{0,59}$"),
 }
+
+
+def activity_group_id(project_id: str) -> str:
+    """The id of the group that holds the activities of a project (``<key>-ACT``; it may not exist yet)."""
+    return f"{project_id}-{ACTIVITIES_CODE}"
 
 
 def actor_kind(actor: Any) -> str | None:
@@ -255,6 +268,8 @@ class ProjectServices:
             code = raw["code"]
             if not isinstance(code, str) or not _CODE.fullmatch(code):
                 raise _invalid(f"{path}.code", "code must be 2 to 10 uppercase letters or digits, starting with a letter")
+            if code == ACTIVITIES_CODE:
+                raise _invalid(f"{path}.code", f"The code {ACTIVITIES_CODE} is reserved for the project's activities")
             if code in codes:
                 raise _invalid(f"{path}.code", f"Repeated stage code: {code}")
             codes.append(code)
@@ -547,11 +562,24 @@ class ProjectServices:
                 "closed_at": closed_at, "counts": labels.counts(keys), "progress": labels.progress(keys),
                 "tasks": refs}
 
+    def _activity_refs(self, groups: Iterable[Mapping[str, Any]], ctx: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """The activities of these groups, in creation order, as task references (``kind = "activity"``)."""
+        refs = []
+        for group in groups:
+            refs.extend(self._task_ref(task, group, ctx) for task in ctx["tasks"].values()
+                        if task["group_id"] == group["id"])
+        return refs
+
     def _view(self, conn: sqlite3.Connection, project: Mapping[str, Any], ctx: Mapping[str, Any]) -> dict[str, Any]:
         groups = self._tasks.store.list_groups(project_id=project["id"], conn=conn)
-        stages = [self._stage_view(conn, project["id"], group, ctx) for group in groups]
+        # The activities group sits outside the stages: it takes no part in the stages, the progress or the attention.
+        stages = [self._stage_view(conn, project["id"], group, ctx) for group in groups
+                  if group.get("kind", "stage") == "stage"]
+        activity_groups = [group for group in groups if group.get("kind") == "activities"]
         refs = [ref for stage in stages for ref in stage["tasks"]]
         keys = [ref["label"]["key"] for ref in refs]
+        activities = self._activity_refs(activity_groups, ctx)
+        activity_keys = [ref["label"]["key"] for ref in activities]
 
         def by_key(*wanted: str) -> list[dict[str, Any]]:
             return [ref for ref in refs if ref["label"]["key"] in wanted]
@@ -570,13 +598,17 @@ class ProjectServices:
             "visibility": project["visibility"], "archived": project["archived"], "archived_at": project["archived_at"],
             "created_by": project["created_by"], "created_at": project["created_at"], "revision": project["revision"],
             "progress": labels.progress(keys), "counts": labels.counts(keys), "stages": stages,
+            "activities": {"group_id": activity_groups[0]["id"] if activity_groups else None,
+                           "total": len(activities), "doing": activity_keys.count("doing"),
+                           "done": activity_keys.count("done"), "counts": labels.counts(activity_keys),
+                           "progress": labels.progress(activity_keys)},
             "attention": {
                 "reviews": by_key("review"),
                 "verifications": [{k: v for k, v in stage.items() if k != "tasks"}
                                   for stage in stages if stage["label"]["key"] == "verify"],
                 "mine": mine, "blocked": blocked,
             },
-            "working_now": by_key("doing"),
+            "working_now": by_key("doing") + [ref for ref in activities if ref["label"]["key"] == "doing"],
             "milestones": [{"group_id": s["group_id"], "code": s["code"], "title": s["title"],
                             "position": s["position"], "planned": s["planned_end"], "actual": s["closed_at"]}
                            for s in stages],
@@ -596,8 +628,11 @@ class ProjectServices:
         ``progress`` (``done`` / (``total`` - ``cancelled``)), ``counts`` per task label, the ``stages`` in order
         (label, phases, planned dates, real ``closed_at`` and their tasks), ``attention`` («what you have to do»:
         ``reviews``, ``verifications``, ``mine`` and ``blocked`` with their blockers), ``working_now`` and
-        ``milestones`` (planned end and real closing of every stage). A value without a source is ``None``; nothing is
-        invented. Errors: ``not_found``.
+        ``milestones`` (planned end and real closing of every stage). ``activities`` counts the project's activities
+        apart (``group_id``, ``total``, ``doing``, ``done``, ``counts`` per label and their own ``progress``); they are
+        not in the stages, the progress, the counts or ``attention``, and the ones in progress are in ``working_now``
+        (every task there says its ``kind``). A value without a source is ``None``; nothing is invented.
+        Errors: ``not_found``.
         """
         with self.store.db.connect() as conn:
             return self._project_view_in(conn, _text("project_id", project_id, maximum=128))
@@ -607,8 +642,9 @@ class ProjectServices:
         """Projects in creation order: the active ones, or with ``archived=True`` only the archived ones.
 
         Each item has the identity of the project, its ``progress``, ``counts``, the number of ``stages`` and
-        ``needs_you`` (how many reviews, verifications, own tasks and blocked tasks wait). Runs create plain
-        projects too (by name): they appear here with no stages.
+        ``needs_you`` (how many reviews, verifications, own tasks and blocked tasks wait) and ``activities`` (their
+        ``total``, ``doing`` and ``done``, apart from the stages). Runs create plain projects too (by name): they
+        appear here with no stages.
         """
         with self.store.db.connect() as conn:
             ctx = self._context(conn, (g["id"] for g in self._tasks.store.list_groups(conn=conn) if g.get("project_id")))
@@ -618,6 +654,7 @@ class ProjectServices:
                 items.append({**{k: view[k] for k in ("id", "name", "title", "visibility", "archived", "archived_at",
                                                       "created_by", "created_at", "revision", "progress", "counts")},
                               "stages": len(view["stages"]),
+                              "activities": {k: view["activities"][k] for k in ("total", "doing", "done")},
                               "needs_you": {"reviews": len(view["attention"]["reviews"]),
                                             "verifications": len(view["attention"]["verifications"]),
                                             "mine": len(view["attention"]["mine"]),
@@ -732,12 +769,14 @@ class ProjectServices:
             self._stale(project, expected_revision)
             self._active(project)
             group = self._tasks._group_or_missing(group_id, conn)
+            if group.get("kind") == "activities":
+                raise _invalid("group_id", f"{group_id} holds activities and cannot be a stage", group_id=group_id)
             if group.get("project_id") == project["id"]:
                 return self._project_view_in(conn, project["id"])
             if group.get("project_id"):
                 raise _conflict(f"Group {group_id} already belongs to project {group['project_id']}",
                                 group_id=group_id, project_id=group["project_id"])
-            position = len(self._tasks.store.list_groups(project_id=project["id"], conn=conn)) + 1
+            position = len(self._tasks.store.list_groups(project_id=project["id"], kind="stage", conn=conn)) + 1
             self.store.attach_group(conn, group_id, project["id"], position)
             self.store.update_project(conn, project["id"], expected_revision=expected_revision)
             self._event(conn, "project.stage_attached", project["id"], actor=actor, group_id=group_id,
@@ -761,7 +800,7 @@ class ProjectServices:
             project = self._project_or_missing(conn, project_id)
             self._stale(project, expected_revision)
             self._active(project)
-            current = [g["id"] for g in self._tasks.store.list_groups(project_id=project["id"], conn=conn)]
+            current = [g["id"] for g in self._tasks.store.list_groups(project_id=project["id"], kind="stage", conn=conn)]
             if len(set(wanted)) != len(wanted) or sorted(wanted) != sorted(current):
                 raise _invalid("group_ids", "group_ids must list each stage of the project exactly once",
                                stages=current)
@@ -794,7 +833,7 @@ class ProjectServices:
             project = self._project_or_missing(conn, project_id)
             self._active(project)
             group = self._tasks._group_or_missing(group_id, conn)
-            if group.get("project_id") != project["id"]:
+            if group.get("project_id") != project["id"] or group.get("kind", "stage") != "stage":
                 raise ServiceError(NOT_FOUND, f"Stage not found in project {project['id']}: {group_id}", status=404,
                                    details={"project": project["id"], "group_id": group_id})
             if group["revision"] != expected_revision:

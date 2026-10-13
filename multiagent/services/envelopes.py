@@ -529,7 +529,8 @@ class EnvelopeServices:
 
         The task must be ``running`` and ``actor`` its assignee, as for
         ``submit``. Result and transition commit together; events
-        ``task.submitted`` and ``result.submitted``. The same task, attempt and
+        ``task.submitted`` and ``result.submitted`` (and ``task.accepted`` for an activity, which needs no
+        review). The same task, attempt and
         patch with the same content returns the stored result with
         ``duplicate`` true and writes nothing.
         Errors: ``not_found``, ``invalid_request`` (format, limits, a patch
@@ -562,7 +563,7 @@ class EnvelopeServices:
             if patch and blob is None:
                 raise _invalid("patch.blob", f"Unknown patch blob sha256:{patch}; store it with put_blob first")
             # The single transition function checks the status and the assignee.
-            view = self._tasks._apply(conn, task_id, "submit", actor=actor)
+            view = self._tasks._apply(conn, task_id, "submit", actor=actor, auto_accept=False)
             try:
                 row = self.store.insert_result(conn, task_id=task_id, attempt=attempt, agent=actor,
                                                result_json=encoded, result_sha256=digest, patch_sha256=patch)
@@ -575,6 +576,9 @@ class EnvelopeServices:
                 payload.update(patch_blob=blob_ref(patch), patch_size=blob["size"])
             self._tasks.store.append_event(conn, "result.submitted", actor=actor, group_id=task["group_id"],
                                            task_id=task_id, ref=ref, payload=payload)
+            if task.get("kind") == "activity":
+                # An activity needs no review: with its result stored, submitting it closes it (task.accepted).
+                view = self._tasks._accept_activity(conn, task_id, actor)
             return {"result": self._result_view(row), "duplicate": False, "task": view}
 
     @service_errors

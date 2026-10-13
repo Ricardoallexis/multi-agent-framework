@@ -203,6 +203,8 @@ class GateServices:
         normalized = normalize_checks(checks)
         with self._transaction() as conn:
             task = self._task_or_missing(task_id, conn)
+            if normalized and task.get("kind") == "activity":
+                raise _invalid("checks", "An activity has no gate: nobody reviews it", task_id=task_id)
             if task["state"] in TERMINAL_STATES or task["state"] == "validating":
                 raise _conflict(f"Task {task_id} is {task['state']}", task_id=task_id, state=task["state"])
             self.store.set_task_gate(conn, task_id, normalized)
@@ -217,6 +219,10 @@ class GateServices:
         actor = _text("actor", actor, maximum=100)
         normalized = normalize_checks(checks)
         with self._transaction() as conn:
+            group = self._tasks.store.get_group(group_id, conn=conn)
+            if normalized and group is not None and group.get("kind") == "activities":
+                raise _invalid("checks", "The activities of a project have no gate: nobody reviews them",
+                               group_id=group_id)
             if not self.store.set_group_gate(conn, group_id, normalized):
                 raise _missing("Group", group_id)
             self._tasks.store.append_event(conn, "gate.updated", actor=actor, group_id=group_id,

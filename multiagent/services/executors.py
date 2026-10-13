@@ -43,6 +43,27 @@ events ``executor.paused`` and ``continuity.held`` go with it. No state and no m
   higher; three failed resumptions in a row stop the automatic resume (a person decides).
 - Running or resuming a held task by hand clears its hold (``continuity.resumed`` with ``trigger`` ``manual``).
 
+Waits by condition (CNT-T12, contract Amendment 2, ``waits.py``): a task can wait for something that is not a limit. Its
+hold keeps the same keys and adds ``id`` and a sibling ``condition`` block; its ``reason`` is ``dependency``,
+``integration_window`` or ``approval`` (a limit hold may carry a condition too: then the reset time and the condition must
+both hold). Nothing in the activation uses a model: ``waits.py`` checks structured conditions against facts and a clock.
+
+- ``hold_on_condition`` pauses a task (or adds the hold to a paused one) with a condition, a deadline (default 12 hours) and
+  the executor and session that will be resumed. ``record_approval`` records a person's decision for an ``approval``
+  condition (never one made by ``system:*`` or ``executor:*``).
+- ``check_waits`` is what a watcher (CNT-T13) calls on each tick: it checks every condition, records the instant a
+  condition is first seen to hold (``condition.met_at`` and ``continuity.condition_met``, once) or that its deadline passed
+  (``continuity.condition_expired``, once; the hold is then ``blocked`` with ``condition_expired`` and a person decides),
+  and returns the honest progress of each wait. Checks themselves are not events.
+- ``resume_met`` sits next to ``resume_due`` and releases the holds that carry a condition. It checks the condition again
+  at that moment, and revalidates the attempt before resuming: the task is still ``paused``, still owned by the agent that
+  held it, in the same attempt and hold (``hold_id`` and ``attempt`` when the watcher names them), the condition holds
+  now, the minimum time (``resume_after``) has passed, the executor is not paused, and the session is not open in an app.
+  Then it resumes as ``resume_due`` does (``continuity.resumed`` with ``trigger`` ``condition``). ``resume_due`` leaves these
+  holds to it (``has_condition``).
+- The world a condition reads comes from the task store (dependencies, the approvals recorded in the condition) and from two
+  hooks a watcher process sets: ``integration_source(window_id, now)`` and ``approval_source(task_id, approval_id)``.
+
 ``resume_task`` continues the session the framework created for the task (the latest ``executor.session_recorded``
 event), never one it did not create, and refuses a session that was opened in an app in the last 12 hours
 (``session.opened_in_app``, written by ``record_app_open`` when the GUI launches Claude or ``open_target`` hands out a
@@ -79,14 +100,18 @@ executor id; the limit class, ``reset_*`` and ``open_ended`` when a limit caused
 is the executor id: who lifted it and why), ``session.opened_in_app`` (``ref`` is the session id),
 ``continuity.limit_detected`` (``ref`` is the executor id), ``task.checkpointed`` (``ref`` is the patch blob, empty
 without a patch), ``session.retired`` (``ref`` is the session id), ``continuity.held`` (the task now waits: reason,
-``resume_after``, mode, outcome, hand-offs) and ``continuity.resumed`` (``ref`` is the executor id: ``resume`` or
-``relaunch``, minutes waited, ``config_drift``).
+``resume_after``, mode, outcome, hand-offs, and the condition's summary for a wait by condition),
+``continuity.resumed`` (``ref`` is the executor id: ``resume`` or ``relaunch``, minutes waited, ``config_drift``),
+``continuity.condition_met`` and ``continuity.condition_expired`` (``ref`` is the executor id; the type, the parts with what
+each said, minutes waited, the deadline; at most once per hold).
 
 Errors (``ServiceError``): ``not_found`` (task, executor), ``invalid_request`` (malformed ids or limits, a request the
 adapter refuses) and ``invalid_state`` (``details.reason`` says why: ``executor_disabled``, ``executor_without_adapter``,
 ``executor_paused``, ``executor_unavailable``, ``task_not_runnable``, ``no_stored_session``, ``session_open_in_app``,
 ``assignment_not_selected``, ``model_not_supported``, ``effort_not_supported``, ``workdir_invalid``, ``session_retired``,
-``hold_changed``, ``relaunch_failed``). ``model_not_supported``
+``hold_changed``, ``relaunch_failed``, and for a wait by condition ``task_not_holdable``, ``already_held``,
+``task_without_assignee``, ``not_waiting_for_approval``, ``approver_not_allowed``, ``approver_mismatch``,
+``already_decided``, ``condition_not_met``). ``model_not_supported``
 and ``effort_not_supported`` refuse a value the caller named; one that came from the profile is dropped instead.
 """
 from __future__ import annotations
@@ -97,6 +122,7 @@ import logging
 import os
 import re
 import threading
+import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
@@ -107,6 +133,7 @@ from ..db.envelope_store import HARD_MAX_BLOB_BYTES
 from ..errors import MultiAgentError
 from ..executors import process
 from ..executors.contract import ExecutorApplicationAdapter, ExecutorLaunchRequest, OpenTarget, Permission
+from ..executors.limits import utc_iso
 from ..executors.selection import ExecutorSelection, select_for_executor, select_for_resume
 from ..routing.executor_capabilities import CapabilityEvidence, SupportState
 from ..routing_policy import STEP_KINDS
@@ -114,6 +141,7 @@ from ..sessions.models import is_uuid
 from ..tasks.envelopes import MAX_CONSTRAINTS, MAX_CONTEXT_REFS, EnvelopeError
 from . import checkpoint as _checkpoint
 from . import hold as _hold
+from . import waits as _waits
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
 from .tasks import _TASK_ID, _text
 
@@ -135,8 +163,13 @@ RETIRED_EVENT = "session.retired"
 PAUSE_LIFTED_EVENT = "executor.pause_lifted"
 HELD_EVENT = "continuity.held"
 RESUMED_EVENT = "continuity.resumed"
+CONDITION_MET_EVENT = "continuity.condition_met"
+CONDITION_EXPIRED_EVENT = "continuity.condition_expired"
 EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, PAUSE_EVENT, OPEN_EVENT, LIMIT_EVENT, CHECKPOINT_EVENT,
-               RETIRED_EVENT, PAUSE_LIFTED_EVENT, HELD_EVENT, RESUMED_EVENT)
+               RETIRED_EVENT, PAUSE_LIFTED_EVENT, HELD_EVENT, RESUMED_EVENT, CONDITION_MET_EVENT, CONDITION_EXPIRED_EVENT)
+WATCHER_ACTOR = "system:watcher"          # who records the end of a wait by condition (CNT-T12); it resumes as the assignee
+AUTO_TRIGGERS = ("auto", "condition")     # resumptions the service makes by itself: a limit that returns counts as a failed one
+NOT_APPROVERS = ("system:", "executor:")  # the framework never approves in the name of a person
 RETIRE_REASONS = ("handoff", "superseded")
 DEFAULT_MAX_HANDOFFS = 1                  # contract section 7 until the policy (CNT-T05) supplies one
 
@@ -290,6 +323,10 @@ class ExecutorServices:
         # A test sets ``clock`` to move time; every "until" and the 12 hour rule read it.
         self.clock: Callable[[], datetime] = clock or (lambda: datetime.now(timezone.utc))
         self._checkpoint_lock = threading.Lock()      # one checkpoint at a time: the second detection finds the first
+        # What a wait by condition cannot read from the task store (CNT-T12). A watcher process sets them to read the
+        # integrations and the approvals wherever they are recorded; ``None`` means the service knows nothing of them.
+        self.integration_source: Callable[[str, datetime], _waits.IntegrationFacts | None] | None = None
+        self.approval_source: Callable[[str, str], _waits.ApprovalFact | None] | None = None
 
     # -------- wiring --------
     @property
@@ -609,8 +646,8 @@ class ExecutorServices:
                  resume_session: str | None, recorded: Mapping[str, Any] | None = None,
                  hold: Mapping[str, Any] | None = None, trigger: str = "manual",
                  drift: tuple[str, ...] = ()) -> dict[str, Any]:
-        """One attempt. ``hold`` and ``trigger`` (``auto`` from ``resume_due``, else ``manual``) say what hold this run
-        ends; ``drift`` is what ``resume_due`` found different before relaunching; ``recorded`` the settings of the
+        """One attempt. ``hold`` and ``trigger`` (``auto`` from ``resume_due``, ``condition`` from ``resume_met``, else
+        ``manual``) say what hold this run ends; ``drift`` is what ``resume_due`` found different before relaunching; ``recorded`` the settings of the
         session being resumed (to compare with what the app reports)."""
         task_id = task["id"]
         mode = "resume" if resume_session else "launch"
@@ -676,7 +713,7 @@ class ExecutorServices:
         new_hold: dict[str, Any] | None = None
         if submission is None and outcome == "quota_exhausted":
             outcome_hold = self._hold_after_limit(attempt, plan, view, actor, workdir, permission, prior=prior,
-                                                  auto=trigger == "auto", drift=reported)
+                                                  auto=trigger in AUTO_TRIGGERS, drift=reported)
             paused_until, new_hold, saved = outcome_hold["until"], outcome_hold["hold"], outcome_hold["checkpoint"]
             task_note, checkpoint_note = outcome_hold["task_note"], outcome_hold["checkpoint_note"]
         else:
@@ -952,7 +989,7 @@ class ExecutorServices:
     def checkpoint_limit(self, task_id: str, limit: Any = None, *, session_id: str | None = None,
                          executor_id: str | None = None, attempt: int | None = None, workdir: Path | str | None = None,
                          last_message: str = "", actor: str | None = None, retries_left: int = 0,
-                         retire: str | None = None) -> dict[str, Any]:
+                         retire: str | None = None, record_limit: bool = True) -> dict[str, Any]:
         """Save the work of an executor that hit a limit (contract section 5); idempotent per task, attempt and session.
 
         ``limit`` is what the adapter reported (CNT-T02: ``{kind, window, reset_at, reset_source, reset_confidence,
@@ -971,7 +1008,8 @@ class ExecutorServices:
 
         A ``rate_limited`` limit with ``retries_left`` above zero saves nothing (``skipped``): the attempt will be retried.
         ``retire`` (``handoff`` or ``superseded``) also retires the session (``retire_session``); without it the session
-        stays resumable, because a wait that ends may continue it with its history.
+        stays resumable, because a wait that ends may continue it with its history. ``record_limit`` false (a wait that is
+        not a limit, CNT-T12) saves the checkpoint without ``continuity.limit_detected`` and without a ``limit_kind``.
 
         Returns ``{task_id, saved, created, skipped, attempt, session_id, executor_id, limit_kind, base_commit, patch,
         patch_reason, summary, files, files_total, seq, created_at, limit, constraints, context_refs, context, retired}``.
@@ -1009,13 +1047,15 @@ class ExecutorServices:
                     "attempt": attempt, "session_id": sid or None, "executor_id": executor_id or None, "limit": info,
                     "retired": None}
         with self._checkpoint_lock:
-            result = self._write_checkpoint(task, info, sid, executor_id, attempt, workdir, last_message, actor)
+            result = self._write_checkpoint(task, info, sid, executor_id, attempt, workdir, last_message, actor,
+                                            record_limit)
         result["retired"] = (self.retire_session(sid, reason=retire, actor=actor)
                              if retire and sid and is_uuid(sid) else None)
         return result
 
     def _write_checkpoint(self, task: Mapping[str, Any], info: dict[str, Any], sid: str, executor_id: str, attempt: int,
-                          workdir: Path | str | None, last_message: str, actor: str) -> dict[str, Any]:
+                          workdir: Path | str | None, last_message: str, actor: str,
+                          record_limit: bool = True) -> dict[str, Any]:
         task_id = str(task["id"])
         envelopes = self._services.envelopes
         folder = Path(workdir) if workdir is not None else self._known_workdir(task_id, executor_id)
@@ -1048,7 +1088,8 @@ class ExecutorServices:
         payload = _checkpoint.fit_payload({
             "attempt": attempt, "session_id": sid or None, "executor_id": executor_id or None,
             "base_commit": patch.base_commit, "patch": ref, "patch_size": size, "patch_reason": patch.reason,
-            "limit_kind": info["kind"], "summary": summary, "files": files[:20], "files_total": len(files)},
+            **({"limit_kind": info["kind"]} if record_limit else {}), "summary": summary, "files": files[:20],
+            "files_total": len(files)},
             EVENT_PAYLOAD_BUDGET, ("files", "summary"))
         detected = _checkpoint.fit_payload({"attempt": attempt, "session_id": sid or None,
                                             "executor_id": executor_id or None, **info},
@@ -1059,12 +1100,14 @@ class ExecutorServices:
             if again is not None:           # another process wrote it between the check and now
                 return self._checkpoint_view(again, created=False)
             # Both events in one transaction: a checkpoint never lacks its detection, nor the reverse.
-            self._store.append_event(conn, LIMIT_EVENT, actor=actor, group_id=group_id, task_id=task_id,
-                                     cause="limit detected", ref=executor_id, payload=detected)
+            if record_limit:
+                self._store.append_event(conn, LIMIT_EVENT, actor=actor, group_id=group_id, task_id=task_id,
+                                         cause="limit detected", ref=executor_id, payload=detected)
             seq = self._store.append_event(conn, CHECKPOINT_EVENT, actor=actor, group_id=group_id, task_id=task_id,
                                            cause="checkpoint saved", ref=ref or "", payload=payload)
         event = {"task_id": task_id, "payload": payload, "seq": seq, "created_at": _iso(self.clock())}
-        return {**self._checkpoint_view(event, created=True), "limit": info, "constraints": constraints,
+        return {**self._checkpoint_view(event, created=True), "limit": info if record_limit else None,
+                "constraints": constraints,
                 "context_refs": context["context_refs"], "context": context["state"]}
 
     def _attach_context(self, task_id: str, ref: str | None, constraints: list[str], earlier_ref: str | None,
@@ -1167,6 +1210,8 @@ class ExecutorServices:
         """``("due" | "waiting" | "skipped", info)`` for one held task."""
         info = {"task_id": task["id"], "reason": hold.get("reason"), "executor_id": hold.get("executor_id"),
                 "resume_after": hold.get("resume_after"), "open_ended": bool(hold.get("open_ended"))}
+        if _hold.is_condition_hold(hold):
+            return "skipped", {**info, "why": "has_condition"}        # a wait by condition: ``resume_met`` releases it
         if not _hold.is_limit_hold(hold):
             return "skipped", {**info, "why": "not_a_limit_hold"}     # another wait: its own watcher resumes it
         if task["assignee"] != hold.get("actor"):
@@ -1241,13 +1286,16 @@ class ExecutorServices:
                                        "message": exc.message})
         return out
 
-    def _resume_one(self, info: Mapping[str, Any], seen: Mapping[str, Any], timeout_seconds: int | None) -> dict[str, Any]:
+    def _resume_one(self, info: Mapping[str, Any], seen: Mapping[str, Any], timeout_seconds: int | None,
+                    trigger: str = "auto") -> dict[str, Any]:
         task_id = str(info["task_id"])
         task = self._tasks.get_task(task_id)
         hold = dict((task.get("continuity") or {}).get("hold") or {})
-        if (task["state"] != "paused" or not hold or hold.get("since") != seen.get("since")
-                or hold.get("pause_seq") != seen.get("pause_seq") or task["assignee"] != hold.get("actor")):
+        if (task["state"] != "paused" or not hold or not self._same_hold(hold, seen)
+                or task["assignee"] != hold.get("actor")):
             raise _conflict("hold_changed", "The task or its hold changed since it was checked", task_id=task_id)
+        if trigger == "condition" and not (_hold.condition_of(hold) or {}).get("met_at"):
+            raise _conflict("condition_not_met", "The condition of the hold was not recorded as met", task_id=task_id)
         actor, executor_id = str(hold["actor"]), str(hold.get("executor_id") or "")
         descriptor, adapter, _declaration = self._executor(executor_id)         # a paused or disabled executor waits
         sid = str(hold["session_id"]).lower() if hold.get("session_id") else ""
@@ -1266,11 +1314,11 @@ class ExecutorServices:
                    and descriptor.resume.status is SupportState.SUPPORTED and not drift)
         if history:
             result = self._resume_task(task_id, None, None, actor, timeout_seconds=timeout_seconds, hold=hold,
-                                       trigger="auto")
+                                       trigger=trigger)
         else:
             self._supersede(task_id, hold, actor)
             result = self._relaunch(task_id, executor_id, recorded.get("model"), recorded.get("effort"), actor, hold,
-                                    drift, timeout_seconds)
+                                    drift, timeout_seconds, trigger)
         since = _hold.parse_utc(hold.get("since"))
         waited = max(int((self.clock() - since).total_seconds() // 60), 0) if since is not None else None
         return {"task_id": task_id, "mode": "resume" if history else "relaunch", "outcome": result["outcome"],
@@ -1292,6 +1340,11 @@ class ExecutorServices:
             current["workdir"] = _workdir_id(folder)
         return _hold.detect_drift(recorded, current)
 
+    @staticmethod
+    def _same_hold(current: Mapping[str, Any], seen: Mapping[str, Any]) -> bool:
+        """True when ``current`` is the hold ``seen`` was read from (a hold is told by its ``since``, ``pause_seq`` and ``id``)."""
+        return all(current.get(key) == seen.get(key) for key in ("since", "pause_seq", "id"))
+
     def _supersede(self, task_id: str, hold: Mapping[str, Any], actor: str) -> None:
         """Before a relaunch: make sure the checkpoint exists and retire the held session as ``superseded``."""
         sid = str(hold["session_id"]).lower() if hold.get("session_id") else ""
@@ -1301,7 +1354,8 @@ class ExecutorServices:
         try:
             self.checkpoint_limit(task_id, limit, session_id=sid, executor_id=hold.get("executor_id"),
                                   attempt=attempt if isinstance(attempt, int) and not isinstance(attempt, bool)
-                                  and attempt >= 1 else None, actor=actor, retries_left=0, retire="superseded")
+                                  and attempt >= 1 else None, actor=actor, retries_left=0, retire="superseded",
+                                  record_limit=_hold.is_limit_hold(hold))
         except ServiceError:
             if sid and is_uuid(sid):
                 try:
@@ -1310,12 +1364,13 @@ class ExecutorServices:
                     _logger.info("session %s of %s was not retired", sid, task_id)
 
     def _relaunch(self, task_id: str, executor_id: str, model: str | None, effort: str | None, actor: str,
-                  hold: Mapping[str, Any], drift: tuple[str, ...], timeout_seconds: int | None) -> dict[str, Any]:
+                  hold: Mapping[str, Any], drift: tuple[str, ...], timeout_seconds: int | None,
+                  trigger: str = "auto") -> dict[str, Any]:
         """A new session with the recorded model and effort; one the executor no longer takes is dropped, not an error."""
         for _ in range(3):
             try:
                 return self._run_task(task_id, executor_id, model, effort, actor, timeout_seconds=timeout_seconds,
-                                      hold=hold, trigger="auto", drift=drift)
+                                      hold=hold, trigger=trigger, drift=drift)
             except ServiceError as exc:
                 reason = exc.details.get("reason")
                 if reason == "model_not_supported" and model is not None:
@@ -1325,6 +1380,425 @@ class ExecutorServices:
                 else:
                     raise
         raise _conflict("relaunch_failed", "The relaunch could not choose a model and effort", task_id=task_id)
+
+    # -------- waits by condition (CNT-T12) --------
+    @service_errors
+    def hold_on_condition(self, task_id: str, condition: Mapping[str, Any], *, reason: str | None = None,
+                          actor: str | None = None, executor_id: str | None = None,
+                          deadline_minutes: int | None = None, resume_after: Any = None,
+                          watcher_id: str | None = None) -> dict[str, Any]:
+        """Make a task wait for a condition (contract Amendment 2); no model decides when it ends.
+
+        ``condition`` is ``{type, params}`` (see ``waits.normalize_condition``: ``time``, ``dependency``,
+        ``integration_window``, ``approval``, or ``all`` of several). ``reason`` names the wait (``dependency``,
+        ``integration_window`` or ``approval``); without it the first part that depends on someone names it. The deadline is
+        ``deadline_minutes`` from now (default 12 hours): past it the wait is given up (``continuity.condition_expired``).
+        ``resume_after`` is a minimum time: the hold is not released before it. ``watcher_id`` is the process that watches.
+
+        A ``running`` task is paused with its hold in one update; a ``paused`` one without a hold only gets the hold. A paused
+        task that is held by a usage limit (and has no condition yet) gets the condition added to its hold: then the reset
+        time and the condition must both hold. The executor and the session that will be resumed are the task's last recorded
+        ones, or ``executor_id`` (a session of another executor is not resumed: the task is relaunched). Returns ``{task_id,
+        hold, task}``. Errors: ``invalid_request``, ``not_found``, ``invalid_state`` (``task_not_holdable``, ``already_held``,
+        ``task_without_assignee``).
+        """
+        task_id = self._task_id(task_id)
+        if deadline_minutes is not None and (isinstance(deadline_minutes, bool) or not isinstance(deadline_minutes, int)
+                                             or deadline_minutes < 1):
+            raise _invalid("deadline_minutes", "deadline_minutes must be an integer of one or more")
+        if executor_id is not None and (not isinstance(executor_id, str) or not _EXECUTOR_ID.fullmatch(executor_id)):
+            raise _invalid("executor_id", f"Invalid executor_id: {executor_id!r}")
+        task = self._tasks.get_task(task_id)
+        if task["state"] not in ("running", "paused"):
+            raise _conflict("task_not_holdable", f"Task {task_id} is {task['state']}; only a running or paused task "
+                            "waits on a condition", task_id=task_id, status=task["state"])
+        existing = self._view_hold(task)
+        if existing is not None and not (_hold.is_limit_hold(existing) and not _hold.is_condition_hold(existing)):
+            raise _conflict("already_held", f"Task {task_id} already waits", task_id=task_id)
+        assignee = str(task.get("assignee") or "")
+        if not assignee:
+            raise _conflict("task_without_assignee", f"Task {task_id} has no assignee to resume", task_id=task_id)
+        actor = _text("actor", actor if actor is not None else assignee, maximum=100)
+        now = self.clock()
+        minimum = None
+        if resume_after is not None:
+            minimum = _hold.parse_utc(resume_after)
+            if minimum is None:
+                raise _invalid("resume_after", "resume_after must be a time")
+        try:
+            block = _waits.normalize_condition(
+                condition, now=now, deadline=timedelta(minutes=deadline_minutes) if deadline_minutes else None,
+                watcher_id=watcher_id)
+            why = existing["reason"] if existing is not None else _waits.reason_for(block, reason)
+            if existing is not None and reason is not None and reason != why:
+                raise _waits.WaitError("reason", f"the task is held by {why}; the reason stays {why}")
+        except _waits.WaitError as exc:
+            raise _invalid(exc.field, str(exc)) from None
+        prior = dict(task.get("continuity") or {})
+        if existing is not None:
+            # A usage limit hold gets a condition: the reset time and the condition must both hold.
+            hold = {**existing, "id": existing.get("id") or uuid.uuid4().hex[:16], "condition": block}
+            if minimum is not None:
+                hold["resume_after"] = utc_iso(max(minimum, _hold.parse_utc(existing.get("resume_after")) or minimum))
+            reset = _hold.parse_utc(hold.get("resume_after")) if hold.get("resume_after") else None
+            if reset is not None and reset > _hold.parse_utc(block["deadline_at"]):
+                raise _invalid("deadline_minutes", "The deadline of the condition is before the time the limit resets")
+            self._tasks._edit_continuity(task_id, {"hold": hold}, actor=actor, expected_revision=task["revision"])
+        else:
+            stored = self._stored_session(task_id)
+            executor_id = executor_id or (str(stored.get("executor_id") or "") if stored else "")
+            if not executor_id:
+                raise _invalid("executor_id", "Give executor_id: no session of this task was recorded by the framework")
+            if self.registry.get(executor_id) is None:
+                raise _missing("Executor", executor_id)
+            same = stored is not None and str(stored.get("executor_id") or "") == executor_id
+            settings = _session_settings(stored) if same and stored is not None else {}
+            folder = self._known_workdir(task_id, executor_id)
+            if folder is not None:
+                settings["workdir"] = _workdir_id(folder)
+            hold = _waits.build_wait_hold(
+                block, reason=why, now=now, hold_id=uuid.uuid4().hex[:16], executor_id=executor_id, actor=assignee,
+                session_id=str(stored["session_id"]) if same and stored is not None else None,
+                attempt=int(task["attempt"]), settings=settings, resume_after=minimum)
+            changes: dict[str, Any] = {"hold": hold}
+            if "handoffs" not in prior:
+                changes["handoffs"] = 0
+            if not prior.get("chain"):
+                changes["chain"] = [executor_id]
+            if task["state"] == "running":
+                self._tasks.transition(task_id, "pause", actor=assignee, cause=f"waiting for {why}",
+                                       expected_revision=task["revision"], continuity=changes)
+            else:
+                self._tasks._edit_continuity(task_id, changes, actor=actor, expected_revision=task["revision"])
+        payload = {"reason": hold["reason"], "resume_after": hold.get("resume_after"), "open_ended": False,
+                   "outcome": hold.get("outcome") or "wait_condition", "mode": hold.get("mode"),
+                   "executor_id": hold.get("executor_id"), "attempt": hold.get("attempt"), "hold_id": hold["id"],
+                   "handoffs": int(prior.get("handoffs") or 0),
+                   "max_handoffs": int(prior.get("max_handoffs") or DEFAULT_MAX_HANDOFFS), "failed_resumes": 0,
+                   "condition": _waits.summarize(block)}
+        self._append(HELD_EVENT, actor=actor, task=task, ref=str(hold.get("executor_id") or ""),
+                     cause=f"held: {hold['reason']}", payload={key: value for key, value in payload.items()
+                                                              if value is not None})
+        return {"task_id": task_id, "hold": hold, "task": self._tasks.get_task(task_id)}
+
+    @service_errors
+    def record_approval(self, task_id: str, approval_id: str, *, approved: bool, by: str) -> dict[str, Any]:
+        """Record a person's decision for an ``approval`` condition of a held task; the next check sees it.
+
+        The decision is kept in the condition (``decisions``) with who made it and when. The framework never approves in the
+        name of a person: ``by`` cannot start with ``system:`` or ``executor:``, and when the condition names an ``approver``
+        only that one decides. Deciding the same way again changes nothing; deciding the other way is refused. A rejection
+        cannot be waited out (the check reports ``approval_rejected``). Returns ``{task_id, approval_id, status, by, created,
+        hold_id}``. Errors: ``invalid_request``, ``invalid_state`` (``not_waiting_for_approval``, ``approver_not_allowed``,
+        ``approver_mismatch``, ``already_decided``, ``hold_changed``).
+        """
+        task_id = self._task_id(task_id)
+        try:
+            approval_id = _waits.check_token(approval_id, "approval_id")
+        except _waits.WaitError as exc:
+            raise _invalid(exc.field, str(exc)) from None
+        if not isinstance(approved, bool):
+            raise _invalid("approved", "approved must be true or false")
+        by = _text("by", by, maximum=100)
+        if by.startswith(NOT_APPROVERS):
+            raise _conflict("approver_not_allowed", "A program does not approve in the name of a person", task_id=task_id)
+        task = self._tasks.get_task(task_id)
+        hold = self._view_hold(task)
+        condition = _hold.condition_of(hold)
+        leaf = None
+        if task["state"] == "paused" and hold is not None and condition is not None:
+            try:
+                leaf = next((item for item in _waits.condition_leaves(condition)
+                             if item.get("type") == _waits.APPROVAL
+                             and (item.get("params") or {}).get("approval") == approval_id), None)
+            except _waits.WaitError:
+                leaf = None
+        if leaf is None or hold is None or condition is None:
+            raise _conflict("not_waiting_for_approval", f"Task {task_id} does not wait for approval {approval_id}",
+                            task_id=task_id, approval_id=approval_id)
+        approver = (leaf.get("params") or {}).get("approver")
+        if approver and by != approver:
+            raise _conflict("approver_mismatch", f"Only {approver} decides this approval", task_id=task_id,
+                            approval_id=approval_id)
+        status = "approved" if approved else "rejected"
+        earlier = (condition.get("decisions") or {}).get(approval_id)
+        if isinstance(earlier, Mapping):
+            if earlier.get("status") != status:
+                raise _conflict("already_decided", f"Approval {approval_id} was already {earlier.get('status')}",
+                                task_id=task_id, approval_id=approval_id)
+            return {"task_id": task_id, "approval_id": approval_id, "status": status, "by": earlier.get("by"),
+                    "created": False, "hold_id": hold.get("id")}
+        decided_at = utc_iso(self.clock())
+
+        def mutate(current: dict[str, Any]) -> dict[str, Any] | None:
+            block = dict(_hold.condition_of(current) or {})
+            decisions = dict(block.get("decisions") or {})
+            if approval_id in decisions:
+                return None
+            decisions[approval_id] = {"status": status, "by": by, "at": decided_at}
+            return {**current, "condition": {**block, "decisions": decisions}}
+
+        if self._update_hold(task_id, hold, mutate, by) is None:
+            raise _conflict("hold_changed", "The task or its hold changed since it was read", task_id=task_id)
+        return {"task_id": task_id, "approval_id": approval_id, "status": status, "by": by, "created": True,
+                "hold_id": hold.get("id")}
+
+    @staticmethod
+    def _view_hold(task: Mapping[str, Any]) -> dict[str, Any] | None:
+        """The hold of a task as ``get_task`` shows it (under ``continuity``), or ``None``."""
+        hold = (task.get("continuity") or {}).get("hold")
+        return dict(hold) if isinstance(hold, Mapping) and hold else None
+
+    def _update_hold(self, task_id: str, seen: Mapping[str, Any],
+                     mutate: Callable[[dict[str, Any]], dict[str, Any] | None], actor: str) -> dict[str, Any] | None:
+        """Rewrite the hold of a paused task when it is still the one that was seen; the new hold, or ``None``.
+
+        ``mutate`` gets the current hold and returns the new one, or ``None`` to leave it (someone else already did what it
+        was going to do). A task that moved on, a hold that is another one or a ``mutate`` that declines give ``None``; a
+        revision that went stale between the read and the write is read again once.
+        """
+        for _ in range(2):
+            task = self._tasks.get_task(task_id)
+            current = self._view_hold(task)
+            if task["state"] != "paused" or current is None or not self._same_hold(current, seen):
+                return None
+            updated = mutate(current)
+            if updated is None:
+                return None
+            try:
+                self._tasks._edit_continuity(task_id, {"hold": updated}, actor=actor, expected_revision=task["revision"])
+            except ServiceError as exc:
+                if exc.details.get("revision") is not None:      # stale: read it again
+                    continue
+                raise
+            return updated
+        return None
+
+    def _condition_rows(self, task_id: str | None) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]],
+                                                            dict[str, str], dict[str, datetime]]:
+        """The paused tasks that hold a condition, with the states of all tasks and the earliest each held task can restart."""
+        tasks = self._store.list_tasks()
+        states = {str(task["id"]): str(task["state"]) for task in tasks}
+        rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        floors: dict[str, datetime] = {}
+        for task in tasks:
+            hold = _hold.hold_of(task) if task["state"] == "paused" else None
+            if hold is None:
+                continue
+            floor = _waits.not_before_of_hold(hold)
+            if floor is not None:
+                floors[str(task["id"])] = floor
+            if _hold.is_condition_hold(hold) and (task_id is None or task["id"] == task_id):
+                rows.append((task, hold))
+        return rows, states, floors
+
+    def _wait_facts(self, task: Mapping[str, Any], hold: Mapping[str, Any], now: datetime, states: Mapping[str, str],
+                    floors: Mapping[str, datetime]) -> _waits.WaitFacts:
+        """What a condition may read: the task store, plus the two hooks of a watcher process (a broken hook is no evidence)."""
+        condition = _hold.condition_of(hold) or {}
+        try:
+            leaves = _waits.condition_leaves(condition)
+        except _waits.WaitError:
+            leaves = []
+        decided = condition.get("decisions") if isinstance(condition.get("decisions"), Mapping) else {}
+        integrations: dict[str, _waits.IntegrationFacts] = {}
+        approvals: dict[str, _waits.ApprovalFact] = {}
+        for leaf in leaves:
+            params = leaf.get("params") or {}
+            if leaf.get("type") == _waits.INTEGRATION_WINDOW and self.integration_source is not None:
+                window = str(params.get("window"))
+                try:
+                    found = self.integration_source(window, now)
+                except Exception:               # a watcher's reader must not stop the check: no evidence
+                    _logger.exception("integration source failed for window %s", window)
+                    found = None
+                if found is not None:
+                    integrations[window] = found
+            elif leaf.get("type") == _waits.APPROVAL:
+                key = str(params.get("approval"))
+                fact = None
+                if self.approval_source is not None:
+                    try:
+                        fact = self.approval_source(str(task["id"]), key)
+                    except Exception:
+                        _logger.exception("approval source failed for %s", key)
+                if fact is None and isinstance(decided.get(key), Mapping):
+                    stored = decided[key]
+                    fact = _waits.ApprovalFact(str(stored.get("status") or "pending"), stored.get("by"),
+                                               _hold.parse_utc(stored.get("at")) if stored.get("at") else None)
+                if fact is not None:
+                    approvals[key] = fact
+        return _waits.WaitFacts(now=now, task_states=states, not_before=floors, integrations=integrations,
+                                approvals=approvals)
+
+    def _write_condition(self, task: Mapping[str, Any], hold: Mapping[str, Any], evaluation: _waits.Evaluation,
+                         actor: str, *, volatile: bool, watcher_id: str | None,
+                         guard: Callable[[Mapping[str, Any]], bool], blocked: str | None = None) -> dict[str, Any] | None:
+        """Write an evaluation into the condition of the hold, if ``guard`` still allows it; the new hold, or ``None``."""
+        def mutate(current: dict[str, Any]) -> dict[str, Any] | None:
+            block = _hold.condition_of(current)
+            if block is None or not guard(block):
+                return None
+            block = _waits.apply_evaluation(block, evaluation, volatile=volatile)
+            if watcher_id is not None:
+                block["watcher_id"] = watcher_id
+            updated = {**current, "condition": block}
+            if blocked:
+                updated["blocked"] = blocked
+            return updated
+
+        return self._update_hold(str(task["id"]), hold, mutate, actor)
+
+    def _assess(self, task: Mapping[str, Any], hold: Mapping[str, Any], now: datetime, states: Mapping[str, str],
+                floors: Mapping[str, datetime], *, actor: str, dry_run: bool, record: bool, watcher_id: str | None,
+                hold_id: str | None, attempt: int | None) -> tuple[str, dict[str, Any]]:
+        """``("due" | "waiting" | "expired" | "skipped", info)`` for one task that holds a condition.
+
+        Checks the condition now, writes the durable facts (the instant it is first seen to hold and its event, a revoked
+        ``met_at``, an expiry and its event; nothing with ``dry_run``) and says whether the task may be resumed: the attempt
+        is the one that was held, the condition holds, the minimum time has passed and the executor is not paused.
+        """
+        condition = _hold.condition_of(hold) or {}
+        task_id, executor_id = str(task["id"]), str(hold.get("executor_id") or "")
+        info: dict[str, Any] = {"task_id": task_id, "hold_id": hold.get("id"), "reason": hold.get("reason"),
+                                "executor_id": executor_id, "attempt": hold.get("attempt")}
+        if hold_id is not None and hold.get("id") != hold_id:
+            return "skipped", {**info, "why": "hold_changed", "state": "skipped"}
+        if (attempt is not None and hold.get("attempt") != attempt) or hold.get("attempt") != task["attempt"]:
+            return "skipped", {**info, "why": "attempt_changed", "state": "skipped", "task_attempt": task["attempt"]}
+        if task["assignee"] != hold.get("actor"):
+            return "skipped", {**info, "why": "assignee_changed", "state": "skipped", "assignee": task["assignee"]}
+        if hold.get("blocked"):
+            expired = hold.get("blocked") == "condition_expired" or bool(condition.get("expired_at"))
+            return "skipped", {**info, "why": f"blocked:{hold['blocked']}", "state": "expired" if expired else "skipped"}
+        try:
+            evaluation = _waits.evaluate(condition, self._wait_facts(task, hold, now, states, floors))
+        except _waits.WaitError as exc:
+            return "skipped", {**info, "why": "condition_invalid", "state": "skipped", "message": str(exc)}
+        info.update(state=evaluation.state, evaluation=evaluation.to_dict(), deadline_at=condition.get("deadline_at"))
+        stored_met = bool(condition.get("met_at"))
+        if evaluation.expired:
+            if not dry_run:
+                written = self._write_condition(task, hold, evaluation, actor, volatile=True, watcher_id=watcher_id,
+                                                guard=lambda block: not block.get("expired_at"),
+                                                blocked="condition_expired")
+                if written is not None:
+                    self._append(CONDITION_EXPIRED_EVENT, actor=actor, task=task, ref=executor_id,
+                                 cause="condition expired", payload=_waits.expired_payload(written, evaluation))
+            return "expired", {**info, "why": "deadline_passed"}
+        if not dry_run:
+            if evaluation.met and not stored_met:
+                written = self._write_condition(task, hold, evaluation, actor, volatile=record, watcher_id=watcher_id,
+                                                guard=lambda block: not block.get("met_at"))
+                if written is not None:
+                    self._append(CONDITION_MET_EVENT, actor=actor, task=task, ref=executor_id, cause="condition met",
+                                 payload=_waits.met_payload(written, evaluation))
+            elif not evaluation.met and stored_met:
+                self._write_condition(task, hold, evaluation, actor, volatile=record, watcher_id=watcher_id,
+                                      guard=lambda block: bool(block.get("met_at")))
+            elif record or (watcher_id is not None and condition.get("watcher_id") != watcher_id):
+                self._write_condition(task, hold, evaluation, actor, volatile=record, watcher_id=watcher_id,
+                                      guard=lambda block: True)
+        with self._store.db.connect() as conn:
+            pause = self._pause_of(conn, executor_id)
+            lifted = self._lifted_since(conn, executor_id, hold.get("pause_seq"))
+        due, why = _waits.wait_due(hold, now=now, executor_paused=pause is not None, condition_met=evaluation.met,
+                                   lifted=lifted)
+        return ("due" if due else "waiting"), {**info, "why": why}
+
+    @service_errors
+    def check_waits(self, *, task_id: str | None = None, watcher_id: str | None = None, dry_run: bool = False,
+                    record: bool = False, actor: str = WATCHER_ACTOR) -> dict[str, Any]:
+        """Check the condition of every held task (or of ``task_id``): what a watcher calls on each tick (CNT-T13).
+
+        A model is never asked: each condition is checked by ``waits.evaluate`` against the task store and the two hooks
+        (``integration_source``, ``approval_source``). The durable facts are written: the instant a condition is first seen to
+        hold (``condition.met_at`` and ``continuity.condition_met``, once per streak), a ``met_at`` that no longer holds is
+        cleared, and a deadline that passed marks the wait expired (``condition.expired_at``, the hold ``blocked`` with
+        ``condition_expired`` and ``continuity.condition_expired``, once). The checks themselves are not events and, unless
+        ``record`` is true, not writes either: a watcher keeps its heartbeat in its own state file. ``record`` also writes
+        ``checked_at``, ``next_check_at`` and ``estimate`` into the condition. ``watcher_id`` is written into the condition.
+        ``dry_run`` writes nothing.
+
+        Returns ``{at, dry_run, held, waits}``; each wait is ``{task_id, hold_id, reason, executor_id, attempt, state, due,
+        why, deadline_at, evaluation}`` where ``state`` is ``waiting``, ``met``, ``expired`` or ``skipped`` (``why`` says
+        why: ``assignee_changed``, ``attempt_changed``, ``blocked:...``, ``condition_invalid``) and ``evaluation`` has the
+        parts, the honest progress (``percent``, ``eta``, ``kind``, ``basis``, ``detail``, ``frozen``, ``revised``), the
+        next check and the deadline.
+        """
+        if task_id is not None:
+            task_id = self._task_id(task_id)
+        if watcher_id is not None:
+            try:
+                watcher_id = _waits.check_token(watcher_id, "watcher_id")
+            except _waits.WaitError as exc:
+                raise _invalid(exc.field, str(exc)) from None
+        actor = _text("actor", actor, maximum=100)
+        now = self.clock()
+        rows, states, floors = self._condition_rows(task_id)
+        out: dict[str, Any] = {"at": _iso(now), "dry_run": bool(dry_run), "held": len(rows), "waits": []}
+        for task, hold in rows:
+            verdict, info = self._assess(task, hold, now, states, floors, actor=actor, dry_run=dry_run, record=record,
+                                         watcher_id=watcher_id, hold_id=None, attempt=None)
+            out["waits"].append({**info, "due": verdict == "due"})
+        return out
+
+    @service_errors
+    def resume_met(self, *, task_id: str | None = None, hold_id: str | None = None, attempt: int | None = None,
+                   limit: int | None = None, dry_run: bool = False, timeout_seconds: int | None = None,
+                   actor: str = WATCHER_ACTOR) -> dict[str, Any]:
+        """Resume the held tasks whose condition holds now, one after the other (Amendment 2); the watcher calls it.
+
+        Next to ``resume_due``, which keeps the holds without a condition. For each task that holds a condition it checks the
+        condition again at this moment (what was true when a watcher last looked is not trusted) and revalidates the attempt
+        before resuming: the task is still ``paused``, still owned by the agent that held it, in the attempt that was
+        held (``attempt``, and ``hold_id`` when the watcher names the hold it watches, must match), the deadline has not
+        passed, the condition holds, the minimum time (``resume_after``) has passed, the executor is not paused (a limit hold
+        also needs its own reset time) and the session was not opened in an app in the last 12 hours. Then the task is
+        resumed as ``resume_due`` does: the session with its history when the executor declares ``resume`` and nothing
+        drifted, otherwise a relaunch from the checkpoint. Running it by hand never resumes a task whose condition does not
+        hold. The program is resumed as the agent that held the task; ``actor`` (``system:watcher``) is who records the
+        events of the wait.
+
+        ``task_id`` limits the call to one task, ``limit`` to that many resumptions, ``dry_run`` only reports. Returns ``{at,
+        dry_run, held, due, resumed, waiting, expired, skipped}`` with the lists of ``resume_due`` plus ``expired`` (waits
+        that gave up) and, in each item, the ``state`` and the ``evaluation`` (progress included).
+        """
+        if task_id is not None:
+            task_id = self._task_id(task_id)
+        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 1):
+            raise _invalid("limit", "limit must be an integer of one or more")
+        if attempt is not None and (isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1):
+            raise _invalid("attempt", "attempt must be an integer of one or more")
+        hold_id = self._optional_token("hold_id", hold_id)
+        actor = _text("actor", actor, maximum=100)
+        now = self.clock()
+        rows, states, floors = self._condition_rows(task_id)
+        out: dict[str, Any] = {"at": _iso(now), "dry_run": bool(dry_run), "held": len(rows), "due": [], "resumed": [],
+                               "waiting": [], "expired": [], "skipped": []}
+        queue: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        for task, hold in rows:
+            verdict, info = self._assess(task, hold, now, states, floors, actor=actor, dry_run=dry_run, record=False,
+                                         watcher_id=None, hold_id=hold_id, attempt=attempt)
+            if verdict == "due":
+                queue.append((info, hold))
+            else:
+                out[verdict].append(info)
+        queue.sort(key=lambda item: (str((item[0].get("evaluation") or {}).get("met_at") or ""), str(item[0]["task_id"])))
+        for info, hold in queue:
+            if limit is not None and len(out["due"]) >= limit:
+                out["waiting"].append({**info, "why": "limit"})
+                continue
+            out["due"].append(info)
+            if dry_run:
+                continue
+            try:
+                out["resumed"].append({**self._resume_one(info, hold, timeout_seconds, trigger="condition"),
+                                       "hold_id": info.get("hold_id")})
+            except ServiceError as exc:
+                out["skipped"].append({**info, "why": str(exc.details.get("reason") or exc.code),
+                                       "message": exc.message})
+        return out
 
     # -------- opening and status --------
     @service_errors

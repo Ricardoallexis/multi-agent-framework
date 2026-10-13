@@ -22,6 +22,12 @@ bumps ``revision``, writes one team event with the actor and the cause, and
 reports dependents that became ``ready``, all in one transaction. ``accept``
 is manual here; gates arrive later without changing this contract.
 
+Activities (amendment 1 of PRY-T01): a task and a group carry a ``kind``. An ``activity`` is a lightweight task, a
+chat or a small piece of work linked to a project, that lives in the project's ``<key>-ACT`` group (kind
+``activities``). It has no dependencies on either end, an empty ``file_scope`` (read-only) and no gate, and ``submit``
+accepts it in the same transaction (event ``task.accepted``, cause ``activity_closed``): nobody reviews it. They are
+created with ``services.activities.start``, never with ``create_task``.
+
 Actors, assignees and preferred agents are free text (``"user"``,
 ``"agent:codex"``): the core never names providers. They separate
 responsibilities; they do not authenticate.
@@ -357,8 +363,13 @@ class TaskServices:
                 status = self._effective_status(task_id, states, deps, tasks, context)
                 counts[status] = counts.get(status, 0) + 1
                 keys.append(self._label_key(task, status, group, context))
-        result = {**group, "counts": counts,
-                  "label": labels.stage_label(group["lifecycle_state"], bool(group["authorized"]), keys)}
+        if group.get("kind") == "activities":
+            # The activities group is never verified or closed: only the unfinished ones decide its label.
+            keys = [key for key in keys if key not in ("done", "cancelled", "failed")]
+            label = labels.stage_label("open", bool(group["authorized"]), keys)
+        else:
+            label = labels.stage_label(group["lifecycle_state"], bool(group["authorized"]), keys)
+        result = {**group, "counts": counts, "label": label}
         provenance = self.store.snapshot_provenance("group", str(group["id"]), conn=conn)
         if provenance:
             result["provenance"] = provenance
@@ -379,6 +390,14 @@ class TaskServices:
         row = conn.execute("SELECT archived_at FROM projects WHERE id=?", (project_id,)).fetchone()
         if row is not None and row["archived_at"] is not None:
             raise _conflict(f"Project {project_id} is archived", project_id=project_id, group_id=group["id"])
+
+    @staticmethod
+    def _reject_activity_edge(*tasks: Mapping[str, Any]) -> None:
+        """A dependency never touches an activity, on either end (amendment 1 of PRY-T01): ``invalid_request``."""
+        for task in tasks:
+            if task.get("kind") == "activity":
+                raise _invalid("depends_on", f"{task['id']} is an activity; activities have no dependencies",
+                               task_id=task["id"], kind="activity")
 
     def _bump(self, conn: sqlite3.Connection, task: Mapping[str, Any]) -> None:
         self.store.update_task(conn, task["id"], expected_revision=task["revision"])
@@ -969,6 +988,9 @@ class TaskServices:
                             revision=group["revision"])
         if group["lifecycle_state"] == state:
             return self._group_view(group, conn)
+        if state == "closed" and group.get("kind") == "activities":
+            raise _conflict("The activities group of a project never closes; close each activity instead",
+                            group_id=group_id, kind="activities")
         if state == "closed":
             tasks = self.store.list_tasks(group_id=group_id, conn=conn)
             if ignore_cancelled:
@@ -1082,6 +1104,9 @@ class TaskServices:
         try:
             with self.store.transaction() as conn:
                 group = self._group_or_missing(group_id, conn)
+                if group.get("kind") == "activities":
+                    raise _invalid("group_id", f"{group_id} holds the activities of a project; start them with "
+                                   "activities.start", group_id=group_id, kind="activities")
                 self._assert_project_active(conn, group)
                 if self.store.get_task(task_id, conn=conn) is not None:
                     raise _conflict(f"Task already exists: {task_id}", task_id=task_id)
@@ -1097,8 +1122,10 @@ class TaskServices:
                 for dep_id, _ in [*wanted, *wanted_release]:
                     if dep_id == task_id:
                         raise _invalid("depends_on", "A task cannot depend on itself", cycle=[task_id, task_id])
-                    if self.store.get_task(dep_id, conn=conn) is None:
+                    target = self.store.get_task(dep_id, conn=conn)
+                    if target is None:
                         raise _missing("Task", dep_id)
+                    self._reject_activity_edge(target)
                 current_tasks, current_native = self._snapshot(conn)
                 current_legacy = self.store.legacy_release_dependencies(conn=conn)
                 planned_native = current_native + [{"task_id": task_id, "depends_on_id": dep_id,
@@ -1165,6 +1192,8 @@ class TaskServices:
             if task["revision"] != expected_revision:
                 raise _conflict("Stale task revision", task_id=task_id, expected_revision=expected_revision,
                                 revision=task["revision"])
+            if task.get("kind") == "activity" and scope:
+                raise _invalid("file_scope", "An activity is read-only: its file_scope stays empty", task_id=task_id)
             state = task["state"]
             if state in ("claimed", "paused", "needs_changes") and actor != task["assignee"]:
                 raise _conflict("Only the assignee may change the scope of assigned work",
@@ -1247,10 +1276,15 @@ class TaskServices:
 
     @service_errors
     def ready_tasks(self, *, group_id: str | None = None) -> list[dict[str, Any]]:
-        """``ready`` tasks of authorized groups, in creation order."""
+        """``ready`` tasks of authorized groups, in creation order.
+
+        Activities are left out: they are started by a person or an orchestrator on purpose and never taken from
+        this queue (amendment 1 of PRY-T01).
+        """
         with self.store.db.connect() as conn:
             authorized = {group["id"] for group in self.store.list_groups(conn=conn) if group["authorized"]}
-        return [task for task in self.list_tasks(group_id=group_id, status="ready") if task["group_id"] in authorized]
+        return [task for task in self.list_tasks(group_id=group_id, status="ready")
+                if task["group_id"] in authorized and task["kind"] != "activity"]
 
     @service_errors
     def add_dependency(self, task_id: str, depends_on_id: str, *, actor: str,
@@ -1270,6 +1304,7 @@ class TaskServices:
                 if identifier not in tasks:
                     raise _missing("Task", identifier)
             task = tasks[task_id]
+            self._reject_activity_edge(task, tasks[depends_on_id])
             if task["state"] in TERMINAL_STATES:
                 raise _conflict(f"Task {task_id} is {task['state']}", task_id=task_id, state=task["state"])
             self._assert_project_active(conn, self._group_or_missing(task["group_id"], conn))
@@ -1372,6 +1407,7 @@ class TaskServices:
             if depends_on_id not in tasks:
                 raise _missing("Task", depends_on_id)
             task = tasks[task_id]
+            self._reject_activity_edge(task, tasks[depends_on_id])
             if task["state"] in TERMINAL_STATES:
                 raise _conflict(f"Task {task_id} is {task['state']}", task_id=task_id, state=task["state"])
             existing = next((edge for edge in self.store.legacy_release_dependencies(task_id=task_id, conn=conn)
@@ -1564,7 +1600,7 @@ class TaskServices:
                    continuity: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """The single entry point for state changes (see ``TRANSITIONS``).
 
-        ``claim`` also requires an authorized group and a ``file_scope`` that
+        ``submit`` on an activity also accepts it (see above). ``claim`` also requires an authorized group and a ``file_scope`` that
         does not overlap an active task of another assignee (same path, or one
         contains the other). ``start``, ``pause``, ``resume`` and ``submit``
         are for the assignee only. ``start`` increments ``attempt``. After the
@@ -1628,14 +1664,15 @@ class TaskServices:
     def _apply(self, conn: sqlite3.Connection, task_id: str, action: str, *, actor: str, cause: str = "",
                expected_revision: int | None = None, gate: bool = False, event: str | None = None,
                payload: Mapping[str, Any] | None = None, actor_domain: str | None = None,
-               continuity: Mapping[str, Any] | None = None) -> dict[str, Any]:
+               continuity: Mapping[str, Any] | None = None, auto_accept: bool = True) -> dict[str, Any]:
         """Apply one transition inside the caller's transaction (the body of ``transition``).
 
         ``gate=True`` allows the internal gate actions (``GATE_TRANSITIONS``);
         the gate services use it so that results, events and the state change
         commit together. ``event`` and ``payload`` override the event type and
         extend its payload for gate actions. ``continuity`` (already checked by ``_continuity_changes``) is merged into
-        the task's ``execution`` in the same update (CNT-T04).
+        the task's ``execution`` in the same update (CNT-T04). Submitting an activity accepts it right away unless
+        ``auto_accept`` is false (``envelopes.submit_result`` stores the result first and then calls ``_accept_activity``).
         """
         table = GATE_TRANSITIONS if gate else TRANSITIONS
         if action not in table:
@@ -1735,7 +1772,13 @@ class TaskServices:
                                          **({"release_facts_reset": True} if release_facts_reset else {})})
         self._emit_newly_ready(conn, before_statuses, after_statuses, updated_tasks, actor,
                                f"dependency {task_id} {target}")
+        if action == "submit" and auto_accept and task.get("kind") == "activity":
+            return self._accept_activity(conn, task_id, actor)
         return self._task_view(task_id, conn)
+
+    def _accept_activity(self, conn: sqlite3.Connection, task_id: str, actor: str) -> dict[str, Any]:
+        """Accept a submitted activity in the caller's transaction: nobody reviews it (amendment 1 of PRY-T01)."""
+        return self._apply(conn, task_id, "accept", actor=actor, cause="activity_closed")
 
     @staticmethod
     def _policies_conflict(one: Mapping[str, Any], one_domain: str | None,

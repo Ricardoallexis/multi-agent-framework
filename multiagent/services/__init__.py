@@ -14,6 +14,7 @@ notebooks), so they all behave the same way::
     services.executors.run_task("ORQ-T25", "codex_cli", actor="executor:codex_cli")
     services.sessions.list_sessions(source="codex")
     services.projects.get("mkt")
+    services.activities.start("mkt", "Review the brief", actor="user:ana")
     services.usage.plans()
 
 Methods return JSON-ready data and report known failures as ``ServiceError``
@@ -29,6 +30,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
+from .activities import ActivityServices
 from .assignment import AssignmentServices
 from .definitions import DefinitionServices
 from .envelopes import EnvelopeServices
@@ -46,6 +48,7 @@ if TYPE_CHECKING:
     from ..config import Settings
 
 __all__ = [
+    "ActivityServices",
     "ApplicationServices",
     "DefinitionServices",
     "EnvelopeServices",
@@ -66,7 +69,7 @@ _BUNDLE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,119}$")
 
 class ApplicationServices:
     """Facade over one ``System``: ``definitions``, ``runs``, ``tasks``, ``gates``, ``envelopes``, ``assignment``,
-    ``executors``, ``sessions``, ``projects`` and ``usage``."""
+    ``executors``, ``sessions``, ``projects``, ``activities`` and ``usage``."""
 
     def __init__(self, system: System, *, bundles: Mapping[str, str | Path] | None = None):
         self.system = system
@@ -85,6 +88,7 @@ class ApplicationServices:
         self.assignment = AssignmentServices(self, adapters=self.executors.build_adapters)
         self.sessions = SessionServices(self)
         self.projects = ProjectServices(self)
+        self.activities = ActivityServices(self)
         self.usage = UsageServices(self)
 
     @classmethod

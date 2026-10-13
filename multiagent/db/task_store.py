@@ -104,15 +104,15 @@ class TaskStore:
                      legacy_release_mode: str | None = None, lifecycle_state: str = "open",
                      project_id: str | None = None, position: int | None = None,
                      phases: Iterable[str] = (), planned_start: str | None = None,
-                     planned_end: str | None = None) -> dict[str, Any]:
+                     planned_end: str | None = None, kind: str = "stage") -> dict[str, Any]:
         now = utcnow()
         conn.execute(
             "INSERT INTO task_groups(id,title,authorized,default_requires,created_by,created_at,updated_at,default_gate_json,"
-            "legacy_release_mode,lifecycle_state,project_id,position,phases_json,planned_start,planned_end) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "legacy_release_mode,lifecycle_state,project_id,position,phases_json,planned_start,planned_end,kind) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (group_id, title, int(authorized), default_requires, actor, now, now, _dumps(list(default_gate)),
              legacy_release_mode, lifecycle_state, project_id, position, _dumps(list(phases)),
-             planned_start, planned_end),
+             planned_start, planned_end, kind),
         )
         return self.get_group(group_id, conn=conn)  # type: ignore[return-value]
 
@@ -161,29 +161,41 @@ class TaskStore:
             row = c.execute("SELECT * FROM task_groups WHERE id=?", (group_id,)).fetchone()
         return _group(row) if row else None
 
-    def list_groups(self, *, project_id: str | None = None,
+    def list_groups(self, *, project_id: str | None = None, kind: str | None = None,
                     conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
-        """Every group in creation order, or with ``project_id`` the stages of that project by position."""
+        """Every group in creation order, or with ``project_id`` the groups of that project by position.
+
+        ``kind`` keeps only the groups of that kind (``stage`` or ``activities``, migration 011). The activities
+        group of a project has no position, so it comes first unless ``kind="stage"`` leaves it out.
+        """
+        where: list[str] = []
+        params: list[Any] = []
+        if project_id is not None:
+            where.append("project_id=?")
+            params.append(project_id)
+        if kind is not None:
+            where.append("kind=?")
+            params.append(kind)
+        sql = ("SELECT * FROM task_groups" + (f" WHERE {' AND '.join(where)}" if where else "")
+               + (" ORDER BY position IS NULL, position, rowid" if project_id is not None else " ORDER BY rowid"))
         with self._reader(conn) as c:
-            if project_id is None:
-                return [_group(row) for row in c.execute("SELECT * FROM task_groups ORDER BY rowid")]
-            return [_group(row) for row in c.execute(
-                "SELECT * FROM task_groups WHERE project_id=? ORDER BY position", (project_id,))]
+            return [_group(row) for row in c.execute(sql, params)]
 
     # -------- tasks --------
     def insert_task(self, conn: sqlite3.Connection, task_id: str, group_id: str, title: str, *, actor: str,
                     objective: str = "", preferred: str = "", requirements: Iterable[str] = (),
                     file_scope: Iterable[str] = (), context_refs: Iterable[str] = (),
-                    constraints: Iterable[str] = (), phase: str = "", due_at: str | None = None) -> dict[str, Any]:
-        """Insert an ``open`` task at revision 1 and attempt 0."""
+                    constraints: Iterable[str] = (), phase: str = "", due_at: str | None = None,
+                    kind: str = "task", execution: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Insert an ``open`` task at revision 1 and attempt 0 (``kind`` is ``task`` or ``activity``, migration 011)."""
         now = utcnow()
         conn.execute(
             "INSERT INTO tasks(id,group_id,title,objective,state,preferred,requirements_json,file_scope_json,"
-            "context_refs_json,constraints_json,phase,due_at,created_by,created_at,updated_at) "
-            "VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?)",
+            "context_refs_json,constraints_json,phase,due_at,kind,execution_json,created_by,created_at,updated_at) "
+            "VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?,?,?)",
             (task_id, group_id, title, objective, preferred, _dumps(list(requirements)),
              _dumps(list(file_scope)), _dumps(list(context_refs)), _dumps(list(constraints)), phase, due_at,
-             actor, now, now),
+             kind, _dumps(execution or {}), actor, now, now),
         )
         return self.get_task(task_id, conn=conn)  # type: ignore[return-value]
 
@@ -207,13 +219,17 @@ class TaskStore:
         return _task(row) if row else None
 
     def list_tasks(self, *, group_id: str | None = None, states: Iterable[str] | None = None,
-                   assignee: str | None = None, conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
-        """Tasks filtered by group, stored states and assignee, in creation order."""
+                   assignee: str | None = None, kind: str | None = None,
+                   conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+        """Tasks filtered by group, stored states, assignee and kind (``task`` or ``activity``), in creation order."""
         where: list[str] = []
         params: list[Any] = []
         if group_id is not None:
             where.append("group_id=?")
             params.append(group_id)
+        if kind is not None:
+            where.append("kind=?")
+            params.append(kind)
         if states is not None:
             wanted = list(states)
             if not wanted:
