@@ -91,11 +91,13 @@ CLAUDE_QUOTA_LIMITS = {"status": "rejected", "resetsAt": 1791711000, "rateLimitT
 def test_the_four_classes_replace_quota_and_the_old_value_still_parses():
     assert [kind.value for kind in FailureKind if kind.is_limit] == [
         "rate_limited", "plan_limit", "credits_exhausted", "limit_unknown"]
-    assert len(list(FailureKind)) == 7                                      # the alias is not a member of its own
+    assert "QUOTA" not in {kind.name for kind in FailureKind}               # deprecated alias is not iterated
     assert FailureKind.QUOTA is FailureKind.LIMIT_UNKNOWN and FailureKind.QUOTA.is_limit   # code that still returns it
     assert FailureKind("quota") is FailureKind.LIMIT_UNKNOWN               # an old stored value
     assert {kind.legacy_value for kind in FailureKind if kind.is_limit} == {"quota"}
     assert FailureKind.AUTHENTICATION.legacy_value == "authentication" and not FailureKind.OTHER.is_limit
+    assert not FailureKind.PERMISSION_DENIED.is_limit
+    assert FailureKind.PERMISSION_DENIED.legacy_value == "permission_denied"
     assert RunStatus.QUOTA_EXHAUSTED.value == "quota_exhausted"            # the status of all four classes is unchanged
 
 

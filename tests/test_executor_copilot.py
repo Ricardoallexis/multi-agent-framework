@@ -26,7 +26,7 @@ from multiagent.executors.contract import (
     CommandRecord, ExecutorApplicationAdapter, ExecutorLaunchRequest, FailureKind, OpenTarget, Permission, RunStatus,
 )
 from multiagent.executors.copilot import (
-    ADAPTER_ID, EFFORT_LEVELS, OUTPUT_TAIL_CHARS, CopilotAdapter, CopilotAdapterError, fixed_prompt, prompt_file_name,
+    ADAPTER_ID, EFFORT_LEVELS, OUTPUT_TAIL_CHARS, CopilotAdapter, CopilotAdapterError, _scan, fixed_prompt, prompt_file_name,
 )
 from multiagent.executors.process import ProcessLaunchError, ProcessOutcome
 from multiagent.executors.registry import ExecutorRegistry
@@ -923,3 +923,12 @@ def test_the_argv_runs_through_a_launcher_that_is_a_cmd_shim_on_windows(fake, wo
     (call,) = fake.calls()
     assert call["argv"] == expected_args(workdir, write=True)
     assert result.command.argv[0].lower().endswith(".cmd" if sys.platform == "win32" else "fake-agent-cli")
+
+def test_copilot_permission_denial_requires_an_exact_structured_code():
+    denial = _scan(json.dumps({"type": "session.error", "data": {
+        "errorCode": "sandbox_denied", "message": "synthetic denied input / private path"}}))
+    auth = _scan(json.dumps({"type": "error", "data": {
+        "errorCode": "unauthorized", "errorType": "authentication", "message": "403 permission denied"}}))
+    text_only = _scan(json.dumps({"type": "error", "data": {"message": "permission denied"}}))
+    assert denial.permission_denied is True
+    assert auth.permission_denied is False and text_only.permission_denied is False

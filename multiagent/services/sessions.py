@@ -394,6 +394,13 @@ class SessionServices:
         self._with_task_ids([summary])
         return summary
 
+    def activity(self, session_id: str) -> dict[str, Any]:
+        """Minimal activity metadata for a session the configured registry allows."""
+        source, _ = _parse_id(session_id)
+        if source == "framework":
+            raise ServiceError(NOT_FOUND, f"Session not found: {session_id}", status=404)
+        with _session_errors():
+            return self._get_registry().activity(session_id)
     def read_items(self, session_id: str, *, after: str | None = None, limit: int = DEFAULT_ITEMS_LIMIT) -> dict[str, Any]:
         """A page of items after the cursor: ``{items, next_cursor, done, warnings}``.
 

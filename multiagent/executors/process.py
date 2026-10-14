@@ -33,6 +33,7 @@ reports, which for a killed program is its kill status.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 import shutil
@@ -41,11 +42,13 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, Callable, Iterator
 
 from ..errors import MultiAgentError
 from .contract import CommandRecord
@@ -186,6 +189,43 @@ def _validate_limits(timeout_seconds: object, output_cap_bytes: object) -> tuple
     return float(timeout_seconds), output_cap_bytes
 
 
+@dataclass(frozen=True)
+class ProcessActivity:
+    """A safe snapshot of process output activity; wall time is for display, idle time is monotonic."""
+    last_output_at: str | None
+    started_at: str
+    idle_seconds: float
+    _stdout_probe: str = field(default="", repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class ProcessWatch:
+    """Periodic observational callback. Callback failures never affect the child process."""
+    interval_seconds: float
+    callback: Callable[[ProcessActivity], Any]
+
+    def __post_init__(self) -> None:
+        if (isinstance(self.interval_seconds, bool) or not isinstance(self.interval_seconds, (int, float))
+                or not math.isfinite(self.interval_seconds) or self.interval_seconds <= 0 or not callable(self.callback)):
+            raise ValueError("watch needs a positive interval and a callable")
+
+
+_WATCH_CONTEXT: ContextVar[ProcessWatch | None] = ContextVar("process_watch", default=None)
+
+
+@contextmanager
+def watching(interval_seconds: float, callback: Callable[[ProcessActivity], Any]) -> Iterator[None]:
+    """Pass an observational watch through adapters that call ``run`` without changing their signatures."""
+    if (isinstance(interval_seconds, bool) or not isinstance(interval_seconds, (int, float))
+            or not math.isfinite(interval_seconds) or interval_seconds <= 0 or not callable(callback)):
+        raise ValueError("watch needs a positive interval and a callable")
+    token = _WATCH_CONTEXT.set(ProcessWatch(float(interval_seconds), callback))
+    try:
+        yield
+    finally:
+        _WATCH_CONTEXT.reset(token)
+
+
 # --------------------------------------------------------------------------- output capture
 
 class _TailBuffer:
@@ -195,13 +235,29 @@ class _TailBuffer:
         self.cap = cap
         self.truncated = False
         self._data = bytearray()
+        self._activity_lock = threading.Lock()
+        self._last_output_at: str | None = None
+        self._last_output_monotonic: float | None = None
 
     def feed(self, chunk: bytes) -> None:
-        self._data += chunk
-        if len(self._data) > 2 * self.cap:  # trim lazily: at most one copy per ``cap`` bytes read
-            del self._data[:-self.cap]
-            self.truncated = True
+        if not chunk:
+            return
+        with self._activity_lock:
+            self._last_output_at = _now()
+            self._last_output_monotonic = time.monotonic()
+            self._data += chunk
+            if len(self._data) > 2 * self.cap:
+                del self._data[:-self.cap]
+                self.truncated = True
+    def activity(self) -> tuple[str | None, float | None]:
+        with self._activity_lock:
+            return self._last_output_at, self._last_output_monotonic
 
+    def probe_text(self, max_bytes: int) -> str:
+        """A bounded in-process probe for structured session ids; never persisted as evidence."""
+        with self._activity_lock:
+            data = bytes(self._data[-max_bytes:])
+        return data.decode("utf-8", errors="replace")
     def text(self) -> str:
         data = bytes(self._data)
         if len(data) > self.cap:
@@ -337,11 +393,13 @@ class ProcessHandle:
     """A running program. ``wait`` gives its ``ProcessOutcome``; ``cancel`` kills its process tree."""
 
     def __init__(self, proc: subprocess.Popen[bytes], command: CommandRecord, timeout_seconds: float,
-                 output_cap_bytes: int, stdin_data: bytes | None):
+                 output_cap_bytes: int, stdin_data: bytes | None, watch: ProcessWatch | None = None):
         self._proc = proc
         self._command = command
         self._timeout = timeout_seconds
         self._started = time.monotonic()
+        self._started_at = _now()
+        self._watch = watch
         self._lock = threading.Lock()
         self._done = threading.Event()
         self._outcome: ProcessOutcome | None = None
@@ -374,6 +432,22 @@ class ProcessHandle:
 
     def done(self) -> bool:
         return self._done.is_set()
+
+    def activity(self) -> ProcessActivity:
+        """Latest stdout/stderr time and monotonic idle duration, including the no-output initial state."""
+        out_at, out_mono = self._out.activity()
+        err_at, err_mono = self._err.activity()
+        if out_mono is None or (err_mono is not None and err_mono > out_mono):
+            last_at, last_mono = err_at, err_mono
+        else:
+            last_at, last_mono = out_at, out_mono
+        idle_from = self._started if last_mono is None else last_mono
+        return ProcessActivity(last_output_at=last_at, started_at=self._started_at,
+                               idle_seconds=max(0.0, time.monotonic() - idle_from),
+                               _stdout_probe=self._out.probe_text(8192))
+    def idle_seconds(self) -> float:
+        """Elapsed monotonic seconds since the last output chunk, or process start if none was observed."""
+        return self.activity().idle_seconds
 
     def wait(self, timeout: float | None = None) -> ProcessOutcome:
         """The outcome once the program has ended and its output was collected; ``TimeoutError`` after ``timeout``."""
@@ -425,16 +499,30 @@ class ProcessHandle:
 
     def _supervise(self) -> None:
         try:
-            try:
-                self._proc.wait(timeout=self._timeout)
-            except subprocess.TimeoutExpired:
-                with self._lock:
-                    if self._proc.poll() is None and not self._cancelled:
-                        self._timed_out = True
-                if self._timed_out:
-                    _logger.warning("process %s timed out after %ss: killing its process tree", self._proc.pid, self._timeout)
-                self._kill_tree()
-                self._proc.wait()
+            deadline = self._started + self._timeout
+            next_watch = self._started + self._watch.interval_seconds if self._watch else None
+            while self._proc.poll() is None:
+                now = time.monotonic()
+                remaining = deadline - now
+                if remaining <= 0:
+                    with self._lock:
+                        if self._proc.poll() is None and not self._cancelled:
+                            self._timed_out = True
+                    if self._timed_out:
+                        _logger.warning("process %s timed out after %ss: killing its process tree", self._proc.pid, self._timeout)
+                    self._kill_tree()
+                    self._proc.wait()
+                    break
+                wait_for = remaining
+                if next_watch is not None:
+                    wait_for = min(wait_for, max(0.0, next_watch - now))
+                try:
+                    self._proc.wait(timeout=wait_for)
+                except subprocess.TimeoutExpired:
+                    now = time.monotonic()
+                    if next_watch is not None and now >= next_watch and now < deadline:
+                        self._notify_watch()
+                        next_watch = time.monotonic() + self._watch.interval_seconds  # type: ignore[union-attr]
             self._collect()
         except BaseException:  # never leave ``wait`` blocked
             _logger.exception("process %s supervision failed", self._proc.pid)
@@ -442,6 +530,15 @@ class ProcessHandle:
             self._finish(exit_code=self._proc.poll())
         finally:
             self._done.set()
+
+    def _notify_watch(self) -> None:
+        if self._watch is None:
+            return
+        try:
+            self._watch.callback(self.activity())
+        except BaseException:
+            # Attention is telemetry only. Its failure must never enter the supervisor's kill-on-error path.
+            _logger.exception("process %s observational watch failed", self._proc.pid)
 
     def _collect(self) -> None:
         deadline = time.monotonic() + READER_GRACE_SECONDS
@@ -489,11 +586,15 @@ def check_launch(argv: list[str], *, cwd: Path | str) -> str:
 
 
 def start(argv: list[str], *, cwd: Path | str, stdin_text: str | None, timeout_seconds: float,
-          env_extra: Mapping[str, str] | None = None, output_cap_bytes: int = DEFAULT_OUTPUT_CAP_BYTES) -> ProcessHandle:
+          env_extra: Mapping[str, str] | None = None, output_cap_bytes: int = DEFAULT_OUTPUT_CAP_BYTES,
+          watch: ProcessWatch | None = None) -> ProcessHandle:
     """Validate and start the program; returns at once with a handle (``handle.wait()`` for the outcome)."""
     arguments = validate_argv(argv)
     folder = validate_cwd(cwd)
     timeout, cap = _validate_limits(timeout_seconds, output_cap_bytes)
+    selected_watch = watch if watch is not None else _WATCH_CONTEXT.get()
+    if selected_watch is not None and not isinstance(selected_watch, ProcessWatch):
+        raise ProcessLaunchError(INVALID_LIMIT, "watch must be a ProcessWatch")
     if stdin_text is not None and not isinstance(stdin_text, str):
         raise ProcessLaunchError(INVALID_ARGV, "stdin_text must be a string or None")
     executable = resolve_executable(arguments[0], folder)
@@ -519,14 +620,15 @@ def start(argv: list[str], *, cwd: Path | str, stdin_text: str | None, timeout_s
     except (OSError, ValueError) as exc:
         _logger.error("process could not start: argv=%s error=%s", arguments, exc)
         raise ProcessLaunchError(LAUNCH_FAILED, f"the program could not be started: {exc}") from exc
-    return ProcessHandle(proc, command, timeout, cap, stdin_data)
+    return ProcessHandle(proc, command, timeout, cap, stdin_data, selected_watch)
 
 
 def run(argv: list[str], *, cwd: Path | str, stdin_text: str | None, timeout_seconds: float,
-        env_extra: Mapping[str, str] | None = None, output_cap_bytes: int = DEFAULT_OUTPUT_CAP_BYTES) -> ProcessOutcome:
+        env_extra: Mapping[str, str] | None = None, output_cap_bytes: int = DEFAULT_OUTPUT_CAP_BYTES,
+        watch: ProcessWatch | None = None) -> ProcessOutcome:
     """Start the program and wait for it (see the module docstring for the rules and the outcome)."""
     return start(argv, cwd=cwd, stdin_text=stdin_text, timeout_seconds=timeout_seconds, env_extra=env_extra,
-                 output_cap_bytes=output_cap_bytes).wait()
+                 output_cap_bytes=output_cap_bytes, watch=watch).wait()
 
 
 def cancel(handle: ProcessHandle) -> bool:

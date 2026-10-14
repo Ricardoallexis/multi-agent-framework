@@ -10,6 +10,7 @@ looked up on PATH. The gate (ORQ-2) and the lifecycle (ORQ-1) are the real servi
 from __future__ import annotations
 
 import json
+import ast
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -59,7 +60,12 @@ for index, arg in enumerate(args):
 with open(os.path.join(here, "calls.jsonl"), "a", encoding="utf-8") as log:
     log.write(json.dumps({"spec": os.path.basename(sys.argv[1]), "argv": args, "stdin": stdin, "cwd": os.getcwd(),
                           "scrubbed": sorted(k for k in os.environ if k.upper().startswith(("CLAUDE", "ANTHROPIC")))}) + "\n")
-if spec.get("sleep"):
+live = spec.get("live_stdout", "")
+if live:
+    sys.stdout.write(live)
+    sys.stdout.flush()
+    time.sleep(spec.get("live_sleep", 0))
+elif spec.get("sleep"):
     time.sleep(spec["sleep"])
 out = spec.get("stdout", "")
 out = "\n".join(out) + "\n" if isinstance(out, list) else out
@@ -635,9 +641,15 @@ def test_the_service_only_uses_the_lifecycle_and_submit_result(world):
     assert services.tasks.get_task("T1")["state"] == "submitted"                            # the gate has not run
 
     source = Path(executor_module.__file__).read_text(encoding="utf-8")
-    for forbidden in ("_apply(", "update_task(", "gate_pass", "gate_start", '"accept"', '"fail"', '"cancel"',
+    for forbidden in ("_apply(", "gate_pass", "gate_start", '"accept"', '"fail"', '"cancel"',
                       '"reopen"', '"request_changes"', "UPDATE tasks"):
         assert forbidden not in source, forbidden
+    tree = ast.parse(source)
+    direct_updates = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                      and isinstance(node.func, ast.Attribute) and node.func.attr == "update_task"]
+    # The watcher may atomically update execution metadata, never task lifecycle fields through the store.
+    assert all(len(call.args) == 2 and {keyword.arg for keyword in call.keywords} == {"execution", "expected_revision"}
+               for call in direct_updates)
 
 
 # --------------------------------------------------------------------------- wiring
@@ -800,3 +812,106 @@ def test_the_script_covers_every_public_operation():
     assert public - set(operations.values()) == {"build_adapters", "record_app_open", "session_guard",
                                                  "checkpoint_limit", "latest_checkpoint", "retire_session",
                                                  "hold_on_condition", "record_approval", "check_waits", "resume_met"}
+
+def test_structured_claude_permission_denial_pauses_only_the_task(world):
+    world.fake.set("claude", stdout=claude_out(permission_denials=[
+        {"tool_name": "Bash", "tool_input": {"command": "private synthetic input"}},
+    ]))
+
+    out = world.services.executors.run_task("T1", "claude_cli")
+
+    task = world.services.tasks.get_task("T1")
+    assert out["outcome"] == "permission_blocked" and out["run_status"] == "failed"
+    assert task["state"] == "paused"
+    assert task["continuity"]["attention"]["kind"] == "permission_blocked"
+    assert task["continuity"]["attention"]["deadline"] is None
+    refused(lambda: world.services.envelopes.get_result("T1"), code="not_found")
+    assert "permission_denied: Bash" in out["notes"]
+    assert "private synthetic input" not in repr(out)
+    assert next(row for row in world.services.executors.status()["executors"]
+                if row["executor_id"] == "claude_cli")["available"] is True
+    events = [event for event in world.services.tasks.events(task_id="T1") if event["type"] == "executor.attention"]
+    assert len(events) == 1 and events[0]["payload"]["kind"] == "permission_blocked"
+    assert events[0]["payload"]["cleared"] is False
+
+
+def test_attention_updates_are_idempotent_and_clear_corrupt_legacy_value(world):
+    services = world.services
+    services.tasks.transition("T1", "claim", actor="executor:claude_cli")
+    running = services.tasks.transition("T1", "start", actor="executor:claude_cli")
+    attempt = running["attempt"]
+    service = services.executors
+    attention = {"kind": "stalled", "since": NOW.isoformat(), "last_output_at": NOW.isoformat(),
+                 "source": "stdout", "deadline": None}
+    assert service._write_attention("T1", attempt, "claude_cli", attention)
+    assert not service._write_attention("T1", attempt, "claude_cli", attention)
+    events = [event for event in services.tasks.events(task_id="T1") if event["type"] == "executor.attention"]
+    assert len(events) == 1
+    raw = service._store.get_task("T1")
+    execution = dict(raw.get("execution") or {})
+    continuity = dict(execution.get("continuity") or {})
+    continuity["attention"] = "legacy-corrupt-value"
+    execution["continuity"] = continuity
+    with service._store.transaction() as conn:
+        service._store.update_task(conn, "T1", expected_revision=raw["revision"], execution=execution)
+    assert service._write_attention("T1", attempt, "claude_cli", None)
+    assert services.tasks.get_task("T1").get("continuity", {}).get("attention") is None
+    events = [event for event in services.tasks.events(task_id="T1") if event["type"] == "executor.attention"]
+    assert len(events) == 2 and events[-1]["payload"]["cleared"] is True
+def test_live_attention_clears_on_observed_activity_but_not_missing_claude_metadata(world):
+    services = world.services
+    services.tasks.transition("T1", "claim", actor="executor:claude_cli")
+    running = services.tasks.transition("T1", "start", actor="executor:claude_cli")
+    service = services.executors
+    attempt = running["attempt"]
+    attention = {"kind": "stalled", "since": NOW.isoformat(), "last_output_at": NOW.isoformat(),
+                 "source": "stdout", "deadline": (NOW + timedelta(minutes=15)).isoformat()}
+    service._write_attention("T1", attempt, "claude_cli", attention)
+    activity = process.ProcessActivity(last_output_at=None, started_at=NOW.isoformat(), idle_seconds=1200)
+    service._session_activity = lambda adapter, session_id: None
+    service._observe_process(task_id="T1", attempt=attempt, executor_id="claude_cli",
+                             adapter=SimpleNamespace(adapter_id="claude_cli"), session_id="synthetic",
+                             process_activity=activity, stall_seconds=900, deadline=attention["deadline"])
+    assert services.tasks.get_task("T1")["continuity"]["attention"] == attention
+
+    service._observe_process(task_id="T1", attempt=attempt, executor_id="codex_cli",
+                             adapter=SimpleNamespace(adapter_id="codex_cli"), session_id="synthetic",
+                             process_activity=process.ProcessActivity(NOW.isoformat(), NOW.isoformat(), 0),
+                             stall_seconds=900, deadline=attention["deadline"])
+    task = services.tasks.get_task("T1")
+    assert task["state"] == "running" and task.get("continuity", {}).get("attention") is None
+    events = [event for event in services.tasks.events(task_id="T1") if event["type"] == "executor.attention"]
+    assert len(events) == 2 and events[-1]["payload"]["cleared"] is True
+
+    service._observe_process(task_id="T1", attempt=attempt, executor_id="codex_cli",
+                             adapter=SimpleNamespace(adapter_id="codex_cli"), session_id="synthetic",
+                             process_activity=process.ProcessActivity(None, (NOW - timedelta(minutes=20)).isoformat(), 1200),
+                             stall_seconds=900, deadline=attention["deadline"])
+    task = services.tasks.get_task("T1")
+    assert task["state"] == "running"
+    assert task["continuity"]["attention"]["last_output_at"] is None
+    assert task["continuity"]["attention"]["source"] == "process_start"
+    service._session_activity = lambda adapter, session_id: {
+        "open_tests": True, "last_output_at": NOW.isoformat(), "source": "session_metadata"}
+    service._observe_process(task_id="T1", attempt=attempt, executor_id="codex_cli",
+                             adapter=SimpleNamespace(adapter_id="codex_cli"), session_id="synthetic",
+                             process_activity=activity, stall_seconds=900, deadline=attention["deadline"])
+    assert services.tasks.get_task("T1").get("continuity", {}).get("attention") is None
+def test_codex_live_id_is_read_from_the_bounded_stdout_probe(world, monkeypatch):
+    service = world.services.executors
+    observed = []
+    real_observe = service._observe_process
+
+    def spy(**kwargs):
+        observed.append(kwargs["session_id"])
+        return real_observe(**kwargs)
+
+    monkeypatch.setattr(service, "_observe_process", spy)
+    world.fake.set("codex", stdout=codex_out(),
+                   live_stdout=json.dumps({"type": "thread.started", "thread_id": THREAD}) + "\n",
+                   live_sleep=1.3)
+
+    out = service.run_task("T1", "codex_cli")
+
+    assert out["outcome"] == "submitted", out
+    assert THREAD in observed

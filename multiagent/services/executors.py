@@ -131,8 +131,8 @@ from typing import TYPE_CHECKING, Any
 
 from ..db.envelope_store import HARD_MAX_BLOB_BYTES
 from ..errors import MultiAgentError
-from ..executors import process
-from ..executors.contract import ExecutorApplicationAdapter, ExecutorLaunchRequest, OpenTarget, Permission
+from ..executors import codex as _codex, copilot as _copilot, process
+from ..executors.contract import ExecutorApplicationAdapter, ExecutorLaunchRequest, FailureKind, OpenTarget, Permission
 from ..executors.limits import utc_iso
 from ..executors.selection import ExecutorSelection, select_for_executor, select_for_resume
 from ..routing.executor_capabilities import CapabilityEvidence, SupportState
@@ -154,6 +154,7 @@ _logger = logging.getLogger(__name__)
 
 SESSION_EVENT = "executor.session_recorded"
 ATTEMPT_EVENT = "executor.attempt_finished"
+ATTENTION_EVENT = "executor.attention"
 ROUTING_EVENT = "executor.routing_selected"
 PAUSE_EVENT = "executor.paused"
 OPEN_EVENT = "session.opened_in_app"
@@ -165,7 +166,7 @@ HELD_EVENT = "continuity.held"
 RESUMED_EVENT = "continuity.resumed"
 CONDITION_MET_EVENT = "continuity.condition_met"
 CONDITION_EXPIRED_EVENT = "continuity.condition_expired"
-EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, PAUSE_EVENT, OPEN_EVENT, LIMIT_EVENT, CHECKPOINT_EVENT,
+EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, ATTENTION_EVENT, PAUSE_EVENT, OPEN_EVENT, LIMIT_EVENT, CHECKPOINT_EVENT,
                RETIRED_EVENT, PAUSE_LIFTED_EVENT, HELD_EVENT, RESUMED_EVENT, CONDITION_MET_EVENT, CONDITION_EXPIRED_EVENT)
 WATCHER_ACTOR = "system:watcher"          # who records the end of a wait by condition (CNT-T12); it resumes as the assignee
 AUTO_TRIGGERS = ("auto", "condition")     # resumptions the service makes by itself: a limit that returns counts as a failed one
@@ -183,7 +184,7 @@ _PROBE_SESSION = "00000000-0000-4000-8000-000000000000"   # only to build an arg
 _EXECUTOR_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _SOURCE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$")
-_FAILURE_OUTCOMES = ("timeout", "cancelled", "quota_exhausted", "blocked_open_session")
+_FAILURE_OUTCOMES = ("timeout", "cancelled", "quota_exhausted", "blocked_open_session", "permission_blocked")
 
 
 def _invalid(field_name: str, message: str, **details: Any) -> ServiceError:
@@ -311,6 +312,7 @@ class _Attempt:
     notes: list[str] = field(default_factory=list)
     evidence: str = ""
     limit: Mapping[str, Any] | None = None        # what the adapter says about a limit (CNT-T02), as it came
+    failure_kind: FailureKind | None = None
     last_message: str = ""                        # the last text the agent wrote, from the tail of its output
     effective: Mapping[str, Any] | None = None    # what the app says it ran with (model, effort, permission), if it does
 
@@ -358,6 +360,75 @@ class ExecutorServices:
                                             task_id=str(task["id"]) if task else "", cause=cause, ref=ref,
                                             payload=_fit(payload))
 
+    def _write_attention(self, task_id: str, attempt: int, executor_id: str, attention: Mapping[str, Any] | None) -> bool:
+        """Atomically record the attention sibling and its one change/clear event for the live attempt only."""
+        with self._store.transaction() as conn:
+            task = self._store.get_task(task_id, conn=conn)
+            if task is None or task.get("state") != "running" or task.get("attempt") != attempt:
+                return False
+            continuity = _hold.continuity_of(task)
+            previous = continuity.get("attention")
+            next_value = dict(attention) if attention is not None else None
+            if previous == next_value or (previous is None and next_value is None):
+                return False
+            execution = _hold.merge_continuity(task.get("execution"), {"attention": next_value})
+            self._store.update_task(conn, task_id, expected_revision=task["revision"], execution=execution)
+            reference = next_value if next_value is not None else previous
+            reference = reference if isinstance(reference, Mapping) else {}
+            payload = {"kind": reference.get("kind"), "since": reference.get("since"),
+                       "source": reference.get("source"), "cleared": next_value is None}
+            self._store.append_event(
+                conn, ATTENTION_EVENT, actor=WATCHER_ACTOR, group_id=str(task["group_id"]), task_id=task_id,
+                cause="executor attention changed", ref=executor_id, payload=_fit(payload))
+            return True
+
+    def _session_activity(self, adapter: Any, session_id: str | None) -> Mapping[str, Any] | None:
+        """Read only allowlisted session metadata; reader failures must not affect a running executor."""
+        if not session_id:
+            return None
+        source = {"claude_cli": "claude", "codex_cli": "codex", "copilot_cli": "copilot"}.get(
+            getattr(adapter, "adapter_id", ""))
+        if source is None:
+            return None
+        try:
+            activity = self._services.sessions.activity(f"{source}:{session_id}")
+            return activity if isinstance(activity, Mapping) else None
+        except BaseException:
+            _logger.debug("session activity unavailable for %s", source, exc_info=True)
+            return None
+
+    def _observe_process(self, *, task_id: str, attempt: int, executor_id: str, adapter: Any,
+                         session_id: str | None, process_activity: process.ProcessActivity,
+                         stall_seconds: float, deadline: str) -> None:
+        metadata = self._session_activity(adapter, session_id)
+        # Claude stdout is silent by design; unavailable metadata is unknown, not proof of activity.
+        if getattr(adapter, "adapter_id", "") == "claude_cli" and metadata is None:
+            return
+        if metadata and metadata.get("open_tests") is True:
+            self._write_attention(task_id, attempt, executor_id, None)
+            return
+        current = self.clock().astimezone(timezone.utc)
+        process_last = _parse_time(process_activity.last_output_at)
+        metadata_time = _parse_time(metadata.get("last_output_at")) if metadata else None
+        if metadata_time is not None and (process_last is None or metadata_time >= process_last):
+            last, idle = metadata_time, max(0.0, (current - metadata_time).total_seconds())
+            source = "session_metadata"
+        elif process_last is not None:
+            last, idle, source = process_last, process_activity.idle_seconds, "stdout"
+        else:
+            # Startup age can detect an initially silent process, but is never presented as observed output.
+            last, idle, source = None, process_activity.idle_seconds, "process_start"
+        if idle < stall_seconds:
+            self._write_attention(task_id, attempt, executor_id, None)
+            return
+        basis = last or _parse_time(process_activity.started_at)
+        if basis is None:
+            self._write_attention(task_id, attempt, executor_id, None)
+            return
+        kind = "approval_pending" if metadata and metadata.get("approval_pending") is True else "stalled"
+        attention = {"kind": kind, "since": _iso(basis + timedelta(seconds=stall_seconds)),
+                     "last_output_at": _iso(last) if last else None, "source": source, "deadline": deadline}
+        self._write_attention(task_id, attempt, executor_id, attention)
     @staticmethod
     def _latest(conn: Any, event_type: str, *, task_id: str | None = None, ref: str | None = None) -> dict[str, Any] | None:
         sql, params = "SELECT * FROM team_events WHERE type=?", [event_type]
@@ -655,13 +726,17 @@ class ExecutorServices:
         held = dict(hold) if hold else (dict(prior["hold"]) if isinstance(prior.get("hold"), Mapping) else None)
         permission = Permission.WRITE if task["file_scope"] else Permission.READ
         workdir = self._workdir(task_id, plan)
+        claude_session_id = (resume_session or str(uuid.uuid4())) \
+            if getattr(plan.adapter, "adapter_id", "") == "claude_cli" else None
         request = ExecutorLaunchRequest(
             task_id=task_id, task_envelope=self._services.envelopes.get_envelope(task_id), workdir=workdir,
-            model=plan.model, effort=plan.effort, permission=permission, timeout_seconds=timeout)
+            model=plan.model, effort=plan.effort, permission=permission, timeout_seconds=timeout,
+            session_id=claude_session_id)
         self._preflight(plan, request, resume_session)
         cause = f"executor {mode} in {plan.executor_id}"
         view = self._enter_running(task, actor, cause, hold=held, mode=mode, trigger=trigger, drift=drift,
                                    executor_id=plan.executor_id)
+        self._write_attention(task_id, int(view["attempt"]), plan.executor_id, None)
         if plan.selection is not None:
             # What this attempt was asked to run with and why, kept even if the launch then fails.
             self._append(ROUTING_EVENT, actor=actor, task=view, ref=plan.executor_id, cause=cause,
@@ -670,11 +745,42 @@ class ExecutorServices:
             # Built again: the attempt number, the status and the assignee changed with the transitions above.
             request = replace(request, task_envelope=self._services.envelopes.get_envelope(task_id))
             _logger.info("executor %s %s of %s (attempt %s)", plan.executor_id, mode, task_id, view["attempt"])
-            attempt = self._call_adapter(plan.adapter, request, resume_session)
+            stall_seconds = self._limit(plan, "stall_minutes", 15) * 60
+            watch_interval = max(0.05, min(1.0, stall_seconds / 4))
+            watch_deadline = _iso(self.clock().astimezone(timezone.utc) + timedelta(seconds=timeout))
+            live_session = [claude_session_id or resume_session]
+            last_probe = [None]
+
+            def callback(activity: process.ProcessActivity) -> None:
+                if live_session[0] is None and activity._stdout_probe and activity._stdout_probe != last_probe[0]:
+                    last_probe[0] = activity._stdout_probe
+                    try:
+                        if plan.adapter.adapter_id == "codex_cli":
+                            live_session[0] = _codex.parse_stream(activity._stdout_probe).session_id
+                        elif plan.adapter.adapter_id == "copilot_cli":
+                            live_session[0] = _copilot._scan(activity._stdout_probe).session_id
+                    except BaseException:
+                        _logger.debug("live session id probe unavailable", exc_info=True)
+                self._observe_process(
+                    task_id=task_id, attempt=int(view["attempt"]), executor_id=plan.executor_id,
+                    adapter=plan.adapter, session_id=live_session[0], process_activity=activity,
+                    stall_seconds=stall_seconds, deadline=watch_deadline)
+            with process.watching(watch_interval, callback):
+                attempt = self._call_adapter(plan.adapter, request, resume_session)
         except BaseException:
             # Nothing ran or the run was interrupted: do not leave a task "running" with no program behind it.
+            self._write_attention(task_id, int(view["attempt"]), plan.executor_id, None)
             self._pause_task(task_id, actor, f"executor {mode} interrupted by an error")
             raise
+        attention_deadline = _iso(self.clock().astimezone(timezone.utc) + timedelta(seconds=timeout))
+        if attempt.failure_kind is FailureKind.PERMISSION_DENIED:
+            now = _iso(self.clock().astimezone(timezone.utc))
+            self._write_attention(task_id, int(view["attempt"]), plan.executor_id, {
+                "kind": "permission_blocked", "since": now, "last_output_at": None,
+                "source": "executor_result", "deadline": None})
+        else:
+            # Clear while the task is still running; result submission can make it terminal immediately.
+            self._write_attention(task_id, int(view["attempt"]), plan.executor_id, None)
         if attempt.session_id and attempt.session_id != resume_session:
             self._append(SESSION_EVENT, actor=actor, task=view, ref=attempt.session_id, cause=cause, payload={
                 "executor_id": plan.executor_id, "adapter_id": plan.adapter.adapter_id, "attempt": view["attempt"],
@@ -685,14 +791,17 @@ class ExecutorServices:
         reported = (_hold.detect_drift(recorded or {}, attempt.effective)
                     if resume_session and attempt.effective and recorded else [])
         submission, problem = None, None
-        if attempt.status == "completed" and attempt.envelope is not None:
+        if attempt.failure_kind is FailureKind.PERMISSION_DENIED:
+            problem = "the executor reported a permission denial; its result was not submitted"
+        elif attempt.status == "completed" and attempt.envelope is not None:
             try:
                 submission = self._services.envelopes.submit_result(task_id, attempt.envelope, actor=actor)
             except ServiceError as exc:
                 problem = f"the result envelope was rejected ({exc.code}): {exc.message}"
         elif attempt.status == "completed":
             problem = "the run completed without a task result envelope"
-        outcome = "submitted" if submission else (attempt.status if attempt.status in _FAILURE_OUTCOMES else "failed")
+        outcome = ("permission_blocked" if attempt.failure_kind is FailureKind.PERMISSION_DENIED else
+                   "submitted" if submission else (attempt.status if attempt.status in _FAILURE_OUTCOMES else "failed"))
         evidence = ""
         if submission is None:
             evidence = _collapse(" | ".join(part for part in (problem, attempt.evidence) if part), MAX_EVIDENCE_CHARS)
@@ -700,6 +809,7 @@ class ExecutorServices:
             "executor_id": plan.executor_id, "adapter_id": plan.adapter.adapter_id, "attempt": view["attempt"],
             "mode": mode, "run_status": attempt.status, "outcome": outcome, "session_id": attempt.session_id,
             "exit_code": attempt.exit_code, "model": plan.model, "effort": plan.effort,
+            "failure_kind": attempt.failure_kind.value if attempt.failure_kind else None,
             "model_source": plan.selection.model_source if plan.selection else None,
             "effort_source": plan.selection.effort_source if plan.selection else None,
             "permission": permission.value, "usage": dict(attempt.usage) if attempt.usage else None,
@@ -805,6 +915,7 @@ class ExecutorServices:
         return _Attempt(status=result.status.value, session_id=result.session_id, envelope=result.result_envelope,
                         usage=result.usage, command=_command_view(result.command), exit_code=result.command.exit_code,
                         notes=notes, evidence=evidence, limit=getattr(result, "limit", None),
+                        failure_kind=getattr(result, "failure_kind", None),
                         last_message=_checkpoint.extract_last_message(result.stdout_tail),
                         effective=_effective_of(getattr(result, "effective", None)))
 

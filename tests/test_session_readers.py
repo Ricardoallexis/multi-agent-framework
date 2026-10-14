@@ -462,3 +462,49 @@ def test_timestamp_normalization():
     assert n(1790000000) == n(1790000000000) == n("1790000000") == "2026-09-21T14:13:20Z"
     assert n("2026-10-01T12:00:00+02:00") == "2026-10-01T10:00:00Z"
     assert n("2026-10-01T10:00:00") == "2026-10-01T10:00:00Z" and n("garbage") is None and n(None) is None
+
+def test_session_activity_is_allowlisted_and_reports_claude_test_tool(env):
+    sid = "11111111-1111-4111-8111-111111111112"
+    path = claude_file(env, sid=sid, extra=[{
+        "type": "assistant", "timestamp": "2026-10-14T12:30:00Z",
+        "message": {"content": [{"type": "tool_use", "id": "tool-test", "name": "Bash",
+                                "input": {"command": "pytest tests/test_synthetic.py"}}]},
+    }])
+    registry = reg(env)
+
+    metadata = registry.activity(f"claude:{sid}")
+
+    assert metadata["open_tests"] is True
+    assert metadata["source"] == "claude_transcript"
+    assert metadata["last_output_at"] >= "2026-10-14T12:30:00Z"
+    assert str(path) not in repr(metadata) and "pytest tests" not in repr(metadata)
+    hidden = "11111111-1111-4111-8111-bbbbbbbbbbbb"
+    claude_file(env, sid=hidden, cwd=env["other"])
+    with pytest.raises(SessionNotFound):
+        registry.activity(f"claude:{hidden}")
+def test_codex_activity_reports_rollout_mtime_and_open_tests(env):
+    make_codex(env)
+    rollout = env["cfg"].codex_home / "sessions" / "2026" / "10" / "01" / f"rollout-2026-10-01T10-00-00-{CODEX_ID}.jsonl"
+    with rollout.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps({"timestamp": "2026-10-14T12:00:00Z", "type": "response_item",
+                                 "payload": {"type": "function_call", "call_id": "test-call",
+                                             "arguments": "{\"command\":\"pytest tests/test_synthetic.py\"}"}}) + "\n")
+    metadata = reg(env).activity(f"codex:{CODEX_ID}")
+    assert metadata["open_tests"] is True
+    assert metadata["source"] == "codex_rollout_mtime"
+    assert metadata["last_output_at"] is not None
+    assert str(rollout) not in repr(metadata) and "pytest tests" not in repr(metadata)
+
+
+def test_copilot_activity_reports_root_test_calls_without_subagent_text(env):
+    make_copilot(env)
+    events = env["cfg"].copilot_home / "session-state" / COPILOT_ID / "events.jsonl"
+    with events.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps({"type": "tool.execution_start", "timestamp": "2026-10-14T12:00:00Z",
+                                 "data": {"toolName": "shell", "toolCallId": "test-call",
+                                          "arguments": {"command": "pytest tests/test_synthetic.py"}}}) + "\n")
+    metadata = reg(env).activity(f"copilot:{COPILOT_ID}")
+    assert metadata["open_tests"] is True
+    assert metadata["source"] == "copilot_events_mtime"
+    assert metadata["last_output_at"] is not None
+    assert str(events) not in repr(metadata) and "pytest tests" not in repr(metadata)

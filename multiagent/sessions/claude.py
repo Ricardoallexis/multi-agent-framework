@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -349,6 +349,17 @@ class ClaudeReader:
             return self._summary(session, path, desktop, len(self._subagent_files(main)))
         return self._summary(session, path, desktop, 0, {"cwd": self._parent_cwd(main)}, agent)
 
+
+    def activity(self, native_id: str) -> dict[str, Any]:
+        """Allowlisted live activity; never return transcript contents or paths."""
+        _, _, path, _ = self._resolve(native_id)
+        try:
+            modified = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+        except OSError:
+            modified = None
+        info = self.index.scan_jsonl("claude-activity", path, _ChildFold)
+        return {"last_output_at": modified, "open_tests": bool(info.get("open_tests")),
+                "source": "claude_transcript"}
     def read_items(self, native_id: str, after: str | None, limit: int) -> ItemsPage:
         _, _, path = self._locate(native_id)
         return read_page(path, after, limit, self._parse)

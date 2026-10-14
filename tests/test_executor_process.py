@@ -44,6 +44,18 @@ elif mode == "raw":
     sys.stdout.buffer.write(bytes.fromhex(sys.argv[2]))
 elif mode == "sleep":
     time.sleep(float(sys.argv[2]))
+elif mode == "liveflush":
+    sys.stdout.write("first")
+    sys.stdout.flush()
+    time.sleep(0.12)
+    sys.stderr.write("err1")
+    sys.stderr.flush()
+    time.sleep(0.12)
+    sys.stdout.write("second")
+    sys.stdout.flush()
+    time.sleep(0.12)
+    sys.stderr.write("err2")
+    sys.stderr.flush()
 elif mode == "sleeper":
     with open(sys.argv[2], "w") as handle:
         handle.write(str(os.getpid()))
@@ -506,3 +518,60 @@ def test_what_the_program_leaves_holding_its_output_is_killed(cli, workdir, tmp_
     outcome = go(cli("orphan", str(pidfile)), workdir, timeout=60)
     assert outcome.exit_code == 0 and not outcome.timed_out and time.monotonic() - started < 30
     _assert_dead(_read_pid(pidfile))
+
+@pytest.mark.parametrize("interval", [0, -1, float("nan"), float("inf"), -float("inf")])
+def test_watch_rejects_non_finite_or_non_positive_intervals(interval):
+    with pytest.raises(ValueError):
+        process.ProcessWatch(interval, lambda activity: None)
+
+
+def test_watch_callback_failure_never_kills_or_fails_a_live_process(cli, workdir):
+    calls = []
+
+    def broken(activity):
+        calls.append(activity)
+        raise RuntimeError("synthetic observer failure")
+
+    with process.watching(0.03, broken):
+        outcome = go(cli("sleep", "0.25"), workdir, timeout=3)
+    assert len(calls) >= 2  # periodic ticks continue despite observer failures
+    assert outcome.exit_code == 0 and not outcome.timed_out and not outcome.cancelled
+
+
+def test_watch_observes_small_flushed_stdout_and_stderr_while_process_is_live(cli, workdir):
+    snapshots = []
+    with process.watching(0.025, snapshots.append):
+        outcome = go(cli("liveflush"), workdir, timeout=3)
+
+    assert outcome.stdout_tail == "firstsecond"
+    assert outcome.stderr_tail == "err1err2"
+    assert len(snapshots) >= 6
+    first = next(i for i, snap in enumerate(snapshots) if snap._stdout_probe == "first")
+    later_stdout = next(i for i, snap in enumerate(snapshots) if snap._stdout_probe == "firstsecond")
+    assert snapshots[first].last_output_at is not None
+    assert snapshots[later_stdout].last_output_at is not None
+    assert snapshots[later_stdout].idle_seconds < snapshots[later_stdout - 1].idle_seconds
+    # stderr also refreshes the shared output activity timestamp between stdout chunks.
+    assert any(snap._stdout_probe == "first" and snap.last_output_at != snapshots[first].last_output_at
+               for snap in snapshots[first + 1:later_stdout])
+
+
+def test_watch_preserves_process_timeout_and_cancel_semantics(cli, workdir):
+    ticks = []
+    with process.watching(0.025, ticks.append):
+        timed = go(cli("sleep", "2"), workdir, timeout=0.15)
+    assert timed.timed_out and not timed.cancelled and ticks
+
+    ticks.clear()
+    with process.watching(0.025, ticks.append):
+        handle = start(cli("sleep", "2"), cwd=workdir, stdin_text=None, timeout_seconds=3)
+        time.sleep(0.1)
+        assert cancel(handle)
+        cancelled = handle.wait(3)
+    assert cancelled.cancelled and not cancelled.timed_out and ticks
+
+
+def test_empty_tail_feed_is_not_activity():
+    buffer = _TailBuffer(10)
+    buffer.feed(b"")
+    assert buffer.activity() == (None, None)

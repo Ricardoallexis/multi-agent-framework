@@ -275,6 +275,7 @@ class _Parsed:
     usage: dict[str, Any] | None
     result_exit_code: int | None
     errors: tuple[str, ...]
+    permission_denied: bool = False
 
 
 def _text_of(content: object) -> str:
@@ -381,6 +382,7 @@ def _scan(stdout: object) -> _Parsed:
     usage: dict[str, Any] | None = None
     messages: list[str] = []
     errors: list[str] = []
+    permission_denied = False
     for line in (stdout if isinstance(stdout, str) else "").splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -400,12 +402,16 @@ def _scan(stdout: object) -> _Parsed:
         elif kind == "assistant.message":
             if not data.get("parentToolCallId"):  # a sub-agent's message is not the answer
                 messages.append(_text_of(data.get("content")))
-        elif kind in ("error", "session.error") and len(errors) < MAX_ERROR_EVENTS:
-            text = _error_text(event, data)
-            if text:
-                errors.append(text)
+        elif kind in ("error", "session.error"):
+            codes = (event.get("errorCode"), event.get("errorType"), data.get("errorCode"), data.get("errorType"))
+            permission_denied = permission_denied or any(
+                isinstance(code, str) and code in ("permission_denied", "sandbox_denied") for code in codes)
+            if len(errors) < MAX_ERROR_EVENTS:
+                text = _error_text(event, data)
+                if text:
+                    errors.append(text)
     final = next((message for message in reversed(messages) if message.strip()), "")
-    return _Parsed(session_id or started_id, _extract_envelope(final), usage, exit_code, tuple(errors))
+    return _Parsed(session_id or started_id, _extract_envelope(final), usage, exit_code, tuple(errors), permission_denied)
 
 
 # --------------------------------------------------------------------------- classifying a limit (CNT-T02)
@@ -602,10 +608,15 @@ class CopilotAdapter:
                 self._created.add(parsed.session_id)
         failed = outcome.exit_code != 0 or parsed.result_exit_code not in (None, 0)
         limit: LimitInfo | None = None
+        failure_kind: FailureKind | None = None
         if outcome.cancelled:
             status = RunStatus.CANCELLED
         elif outcome.timed_out:
             status = RunStatus.TIMEOUT
+        elif parsed.permission_denied:
+            status = RunStatus.FAILED
+            failure_kind = FailureKind.PERMISSION_DENIED
+            notes.append("permission_denied")
         elif not failed:
             status = RunStatus.COMPLETED
         else:
@@ -626,8 +637,10 @@ class CopilotAdapter:
                      parsed.session_id, outcome.exit_code)
         return ExecutorRunResult(
             status=status, session_id=parsed.session_id, result_envelope=parsed.envelope, usage=parsed.usage,
-            command=outcome.command, stdout_tail=outcome.stdout_tail[-OUTPUT_TAIL_CHARS:],
-            stderr_tail=outcome.stderr_tail[-OUTPUT_TAIL_CHARS:], notes=tuple(notes), limit=limit)
+            command=outcome.command,
+            stdout_tail="" if failure_kind is FailureKind.PERMISSION_DENIED else outcome.stdout_tail[-OUTPUT_TAIL_CHARS:],
+            stderr_tail="" if failure_kind is FailureKind.PERMISSION_DENIED else outcome.stderr_tail[-OUTPUT_TAIL_CHARS:],
+            notes=tuple(notes), limit=limit, failure_kind=failure_kind)
 
 
 def _without_claude(evidence: CapabilityEvidence) -> CapabilityEvidence:

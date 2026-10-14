@@ -95,14 +95,14 @@ class _EventsFold(JsonlFold):
 
     def __init__(self) -> None:
         self.info: dict[str, Any] = {"models": [], "first": None, "last": None, "tokens": None,
-                                     "subagents": 0, "version": None, "warnings": []}
+                                     "subagents": 0, "version": None, "warnings": [], "open_tests": set()}
         self.counter = WarningCounter()
         self.tokens = TokenUsage()
         self.have = False
 
     def copy(self) -> _EventsFold:
         other = _EventsFold()
-        other.info = {**self.info, "models": list(self.info["models"])}
+        other.info = {**self.info, "models": list(self.info["models"]), "open_tests": set(self.info["open_tests"])}
         other.counter = self.counter.copy()
         other.tokens, other.have = self.tokens, self.have
         return other
@@ -118,6 +118,11 @@ class _EventsFold(JsonlFold):
             info["last"] = ts
         rtype = rec.get("type")
         data = rec.get("data") if isinstance(rec.get("data"), dict) else {}
+        call_id = data.get("toolCallId")
+        if rtype == "tool.execution_start" and isinstance(call_id, str) and is_test_call(data.get("arguments")):
+            info["open_tests"].add(call_id)
+        elif rtype == "tool.execution_complete" and isinstance(call_id, str):
+            info["open_tests"].discard(call_id)
         if rtype == "session.start":
             info["version"] = data.get("copilotVersion")
         model = data.get("newModel") or data.get("selectedModel") or data.get("model")
@@ -318,6 +323,17 @@ class CopilotReader:
         dbmeta, usage, warns = self._db_info()
         return self._summary(native_id.lower(), d, dbmeta, usage, warns)
 
+    def activity(self, native_id: str) -> dict[str, Any]:
+        """Allowlisted mtime and root test-call metadata of a validated Copilot session."""
+        self.get_summary(native_id)
+        directory = self._dirs().get(native_id.lower())
+        if directory is None:
+            raise SessionNotFound(native_id)
+        events = directory / "events.jsonl"
+        path = events if events.is_file() else directory
+        info = self._scan(events if events.is_file() else None)
+        return {"last_output_at": mtime_ts(path), "open_tests": bool(info.get("open_tests")),
+                "source": "copilot_events_mtime"}
     def read_items(self, native_id: str, after: str | None, limit: int) -> ItemsPage:
         d = self._dirs().get(native_id.lower()) if is_uuid(native_id) else None
         if d is None:

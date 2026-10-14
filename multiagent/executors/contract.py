@@ -70,6 +70,7 @@ class FailureKind(str, Enum):
     QUOTA = "limit_unknown"             # deprecated alias of LIMIT_UNKNOWN (see above); not listed when iterating
     BLOCKED_OPEN_SESSION = "blocked_open_session"
     AUTHENTICATION = "authentication"
+    PERMISSION_DENIED = "permission_denied"
     OTHER = "other"
 
     @classmethod
@@ -193,6 +194,7 @@ class ExecutorRunResult:
     stderr_tail: str = ""
     notes: tuple[str, ...] = field(default_factory=tuple)
     limit: LimitInfo | None = None          # set when the status is ``QUOTA_EXHAUSTED`` (CNT-T02)
+    failure_kind: FailureKind | None = None # structured non-limit failure class (CNT-T09)
 
 
 @dataclass(frozen=True)

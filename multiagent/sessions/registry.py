@@ -177,6 +177,20 @@ class SessionRegistry:
             raise SessionNotFound(session_id)
         return summary
 
+    def activity(self, session_id: str) -> dict[str, object]:
+        """Return only allowlisted activity metadata for an allowed session."""
+        self.get_session(session_id)
+        source, native = self._parse_id(session_id)
+        reader = self._readers[source]
+        data = reader.activity(native)
+        result: dict[str, object] = {
+            "last_output_at": data.get("last_output_at"),
+            "source": {"claude": "claude_transcript", "codex": "codex_rollout_mtime",
+                       "copilot": "copilot_events_mtime"}[source],
+        }
+        if source in ("claude", "codex", "copilot"):
+            result["open_tests"] = bool(data.get("open_tests"))
+        return result
     def read_items(self, session_id: str, after: str | None = None, limit: int = 200) -> ItemsPage:
         decode_cursor(after, 1)  # validate before touching any file
         self.get_session(session_id)  # existence + allowed folders

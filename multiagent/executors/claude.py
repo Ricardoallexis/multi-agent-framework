@@ -199,6 +199,21 @@ class ParsedOutput:
     json_ok: bool = False
     problem: str | None = None
     quota_limits: Mapping[str, Any] | None = None       # ``quotaLimits`` / ``rate_limit_info`` of the answer, if it has one
+    permission_denials: tuple[str, ...] = ()             # tool names only; never retain denied input or paths
+
+
+def _permission_denials(data: Mapping[str, Any]) -> tuple[str, ...]:
+    raw = data.get("permission_denials")
+    if not isinstance(raw, list) or not raw:
+        return ()
+    names: list[str] = []
+    for item in raw[:10]:
+        if not isinstance(item, Mapping):
+            continue
+        name = item.get("tool_name")
+        if isinstance(name, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", name):
+            names.append(name)
+    return tuple(names or ("unspecified",))
 
 
 def _result_object(stdout: str) -> Mapping[str, Any] | None:
@@ -286,16 +301,17 @@ def parse(stdout: str) -> ParsedOutput:
     result = data.get("result") if isinstance(data.get("result"), str) else None
     session_id = data.get("session_id") if is_uuid(data.get("session_id")) else None
     usage = _usage(data)
+    denials = _permission_denials(data)
     if is_error:
         return ParsedOutput(session_id=session_id, usage=usage, is_error=True, error_text=result, subtype=subtype,
                             json_ok=True, problem=f"Claude reported an error ({subtype or 'is_error'})",
-                            quota_limits=_quota_limits_of(data))
+                            quota_limits=_quota_limits_of(data), permission_denials=denials)
     envelope = extract_envelope(result) if result else None
     problem = None
     if envelope is None:
         problem = "the result text is empty" if not result else "no task result envelope found in the result text"
     return ParsedOutput(session_id=session_id, envelope=envelope, usage=usage, subtype=subtype, json_ok=True,
-                        problem=problem)
+                        problem=problem, quota_limits=_quota_limits_of(data), permission_denials=denials)
 
 
 # --------------------------------------------------------------------------- classifying a limit (CNT-T02)
@@ -533,11 +549,16 @@ class ClaudeAdapter:
             notes.append("stdout was truncated at the output cap; the JSON may be incomplete")
         envelope: Mapping[str, Any] | None = None
         limit: LimitInfo | None = None
+        failure_kind: FailureKind | None = None
         if outcome.timed_out:
             status = RunStatus.TIMEOUT
             notes.append(f"timed out after {request.timeout_seconds} s; the process tree was killed")
         elif outcome.cancelled:
             status = RunStatus.CANCELLED
+        elif parsed.permission_denials:
+            status = RunStatus.FAILED
+            failure_kind = FailureKind.PERMISSION_DENIED
+            notes.append("permission_denied: " + ", ".join(parsed.permission_denials))
         elif outcome.exit_code != 0 or parsed.is_error:
             diagnostic = "\n".join(part for part in (
                 outcome.stderr_tail, parsed.error_text,
@@ -555,5 +576,8 @@ class ClaudeAdapter:
             status, envelope = RunStatus.COMPLETED, parsed.envelope
         return ExecutorRunResult(
             status=status, session_id=parsed.session_id or session_id, result_envelope=envelope, usage=parsed.usage,
-            command=outcome.command, stdout_tail=_tail(outcome.stdout_tail), stderr_tail=_tail(outcome.stderr_tail),
-            notes=tuple(notes), limit=limit)
+            command=outcome.command,
+            # A denial event may include the tool input and paths; retain only validated tool names above.
+            stdout_tail="" if parsed.permission_denials else _tail(outcome.stdout_tail),
+            stderr_tail="" if parsed.permission_denials else _tail(outcome.stderr_tail),
+            notes=tuple(notes), limit=limit, failure_kind=failure_kind)

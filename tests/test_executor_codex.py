@@ -664,3 +664,12 @@ def test_resume_rejects_anything_but_a_uuid_before_starting(fake, workdir, sessi
     with pytest.raises(CodexRequestError):
         fake.adapter.resume(make_request(workdir), session)
     assert not fake.started
+
+def test_codex_permission_denial_requires_an_exact_structured_code():
+    denial = parse_stream(json.dumps({"type": "turn.failed", "error": {
+        "code": "permission_denied", "message": "synthetic denied input / private path"}}))
+    auth = parse_stream(json.dumps({"type": "error", "code": "authentication",
+                                    "message": "permission denied; 401"}))
+    text_only = parse_stream(json.dumps({"type": "error", "message": "permission denied"}))
+    assert denial.permission_denied is True
+    assert auth.permission_denied is False and text_only.permission_denied is False

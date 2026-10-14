@@ -276,6 +276,20 @@ class CodexReader:
         parents = {c: p for p, kids in children.items() for c in kids}
         return self._summary(native, threads.get(native), path, children, parents.get(native), warns)
 
+    def activity(self, native_id: str) -> dict[str, Any]:
+        """Allowlisted activity from a validated Codex rollout; no transcript content is returned."""
+        self.get_summary(native_id)
+        native = native_id.lower()
+        path = self._rollouts().get(native)
+        if path is None:
+            return {"last_output_at": None, "open_tests": False, "source": "codex_rollout_mtime"}
+        info = self.index.scan_jsonl("codex-activity", path, _ThreadFold)
+        try:
+            modified = mtime_ts(path)
+        except OSError:
+            modified = None
+        return {"last_output_at": modified, "open_tests": bool(info.get("open_tests")),
+                "source": "codex_rollout_mtime"}
     def read_items(self, native_id: str, after: str | None, limit: int) -> ItemsPage:
         if not is_uuid(native_id):
             raise SessionNotFound(native_id)

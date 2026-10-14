@@ -172,7 +172,8 @@ class CodexStream:
     envelope: Mapping[str, Any] | None
     usage: Mapping[str, Any] | None
     errors: tuple[str, ...]
-    rate_limits: Mapping[str, Any] | None = None     # the last ``rate_limits`` of a ``token_count`` event (CNT-T02)
+    rate_limits: Mapping[str, Any] | None = None
+    permission_denied: bool = False     # CNT-T09 structured denial; ``rate_limits`` of a ``token_count`` event (CNT-T02)
 
 
 def _events(stdout: str) -> Iterator[Mapping[str, Any]]:
@@ -256,6 +257,7 @@ def parse_stream(stdout: str) -> CodexStream:
     totals: dict[str, int] | None = None
     last_cumulative: dict[str, int] | None = None
     rate_limits: Mapping[str, Any] | None = None
+    permission_denied = False
     errors: list[str] = []
     for event in _events(stdout):
         kind = event.get("type")
@@ -273,10 +275,17 @@ def parse_stream(stdout: str) -> CodexStream:
                 totals = dict(totals or {})
                 for key, value in counts.items():
                     totals[key] = totals.get(key, 0) + value
-        elif kind == "error" and isinstance(event.get("message"), str):
-            errors.append(event["message"])
+        elif kind == "error":
+            error = event.get("error")
+            code = error.get("code") if isinstance(error, Mapping) else event.get("code")
+            permission_denied = permission_denied or code in ("permission_denied", "sandbox_denied")
+            message = error.get("message") if isinstance(error, Mapping) else event.get("message")
+            if isinstance(message, str):
+                errors.append(message)
         elif kind == "turn.failed":
             failure = event.get("error")
+            if isinstance(failure, Mapping):
+                permission_denied = permission_denied or failure.get("code") in ("permission_denied", "sandbox_denied")
             message = failure.get("message") if isinstance(failure, Mapping) else failure
             if isinstance(message, str):
                 errors.append(message)
@@ -294,7 +303,7 @@ def parse_stream(stdout: str) -> CodexStream:
         usage = {**usage, "total_tokens": usage["input_tokens"] + usage["output_tokens"]}
     return CodexStream(session_id=session_id, final_message=final_message,
                        envelope=extract_result_envelope(final_message), usage=usage, errors=tuple(errors),
-                       rate_limits=rate_limits)
+                       rate_limits=rate_limits, permission_denied=permission_denied)
 
 
 # --------------------------------------------------------------------------- failure classification
@@ -591,6 +600,7 @@ class CodexExecutorAdapter:
             notes.append("stdout_truncated: the start of the event stream was dropped; the thread id may be missing")
         session_id = stream.session_id or fallback_session
         limit: LimitInfo | None = None
+        failure_kind: FailureKind | None = None
         if session_id is None:
             notes.append("session_id_missing: the stream has no thread.started event")
         envelope: Mapping[str, Any] | None = None
@@ -600,6 +610,10 @@ class CodexExecutorAdapter:
         elif outcome.cancelled:
             status = RunStatus.CANCELLED
             notes.append("cancelled")
+        elif stream.permission_denied:
+            status = RunStatus.FAILED
+            failure_kind = FailureKind.PERMISSION_DENIED
+            notes.append("permission_denied")
         elif outcome.exit_code != 0:
             status, limit = self._failure(outcome.exit_code, outcome.stderr_tail, stream, notes)
         else:
@@ -617,8 +631,10 @@ class CodexExecutorAdapter:
                 if stream.errors:
                     notes.append(f"error_events: {_excerpt(' | '.join(stream.errors))}")
         return ExecutorRunResult(status=status, session_id=session_id, result_envelope=envelope, usage=stream.usage,
-                                 command=outcome.command, stdout_tail=_tail(outcome.stdout_tail),
-                                 stderr_tail=_tail(outcome.stderr_tail), notes=tuple(notes), limit=limit)
+                                 command=outcome.command,
+                                 stdout_tail="" if failure_kind is FailureKind.PERMISSION_DENIED else _tail(outcome.stdout_tail),
+                                 stderr_tail="" if failure_kind is FailureKind.PERMISSION_DENIED else _tail(outcome.stderr_tail),
+                                 notes=tuple(notes), limit=limit, failure_kind=failure_kind)
 
     def _failure(self, exit_code: int | None, stderr: str, stream: CodexStream,
                  notes: list[str]) -> tuple[RunStatus, LimitInfo | None]:
