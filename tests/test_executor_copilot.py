@@ -616,7 +616,9 @@ def test_describe_uses_the_catalog_evidence_without_the_claude_models(tmp_path, 
     monkeypatch.setattr(process, "run", lambda *a, **k: pytest.fail("describe must not launch"))
     monkeypatch.setattr(process, "start", lambda *a, **k: pytest.fail("describe must not launch"))
     declaration = _declaration(tmp_path)["executors"]["copilot_cli"]
-    assert "claude-sonnet-5.5" in declaration["model_support"]["values"]            # what the catalog declares today
+    # The shipped catalog declares no Claude model (MOD-T02); a declaration that does is still filtered by describe.
+    declaration = {**declaration, "model_support": {**declaration["model_support"],
+                                                    "values": ["claude-sonnet-5.5", "gpt-6-luna"]}}
     descriptor = CopilotAdapter().describe(declaration)
     assert descriptor.executor_id == "copilot_cli" and descriptor.surface == "copilot_cli"
     assert descriptor.adapter_id == "copilot_cli" and descriptor.adapter_version == "1"

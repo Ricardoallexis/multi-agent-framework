@@ -338,7 +338,8 @@ executor_routing:
       permission_ceiling: null
       allowed_data_classes: null
       execution_modes: null
-      model_support: {status: supported, source: "P-384 #390 (claude-sonnet-5.5); GUI-T08 run (gpt-6-luna)", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-11", values: ["claude-sonnet-5.5", "gpt-6-luna"]}
+      # MOD-T02: no Claude model is declared for copilot_cli; the Copilot adapter refuses Claude ids (claude_model_rejected).
+      model_support: {status: supported, source: "P-384 #390; GUI-T08 run (gpt-6-luna)", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-11", values: ["gpt-6-luna"]}
       effort_support: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["low"]}
       noninteractive_launch: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["copilot -p --output-format=json --no-ask-user"]}
       structured_output: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["--output-format=json"]}
