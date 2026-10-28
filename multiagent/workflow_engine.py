@@ -5,8 +5,8 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Mapping, NamedTuple
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Sequence
 
 from pydantic import BaseModel, ValidationError
 
@@ -18,12 +18,15 @@ from .call_guards import (
 )
 from .catalog import Catalog, CatalogError, validate_routing_profile
 from .context.estimate import ContextSettings, compaction_pending, context_settings_for
-from .context.summary import CONTEXT_AGENT_ID, SummaryAccess, SummaryPolicy, content_text, summarize_context
+from .context.summary import (
+    CONTEXT_AGENT_ID, SummaryAccess, SummaryPolicy, SummarySchemaError, content_text, render_summary_for_prompt,
+    summarize_context,
+)
 from .context.workflow import (
-    EVENT_CONTEXT_COMPACTED, EVENT_CONTEXT_COMPACTION_SKIPPED, KIND_INPUT, KIND_PREVIOUS_OUTPUT,
+    EVENT_CONTEXT_COMPACTED, EVENT_CONTEXT_COMPACTION_SKIPPED, KIND_CONTEXT_SUMMARY, KIND_INPUT, KIND_PREVIOUS_OUTPUT,
     KIND_REVISION_FEEDBACK, KIND_STEP_OUTPUT, ORIGINAL_MEDIA_TYPE, REASON_INTERNAL_ERROR, SUMMARY_MEDIA_TYPE,
     CompactionPlan, CompactionState, ContextPart, OutputRecord, StepContext, build_context_parts,
-    check_pinned_in_context, compacted_event, minimum_summary_tokens, next_state, plan_compaction,
+    check_pinned_in_context, compacted_event, minimum_summary_tokens, next_state, output_text, plan_compaction,
     resolve_compaction_state, skipped_event,
 )
 from .contracts import (
@@ -42,6 +45,10 @@ from .contracts import (
 )
 from .db.envelope_store import EnvelopeStore
 from .db.store import Store
+from .document_trust import (
+    ACTION_PASS, ACTION_PAUSE, ACTION_QUARANTINE, EVENT_QUARANTINED, EVENT_REVIEW_REQUESTED, BlobSink,
+    DetectionPolicy, Provenance, Screening, SourceKind, derive, render_for_prompt, resolve_policy, screen,
+)
 from .errors import (
     BudgetExceeded, EscalationBlocked, HumanSubmissionError, InvalidStateTransition, StructuredOutputError,
     ValidationFailed,
@@ -56,6 +63,7 @@ from .routing_policy import (
 )
 from .observability.usage import read_usage, summarize_usage
 from .schema_utils import estimate_tokens_conservative
+from .tasks.envelopes import blob_ref
 from .workflows import WorkflowCatalog, WorkflowDefinition, WorkflowStep, condition_is_true
 from .workflow_validation import (
     WorkflowDefinitionError, validate_resume_point, validate_workflow_definition,
@@ -95,17 +103,119 @@ class _Escalation(NamedTuple):
     paused: bool = False
 
 
+# ---------- untrusted sources in the context of a step (BDI-T02, contract BDI-T01 sections 4 to 8) ----------
+DOCUMENT_ACTOR = "document_trust"        # the actor that stores the blob of a quarantined fragment
+SUMMARY_HEADING = "## Context summary"   # first line of the CMP summary section; it stays outside the envelope
+_SEVERITY_ORDER = {"low": 1, "medium": 2, "high": 3}
+MAX_EVENT_SIGNALS = 100                  # what one document_quarantined / document_review_requested event lists
+MAX_EVENT_FRAGMENTS = 50
+# The policy an engine uses when its caller names none. ``None`` is "no policy profile active": the barrier is
+# off and the prompts are exactly what they were before BDI-T02. Contract BDI-T01 section 8 fixes this default
+# to off (only the user can change it); switching it on by default is changing this one line to a policy
+# ("quarantine_warn" is the contract's default policy once a profile is active).
+DEFAULT_DOCUMENT_POLICY: str | DetectionPolicy | None = None
+
+
+def _clean_tree(node: Any, provenance: Provenance, *, policy: DetectionPolicy, store: BlobSink | None,
+                found: list[Screening]) -> Any:
+    """``node`` (parsed JSON) with every text screened one by one; the screenings that did not pass go to ``found``.
+
+    A step output is JSON the model wrote, so its texts are screened as texts (what the model reads) and not as
+    the escaped JSON line. A quarantined paragraph is replaced inside its own text, so the rest of the output
+    keeps its shape. Object keys are texts too.
+    """
+    if isinstance(node, str):
+        screening = screen(node, provenance, policy=policy, store=store)
+        if screening.action == ACTION_PASS:
+            return node
+        found.append(screening)
+        return screening.text
+    if isinstance(node, (list, tuple)):
+        return [_clean_tree(item, provenance, policy=policy, store=store, found=found) for item in node]
+    if isinstance(node, Mapping):
+        cleaned: dict[Any, Any] = {}
+        for key, value in node.items():
+            name = _clean_tree(key, provenance, policy=policy, store=store, found=found)
+            while name in cleaned:          # two quarantined keys never take the same place
+                name = f"{name}'"
+            cleaned[name] = _clean_tree(value, provenance, policy=policy, store=store, found=found)
+        return cleaned
+    return node
+
+
+def _screen_text(text: str, provenance: Provenance, *, policy: DetectionPolicy,
+                 store: BlobSink | None) -> tuple[str, list[Screening]]:
+    """``text`` screened: as a tree of texts when it is a JSON object or list, else as one text.
+
+    Returns the text for the prompt (the same string when nothing was found) and the screenings that did not pass.
+    """
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError):
+        data = None
+    if isinstance(data, (dict, list)):
+        found: list[Screening] = []
+        try:
+            cleaned = _clean_tree(data, provenance, policy=policy, store=store, found=found)
+        except RecursionError:
+            found = []                      # too deep to walk: screen it as one text below
+        else:
+            return (output_text(cleaned), found) if found else (text, [])
+    screening = screen(text, provenance, policy=policy, store=store)
+    return (screening.text, [screening]) if screening.action != ACTION_PASS else (text, [])
+
+
+def _screening_event(screenings: Sequence[Screening], *, original_sha256: str) -> tuple[str, dict[str, Any]] | None:
+    """One ``(event_type, payload)`` for all the screenings of one context part, or ``None`` when none applies.
+
+    The payload is the ``multiagent.document_screening/1`` of BDI-T01 with the signals and fragments of every
+    screening; ``original_sha256`` is the hash of the whole text of the part before it was screened.
+    """
+    events = [event for event in (item.event() for item in screenings) if event is not None]
+    if not events:
+        return None
+    paused = any(event_type == EVENT_REVIEW_REQUESTED for event_type, _ in events)
+    signals = [signal for _, payload in events for signal in payload["signals"]]
+    fragments = [fragment for _, payload in events for fragment in payload["fragments"]]
+    severities = [payload["max_severity"] for _, payload in events if payload["max_severity"]]
+    payload = dict(events[0][1])
+    payload.update({
+        "action": ACTION_PAUSE if paused else ACTION_QUARANTINE, "original_sha256": original_sha256,
+        "max_severity": max(severities, key=_SEVERITY_ORDER.__getitem__) if severities else None,
+        "signals": signals[:MAX_EVENT_SIGNALS], "fragments": fragments[:MAX_EVENT_FRAGMENTS],
+        "fragment_count": len(fragments),
+    })
+    return (EVENT_REVIEW_REQUESTED if paused else EVENT_QUARANTINED), payload
+
+
+@dataclass(frozen=True)
+class _ScreenedContext(StepContext):
+    """The context a prompt is built from (the untrusted parts screened and quoted) and, in ``original``, the
+    plain one: the step is recorded with the plain values, the model reads the quoted ones."""
+
+    original: StepContext = StepContext(())
+
+
 class WorkflowEngine:
     """Deterministic workflow orchestrator.
 
     The workflow defines step order, agent, prompt, and contract. Execution can
     be local, cloud, auto, or human_guided without changing inter-agent contracts.
+
+    Untrusted sources (BDI-T02), with a document policy active (``document_policy`` is not ``None``): in the
+    context of a step only the run inputs and the human revision feedback are the user's words. What a model
+    wrote (the output of an earlier step, the previous attempt, the CMP context summary derived from outputs)
+    is data: ``_context_for_step`` screens it with the detector of ``document_trust`` and quotes it in the
+    untrusted-data envelope. Without a policy (the default, ``DEFAULT_DOCUMENT_POLICY``) the context and the
+    prompts are what they always were. The barrier covers what the framework puts in a prompt; it does not
+    cover what an executor application reads from the disk by itself.
     """
 
     def __init__(self, *, store: Store, catalog: Catalog, prompts: PromptManager,
                  workflows: WorkflowCatalog, router: ModelRouter,
                  artifacts: ArtifactWriter, settings,
-                 output_schemas: Mapping[str, type[BaseModel]] | None = None):
+                 output_schemas: Mapping[str, type[BaseModel]] | None = None,
+                 document_policy: str | DetectionPolicy | None = DEFAULT_DOCUMENT_POLICY):
         self.store = store
         self.catalog = catalog
         self.prompts = prompts
@@ -116,11 +226,17 @@ class WorkflowEngine:
         self.output_schemas = dict(OUTPUT_SCHEMAS if output_schemas is None else output_schemas)
         self.usage_recorder = UsageRecorder(store)
         self._envelope_store: EnvelopeStore | None = None
+        # The document barrier of the context of a step (BDI-T02). ``None``: off, nothing is screened, quoted or
+        # recorded. A policy ("quarantine_warn" replaces a suspicious fragment, keeps the original, records an
+        # event and goes on; "pause" also asks for a review) turns it on. ``ValueError`` if unknown.
+        self.document_policy: DetectionPolicy | None = (
+            None if document_policy is None else resolve_policy(document_policy))
 
     @classmethod
     def from_bundle(cls, bundle: DefinitionBundle, *, store: Store,
                     artifacts: ArtifactWriter, settings, adapters: Mapping[str, Any],
-                    dry_run: bool = False) -> WorkflowEngine:
+                    dry_run: bool = False,
+                    document_policy: str | DetectionPolicy | None = DEFAULT_DOCUMENT_POLICY) -> WorkflowEngine:
         """Wire a trusted definition bundle into a runtime without changing defaults.
 
         Callers keep ownership of adapter lifetimes and the worker. Each engine
@@ -135,7 +251,7 @@ class WorkflowEngine:
         return cls(
             store=store, catalog=bundle.catalog, prompts=bundle.prompts,
             workflows=bundle.workflows, router=router, artifacts=artifacts,
-            settings=settings, output_schemas=bundle.output_schemas,
+            settings=settings, output_schemas=bundle.output_schemas, document_policy=document_policy,
         )
 
     def preflight(self, workflow_id: str) -> WorkflowDefinition:
@@ -263,9 +379,10 @@ class WorkflowEngine:
                     run_id, step.id, request, fresh.get("revision_feedback", ""),
                     brand_version=fresh.get("brand_version"),
                     prior_step_ids=[item.id for item in definition.steps[:index]],
-                    compaction=compaction,
+                    compaction=compaction, attempt=attempt,
                 )
-                context = step_context.variables()
+                context = step_context.variables()                  # fills the template: untrusted parts quoted
+                recorded_context = step_context.original.variables()  # what the step is recorded with: plain values
                 prompt = self.prompts.render(step.prompt_id, step.prompt_version, **context)
                 skill_text = "\n\n".join(self.prompts.skill_text(skill) for skill in step.skills)
                 final_prompt = prompt.text + ("\n\n## Active skill\n" + skill_text if skill_text else "")
@@ -354,7 +471,7 @@ class WorkflowEngine:
                         index=index,
                         step=step,
                         attempt=attempt,
-                        context=context,
+                        context=recorded_context,
                         final_prompt=final_prompt,
                         prompt_sha256=prompt_sha256,
                         requires_web=requires_web,
@@ -519,7 +636,7 @@ class WorkflowEngine:
                     index=index,
                     step=step,
                     attempt=attempt,
-                    context=context,
+                    context=recorded_context,
                     data=data,
                     model_id=response.model,
                     prompt_sha256=prompt_sha256,
@@ -1221,19 +1338,132 @@ class WorkflowEngine:
     # ---------- the context of a step: one assembly point (CMP-T04; the seam BDI-T02 works on) ----------
     def _context_for_step(self, run_id: str, step_id: str, request: dict[str, Any], revision_feedback: str,
                           *, brand_version: int | None, prior_step_ids: list[str] | None = None,
-                          compaction: CompactionState | None = None) -> StepContext:
+                          compaction: CompactionState | None = None, attempt: int | None = None) -> StepContext:
         """The context of one step as ordered parts (``StepContext``), the ONE place it is assembled.
 
         ``_context_parts`` gathers the parts; ``StepContext.variables()`` fills the prompt template and
         ``StepContext.sections()`` are appended to the prompt after the active skills (today only the context
-        summary). Anything that must treat a part differently, for example wrapping an untrusted source
-        (BDI-T02), works on the parts here, each of which says what it is (``kind``) and, for a step output,
-        its reference and hash. ``compaction`` is the compaction in force (``_active_compaction``); without it
-        the context is exactly what it always was.
+        summary). ``compaction`` is the compaction in force (``_active_compaction``); without it the context
+        is what it always was.
+
+        With a document policy active (``self.document_policy`` is not ``None``; contract BDI-T01 section 8:
+        without one the context, the prompts and their ``prompt_sha256`` do not change) the untrusted parts are
+        treated here, between gathering and assembling (BDI-T02, sections 4 to 8), and nowhere else; what each
+        part is says whether it is the user's or data:
+
+        * ``input`` and ``revision_feedback``: the user's words (the run request, the human feedback). Kept.
+        * ``step_output`` and ``previous_output``: written by a model, which may have read anything. Data
+          (``model_output``): screened and quoted.
+        * ``context_summary``: written by a model from those outputs. Data, derived from them
+          (``context_summary``): screened and quoted. Its ``## Context summary`` heading stays outside.
+        * a summarized output (``[resumido ...]``) or an empty part holds no content. Kept.
+        * any other kind: not known to be the user's, so data (``unknown``). Fails closed.
+
+        ``attempt`` identifies the step attempt in the events of a suspicious fragment (it is worked out from
+        the store when omitted).
         """
-        return StepContext(self._context_parts(
+        parts = self._context_parts(
             run_id, step_id, request, revision_feedback, brand_version=brand_version,
-            prior_step_ids=prior_step_ids, compaction=compaction))
+            prior_step_ids=prior_step_ids, compaction=compaction)
+        if self.document_policy is None:        # no policy profile active: the barrier is off, nothing changes
+            return _ScreenedContext(parts, original=StepContext(parts))
+        if attempt is None:
+            attempt = self.store.latest_step_attempt(run_id, step_id) + 1
+        return _ScreenedContext(self._untrusted_parts_screened(run_id, step_id, attempt, parts, compaction),
+                                original=StepContext(parts))
+
+    @staticmethod
+    def _part_provenance(part: ContextPart, compaction: CompactionState | None) -> Provenance | None:
+        """Where a context part comes from, or ``None`` when it is the user's own (then it is not touched)."""
+        if part.kind in (KIND_INPUT, KIND_REVISION_FEEDBACK):
+            return None
+        try:
+            if part.kind in (KIND_STEP_OUTPUT, KIND_PREVIOUS_OUTPUT):
+                return Provenance(SourceKind.MODEL_OUTPUT.value, ref=part.ref, sha256=part.sha256, label=part.name)
+            if part.kind == KIND_CONTEXT_SUMMARY:
+                origins = tuple(Provenance(SourceKind.MODEL_OUTPUT.value, ref=item.ref, sha256=item.sha256)
+                                for item in (compaction.replaced if compaction is not None else ()))
+                return derive(SourceKind.CONTEXT_SUMMARY.value, *origins, ref=part.ref, sha256=part.sha256,
+                              label=part.name)
+            return Provenance(SourceKind.UNKNOWN.value, ref=part.ref, label=part.name)
+        except ValueError:      # a reference or name the provenance cannot hold: still data, just anonymous
+            return Provenance(SourceKind.UNKNOWN.value)
+
+    def _untrusted_parts_screened(self, run_id: str, step_id: str, attempt: int, parts: Sequence[ContextPart],
+                                  compaction: CompactionState | None) -> tuple[ContextPart, ...]:
+        """The parts with every untrusted one screened and quoted as data; the order and the names do not change.
+
+        Without a document policy the parts come back as they are.
+        """
+        if self.document_policy is None:
+            return tuple(parts)
+        guarded: list[ContextPart] = []
+        sink = self._quarantine_sink()
+        for part in parts:
+            provenance = self._part_provenance(part, compaction)
+            if (provenance is None or part.summarized or not isinstance(part.value, str)
+                    or not part.value.strip()):
+                guarded.append(part)
+                continue
+            text, screenings = self._screen_part(part, provenance, compaction, sink)
+            if screenings:
+                self._record_screening(run_id, step_id, attempt, part, screenings)
+            if part.kind == KIND_CONTEXT_SUMMARY:
+                heading, newline, body = text.partition("\n")
+                if newline and heading == SUMMARY_HEADING:     # the heading is ours; only the body is quoted
+                    guarded.append(replace(part, value=f"{heading}\n{render_for_prompt(body, provenance)}"))
+                    continue
+            guarded.append(replace(part, value=render_for_prompt(text, provenance)))
+        return tuple(guarded)
+
+    def _screen_part(self, part: ContextPart, provenance: Provenance, compaction: CompactionState | None,
+                     sink: BlobSink) -> tuple[str, list[Screening]]:
+        """The text of an untrusted part after the detector and the policy, and the screenings that acted."""
+        if part.kind == KIND_CONTEXT_SUMMARY and compaction is not None:
+            # The summary is JSON in a fence: screen its texts, then render it again the way CMP does.
+            found: list[Screening] = []
+            try:
+                cleaned = _clean_tree(compaction.summary, provenance, policy=self.document_policy, store=sink,
+                                      found=found)
+                if not found:
+                    return part.value, []
+                return render_summary_for_prompt(cleaned, ref=compaction.summary_ref), found
+            except (SummarySchemaError, RecursionError):
+                pass            # screen the rendered text as one text instead
+        return _screen_text(part.value, provenance, policy=self.document_policy, store=sink)
+
+    def _quarantine_sink(self) -> BlobSink:
+        """``BlobSink`` of ``document_trust.screen``: keeps the original of a quarantined fragment as a blob."""
+        blobs = self._blob_store()
+
+        def sink(content: bytes, media_type: str) -> str:
+            with self.store.db.tx() as conn:
+                row, _ = blobs.put_blob(conn, content, actor=DOCUMENT_ACTOR, media_type=media_type)
+            return blob_ref(row["sha256"])
+
+        return sink
+
+    def _record_screening(self, run_id: str, step_id: str, attempt: int, part: ContextPart,
+                          screenings: Sequence[Screening]) -> None:
+        """One ``document_quarantined`` / ``document_review_requested`` event per (step attempt, part, content).
+
+        The payload is ``Screening.event()`` (BDI-T01) plus ``step_id``, ``attempt``, ``part`` and ``part_kind``.
+        The same content is not announced twice for the same step attempt (the context is built again when a run
+        resumes), so a review that a person already settled is not asked for again.
+        """
+        original_sha256 = hashlib.sha256(str(part.value).encode("utf-8")).hexdigest()
+        found = _screening_event(screenings, original_sha256=original_sha256)
+        if found is None:
+            return
+        event_type, payload = found
+        payload.update({"step_id": step_id, "attempt": attempt, "part": part.name, "part_kind": part.kind})
+        for event in self.store.get_run(run_id).get("events", []):
+            known = event.get("payload") or {}
+            if (event.get("event_type") in (EVENT_QUARANTINED, EVENT_REVIEW_REQUESTED)
+                    and (known.get("step_id"), known.get("attempt"), known.get("part"),
+                         known.get("original_sha256")) == (step_id, attempt, part.name, original_sha256)):
+                return
+        self.store.db.log_event(run_id, event_type, payload)
 
     def _context_parts(self, run_id: str, step_id: str, request: dict[str, Any], revision_feedback: str,
                        *, brand_version: int | None, prior_step_ids: list[str] | None = None,

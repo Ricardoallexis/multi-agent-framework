@@ -64,7 +64,8 @@ from ..routing.executor_capabilities import (
 from ..tasks.envelopes import TASK_ENVELOPE_SCHEMA, TASK_RESULT_SCHEMA, canonical_json, validate_task_envelope
 from . import limits, process
 from .contract import (
-    ExecutorLaunchRequest, ExecutorRunResult, FailureKind, LimitInfo, LimitWindow, OpenTarget, Permission, RunStatus,
+    UNTRUSTED_DATA_CLAUSE, ExecutorLaunchRequest, ExecutorRunResult, FailureKind, LimitInfo, LimitWindow, OpenTarget,
+    Permission, RunStatus,
 )
 from .limits import LimitContext
 
@@ -246,6 +247,7 @@ def _render(request: ExecutorLaunchRequest) -> str:
         _RULES[permission],
         "Work only inside the current folder. Do not commit, push, merge, tag or change any git setting. Do not ask "
         "the user questions: if you cannot continue, say why in the summary.",
+        UNTRUSTED_DATA_CLAUSE,
         "",
         f"TASK ENVELOPE (canonical JSON, schema {TASK_ENVELOPE_SCHEMA}):",
         canonical_json(envelope).decode("utf-8"),

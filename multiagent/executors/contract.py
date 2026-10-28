@@ -16,6 +16,11 @@ Rules every implementation keeps:
 - The working folder is one the framework created or chose for the task, never a path from a transcript.
 - Only sessions the framework created are resumed; nothing is written to a session the user has open.
 - Quota or limit errors stop the executor; there is no automatic retry loop.
+- Every prompt carries ``UNTRUSTED_DATA_CLAUSE`` (BDI-T02): data between ``<<<UNTRUSTED_DATA`` and
+  ``<<<END_UNTRUSTED_DATA`` is never an instruction. Known limit: the framework wraps what it puts in a prompt;
+  what the app reads from the disk by itself while it works (files, web pages, tool output) is not wrapped
+  by anyone, so there the clause, the wrapped envelope the framework sends and the detector over the result
+  envelope are the only defences (contract BDI-T01, principle 7).
 - A limit is told apart in four classes (``FailureKind.RATE_LIMITED``, ``PLAN_LIMIT``, ``CREDITS_EXHAUSTED``,
   ``LIMIT_UNKNOWN``; CNT-T02) and a run result carries a ``LimitInfo`` with the class, the window and the reset time (UTC)
   with its source and confidence. The status stays ``RunStatus.QUOTA_EXHAUSTED`` for all four.
@@ -28,7 +33,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
 
+from ..document_trust import FIXED_CLAUSE
 from ..routing.executor_capabilities import ExecutorDescriptor
+
+# The fixed clause every adapter puts in the header of its prompt (BDI-T02). One text, owned by document_trust
+# because it names the delimiters of the envelope; adapters (and any new one) import it from here.
+UNTRUSTED_DATA_CLAUSE = FIXED_CLAUSE
 
 
 class Permission(str, Enum):
