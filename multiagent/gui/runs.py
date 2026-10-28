@@ -444,7 +444,7 @@ def build_router(services) -> APIRouter:
 
     @router.post("/runs/{run_id}/approve")
     def approve(run_id: str):
-        services.runs.approve(run_id)
+        services.runs.approve(run_id, channel="gui")
         return run_view(services, services.runs.get(run_id))
 
     @router.post("/runs/{run_id}/changes")
@@ -457,7 +457,7 @@ def build_router(services) -> APIRouter:
 
     @router.post("/runs/{run_id}/reject")
     def reject(run_id: str, body: RejectBody):
-        services.runs.reject(run_id, body.feedback)
+        services.runs.reject(run_id, body.feedback, channel="gui")
         return run_view(services, services.runs.get(run_id))
 
     @router.post("/runs/{run_id}/regenerate")

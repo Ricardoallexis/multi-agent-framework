@@ -16,7 +16,12 @@ from ..contracts import (
     PublicationStatus,
     RunStatus,
     SocialPostRequest,
+    WaitingReason,
 )
+from ..document_review import (
+    DECISION_APPROVED, DECISION_REJECTED, resolution_payload, review_key, unresolved_requests,
+)
+from ..document_trust import EVENT_REVIEW_REQUESTED, EVENT_REVIEW_RESOLVED
 from ..errors import IdempotencyConflict, InvalidStateTransition
 from ..run_request import RunRequest
 
@@ -466,6 +471,59 @@ class Store:
             conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
                          (run_id, now, "workflow_failed",
                           json.dumps({"error": error, "type": "EscalationRejected"}, ensure_ascii=False)))
+
+    def finish_content_review(self, run: dict[str, Any], *, approve: bool, feedback: str = "",
+                              by: str | None = None, channel: str | None = None) -> int:
+        """Commit a decision on a run held by the content guard (BDI-T04); returns how many reviews it settled.
+
+        Like ``finish_escalation`` it compares the persisted wait again inside the transaction, so a duplicate or a
+        decision after a cancellation is refused. It settles every ``document_review_requested`` still open for the
+        waiting step attempt (the guard pauses on the first; one decision covers them all) with one
+        ``document_review_resolved`` each, carrying the same four keys as the request (``document_review``), so the
+        resumed run does not ask again, plus ``by`` and ``channel`` as the caller declared them (``api`` when it did
+        not say; nothing authenticates them, see ``document_review``). Approval queues the run; rejection rejects it
+        (``human_rejected``), and a ``rejected`` resolution never lifts the guard. A request that names the step but
+        has no usable key cannot be settled: approving is refused while one is open (reject or cancel the run).
+        This is called by the run approval path; nothing else in the framework settles a review.
+        """
+        run_id = run["id"]
+        with self.db.tx() as conn:
+            fresh = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            fields = ("status", "current_step", "waiting_reason", "waiting_step", "waiting_attempt", "cancel_requested")
+            if (fresh is None or fresh["status"] != RunStatus.WAITING_HUMAN.value
+                    or fresh["waiting_reason"] != WaitingReason.CONTENT_REVIEW.value or fresh["cancel_requested"]
+                    or any(fresh[key] != run[key] for key in fields)):
+                raise InvalidStateTransition("The persisted content review changed; read the run again")
+            logged = [{"event_type": row["event_type"], "payload": json.loads(row["payload_json"])}
+                      for row in conn.execute(
+                          "SELECT event_type,payload_json FROM run_events WHERE run_id=? AND event_type IN (?,?) "
+                          "ORDER BY id", (run_id, EVENT_REVIEW_REQUESTED, EVENT_REVIEW_RESOLVED))]
+            blocking = unresolved_requests(logged, step_id=fresh["waiting_step"], attempt=fresh["waiting_attempt"],
+                                           include_unkeyed=True)
+            if not blocking:
+                raise InvalidStateTransition("The run has no content review waiting for a decision")
+            pending = [request for request in blocking if review_key(request) is not None]
+            if approve and len(pending) != len(blocking):
+                raise InvalidStateTransition("A content review of this step cannot be identified, so it cannot be "
+                                             "approved; reject or cancel the run")
+            now, decision = utcnow(), DECISION_APPROVED if approve else DECISION_REJECTED
+            for request in pending:
+                conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                             (run_id, now, EVENT_REVIEW_RESOLVED,
+                              json.dumps(resolution_payload(request, decision, by=by, channel=channel),
+                                         ensure_ascii=False)))
+            if approve:
+                conn.execute(
+                    """UPDATE runs SET status=?,waiting_reason='',waiting_step='',waiting_attempt=NULL,updated_at=?
+                       WHERE id=?""", (RunStatus.QUEUED.value, now, run_id))
+            else:
+                conn.execute(
+                    """UPDATE runs SET status=?,revision_feedback=?,waiting_reason='',waiting_step='',
+                       waiting_attempt=NULL,updated_at=? WHERE id=?""",
+                    (RunStatus.REJECTED.value, feedback, now, run_id))
+                conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                             (run_id, now, "human_rejected", json.dumps({"feedback": feedback}, ensure_ascii=False)))
+            return len(pending)
 
     def increment_llm_calls(self, run_id: str) -> int:
         with self.db.connect() as conn:

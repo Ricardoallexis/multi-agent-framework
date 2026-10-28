@@ -34,6 +34,11 @@ class WaitingReason(str, Enum):
     # CNT-T04 (contract CNT-T01 section 4, decision 5): the router ran out of fallbacks of the same level because of a
     # usage limit. The hold of a task (``tasks.execution_json``, ``services/hold.py``) is the model for the run's wait.
     LIMIT_REACHED = "limit_reached"
+    # BDI-T04 (contract BDI-T01 section 8): a model call is held because the content of the step needs a person to
+    # look at it first (policy ``pause``). The run waits until it is approved or rejected through the approval path
+    # of runs (``RunService.approve`` / ``reject``, event ``document_review_resolved``), which does not authenticate
+    # its caller (see ``document_review``).
+    CONTENT_REVIEW = "content_review"
 
 
 class HumanAction(str, Enum):

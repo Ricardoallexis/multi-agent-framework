@@ -9,7 +9,8 @@ chain of guards, so each stage adds its own check without editing the engine or 
 The fixed order of one check (:meth:`CallGuardChain.check`):
 
 1. **cancel**: the host's own cancellation check (it raises to stop);
-2. **guards**, sorted by ``order``: ``100`` context (CMP), ``200`` limits, ``300`` budget (USO);
+2. **guards**, sorted by ``order``: ``100`` context (CMP), ``150`` untrusted content (BDI), ``200`` limits,
+   ``300`` budget (USO);
 3. **reserve**: the host books the call (``routing_dispatch_reserved``, ``increment_llm_calls``), and only
    when every guard let the call through.
 
@@ -44,6 +45,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Protocol
 if TYPE_CHECKING:
     from .catalog import Catalog, ModelSpec
     from .context.estimate import ContextSettings
+    from .document_trust import DetectionPolicy
 
 _logger = logging.getLogger(__name__)
 
@@ -53,6 +55,7 @@ SCOPES = (SCOPE_RUN_STEP, SCOPE_TASK)
 
 # Where each guard runs in the chain; guards with the same order keep their registration order.
 ORDER_CONTEXT = 100
+ORDER_CONTENT = 150      # untrusted content held for a review (BDI-T04)
 ORDER_LIMITS = 200
 ORDER_BUDGET = 300
 
@@ -308,6 +311,9 @@ class GuardEnvironment:
     context_settings: "ContextSettings | None" = None
     # Records an event of the run or task in flight (``emit("context_warning", payload)``); None records nothing.
     emit: Callable[[str, dict[str, Any]], None] | None = None
+    # The document policy in force (``WorkflowEngine.document_policy``, BDI-T02), or None for "the barrier is off":
+    # then there is no content guard and nothing changes (contract BDI-T01 section 8).
+    document_policy: "DetectionPolicy | str | None" = None
 
 
 def build_call_guards(env: GuardEnvironment, *, cancel: Callable[[CallContext], None] | None = None,
@@ -322,6 +328,9 @@ def build_call_guards(env: GuardEnvironment, *, cancel: Callable[[CallContext], 
         # Imported here: the context package builds on this module, not the other way round.
         from .context.estimate import ContextGuard
         guards.append(ContextGuard(env.context_settings, emit=env.emit))
+    if env.document_policy is not None:      # BDI-T04: no policy, no barrier, no guard
+        from .document_review import UntrustedContentGuard
+        guards.append(UntrustedContentGuard(env.document_policy))
     # USO-T04: guards.append(BudgetCutGuard(env))
     # CNT-T04/T10: guards.append(QuotaHoldGuard(env))
     return CallGuardChain(guards, cancel=cancel, reserve=reserve)

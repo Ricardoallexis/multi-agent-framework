@@ -85,9 +85,13 @@ class RunServices:
             database = Database(settings)
             database.migrate()
             store = Store(database)
+            # The document policy is the system engine's (BDI-T04): one source of truth for the screening of the
+            # context, the content guard of these runs and the gates of effects (``ExecutorServices`` reads the same
+            # value). It is read when the runtime is built, so it is the policy in force from then on.
             engine = WorkflowEngine.from_bundle(
                 bundle, store=store, artifacts=ArtifactWriter(settings), settings=settings,
                 adapters=system.adapters, dry_run=system.engine.router.dry_run,
+                document_policy=system.engine.document_policy,
             )
             runtime = _Runtime(name, store, RunService(settings, store, engine=engine),
                                LocalWorker(store, engine, settings.worker_poll_seconds))
@@ -164,14 +168,19 @@ class RunServices:
         return runs[:max(1, min(int(limit), 500))]
 
     @service_errors
-    def approve(self, run_id: str) -> dict[str, Any]:
+    def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None) -> dict[str, Any]:
         """Approve the artifact under review and continue or complete the run.
 
         A run paused on a supervised escalation (``waiting_reason`` ``escalation_approval``) has no artifact
-        under review: approving it queues the run so the step resumes with the escalated model.
+        under review: approving it queues the run so the step resumes with the escalated model. A run held by the
+        content guard (``waiting_reason`` ``content_review``, policy ``pause``) has none either: approving it settles
+        the open reviews (``document_review_resolved``) and queues the run, which goes on with the quarantined
+        prompt it had. ``by`` and ``channel`` (``api`` by default, ``gui`` from the GUI router) are recorded with that
+        resolution as the caller declared them. Known limit (BDI-T07): this method does not authenticate its caller,
+        so any local process that reaches the run API can settle a content review.
         """
         runtime = self._find(run_id)
-        return self._tag(runtime, runtime.service.approve(run_id))
+        return self._tag(runtime, runtime.service.approve(run_id, by=by, channel=channel))
 
     @service_errors
     def request_changes(self, run_id: str, feedback: str) -> dict[str, Any]:
@@ -186,13 +195,16 @@ class RunServices:
         return self._tag(runtime, runtime.service.changes(run_id, "", regenerate=True))
 
     @service_errors
-    def reject(self, run_id: str, feedback: str = "") -> dict[str, Any]:
+    def reject(self, run_id: str, feedback: str = "", *, by: str | None = None,
+               channel: str | None = None) -> dict[str, Any]:
         """Reject the run while it waits for a human.
 
-        Rejecting a paused escalation fails the step and the run (status ``failed``) with the reason.
+        Rejecting a paused escalation fails the step and the run (status ``failed``) with the reason. Rejecting a
+        run held for a content review rejects it (status ``rejected``) and records the resolution (``by``, ``channel``
+        as in ``approve``).
         """
         runtime = self._find(run_id)
-        return self._tag(runtime, runtime.service.reject(run_id, feedback))
+        return self._tag(runtime, runtime.service.reject(run_id, feedback, by=by, channel=channel))
 
     @service_errors
     def cancel(self, run_id: str, *, force: bool = False) -> dict[str, Any]:

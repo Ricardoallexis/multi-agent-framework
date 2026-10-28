@@ -228,6 +228,13 @@ def test_policy_pause_asks_for_a_review_with_the_same_replacement(tmp_path):
     system = guarded_runtime(tmp_path, assign=False, notes=notes_with(hostile_note("a")))
     system.engine.document_policy = DetectionPolicy.PAUSE
     run_id, run = run_all(system)
+    # BDI-T04: with the content guard, a review that is requested holds the step until a person settles it; here
+    # the person approves each one in turn (test_document_review_guard.py covers the guard itself).
+    while run["status"] == "waiting_human":
+        assert run["waiting_reason"] == "content_review"
+        system.service.approve(run_id)
+        run = system.engine.process_run(run_id)
+    assert run["status"] == "completed"
     assert not events(run, "document_quarantined")
     requested = events(run, "document_review_requested")
     assert [(p["step_id"], p["part"]) for p in requested] == [(step, "a_output") for step in STEPS[1:]]

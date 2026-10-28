@@ -494,14 +494,14 @@ class WorkflowEngine:
                     self.store.increment_llm_calls(run_id)
 
                 # The checks before every model call, in the fixed order of call_guards.py: cancellation, the
-                # context estimate (only with an enabled context profile), the limits of this call, the budget
-                # guards that plug in there, and last the reservation. A dry run has no real model or window,
-                # so it is not measured.
+                # context estimate (only with an enabled context profile), the content review (only with the
+                # document policy ``pause``, BDI-T04), the limits of this call, the budget guards that plug in
+                # there, and last the reservation. A dry run has no real model or window, so it is not measured.
                 call_guards = build_call_guards(
                     GuardEnvironment(
                         scope=SCOPE_RUN_STEP, catalog=self.catalog,
                         routing_profile_id=profile_id, routing_profile=profile,
-                        context_settings=context_settings,
+                        context_settings=context_settings, document_policy=self.document_policy,
                         emit=lambda event_type, payload: self.store.db.log_event(run_id, event_type, payload),
                     ),
                     cancel=lambda call: self._check_cancel(run_id),
@@ -1449,7 +1449,10 @@ class WorkflowEngine:
 
         The payload is ``Screening.event()`` (BDI-T01) plus ``step_id``, ``attempt``, ``part`` and ``part_kind``.
         The same content is not announced twice for the same step attempt (the context is built again when a run
-        resumes), so a review that a person already settled is not asked for again.
+        resumes), so a review that a person already settled is not asked for again. Only an event of the SAME type
+        counts as the announcement: a ``document_quarantined`` recorded under ``quarantine_warn`` must not hide the
+        ``document_review_requested`` that the policy ``pause`` owes the same attempt after a policy change (a run
+        re-queued by the recovery, an approved escalation), or the content guard would let the call through.
         """
         original_sha256 = hashlib.sha256(str(part.value).encode("utf-8")).hexdigest()
         found = _screening_event(screenings, original_sha256=original_sha256)
@@ -1459,7 +1462,7 @@ class WorkflowEngine:
         payload.update({"step_id": step_id, "attempt": attempt, "part": part.name, "part_kind": part.kind})
         for event in self.store.get_run(run_id).get("events", []):
             known = event.get("payload") or {}
-            if (event.get("event_type") in (EVENT_QUARANTINED, EVENT_REVIEW_REQUESTED)
+            if (event.get("event_type") == event_type
                     and (known.get("step_id"), known.get("attempt"), known.get("part"),
                          known.get("original_sha256")) == (step_id, attempt, part.name, original_sha256)):
                 return
@@ -1641,6 +1644,8 @@ class WorkflowEngine:
                 })
             self.store.increment_llm_calls(run_id)
 
+        # No ``document_policy`` here on purpose: a content review belongs to the step whose prompt carries the
+        # untrusted parts, and nobody waits for a compaction (a ``Pause`` would only skip it).
         chain = build_call_guards(
             GuardEnvironment(scope=SCOPE_RUN_STEP, catalog=self.catalog, routing_profile_id=profile_id,
                              routing_profile=profile),

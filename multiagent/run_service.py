@@ -48,11 +48,25 @@ class RunService:
         return (run["status"] == RunStatus.WAITING_HUMAN.value
                 and run.get("waiting_reason") == WaitingReason.ESCALATION.value)
 
-    def approve(self, run_id: str) -> dict[str, Any]:
+    @staticmethod
+    def _awaits_content_review(run: dict[str, Any]) -> bool:
+        """True while the content guard (BDI-T04) holds a step for a human to look at its untrusted content."""
+        return (run["status"] == RunStatus.WAITING_HUMAN.value
+                and run.get("waiting_reason") == WaitingReason.CONTENT_REVIEW.value)
+
+    def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None) -> dict[str, Any]:
+        """``by`` and ``channel`` say who and through which door (``api`` or ``gui``) the caller declared: they are
+        recorded when the approval settles a content review and are not checked (see ``document_review``)."""
         run = self.store.get_run(run_id)
         if self._awaits_escalation(run):
             # Approving an escalation resumes the same step with the stronger model; no artifact is under review.
             self.store.finish_escalation(run, approve=True)
+            return self.store.get_run(run_id)
+        if self._awaits_content_review(run):
+            # Approving a content review lets the held step go on with the prompt as it was built (the quarantined
+            # fragments stay replaced); no artifact is under review. The caller is not authenticated: whoever can
+            # reach this method can settle the review (known limit, BDI-T07).
+            self.store.finish_content_review(run, approve=True, by=by, channel=channel)
             return self.store.get_run(run_id)
         if run["status"] != RunStatus.WAITING_HUMAN.value or run.get("waiting_reason") not in {
             WaitingReason.REVIEW.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
@@ -89,13 +103,18 @@ class RunService:
         )
         return self.store.get_run(run_id)
 
-    def reject(self, run_id: str, feedback: str = "") -> dict[str, Any]:
+    def reject(self, run_id: str, feedback: str = "", *, by: str | None = None,
+               channel: str | None = None) -> dict[str, Any]:
         run = self.store.get_run(run_id)
         if run["status"] != RunStatus.WAITING_HUMAN.value:
             raise InvalidStateTransition("A run can only be rejected in WAITING_HUMAN")
         if self._awaits_escalation(run):
             # Rejecting an escalation fails the step (and the run) with the reason; nothing was produced to reject.
             self.store.finish_escalation(run, approve=False, feedback=feedback)
+            return self.store.get_run(run_id)
+        if self._awaits_content_review(run):
+            # Rejecting a content review rejects the run: the held step never reads the content.
+            self.store.finish_content_review(run, approve=False, feedback=feedback, by=by, channel=channel)
             return self.store.get_run(run_id)
         self.store.update_run(
             run_id,

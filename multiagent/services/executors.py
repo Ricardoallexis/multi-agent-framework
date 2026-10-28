@@ -73,6 +73,20 @@ itself. ``session_guard`` is the same check as a function, passed to the adapter
 
 ``open_target`` returns the adapter's open target for the recorded session (the one the GUI uses) and records the open.
 
+Effects and the document barrier (BDI-T04, contract ``BDI-T01-contrato.md`` section 8). While no document policy is
+active (``WorkflowEngine.document_policy`` is ``None``, the default) nothing here changes. With one active, every
+attempt (``run_task``, ``resume_task`` and the automatic resumptions all end in ``_execute``) first needs the approval of
+the user or of an approved contract for the effects it has, checked with ``document_actions.authorize`` through
+``launch_safety.require_effect`` before the task changes: launching the executor (``launch_executor``, target the
+executor id) and, when ``file_scope`` is not empty, writing (``write``, one check per path). The same goes for
+``open_target`` (an ``open_application`` effect); the result of an attempt carries ``open_target`` only if that effect
+is approved too (otherwise it is ``None``). An automatic relaunch checks the launch effects before it retires the held
+session, so a refusal leaves the session as it was. The evidence comes from ``effect_evidence``, a hook the host that
+turns the barrier on sets (``effect_evidence(action, context) -> Iterable[Approval]``); built from the user's own
+messages or from contracts the user approved, never from content. Without it, or without an approval that covers the
+action, the call fails with ``effect_not_authorized`` and nothing was started or recorded. The detector's verdict is
+never evidence.
+
 Checkpoint (CNT-T03, contract ``CNT-T01-contrato.md`` section 5): when an attempt ends at a limit, ``checkpoint_limit``
 saves what the agent did. The diff of the work folder (``git diff --binary HEAD`` plus the untracked files) is stored as a
 blob, a summary is written without a model (changed files and last agent message; objective and gate), the blob goes in the
@@ -109,9 +123,9 @@ Errors (``ServiceError``): ``not_found`` (task, executor), ``invalid_request`` (
 adapter refuses) and ``invalid_state`` (``details.reason`` says why: ``executor_disabled``, ``executor_without_adapter``,
 ``executor_paused``, ``executor_unavailable``, ``task_not_runnable``, ``no_stored_session``, ``session_open_in_app``,
 ``assignment_not_selected``, ``model_not_supported``, ``effort_not_supported``, ``workdir_invalid``, ``session_retired``,
-``hold_changed``, ``relaunch_failed``, and for a wait by condition ``task_not_holdable``, ``already_held``,
-``task_without_assignee``, ``not_waiting_for_approval``, ``approver_not_allowed``, ``approver_mismatch``,
-``already_decided``, ``condition_not_met``). ``model_not_supported``
+``hold_changed``, ``relaunch_failed``, ``effect_not_authorized``, and for a wait by condition ``task_not_holdable``,
+``already_held``, ``task_without_assignee``, ``not_waiting_for_approval``, ``approver_not_allowed``,
+``approver_mismatch``, ``already_decided``, ``condition_not_met``). ``model_not_supported``
 and ``effort_not_supported`` refuse a value the caller named; one that came from the profile is dropped instead.
 """
 from __future__ import annotations
@@ -123,15 +137,16 @@ import os
 import re
 import threading
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..db.envelope_store import HARD_MAX_BLOB_BYTES
+from ..document_actions import Action, ActionKind, Approval
 from ..errors import MultiAgentError
-from ..executors import codex as _codex, copilot as _copilot, process
+from ..executors import codex as _codex, copilot as _copilot, launch_safety, process
 from ..executors.contract import ExecutorApplicationAdapter, ExecutorLaunchRequest, FailureKind, OpenTarget, Permission
 from ..executors.limits import utc_iso
 from ..executors.selection import ExecutorSelection, select_for_executor, select_for_resume
@@ -329,6 +344,9 @@ class ExecutorServices:
         # integrations and the approvals wherever they are recorded; ``None`` means the service knows nothing of them.
         self.integration_source: Callable[[str, datetime], _waits.IntegrationFacts | None] | None = None
         self.approval_source: Callable[[str, str], _waits.ApprovalFact | None] | None = None
+        # The approvals that allow an effect while a document policy is active (BDI-T04); None means "no evidence",
+        # and then every gated effect is refused. Set by the host that turns the barrier on.
+        self.effect_evidence: Callable[[Action, Mapping[str, Any]], Iterable[Approval] | None] | None = None
 
     # -------- wiring --------
     @property
@@ -349,6 +367,55 @@ class ExecutorServices:
         from ..executors.defaults import default_adapters
 
         return default_adapters(session_guard=self.session_guard)
+
+    # -------- effects (BDI-T04) --------
+    @property
+    def document_policy(self):
+        """The document policy in force (the engine's ``document_policy``), or ``None`` when the barrier is off."""
+        return getattr(getattr(self._services.system, "engine", None), "document_policy", None)
+
+    def _require_effect(self, action: Action, context: Mapping[str, Any]) -> None:
+        """Refuse ``action`` unless the barrier is off or the evidence covers it (``effect_not_authorized``).
+
+        The hook runs only with a policy active; if it fails, that is no evidence (fail closed).
+        """
+        policy = self.document_policy
+        evidence = None
+        if policy is not None and self.effect_evidence is not None:
+            try:
+                evidence = self.effect_evidence(action, context)
+            except Exception:  # noqa: BLE001 - an evidence source that breaks proves nothing
+                _logger.warning("the effect evidence source failed; the effect is refused", exc_info=True)
+        try:
+            launch_safety.require_effect(action, evidence, policy=policy)
+        except launch_safety.EffectNotAuthorized as exc:
+            raise _conflict(launch_safety.EFFECT_NOT_AUTHORIZED, f"{action.kind.value} is not authorized: "
+                            f"{exc.result.reason}", action=action.kind.value, target=action.target,
+                            task_id=context.get("task_id"), executor_id=context.get("executor_id")) from None
+
+    def _require_launch_effects(self, task: Mapping[str, Any], executor_id: str, permission: Permission,
+                                mode: str) -> None:
+        """The effects of one attempt: launching ``executor_id`` and, with write permission, each path of ``file_scope``."""
+        context = {"task_id": task["id"], "executor_id": executor_id, "mode": mode}
+        self._require_effect(Action(ActionKind.LAUNCH_EXECUTOR, executor_id), context)
+        if permission is Permission.WRITE:
+            for path in task["file_scope"]:
+                self._require_effect(Action(ActionKind.WRITE, path), context)
+
+    def _may_hand_out_target(self, task_id: str, executor_id: str, source: str, session_id: str, actor: str) -> bool:
+        """True when the open target of a session may be given to the caller (always, while no policy is active).
+
+        With a policy, handing it out is an ``open_application`` effect: without an approval the result of an attempt
+        simply carries no target (``open_target`` itself refuses with ``effect_not_authorized``).
+        """
+        if self.document_policy is None:
+            return True
+        try:
+            self._require_effect(Action(ActionKind.OPEN_APPLICATION, f"{source}:{session_id}"),
+                                 {"task_id": task_id, "executor_id": executor_id, "actor": actor, "mode": "open"})
+        except ServiceError:
+            return False
+        return True
 
     # -------- events --------
     def _append(self, event_type: str, *, actor: str, task: Mapping[str, Any] | None = None, ref: str = "",
@@ -725,6 +792,9 @@ class ExecutorServices:
         prior = dict(task.get("continuity") or {})
         held = dict(hold) if hold else (dict(prior["hold"]) if isinstance(prior.get("hold"), Mapping) else None)
         permission = Permission.WRITE if task["file_scope"] else Permission.READ
+        # BDI-T04: with a document policy active, launching the executor and writing need an approval (the barrier
+        # is off by default). Before the work folder is created and before the task changes.
+        self._require_launch_effects(task, plan.executor_id, permission, mode)
         workdir = self._workdir(task_id, plan)
         claude_session_id = (resume_session or str(uuid.uuid4())) \
             if getattr(plan.adapter, "adapter_id", "") == "claude_cli" else None
@@ -832,6 +902,9 @@ class ExecutorServices:
             self._clear_streaks(task_id, prior, actor, reported)
         notes = list(attempt.notes) + [note for note in (task_note, checkpoint_note) if note]
         target = plan.adapter.open_target(attempt.session_id) if attempt.session_id else None
+        if target is not None and not self._may_hand_out_target(
+                task_id, plan.executor_id, str(plan.adapter.adapter_id).removesuffix("_cli"), attempt.session_id, actor):
+            target = None       # BDI-T04: with a policy, the app is not offered without an approval to open it
         return {
             "outcome": outcome, "run_status": attempt.status, "task_id": task_id, "executor_id": plan.executor_id,
             "attempt": view["attempt"], "actor": actor, "mode": mode, "session_id": attempt.session_id,
@@ -1427,6 +1500,9 @@ class ExecutorServices:
             result = self._resume_task(task_id, None, None, actor, timeout_seconds=timeout_seconds, hold=hold,
                                        trigger=trigger)
         else:
+            # BDI-T04: a relaunch that will be refused must not retire the held session first.
+            self._require_launch_effects(task, executor_id, Permission.WRITE if task["file_scope"] else Permission.READ,
+                                         "launch")
             self._supersede(task_id, hold, actor)
             result = self._relaunch(task_id, executor_id, recorded.get("model"), recorded.get("effort"), actor, hold,
                                     drift, timeout_seconds, trigger)
@@ -1936,6 +2012,9 @@ class ExecutorServices:
             raise _conflict("invalid_open_target", "The recorded session has no valid open target",
                             task_id=task_id, session_id=session["session_id"])
         source = str(session.get("adapter_id") or executor_id).removesuffix("_cli")
+        # BDI-T04: handing out the target is an open of the application (see above); it needs an approval too.
+        self._require_effect(Action(ActionKind.OPEN_APPLICATION, f"{source}:{session['session_id']}"),
+                             {"task_id": task_id, "executor_id": executor_id, "actor": actor, "mode": "open"})
         opened = self.record_app_open(str(session["session_id"]), source=source, actor=actor)
         return {"task_id": task_id, "executor_id": executor_id, "session_id": session["session_id"],
                 "target": _target_view(target), "resume_blocked_until": opened["resume_blocked_until"]}

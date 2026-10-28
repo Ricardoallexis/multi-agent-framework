@@ -19,8 +19,20 @@ the apps' data. ``gui_allow_launch = False`` turns the launch off.
 Errors (``ServiceError``): ``not_found`` (404, unknown session), ``invalid_session_id`` (400),
 ``unsupported_source`` (400, not a Claude session), ``invalid_open_target`` (400, the session has no
 valid UUID to resume), ``launch_disabled`` (403), ``claude_not_found`` (409, ``claude`` is not on PATH),
-``launch_unsupported`` (409, not Windows), ``too_many_launches`` (429, another launch less than 2 seconds ago) and
+``launch_unsupported`` (409, not Windows), ``too_many_launches`` (429, another launch less than 2 seconds ago),
+``effect_not_authorized`` (403, a document policy is active and nothing approves this open; BDI-T04) and
 ``launch_failed`` (409).
+
+Document barrier (BDI-T04): while no document policy is active (``executors.document_policy`` is ``None``, the default)
+nothing changes. With one active, opening the app is an ``open_application`` effect and ``launch_safety.require_effect``
+checks it before anything starts. The confirmation the person gives in the screen (the second step of "Abrir en Claude",
+which is what sends this request) is the user's own approval, limited to this one session: the route builds it from the
+request, never from anything read out of a transcript.
+
+This gate is nominal on purpose: the evidence is the request that reaches the route, so a request that gets past the
+token of the GUI router is always approved. What it adds is the record of where the approval comes from and a refusal
+for every other way of opening an app (``executors.open_target``, an attempt's result, automatic resumptions), which
+bring no such request. It does not tell a person from a local process that holds the token (BDI-T07).
 
 Every Claude launch is also recorded in the team event log (``executors.record_app_open``, ORQ-T51): the framework does
 not resume a session the app opened in the last 12 hours. Codex and Copilot sessions open through a link that the
@@ -39,6 +51,8 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
+from ..document_actions import Action, ActionKind, Approval
+from ..document_trust import Provenance, SourceKind
 from ..executors import launch_safety
 from ..services.errors import ServiceError
 from ..services.sessions import SessionServices
@@ -117,12 +131,39 @@ def reserve_launch() -> None:
         _last_launch = now
 
 
-def launch_claude_desktop(summary: dict[str, Any], *, allow: bool) -> dict[str, Any]:
-    """Start ``claude --desktop --resume <uuid>`` for a Claude session summary; returns what was started."""
+def confirmed_open_approval(summary: dict[str, Any]) -> tuple[Approval, ...]:
+    """The user's confirmation of this open as evidence: an approval of ``open_application`` for this session only.
+
+    Called by the route that receives the confirmed request. A summary that cannot name a safe reference gives no
+    evidence (and so no approval).
+    """
+    target = summary.get("id") if isinstance(summary, dict) else None
+    if not isinstance(target, str) or not target:
+        return ()
+    try:
+        provenance = Provenance(SourceKind.USER.value, ref=f"gui:open-in-app:{target}")
+    except ValueError:
+        return ()
+    return (Approval(provenance, frozenset({ActionKind.OPEN_APPLICATION}), frozenset({target})),)
+
+
+def launch_claude_desktop(summary: dict[str, Any], *, allow: bool, policy: Any = None,
+                          evidence: Any = None) -> dict[str, Any]:
+    """Start ``claude --desktop --resume <uuid>`` for a Claude session summary; returns what was started.
+
+    ``policy`` is the document policy in force (``None``: the barrier is off and the launch is as it always was);
+    with one, ``evidence`` (approvals) must cover opening this session or the launch is refused
+    (``effect_not_authorized``).
+    """
     uuid = claude_resume_uuid(summary)
     if not allow:
         raise ServiceError(LAUNCH_DISABLED, "Launching is turned off (gui_allow_launch); copy the command and "
                            "run it yourself", status=403)
+    try:
+        launch_safety.require_effect(Action(ActionKind.OPEN_APPLICATION, summary["id"]), evidence, policy=policy)
+    except launch_safety.EffectNotAuthorized as exc:
+        raise ServiceError(launch_safety.EFFECT_NOT_AUTHORIZED, f"Opening the app is not authorized: "
+                           f"{exc.result.reason}", status=403) from None
     if not launch_supported():
         raise ServiceError(LAUNCH_UNSUPPORTED, "Opening a Claude session needs a new console, which is only "
                            "available on Windows; copy the command and run it yourself", status=409)
@@ -167,6 +208,9 @@ def add_open_routes(api: APIRouter, sessions: SessionServices) -> None:
     def open_session(session_id: str, request: Request):
         """Launch the Claude app on this session. The body is not read: the id in the path is only a key."""
         summary = sessions.get_session(session_id)  # 400 for a malformed id, 404 for an unknown one
-        launched = launch_claude_desktop(summary, allow=allow_launch(request))
-        record_open(request.app.state.services, summary)
+        services = request.app.state.services
+        policy = getattr(getattr(services, "executors", None), "document_policy", None)
+        launched = launch_claude_desktop(summary, allow=allow_launch(request), policy=policy,
+                                         evidence=confirmed_open_approval(summary))
+        record_open(services, summary)
         return launched

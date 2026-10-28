@@ -2,20 +2,28 @@
 # SPDX-License-Identifier: Apache-2.0
 """Shared rules for starting an external program (GUI-T06 ``open_in_app``, ORQ-T47 ``process``).
 
-Three small, dependency-free pieces that every launcher of an agent CLI applies the same way:
+Four small pieces that every launcher of an agent CLI applies the same way:
 
 - the child environment is a copy of the parent's without ``CLAUDE*`` / ``ANTHROPIC*`` variables (the server may
   itself have been started from an agent session) and with ``NoDefaultCurrentDirectoryInExePath=1``, so Windows
   does not look for ``node``/``cmd`` in the current folder first;
 - a program is looked up only in the absolute ``PATH`` entries that are not the process's own current folder, and
-  whatever the lookup returns is rejected if it still sits in that folder (Windows puts it first on its own).
+  whatever the lookup returns is rejected if it still sits in that folder (Windows puts it first on its own);
+- with a document policy active, an effect (write, launching an executor, opening an application) is allowed only
+  with the approval of the user or of an approved contract (BDI-T04): :func:`require_effect` is the one place the
+  gates of effects call ``document_actions.authorize``, and it fails closed (see below).
 """
 from __future__ import annotations
 
 import os
 import shutil
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
+from typing import Any
+
+from ..document_actions import Action, AuthorizationResult, authorize
+from ..document_trust import DetectionPolicy
+from ..errors import MultiAgentError
 
 SCRUBBED_PREFIXES = ("CLAUDE", "ANTHROPIC")
 NO_CURRENT_DIR_VARIABLE = "NoDefaultCurrentDirectoryInExePath"
@@ -73,3 +81,42 @@ def is_within(path: str | os.PathLike[str], folder: str | os.PathLike[str]) -> b
             except ValueError:  # different drives
                 continue
     return False
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Authorization of effects (BDI-T04, contract BDI-T01 section 8)
+# ---------------------------------------------------------------------------------------------------------
+
+EFFECT_NOT_AUTHORIZED = "effect_not_authorized"
+
+
+class EffectNotAuthorized(MultiAgentError):
+    """An effect was refused because nothing proves that the user or an approved contract allows it.
+
+    ``result`` is the :class:`AuthorizationResult` that denied it (its ``reason`` says why).
+    """
+
+    code = EFFECT_NOT_AUTHORIZED
+
+    def __init__(self, result: AuthorizationResult) -> None:
+        super().__init__(result.reason)
+        self.result = result
+
+
+def require_effect(action: Action, evidence: Iterable[Any] | None, *,
+                   policy: DetectionPolicy | str | None) -> AuthorizationResult | None:
+    """The gate of an effect: ``None`` while the barrier is off, else ``authorize(action, evidence)`` or a refusal.
+
+    ``policy`` is the document policy in force (``WorkflowEngine.document_policy``). ``None`` means no profile has
+    turned the barrier on: nothing is checked and the caller goes on as it always did. Any policy turns it on, and
+    then the effect needs ``evidence`` (an iterable of :class:`document_actions.Approval` that the host built from
+    the user's own message or from a contract the user approved, never from content). Without evidence, or with
+    evidence that does not cover the action, :class:`EffectNotAuthorized` is raised; the caller turns it into its own
+    error before it changes anything. The detector's verdict is not evidence (``authorize`` skips it).
+    """
+    if policy is None:
+        return None
+    result = authorize(action, evidence)
+    if not result.allowed:
+        raise EffectNotAuthorized(result)
+    return result
