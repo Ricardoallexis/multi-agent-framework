@@ -17,7 +17,15 @@ from .call_guards import (
     SCOPE_RUN_STEP, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
 )
 from .catalog import Catalog, CatalogError, validate_routing_profile
-from .context.estimate import context_settings_for
+from .context.estimate import ContextSettings, compaction_pending, context_settings_for
+from .context.summary import CONTEXT_AGENT_ID, SummaryAccess, SummaryPolicy, content_text, summarize_context
+from .context.workflow import (
+    EVENT_CONTEXT_COMPACTED, EVENT_CONTEXT_COMPACTION_SKIPPED, KIND_INPUT, KIND_PREVIOUS_OUTPUT,
+    KIND_REVISION_FEEDBACK, KIND_STEP_OUTPUT, ORIGINAL_MEDIA_TYPE, REASON_INTERNAL_ERROR, SUMMARY_MEDIA_TYPE,
+    CompactionPlan, CompactionState, ContextPart, OutputRecord, StepContext, build_context_parts,
+    check_pinned_in_context, compacted_event, minimum_summary_tokens, next_state, plan_compaction,
+    resolve_compaction_state, skipped_event,
+)
 from .contracts import (
     ContentOutput,
     ExecutionMode,
@@ -32,6 +40,7 @@ from .contracts import (
     VisualBriefOutput,
     WaitingReason,
 )
+from .db.envelope_store import EnvelopeStore
 from .db.store import Store
 from .errors import (
     BudgetExceeded, EscalationBlocked, HumanSubmissionError, InvalidStateTransition, StructuredOutputError,
@@ -106,6 +115,7 @@ class WorkflowEngine:
         self.settings = settings
         self.output_schemas = dict(OUTPUT_SCHEMAS if output_schemas is None else output_schemas)
         self.usage_recorder = UsageRecorder(store)
+        self._envelope_store: EnvelopeStore | None = None
 
     @classmethod
     def from_bundle(cls, bundle: DefinitionBundle, *, store: Store,
@@ -244,14 +254,23 @@ class WorkflowEngine:
 
                 output_schema = self.output_schemas[step.contract]
                 requires_web = bool(request.get("requires_web")) if step.requires_web == "from_request" else bool(step.requires_web)
-                context = self._context_for_step(
+                # Context compaction (CMP-T04) is off unless the workflow has an enabled context profile; a dry
+                # run has no real model or window, so it is never measured or compacted.
+                context_settings = (None if self.router.dry_run
+                                    else context_settings_for(self.catalog, run["workflow_id"]))
+                compaction = self._active_compaction(run_id, fresh.get("events", []), context_settings)
+                step_context = self._context_for_step(
                     run_id, step.id, request, fresh.get("revision_feedback", ""),
                     brand_version=fresh.get("brand_version"),
                     prior_step_ids=[item.id for item in definition.steps[:index]],
+                    compaction=compaction,
                 )
+                context = step_context.variables()
                 prompt = self.prompts.render(step.prompt_id, step.prompt_version, **context)
                 skill_text = "\n\n".join(self.prompts.skill_text(skill) for skill in step.skills)
                 final_prompt = prompt.text + ("\n\n## Active skill\n" + skill_text if skill_text else "")
+                for section in step_context.sections():
+                    final_prompt += "\n\n" + section  # the context summary, after the skills (CMP-T04)
                 final_prompt += self._output_contract_instruction(output_schema)
                 prompt_sha256 = hashlib.sha256(final_prompt.encode("utf-8")).hexdigest()
                 estimated_input = estimate_tokens_conservative(final_prompt)
@@ -322,6 +341,8 @@ class WorkflowEngine:
                     "step_kind": step.kind,
                     "effort": effective_effort,
                     **({"escalation": escalation_info} if escalation_info is not None else {}),
+                    **({"context_summary": {"ref": compaction.summary_ref, "replaced": list(compaction.step_ids)}}
+                       if compaction is not None and step_context.summary_ref is not None else {}),
                 })
 
                 if execution_mode == ExecutionMode.HUMAN_GUIDED:
@@ -363,8 +384,7 @@ class WorkflowEngine:
                     GuardEnvironment(
                         scope=SCOPE_RUN_STEP, catalog=self.catalog,
                         routing_profile_id=profile_id, routing_profile=profile,
-                        context_settings=(None if self.router.dry_run
-                                          else context_settings_for(self.catalog, run["workflow_id"])),
+                        context_settings=context_settings,
                         emit=lambda event_type, payload: self.store.db.log_event(run_id, event_type, payload),
                     ),
                     cancel=lambda call: self._check_cancel(run_id),
@@ -511,6 +531,13 @@ class WorkflowEngine:
                 self._check_cancel(run_id)
 
                 self.store.update_run(run_id, revision_feedback="")
+                # The step finished well: if it crossed the context threshold, compact what is old before the
+                # next step (or the review) starts. Never in the middle of a step (contract CMP-T01 section 8).
+                self._compact_after_step(
+                    run_id=run_id, definition=definition, index=index, step=step, attempt=attempt,
+                    request=request, settings=context_settings, profile_id=profile_id, profile=profile,
+                    brand_version=fresh.get("brand_version"),
+                )
                 if step.checkpoint_after:
                     self.store.update_run(
                         run_id,
@@ -1191,22 +1218,33 @@ class WorkflowEngine:
         })
         self.store.db.log_event(run_id, "step_completed", {"step_id": step.id, "attempt": attempt, "artifact_path": str(relative_path)})
 
+    # ---------- the context of a step: one assembly point (CMP-T04; the seam BDI-T02 works on) ----------
     def _context_for_step(self, run_id: str, step_id: str, request: dict[str, Any], revision_feedback: str,
-                          *, brand_version: int | None,
-                          prior_step_ids: list[str] | None = None) -> dict[str, str]:
+                          *, brand_version: int | None, prior_step_ids: list[str] | None = None,
+                          compaction: CompactionState | None = None) -> StepContext:
+        """The context of one step as ordered parts (``StepContext``), the ONE place it is assembled.
+
+        ``_context_parts`` gathers the parts; ``StepContext.variables()`` fills the prompt template and
+        ``StepContext.sections()`` are appended to the prompt after the active skills (today only the context
+        summary). Anything that must treat a part differently, for example wrapping an untrusted source
+        (BDI-T02), works on the parts here, each of which says what it is (``kind``) and, for a step output,
+        its reference and hash. ``compaction`` is the compaction in force (``_active_compaction``); without it
+        the context is exactly what it always was.
+        """
+        return StepContext(self._context_parts(
+            run_id, step_id, request, revision_feedback, brand_version=brand_version,
+            prior_step_ids=prior_step_ids, compaction=compaction))
+
+    def _context_parts(self, run_id: str, step_id: str, request: dict[str, Any], revision_feedback: str,
+                       *, brand_version: int | None, prior_step_ids: list[str] | None = None,
+                       compaction: CompactionState | None = None) -> tuple[ContextPart, ...]:
         if "workflow_id" in request:
-            context = dict(request["inputs"])
-            for prior_id in prior_step_ids or []:
-                output = self.store.latest_step_output(run_id, prior_id)
-                context[f"{prior_id}_output"] = (
-                    json.dumps(output, ensure_ascii=False, indent=2) if output is not None else ""
-                )
-            previous = self.store.latest_step_output(run_id, step_id)
-            context["previous_output"] = (
-                json.dumps(previous, ensure_ascii=False, indent=2) if previous is not None else ""
-            )
-            context["revision_feedback"] = revision_feedback
-            return context
+            return build_context_parts(
+                inputs=request["inputs"],
+                prior_outputs=[(prior_id, self._output_record(run_id, prior_id)) for prior_id in prior_step_ids or []],
+                previous_output=self.store.latest_step_output(run_id, step_id),
+                revision_feedback=revision_feedback, state=compaction)
+        # The legacy social-post path: fixed variables, never compacted.
         brand_sections = ["core", "voice"]
         if step_id == "design":
             brand_sections = ["core", "voice", "visual"]
@@ -1217,7 +1255,7 @@ class WorkflowEngine:
         strategy = self.store.latest_step_output(run_id, "strategy") or {}
         content = self.store.latest_step_output(run_id, "create") or {}
         previous = self.store.latest_step_output(run_id, step_id) or {}
-        return {
+        variables = {
             "objective": request.get("objective", ""),
             "topic": request.get("topic", ""),
             "platform": request.get("platform", ""),
@@ -1231,6 +1269,170 @@ class WorkflowEngine:
             "previous_output": json.dumps(previous, ensure_ascii=False, indent=2) if previous else "",
             "revision_feedback": revision_feedback,
         }
+        kinds = {"research_context": KIND_STEP_OUTPUT, "strategy_context": KIND_STEP_OUTPUT,
+                 "content_context": KIND_STEP_OUTPUT, "previous_output": KIND_PREVIOUS_OUTPUT,
+                 "revision_feedback": KIND_REVISION_FEEDBACK}
+        return tuple(ContextPart(name, value, kinds.get(name, KIND_INPUT)) for name, value in variables.items())
+
+    def _output_record(self, run_id: str, step_id: str) -> OutputRecord | None:
+        """The latest completed output of a step with the attempt it came from, or None."""
+        found = self.store.latest_completed_step(run_id, step_id)
+        return OutputRecord(step_id, found[0], found[1]) if found is not None else None
+
+    # ---------- context compaction of workflow steps (CMP-T04, contract CMP-T01 sections 5, 8 and 10) ----------
+    def _blob_store(self) -> EnvelopeStore:
+        if self._envelope_store is None:
+            self._envelope_store = EnvelopeStore(self.store.db)
+        return self._envelope_store
+
+    def _read_summary_blob(self, sha256: str) -> Any:
+        """The stored context summary (parsed JSON), or None when it is missing or unreadable."""
+        try:
+            return json.loads(self._blob_store().read_blob(sha256).decode("utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def _active_compaction(self, run_id: str, events: list[dict[str, Any]],
+                           settings: ContextSettings | None) -> CompactionState | None:
+        """The compaction in force for the next prompt of a run, or None (then the originals are used).
+
+        Only with an enabled context profile. The state is the latest ``context_compacted`` event, accepted while
+        its summary is intact and every output it replaced still has the hash that was summarized.
+        """
+        if settings is None or not settings.enabled:
+            return None
+        return resolve_compaction_state(events, current=lambda step_id: self._output_record(run_id, step_id),
+                                        read_summary=self._read_summary_blob)
+
+    def _compact_after_step(self, *, run_id: str, definition: WorkflowDefinition, index: int, step: WorkflowStep,
+                            attempt: int, request: dict[str, Any], settings: ContextSettings | None,
+                            profile_id: str | None, profile: Any, brand_version: int | None) -> None:
+        """Compact the older context after a step finished well and crossed the threshold.
+
+        Runs between the step's persistence and its checkpoint or the next step, so it never happens in the
+        middle of a step: retries, fallbacks and a whole attempt always see one prompt. It needs an enabled
+        context profile, the generic workflow path, a ``context_warning`` of level ``threshold`` for this step
+        attempt (``compaction_pending``) and something that reads the context afterwards (a next step, or a
+        review that may ask for a revision). A cancellation propagates; anything else that goes wrong ends in a
+        ``context_compaction_skipped`` event and the run goes on with the originals.
+        """
+        if settings is None or not settings.enabled or "workflow_id" not in request:
+            return
+        if index >= len(definition.steps) - 1 and not step.checkpoint_after:
+            return
+        if not compaction_pending(self.store.get_run(run_id).get("events", []), step_id=step.id, attempt=attempt):
+            return
+        ids = {"run_id": run_id, "step_id": step.id, "attempt": attempt, "index": index}
+        try:
+            self._compact_context(
+                run_id=run_id, definition=definition, index=index, step=step, attempt=attempt, request=request,
+                settings=settings, profile_id=profile_id, profile=profile, brand_version=brand_version)
+        except (_CancelledSignal, CallPaused):
+            raise
+        except Exception as exc:
+            _logger.warning("Context compaction after step %r failed; continuing with the originals", step.id,
+                            exc_info=True)
+            self._log_context_event(run_id, EVENT_CONTEXT_COMPACTION_SKIPPED, skipped_event(
+                **ids, reason=REASON_INTERNAL_ERROR, detail=f"{type(exc).__name__}: {exc}"[:400]))
+
+    def _compact_context(self, *, run_id: str, definition: WorkflowDefinition, index: int, step: WorkflowStep,
+                         attempt: int, request: dict[str, Any], settings: ContextSettings, profile_id: str | None,
+                         profile: Any, brand_version: int | None) -> None:
+        run = self.store.get_run(run_id)
+        ids = {"run_id": run_id, "step_id": step.id, "attempt": attempt, "index": index}
+        prior = [(item.id, self._output_record(run_id, item.id)) for item in definition.steps[: index + 1]]
+        outputs = [record for _, record in prior if record is not None]
+        state = self._active_compaction(run_id, run.get("events", []), settings)
+        plan = plan_compaction(outputs, inputs=request["inputs"], keep_recent=settings.keep_recent, state=state)
+        policy = SummaryPolicy.from_profile(settings.summary)
+        if not plan.sources:
+            self._log_context_event(run_id, EVENT_CONTEXT_COMPACTION_SKIPPED,
+                                    skipped_event(**ids, reason="no_reduction", detail=plan.detail))
+            return
+        if plan.tokens_before * policy.max_ratio < minimum_summary_tokens():
+            self._log_context_event(run_id, EVENT_CONTEXT_COMPACTION_SKIPPED, skipped_event(
+                **ids, reason="no_reduction",
+                detail=f"the {plan.tokens_before} tokens that could be replaced cannot shrink to "
+                       f"{policy.max_ratio:.0%} as the smallest valid summary needs {minimum_summary_tokens()}"))
+            return
+        mode = self._step_execution_mode(run, step).value
+        result = summarize_context(
+            router=self.router, sources=plan.sources, pinned=plan.pinned, previous=plan.previous,
+            access=SummaryAccess.from_request(request, execution_mode=mode if mode in ("auto", "local", "cloud") else "auto"),
+            policy=policy, scope=f"run:{run_id}", cursor={"kind": "step_index", "value": index},
+            before_call=self._summary_before_call(
+                run_id=run_id, step=step, attempt=attempt, profile_id=profile_id, profile=profile, request=request),
+            on_call=lambda call: self.usage_recorder.record(TokenUsageRecord(
+                run_id=run_id, step_id=step.id, attempt=attempt, brand_version=brand_version, **call.usage_fields())),
+        )
+        if not result.ok:
+            self._log_context_event(run_id, EVENT_CONTEXT_COMPACTION_SKIPPED, skipped_event(
+                **ids, reason=result.reason or "validation_failed", detail=result.detail, result=result))
+            return
+        # The pinned items must reach the next prompts untouched: check them in the very context those prompts get.
+        applied = StepContext(build_context_parts(
+            inputs=request["inputs"], prior_outputs=prior, previous_output=None, revision_feedback="",
+            state=next_state(plan, result)))
+        problems = check_pinned_in_context(plan, applied)
+        if problems or applied.summary_ref is None:
+            self._log_context_event(run_id, EVENT_CONTEXT_COMPACTION_SKIPPED, skipped_event(
+                **ids, reason="validation_failed", result=result, issues=problems,
+                detail="the pinned items would not reach the next prompts unchanged"))
+            return
+        self._store_compaction_blobs(plan, result)
+        self._log_context_event(run_id, EVENT_CONTEXT_COMPACTED, compacted_event(
+            **ids, keep_recent=settings.keep_recent, plan=plan, result=result))
+
+    def _store_compaction_blobs(self, plan: CompactionPlan, result) -> None:
+        """Keep the originals that are now replaced by a mark, and the summary, as blobs (content addressed)."""
+        blobs = self._blob_store()
+        with self.store.db.tx() as conn:
+            for source in plan.sources:
+                blobs.put_blob(conn, content_text(source.content).encode("utf-8"), actor=CONTEXT_AGENT_ID,
+                               media_type=ORIGINAL_MEDIA_TYPE)
+            row, _ = blobs.put_blob(conn, content_text(result.summary).encode("utf-8"), actor=CONTEXT_AGENT_ID,
+                                    media_type=SUMMARY_MEDIA_TYPE)
+        if row["sha256"] != result.summary_sha256:
+            raise RuntimeError("The stored context summary does not have the hash of the validated summary")
+
+    def _summary_before_call(self, *, run_id: str, step: WorkflowStep, attempt: int, profile_id: str | None,
+                             profile: Any, request: dict[str, Any]):
+        """``before_call`` of the summarizer's calls: the limits and budget guards, but not the context guard.
+
+        Its calls count in ``max_llm_calls`` and in the step's routing profile like any other call. A ``Stop``,
+        or a ``Pause`` (nobody is waiting for a compaction), skips the compaction as a budget problem instead of
+        failing or pausing the run; a cancellation is the host's and propagates.
+        """
+        def reserve(call: CallContext) -> None:
+            if profile_id is not None:
+                self.store.db.log_event(run_id, "routing_dispatch_reserved", {
+                    "profile_id": profile_id, "step_id": step.id, "attempted_model": call.model_id,
+                    "scope": {"run_id": run_id, "profile_id": profile_id}, "purpose": "context_summary",
+                })
+            self.store.increment_llm_calls(run_id)
+
+        chain = build_call_guards(
+            GuardEnvironment(scope=SCOPE_RUN_STEP, catalog=self.catalog, routing_profile_id=profile_id,
+                             routing_profile=profile),
+            cancel=lambda call: self._check_cancel(run_id), reserve=reserve)
+        data_class = "sensitive" if request.get("sensitive") else "non_sensitive"
+
+        def before_call(call: CallContext) -> None:
+            call = call.with_fields(scope=SCOPE_RUN_STEP, run_id=run_id, step_id=step.id, step_kind="work",
+                                    attempt=attempt, profile_id=profile_id, data_class=data_class)
+            verdict = chain.check(call, self.store.get_run(run_id))
+            if isinstance(verdict, Stop):
+                error = BudgetExceeded(verdict.message)
+                error.code, error.guard = verdict.code, verdict.guard
+                raise error
+            if isinstance(verdict, Pause):
+                raise BudgetExceeded(verdict.message or f"{verdict.guard or 'A guard'} asked for a decision "
+                                                         f"({verdict.waiting_reason}) before a context summary call")
+
+        return before_call
+
+    def _log_context_event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
+        self.store.db.log_event(run_id, event_type, payload)
 
     def _step_execution_mode(self, run: dict[str, Any], step: WorkflowStep) -> ExecutionMode:
         overrides = run.get("step_modes") or {}

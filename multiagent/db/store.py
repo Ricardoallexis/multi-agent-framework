@@ -300,6 +300,20 @@ class Store:
             ).fetchone()
             return json.loads(row["output_json"]) if row else None
 
+    def latest_completed_step(self, run_id: str, step_id: str) -> tuple[int, dict[str, Any]] | None:
+        """``(attempt, output)`` of the latest completed attempt of a step, or ``None`` when it has none.
+
+        Same row as ``latest_step_output`` plus the attempt it came from (context compaction names the
+        originals it replaces by step and attempt).
+        """
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT attempt, output_json FROM run_steps WHERE run_id=? AND step_id=? AND status='completed' "
+                "ORDER BY attempt DESC LIMIT 1",
+                (run_id, step_id),
+            ).fetchone()
+            return (int(row["attempt"]), json.loads(row["output_json"])) if row else None
+
     def add_artifact(self, *, run_id: str, step_id: str, attempt: int, kind: str, path: str, data: dict[str, Any]) -> str:
         with self.db.connect() as conn:
             existing = conn.execute(
