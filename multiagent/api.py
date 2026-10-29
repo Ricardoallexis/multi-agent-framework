@@ -398,6 +398,14 @@ class ActivityClose(_Body):
     actor: str
 
 
+class InboxMessageRequest(_Body):
+    """A message of the person to a run or a task (AVA-T03); ``message_id`` makes sending it again harmless."""
+    message_id: str
+    kind: str
+    text: str = ""
+    actor: str
+
+
 def create_app(system=None, *, services: ApplicationServices | None = None,
                bundles: Mapping[str, str | Path] | None = None,
                operator_context_provider: Callable[[Request], Any] | None = None) -> FastAPI:
@@ -941,6 +949,38 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/cursors/{consumer}/ack")
     def ack_cursor(consumer: str, body: CursorAck):
         return services.envelopes.ack_events(consumer, body.seq, scope=body.scope)
+
+    # --- the person's inbox (AVA-T03) -------------------------------------------------------
+    # Posting only appends a message (and needs the availability policy on). The work reads it at its next step boundary,
+    # in its own thread; nothing here approves, cancels or pauses anything by itself.
+
+    def _post_message(scope: str, scope_id: str, body: InboxMessageRequest, response: Response):
+        posted = services.inbox.post(scope, scope_id, message_id=body.message_id, kind=body.kind, text=body.text,
+                                     actor=body.actor)
+        response.status_code = 201 if posted["created"] else 200
+        return posted
+
+    @app.post("/api/v1/runs/{run_id}/messages", status_code=201)
+    def post_run_message(run_id: str, body: InboxMessageRequest, response: Response):
+        """Write to a run. 201 for a new message, 200 when ``message_id`` found the same message already written."""
+        return _post_message("run", run_id, body, response)
+
+    @app.get("/api/v1/runs/{run_id}/messages")
+    def run_messages(run_id: str, after: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
+                     state: str | None = None):
+        """The messages of a run with ``seq`` greater than ``after`` (the cursor), oldest first."""
+        return services.inbox.messages("run", run_id, after=after, limit=limit, state=state)
+
+    @app.post("/api/v1/tasks/{task_id}/messages", status_code=201)
+    def post_task_message(task_id: str, body: InboxMessageRequest, response: Response):
+        """Write to a task. 201 for a new message, 200 when ``message_id`` found the same message already written."""
+        return _post_message("task", task_id, body, response)
+
+    @app.get("/api/v1/tasks/{task_id}/messages")
+    def task_messages(task_id: str, after: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
+                      state: str | None = None):
+        """The messages of a task with ``seq`` greater than ``after`` (the cursor), oldest first."""
+        return services.inbox.messages("task", task_id, after=after, limit=limit, state=state)
 
     mount_gui(app)  # operator GUI at /gui (token-protected /gui/api, docs/GUI.md)
     mount_ui(app)  # Stage 0 UI at /ui: static files only, a client of the routes above

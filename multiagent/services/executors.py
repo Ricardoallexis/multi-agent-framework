@@ -1151,6 +1151,10 @@ class ExecutorServices:
                 if heartbeat is not None and heartbeat.due():
                     self._write_heartbeat(task_id, attempt_number, plan.executor_id, elapsed_seconds=heartbeat.elapsed(),
                                           idle_seconds=observed.idle_seconds, attention=observed.attention)
+                if heartbeat is not None:         # AVA-T03: a background attempt reads the person's inbox at each tick
+                    inbox = getattr(self._services, "inbox", None)
+                    if inbox is not None:
+                        inbox.on_attempt_tick(task_id, attempt_number, plan.executor_id, live_session[0])
             with ExitStack() as stack:
                 stack.enter_context(process.watching(watch_interval, callback))
                 if background is not None:
@@ -1207,6 +1211,12 @@ class ExecutorServices:
             except BaseException:  # noqa: BLE001
                 _logger.exception("the failure of the background attempt of %s could not be recorded", launch.task["id"])
         finally:
+            try:
+                inbox = getattr(self._services, "inbox", None)
+                if inbox is not None:       # AVA-T03: an interrupt of the person stopped the program; now hold the task
+                    inbox.finish_interrupt(launch.task["id"], int(launch.view["attempt"]))
+            except Exception:  # noqa: BLE001 - the place of the attempt is released whatever happens
+                _logger.exception("the inbox could not finish the interrupt of %s", launch.task["id"])
             self.background.release(background)
             background.done.set()
 

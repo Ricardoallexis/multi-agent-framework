@@ -9,8 +9,8 @@ chain of guards, so each stage adds its own check without editing the engine or 
 The fixed order of one check (:meth:`CallGuardChain.check`):
 
 1. **cancel**: the host's own cancellation check (it raises to stop);
-2. **guards**, sorted by ``order``: ``100`` context (CMP), ``150`` untrusted content (BDI), ``200`` limits,
-   ``300`` budget (USO);
+2. **guards**, sorted by ``order``: ``50`` the person's inbox (AVA), ``100`` context (CMP), ``150`` untrusted content
+   (BDI), ``200`` limits, ``300`` budget (USO);
 3. **reserve**: the host books the call (``routing_dispatch_reserved``, ``increment_llm_calls``), and only
    when every guard let the call through.
 
@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from .catalog import Catalog, ModelSpec
     from .context.estimate import ContextSettings
     from .document_trust import DetectionPolicy
+    from .services.availability import AvailabilityPolicy
 
 _logger = logging.getLogger(__name__)
 
@@ -53,7 +54,11 @@ SCOPE_RUN_STEP = "run_step"
 SCOPE_TASK = "task"
 SCOPES = (SCOPE_RUN_STEP, SCOPE_TASK)
 
+# ``Stop.code`` of a ``cancel`` message of the person (AVA-T03): the host ends the work as cancelled, not as over budget.
+STOP_USER_CANCEL = "user_cancel"
+
 # Where each guard runs in the chain; guards with the same order keep their registration order.
+ORDER_INBOX = 50         # the person's messages, read at the boundary of a step (AVA-T03); first, so a cancel wins
 ORDER_CONTEXT = 100
 ORDER_CONTENT = 150      # untrusted content held for a review (BDI-T04)
 ORDER_LIMITS = 200
@@ -314,6 +319,8 @@ class GuardEnvironment:
     # The document policy in force (``WorkflowEngine.document_policy``, BDI-T02), or None for "the barrier is off":
     # then there is no content guard and nothing changes (contract BDI-T01 section 8).
     document_policy: "DetectionPolicy | str | None" = None
+    # The availability policy in force (AVA-T01), or None for "off": then there is no inbox guard and nothing changes.
+    availability: "AvailabilityPolicy | None" = None
 
 
 def build_call_guards(env: GuardEnvironment, *, cancel: Callable[[CallContext], None] | None = None,
@@ -321,9 +328,12 @@ def build_call_guards(env: GuardEnvironment, *, cancel: Callable[[CallContext], 
     """The chain of one run step (or task): limits always, the others when their feature is on.
 
     This is the one place guards are registered. USO-T04 (budget cut, order 300) and CNT-T04/T10 (limit hold)
-    add theirs below with one line each.
+    add theirs below with one line each. The inbox guard (AVA-T03) exists only with an enabled availability policy.
     """
     guards: list[CallGuard] = [RunLimitsGuard(env.routing_profile_id, env.routing_profile)]
+    if env.availability is not None and env.availability.enabled:     # AVA-T03: the person's inbox, order 50
+        from .services.inbox import UserInboxGuard
+        guards.append(UserInboxGuard(env.availability, emit=env.emit))
     if env.context_settings is not None and env.context_settings.enabled:
         # Imported here: the context package builds on this module, not the other way round.
         from .context.estimate import ContextGuard

@@ -93,6 +93,9 @@ class RunServices:
                 adapters=system.adapters, dry_run=system.engine.router.dry_run,
                 document_policy=system.engine.document_policy,
             )
+            inbox = getattr(self._services, "inbox", None)
+            if inbox is not None:
+                engine.availability_source = inbox.policy          # one place decides whether the inbox is in use (AVA-T03)
             runtime = _Runtime(name, store, RunService(settings, store, engine=engine),
                                LocalWorker(store, engine, settings.worker_poll_seconds))
             if settings.worker_enabled:

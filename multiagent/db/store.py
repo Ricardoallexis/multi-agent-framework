@@ -606,6 +606,38 @@ class Store:
                              (run_id, now, "human_rejected", json.dumps({"feedback": feedback}, ensure_ascii=False)))
             return len(pending)
 
+    def finish_user_message(self, run: dict[str, Any], *, approve: bool, feedback: str = "") -> None:
+        """Commit a person's decision on a run that a message of theirs paused (AVA-T03, ``waiting_reason`` ``user_message``).
+
+        Like ``finish_escalation`` it compares the persisted wait again inside the transaction, so a duplicate decision or
+        one after a cancellation is refused. Approving queues the run again (the message was consumed when it paused the run,
+        so the guard does not read it twice); rejecting rejects the run. Only the approval path of runs calls this: the
+        inbox that recorded the message never does.
+        """
+        run_id = run["id"]
+        with self.db.tx() as conn:
+            fresh = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            fields = ("status", "current_step", "waiting_reason", "waiting_step", "waiting_attempt", "cancel_requested")
+            if (fresh is None or fresh["status"] != RunStatus.WAITING_HUMAN.value
+                    or fresh["waiting_reason"] != WaitingReason.USER_MESSAGE.value or fresh["cancel_requested"]
+                    or any(fresh[key] != run[key] for key in fields)):
+                raise InvalidStateTransition("The persisted wait for the message changed; read the run again")
+            now = utcnow()
+            if approve:
+                conn.execute(
+                    """UPDATE runs SET status=?,waiting_reason='',waiting_step='',waiting_attempt=NULL,updated_at=?
+                       WHERE id=?""", (RunStatus.QUEUED.value, now, run_id))
+                conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                             (run_id, now, "user_message_resolved", json.dumps({"decision": "approved"})))
+                return
+            conn.execute(
+                """UPDATE runs SET status=?,revision_feedback=?,waiting_reason='',waiting_step='',
+                   waiting_attempt=NULL,updated_at=? WHERE id=?""", (RunStatus.REJECTED.value, feedback, now, run_id))
+            conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                         (run_id, now, "user_message_resolved", json.dumps({"decision": "rejected"})))
+            conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                         (run_id, now, "human_rejected", json.dumps({"feedback": feedback}, ensure_ascii=False)))
+
     def increment_llm_calls(self, run_id: str) -> int:
         with self.db.connect() as conn:
             conn.execute("UPDATE runs SET llm_calls=llm_calls+1, updated_at=? WHERE id=?", (utcnow(), run_id))

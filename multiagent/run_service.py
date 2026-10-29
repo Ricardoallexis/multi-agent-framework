@@ -58,6 +58,12 @@ class RunService:
         return (run["status"] == RunStatus.WAITING_HUMAN.value
                 and run.get("waiting_reason") == WaitingReason.CONTENT_REVIEW.value)
 
+    @staticmethod
+    def _awaits_user_message(run: dict[str, Any]) -> bool:
+        """True while a message of the person (AVA-T03, ``interrupt`` or ``adjust``) holds the run at a step boundary."""
+        return (run["status"] == RunStatus.WAITING_HUMAN.value
+                and run.get("waiting_reason") == WaitingReason.USER_MESSAGE.value)
+
     def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None) -> dict[str, Any]:
         """``by`` and ``channel`` say who and through which door (``api`` or ``gui``) the caller declared: they are
         recorded when the approval settles a content review and are not checked (see ``document_review``)."""
@@ -71,6 +77,10 @@ class RunService:
             # fragments stay replaced); no artifact is under review. The caller is not authenticated: whoever can
             # reach this method can settle the review (known limit, BDI-T07).
             self.store.finish_content_review(run, approve=True, by=by, channel=channel)
+            return self.store.get_run(run_id)
+        if self._awaits_user_message(run):
+            # The person's own approval lets the run go on after their message paused it. The inbox never calls this.
+            self.store.finish_user_message(run, approve=True)
             return self.store.get_run(run_id)
         if run["status"] != RunStatus.WAITING_HUMAN.value or run.get("waiting_reason") not in {
             WaitingReason.REVIEW.value, WaitingReason.APPROVAL_PENDING.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
@@ -115,6 +125,9 @@ class RunService:
         if self._awaits_escalation(run):
             # Rejecting an escalation fails the step (and the run) with the reason; nothing was produced to reject.
             self.store.finish_escalation(run, approve=False, feedback=feedback)
+            return self.store.get_run(run_id)
+        if self._awaits_user_message(run):
+            self.store.finish_user_message(run, approve=False, feedback=feedback)
             return self.store.get_run(run_id)
         if self._awaits_content_review(run):
             # Rejecting a content review rejects the run: the held step never reads the content.

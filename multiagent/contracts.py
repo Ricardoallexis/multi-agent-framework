@@ -40,6 +40,10 @@ class WaitingReason(str, Enum):
     # of runs (``RunService.approve`` / ``reject``, event ``document_review_resolved``), which does not authenticate
     # its caller (see ``document_review``).
     CONTENT_REVIEW = "content_review"
+    # AVA-T03: a message of the person (``interrupt`` or ``adjust``) was read at the boundary of a step and the run waits for
+    # them. They settle it with the approval path of runs (``approve`` goes on, ``reject`` rejects; ``cancel`` always works);
+    # the inbox never settles it. The message is consumed when it pauses the run, so it never pauses the run twice.
+    USER_MESSAGE = "user_message"
 
 
 class HumanAction(str, Enum):

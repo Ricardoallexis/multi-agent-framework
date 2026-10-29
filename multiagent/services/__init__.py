@@ -16,6 +16,7 @@ notebooks), so they all behave the same way::
     services.projects.get("mkt")
     services.activities.start("mkt", "Review the brief", actor="user:ana")
     services.usage.plans()
+    services.inbox.post("run", run["id"], message_id="m1", kind="note", text="Prefer short titles", actor="user:ana")
 
 Methods return JSON-ready data and report known failures as ``ServiceError``
 (``code``, ``message``, ``status``, ``details``; see ``errors``).
@@ -37,6 +38,7 @@ from .envelopes import EnvelopeServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
 from .executors import ExecutorServices
 from .gates import GateServices
+from .inbox import InboxServices
 from .projects import ProjectServices
 from .runs import RunServices
 from .sessions import SessionServices
@@ -54,6 +56,7 @@ __all__ = [
     "EnvelopeServices",
     "ExecutorServices",
     "GateServices",
+    "InboxServices",
     "ProjectServices",
     "RunServices",
     "ServiceError",
@@ -69,7 +72,7 @@ _BUNDLE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,119}$")
 
 class ApplicationServices:
     """Facade over one ``System``: ``definitions``, ``runs``, ``tasks``, ``gates``, ``envelopes``, ``assignment``,
-    ``executors``, ``sessions``, ``projects``, ``activities`` and ``usage``."""
+    ``executors``, ``sessions``, ``projects``, ``activities``, ``usage`` and ``inbox``."""
 
     def __init__(self, system: System, *, bundles: Mapping[str, str | Path] | None = None):
         self.system = system
@@ -90,6 +93,11 @@ class ApplicationServices:
         self.projects = ProjectServices(self)
         self.activities = ActivityServices(self)
         self.usage = UsageServices(self)
+        self.inbox = InboxServices(self)
+        # The engine of the system reads the availability policy from the inbox, the same place that accepts the messages.
+        engine = getattr(system, "engine", None)
+        if engine is not None:
+            engine.availability_source = self.inbox.policy
 
     @classmethod
     def create(cls, settings: Settings | None = None, *,

@@ -16,7 +16,7 @@ from .adapters.base import LLMResponse
 from .adapters.fake import FakeAdapter
 from .artifacts import ArtifactWriter
 from .call_guards import (
-    SCOPE_RUN_STEP, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
+    SCOPE_RUN_STEP, STOP_USER_CANCEL, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
 )
 from .catalog import Catalog, CatalogError, validate_routing_profile
 from .context.estimate import ContextSettings, compaction_pending, context_settings_for
@@ -240,6 +240,10 @@ class WorkflowEngine:
         # event and goes on; "pause" also asks for a review) turns it on. ``ValueError`` if unknown.
         self.document_policy: DetectionPolicy | None = (
             None if document_policy is None else resolve_policy(document_policy))
+        # Where the availability policy comes from (AVA-T03). ``ApplicationServices`` sets it to ``inbox.policy`` so that the
+        # inbox that accepts a message and the guard that reads it resolve the policy in the same place (an override on the
+        # inbox or the executors included); ``None`` reads the ``availability_*`` settings, as a bare engine always did.
+        self.availability_source = None
 
     @classmethod
     def from_bundle(cls, bundle: DefinitionBundle, *, store: Store,
@@ -546,6 +550,7 @@ class WorkflowEngine:
                         scope=SCOPE_RUN_STEP, catalog=self.catalog,
                         routing_profile_id=profile_id, routing_profile=profile,
                         context_settings=context_settings, document_policy=self.document_policy,
+                        availability=self._availability_policy(),
                         emit=lambda event_type, payload: self.store.db.log_event(run_id, event_type, payload),
                     ),
                     cancel=lambda call: self._check_cancel(run_id),
@@ -1246,6 +1251,9 @@ class WorkflowEngine:
         ``CallPaused`` to unwind the router; nothing was reserved, so no call is counted.
         """
         if isinstance(verdict, Stop):
+            if verdict.code == STOP_USER_CANCEL:
+                # A ``cancel`` message of the person (AVA-T03): the run ends as cancelled, not as over budget.
+                raise _CancelledSignal()
             error = BudgetExceeded(verdict.message)
             error.code = verdict.code
             error.guard = verdict.guard
@@ -1804,6 +1812,23 @@ class WorkflowEngine:
             "Return only a valid JSON object. Do not use Markdown or text outside the JSON. "
             "The object must satisfy this JSON Schema:\n" + schema
         )
+
+    def _availability_policy(self):
+        """The availability policy when it is on, else ``None``: no inbox guard, nothing changes.
+
+        It comes from ``availability_source`` (the inbox service, see ``__init__``) or, without one, from the settings. A
+        policy that cannot be resolved (an invalid configuration) counts as off: the inbox refuses messages in that case too.
+        """
+        try:
+            if self.availability_source is not None:
+                policy = self.availability_source()
+            else:
+                from .services.availability import policy_from_settings    # imported here: the services import this module
+                policy = policy_from_settings(self.settings)
+        except Exception:  # noqa: BLE001 - an invalid configuration: the executors report it, the engine reads no inbox
+            _logger.warning("The availability policy could not be resolved: the inbox is off", exc_info=True)
+            return None
+        return policy if policy.enabled else None
 
     def _check_cancel(self, run_id: str) -> None:
         if self.store.get_run(run_id)["cancel_requested"]:
