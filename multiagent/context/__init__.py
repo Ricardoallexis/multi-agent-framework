@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Context compaction building blocks (CMP). ``estimate`` measures a prompt against the model window and warns
 before the call (CMP-T02); ``summary`` makes and validates the summary that replaces older context (CMP-T03);
-``workflow`` says what the context of a workflow step is made of and what a compaction replaces (CMP-T04)."""
+``workflow`` says what the context of a workflow step is made of and what a compaction replaces (CMP-T04);
+``snapshot`` summarizes the context of tasks and builds what a reader gets (CMP-T05)."""
 from __future__ import annotations
 
 from .estimate import (
@@ -54,6 +55,27 @@ from .summary import (
     validate_summary,
 )
 
+from .snapshot import (
+    CONTEXT_ACTOR,
+    CONTEXT_EVENT_TYPES,
+    PACKAGE_SCHEMA,
+    SNAPSHOT_MEDIA_TYPE,
+    SNAPSHOT_SCHEMA,
+    ContextMeasure,
+    ScopeTask,
+    Snapshot,
+    SnapshotError,
+    SnapshotPlan,
+    build_package,
+    check_pinned_in_packages,
+    contract_of,
+    measure_context,
+    parse_snapshot,
+    plan_snapshot,
+    snapshot_bytes,
+    snapshot_document,
+    split_scope,
+)
 from .workflow import (
     EVENT_CONTEXT_COMPACTED,
     EVENT_CONTEXT_COMPACTION_SKIPPED,
@@ -80,4 +102,8 @@ __all__ = [
     "EVENT_CONTEXT_COMPACTED", "EVENT_CONTEXT_COMPACTION_SKIPPED", "CompactionPlan", "CompactionState",
     "ContextPart", "OutputRecord", "StepContext", "build_context_parts", "plan_compaction",
     "resolve_compaction_state",
+    "CONTEXT_ACTOR", "CONTEXT_EVENT_TYPES", "PACKAGE_SCHEMA", "SNAPSHOT_MEDIA_TYPE", "SNAPSHOT_SCHEMA",
+    "ContextMeasure", "ScopeTask", "Snapshot", "SnapshotError", "SnapshotPlan", "build_package",
+    "check_pinned_in_packages", "contract_of", "measure_context", "parse_snapshot", "plan_snapshot",
+    "snapshot_bytes", "snapshot_document", "split_scope",
 ]

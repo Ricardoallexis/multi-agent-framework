@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Usage services (USO-T02): plan usage per app, tokens per app/model/level/role and estimated API cost.
 
-Read-only and neutral of domain. Three questions, one method each, with the same answer from Python, the
-token-protected ``/gui/api/usage/*`` routes, ``/api/v1/usage/costs`` and ``multiagent usage-report``:
+Read-only (but ``notify_budgets``, see below) and neutral of domain. Three questions, one method each, with the
+same answer from Python, the token-protected ``/gui/api/usage/*`` routes, ``/api/v1/usage/costs`` and
+``multiagent usage-report``:
 
 * ``plans()``: what each app's plan allows and how much is used, **only where the app leaves the number on
   disk or documents it** (USO-T01). Codex: the percent and reset of its 5 hour and weekly windows. Claude:
@@ -22,6 +23,20 @@ token-protected ``/gui/api/usage/*`` routes, ``/api/v1/usage/costs`` and ``multi
 The apps' own sessions are priced by their plans, not per token, so no USD is computed for them. The tokens
 of executor attempts are not added here because their app session already counts them.
 
+Budgets (USO-T03) compare the framework's own estimated cost with limits the operator configured
+(``usage_budgets`` in ``config``; no migration, the consumption is derived from the ``telemetry`` table):
+
+* ``budgets(run_id)``: every budget with what it has used, what is left, the percent consumed, its state
+  (``ok``, ``alert`` once an alert percent was reached, ``limit_reached`` at 100 %), the alerts reached and the
+  next one, in the currency of the budget (only costs priced in that currency are counted; nothing is
+  converted, and the calls whose cost is unknown are counted apart, so ``complete`` says whether the figure is
+  the whole cost). It also lists the latest alert events, so a view needs no other call. Read-only.
+* ``notify_budgets(run_id)``: the same answer, after appending one ``budget.threshold`` team event for each
+  alert percent reached that was not announced before, idempotent per (budget, alert, period, amount, currency
+  and project): a month budget alerts once per month, a project budget once, a run budget once per run, and a
+  raised amount alerts again at its own percents. This is the only method here that writes.
+* ``mode`` is ``warn`` (default) or ``cut``. Nothing here stops a call: ``cut`` is reported and USO-T04 acts on it.
+
 Paths come from the settings the session viewer uses (``gui_claude_home``, ``gui_codex_home``,
 ``gui_copilot_home``) and ``gui_session_sources`` says which apps are shown. No working folder, title,
 session id, prompt or credential file is read or returned. Errors (``ServiceError``): ``invalid_request``
@@ -30,6 +45,7 @@ session id, prompt or credential file is read or returned. Errors (``ServiceErro
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime, timedelta, timezone
@@ -55,6 +71,12 @@ MAX_WINDOW_DAYS = 400
 DEFAULT_RUN_LIMIT = 100
 MAX_RUN_LIMIT = 500
 MAX_EVIDENCE = 20
+BUDGET_EVENT = "budget.threshold"    # team event (USO-T03): a budget reached one of its alert percents
+BUDGET_ACTOR = "system:budgets"
+MAX_BUDGET_RUNS = 50                 # run budgets: the most consumed runs shown for each budget
+MAX_RECENT_ALERTS = 20
+_RUN_CHUNK = 400                     # run ids per query (SQLite caps the number of parameters)
+_PERCENT_EPS = 1e-9
 LIMIT_LOOKBACK = timedelta(days=8)   # a plan reset is never believed to be farther away than this (CNT-T01)
 TOKEN_FIELDS = ("input", "output", "cache_read", "cache_write", "reasoning", "total")
 
@@ -154,6 +176,42 @@ def _evidence(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return [found[key] for key in sorted(found)][:MAX_EVIDENCE]
 
 
+def _spent(record: dict[str, Any]) -> tuple[str, float] | None:
+    """``(currency, amount)`` of a record's estimated cost, or ``None`` when it has none (never 0).
+
+    A USD cost sits in ``estimated_cost_usd``; any other currency only in the price evidence (``cost_basis``).
+    """
+    if record["estimated_cost_usd"] is not None:
+        return "USD", float(record["estimated_cost_usd"])
+    basis = record.get("cost_basis") or {}
+    cost, currency = basis.get("cost"), basis.get("currency")
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool) and isinstance(currency, str) and currency.strip():
+        return currency.strip().upper(), float(cost)
+    return None
+
+
+def _in_project(record: dict[str, Any], project: str | None) -> bool:
+    """``project`` is a project's name or id; ``None`` accepts every record."""
+    return project is None or project in (record.get("project"), record.get("project_id"))
+
+
+def _number(value: float) -> str:
+    """A number as the shortest text that reads back as the same float (``10``, ``87.5``, ``1000004``)."""
+    text = repr(float(value))
+    return text[:-2] if text.endswith(".0") else text
+
+
+def _project_id_of(records: list[dict[str, Any]]) -> str | None:
+    """The id of the project the records belong to: the system store's when it has one, else the first found."""
+    found = [r for r in records if r.get("project_id") is not None]
+    return next((r["project_id"] for r in found if r["bundle"] is None), found[0]["project_id"] if found else None)
+
+
+def _percent_text(value: float) -> float:
+    """A percent cut (not rounded) to two decimals, so a shown 80.0 never hides a state computed below 80."""
+    return math.floor((value + _PERCENT_EPS) * 100) / 100
+
+
 def _unknown_reason(record: dict[str, Any]) -> str | None:
     """Why a record has no USD cost: ``None`` when it has one or is priced in another currency."""
     if record["estimated_cost_usd"] is not None:
@@ -173,6 +231,7 @@ class UsageServices:
         self._services = services
         # A test sets ``clock`` to move time; every window and "now" below reads it.
         self.clock: Callable[[], datetime] = clock or (lambda: datetime.now(timezone.utc))
+        self._announced: set[str] = set()   # budget alerts already written as events (a cache: the events are the truth)
 
     # --- configuration ----------------------------------------------------------
 
@@ -416,20 +475,43 @@ class UsageServices:
 
     # --- costs ----------------------------------------------------------------------
 
-    def _telemetry(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
-        """Telemetry rows of every store created in ``[start, end)``, oldest first, with the cost evidence loaded."""
-        low = start.date().isoformat()
-        high = (end.date() + timedelta(days=1)).isoformat()   # a coarse text filter; the exact test is below
+    def _telemetry(self, start: datetime | None, end: datetime | None, *, run_ids: Sequence[str] | None = None,
+                   project: str | None = None, stores: list[tuple[str | None, Any]] | None = None) -> list[dict[str, Any]]:
+        """Telemetry rows of every store created in ``[start, end)``, oldest first, with the cost evidence loaded.
+
+        ``None`` for ``start`` or ``end`` leaves that side open. ``run_ids`` keeps only those runs, ``project`` (a
+        name or an id) only the runs of that project and ``stores`` reads only those stores. Each record also carries
+        the ``project`` name and ``project_id`` of its run (``None`` when the run is not in the store).
+        """
+        conditions: list[str] = []
+        params: list[Any] = []
+        if start is not None:   # a coarse text filter; the exact test is below
+            conditions.append("t.created_at >= ?")
+            params.append(start.date().isoformat())
+        if end is not None:
+            conditions.append("t.created_at < ?")
+            params.append((end.date() + timedelta(days=1)).isoformat())
+        if project is not None:
+            conditions.append("(p.name = ? OR p.id = ?)")
+            params += [project, project]
+        chunks: list[Sequence[str] | None] = [None] if run_ids is None else [
+            run_ids[i:i + _RUN_CHUNK] for i in range(0, len(run_ids), _RUN_CHUNK)]
         records: list[dict[str, Any]] = []
-        for bundle, store in self._stores():
-            with store.db.connect() as conn:
-                rows = conn.execute(
-                    "SELECT id,run_id,step_id,agent_id,provider,model,tokens_in,tokens_out,duration_ms,"
-                    "estimated_cost_usd,cost_basis,success,created_at FROM telemetry "
-                    "WHERE created_at >= ? AND created_at < ? ORDER BY id", (low, high)).fetchall()
+        for bundle, store in (self._stores() if stores is None else stores):
+            rows: list[Any] = []
+            for chunk in chunks:
+                where = [*conditions, f"t.run_id IN ({','.join('?' * len(chunk))})"] if chunk is not None else conditions
+                with store.db.connect() as conn:
+                    rows += conn.execute(
+                        "SELECT t.id,t.run_id,t.step_id,t.agent_id,t.provider,t.model,t.tokens_in,t.tokens_out,"
+                        "t.duration_ms,t.estimated_cost_usd,t.cost_basis,t.success,t.created_at,"
+                        "p.name AS project,p.id AS project_id FROM telemetry t "
+                        "LEFT JOIN runs r ON r.id = t.run_id LEFT JOIN projects p ON p.id = r.project_id"
+                        + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY t.id",
+                        [*params, *(chunk or ())]).fetchall()
             for row in rows:
                 at = sources.parse_instant(row["created_at"])
-                if at is None or not start <= at < end:
+                if at is None or (start is not None and at < start) or (end is not None and at >= end):
                     continue
                 record = {key: row[key] for key in row.keys()}
                 reported = record["tokens_in"] is not None and record["tokens_out"] is not None
@@ -490,3 +572,220 @@ class UsageServices:
             "by_month": [self._cost_group(group, month=month)
                          for month, group in sorted(grouped(lambda r: r["at"].strftime("%Y-%m")).items())],
         }
+
+    # --- budgets (USO-T03) ----------------------------------------------------------
+
+    @service_errors
+    def budgets(self, *, run_id: Any = None) -> dict[str, Any]:
+        """Every configured budget with its consumption, percent, state and alerts (read-only).
+
+        ``{generated_at, month, defaults, budgets, status, counts, worst_percent, runs_truncated, recent_alerts}``.
+        ``budgets`` is the configuration as understood (``id``, ``scope``, ``project``, ``currency``, ``amount``,
+        ``mode``, ``alerts``). ``status`` has one row for a ``month`` or ``project`` budget and, for a ``run``
+        budget, one row for each run that spent this month (the most consumed ``MAX_BUDGET_RUNS``, most consumed
+        first; ``runs_truncated`` says there are more), or only the row of ``run_id`` when it is given
+        (``not_found`` if there is no such run; a run of another project has no row for a budget limited to a
+        project). A row has:
+
+        * ``budget_id``, ``scope``, ``project`` (as configured) with its ``project_id`` (taken from the runs counted;
+          only for a budget tied to a project), ``run_id`` and ``bundle`` (run rows), ``period`` (``YYYY-MM`` for
+          a month budget, ``all`` for a project one) with ``since``/``until`` (month only) and ``currency``;
+        * ``amount``, ``used`` (the known cost in that currency), ``remaining``, ``percent`` (cut to two decimals)
+          and ``state``: ``ok``, ``alert`` (an alert percent was reached) or ``limit_reached`` (100 % or more);
+        * ``mode`` (``warn`` or ``cut``; ``cut`` is applied by USO-T04, not here), ``alerts``, ``crossed`` (the alert
+          percents reached) and ``next_alert`` (the first one not reached, ``None`` when there is none);
+        * ``records`` (provider calls counted), ``cost_known_records``, ``cost_unknown_records`` with
+          ``cost_unknown_reasons``, ``cost_other_currencies`` (spent in other currencies, never converted) and
+          ``complete`` (no call has an unknown cost and none is priced in another currency): when it is false,
+          ``used`` is only the known part.
+
+        ``recent_alerts`` are the latest ``budget.threshold`` events (newest first, at most ``MAX_RECENT_ALERTS``).
+        Without budgets everything is empty.
+        """
+        settings = self._services.settings
+        configured = list(settings.usage_budgets)
+        now = self._now()
+        month_start, month_end = sources.month_start(now), sources.next_month(now)
+        month = {"key": month_start.strftime("%Y-%m"), "since": _iso(month_start), "until": _iso(month_end)}
+        defaults = {"mode": settings.usage_budget_mode, "alerts": list(settings.usage_budget_alerts)}
+        run = self._budget_run(run_id)
+        rows, truncated = self._budget_rows(configured, defaults, run, month_start, month_end, month["key"])
+        counts = {state: sum(1 for row in rows if row["state"] == state) for state in ("ok", "alert", "limit_reached")}
+        return {
+            "generated_at": _iso(now), "month": month, "defaults": defaults,
+            "budgets": [{"id": b.id, "scope": b.scope, "project": b.project, "currency": b.currency, "amount": b.amount,
+                         "mode": b.mode or defaults["mode"],
+                         "alerts": list(b.alerts if b.alerts is not None else defaults["alerts"])}
+                        for b in configured],
+            "status": rows, "counts": counts, "worst_percent": max((row["percent"] for row in rows), default=None),
+            "runs_truncated": truncated, "recent_alerts": self._recent_budget_alerts(),
+        }
+
+    def _budget_run(self, run_id: Any) -> dict[str, Any] | None:
+        """The run a ``budgets`` call is about (store, bundle and project), ``None`` when no run was given."""
+        if run_id is None or run_id == "":
+            return None
+        if not isinstance(run_id, str) or len(run_id) > 128:
+            raise _invalid("run_id must be the id of a run", field="run_id")
+        runtime = self._services.runs._find(run_id)  # type: ignore[attr-defined]  # not_found when there is no such run
+        with runtime.store.db.connect() as conn:
+            row = conn.execute("SELECT p.name AS name, p.id AS id FROM runs r JOIN projects p ON p.id = r.project_id "
+                               "WHERE r.id = ?", (run_id,)).fetchone()
+        return {"run_id": run_id, "bundle": runtime.bundle, "store": runtime.store,
+                "project": row["name"] if row else None, "project_id": row["id"] if row else None}
+
+    def _budget_rows(self, configured: Sequence[Any], defaults: dict[str, Any], run: dict[str, Any] | None,
+                     month_start: datetime, month_end: datetime, month_key: str) -> tuple[list[dict[str, Any]], bool]:
+        """The status rows of the budgets, and whether a run budget showed fewer runs than spent this month."""
+        if not configured:
+            return [], False
+        scopes = {budget.scope for budget in configured}
+        in_month = self._telemetry(month_start, month_end) if "month" in scopes or ("run" in scopes and run is None) else []
+        rows: list[dict[str, Any]] = []
+        truncated = False
+        by_project: dict[str, list[dict[str, Any]]] = {}
+        runs: list[dict[str, Any]] | None = None
+        for budget in configured:
+            if budget.scope == "month":
+                rows.append(self._budget_row(budget, defaults, [r for r in in_month if _in_project(r, budget.project)],
+                                             period=month_key, since=month_start, until=month_end))
+            elif budget.scope == "project":
+                if budget.project not in by_project:
+                    by_project[budget.project] = self._telemetry(None, None, project=budget.project)
+                rows.append(self._budget_row(budget, defaults, by_project[budget.project], period="all"))
+            else:
+                if runs is None:
+                    runs, cut = self._budget_runs(run, in_month)
+                    truncated = truncated or cut
+                found = [self._budget_row(budget, defaults, item["records"], run_id=item["run_id"], bundle=item["bundle"])
+                         for item in runs
+                         if budget.project is None or budget.project in (item["project"], item["project_id"])]
+                found.sort(key=lambda row: (-row["percent"], row["run_id"]))
+                truncated = truncated or len(found) > MAX_BUDGET_RUNS
+                rows += found[:MAX_BUDGET_RUNS]
+        return rows, truncated
+
+    def _budget_runs(self, run: dict[str, Any] | None,
+                     in_month: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+        """The runs a run budget looks at, each with every telemetry row it ever wrote.
+
+        The given run, else those active this month (the most recent ``MAX_RUN_LIMIT``; the flag says more were active).
+        """
+        if run is not None:
+            records = self._telemetry(None, None, run_ids=[run["run_id"]], stores=[(run["bundle"], run["store"])])
+            return [{"run_id": run["run_id"], "bundle": run["bundle"], "project": run["project"],
+                     "project_id": run["project_id"], "records": records}], False
+        last: dict[tuple[str | None, str], datetime] = {}
+        for record in in_month:   # oldest first, so the last write is the most recent activity
+            last[(record["bundle"], record["run_id"])] = record["at"]
+        newest = sorted(last, key=lambda key: last[key], reverse=True)[:MAX_RUN_LIMIT]
+        grouped: dict[tuple[str | None, str], dict[str, Any]] = {
+            key: {"run_id": key[1], "bundle": key[0], "project": None, "project_id": None, "records": []} for key in newest}
+        for record in self._telemetry(None, None, run_ids=sorted({key[1] for key in newest})):
+            item = grouped.get((record["bundle"], record["run_id"]))
+            if item is not None:
+                item["records"].append(record)
+                item["project"], item["project_id"] = record["project"], record["project_id"]
+        return list(grouped.values()), len(last) > len(newest)
+
+    def _budget_row(self, budget: Any, defaults: dict[str, Any], records: list[dict[str, Any]], *, period: str | None = None,
+                    since: datetime | None = None, until: datetime | None = None, run_id: str | None = None,
+                    bundle: str | None = None) -> dict[str, Any]:
+        """One budget measured on ``records``: only costs in the budget's currency are added up."""
+        used, known = 0.0, 0
+        other: dict[str, float] = {}
+        reasons: dict[str, int] = {}
+        for record in records:
+            spent = _spent(record)
+            if spent is None:
+                reason = _unknown_reason(record) or "no_price_evidence"
+                reasons[reason] = reasons.get(reason, 0) + 1
+            elif spent[0] == budget.currency:
+                used += spent[1]
+                known += 1
+            else:
+                other[spent[0]] = other.get(spent[0], 0.0) + spent[1]
+        used = round(used, 6)
+        percent = used / budget.amount * 100
+        alerts = list(budget.alerts if budget.alerts is not None else defaults["alerts"])
+        crossed = [alert for alert in alerts if percent >= alert - _PERCENT_EPS]
+        unknown = sum(reasons.values())
+        state = "limit_reached" if percent >= 100 - _PERCENT_EPS else ("alert" if crossed else "ok")
+        return {
+            "budget_id": budget.id, "scope": budget.scope, "project": budget.project,
+            "project_id": _project_id_of(records) if budget.project is not None else None,
+            "run_id": run_id, "bundle": bundle, "period": period, "since": _iso(since), "until": _iso(until), "currency": budget.currency,
+            "amount": budget.amount, "used": used, "remaining": round(max(0.0, budget.amount - used), 6),
+            "percent": _percent_text(percent), "state": state,
+            "mode": budget.mode or defaults["mode"], "alerts": alerts, "crossed": crossed,
+            "next_alert": next((alert for alert in alerts if alert not in crossed), None),
+            "records": len(records), "cost_known_records": known, "cost_unknown_records": unknown,
+            "cost_unknown_reasons": dict(sorted(reasons.items())),
+            "cost_other_currencies": {currency: round(total, 6) for currency, total in sorted(other.items())},
+            "complete": unknown == 0 and not other,
+        }
+
+    def _recent_budget_alerts(self) -> list[dict[str, Any]]:
+        """The latest ``budget.threshold`` events, newest first."""
+        with self._services.tasks.store.db.connect() as conn:
+            rows = conn.execute("SELECT seq,created_at,payload_json FROM team_events WHERE type = ? "
+                                "ORDER BY seq DESC LIMIT ?", (BUDGET_EVENT, MAX_RECENT_ALERTS)).fetchall()
+        alerts = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except ValueError:
+                payload = {}
+            alerts.append({**(payload if isinstance(payload, dict) else {}), "seq": row["seq"],
+                           "at": _iso(sources.parse_instant(row["created_at"]))})
+        return alerts
+
+    @staticmethod
+    def _alert_key(row: dict[str, Any], threshold: float) -> str:
+        """What makes an alert the same alert: budget, percent, period (or run), amount, currency and project.
+
+        Numbers are written in full (``_number``): two amounts that differ at the seventh digit are different keys.
+        The project goes last because it is free text.
+        """
+        subject = f"run={row['run_id']}" if row["scope"] == "run" else row["period"]
+        return (f"budget:{row['budget_id']}:{_number(threshold)}:{subject}:{_number(row['amount'])}{row['currency']}"
+                f":{row['project'] or '*'}")
+
+    @service_errors
+    def notify_budgets(self, *, run_id: Any = None) -> dict[str, Any]:
+        """``budgets()`` after announcing the alerts reached: one ``budget.threshold`` team event for each one.
+
+        An alert is announced once per (budget, alert percent, period, amount, currency and project); a run budget's
+        period is the run. The event's ``cause`` holds that key, its ``ref`` is ``project:<project id>`` (the id the
+        project's runs have, which is not always its name) for a budget tied to a project, so it shows in the
+        project's events, and ``budget:<id>`` otherwise. Its payload says the budget, scope, ``threshold``,
+        ``period``, ``run_id``, ``project``, ``project_id``, ``currency``, ``amount``, ``used``, ``percent``,
+        ``state``, ``mode`` and ``complete``. Calling it again announces nothing new, from any process.
+        The answer is that of ``budgets()`` plus ``emitted`` (``seq``, ``budget_id``, ``threshold``, ``period``,
+        ``run_id`` of each new event). Nothing is ever stopped here: ``mode: cut`` is for USO-T04.
+        """
+        status = self.budgets(run_id=run_id)
+        store = self._services.tasks.store
+        emitted: list[dict[str, Any]] = []
+        for row in status["status"]:
+            for threshold in row["crossed"]:
+                key = self._alert_key(row, threshold)
+                if key in self._announced:
+                    continue
+                payload = {"budget": row["budget_id"], "scope": row["scope"], "threshold": threshold,
+                           "period": row["period"], "run_id": row["run_id"], "project": row["project"],
+                           "project_id": row["project_id"], "currency": row["currency"], "amount": row["amount"], "used": row["used"],
+                           "percent": row["percent"], "state": row["state"], "mode": row["mode"],
+                           "complete": row["complete"]}
+                with store.transaction() as conn:   # the check and the insert are one write: no duplicate from a race
+                    if conn.execute("SELECT 1 FROM team_events WHERE type = ? AND cause = ? LIMIT 1",
+                                    (BUDGET_EVENT, key)).fetchone() is None:
+                        seq = store.append_event(
+                            conn, BUDGET_EVENT, actor=BUDGET_ACTOR, cause=key, payload=payload,
+                            ref=f"project:{row['project_id']}" if row["project_id"] else f"budget:{row['budget_id']}")
+                        emitted.append({"seq": seq, "budget_id": row["budget_id"], "threshold": threshold,
+                                        "period": row["period"], "run_id": row["run_id"]})
+                self._announced.add(key)
+        if emitted:
+            status["recent_alerts"] = self._recent_budget_alerts()
+        return {**status, "emitted": emitted}

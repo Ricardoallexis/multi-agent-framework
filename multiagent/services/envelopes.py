@@ -31,6 +31,11 @@ Each consumer keeps a cursor over the team event log. Reading events does not
 move the cursor; ``ack_events`` does (at-least-once delivery, recoverable after
 an interruption).
 
+A task's context can also be **summarized** (CMP-T05, ``multiagent.context.snapshot``): when an attempt ends
+(``submit_result``) or on request (``refresh_task_context``), and only while the ``tasks`` context profile is enabled,
+the context is measured and, at the threshold, the old part of it becomes a validated summary stored as a blob and
+linked from ``context_refs``. ``read_task_context`` returns the envelope, the snapshot and the events after its cursor.
+
 Every method returns JSON-ready data and raises only ``ServiceError``:
 ``not_found`` (unknown task, result, blob or reference), ``invalid_request``
 (malformed data or reference, a value over its limit, an unresolvable scheme)
@@ -41,11 +46,45 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
+import logging
 import re
 import sqlite3
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
+from ..context.estimate import (
+    EVENT_CONTEXT_WARNING,
+    LEVEL_OK,
+    LEVEL_THRESHOLD,
+    ContextSettings,
+    context_settings_for_tasks,
+    estimate_context,
+)
+from ..context.snapshot import (
+    CONTEXT_ACTOR,
+    REASON_INTERNAL_ERROR,
+    SNAPSHOT_MEDIA_TYPE,
+    ScopeTask,
+    Snapshot,
+    SnapshotError,
+    build_package,
+    check_pinned_in_packages,
+    compacted_payload,
+    event_ids,
+    measure_context,
+    parse_snapshot,
+    pending_instruction,
+    plan_snapshot,
+    skipped_payload,
+    snapshot_bytes,
+    snapshot_document,
+    split_scope,
+    warning_payload,
+    warning_reported,
+)
+from ..context.summary import SummaryAccess, SummaryPolicy, ValidationIssue, summarize_context
+from ..context.workflow import EVENT_CONTEXT_COMPACTED, EVENT_CONTEXT_COMPACTION_SKIPPED, minimum_summary_tokens
 from ..db.envelope_store import HARD_MAX_BLOB_BYTES, EnvelopeStore
 from ..tasks import graph
 from ..tasks import release as release_policy
@@ -91,22 +130,30 @@ __all__ = [
     "TASK_RESULT_SCHEMA",
 ]
 
+_logger = logging.getLogger(__name__)
+
 DEFAULT_BLOB_MAX_BYTES = 8 * 1024 * 1024
 DEFAULT_READ_BYTES = 64 * 1024
 MAX_READ_BYTES = 1024 * 1024
 MAX_CONSUMER_CHARS = 100
 MAX_EVENT_TYPE_CHARS = 64
 MAX_READ_EVENTS = 1000
+MAX_MODEL_ID_CHARS = 100
 EVENT_TYPES = ("result.submitted", "task.context_updated")
 
 _COMMIT = re.compile(r"[0-9a-f]{7,40}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _MEDIA_TYPE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*")
 _GROUP_ID = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
-_TEXT_MEDIA_TYPES = ("application/json",)
+_TEXT_MEDIA_TYPES = ("application/json", SNAPSHOT_MEDIA_TYPE)
 # The context cannot change while the gate validates the delivery, nor once the task is closed.
 _FROZEN_STATES = (*TERMINAL_STATES, "validating")
 _EVENT_BATCH = 500
+# Tasks carry no data class or grants, so the summary of their context is made with none: only local models that
+# need no permission may see it (never more permissive than the work).
+_TASK_SUMMARY_ACCESS = SummaryAccess(
+    data_class="non_sensitive", authorized_data_classes=frozenset({"non_sensitive"}),
+    effective_permissions=frozenset())
 
 
 def _invalid(field: str, message: str, **details: Any) -> ServiceError:
@@ -579,7 +626,10 @@ class EnvelopeServices:
             if task.get("kind") == "activity":
                 # An activity needs no review: with its result stored, submitting it closes it (task.accepted).
                 view = self._tasks._accept_activity(conn, task_id, actor)
-            return {"result": self._result_view(row), "duplicate": False, "task": view}
+            response = {"result": self._result_view(row), "duplicate": False, "task": view}
+        # The attempt is over and committed: measure the task context and compact it if it crossed the threshold.
+        self._refresh_after_attempt(task_id)
+        return response
 
     @service_errors
     def get_result(self, ref_or_task_id: str, *, attempt: int | None = None) -> dict[str, Any]:
@@ -699,3 +749,338 @@ class EnvelopeServices:
                 raise _invalid("seq", f"seq {seq} is past the head of the event log ({head})", head=head)
             self.store.set_cursor(conn, consumer, scope, seq)
             return self._cursor_view(consumer, scope, conn)
+
+    # -------- context snapshots (CMP-T05) --------
+    # A snapshot summarizes the older context of a scope (``task:<id>`` or ``group:<id>``) and is read together with
+    # the events after its cursor (``multiagent.context.snapshot``, contract CMP-T01 section 9). It exists only
+    # while the ``tasks`` context profile (``context_profiles.assignments.tasks``) is enabled; without it nothing
+    # here changes what an agent reads. The pure rules live in ``multiagent.context.snapshot``.
+    def _task_context_settings(self) -> ContextSettings | None:
+        """The enabled context profile of tasks, or ``None`` (compaction off)."""
+        catalog = getattr(self._services.system, "catalog", None)
+        settings = context_settings_for_tasks(catalog) if catalog is not None else None
+        return settings if settings is not None and settings.enabled else None
+
+    def _snapshot_scope(self, task_id: Any, scope: Any) -> str:
+        """The validated scope of a context snapshot: ``task:<id>`` (default) or ``group:<id>``."""
+        if not isinstance(task_id, str):
+            raise _invalid("task_id", "task_id must be text")
+        text = f"task:{task_id}" if scope is None else _scope(scope)
+        try:
+            split_scope(text)
+        except ValueError as error:
+            raise _invalid("scope", str(error)) from None
+        return text
+
+    def _results_ascending(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """One result view per attempt (the latest stored), oldest attempt first."""
+        seen: set[int] = set()
+        views: list[dict[str, Any]] = []
+        for row in rows:                      # the store lists the latest attempt first
+            if row["attempt"] not in seen:
+                seen.add(row["attempt"])
+                views.append(self._result_view(row))
+        return views[::-1]
+
+    def _load_scope(self, scope: str, reader_id: str) -> tuple[dict[str, Any], list[ScopeTask]]:
+        """The reader task and the tasks of the scope, with the envelopes of the ones that read the snapshot.
+
+        A task reads it while it is not terminal (and the reader whatever its state). A task whose envelope cannot be
+        built is left without one (it keeps nothing literal and is not linked), except the reader, whose error is raised.
+        """
+        kind, identifier = split_scope(scope)
+        with self._tasks.store.db.connect() as conn:
+            reader = self._task_or_missing(reader_id, conn)
+            if kind == "task":
+                if identifier != reader_id:
+                    raise _invalid("scope", f"scope {scope} does not name task {reader_id}")
+                rows = [reader]
+            else:
+                if reader["group_id"] != identifier:
+                    raise _invalid("scope", f"Task {reader_id} does not belong to group {identifier}")
+                rows = self._tasks.store.list_tasks(group_id=identifier, conn=conn)
+            results = {row["id"]: self._results_ascending(self.store.results(row["id"], conn=conn)) for row in rows}
+        tasks: list[ScopeTask] = []
+        for row in rows:
+            envelope = None
+            if row["id"] == reader_id or row["state"] not in TERMINAL_STATES:
+                try:
+                    envelope = self.get_envelope(row["id"])
+                except ServiceError:
+                    if row["id"] == reader_id:
+                        raise
+            tasks.append(ScopeTask(row["id"], row["state"], envelope, tuple(results[row["id"]]), row["group_id"]))
+        return reader, tasks
+
+    def _scope_events(self, scope: str) -> list[dict[str, Any]]:
+        """Every team event of the scope in ``seq`` order."""
+        kind, identifier = split_scope(scope)
+        where = {"group_id": identifier if kind == "group" else None, "task_id": identifier if kind == "task" else None}
+        events: list[dict[str, Any]] = []
+        after = 0
+        with self._tasks.store.db.connect() as conn:
+            while True:
+                batch = self._tasks.store.events(after=after, limit=_EVENT_BATCH, conn=conn, **where)
+                events.extend(batch)
+                if len(batch) < _EVENT_BATCH:
+                    return events
+                after = batch[-1]["seq"]
+
+    def _read_snapshot(self, ref: Any) -> Snapshot | None:
+        """The stored snapshot a ``blob:`` reference names, checked against its hash; ``None`` if it is gone or damaged."""
+        try:
+            sha256 = parse_reference(ref, field="summary_ref").sha256 or ""
+            return parse_snapshot(self.store.read_blob(sha256), ref_sha256=sha256)
+        except (EnvelopeError, SnapshotError, OSError):
+            return None
+
+    def _latest_snapshot(self, scope: str, events: list[dict[str, Any]]) -> Snapshot | None:
+        """The newest intact snapshot of the scope, found through its ``context_compacted`` events."""
+        for event in reversed(events):
+            payload = event.get("payload") or {}
+            if event["type"] != EVENT_CONTEXT_COMPACTED or payload.get("snapshot_scope") != scope:
+                continue
+            snapshot = self._read_snapshot(payload.get("summary_ref"))
+            if snapshot is not None and snapshot.scope == scope:
+                return snapshot
+        return None
+
+    def _references(self, task: ScopeTask, keep_recent: int) -> list[Any]:
+        """What a context preparation resolves besides the envelope: the results of the dependencies and the
+        ``result://`` context references, and the last results of the task itself."""
+        assert task.envelope is not None
+        refs = [item["result_ref"] for item in task.envelope["depends_on"] if item.get("result_ref")]
+        refs += [ref for ref in task.envelope["context_refs"] if ref.startswith("result://")]
+        resolved: dict[str, Any] = {}
+        for ref in dict.fromkeys(refs):
+            try:
+                resolved[ref] = self.get_result(ref)
+            except ServiceError:
+                continue
+        for result in task.results[-max(1, keep_recent):]:
+            resolved.setdefault(result["ref"], result)
+        return list(resolved.values())
+
+    def _context_window(self, settings: ContextSettings, model_id: str | None) -> tuple[str, dict[str, Any] | None]:
+        """The window to measure against: ``tasks.window_tokens`` of the profile, else the requested model's."""
+        if settings.tasks_window_tokens is not None:
+            return model_id or "tasks.window_tokens", {
+                "tokens": settings.tasks_window_tokens, "provenance": "runtime_setting",
+                "source": f"context profile {settings.profile_id!r}: tasks.window_tokens"}
+        catalog = getattr(self._services.system, "catalog", None)
+        if model_id and catalog is not None:
+            return model_id, catalog.context_window(model_id)
+        return model_id or "unknown", None
+
+    def _append_context_event(self, task: Mapping[str, Any], event_type: str, payload: dict[str, Any], *,
+                              ref: str = "") -> None:
+        with self._tasks.store.transaction() as conn:
+            self._tasks.store.append_event(conn, event_type, actor=CONTEXT_ACTOR, group_id=task["group_id"],
+                                           task_id=task["id"], ref=ref, payload=payload)
+
+    def _record_skipped(self, task: Mapping[str, Any], ids: Mapping[str, Any], reason: str, detail: str | None, *,
+                        result=None, issues: Iterable[ValidationIssue] = ()) -> dict[str, Any]:
+        payload = skipped_payload(ids, reason=reason, detail=detail, result=result, issues=tuple(issues))
+        try:
+            self._append_context_event(task, EVENT_CONTEXT_COMPACTION_SKIPPED, payload)
+        except Exception:
+            _logger.warning("Could not record a context_compaction_skipped for %s", task["id"], exc_info=True)
+        return {"action": "skipped", "reason": payload["reason"], "detail": payload.get("detail")}
+
+    def _is_snapshot_of(self, ref: str, scope: str) -> bool:
+        """Whether a context reference is a stored snapshot of this scope (the one a new snapshot replaces)."""
+        try:
+            parsed = parse_reference(ref)
+            row = self.store.get_blob(parsed.sha256 or "") if parsed.scheme == "blob" else None
+            if row is None or row["media_type"] != SNAPSHOT_MEDIA_TYPE:
+                return False
+            return json.loads(self.store.read_blob(row["sha256"]).decode("utf-8")).get("scope") == scope
+        except (EnvelopeError, OSError, ValueError, AttributeError):
+            return False
+
+    def _link_snapshot(self, scope: str, tasks: list[ScopeTask], ref: str) -> tuple[list[str], list[str]]:
+        """Put ``ref`` in the ``context_refs`` of the tasks of the scope that can still change, in place of the
+        snapshot of the scope they had. Frozen tasks are left alone. Returns ``(linked, unlinked)``: ``unlinked``
+        are the tasks whose 20 references are taken or that froze meanwhile."""
+        linked: list[str] = []
+        unlinked: list[str] = []
+        for task in tasks:
+            if task.frozen or task.envelope is None:      # frozen, or without an envelope (see ``_load_scope``)
+                continue
+            current = list((self.store.task_context(task.task_id) or {}).get("context_refs", []))
+            updated: list[str] = []
+            placed = False
+            for item in current:
+                if item == ref or self._is_snapshot_of(item, scope):
+                    if not placed:
+                        updated.append(ref)
+                        placed = True
+                    continue
+                updated.append(item)
+            if not placed:
+                updated.append(ref)
+            if updated == current:
+                continue
+            if len(updated) > MAX_CONTEXT_REFS:
+                unlinked.append(task.task_id)
+                continue
+            try:
+                self.set_task_context(task.task_id, actor=CONTEXT_ACTOR, context_refs=updated)
+            except ServiceError:
+                unlinked.append(task.task_id)
+            else:
+                linked.append(task.task_id)
+        return linked, unlinked
+
+    def _compact_scope(self, scope: str, reader: Mapping[str, Any], tasks: list[ScopeTask],
+                       events: list[dict[str, Any]], previous: Snapshot | None,
+                       settings: ContextSettings) -> dict[str, Any]:
+        """Summarize what is old in the scope, store it as a snapshot and link it (or say why not)."""
+        plan = plan_snapshot(scope=scope, tasks=tasks, events=events, previous=previous,
+                             keep_recent=settings.keep_recent)
+        ids = event_ids(snapshot_scope=scope, task_id=reader["id"], attempt=reader["attempt"], cursor=plan.cursor)
+        if not plan.sources:
+            if previous is not None:
+                return {"action": "none", "reason": "up_to_date", "detail": plan.detail}
+            return self._record_skipped(reader, ids, "no_reduction", plan.detail)
+        policy = SummaryPolicy.from_profile(settings.summary)
+        if plan.tokens_before * policy.max_ratio < minimum_summary_tokens():
+            return self._record_skipped(
+                reader, ids, "no_reduction",
+                f"the {plan.tokens_before} tokens that could be replaced cannot shrink to {policy.max_ratio:.0%} "
+                f"as the smallest valid summary needs {minimum_summary_tokens()}")
+        result = summarize_context(
+            router=self._services.system.engine.router, sources=plan.sources, pinned=plan.pinned,
+            previous=plan.previous, access=_TASK_SUMMARY_ACCESS, policy=policy, scope=scope,
+            cursor={"kind": "event_seq", "value": plan.cursor})
+        if not result.ok:
+            return self._record_skipped(reader, ids, result.reason or "validation_failed", result.detail, result=result)
+        raw = snapshot_bytes(snapshot_document(plan, result))
+        snapshot = parse_snapshot(raw)
+        # The pinned items must reach the readers untouched: check them in the packages they will get.
+        head = self.store.event_head()
+        packages = {task.task_id: build_package(
+            task=task, scope=scope, snapshot=snapshot, events=(), pending=pending_instruction(task, events),
+            keep_recent=settings.keep_recent, head=head) for task in tasks if task.task_id in plan.pinned_names}
+        problems = check_pinned_in_packages(plan, packages)
+        if problems:
+            return self._record_skipped(reader, ids, "validation_failed",
+                                        "the pinned items would not reach the readers unchanged", result=result,
+                                        issues=problems)
+        stored = self.put_blob(raw, actor=CONTEXT_ACTOR, media_type=SNAPSHOT_MEDIA_TYPE)
+        if stored["ref"] != snapshot.ref:
+            raise RuntimeError("The stored context snapshot does not have the hash of the validated one")
+        linked, unlinked = self._link_snapshot(scope, tasks, snapshot.ref)
+        payload = compacted_payload(ids, plan, result, snapshot, linked=linked, unlinked=unlinked)
+        self._append_context_event(reader, EVENT_CONTEXT_COMPACTED, payload, ref=snapshot.ref)
+        return {"action": "compacted", "snapshot_ref": snapshot.ref, "cursor": plan.cursor,
+                "tokens_before": result.tokens_before, "tokens_after": result.tokens_after,
+                "linked": linked, "unlinked": unlinked}
+
+    @service_errors
+    def refresh_task_context(self, task_id: str, *, scope: str | None = None,
+                             model_id: str | None = None) -> dict[str, Any]:
+        """Measure the context of a task at the end of an attempt; warn, and at the threshold renew the snapshot.
+
+        ``scope`` is ``task:<task_id>`` (default) or the ``group:<id>`` the task belongs to. The measure counts the
+        envelope, the results the task reads, the snapshot and the events after its cursor, against
+        ``tasks.window_tokens`` of the context profile or, without it, the window of ``model_id`` in the catalog; with
+        no window there is no ratio (``window_unknown``). From ``warning_at`` it records a ``context_warning`` (once per
+        attempt, level and model). From ``threshold`` it also summarizes what is old (a validated summary, made by a
+        cheap local model) and stores it as a blob linked from the open tasks of the scope, recording
+        ``context_compacted`` or, if nothing could be compacted, ``context_compaction_skipped``; the originals stay
+        where they are. A problem inside the summary never fails the call. Returns what was done:
+        ``{scope, enabled, action: none|warned|compacted|skipped, level, ratio, measure, ...}``.
+        Without an enabled ``tasks`` context profile it does nothing (``enabled`` false).
+        Errors: ``not_found``, ``invalid_request`` (scope).
+        """
+        scope_text = self._snapshot_scope(task_id, scope)
+        if model_id is not None:
+            model_id = _text("model_id", model_id, maximum=MAX_MODEL_ID_CHARS)
+        settings = self._task_context_settings()
+        if settings is None:
+            with self._tasks.store.db.connect() as conn:
+                self._task_or_missing(task_id, conn)
+            return {"scope": scope_text, "enabled": False, "action": "none", "reason": "disabled"}
+        reader, tasks = self._load_scope(scope_text, task_id)
+        events = self._scope_events(scope_text)
+        previous = self._latest_snapshot(scope_text, events)
+        after = [event for event in events if event["seq"] > (previous.cursor if previous is not None else 0)]
+        me = next(task for task in tasks if task.task_id == task_id)
+        measure = measure_context(envelope=me.envelope or {}, references=self._references(me, settings.keep_recent),
+                                  snapshot=previous, events=after)
+        model, window = self._context_window(settings, model_id)
+        estimate = estimate_context(model_id=model, estimated_tokens=measure.total, window=window, settings=settings)
+        report: dict[str, Any] = {
+            "scope": scope_text, "enabled": True, "action": "none", "level": estimate.level,
+            "ratio": round(estimate.ratio, 4) if estimate.ratio is not None else None, "measure": measure.to_dict()}
+        if estimate.level == LEVEL_OK:
+            return report
+        ids = event_ids(snapshot_scope=scope_text, task_id=task_id, attempt=reader["attempt"])
+        if not warning_reported(events, snapshot_scope=scope_text, level=estimate.level, attempt=reader["attempt"],
+                                model_id=estimate.model_id):
+            self._append_context_event(reader, EVENT_CONTEXT_WARNING, warning_payload(ids, estimate, measure))
+            report["action"] = "warned"
+        if estimate.level != LEVEL_THRESHOLD:
+            return report
+        try:
+            report.update(self._compact_scope(scope_text, reader, tasks, events, previous, settings))
+        except Exception as error:
+            _logger.warning("Context snapshot of %s failed; the originals stay in use", scope_text, exc_info=True)
+            report.update(self._record_skipped(reader, ids, REASON_INTERNAL_ERROR,
+                                               f"{type(error).__name__}: {error}"[:400]))
+        return report
+
+    def _refresh_after_attempt(self, task_id: str) -> None:
+        """Called when an attempt ends (``submit_result``). Best effort: it never fails the submission."""
+        try:
+            if self._task_context_settings() is not None:
+                self.refresh_task_context(task_id)
+        except Exception:
+            _logger.warning("Context refresh after the attempt of %s failed; continuing", task_id, exc_info=True)
+
+    @service_errors
+    def get_context_snapshot(self, scope: str) -> dict[str, Any] | None:
+        """The newest intact snapshot of a scope (``task:<id>`` or ``group:<id>``), or ``None``.
+
+        ``{ref, sha256, scope, cursor: {kind: event_seq, value}, summary_sha256, summary, tokens}``; the blob
+        (``ref``) also holds the metadata (covered originals with their hashes, producer, validation, tokens) and is
+        read with ``get_artifact``. It is returned whether or not the ``tasks`` context profile is enabled.
+        Errors: ``not_found``, ``invalid_request`` (scope).
+        """
+        scope_text = self._snapshot_scope("", scope)
+        kind, identifier = split_scope(scope_text)
+        with self._tasks.store.db.connect() as conn:
+            found = (self._tasks.store.get_task(identifier, conn=conn) if kind == "task"
+                     else self._tasks.store.get_group(identifier, conn=conn))
+        if found is None:
+            raise _missing("Task" if kind == "task" else "Group", identifier)
+        snapshot = self._latest_snapshot(scope_text, self._scope_events(scope_text))
+        return snapshot.package_view() if snapshot is not None else None
+
+    @service_errors
+    def read_task_context(self, task_id: str, *, scope: str | None = None, limit: int = 100) -> dict[str, Any]:
+        """What an agent reads to start or resume a task: ``multiagent.task_context/1``.
+
+        The complete envelope (objective, constraints, gate, file scope, dependencies, base commit), the last
+        results and the pending change request literally, the snapshot of the scope and the events after its cursor
+        (``limit`` of them, ``has_more`` says if more follow; the events of the context machinery are left out),
+        plus ``measure`` (tokens by part). Read the originals behind the snapshot with ``get_result`` and
+        ``read_events``. With the ``tasks`` context profile off there is no snapshot and the events are all of them.
+        Errors: ``not_found``, ``invalid_request`` (scope, limit).
+        """
+        limit = _integer("limit", limit, minimum=1, maximum=MAX_READ_EVENTS)
+        scope_text = self._snapshot_scope(task_id, scope)
+        settings = self._task_context_settings()
+        keep = settings.keep_recent if settings is not None else 1
+        reader, tasks = self._load_scope(scope_text, task_id)
+        events = self._scope_events(scope_text)
+        snapshot = self._latest_snapshot(scope_text, events) if settings is not None else None
+        after = [event for event in events if event["seq"] > (snapshot.cursor if snapshot is not None else 0)]
+        me = next(task for task in tasks if task.task_id == task_id)
+        package = build_package(task=me, scope=scope_text, snapshot=snapshot, events=after,
+                                pending=pending_instruction(me, events), keep_recent=keep,
+                                head=self.store.event_head(), limit=limit)
+        package["measure"] = measure_context(envelope=me.envelope or {}, references=self._references(me, keep),
+                                             snapshot=snapshot, events=after).to_dict()
+        return package

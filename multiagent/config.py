@@ -8,10 +8,15 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 SESSION_SOURCES = ("claude", "codex", "copilot", "framework")  # sources of the GUI session viewer
+BUDGET_SCOPES = ("month", "project", "run")   # USO-T03: what a budget limits
+BUDGET_MODES = ("warn", "cut")                # USO-T03: only report (default) or let USO-T04 cut the call
+DEFAULT_BUDGET_ALERTS = (80.0, 95.0)          # percent of a budget that raises an alert
+_BUDGET_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_CURRENCY = re.compile(r"^[A-Za-z][A-Za-z0-9]{1,15}$")
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_ROOT.parent
@@ -38,6 +43,112 @@ def _as_list(value: Any) -> Any:
         return json.loads(text)
     parts = text.split(";") if os.pathsep == ";" else text.replace(";", os.pathsep).split(os.pathsep)
     return [part.strip() for part in parts if part.strip()]
+
+
+def _percents(value: Any) -> tuple[float, ...]:
+    """Alert percents as a sorted tuple without repeats, each above 0 and at most 100.
+
+    Text is a JSON array or numbers separated by ``,`` or ``;``. An empty list means "no alerts".
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        value = json.loads(text) if text.startswith("[") else [part for part in re.split(r"[;,]", text) if part.strip()]
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("alerts must be a list of percents")
+    found: set[float] = set()
+    for item in value:
+        if isinstance(item, bool):
+            raise ValueError("alerts must be numbers")
+        try:
+            number = float(item)
+        except (TypeError, ValueError):
+            raise ValueError("alerts must be numbers") from None
+        if not 0 < number <= 100:   # also rejects nan
+            raise ValueError("each alert must be above 0 and at most 100 percent")
+        found.add(number)
+    return tuple(sorted(found))
+
+
+class UsageBudget(BaseModel):
+    """One spending budget (USO-T03), compared with the estimated cost of the framework's provider calls.
+
+    * ``scope``: ``month`` (everything spent in the current UTC calendar month), ``project`` (everything a
+      project has spent since it began; ``project`` is required) or ``run`` (the cap of each single run).
+      ``project`` also narrows a ``month`` or ``run`` budget to the runs of that project.
+    * ``amount`` is in ``currency``, the currency of the price evidence (default ``USD``): only costs priced
+      in that currency are counted, nothing is converted.
+    * ``mode``: ``warn`` reports; ``cut`` additionally asks USO-T04 to hold a call that would pass the amount.
+      Empty means ``usage_budget_mode``. ``alerts`` are the percents that raise a ``budget.threshold``
+      event; empty means ``usage_budget_alerts``.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    scope: str
+    amount: float = Field(gt=0, allow_inf_nan=False)   # a JSON number: neither a bool nor a numeric text is accepted
+    currency: str = "USD"
+    project: Optional[str] = None
+    mode: Optional[str] = None
+    alerts: Optional[tuple[float, ...]] = None
+
+    @field_validator("id")
+    @classmethod
+    def _check_id(cls, value: str) -> str:
+        if not _BUDGET_ID.fullmatch(value):
+            raise ValueError("id must be 1-64 letters, digits, '_', '-' or '.' and start with a letter or digit")
+        return value
+
+    @field_validator("scope")
+    @classmethod
+    def _check_scope(cls, value: str) -> str:
+        if value not in BUDGET_SCOPES:
+            raise ValueError(f"scope accepts only {', '.join(BUDGET_SCOPES)}")
+        return value
+
+    @field_validator("currency")
+    @classmethod
+    def _check_currency(cls, value: str) -> str:
+        if not _CURRENCY.fullmatch(value):
+            raise ValueError("currency must be 2-16 letters or digits, like the currency of the price evidence")
+        return value.upper()
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _check_amount(cls, value: Any) -> Any:
+        # ``True`` would become 1.0 and "10" would be coerced. The environment value is a JSON array, so an amount is
+        # always a JSON number there and nothing needs the text form.
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("amount must be a number (not a boolean or a text)")
+        return value
+
+    @field_validator("project")
+    @classmethod
+    def _check_project(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        name = value.strip()   # " alpha " would never match a project
+        if not name or len(name) > 120:
+            raise ValueError("project must be a project name of at most 120 characters")
+        return name
+
+    @field_validator("mode")
+    @classmethod
+    def _check_mode(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value not in BUDGET_MODES:
+            raise ValueError(f"mode accepts only {', '.join(BUDGET_MODES)}")
+        return value
+
+    @field_validator("alerts", mode="before")
+    @classmethod
+    def _check_alerts(cls, value: Any) -> Any:
+        return None if value is None else _percents(value)
+
+    @model_validator(mode="after")
+    def _project_scope_needs_a_project(self):
+        if self.scope == "project" and self.project is None:
+            raise ValueError("a budget with scope 'project' needs a project")
+        return self
 
 
 class Settings(BaseSettings):
@@ -92,6 +203,12 @@ class Settings(BaseSettings):
     # ``rate_limits``). Empty means "not available" is shown instead of a percent.
     usage_copilot_monthly_credits: Optional[int] = Field(default=None, ge=1)
     usage_claude_statusline_file: Optional[Path] = None
+    # USO-T03 budgets: a list of ``UsageBudget`` (an environment value is a JSON array), the mode they use unless
+    # a budget sets its own (``warn`` reports, ``cut`` lets USO-T04 hold the call) and the percents that raise an
+    # alert (``80;95`` or ``[80, 95]``). No budget is configured by default: nothing is limited or reported.
+    usage_budgets: Annotated[list[UsageBudget], NoDecode] = Field(default_factory=list)
+    usage_budget_mode: str = "warn"
+    usage_budget_alerts: Annotated[tuple[float, ...], NoDecode] = DEFAULT_BUDGET_ALERTS
     # GUI-T06: may the viewer launch ``claude --desktop --resume <id>`` in a new console (Windows)? False
     # makes the screen show the command to copy instead; the endpoint then answers 403 and starts nothing.
     gui_allow_launch: bool = True
@@ -130,6 +247,35 @@ class Settings(BaseSettings):
     @classmethod
     def _split_gui_lists(cls, value: Any) -> Any:
         return _as_list(value)
+
+    @field_validator("usage_budgets", mode="before")
+    @classmethod
+    def _split_budgets(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            text = value.strip()
+            return json.loads(text) if text else []
+        return value
+
+    @field_validator("usage_budgets")
+    @classmethod
+    def _validate_budgets(cls, values: list[UsageBudget]) -> list[UsageBudget]:
+        ids = [budget.id for budget in values]
+        repeated = sorted({name for name in ids if ids.count(name) > 1})
+        if repeated:
+            raise ValueError(f"usage_budgets ids must be unique; repeated: {', '.join(repeated)}")
+        return values
+
+    @field_validator("usage_budget_mode")
+    @classmethod
+    def _validate_budget_mode(cls, value: str) -> str:
+        if value not in BUDGET_MODES:
+            raise ValueError(f"usage_budget_mode accepts only {', '.join(BUDGET_MODES)}")
+        return value
+
+    @field_validator("usage_budget_alerts", mode="before")
+    @classmethod
+    def _validate_budget_alerts(cls, value: Any) -> tuple[float, ...]:
+        return _percents(value)
 
     @field_validator("gui_session_roots")
     @classmethod
