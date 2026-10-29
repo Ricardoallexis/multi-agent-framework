@@ -11,6 +11,7 @@ follow; ``&only=children`` for the subagents panel) serve the session viewer; se
 ``/gui/api/usage/{plans,tokens,costs}`` serve the usage view (plan usage, tokens and estimated cost); see ``usage_api``.
 ``/gui/api/extensions`` lists the folders of ``static/extensions/`` that views, panel slots and help texts are added
 from without editing shared files; see ``extensions``.
+``/gui/api/document-alerts`` lists the quarantines and content reviews of runs for the ``document_alerts`` extension (BDI-T05, read only); see ``document_alerts_api``.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ from ..services.sessions import SessionServices
 from ..services.usage import UsageServices
 from ..version import __version__
 from . import events
+from .document_alerts_api import add_document_alerts_routes
 from .extensions import discover_extensions
 from .project_api import add_project_routes
 from .runs import build_router as build_runs_router
@@ -102,6 +104,7 @@ def mount_gui(app: FastAPI) -> None:
     add_session_routes(api, sessions)
     add_usage_routes(api, usage)  # /gui/api/usage/{plans,tokens,costs} (USO-T02)
     add_project_routes(api, services)  # /gui/api/projects (PRY-T03)
+    add_document_alerts_routes(api, services)
     api.include_router(build_runs_router(services))
     app.include_router(api)
     app.mount("/gui/static", StaticFiles(directory=STATIC_DIR), name="gui-static")

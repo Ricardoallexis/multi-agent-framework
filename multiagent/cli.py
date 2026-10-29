@@ -1296,7 +1296,40 @@ def build_parser() -> argparse.ArgumentParser:
     bi = sub.add_parser("brand-import"); bi.add_argument("file"); bi.add_argument("--created-by", default="human"); bi.add_argument("--activate", action="store_true"); bi.set_defaults(func=cmd_brand_import)
     bs = sub.add_parser("brand-show"); bs.set_defaults(func=cmd_brand_show)
     bl = sub.add_parser("brand-list"); bl.add_argument("--limit", type=int, default=20); bl.set_defaults(func=cmd_brand_list)
+    watch = sub.add_parser("watcher", help="Watch one condition hold without an AI model")
+    watch_sub = watch.add_subparsers(dest="watcher_action", required=True)
+    for action in ("run", "sweep"):
+        command = watch_sub.add_parser(action)
+        command.add_argument("--state-dir", help="Local watcher state folder (default: data_dir/watchers)")
+        command.add_argument("--integration-marker", required=action == "run",
+                             help="Shared exclusive marker; sweep only removes gates owned by proven-dead watchers")
+        command.set_defaults(func=cmd_watcher)
+        if action == "run":
+            command.add_argument("--task", required=True)
+            command.add_argument("--hold", required=True)
+            command.add_argument("--attempt", required=True, type=int)
+            command.add_argument("--max-hours", type=float, default=12)
     return p
+
+
+def cmd_watcher(args) -> None:
+    """Run a deterministic watcher, or sweep dead leases; never construct a shell command."""
+    from .services import ApplicationServices
+    from .services.watcher import WatcherProcess
+
+    settings = get_settings()
+    root = Path(args.state_dir) if args.state_dir else settings.data_dir / "watchers"
+    marker = Path(args.integration_marker) if args.integration_marker else root / "integration.lock"
+    if args.watcher_action == "sweep":
+        pretty({"lost": WatcherProcess(root, None, integration_marker=marker, integration_active=lambda: True).sweep()})
+        return
+    services = ApplicationServices.create(settings)
+    try:
+        watcher = WatcherProcess(root, services.executors, integration_marker=marker, integration_active=lambda: marker.exists())
+        watcher.claim(args.task, args.hold, args.attempt, max_hours=args.max_hours)
+        pretty(watcher.run())
+    finally:
+        services.runs.close()
 
 
 def main(argv=None) -> None:
