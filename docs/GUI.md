@@ -169,6 +169,58 @@ the Stage 0 `multiagent ui` command prints «UI detenida.» after clean shutdown
 On Windows, a batch launcher may additionally prompt `Terminate batch job
 (Y/N)?`; answer `Y`.
 
+## Adding a view, a panel section or help texts
+
+Tasks that add to the GUI in parallel do not edit shared files (`index.html`,
+`main.js`, `route.js`, `help-text.js`, `right-panel.js`, `tests/test_gui_help.py`).
+Each one adds a folder, `multiagent/gui/static/extensions/<name>/`, where `<name>`
+is lowercase letters and `_` (`projects`, `doc_alerts`):
+
+| File | Role |
+| --- | --- |
+| `index.js` | Required entry module. Calls the register functions of `js/extensions.js` when it loads. |
+| `style.css` | Optional stylesheet. The page adds it; `index.html` gets no line. Every selector starts from a class or id prefixed with the name (`.doc-alerts-card`), and colours come from the `app.css` variables. |
+| `help.js` | Optional help texts: `export const HELP = { ... }` as strict JSON, like `js/help-text.js`, with every key under `<name>.`. The entry module passes it to `registerHelp(HELP)`. |
+| anything else | Helpers of the extension (components, models). Import only from the folder itself, `../../js/` and `../../vendor/`. |
+
+```js
+// extensions/projects/index.js
+import { html } from "../../vendor/htm-preact-standalone.module.js";
+import { registerHelp, registerView } from "../../js/extensions.js";
+import { registerSlot } from "../../js/panel-slots.js";   // the same function, re-exported
+import { Help, helpFor } from "../../js/help.js";
+import { HELP } from "./help.js";
+
+registerHelp(HELP);
+function ProjectView({ token, status, mock, route }) { /* route = { section, id } */ }
+function ProjectCard({ token, route, sessionId }) { /* one section of the right panel */ }
+registerView({ id: "projects", label: "Proyectos", component: ProjectView, order: 40 });  // button + "#projects/<id>"
+registerSlot("projects", ProjectCard, { title: "Proyecto", topic: "projects.card", order: 40 });
+```
+
+- `registerView({ id, label, component, order })` adds the sidebar button and the
+  route `#<id>` or `#<id>/<item>`. The ids of the built-in screens are reserved.
+- `registerSlot(name, component, { title, topic, order })` adds a section after the
+  four fixed ones of the right panel, with its title and its «?» help (`topic` is a
+  key of the extension's own help). The names of the fixed sections are reserved.
+- Topics are plain strings, every control uses `helpFor("<name>.<topic>")` and every
+  section heading is followed by its `<${Help} topic=... />`, as in the built-in views.
+  Heading ids start with the name (`doc-alerts-title`): ids are shared by the page.
+- The folder is found by `GET /gui/api/extensions` (token required) on every call,
+  so a new folder needs no restart and no list anywhere; the page loads the entry
+  modules before the first render, but never waits longer than 3 s in all: if the
+  list hangs, fails or is not valid, or a module is slow or throws, the core screens
+  draw anyway and the page lists what is missing («No se pudo cargar: ...»). An
+  extension that arrives after that registers late and the page draws again.
+- Nothing changes in the CSP: modules come in with `import()` and sheets as
+  `<link>` elements, both same-origin, so `script-src 'self'; style-src 'self'` and
+  Trusted Types stay as they are. The wheel ships the folders (`pyproject.toml`).
+- `tests/test_gui_help.py` and `tests/test_gui_extensions.py` find the folders
+  by this convention and check the help, code and stylesheet rules above; the
+  test of a new extension goes in its own file (`tests/test_gui_<name>.py`).
+
+The built-in screens still list their stylesheets in `index.html`; new views do not.
+
 ## Open a session in its application
 
 - **Codex:** follows a `codex://threads/<id>` link.

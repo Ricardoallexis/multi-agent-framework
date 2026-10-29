@@ -9,6 +9,8 @@ Host and Origin checks come from ``LocalAPISecurityMiddleware`` in ``api.py``.
 ``/gui/api/sessions`` (list, counts, one session, its items, its children) and ``/gui/api/stream?session=`` (live
 follow; ``&only=children`` for the subagents panel) serve the session viewer; see ``sessions_api`` and ``events``.
 ``/gui/api/usage/{plans,tokens,costs}`` serve the usage view (plan usage, tokens and estimated cost); see ``usage_api``.
+``/gui/api/extensions`` lists the folders of ``static/extensions/`` that views, panel slots and help texts are added
+from without editing shared files; see ``extensions``.
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ from ..services.sessions import SessionServices
 from ..services.usage import UsageServices
 from ..version import __version__
 from . import events
+from .extensions import discover_extensions
 from .runs import build_router as build_runs_router
 from .security import GUISecurityHeadersMiddleware, require_json, require_token
 from .sessions_api import add_session_routes
@@ -85,6 +88,10 @@ def mount_gui(app: FastAPI) -> None:
                                              after=follow.cursor, **timing)
         return StreamingResponse(body, media_type="text/event-stream",
                                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+    @api.get("/extensions")
+    def extensions():  # the extension folders the page loads (FLU-T04); found on every call, no list to edit
+        return {"extensions": discover_extensions(STATIC_DIR)}
 
     @api.get("/map")
     def work_map(project: str | None = Query(None, max_length=128),

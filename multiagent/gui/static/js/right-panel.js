@@ -4,9 +4,19 @@
 // <aside id="right-panel"> and owns the collapse button; this file draws the sections and their help. Each section
 // holds a slot component from panel-slots.js, which shows an empty state until the task that owns it fills it
 // («Subagentes» already holds the subagents panel of GUI2-T04; its "?" uses that task's topic "subagents.panel").
+// Sections registered with registerSlot (panel-slots.js, FLU-T04) follow the four fixed ones.
 import { html } from "../vendor/htm-preact-standalone.module.js";
 import { Help } from "./help.js";
-import { ChangesSlot, SourcesSlot, SubagentsSlot, TokensSlot } from "./panel-slots.js";
+import { ChangesSlot, SourcesSlot, SubagentsSlot, TokensSlot, registeredSlots } from "./panel-slots.js";
+
+// A registered slot: the same section frame as the fixed ones. `topic` (optional) is a key of the extension's help.
+function ExtraSection({ entry, slot }) {
+  const titleId = "panel-" + entry.name + "-title";
+  return html`<section class="rp-section" aria-labelledby=${titleId}>
+    <div class="rp-head"><h3 id=${titleId}>${entry.title}</h3>${entry.topic && html`<${Help} topic=${entry.topic} compact=${true} />`}</div>
+    <div class="slot" data-slot=${entry.name}><${entry.component} ...${slot} /></div>
+  </section>`;
+}
 
 export function RightPanel({ token, route }) {
   const sessionId = route.section === "sessions" ? route.id : null;
@@ -29,5 +39,6 @@ export function RightPanel({ token, route }) {
       <div class="rp-head"><h3 id="panel-sources-title">Fuentes</h3><${Help} topic="panel.sources" compact=${true} /></div>
       <${SourcesSlot} ...${slot} />
     </section>
+    ${registeredSlots().map((entry) => html`<${ExtraSection} key=${entry.name} entry=${entry} slot=${slot} />`)}
   </div>`;
 }

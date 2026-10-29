@@ -694,8 +694,13 @@ def test_new_files_exist_and_the_panel_lives_in_the_right_panel_slot_of_the_shel
     assert 'id="subagents-slot"' in slots and 'data-slot="subagents"' in slots
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     assert re.findall(r"<script[^>]*>", html) == ['<script type="module" src="/gui/static/js/main.js">']
-    links = re.findall(r'<link rel="stylesheet" href="([^"]+)">', html)       # other views add their own sheet after app.css
-    assert links[0] == "/gui/static/app.css" and links.index("/gui/static/subagents-panel.css") > 0
+    # The stylesheets are checked by property, not as an exact list (FLU-T04): app.css first, every sheet is a file of the
+    # GUI and none repeats. Views added later load their sheet from static/extensions/<name>/style.css (tests/test_gui_extensions.py)
+    # and add no line here.
+    links = re.findall(r'<link rel="stylesheet" href="([^"]+)">', html)
+    assert links[0] == "/gui/static/app.css" and len(set(links)) == len(links)
+    assert all((STATIC_DIR / link.removeprefix("/gui/static/")).is_file() for link in links), links
+    assert "/gui/static/subagents-panel.css" in links
 
 
 @pytest.mark.parametrize("name", NEW_JS)

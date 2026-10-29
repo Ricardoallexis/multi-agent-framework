@@ -13,12 +13,19 @@
 // The three sections of GUI2-T05 are about the session OR the run open in the centre: subjectOf() (panel-model.js) turns
 // the route and the session id into it, and a run (#runs/<id>) is read through the run routes. With nothing open each
 // section says so.
+// More sections are added WITHOUT editing this file or right-panel.js (FLU-T04): an extension calls
+//   registerSlot("name", Component, { title: "Título", topic: "name.help_key", order: 100 })
+// from its entry module (static/extensions/<name>/index.js, see extensions.js). right-panel.js draws the registered
+// sections after the four fixed ones, ordered by `order` and then by name, with the same title and "?" help around them,
+// and gives the component the same props as the slots above (token, route, sessionId).
 import { html } from "../vendor/htm-preact-standalone.module.js";
 import { ChangesPanel } from "./panel-changes.js";
 import { subjectOf } from "./panel-model.js";
 import { SourcesPanel } from "./panel-sources.js";
 import { TokensPanel } from "./panel-tokens.js";
 import { SubagentsMount } from "./subagents-mount.js";
+
+export { registerSlot, registeredSlots } from "./extensions.js";
 
 function Empty({ children }) {
   return html`<p class="muted small slot-empty">${children}</p>`;

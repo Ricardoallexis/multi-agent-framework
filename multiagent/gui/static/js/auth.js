@@ -22,8 +22,9 @@ export function authHeaders(token) {
   return { Authorization: "Bearer " + token, Accept: "application/json" };
 }
 
-export async function getJSON(path, token) {
-  const response = await fetch(path, { headers: authHeaders(token), cache: "no-store" });
+// signal (optional): an AbortSignal that cancels the request (main.js uses it to bound the wait for the extension list).
+export async function getJSON(path, token, signal) {
+  const response = await fetch(path, { headers: authHeaders(token), cache: "no-store", signal });
   if (!response.ok) throw Object.assign(new Error("HTTP " + response.status), { status: response.status });
   return response.json();
 }

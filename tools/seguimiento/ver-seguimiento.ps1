@@ -1633,6 +1633,8 @@ function Get-AgentBoardData {
                 Agent = $agent
                 Missing = Safe-Snippet (Get-TaskSection $text 'Qué falta')
                 Tokens = Get-Field $text 'Tokens'
+                Espera = Get-EsperaInfo (Get-Field $text 'Espera')
+                EsperaAsker = Get-EsperaAsker (Get-TaskSection $text 'Historial') $agent
             }
             $tasks.Add($task)
             if ($state -in @('en curso', 'pendiente') -and $agent -notin $registered) {
@@ -2217,6 +2219,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         $stageWorkers = foreach ($r in @($taskRecords | Where-Object { $_.State -eq 'en curso' })) {
             # SEG-T13: the agent in charge of the task is named besides the worker.
             if (@($r.ActiveDelegations).Count) { foreach ($d in $r.ActiveDelegations) { "$(Encode $r.Code)$(if ($r.Agent.Trim() -and $r.Agent.Trim() -ne '-') { " · a cargo de $(Encode $r.Agent.Trim())" }) · $(Encode (Format-ActiveDelegation $d))" } }
+            elseif ($null -ne $r.Espera) { "$(Encode (Get-EsperaLabel $r.Espera)): $(Encode $r.Agent) en $(Encode $r.Code)" }
             elseif ($r.Agent.Trim() -and $r.Agent.Trim() -ne '-') { "trabajando: $(Encode $r.Agent.Trim()) en $(Encode $r.Code)" }
         }
         $stageWorkersHtml = if (@($stageWorkers).Count) { "<span class=""meta seg-workers"">$(@($stageWorkers) -join ' &middot; ')</span>" } else { '' }
@@ -2454,16 +2457,17 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
         # SEG-T19: the live watchers that reactivate this agent, those of its tasks and the «esperando: ...» of its pendiente cards. It reads
         # «En espera de activación» unless it is working on a task en curso.
         $agentWaits = @(Get-AgentWaits $waitBoard $name $active)
-        $waiting = $agentWaits.Count -gt 0 -and -not @($active | Where-Object State -eq 'en curso').Count
+        $working = @($active | Where-Object { $_.State -eq 'en curso' -and $null -eq $_.Espera })
+        $waiting = $agentWaits.Count -gt 0 -and -not $working.Count
         if ($active) {
-            $status = if (@($active | Where-Object State -eq 'en curso').Count) { 'Asignada · En curso' } else { 'Asignada · En espera' }
+            $status = if ($working.Count) { 'Asignada · En curso' } else { 'Asignada · En espera' }
             $statusClass = if ($status -eq 'Asignada · En curso') { 's-en-curso' } else { 's-pendiente' }
             $current = foreach ($task in $active) {
-                $taskState = if ($task.State -eq 'en curso') { 'En curso' } else { 'Pendiente' }
+                $taskState = if ($null -ne $task.Espera) { 'En espera' } elseif ($task.State -eq 'en curso') { 'En curso' } else { 'Pendiente' }
                 $context = if ($task.Missing) { "<p class=""agent-context"">Qué falta: $(Encode $task.Missing)</p>" } else { '' }
                 $delegated = (@($task.ActiveDelegations) | ForEach-Object { "<p class=""agent-context"">$(Encode (Format-ActiveDelegation $_))</p>" }) -join ''
-                $waitChip = if (@(Get-TaskWaits $waitBoard $task.Id $task.State $task.Agent $task.Missing).Count) { Format-WaitChip } else { '' }
-                "<div class=""agent-task""><strong>$(Encode $task.Id) · $(Encode $task.Title)</strong><span class=""state $(if ($task.State -eq 'en curso') { 's-en-curso' } else { 's-pendiente' })"">Asignada · $(Encode $taskState)</span>$waitChip$context$delegated</div>"
+                $waitChip = if ($null -ne $task.Espera) { Get-EsperaBadgeHtml $task.Espera (Find-EsperaResolution $task.Espera $task.Id) $task.EsperaAsker } elseif (@(Get-TaskWaits $waitBoard $task.Id $task.State $task.Agent $task.Missing).Count) { Format-WaitChip } else { '' }
+                "<div class=""agent-task""><strong>$(Encode $task.Id) · $(Encode $task.Title)</strong><span class=""state $(if ($null -ne $task.Espera) { 's-pendiente' } elseif ($task.State -eq 'en curso') { 's-en-curso' } else { 's-pendiente' })"">Asignada · $(Encode $taskState)</span>$waitChip$context$delegated</div>"
             }
             $current = $current -join "`n"
         } elseif ($agentBoard.Partial) {
@@ -2602,7 +2606,8 @@ $agentCards = foreach ($application in @($applications)) {
     }
     $idleHtml = ''
     if ($idleMembers.Count) {
-        $idleHtml = "<p class=""meta agent-idle"">sin actividad: $(Encode (($idleMembers | ForEach-Object Name) -join ', '))</p>" +
+        $idleLabel = if ($liveWorkers.Count) { 'sin tarea propia' } else { 'sin actividad' }
+        $idleHtml = "<p class=""meta agent-idle"">${idleLabel}: $(Encode (($idleMembers | ForEach-Object Name) -join ', '))</p>" +
             (($idleMembers | ForEach-Object { "<details class=""agent-instance""><summary>Detalle de $(Encode $_.Name)</summary>$($_.Html)</details>" }) -join "`n")
     }
     @"
@@ -2675,7 +2680,7 @@ header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
 main { max-width:1100px; margin:0 auto; padding:8px 16px 48px; }
 .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin:12px 0 16px; }
 .card, .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
-.card-head { display:flex; justify-content:space-between; align-items:baseline; }
+.card-head { display:flex; flex-wrap:wrap; gap:4px 8px; justify-content:space-between; align-items:baseline; }
 .gate { font-weight:700; font-size:18px; }
 .pct { font-weight:700; font-size:22px; color:var(--accent); }
 .bar { height:10px; background:var(--accent-soft); border-radius:6px; overflow:hidden; margin:8px 0; }
@@ -2736,7 +2741,8 @@ summary { cursor:pointer; }
 .history-summary:last-child { border-bottom:0; }
 .history-warning { background:var(--warn-bg); border:1px solid var(--warn-line); border-radius:10px; padding:12px 16px; margin-bottom:14px; }
 .history-warning h2 { font-size:16px; margin:0 0 6px; }
-.state { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; white-space:nowrap;
+.state { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; white-space:normal;
+         min-width:0; max-width:100%; overflow-wrap:anywhere;
          background:var(--accent-soft); }
 .s-en-curso { background:#2f6fdb; color:#fff; }
 .s-pendiente, .s-liberada { background:var(--warn-bg); border:1px solid var(--warn-line); }
@@ -2764,7 +2770,7 @@ summary { cursor:pointer; }
 .espera .espera-what { margin:3px 0; font-size:13px; overflow-wrap:anywhere; }
 .espera .meta { color:var(--muted); font-size:12px; margin:2px 0; overflow-wrap:anywhere; }
 .s-espera-usuario { background:var(--ask-line); color:#2b1d00; font-weight:700; white-space:normal; }
-.s-espera-otro { background:var(--grey-bg); color:var(--muted); border:1px solid var(--line); white-space:normal; }
+.s-espera-otro { background:var(--ask-bg); color:var(--text); border:2px solid var(--ask-line); font-weight:700; white-space:normal; }
 .s-espera-resuelta { background:var(--accent-soft); color:var(--text); border:1px solid var(--ok); white-space:normal; }
 .s-sin-actividad { background:var(--warn-bg); color:var(--text); border:1px dashed var(--warn-line); white-space:normal; }
 @media (max-width: 600px) {
@@ -2779,14 +2785,15 @@ summary { cursor:pointer; }
 .wait-finished { margin-top:10px; }
 .wait-finished ul { margin:6px 0 0; padding-left:20px; font-size:13px; }
 .wait-finished li { margin:3px 0; }
-.agent-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; }
+.agent-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap:12px; }
+.agent-card { min-width:0; overflow-wrap:anywhere; }
 .agent-card h2 { margin:0; font-size:18px; }
 .agent-card h3 { margin:14px 0 6px; font-size:16px; }
 .agent-card h4 { margin:10px 0 4px; font-size:14px; }
 .agent-name { border-top:1px solid var(--line); margin-top:12px; padding-top:4px; }
 .agent-current .meta, .agent-last .meta { color:var(--muted); font-size:13px; margin:4px 0; }
 .agent-task { border-left:3px solid var(--accent); padding:4px 0 6px 10px; margin:6px 0; }
-.agent-task .state { margin-left:6px; }
+.agent-task .state { margin-left:6px; max-width:calc(100% - 6px); }
 .agent-context { color:var(--muted); font-size:13px; margin:4px 0 0; }
 .agent-last { border-top:1px solid var(--line); margin-top:12px; padding-top:10px; font-size:13px; }
 .agent-last ul { margin:4px 0 0; padding-left:20px; }

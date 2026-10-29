@@ -5,7 +5,11 @@
 Static checks over the JavaScript (read as text, like the other GUI view tests): the help texts are short, plain and
 complete; every interactive control of the views points at its help (aria-describedby through ``helpFor``) or says
 why it has none (``data-help-exempt``); and every topic a view uses exists. A small Node check (skipped when Node is
-not installed) runs the entries that are built from data."""
+not installed) runs the entries that are built from data.
+
+The views that tasks add live in ``static/extensions/<name>/`` (FLU-T04, ``multiagent/gui/extensions.py``). Their files are
+found by that convention and held to the same rules by ``check_extensions``: no list in this file changes when a task adds a
+view, and tests/test_gui_extensions.py runs the same function over two example views."""
 from __future__ import annotations
 
 import json
@@ -17,6 +21,7 @@ from collections import Counter
 import pytest
 
 from multiagent.gui import STATIC_DIR
+from multiagent.gui.extensions import HELP_FILE, extension_dirs
 
 JS = STATIC_DIR / "js"
 NODE = shutil.which("node")
@@ -56,6 +61,7 @@ EXPECTED_EXEMPT = Counter({
 DYNAMIC_TOPICS = {
     '"field."+item.name': None,
     '"open."+summary.source': {"open.claude", "open.codex", "open.copilot"},
+    "entry.topic": None,    # right-panel.js: the help key an extension gave to registerSlot (extensions are checked by check_extensions)
 }
 
 # Sections (headings with an id) and the topic that explains each; run and session titles are data, not sections.
@@ -80,9 +86,9 @@ def read(name: str) -> str:
     return (JS / name).read_text(encoding="utf-8")
 
 
-def json_block(name: str) -> dict:
-    """``export const NAME = { ... };`` of help-text.js: strict JSON, so it can be read without running the browser."""
-    match = re.search(rf"^export const {name} = (\{{.*?^\}});$", read("help-text.js"), re.S | re.M)
+def json_block(name: str, source: str | None = None) -> dict:
+    """``export const NAME = { ... };`` of help-text.js (or of ``source``): strict JSON, readable without the browser."""
+    match = re.search(rf"^export const {name} = (\{{.*?^\}});$", read("help-text.js") if source is None else source, re.S | re.M)
     assert match, f"{name} is not a plain JSON object ending in a line that is just '}};'"
     return json.loads(match[1])
 
@@ -95,7 +101,11 @@ MODE_HINTS = json_block("MODE_HINTS")
 
 def test_every_entry_has_a_title_a_hint_and_two_to_four_short_sentences():
     assert len(HELP) >= 60
-    for key, entry in HELP.items():
+    check_help_entries(HELP)
+
+
+def check_help_entries(entries: dict) -> None:
+    for key, entry in entries.items():
         assert re.fullmatch(r"[a-z_]+(?:\.[a-z_]+)+", key), key
         assert set(entry) == {"title", "hint", "more"}, key
         title, hint, more = entry["title"], entry["hint"], entry["more"]
@@ -333,3 +343,90 @@ def test_entries_built_from_data_follow_the_same_rules():
     assert "no se ejecutan" in skipped["more"][1]
     assert [e["hint"] for e in out["modes"]] == list(MODE_HINTS.values())
     assert all(e["more"] == HELP["create.mode"]["more"] for e in out["modes"])
+
+
+# --- the views that tasks add: static/extensions/<name>/ (FLU-T04) ------------------------------------------------------
+# Found by the folder convention, not by a list here: a new view is one more folder and this file stays as it is.
+
+# A heading that shows data (the name of a project, say) is not a section: it says so, and why, on the heading itself.
+ALLOWED_HEADING_EXEMPT = {"data-title": "the heading is data (a name the user or a source gave), not a section"}
+
+
+def extension_help(static_dir=STATIC_DIR) -> dict:
+    """The help entries of every ``extensions/<name>/help.js``, all keys under ``<name>.`` so two views never share one."""
+    merged: dict = {}
+    for folder in extension_dirs(static_dir):
+        path = folder / HELP_FILE
+        if not path.is_file():
+            continue
+        entries = json_block("HELP", path.read_text(encoding="utf-8"))
+        for key in entries:
+            assert key.startswith(folder.name + "."), f"{folder.name}/{HELP_FILE}: key {key} must start with '{folder.name}.'"
+        assert not set(entries) & set(HELP), f"{folder.name}: help keys of help-text.js reused: {sorted(set(entries) & set(HELP))}"
+        merged.update(entries)
+    return merged
+
+
+def check_extensions(static_dir=STATIC_DIR) -> dict:
+    """Hold every extension folder to the rules the built-in views follow; returns what it saw (for the tests of the check).
+
+    Help texts short and plain, a help or an exemption on every control, every topic defined and used, every section with its
+    help, ids that cannot meet another view's, and an entry module that registers something."""
+    known = {**HELP, **extension_help(static_dir)}
+    seen = {"controls": 0, "sections": 0, "extensions": 0}
+    for folder in extension_dirs(static_dir):
+        seen["extensions"] += 1
+        prefix = folder.name.replace("_", "-") + "-"
+        files = sorted(folder.rglob("*.js"))
+        sources = {path: path.read_text(encoding="utf-8") for path in files}
+        entry = re.sub(r"^\s*//.*$", "", sources[folder / "index.js"], flags=re.M)      # a comment registers nothing
+        assert re.search(r"\bregister(?:View|Slot)\(", entry), f"{folder.name}/index.js registers no view and no slot"
+        own_help = folder / HELP_FILE
+        assert own_help.is_file() == bool(re.search(r"\bregisterHelp\(", entry)), \
+            f"{folder.name}: help.js and registerHelp() go together (one without the other)"
+        own = json_block("HELP", own_help.read_text(encoding="utf-8")) if own_help.is_file() else {}
+        check_help_entries(own)
+        used: set[str] = set()
+        for path, source in sources.items():
+            label = f"{folder.name}/{path.relative_to(folder).as_posix()}"
+            for tag, text in opening_tags(source):
+                if tag == "summary":
+                    continue            # the same exception as the built-in views
+                seen["controls"] += 1
+                reason = re.search(r'data-help-exempt="([^"]+)"', text)
+                if reason:
+                    assert reason[1] in ALLOWED_EXEMPT, f"{label}: {text[:80]}"
+                    assert "helpFor(" not in text, f"{label}: exempt and described at once: {text[:80]}"
+                else:
+                    assert "helpFor(" in text, f"{label}: control without help: {text[:100]}"
+            helped, shown = topics_in(source)
+            for expression in helped:
+                assert expression in shown, f"{label}: helpFor({expression}) points at a hint this module never draws"
+            for expression in helped + shown:
+                assert expression.startswith('"') and expression.endswith('"') and "+" not in expression, \
+                    f"{label}: topics in extensions are plain strings, got {expression}"
+                assert expression.strip('"') in known, f"{label}: no help text for {expression.strip(chr(34))}"
+                used.add(expression.strip('"'))
+            for slot_topic in re.findall(r'\btopic:\s*"([^"]+)"', source):     # registerSlot(name, Component, { topic: "..." })
+                assert slot_topic in known, f"{label}: no help text for {slot_topic}"
+                used.add(slot_topic)
+            for heading in re.finditer(r'<h[34]\b([^>]*?)\bid="([\w-]+)"([^>]*)>', source):
+                seen["sections"] += 1
+                ident, attributes = heading[2], heading[1] + heading[3]
+                assert ident.startswith(prefix), f"{label}: heading id {ident} must start with '{prefix}' (ids are shared by the page)"
+                exempt = re.search(r'data-help-exempt="([^"]+)"', attributes)
+                if exempt:
+                    assert exempt[1] in ALLOWED_HEADING_EXEMPT, f"{label}: {ident}"
+                    continue
+                after = source[heading.end():heading.end() + 900]
+                topic = re.search(r'<\$\{Help\}[^>]*?\btopic="([^"]+)"', after)
+                # the help of a heading comes before the next control or heading, so it is the heading's own and not a later one's
+                assert topic and topic[1] in known and not re.search(r"<(?:button|input|select|textarea|h[34])\b", after[:topic.start()]), \
+                    f"{label}: heading {ident} is not followed by its help"
+                used.add(topic[1])
+        assert not set(own) - used, f"{folder.name}: help texts nobody uses: {sorted(set(own) - used)}"
+    return seen
+
+
+def test_extension_folders_follow_the_help_rules():
+    check_extensions()

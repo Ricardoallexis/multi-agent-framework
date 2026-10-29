@@ -142,7 +142,7 @@ try {
     Assert-True ($status.Groups[1].Value -eq 's-en-curso') 'Copilot card is active'
     Assert-True ($status.Groups[2].Value -eq '3 trabajadores activos · 1 trabajador probablemente detenido') "Copilot card status, got: $($status.Groups[2].Value)"
     Assert-True ($copilot -notmatch '<span class="state s-idle">sin actividad') 'Copilot card does not say sin actividad while it has active workers'
-    Assert-True ($copilot -match 'sin actividad: Copilot-Auto</p>') 'the idle Copilot-Auto agent stays in its own line'
+    Assert-True ($copilot -match 'sin tarea propia: Copilot-Auto</p>' -and $copilot -notmatch 'class="meta agent-idle">sin actividad:') 'FLU-T08: live task workers keep the area active; the idle agent has no own task'
     $w1 = Get-WorkerBlock $copilot 'pieza uno'
     Assert-True ($w1 -match '<strong>Copilot · gpt-5\.6-luna \(T2\)</strong>') 'T01 Copilot worker: app · model (level)'
     Assert-True ($w1 -match 'Activo · trabajando para Claude-Opus en AAA-T01') 'T01 Copilot worker: trabajando para <orquestador> en <tarea>'
@@ -198,6 +198,7 @@ try {
     $status = Get-CardStatus $copilot
     Assert-True ($status.Groups[1].Value -eq 's-idle' -and $status.Groups[2].Value -eq 'sin actividad · 1 trabajador probablemente detenido') "Copilot card with only a stopped worker, got: $($status.Groups[2].Value)"
     Assert-True ((Get-WorkerBlock $copilot 'pieza ocho') -match 'Probablemente detenido') 'the stopped worker is still listed'
+    Assert-True ($copilot -match 'class="meta agent-idle">sin actividad: Copilot-Auto</p>') 'FLU-T08: stopped task workers preserve the idle label'
 
     # --- A finished task: its workers are no longer active anywhere ---
     Write-Card 'T01' 'terminada' 'Claude-Opus' @((Deleg 'Claude-Opus' '11:10' 'GPT worker C' "copilot:$($cp.work)" 'pieza nueve'))

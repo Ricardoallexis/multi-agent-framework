@@ -3,8 +3,10 @@
 // Contextual help (GUI-T12). <Help topic="..."> shows a one-line hint and a "?" button that opens a short explanation
 // (collapsed by default). The control it explains points at the hint with helpFor(topic), which gives it
 // aria-describedby; the button has aria-expanded and aria-controls. Everything is plain text; the texts live in
-// help-text.js. A control that deliberately has no help says why with data-help-exempt (see tests/test_gui_help.py).
+// help-text.js (an extension keeps its own in extensions/<name>/help.js and registers them, see extensions.js).
+// A control that deliberately has no help says why with data-help-exempt (see tests/test_gui_help.py).
 import { html, useState } from "../vendor/htm-preact-standalone.module.js";
+import { registeredHelp } from "./extensions.js";
 import { HELP } from "./help-text.js";
 
 const slug = (text) => String(text).replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -23,7 +25,7 @@ export function helpFor(topic, { also = "", scope = "" } = {}) {
 // scope: makes the ids unique when the same topic appears more than once on the page.
 export function Help({ topic, entry = null, hint = null, compact = false, scope = "" }) {
   const [open, setOpen] = useState(false);
-  const data = entry || HELP[topic];
+  const data = entry || HELP[topic] || registeredHelp(topic);   // the texts of an extension come from its own help.js
   if (!data) return null;
   const id = baseId(topic, scope);
   const sentences = Array.isArray(data.more) ? data.more : [data.more];

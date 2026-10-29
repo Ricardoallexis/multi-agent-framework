@@ -236,7 +236,7 @@ try {
     $w3 = Get-WorkerBlock $copilot 'inventario'
     Assert-True ($w3 -match 'Probablemente detenido · delegado por Codex en Inventario antiguo' -and $w3 -notmatch 'trabajando para' -and $w3 -match 's-unknown') 'a stopped worker is listed, not counted as active'
     Assert-True ($copilot -notmatch 'audita cuatro') 'a returned worker is not in the card of its application'
-    Assert-True ($copilot -match '<h3>Trabajadores en actividades fuera de tareas</h3>' -and $copilot -match 'sin actividad: Copilot-Auto</p>') 'activity workers have their own heading; the idle Copilot-Auto agent stays in its line'
+    Assert-True ($copilot -match '<h3>Trabajadores en actividades fuera de tareas</h3>' -and $copilot -match 'sin tarea propia: Copilot-Auto</p>' -and $copilot -notmatch 'class="meta agent-idle">sin actividad:') 'FLU-T08: activity workers keep the area active; the idle agent has no own task'
 
     $status = Get-CardStatus $codex
     Assert-True ($status.Groups[1].Value -eq 's-en-curso' -and $status.Groups[2].Value -eq '1 con tarea activa · 1 trabajador activo') "Codex card status, got: $($status.Groups[2].Value)"
@@ -271,6 +271,7 @@ try {
     $status = Get-CardStatus $copilot
     Assert-True ($status.Groups[1].Value -eq 's-idle' -and $status.Groups[2].Value -eq 'sin actividad · 1 trabajador probablemente detenido') "Copilot card with only a stopped activity worker, got: $($status.Groups[2].Value)"
     Assert-True ((Get-ActivitiesSection $agents) -match '<span class="state s-en-curso">1 en curso</span>') 'the activity is still listed as en curso'
+    Assert-True ($copilot -match 'class="meta agent-idle">sin actividad: Copilot-Auto</p>') 'FLU-T08: stopped activity workers preserve the idle label'
 
     # --- No activities: the section says so, the cards are the ones of SEG-T17 ---
     Remove-Item -LiteralPath $actLog

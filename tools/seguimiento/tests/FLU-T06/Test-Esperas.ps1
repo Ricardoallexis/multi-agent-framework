@@ -72,7 +72,7 @@ try {
     New-Item -ItemType Directory -Force $repo, $subRoot, $copilotRoot, $codexRoot, (Join-Path $channel 'tareas\AAA'), (Join-Path $channel 'parches\pendientes'), (Join-Path $channel 'pruebas\integracion') | Out-Null
     Write-Text (Join-Path $channel 'RESUMEN.md') '# Resumen'
     Write-Text (Join-Path $channel 'ROADMAP_VISTA.md') '# Roadmap'
-    Write-Text (Join-Path $channel 'AGENTES.md') "| Agente | Modelo | Aplicación | Estado | Último | Cursor | Sesión |`n|---|---|---|---|---|---|---|`n| Claude-Opus | Opus | Claude | ACTIVO | x | c | s1 |`n| Codex | gpt | Codex | ACTIVO | x | c | s2 |`n"
+    Write-Text (Join-Path $channel 'AGENTES.md') "| Agente | Modelo | Aplicación | Estado | Último | Cursor | Sesión |`n|---|---|---|---|---|---|---|`n| Claude-Opus | Opus | Claude | ACTIVO | x | c | s1 |`n| Codex | gpt | Codex | ACTIVO | x | c | s2 |`n| Copilot | gpt | Copilot | ACTIVO | x | c | s3 |`n"
     git -C $repo init -q | Out-Null
     Write-Text (Join-Path $channel 'tareas\AAA\ETAPA.md') "# AAA · Etapa de prueba`n`n| Campo | Valor |`n|---|---|`n| Autorizada | sí |`n| Estado | abierta |`n`n## Historial de decisiones`n`n- 2026-10-12 · Claude-Opus · Se abre la etapa`n"
 
@@ -111,9 +111,18 @@ try {
     Write-Card 'T18' 'en curso' 'Claude-Opus' 'usuario — pregunta de esta tarea (desde 2026-10-13 08:30, #613)' '2026-10-13 08:35' 'espera'
     Write-Card 'T011' 'en curso' 'Claude-Opus' '' '2026-10-13 11:00'
 
+    Write-Card 'T19' 'en curso' 'Copilot' 'agente Codex — revisión sintética (desde 2026-10-13 09:00, #611)'
     $html = Run-Viewer
     if ($env:SEG_KEEP) { Copy-Item -LiteralPath (Join-Path $channel 'SEGUIMIENTO.html') -Destination (Join-Path $temp 'SEGUIMIENTO-completo.html') }   # for looking at the page
 
+    # Isolate the task block even when another agent card precedes it.
+    $taskBlock = [regex]::Match($html, '(?s)<div class="agent-task"><strong>AAA-T19 ·.*?</div>').Value
+    Assert-True ($taskBlock -match 'espera a Codex' -and $taskBlock -notmatch 'Asignada · En curso') 'agent tab exposes explicit agent wait'
+    Assert-True ($html -match '\.s-espera-otro \{[^}]*border:2px[^}]*font-weight:700') 'external wait badge has a strong border and weight'
+    Assert-True ($taskBlock -match 'Asignada · En espera' -and [regex]::Matches($taskBlock, 'espera a Codex').Count -eq 1) 'wait label appears once in agent task'
+    $userBlock = [regex]::Match($html, '(?s)<div class="agent-task"><strong>AAA-T15 ·.*?</div>').Value
+    Assert-True ($userBlock -match 's-espera-usuario' -and $userBlock -notmatch 's-espera-otro') 'user wait keeps user badge in Agents'
+    Assert-True ($html -match 'Asignada · En curso') 'mixed agent keeps working status for its tasks without waits'
     # --- The panel and its counter ---
     $panel = Get-Panel $html
     $unresolved = @('T01', 'T04', 'T15', 'T18')   # T02, T03 (decisión / respuesta later), T14 (same day, no entry number) are resolved

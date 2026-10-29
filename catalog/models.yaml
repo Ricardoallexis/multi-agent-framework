@@ -339,8 +339,18 @@ executor_routing:
       allowed_data_classes: null
       execution_modes: null
       # MOD-T02: no Claude model is declared for copilot_cli; the Copilot adapter refuses Claude ids (claude_model_rejected).
-      model_support: {status: supported, source: "P-384 #390; GUI-T08 run (gpt-6-luna)", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-11", values: ["gpt-6-luna"]}
-      effort_support: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["low"]}
+      # MOD-T03 (2026-10-29, operator_test, synthetic data only): each id below was launched through `copilot -p
+      # --model <id> --reasoning-effort low --no-ask-user --allow-tool=read --allow-tool=write --output-format=json`
+      # and the run log confirmed the same id as the model that answered. All four read the brief, wrote files and
+      # returned the JSON result event. Tests the model wrote for a small function passed for gpt-6-luna,
+      # mai-code-1.1-flash and gemini-3.8-flash (3/3 each, plus 7/7 reference checks); kimi-k3 was probed with the
+      # summary task only (the code task was not run: spending cap). Observed AI credits per run (varies with cache):
+      # gpt-6-luna 0.18-0.19, mai-code-1.1-flash 0.34-0.74, gemini-3.8-flash 1.64-3.59, kimi-k3 7.63.
+      # The ids come from Copilot's own events (mai-code-1.1-flash) or the display-name convention accepted by
+      # `--model` (gemini-3.8-flash, kimi-k3); `copilot --help` does not list them. This evidence is about launch
+      # support only: it says nothing about the provider, retention or which data classes a model may receive.
+      model_support: {status: supported, source: "MOD-T03 2026-10-29 (gpt-6-luna, mai-code-1.1-flash, gemini-3.8-flash, kimi-k3); earlier P-384 #390, GUI-T08 (gpt-6-luna)", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-29", values: ["gpt-6-luna", "mai-code-1.1-flash", "gemini-3.8-flash", "kimi-k3"]}
+      effort_support: {status: supported, source: "MOD-T03 2026-10-29 (low accepted by all four models); earlier P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-29", values: ["low"]}
       noninteractive_launch: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["copilot -p --output-format=json --no-ask-user"]}
       structured_output: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["--output-format=json"]}
       session_store: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["~/.copilot/session-state/<id>/"]}

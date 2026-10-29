@@ -162,8 +162,10 @@ def test_bundled_catalog_declares_the_cli_executors_disabled(tmp_path):
             evidence = getattr(descriptor, name)
             if evidence.status is SupportState.UNKNOWN:
                 continue
-            assert evidence.source.startswith("P-384 #")
-            assert evidence.provenance == "operator_test" and evidence.observed_at in {"2026-10-10", "2026-10-11"}
+            # MOD-T03 (2026-10-29) re-observed the Copilot model and effort support on top of the P-384 manual tests.
+            assert evidence.source.startswith(("P-384 #", "MOD-T03 2026-10-29"))
+            assert evidence.provenance == "operator_test"
+            assert evidence.observed_at in {"2026-10-10", "2026-10-11", "2026-10-29"}
             assert evidence.scope == executor_id
         for name in ("noninteractive_launch", "structured_output", "session_store", "resume", "open_in_app"):
             assert getattr(descriptor, name).status is SupportState.SUPPORTED
