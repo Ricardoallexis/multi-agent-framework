@@ -37,9 +37,13 @@ class RunService:
         return self.store.create_run(request, self.settings.max_llm_calls, self.settings.max_run_seconds)
 
     def get(self, run_id: str) -> dict[str, Any]:
+        if self.engine is not None:
+            self.engine.check_approval_deadlines(run_id=run_id)
         return self.store.get_run(run_id)
 
     def list(self, *, limit: int = 20, status: str = "", project: str = "") -> list[dict[str, Any]]:
+        if self.engine is not None:
+            self.engine.check_approval_deadlines()
         return self.store.list_runs(limit=limit, status=status, project=project)
 
     @staticmethod
@@ -69,7 +73,7 @@ class RunService:
             self.store.finish_content_review(run, approve=True, by=by, channel=channel)
             return self.store.get_run(run_id)
         if run["status"] != RunStatus.WAITING_HUMAN.value or run.get("waiting_reason") not in {
-            WaitingReason.REVIEW.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
+            WaitingReason.REVIEW.value, WaitingReason.APPROVAL_PENDING.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
         }:
             raise InvalidStateTransition("A run can only be approved while waiting for human review")
         if self.engine is None:
@@ -87,7 +91,7 @@ class RunService:
     def changes(self, run_id: str, feedback: str, *, regenerate: bool = False) -> dict[str, Any]:
         run = self.store.get_run(run_id)
         if run["status"] != RunStatus.WAITING_HUMAN.value or run.get("waiting_reason") not in {
-            WaitingReason.REVIEW.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
+            WaitingReason.REVIEW.value, WaitingReason.APPROVAL_PENDING.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
         }:
             raise InvalidStateTransition("Revisions can only be requested in WAITING_HUMAN/review")
         if run.get("budget_exhausted") or run.get("waiting_reason") == WaitingReason.BUDGET_EXHAUSTED.value:

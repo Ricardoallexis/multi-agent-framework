@@ -203,6 +203,10 @@ registerSlot("projects", ProjectCard, { title: "Proyecto", topic: "projects.card
 - `registerSlot(name, component, { title, topic, order })` adds a section after the
   four fixed ones of the right panel, with its title and its «?» help (`topic` is a
   key of the extension's own help). The names of the fixed sections are reserved.
+- `registerUsageSection({ id, label, component, order })` adds a tab to the «Uso»
+  screen after Planes, Global and API y presupuesto (`component` gets `token`). The
+  ids `plans`, `global` and `costs` are reserved. `usage.js` draws the registered tabs
+  and knows no extension by name.
 - Topics are plain strings, every control uses `helpFor("<name>.<topic>")` and every
   section heading is followed by its `<${Help} topic=... />`, as in the built-in views.
   Heading ids start with the name (`doc-alerts-title`): ids are shared by the page.
@@ -220,6 +224,40 @@ registerSlot("projects", ProjectCard, { title: "Proyecto", topic: "projects.card
   test of a new extension goes in its own file (`tests/test_gui_<name>.py`).
 
 The built-in screens still list their stylesheets in `index.html`; new views do not.
+
+## Continuity in the GUI
+
+A task that hits a usage limit waits (`continuity.hold`, `docs/EXECUTORS.md`). The extension
+`static/extensions/continuity/` (CNT-T06) shows that wait and lets a person decide; the data
+comes from `multiagent/gui/continuity_api.py`, under the GUI token like every `/gui/api` route.
+
+- **Decision card.** Who reached which limit (app and model), when it resets in local time
+  and from which source (the app's notice, the plan's rule or the operator's fixed pause,
+  marked as an estimate), the saved work (a patch of N files, or why there is none) and the
+  hand-offs used (`0/1`). Choices: «Esperar hasta HH:MM», «Delegar a <app · model · level>»
+  (with what would be sent) and «Decidir después». The card never acts for the person: each
+  choice opens a confirmation that says what will be saved, and «Decidir después» saves
+  nothing. A limit with no reset time (no credits) offers no «Esperar». There is no «Cancelar».
+  The conversation history never travels to another app.
+- **Where it shows.** The screen «Decisiones» (`#continuity`, the tasks that wait, until the
+  project view brings «Qué tienes que hacer»), the right-panel section «Continuidad» (the card
+  of the task held on the open session) and the node «En espera · hasta HH:MM» of the agent
+  tree (the children of the session carry one `kind: "task"` node per held task, with
+  `note: "waiting_limit"` and `reset_at`; the tree already draws that state).
+- **Uso → Continuidad.** The mode, the wait threshold, the hand-off limit, «never during an
+  integration», «automatic only per project» and the candidate apps with their state and
+  policy. Read only: they are the contract defaults until the policy of CNT-T05 is configurable.
+- **Routes.** `GET /gui/api/continuity/policy`, `GET /gui/api/continuity/decisions`,
+  `GET /gui/api/continuity/session/{session_id}` and
+  `POST /gui/api/tasks/{task_id}/continuity/decision` with `{decision_id, decision: "wait" |
+  "delegate", executor_id?, expected_revision}`. A stale revision is a 409; repeating a
+  `decision_id` returns the first result.
+- **What a decision does.** It writes `hold.decision` and the event `continuity.decided`
+  (`ref` is the `decision_id`). `wait` accepts the wait; the task resumes by itself at the
+  reset. `delegate` records the chosen candidate and sets `hold.blocked` to
+  `delegation_requested`, so `resume_due` leaves the task for a person; it starts no other
+  executor and changes no assignee (the hand-off is CNT-T05), and `wait` takes it back. The
+  GUI never acts for the person and never reads or writes an application.
 
 ## Open a session in its application
 

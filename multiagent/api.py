@@ -285,6 +285,26 @@ class AssignmentAcceptRequest(_Body):
     acknowledge: bool
 
 
+class TaskWaitSet(_Body):
+    actor: str
+    expected_revision: int = Field(strict=True, ge=1)
+    who: str
+    question: str
+    target: str = ""
+    reference: str = ""
+    reset_at: str | None = None
+
+
+class TaskWaitClear(_Body):
+    actor: str
+    expected_revision: int = Field(strict=True, ge=1)
+    wait_id: str
+
+
+class TaskWaitDecision(TaskWaitClear):
+    decision: str
+
+
 class ExecutorRunRequest(_Body):
     task_id: str
     executor_id: str | None = None
@@ -569,8 +589,11 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         return services.tasks.rollback_snapshot(source_key, actor=body.actor)
 
     @app.get("/api/v1/tasks")
-    def list_tasks(group: str | None = None, status: str | None = None, assignee: str | None = None):
-        return services.tasks.list_tasks(group_id=group, status=status, assignee=assignee)
+    def list_tasks(group: str | None = None, status: str | None = None, assignee: str | None = None,
+                   waiting_for: str | None = Query(None, pattern="^(user|agent|task|quota|window|all)$")):
+        tasks = services.tasks.list_tasks(group_id=group, status=status, assignee=assignee)
+        return tasks if waiting_for is None else [task for task in tasks if task.get("waiting") and
+                                                  (waiting_for == "all" or task["waiting"]["who"] == waiting_for)]
 
     @app.post("/api/v1/tasks", status_code=201)
     def create_task(body: TaskCreate):
@@ -591,6 +614,18 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.get("/api/v1/tasks/{task_id}")
     def get_task(task_id: str):
         return services.tasks.get_task(task_id)
+
+    @app.put("/api/v1/tasks/{task_id}/waiting")
+    def set_task_wait(task_id: str, body: TaskWaitSet):
+        return services.tasks.set_wait(task_id, **body.model_dump())
+
+    @app.post("/api/v1/tasks/{task_id}/waiting/clear")
+    def clear_task_wait(task_id: str, body: TaskWaitClear):
+        return services.tasks.clear_wait(task_id, **body.model_dump())
+
+    @app.post("/api/v1/tasks/{task_id}/waiting/decision")
+    def resolve_task_wait(task_id: str, body: TaskWaitDecision):
+        return services.tasks.resolve_wait(task_id, **body.model_dump())
 
     @app.post("/api/v1/tasks/{task_id}/scope")
     def update_task_scope(task_id: str, body: TaskScopeUpdate):

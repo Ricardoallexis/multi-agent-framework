@@ -35,6 +35,7 @@ _TASK_JSON = {
     "gate_json": "gate",
     "execution_json": "execution",
     "lock_policy_json": "lock_policy",
+    "waiting_json": "waiting",
 }
 
 
@@ -65,6 +66,9 @@ def _group(row: sqlite3.Row) -> dict[str, Any]:
 def _task(row: sqlite3.Row) -> dict[str, Any]:
     item = dict(row)
     for column, key in _TASK_JSON.items():
+        if column == "waiting_json" and column not in item:
+            item[key] = {}  # a pre-migration row in an import fixture
+            continue
         item[key] = json.loads(item.pop(column))
     return item
 
@@ -248,7 +252,8 @@ class TaskStore:
                     attempt: int | None = None, lock_policy: dict[str, Any] | None = None,
                     workspace_domain: str | None = None, file_scope: list[str] | None = None,
                     snapshot_epoch_pending: bool | None = None,
-                    execution: dict[str, Any] | None = None) -> dict[str, Any] | None:
+                    execution: dict[str, Any] | None = None,
+                    waiting: dict[str, Any] | None = None) -> dict[str, Any] | None:
         """Change the given fields and bump ``revision``, only if it is still ``expected_revision``.
 
         ``execution`` replaces the whole ``execution_json`` column (CNT-T04: the hold of a task that waits lives in it);
@@ -275,6 +280,8 @@ class TaskStore:
             changes["snapshot_epoch_pending"] = int(snapshot_epoch_pending)
         if execution is not None:
             changes["execution_json"] = _dumps(execution)
+        if waiting is not None:
+            changes["waiting_json"] = _dumps(waiting)
         changes["updated_at"] = utcnow()
         assignments = ",".join(f"{column}=?" for column in changes)
         cursor = conn.execute(

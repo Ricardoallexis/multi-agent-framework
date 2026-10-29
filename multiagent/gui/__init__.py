@@ -9,6 +9,8 @@ Host and Origin checks come from ``LocalAPISecurityMiddleware`` in ``api.py``.
 ``/gui/api/sessions`` (list, counts, one session, its items, its children) and ``/gui/api/stream?session=`` (live
 follow; ``&only=children`` for the subagents panel) serve the session viewer; see ``sessions_api`` and ``events``.
 ``/gui/api/usage/{plans,tokens,costs}`` serve the usage view (plan usage, tokens and estimated cost); see ``usage_api``.
+``/gui/api/continuity/*`` and ``/gui/api/tasks/{id}/continuity/decision`` serve the decision cards of tasks held by a usage limit
+(CNT-T06); see ``continuity_api``.
 ``/gui/api/extensions`` lists the folders of ``static/extensions/`` that views, panel slots and help texts are added
 from without editing shared files; see ``extensions``.
 ``/gui/api/document-alerts`` lists the quarantines and content reviews of runs for the ``document_alerts`` extension (BDI-T05, read only); see ``document_alerts_api``.
@@ -28,6 +30,7 @@ from ..services.sessions import SessionServices
 from ..services.usage import UsageServices
 from ..version import __version__
 from . import events
+from .continuity_api import add_continuity_routes, held_children, with_extra_children
 from .document_alerts_api import add_document_alerts_routes
 from .extensions import discover_extensions
 from .project_api import add_project_routes
@@ -79,7 +82,8 @@ def mount_gui(app: FastAPI) -> None:
             body = events.stream(services.system.store, after=cursor, **timing)
         elif only == "children":  # the subagents panel: just "something changed", validated up front too
             await anyio.to_thread.run_sync(sessions.get_session, session)
-            body = events.stream_children(lambda: sessions.poll_children(session),
+            body = events.stream_children(lambda: with_extra_children(sessions.poll_children(session),
+                                                                      held_children(services, session)),
                                           interval=max(settings.gui_poll_seconds * CHILDREN_POLL_FACTOR, 0.05),
                                           heartbeat=timing["heartbeat"], max_seconds=timing["max_seconds"])
         else:  # one session: validated up front, so a bad id or cursor is a 400/404 and not a dead stream
@@ -101,10 +105,11 @@ def mount_gui(app: FastAPI) -> None:
                  only: str = Query("active", pattern="^(active|all)$")):
         return build_work_map(services, project_id=project, only=only)
 
-    add_session_routes(api, sessions)
+    add_session_routes(api, sessions, extra_children=lambda session_id: held_children(services, session_id))  # + held tasks (CNT-T06)
     add_usage_routes(api, usage)  # /gui/api/usage/{plans,tokens,costs} (USO-T02)
     add_project_routes(api, services)  # /gui/api/projects (PRY-T03)
     add_document_alerts_routes(api, services)
+    add_continuity_routes(api, services)  # /gui/api/continuity/* (CNT-T06)
     api.include_router(build_runs_router(services))
     app.include_router(api)
     app.mount("/gui/static", StaticFiles(directory=STATIC_DIR), name="gui-static")

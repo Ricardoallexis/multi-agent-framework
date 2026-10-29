@@ -29,7 +29,7 @@ from ..workflows import condition_is_true
 EVENTS_SHOWN = 200
 TEXT_LIMIT = 2000
 TERMINAL = frozenset({"completed", "failed", "cancelled", "rejected"})
-REVIEW_REASONS = frozenset({"review", "budget_exhausted", ""})
+REVIEW_REASONS = frozenset({"review", "approval_pending", "budget_exhausted", ""})
 HUMAN_STEP_REASONS = frozenset({"execute_step", "research"})
 LIST_FIELDS = ("id", "workflow_id", "project_name", "status", "bundle", "waiting_reason", "waiting_step",
                "llm_calls", "max_llm_calls", "created_at", "updated_at", "error")

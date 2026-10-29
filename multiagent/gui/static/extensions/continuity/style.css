@@ -1,0 +1,58 @@
+/* Copyright 2026 Ricardoallexis and contributors */
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Styles of the extension «continuity» (CNT-T06). Every selector starts with .continuity-; the colours are the variables of
+   app.css, so the dark theme follows by itself. Long words wrap, and nothing is wider than its box on a phone. */
+
+.continuity-view, .continuity-policy, .continuity-slot { min-width: 0; }
+.continuity-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 8px 0; }
+.continuity-count { margin: 0; overflow-wrap: anywhere; }
+.continuity-subtitle { margin: 16px 0 8px; }
+.continuity-list { display: grid; gap: 12px; margin: 12px 0; padding: 0; list-style: none; }
+.continuity-list > li { min-width: 0; }
+
+.continuity-card { min-width: 0; padding: 12px 14px; border: 1px solid var(--line-strong); border-left: 4px solid var(--warn);
+  border-radius: 8px; background: var(--panel); overflow-wrap: anywhere; }
+.continuity-card[data-decision="wait"] { border-left-color: var(--ok); }
+.continuity-card[data-decision="delegate"] { border-left-color: var(--accent); }
+.continuity-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.continuity-card-title { margin: 0 0 4px; font-size: 1rem; line-height: 1.35; }
+.continuity-task { margin: 0 0 8px; }
+.continuity-facts { display: grid; gap: 4px; margin: 0 0 8px; padding: 0; list-style: none; }
+.continuity-facts > li { min-width: 0; }
+.continuity-reset { display: flex; align-items: baseline; gap: 8px; }
+.continuity-clock { flex: none; color: var(--warn); font-size: 1.1rem; line-height: 1; }
+.continuity-note { margin: 4px 0; }
+.continuity-blocked { padding: 6px 8px; border: 1px solid var(--bad); border-radius: 6px; color: var(--bad); }
+.continuity-decision { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--ok); border-radius: 6px; }
+.continuity-card[data-decision="delegate"] .continuity-decision { border-color: var(--accent); }
+
+.continuity-actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin: 10px 0 4px; }
+.continuity-option { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; max-width: 100%; }
+.continuity-option-note { flex: 1 1 100%; min-width: 0; }
+.continuity-btn { min-height: 44px; max-width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.continuity-btn[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); font-weight: 600; }
+.continuity-confirm { margin: 10px 0 4px; }
+.continuity-confirm .actions { flex-wrap: wrap; }
+.continuity-open { margin: 8px 0 0; }
+.continuity-link { display: inline-flex; align-items: center; min-height: 44px; overflow-wrap: anywhere; }
+
+.continuity-rows { display: grid; gap: 8px; margin: 12px 0; }
+.continuity-row { display: grid; grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr); gap: 4px 16px; padding: 8px 0;
+  border-bottom: 1px solid var(--line); }
+.continuity-row dt { font-weight: 600; overflow-wrap: anywhere; }
+.continuity-row dd { margin: 0; overflow-wrap: anywhere; }
+.continuity-candidates { display: grid; gap: 8px; margin: 8px 0; padding: 0; list-style: none; }
+.continuity-candidates > li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow-wrap: anywhere; }
+.continuity-chip { padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 999px; font-size: .85rem; color: var(--muted); }
+
+@media (min-width: 601px) {
+  .continuity-actions { flex-direction: row; flex-wrap: wrap; align-items: flex-start; }
+}
+
+@media (max-width: 600px) {
+  .continuity-card { padding: 10px; }
+  .continuity-row { grid-template-columns: minmax(0, 1fr); }
+  .continuity-option, .continuity-btn { width: 100%; }
+  .continuity-toolbar { gap: 4px 8px; }
+}

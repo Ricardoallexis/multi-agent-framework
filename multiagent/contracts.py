@@ -26,6 +26,7 @@ class WaitingReason(str, Enum):
     EXECUTE_STEP = "execute_step"
     RESEARCH = "research"
     REVIEW = "review"
+    APPROVAL_PENDING = "approval_pending"
     RECOVERY = "recovery"
     RECONCILE = "reconcile"
     BUDGET_EXHAUSTED = "budget_exhausted"

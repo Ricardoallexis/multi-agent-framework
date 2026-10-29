@@ -16,6 +16,8 @@
 //                                                   (component props: token, status, mock, route = { section, id })
 //   registerSlot(name, component, { title, topic, order })   a section of the right panel (also exported by panel-slots.js);
 //                                                   props: token, route, sessionId; topic is a help key (optional)
+//   registerUsageSection({ id, label, component, order })   a tab of the «Uso» screen after Planes, Global and API y presupuesto
+//                                                   (CNT-T06; props: token); the ids of the built-in tabs are reserved
 //   registerHelp(entries)                           help entries { title, hint, more } for <Help topic=...> and helpFor()
 //
 // This file imports nothing, so it loads anywhere (the page, Node tests). The one dynamic import() of the GUI is here:
@@ -23,6 +25,7 @@
 
 export const RESERVED_SECTIONS = ["sessions", "runs", "usage", "tree", "map", "new"];   // the routes of the built-in screens
 export const RESERVED_SLOTS = ["changes", "subagents", "tokens", "sources"];            // the sections of the built-in panel
+export const RESERVED_USAGE_SECTIONS = ["plans", "global", "costs"];                    // the tabs of the built-in «Uso» screen (usage.js)
 export const LOAD_BUDGET_MS = 3000;   // the most the first render waits for the manifest, the modules and the sheets together
 const ID = /^[a-z][a-z0-9_]{0,39}$/;
 const NAME = /^[a-z][a-z_]{0,39}$/;
@@ -33,6 +36,7 @@ const STYLE_WAIT_MS = 2500;   // a sheet that neither loads nor fails stops bein
 
 const views = new Map();
 const slots = new Map();
+const usageSections = new Map();
 const helps = new Map();
 const failures = new Map();   // extension id -> why it is not loaded (the manifest itself is "extensions")
 const listeners = new Set();
@@ -82,6 +86,18 @@ export function registerSlot(name, component, { title, topic = null, order } = {
 }
 
 export function registeredSlots() { return [...slots.values()].sort(byOrder); }
+
+export function registerUsageSection({ id, label, component, order } = {}) {
+  if (typeof id !== "string" || !ID.test(id)) refuse("registerUsageSection: id must be lowercase letters, digits and _ (got " + String(id) + ")");
+  if (RESERVED_USAGE_SECTIONS.includes(id)) refuse("registerUsageSection: \"" + id + "\" is a tab of the built-in Uso screen");
+  if (usageSections.has(id)) refuse("registerUsageSection: \"" + id + "\" is already registered");
+  if (typeof label !== "string" || !label.trim() || label.length > 30) refuse("registerUsageSection: label must be 1 to 30 characters");
+  if (typeof component !== "function") refuse("registerUsageSection: component must be a function");
+  usageSections.set(id, { id, key: id, label: label.trim(), component, order: orderOf(order) });
+  changed();
+}
+
+export function registeredUsageSections() { return [...usageSections.values()].sort(byOrder); }
 
 export function registerHelp(entries) {
   if (!entries || typeof entries !== "object" || Array.isArray(entries)) refuse("registerHelp: expects an object of entries");

@@ -5,6 +5,7 @@ import json
 import mimetypes
 import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -138,6 +139,7 @@ class Store:
                 events.append(item)
             result["artifacts"] = artifacts
             result["events"] = events
+            result["attention"] = self._approval_attention(result, events)
             pending = conn.execute(
                 "SELECT * FROM human_step_requests WHERE run_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1",
                 (run_id,),
@@ -166,7 +168,86 @@ class Store:
                     ORDER BY r.created_at DESC LIMIT ?""",
                 params,
             ).fetchall()
-            return [dict(row) for row in rows]
+            results = [dict(row) for row in rows]
+            for item in results:
+                # Read the durable wait, not an in-memory timer. Include the attempt for stale-wait protection.
+                saved = conn.execute("SELECT waiting_attempt FROM runs WHERE id=?", (item["id"],)).fetchone()
+                item["waiting_attempt"] = saved["waiting_attempt"]
+                events = [{"id": row["id"], "event_type": row["event_type"],
+                           "payload": json.loads(row["payload_json"])} for row in conn.execute(
+                    "SELECT id,event_type,payload_json FROM run_events WHERE run_id=? "
+                    "AND event_type IN ('run.approval_pending','run.approval_overdue') ORDER BY id", (item["id"],))]
+                item["attention"] = self._approval_attention(item, events)
+            return results
+
+    @staticmethod
+    def _approval_attention(run: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if (run["status"] != RunStatus.WAITING_HUMAN.value
+                or run.get("waiting_reason") != WaitingReason.APPROVAL_PENDING.value):
+            return None
+        pending = next((event for event in reversed(events)
+                        if event["event_type"] == "run.approval_pending"
+                        and event["payload"].get("step_id") == run.get("waiting_step")
+                        and event["payload"].get("attempt") == run.get("waiting_attempt")), None)
+        if pending is None:
+            return None
+        overdue = any(event["event_type"] == "run.approval_overdue"
+                      and event["payload"].get("wait_id") == pending["id"] for event in events)
+        return {**pending["payload"], "wait_id": pending["id"], "kind": "approval_pending",
+                "who": "user", "overdue": overdue,
+                "question": "Approve, request changes or reject the current artifact"}
+
+    def begin_approval_wait(self, run: dict[str, Any], artifact: dict[str, Any], *, since: str, deadline: str) -> None:
+        """CAS the review and its deadline together; no schema change or new lifecycle state."""
+        with self.db.tx() as conn:
+            fresh = conn.execute("SELECT * FROM runs WHERE id=?", (run["id"],)).fetchone()
+            fields = ("status", "waiting_reason", "waiting_step", "waiting_attempt", "current_step")
+            if (fresh is None or fresh["cancel_requested"] or fresh["status"] != RunStatus.WAITING_HUMAN.value
+                    or any(fresh[key] != run[key] for key in fields)):
+                raise InvalidStateTransition("The persisted approval wait changed; read the run again")
+            if fresh["waiting_reason"] == WaitingReason.APPROVAL_PENDING.value:
+                return
+            if fresh["waiting_reason"] != WaitingReason.REVIEW.value:
+                raise InvalidStateTransition("Only a review can wait for approval")
+            conn.execute("UPDATE runs SET waiting_reason=?,waiting_step=?,waiting_attempt=?,updated_at=? WHERE id=?",
+                         (WaitingReason.APPROVAL_PENDING.value, artifact["step_id"], artifact["attempt"], since, run["id"]))
+            payload = {"step_id": artifact["step_id"], "attempt": artifact["attempt"],
+                       "artifact_id": artifact["id"], "since": since, "deadline": deadline}
+            conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                         (run["id"], since, "run.approval_pending", json.dumps(payload)))
+
+    def _due_approval_waits(self, conn, *, now: str, run_id: str | None = None):
+        sql = "SELECT * FROM runs WHERE status=? AND waiting_reason=? AND cancel_requested=0"
+        params = [RunStatus.WAITING_HUMAN.value, WaitingReason.APPROVAL_PENDING.value]
+        if run_id is not None:
+            sql += " AND id=?"
+            params.append(run_id)
+        due = []
+        for row in conn.execute(sql, params).fetchall():
+            events = [{"id": event["id"], "event_type": event["event_type"],
+                       "payload": json.loads(event["payload_json"])} for event in conn.execute(
+                "SELECT id,event_type,payload_json FROM run_events WHERE run_id=? "
+                "AND event_type IN ('run.approval_pending','run.approval_overdue') ORDER BY id", (row["id"],))]
+            attention = self._approval_attention(dict(row), events)
+            if (attention is not None and not attention["overdue"]
+                    and datetime.fromisoformat(now) >= datetime.fromisoformat(attention["deadline"])):
+                due.append((row["id"], attention))
+        return due
+
+    def check_approval_deadlines(self, *, now: str, run_id: str | None = None) -> int:
+        # GET/list and idle workers need no write lock unless a notice is actually due.
+        with self.db.connect() as conn:
+            if not self._due_approval_waits(conn, now=now, run_id=run_id):
+                return 0
+        count = 0
+        with self.db.tx() as conn:
+            # Re-read under the lock: a decision or another observer may have won.
+            for identifier, attention in self._due_approval_waits(conn, now=now, run_id=run_id):
+                payload = {key: attention[key] for key in ("wait_id", "step_id", "attempt", "deadline")}
+                conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                             (identifier, now, "run.approval_overdue", json.dumps(payload)))
+                count += 1
+        return count
 
     def next_queued_run(self) -> dict[str, Any] | None:
         with self.db.connect() as conn:

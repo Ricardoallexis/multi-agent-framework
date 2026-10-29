@@ -56,6 +56,7 @@ def build_system(settings: Settings | None = None, *, dry_run: bool = False, ada
     engine = WorkflowEngine(
         store=store, catalog=catalog, prompts=prompts, workflows=WorkflowCatalog(settings),
         router=router, artifacts=ArtifactWriter(settings), settings=settings,
+        approval_timeout_seconds=settings.approval_timeout_seconds,
     )
     run_service = RunService(settings, store, engine=engine)
     brand_service = BrandService(store, catalog, prompts, router)

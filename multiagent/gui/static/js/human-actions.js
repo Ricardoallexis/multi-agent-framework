@@ -85,7 +85,7 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
   let body;
   if (view.terminal) {
     body = html`<p class="muted">Esta ejecución terminó; no queda ninguna acción por hacer.</p>`;
-  } else if (waiting && (waiting.reason === "review" || waiting.reason === "budget_exhausted" || waiting.reason === "")) {
+  } else if (waiting && (waiting.reason === "review" || waiting.reason === "approval_pending" || waiting.reason === "budget_exhausted" || waiting.reason === "")) {
     const exhausted = waiting.reason === "budget_exhausted" || view.counters.budget_exhausted;
     body = html`<div>
       ${exhausted && html`<p class="notice">El presupuesto está agotado: puedes aprobar el resultado que ya existe, rechazarlo o cancelar. Pedir cambios o regenerar ya no es posible.</p>`}

@@ -318,7 +318,7 @@ export function mount(container, context = {}) {
     const heading = element("p", {}, `Run ${run.id}: ${run.status}${run.waiting_reason ? ` (${run.waiting_reason})` : ""}.`);
     const blocks = [heading];
 
-    if (run.status === "waiting_human" && run.waiting_reason === "review") {
+    if (run.status === "waiting_human" && ["review", "approval_pending"].includes(run.waiting_reason)) {
       blocks.push(renderReview(false));
     } else if (run.status === "waiting_human" && run.waiting_reason === "budget_exhausted") {
       blocks.push(renderReview(true));

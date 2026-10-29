@@ -45,6 +45,8 @@ import re
 import sqlite3
 import hashlib
 import json
+import uuid
+from datetime import datetime, timezone
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -107,6 +109,7 @@ EVENT_TYPES = (
     "project.created", "project.updated", "project.archived", "project.unarchived", "project.stage_attached",
     "project.stages_reordered", "project.remote_model_acknowledged", "group.plan_updated", "task.plan_updated",
     "task.session_linked", "task.session_unlinked",
+    "task.wait_set", "task.wait_cleared", "task.wait_resolved",
 )
 MAX_EVENT_PAYLOAD_BYTES = 2048
 
@@ -146,6 +149,18 @@ def _text(field: str, value: Any, *, maximum: int, required: bool = True) -> str
 def _identifier(field: str, value: Any, pattern: re.Pattern[str]) -> str:
     if not isinstance(value, str) or not pattern.fullmatch(value):
         raise _invalid(field, f"Invalid {field}: {value!r}")
+    return value
+
+
+def _human_wait_actor(actor: str) -> bool:
+    """Human labels using the shared actor vocabulary; these do not authenticate."""
+    from .projects import actor_kind
+    return actor_kind(actor) in ("user", "person")
+
+
+def _wait_payload(value: dict[str, Any]) -> dict[str, Any]:
+    if len(_canonical_json(value).encode("utf-8")) > 1400:
+        raise _invalid("waiting", "waiting metadata or decision exceeds 1400 UTF-8 bytes")
     return value
 
 
@@ -206,6 +221,7 @@ class TaskServices:
     def __init__(self, services: ApplicationServices):
         self._services = services
         self._store: TaskStore | None = None
+        self.wait_clock = lambda: datetime.now(timezone.utc)
 
     @property
     def store(self) -> TaskStore:
@@ -337,6 +353,7 @@ class TaskServices:
             "created_by": task["created_by"],
             "created_at": task["created_at"],
             "updated_at": task["updated_at"],
+            "waiting": task.get("waiting") or None,
         }
         continuity = continuity_of(task)
         if continuity:
@@ -1243,6 +1260,117 @@ class TaskServices:
                                         "workspace_domain": bool(new_domain)})
             return self._task_view(task_id, conn)
 
+    def _wait_current(self, conn: sqlite3.Connection, task_id: str, expected_revision: int) -> dict[str, Any]:
+        task_id = _identifier("task_id", task_id, _TASK_ID)
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
+            raise _invalid("expected_revision", "expected_revision must be a positive integer")
+        task = self.store.get_task(task_id, conn=conn)
+        if task is None:
+            raise _missing("Task", task_id)
+        if task["revision"] != expected_revision:
+            raise _conflict("The task revision changed", task_id=task_id, revision=task["revision"])
+        return task
+
+    @service_errors
+    def set_wait(self, task_id: str, *, who: str, question: str, actor: str, expected_revision: int,
+                 target: str = "", reference: str = "", reset_at: str | None = None) -> dict[str, Any]:
+        """Attach a decision wait without changing state, assignee, hold, gate or attempt.
+
+        ``who``: user, agent, task, quota or window. Quota needs an aware reset_at;
+        agent/task/window need a target. Each replacement gets a new id so a late
+        reply cannot resolve a different question. Actors are labels, not credentials.
+        """
+        who = _text("who", who, maximum=16)
+        if who not in ("user", "agent", "task", "quota", "window"):
+            raise _invalid("who", "who must be user, agent, task, quota or window")
+        actor = _text("actor", actor, maximum=100)
+        question = _text("question", question, maximum=500)
+        target = _text("target", target, maximum=128, required=who in ("agent", "task", "window"))
+        reference = _text("reference", reference, maximum=256, required=False)
+        now = self.wait_clock().astimezone(timezone.utc)
+        reset = None
+        if who == "quota":
+            try:
+                if not isinstance(reset_at, str):
+                    raise ValueError
+                reset = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
+                if reset.tzinfo is None or reset <= now:
+                    raise ValueError
+                reset = reset.astimezone(timezone.utc).isoformat()
+            except ValueError:
+                raise _invalid("reset_at", "quota needs a future ISO timestamp with timezone") from None
+        elif reset_at is not None:
+            raise _invalid("reset_at", "reset_at is only valid for a quota wait")
+        waiting = _wait_payload({"id": str(uuid.uuid4()), "who": who, "target": target, "question": question,
+                                 "since": now.isoformat(), "reference": reference, "reset_at": reset,
+                                 "created_by": actor, "label": "waiting",
+                                 "kind": "approval_pending" if who == "user" else "waiting"})
+        with self.store.transaction() as conn:
+            task = self._wait_current(conn, task_id, expected_revision)
+            if task["state"] in TERMINAL_STATES:
+                raise _conflict("A terminal task cannot wait for a decision", task_id=task_id)
+            if task["assignee"] and actor != task["assignee"] and not _human_wait_actor(actor):
+                raise _conflict("Only the assignee or a human may set a task wait", task_id=task_id)
+            if who == "task":
+                _identifier("target", target, _TASK_ID)
+                if target == task_id:
+                    raise _invalid("target", "a task cannot wait for itself")
+                if self.store.get_task(target, conn=conn) is None:
+                    raise _missing("Task", target)
+            self.store.update_task(conn, task_id, expected_revision=expected_revision, waiting=waiting)
+            self.store.append_event(conn, "task.wait_set", actor=actor, group_id=task["group_id"], task_id=task_id,
+                                    payload={"waiting": waiting})
+            return self._task_view(task_id, conn)
+
+    def _end_wait(self, task_id: str, *, wait_id: str, actor: str, expected_revision: int,
+                  decision: str | None) -> dict[str, Any]:
+        actor = _text("actor", actor, maximum=100)
+        wait_id = _text("wait_id", wait_id, maximum=100)
+        if decision is not None:
+            decision = _text("decision", decision, maximum=1000)
+        with self.store.transaction() as conn:
+            task = self._wait_current(conn, task_id, expected_revision)
+            waiting = task.get("waiting") or {}
+            if not waiting or waiting.get("id") != wait_id:
+                raise _conflict("The task wait changed", task_id=task_id)
+            human = _human_wait_actor(actor)
+            if decision is None:
+                if actor not in (waiting["created_by"], task["assignee"]) and not human:
+                    raise _conflict("Only its creator, assignee or a human may withdraw a wait", task_id=task_id)
+            else:
+                who = waiting["who"]
+                if who == "user" and not human:
+                    raise _conflict("A user decision must be recorded by a human actor", task_id=task_id)
+                if who == "agent" and actor != waiting["target"] and not human:
+                    raise _conflict("The requested agent must record its decision", task_id=task_id)
+                if who == "window" and not human:
+                    raise _conflict("A human must confirm the integration window", task_id=task_id)
+                if who == "task":
+                    dependency = self.store.get_task(waiting["target"], conn=conn)
+                    if dependency is None or dependency["state"] != "accepted":
+                        raise _conflict("The awaited task is not accepted", task_id=task_id)
+                if who == "quota" and self.wait_clock() < datetime.fromisoformat(waiting["reset_at"]):
+                    raise _conflict("The quota reset time has not arrived", task_id=task_id)
+                if who in ("task", "quota") and actor not in (waiting["created_by"], task["assignee"]) and not human:
+                    raise _conflict("Only the creator, assignee or a human may resolve this wait", task_id=task_id)
+            payload = _wait_payload({"wait_id": wait_id, "who": waiting["who"], "reference": waiting["reference"],
+                                     "decision": decision, "outcome": "resolved" if decision is not None else "withdrawn"})
+            self.store.update_task(conn, task_id, expected_revision=expected_revision, waiting={})
+            self.store.append_event(conn, "task.wait_resolved" if decision is not None else "task.wait_cleared",
+                                    actor=actor, group_id=task["group_id"], task_id=task_id, payload=payload)
+            return self._task_view(task_id, conn)
+
+    @service_errors
+    def clear_wait(self, task_id: str, *, wait_id: str, actor: str, expected_revision: int) -> dict[str, Any]:
+        """Withdraw a question; this records no approval and invokes no execution."""
+        return self._end_wait(task_id, wait_id=wait_id, actor=actor, expected_revision=expected_revision, decision=None)
+
+    @service_errors
+    def resolve_wait(self, task_id: str, *, wait_id: str, actor: str, expected_revision: int,
+                     decision: str) -> dict[str, Any]:
+        """Record an explicit reply and clear its exact wait atomically. Never accept/resume the task."""
+        return self._end_wait(task_id, wait_id=wait_id, actor=actor, expected_revision=expected_revision, decision=decision)
+
     @service_errors
     def get_task(self, task_id: str) -> dict[str, Any]:
         """The task with ``status``, ``blockers``, ``depends_on`` (with ``satisfied``) and ``dependents``.
@@ -1749,15 +1877,21 @@ class TaskServices:
             blockers = self._blockers(task_id, self._states(fresh_tasks), fresh_native, fresh_tasks, fresh_context)
             if blockers:
                 raise _conflict(f"Cannot {action}; task has unresolved blockers", task_id=task_id, blockers=blockers)
+        cleared_wait = task.get("waiting") if (target in TERMINAL_STATES or
+                         (action == "request_changes" and _human_wait_actor(actor))) else None
         try:
             self.store.update_task(conn, task_id, expected_revision=task["revision"], state=target,
                                    assignee=assignee, attempt=attempt, lock_policy=lock_policy_update,
                                    workspace_domain=workspace_domain_update,
                                    snapshot_epoch_pending=epoch_pending_update,
                                    execution=(merge_continuity(task.get("execution"), continuity)
-                                              if continuity else None))
+                                              if continuity else None), waiting={} if cleared_wait else None)
         except StaleRevision as stale:
             raise _conflict(str(stale), task_id=task_id, revision=stale.current) from None
+        if cleared_wait:
+            self.store.append_event(conn, "task.wait_cleared", actor=actor, group_id=task["group_id"], task_id=task_id,
+                                    payload={"wait_id": cleared_wait["id"], "outcome": "task_closed" if
+                                             target in TERMINAL_STATES else "task_decision", "action": action})
         reset_release = action in ("claim", "unclaim", "request_changes", "gate_fail", "reopen") or (
             action == "start" and task["state"] == "needs_changes")
         release_facts_reset = self.store.reset_release_fact(conn, task_id) if reset_release else False

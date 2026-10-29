@@ -124,7 +124,7 @@ export function describeRoot(summary, now = Date.now()) {
   };
 }
 
-const KIND_NAMES = { subagent: "Subagente", thread: "Hilo", step: "Paso de una ejecución del framework" };
+const KIND_NAMES = { subagent: "Subagente", thread: "Hilo", step: "Paso de una ejecución del framework", task: "Tarea del framework en espera" };
 
 // [label, value] rows of the detail of a child and of the orchestrator: plain text, "No consta" when the source said nothing.
 export function detailFacts(child, now = Date.now()) {

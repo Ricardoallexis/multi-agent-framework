@@ -5,6 +5,8 @@ import json
 import logging
 import re
 import time
+import math
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Sequence
 
@@ -215,7 +217,8 @@ class WorkflowEngine:
                  workflows: WorkflowCatalog, router: ModelRouter,
                  artifacts: ArtifactWriter, settings,
                  output_schemas: Mapping[str, type[BaseModel]] | None = None,
-                 document_policy: str | DetectionPolicy | None = DEFAULT_DOCUMENT_POLICY):
+                 document_policy: str | DetectionPolicy | None = DEFAULT_DOCUMENT_POLICY,
+                 approval_timeout_seconds: float | None = None):
         self.store = store
         self.catalog = catalog
         self.prompts = prompts
@@ -223,6 +226,12 @@ class WorkflowEngine:
         self.router = router
         self.artifacts = artifacts
         self.settings = settings
+        if approval_timeout_seconds is not None and (
+                isinstance(approval_timeout_seconds, bool) or not math.isfinite(approval_timeout_seconds)
+                or approval_timeout_seconds <= 0):
+            raise ValueError("approval_timeout_seconds must be finite and positive")
+        # Opt in: legacy checkpoints keep their review reason when no deadline policy is configured.
+        self.approval_timeout_seconds = approval_timeout_seconds
         self.output_schemas = dict(OUTPUT_SCHEMAS if output_schemas is None else output_schemas)
         self.usage_recorder = UsageRecorder(store)
         self._envelope_store: EnvelopeStore | None = None
@@ -236,7 +245,8 @@ class WorkflowEngine:
     def from_bundle(cls, bundle: DefinitionBundle, *, store: Store,
                     artifacts: ArtifactWriter, settings, adapters: Mapping[str, Any],
                     dry_run: bool = False,
-                    document_policy: str | DetectionPolicy | None = DEFAULT_DOCUMENT_POLICY) -> WorkflowEngine:
+                    document_policy: str | DetectionPolicy | None = DEFAULT_DOCUMENT_POLICY,
+                    approval_timeout_seconds: float | None = None) -> WorkflowEngine:
         """Wire a trusted definition bundle into a runtime without changing defaults.
 
         Callers keep ownership of adapter lifetimes and the worker. Each engine
@@ -252,6 +262,7 @@ class WorkflowEngine:
             store=store, catalog=bundle.catalog, prompts=bundle.prompts,
             workflows=bundle.workflows, router=router, artifacts=artifacts,
             settings=settings, output_schemas=bundle.output_schemas, document_policy=document_policy,
+            approval_timeout_seconds=approval_timeout_seconds,
         )
 
     def preflight(self, workflow_id: str) -> WorkflowDefinition:
@@ -319,10 +330,43 @@ class WorkflowEngine:
             raise InvalidStateTransition(message) from err
 
     # ---------- public execution ----------
+    def request_approval(self, run_id: str, *, deadline: datetime) -> dict[str, Any]:
+        """Arm a durable deadline on the current artifact review, without approving it.
+
+        Existing checkpoints remain compatible; applications may opt into a default timeout in the
+        engine constructor or arm one review explicitly. A repeated request keeps the original deadline.
+        """
+        now = datetime.fromisoformat(self._now())
+        if deadline.tzinfo is None or deadline.utcoffset() is None or deadline <= now:
+            raise ValueError("An approval deadline must be a future timezone-aware datetime")
+        run = self.store.get_run(run_id)
+        if run["status"] != RunStatus.WAITING_HUMAN.value or run["waiting_reason"] not in {
+                WaitingReason.REVIEW.value, WaitingReason.APPROVAL_PENDING.value}:
+            raise InvalidStateTransition("Only an artifact review can wait for approval")
+        _, artifact = self.review_point(run)
+        self.store.begin_approval_wait(run, artifact, since=now.isoformat(),
+                                       deadline=deadline.astimezone(timezone.utc).isoformat())
+        return self.store.get_run(run_id)
+
+    def check_approval_deadlines(self, *, run_id: str | None = None) -> int:
+        """Emit one overdue notice per current wait; never resolve, approve or resume a run."""
+        return self.store.check_approval_deadlines(now=self._now(), run_id=run_id)
+
+    def _arm_checkpoint_approval(self, run_id: str) -> None:
+        if self.approval_timeout_seconds is not None:
+            try:
+                self.request_approval(run_id, deadline=datetime.fromisoformat(self._now()) +
+                                      timedelta(seconds=self.approval_timeout_seconds))
+            except InvalidStateTransition:
+                # A human can settle the checkpoint before its optional deadline is armed.
+                # Preserve that decision, including a run already queued for the next step.
+                return
+
     def process_run(self, run_id: str) -> dict[str, Any]:
         run = self.store.get_run(run_id)
         if run["status"] != RunStatus.QUEUED.value:
-            return run
+            self.check_approval_deadlines(run_id=run_id)
+            return self.store.get_run(run_id)
 
         base_active = float(run.get("active_seconds") or 0.0)
         started_mono = time.monotonic()
@@ -665,6 +709,7 @@ class WorkflowEngine:
                         waiting_attempt=attempt,
                     )
                     self.store.db.log_event(run_id, "checkpoint", {"step_id": step.id, "attempt": attempt})
+                    self._arm_checkpoint_approval(run_id)
                     return self._finalize_return(run_id)
 
                 index += 1
@@ -857,6 +902,7 @@ class WorkflowEngine:
                 waiting_attempt=int(pending["attempt"]),
             )
             self.store.db.log_event(run_id, "checkpoint", {"step_id": step.id, "attempt": pending["attempt"]})
+            self._arm_checkpoint_approval(run_id)
         else:
             self.store.update_run(
                 run_id,

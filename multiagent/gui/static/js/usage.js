@@ -4,6 +4,7 @@
 import { html, useEffect, useState } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet } from "./api.js";
 import { Help, helpFor } from "./help.js";
+import { registeredUsageSections } from "./extensions.js";
 import { Progress, Tabs, LevelBadge, StatusChip, levelInfo } from "./ui/index.js";
 
 const APPS = { claude: "Claude", codex: "Codex", copilot: "Copilot" };
@@ -175,6 +176,8 @@ export function Usage({ token }) {
     setRefreshing(false);
   }
   useEffect(() => { refresh(); }, [token]);
+  const extra = registeredUsageSections();   // tabs that extensions add (CNT-T06); none unless one registered
+  const extraSection = extra.find((section) => section.id === view);
   return html`<div class="usage-view">
     <h3 id="usage-title">Datos de uso</h3><${Help} topic="usage.section" />
     <div class="usage-title-row"><p class="muted">Uso local medido por aplicación y por el framework.</p>
@@ -187,8 +190,9 @@ export function Usage({ token }) {
     ${data.loading && !data.plans && !data.today && !data.costs ? html`<p role="status" aria-live="polite">Cargando datos de uso…</p>`
       : html`<${Tabs} id="usageview" label="Secciones de uso" tabs=${[
         { id: "plans", label: "Planes" }, { id: "global", label: "Global" }, { id: "costs", label: "API y presupuesto" },
+        ...extra.map((section) => ({ id: section.id, label: section.label })),
       ]} selected=${view} onSelect=${setView} ...${helpFor("usage.view")} after=${html`<${Help} topic="usage.view" compact=${true} />`}>
-        ${view === "plans" ? html`<${Plans} data=${data.plans} />` : view === "global" ? html`<${Global} today=${data.today} week=${data.week} period=${period} setPeriod=${setPeriod} />` : html`<${Costs} data=${data.costs} />`}
+        ${view === "plans" ? html`<${Plans} data=${data.plans} />` : view === "global" ? html`<${Global} today=${data.today} week=${data.week} period=${period} setPeriod=${setPeriod} />` : extraSection ? html`<${extraSection.component} token=${token} />` : html`<${Costs} data=${data.costs} />`}
       <//>`}
   </div>`;
 }

@@ -9,13 +9,18 @@ keeps HTTP, CLI and Python answers (and errors) identical.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from fastapi import APIRouter
 
 from ..services.sessions import DEFAULT_ITEMS_LIMIT, DEFAULT_LIST_LIMIT, SessionServices
+from .continuity_api import with_extra_children
 from .open_in_app import add_open_routes
 
 
-def add_session_routes(api: APIRouter, sessions: SessionServices) -> None:
+def add_session_routes(api: APIRouter, sessions: SessionServices,
+                       extra_children: Callable[[str], list[dict[str, Any]]] | None = None) -> None:
     @api.get("/sessions/counts")
     def session_counts():
         """Counts of allowed sessions by source and status."""
@@ -41,6 +46,8 @@ def add_session_routes(api: APIRouter, sessions: SessionServices) -> None:
     @api.get("/sessions/{session_id}/children")
     def session_children(session_id: str, status: str | None = None):
         """Subagents, spawned threads and workers; ``status`` is ``active`` or ``done`` (omit for both)."""
-        return sessions.list_children(session_id, status=status)
+        result = sessions.list_children(session_id, status=status)
+        # extra_children: nodes the services do not know, such as the tasks held on this session by a usage limit (CNT-T06)
+        return with_extra_children(result, extra_children(session_id), status) if extra_children else result
 
     add_open_routes(api, sessions)  # POST /sessions/{id}/open and GET /open-in-app (GUI-T06)

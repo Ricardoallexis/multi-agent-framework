@@ -252,6 +252,7 @@ class Settings(BaseSettings):
 
     max_llm_calls: int = Field(default=4, ge=1, le=50)
     max_run_seconds: int = Field(default=300, ge=30)
+    approval_timeout_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     worker_poll_seconds: float = Field(default=0.75, gt=0.05)
     worker_enabled: bool = True
     mock_mode: bool = False

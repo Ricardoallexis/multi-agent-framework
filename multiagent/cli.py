@@ -188,6 +188,22 @@ def cmd_task_group_state(args) -> None:
     }))
 
 
+def cmd_task_wait(args) -> None:
+    body = {"actor": args.actor, "expected_revision": args.revision}
+    path = f"/api/v1/tasks/{_segment(args.task_id)}/waiting"
+    if args.wait_action == "set":
+        body.update(who=args.who, question=args.question, target=args.target,
+                    reference=args.reference, reset_at=args.reset_at)
+        method = "PUT"
+    else:
+        body["wait_id"] = args.wait_id
+        path += "/clear" if args.wait_action == "clear" else "/decision"
+        if args.wait_action == "resolve":
+            body["decision"] = args.decision
+        method = "POST"
+    pretty(_api_json(method, path, json_body=body))
+
+
 def cmd_task_scope(args) -> None:
     policy = None
     if args.shared is not None or args.workspace is not None:
@@ -1062,6 +1078,21 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--context-ref", action="append", help="Reference to immutable context; repeatable")
     x.add_argument("--actor", required=True); x.add_argument("--reopen-group", action="store_true")
     x.add_argument("--group-revision", type=int); x.add_argument("--cause", default=""); x.set_defaults(func=cmd_task_create)
+    wait = task.add_parser("wait", help="Set, withdraw or resolve a task decision wait")
+    wait_sub = wait.add_subparsers(dest="wait_action", required=True)
+    for operation in ("set", "clear", "resolve"):
+        x = wait_sub.add_parser(operation)
+        x.add_argument("task_id"); x.add_argument("--actor", required=True)
+        x.add_argument("--revision", type=int, required=True)
+        if operation == "set":
+            x.add_argument("--who", choices=["user", "agent", "task", "quota", "window"], required=True)
+            x.add_argument("--question", required=True); x.add_argument("--target", default="")
+            x.add_argument("--reference", default=""); x.add_argument("--reset-at")
+        else:
+            x.add_argument("--wait-id", required=True)
+            if operation == "resolve":
+                x.add_argument("--decision", required=True)
+        x.set_defaults(func=cmd_task_wait)
     scope = task.add_parser("scope", help="Set a task file scope and lock partition").add_subparsers(dest="scope_action", required=True)
     x = scope.add_parser("set"); x.add_argument("task_id"); x.add_argument("--actor", required=True); x.add_argument("--revision", type=int, required=True)
     x.add_argument("--file", action="append", help="A path or folder in file_scope; repeatable")

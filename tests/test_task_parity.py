@@ -229,6 +229,12 @@ SCRIPT: list[tuple[str, dict[str, Any]]] = [
                                                 "source_ref": "doc://fixtures/release-t6.md"}]}),
     ("update_scope", {"task_id": "T6", "file_scope": ["src/x"], "actor": "agent:parity", "expected_revision": 99}),
     ("update_scope", {"task_id": "T6", "file_scope": ["src/x"], "actor": "agent:parity", "expected_revision": 1}),
+    ("set_wait", {"task_id": "T6", "who": "user", "question": "Review scope?", "actor": "user", "expected_revision": 2}),
+    ("resolve_wait", {"task_id": "T6", "wait_id": "current", "decision": "Approved", "actor": "agent:a", "expected_revision": 3}),
+    ("resolve_wait", {"task_id": "T6", "wait_id": "current", "decision": "Approved", "actor": "person:reviewer", "expected_revision": 3}),
+    ("set_wait", {"task_id": "T6", "who": "user", "question": "Another review?", "actor": "user", "expected_revision": 4}),
+    ("clear_wait", {"task_id": "T6", "wait_id": "stale", "actor": "user", "expected_revision": 5}),
+    ("clear_wait", {"task_id": "T6", "wait_id": "current", "actor": "user", "expected_revision": 5}),
     ("set_group_state", {"group_id": "ORQ", "state": "closed", "actor": "user", "cause": "stale", "expected_revision": 99}),
     ("set_group_state", {"group_id": "ORQ", "state": "closed", "actor": "user", "cause": "parity close",
                          "expected_revision": 3}),
@@ -324,6 +330,12 @@ def run_http(client: TestClient, op: str, args: dict[str, Any]) -> tuple[int, An
         route = {"record_delivery_fact": "delivery", "record_test_verdict": "test",
                  "record_integration_fact": "integration", "reset_release_facts": "reset"}[op]
         response = client.post(f"/api/v1/tasks/{task_id}/release-facts/{route}", json=a)
+    elif op in ("set_wait", "clear_wait", "resolve_wait"):
+        path = f"/api/v1/tasks/{quote(a.pop('task_id'), safe='')}/waiting"
+        if op == "set_wait":
+            response = client.put(path, json=a)
+        else:
+            response = client.post(path + ("/clear" if op == "clear_wait" else "/decision"), json=a)
     elif op == "update_scope":
         response = client.post(f"/api/v1/tasks/{quote(a.pop('task_id'), safe='')}/scope", json=a)
     elif op == "set_group_state":
@@ -405,6 +417,12 @@ def cli_args(op: str, args: dict[str, Any], snapshot_file: Path | None = None) -
     if op == "reset_release_facts":
         return ["task", "release", "facts", "reset", a["task_id"], "--actor", a["actor"],
                 "--reason", a["reason"]]
+    if op in ("set_wait", "clear_wait", "resolve_wait"):
+        argv = ["task", "wait", {"set_wait": "set", "clear_wait": "clear", "resolve_wait": "resolve"}[op],
+                a.pop("task_id"), "--revision", str(a.pop("expected_revision"))]
+        for key, value in a.items():
+            argv += ["--" + key.replace("_", "-"), str(value)]
+        return argv
     if op == "update_scope":
         argv = ["task", "scope", "set", a["task_id"], "--actor", a["actor"], "--revision", str(a["expected_revision"])]
         for path in a["file_scope"]:
@@ -437,6 +455,10 @@ def run_cli(monkeypatch, capsys, client: TestClient, op: str, args: dict[str, An
 def normalize(value: Any) -> Any:
     """Drop timestamps: everything else must be identical across interfaces."""
     if isinstance(value, dict):
+        if "who" in value and "since" in value:
+            value = {**value, "id": "current", "since": "clock"}
+        if "wait_id" in value:
+            value = {**value, "wait_id": "current"}
         return {k: normalize(v) for k, v in value.items()
                 if k not in ("created_at", "updated_at", "imported_at", "rolled_back_at")}
     if isinstance(value, list):
@@ -458,14 +480,19 @@ def test_facade_http_and_cli_give_the_same_results(monkeypatch, capsys, tmp_path
     with TestClient(create_app(services=http), base_url="http://127.0.0.1") as http_client, \
             TestClient(create_app(services=through_cli), base_url="http://127.0.0.1") as cli_client:
         for step, (op, args) in enumerate(SCRIPT):
-            expected = outcome_facade(facade, op, args)
-            status, body = run_http(http_client, op, args)
+            def current_args(services):
+                resolved = dict(args)
+                if resolved.get("wait_id") == "current":
+                    resolved["wait_id"] = services.tasks.get_task(resolved["task_id"])["waiting"]["id"]
+                return resolved
+            expected = outcome_facade(facade, op, current_args(facade))
+            status, body = run_http(http_client, op, current_args(http))
             if expected[0] == "ok":
                 assert status in (200, 201), (step, op, body)
                 assert normalize(body) == expected[1], (step, op)
             else:
                 assert (status, body["detail"]["code"]) == expected[1], (step, op, body)
-            code, output = run_cli(monkeypatch, capsys, cli_client, op, args, tmp_path)
+            code, output = run_cli(monkeypatch, capsys, cli_client, op, current_args(through_cli), tmp_path)
             if expected[0] == "ok":
                 assert code == 0 and normalize(output) == expected[1], (step, op, output)
             else:

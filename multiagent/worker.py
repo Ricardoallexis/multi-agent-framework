@@ -43,6 +43,10 @@ class LocalWorker:
 
     def _loop(self) -> None:
         while not self._stop.is_set():
+            try:
+                self.engine.check_approval_deadlines()
+            except Exception:
+                logger.exception("Could not inspect approval deadlines")
             run = self.store.next_queued_run()
             if run:
                 self._process(run)
@@ -50,6 +54,7 @@ class LocalWorker:
                 self._stop.wait(self.poll_seconds)
 
     def process_once(self) -> bool:
+        self.engine.check_approval_deadlines()
         run = self.store.next_queued_run()
         if not run:
             return False
