@@ -17,6 +17,7 @@ from .bootstrap import build_system
 from .contracts import HumanReviewRequest, HumanStepSubmission, SocialPostRequest
 from .run_request import RunRequest
 from .services import ApplicationServices, ServiceError
+from .services.availability import FOREGROUND_RUNNING
 from .services.errors import INVALID_REQUEST
 from .gui import mount_gui
 from .ui import mount_ui
@@ -293,6 +294,7 @@ class ExecutorRunRequest(_Body):
     actor: str | None = None
     timeout_seconds: int | None = None
     step_kind: str | None = None
+    wait: bool | None = None          # AVA-T02: true waits for the whole attempt; omitted follows the availability policy
 
 
 class ExecutorResumeRequest(_Body):
@@ -392,9 +394,16 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # AVA-T02: no program started in the background outlives the API that launched it. Stopping closes the
+        # background (nothing new is launched); starting opens it again, for services that outlive one app.
+        background = getattr(getattr(services, "executors", None), "background", None)
+        if background is not None:
+            background.reopen()
         if system_obj.settings.worker_enabled:
             system_obj.worker.start()
         yield
+        if background is not None:
+            await anyio.to_thread.run_sync(background.shutdown)
         services.runs.close()
         system_obj.worker.stop()
 
@@ -839,14 +848,23 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         return services.executors.status(task)
 
     @app.post("/api/v1/executors/run")
-    async def run_executor_task(body: ExecutorRunRequest, request: Request):
-        """Launch a task in an executor application; waits for the attempt, so it can take minutes."""
+    async def run_executor_task(body: ExecutorRunRequest, request: Request, response: Response):
+        """Launch a task in an executor application.
+
+        Without the availability policy it waits for the attempt, so it can take minutes. With the policy on (AVA-T02)
+        the attempt runs in the background and this waits at most ``max_wait_seconds``: an attempt that ended answers 200
+        as always, one that is still going answers 202 with ``outcome`` ``running`` (its heartbeat and end are team events).
+        """
         operator_context = operator_context_provider(request) if operator_context_provider else None
         if inspect.isawaitable(operator_context):
             operator_context = await operator_context
-        return await anyio.to_thread.run_sync(lambda: services.executors.run_task(
+        result = await anyio.to_thread.run_sync(lambda: services.executors.run_task(
             body.task_id, body.executor_id, body.model, body.effort, body.actor, profile_id=body.profile_id,
-            timeout_seconds=body.timeout_seconds, operator_context=operator_context, step_kind=body.step_kind))
+            timeout_seconds=body.timeout_seconds, operator_context=operator_context, step_kind=body.step_kind,
+            wait=body.wait))
+        if isinstance(result, dict) and result.get("outcome") == FOREGROUND_RUNNING:
+            response.status_code = 202
+        return result
 
     @app.post("/api/v1/executors/resume")
     async def resume_executor_task(body: ExecutorResumeRequest):

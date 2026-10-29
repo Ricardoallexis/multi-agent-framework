@@ -29,6 +29,10 @@ anything is started when one is broken:
 Outcome flags: ``timed_out`` (killed because the time ran out), ``cancelled`` (killed by ``cancel`` while it was
 running; cancelling a program that already finished does nothing). ``exit_code`` is the one the operating system
 reports, which for a killed program is its kill status.
+
+``watching`` (an observational callback while the program runs) and ``capturing`` (the handle of the program, to cancel it
+from another thread; AVA-T02) pass through adapters that call ``run`` without changing their signatures. Both are
+context variables of the calling thread and change nothing about how the program is started or limited.
 """
 from __future__ import annotations
 
@@ -211,6 +215,7 @@ class ProcessWatch:
 
 
 _WATCH_CONTEXT: ContextVar[ProcessWatch | None] = ContextVar("process_watch", default=None)
+_HANDLE_CONTEXT: ContextVar[Callable[["ProcessHandle"], Any] | None] = ContextVar("process_handle_sink", default=None)
 
 
 @contextmanager
@@ -224,6 +229,24 @@ def watching(interval_seconds: float, callback: Callable[[ProcessActivity], Any]
         yield
     finally:
         _WATCH_CONTEXT.reset(token)
+
+
+@contextmanager
+def capturing(callback: Callable[["ProcessHandle"], Any]) -> Iterator[None]:
+    """Hand the ``ProcessHandle`` of every program ``start`` launches in this context to ``callback``.
+
+    Adapters call ``run`` and never see the handle; the background launch of AVA-T02 uses this to be able to ``cancel``
+    the program (a cancellation, a shutdown) while another thread waits for it. The callback runs right after the
+    program started, in the thread that started it; if it fails, that is logged and the program keeps running
+    (the caller still holds the handle through ``wait``).
+    """
+    if not callable(callback):
+        raise ValueError("capturing needs a callable")
+    token = _HANDLE_CONTEXT.set(callback)
+    try:
+        yield
+    finally:
+        _HANDLE_CONTEXT.reset(token)
 
 
 # --------------------------------------------------------------------------- output capture
@@ -620,7 +643,17 @@ def start(argv: list[str], *, cwd: Path | str, stdin_text: str | None, timeout_s
     except (OSError, ValueError) as exc:
         _logger.error("process could not start: argv=%s error=%s", arguments, exc)
         raise ProcessLaunchError(LAUNCH_FAILED, f"the program could not be started: {exc}") from exc
-    return ProcessHandle(proc, command, timeout, cap, stdin_data, selected_watch)
+    handle = ProcessHandle(proc, command, timeout, cap, stdin_data, selected_watch)
+    sink = _HANDLE_CONTEXT.get()
+    if sink is not None:
+        try:
+            sink(handle)
+        except Exception:  # noqa: BLE001 - telemetry about the handle must never lose the program
+            _logger.exception("process %s handle callback failed", handle.pid)
+        except BaseException:  # an interrupt: nobody will wait for this program, so it must not be left running
+            handle.cancel()
+            raise
+    return handle
 
 
 def run(argv: list[str], *, cwd: Path | str, stdin_text: str | None, timeout_seconds: float,

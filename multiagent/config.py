@@ -15,6 +15,7 @@ SESSION_SOURCES = ("claude", "codex", "copilot", "framework")  # sources of the 
 BUDGET_SCOPES = ("month", "project", "run")   # USO-T03: what a budget limits
 BUDGET_MODES = ("warn", "cut")                # USO-T03: only report (default) or let USO-T04 cut the call
 DEFAULT_BUDGET_ALERTS = (80.0, 95.0)          # percent of a budget that raises an alert
+AVAILABILITY_KINDS = ("cancel", "interrupt", "adjust", "note")   # AVA-T01: what a message of the person asks for
 _BUDGET_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _CURRENCY = re.compile(r"^[A-Za-z][A-Za-z0-9]{1,15}$")
 
@@ -220,6 +221,18 @@ class Settings(BaseSettings):
     executor_timeout_seconds: int = Field(default=1800, ge=1, le=86400)
     executor_quota_pause_minutes: int = Field(default=300, ge=1, le=10080)
 
+    # AVA-T01/T02 availability policy (``services.availability.policy_from_settings`` reads these and enforces the same
+    # limits). Off by default: ``run_task`` then waits for the whole attempt. On, an attempt is launched in the background
+    # and the caller waits at most ``availability_max_wait_seconds`` (1 to 120) before it is told ``running``;
+    # ``availability_heartbeat_seconds`` (5 to 300) is how often a running attempt writes ``executor.heartbeat``.
+    # ``availability_priorities`` is the inbox order (``cancel`` first; ``cancel;interrupt;adjust;note`` or a JSON array) and
+    # ``availability_orchestrator_threshold`` (0.50 to 0.60) is reserved for S8: validated, never read by a flow.
+    availability_enabled: bool = False
+    availability_max_wait_seconds: float = Field(default=30, ge=1, le=120, allow_inf_nan=False)
+    availability_heartbeat_seconds: float = Field(default=60, ge=5, le=300, allow_inf_nan=False)
+    availability_priorities: Annotated[tuple[str, ...], NoDecode] = AVAILABILITY_KINDS
+    availability_orchestrator_threshold: Optional[float] = Field(default=None, ge=0.5, le=0.6, allow_inf_nan=False)
+
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:8b"
     ollama_num_ctx: int = Field(default=4096, ge=1024)
@@ -276,6 +289,24 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_budget_alerts(cls, value: Any) -> tuple[float, ...]:
         return _percents(value)
+
+    @field_validator("availability_priorities", mode="before")
+    @classmethod
+    def _validate_availability_priorities(cls, value: Any) -> tuple[str, ...]:
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return AVAILABILITY_KINDS
+            value = json.loads(text) if text.startswith("[") else [part.strip() for part in re.split(r"[;,]", text)
+                                                                  if part.strip()]
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("availability_priorities must be a list of message kinds")
+        items = tuple(value)
+        if len(items) != len(AVAILABILITY_KINDS) or set(items) != set(AVAILABILITY_KINDS):
+            raise ValueError(f"availability_priorities must list each of {', '.join(AVAILABILITY_KINDS)} exactly once")
+        if items[0] != "cancel":
+            raise ValueError("availability_priorities must start with 'cancel'")
+        return items
 
     @field_validator("gui_session_roots")
     @classmethod

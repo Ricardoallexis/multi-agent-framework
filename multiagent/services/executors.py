@@ -20,6 +20,22 @@ by an open session leaves the task ``paused`` with trimmed evidence in the ``exe
 or limit error also pauses the executor (``executor.paused``) and holds the task (below). Nothing loops: the next run is
 asked for by a person or by the orchestrator.
 
+Background launch and heartbeat (AVA-T02, contract ``AVA-T01-contrato.md``, ``availability.py``). Off unless the availability
+policy is on (``ExecutorServices.availability``, else the ``availability_*`` settings): then nothing here changes and
+``run_task`` waits for the whole attempt. With it on, ``run_task`` (not ``resume_task`` nor the automatic resumptions) does
+every check, takes the task to ``running`` and records the routing in the caller's thread, then runs the adapter call and the
+record of its end in a thread of its own (``background``: at most one attempt per task and ``MAX_BACKGROUND_ATTEMPTS`` in all)
+while the caller waits at most ``policy.foreground_wait(timeout)``. If the attempt ended by then the caller gets the normal
+answer; if not, ``outcome`` ``running`` (the HTTP route answers 202) and the attempt goes on. While it goes on, the process
+watch that detects the 15 minute stall (CNT-T09) also writes ``executor.heartbeat`` every ``heartbeat_seconds``
+(``{attempt, elapsed_seconds, idle_seconds, attention}``: numbers and the attention kind, never the prompt or the output;
+``idle_seconds`` is the one the stall was judged on, from the process output or the session metadata, and null when it
+cannot be known, as for a Claude CLI without session metadata).
+Every background attempt ends with ``executor.attempt_finished`` (an internal failure is recorded as ``failed`` with the
+exception type only) and its task ``submitted`` or ``paused`` as in a synchronous run. The program is the process executor's
+(argument list, no shell, tree kill); ``background.cancel(task_id)`` kills its tree, and ``background.shutdown()`` (the API
+on stop, and at interpreter exit) kills every one so no program outlives the process that launched it.
+
 Hold and resume (CNT-T04, contract ``CNT-T01-contrato.md`` sections 4 and 10, ``hold.py``): an attempt that ends at a
 usage limit leaves the task ``paused`` with a *hold* in ``tasks.execution_json`` (``continuity.hold``: the limit class,
 window, ``reset_at`` with its source and confidence, ``resume_after``, the executor, the agent that owned the task, the
@@ -109,7 +125,8 @@ can take. The assignment preview shows the same selection for each executor (``d
 Events (team event log, no migration): ``executor.session_recorded`` (``ref`` is the session id),
 ``executor.routing_selected`` (``ref`` is the executor id: the model and effort of the attempt, where each came from,
 the routing profile, mode, step kind, level, price source, effort source and the candidates skipped for this executor),
-``executor.attempt_finished`` (outcome, exit code, usage, trimmed evidence), ``executor.paused`` (``ref`` is the
+``executor.attempt_finished`` (outcome, exit code, usage, trimmed evidence), ``executor.heartbeat`` (``ref`` is the
+executor id; a background attempt is alive), ``executor.paused`` (``ref`` is the
 executor id; the limit class, ``reset_*`` and ``open_ended`` when a limit caused it), ``executor.pause_lifted`` (``ref``
 is the executor id: who lifted it and why), ``session.opened_in_app`` (``ref`` is the session id),
 ``continuity.limit_detected`` (``ref`` is the executor id), ``task.checkpointed`` (``ref`` is the patch blob, empty
@@ -123,25 +140,30 @@ Errors (``ServiceError``): ``not_found`` (task, executor), ``invalid_request`` (
 adapter refuses) and ``invalid_state`` (``details.reason`` says why: ``executor_disabled``, ``executor_without_adapter``,
 ``executor_paused``, ``executor_unavailable``, ``task_not_runnable``, ``no_stored_session``, ``session_open_in_app``,
 ``assignment_not_selected``, ``model_not_supported``, ``effort_not_supported``, ``workdir_invalid``, ``session_retired``,
-``hold_changed``, ``relaunch_failed``, ``effect_not_authorized``, and for a wait by condition ``task_not_holdable``,
+``hold_changed``, ``relaunch_failed``, ``effect_not_authorized``, for a background run ``availability_policy_invalid``,
+``background_attempt_active``, ``background_capacity`` and ``background_closed``, and for a wait by condition ``task_not_holdable``,
 ``already_held``, ``task_without_assignee``, ``not_waiting_for_approval``, ``approver_not_allowed``,
 ``approver_mismatch``, ``already_decided``, ``condition_not_met``). ``model_not_supported``
 and ``effort_not_supported`` refuse a value the caller named; one that came from the profile is dropped instead.
 """
 from __future__ import annotations
 
+import atexit
 import hashlib
 import json
 import logging
 import os
 import re
 import threading
+import time
 import uuid
+import weakref
 from collections.abc import Callable, Iterable, Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ..db.envelope_store import HARD_MAX_BLOB_BYTES
 from ..document_actions import Action, ActionKind, Approval
@@ -157,18 +179,22 @@ from ..tasks.envelopes import MAX_CONSTRAINTS, MAX_CONTEXT_REFS, EnvelopeError
 from . import checkpoint as _checkpoint
 from . import hold as _hold
 from . import waits as _waits
+from .availability import (
+    ATTEMPT_FINISHED_EVENT, FOREGROUND_RUNNING, HEARTBEAT_EVENT, AvailabilityPolicy, AvailabilityPolicyError,
+    policy_from_settings,
+)
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
 from .tasks import _TASK_ID, _text
 
 if TYPE_CHECKING:
     from . import ApplicationServices
 
-__all__ = ["ExecutorServices", "EVENT_TYPES", "APP_OPEN_GUARD"]
+__all__ = ["ExecutorServices", "BackgroundAttempts", "EVENT_TYPES", "APP_OPEN_GUARD"]
 
 _logger = logging.getLogger(__name__)
 
 SESSION_EVENT = "executor.session_recorded"
-ATTEMPT_EVENT = "executor.attempt_finished"
+ATTEMPT_EVENT = ATTEMPT_FINISHED_EVENT       # "executor.attempt_finished": the one name the availability policy shares
 ATTENTION_EVENT = "executor.attention"
 ROUTING_EVENT = "executor.routing_selected"
 PAUSE_EVENT = "executor.paused"
@@ -181,8 +207,9 @@ HELD_EVENT = "continuity.held"
 RESUMED_EVENT = "continuity.resumed"
 CONDITION_MET_EVENT = "continuity.condition_met"
 CONDITION_EXPIRED_EVENT = "continuity.condition_expired"
-EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, ATTENTION_EVENT, PAUSE_EVENT, OPEN_EVENT, LIMIT_EVENT, CHECKPOINT_EVENT,
-               RETIRED_EVENT, PAUSE_LIFTED_EVENT, HELD_EVENT, RESUMED_EVENT, CONDITION_MET_EVENT, CONDITION_EXPIRED_EVENT)
+EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, ATTENTION_EVENT, HEARTBEAT_EVENT, PAUSE_EVENT, OPEN_EVENT,
+               LIMIT_EVENT, CHECKPOINT_EVENT, RETIRED_EVENT, PAUSE_LIFTED_EVENT, HELD_EVENT, RESUMED_EVENT,
+               CONDITION_MET_EVENT, CONDITION_EXPIRED_EVENT)
 WATCHER_ACTOR = "system:watcher"          # who records the end of a wait by condition (CNT-T12); it resumes as the assignee
 AUTO_TRIGGERS = ("auto", "condition")     # resumptions the service makes by itself: a limit that returns counts as a failed one
 NOT_APPROVERS = ("system:", "executor:")  # the framework never approves in the name of a person
@@ -194,6 +221,9 @@ MAX_TIMEOUT_SECONDS = 86400
 MAX_EVIDENCE_CHARS = 800                  # trimmed output kept as evidence of a failed attempt
 MAX_NOTE_CHARS = 160
 MAX_NOTES = 6
+MAX_BACKGROUND_ATTEMPTS = 8               # attempts (and so programs) one service keeps in the background at once (AVA-T02)
+BACKGROUND_SHUTDOWN_SECONDS = 10          # how long a shutdown waits for the cancelled attempts to record their end
+BACKGROUND_EXIT_SECONDS = 5               # the same, at interpreter exit
 EVENT_PAYLOAD_BUDGET = 1900               # the team event payload limit is 2048 bytes
 _PROBE_SESSION = "00000000-0000-4000-8000-000000000000"   # only to build an argv for the pre-flight check of Claude
 _EXECUTOR_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -332,6 +362,190 @@ class _Attempt:
     effective: Mapping[str, Any] | None = None    # what the app says it ran with (model, effort, permission), if it does
 
 
+@dataclass
+class _Launch:
+    """One attempt once its task is ``running``: what the adapter call and the record of its end need."""
+    task: dict[str, Any]
+    plan: _Plan
+    actor: str
+    timeout: int
+    resume_session: str | None
+    recorded: Mapping[str, Any] | None
+    trigger: str
+    prior: dict[str, Any]
+    permission: Permission
+    workdir: Path
+    request: ExecutorLaunchRequest
+    claude_session_id: str | None
+    cause: str
+    mode: str
+    view: dict[str, Any]
+    call: Callable[[ExecutorLaunchRequest], "_Attempt"]    # the adapter call, named once in ``_execute`` (BDI-T04 order check)
+    # True once this attempt took its task out of ``running`` (submitted or paused it). From then on the task is no longer
+    # this attempt's to touch: a resume keeps the attempt number, so a later run of the same task looks the same as this one.
+    settled: bool = False
+
+
+class _Observation(NamedTuple):
+    """What the process watch found about an attempt: the attention kind (``stalled`` or ``approval_pending``) or None, and
+    the seconds since its last sign of activity, from the process output or the session metadata, whichever is later.
+    ``idle_seconds`` is None when it cannot be known: the Claude CLI prints nothing while it works, so without session
+    metadata its silence says nothing; and while the session has tests open it is not idle."""
+    attention: str | None
+    idle_seconds: float | None
+
+
+class _Heartbeat:
+    """When the next ``executor.heartbeat`` of an attempt is due (monotonic clock; the process watch asks)."""
+
+    def __init__(self, interval_seconds: float, started: float):
+        self.interval = float(interval_seconds)
+        self.started = started
+        self._last = started
+
+    def due(self) -> bool:
+        now = time.monotonic()
+        if now - self._last < self.interval:
+            return False
+        self._last = now
+        return True
+
+    def elapsed(self) -> float:
+        return round(max(0.0, time.monotonic() - self.started), 1)
+
+
+class BackgroundAttempt:
+    """One attempt that runs in a thread of its own so that the caller of ``run_task`` can be told ``running`` (AVA-T02).
+
+    ``done`` is set once the attempt ended and recorded how (``result`` is then the dictionary ``run_task`` would have
+    returned, or the failed shape when the framework itself broke). ``cancel`` kills the process tree of the program the
+    attempt started; asked before the program exists, it kills it the moment it starts.
+    """
+
+    def __init__(self, task_id: str, executor_id: str):
+        self.task_id = task_id
+        self.executor_id = executor_id
+        self.attempt: int | None = None
+        self.started = time.monotonic()
+        self.done = threading.Event()
+        self.result: dict[str, Any] | None = None
+        self.attempt_recorded = False             # ``executor.attempt_finished`` was written: a failure must not write a second
+        self.outcome: str | None = None           # ...and the outcome and run status it recorded
+        self.run_status: str | None = None
+        self._lock = threading.Lock()
+        self._handle: process.ProcessHandle | None = None
+        self._cancel_requested = False
+
+    def adopt(self, handle: process.ProcessHandle) -> None:
+        """Called (``process.capturing``) with the handle of each program the attempt starts."""
+        with self._lock:
+            self._handle = handle
+            cancel = self._cancel_requested
+        if cancel:
+            handle.cancel()
+
+    def cancel(self) -> bool:
+        """Ask the attempt to stop. True when a running program was killed now; the outcome says ``cancelled``."""
+        with self._lock:
+            self._cancel_requested = True
+            handle = self._handle
+        return handle.cancel() if handle is not None else False
+
+
+class BackgroundAttempts:
+    """The attempts one ``ExecutorServices`` keeps in the background: at most one per task and ``limit`` in all.
+
+    Nothing here waits without a limit. ``shutdown`` is what the API calls when it stops and what runs at interpreter
+    exit: it cancels every attempt, so no program outlives the process that launched it.
+    """
+
+    def __init__(self, limit: int = MAX_BACKGROUND_ATTEMPTS):
+        self._limit = limit
+        self._lock = threading.Lock()
+        self._active: dict[str, BackgroundAttempt] = {}
+        self._closed = False
+        _REGISTRIES.add(self)
+
+    def reserve(self, task_id: str, executor_id: str) -> BackgroundAttempt:
+        """A place for the attempt of ``task_id``; refused (``invalid_state``) when it already has one or the limit is reached."""
+        with self._lock:
+            if self._closed:
+                raise _conflict("background_closed", "The background is closed (the service is stopping): "
+                                "nothing new is launched")
+            if task_id in self._active:
+                raise _conflict("background_attempt_active", f"{task_id} already has an attempt in the background",
+                                task_id=task_id)
+            if len(self._active) >= self._limit:
+                raise _conflict("background_capacity", f"{self._limit} attempts already run in the background; "
+                                "wait for one to end", limit=self._limit)
+            attempt = BackgroundAttempt(task_id, executor_id)
+            self._active[task_id] = attempt
+            return attempt
+
+    def release(self, attempt: BackgroundAttempt) -> None:
+        with self._lock:
+            if self._active.get(attempt.task_id) is attempt:
+                del self._active[attempt.task_id]
+
+    def get(self, task_id: str) -> BackgroundAttempt | None:
+        with self._lock:
+            return self._active.get(task_id)
+
+    def active(self) -> list[dict[str, Any]]:
+        """The attempts running now, without any content: task, executor, attempt number and seconds elapsed."""
+        with self._lock:
+            attempts = list(self._active.values())
+        return [{"task_id": a.task_id, "executor_id": a.executor_id, "attempt": a.attempt,
+                 "elapsed_seconds": round(max(0.0, time.monotonic() - a.started), 1)} for a in attempts]
+
+    def cancel(self, task_id: str) -> bool:
+        """Cancel the attempt of a task; False when it has none running (or its program is not up yet)."""
+        attempt = self.get(task_id)
+        return attempt.cancel() if attempt is not None else False
+
+    def join(self, timeout: float = BACKGROUND_SHUTDOWN_SECONDS) -> bool:
+        """Wait up to ``timeout`` seconds for the attempts running now; True when none is left."""
+        with self._lock:
+            attempts = list(self._active.values())
+        deadline = time.monotonic() + timeout
+        for attempt in attempts:
+            attempt.done.wait(max(0.0, deadline - time.monotonic()))
+        return all(attempt.done.is_set() for attempt in attempts)
+
+    def reopen(self) -> None:
+        """Accept new attempts again after a ``shutdown`` (the API does it when it starts)."""
+        with self._lock:
+            self._closed = False
+
+    def shutdown(self, timeout: float = BACKGROUND_SHUTDOWN_SECONDS) -> int:
+        """Close the background (``reserve`` is refused from now on: ``background_closed``), cancel every attempt and wait
+        up to ``timeout`` seconds for them to record their end; returns how many still run."""
+        with self._lock:
+            self._closed = True
+            attempts = list(self._active.values())
+        for attempt in attempts:
+            attempt.cancel()
+        deadline = time.monotonic() + timeout
+        for attempt in attempts:
+            attempt.done.wait(max(0.0, deadline - time.monotonic()))
+        return sum(1 for attempt in attempts if not attempt.done.is_set())
+
+
+_REGISTRIES: weakref.WeakSet[BackgroundAttempts] = weakref.WeakSet()
+
+
+def _stop_background_at_exit() -> None:
+    """No program started in the background outlives the interpreter (POSIX children are not tied to their parent)."""
+    for registry in list(_REGISTRIES):
+        try:
+            registry.shutdown(BACKGROUND_EXIT_SECONDS)
+        except Exception:  # noqa: BLE001 - exiting: nothing may keep the interpreter from finishing
+            _logger.warning("stopping the background attempts failed", exc_info=True)
+
+
+atexit.register(_stop_background_at_exit)
+
+
 class ExecutorServices:
     def __init__(self, services: ApplicationServices, *, registry: Any = None,
                  clock: Callable[[], datetime] | None = None):
@@ -347,6 +561,11 @@ class ExecutorServices:
         # The approvals that allow an effect while a document policy is active (BDI-T04); None means "no evidence",
         # and then every gated effect is refused. Set by the host that turns the barrier on.
         self.effect_evidence: Callable[[Action, Mapping[str, Any]], Iterable[Approval] | None] | None = None
+        # The availability policy (AVA-T01). ``None`` reads it from the settings (``availability_*``), which are off unless
+        # configured; a host or a test may set a policy here. With it on, ``run_task`` launches in the background.
+        self.availability: AvailabilityPolicy | None = None
+        # The attempts launched in the background (AVA-T02): ``cancel``, ``shutdown``, ``active`` and ``join``.
+        self.background = BackgroundAttempts()
 
     # -------- wiring --------
     @property
@@ -466,14 +685,16 @@ class ExecutorServices:
 
     def _observe_process(self, *, task_id: str, attempt: int, executor_id: str, adapter: Any,
                          session_id: str | None, process_activity: process.ProcessActivity,
-                         stall_seconds: float, deadline: str) -> None:
+                         stall_seconds: float, deadline: str) -> _Observation:
+        """Record whether the attempt looks stalled and return what was found (``_Observation``): the attention kind now and
+        the idle time it was judged on. The heartbeat of a background attempt shows both."""
         metadata = self._session_activity(adapter, session_id)
         # Claude stdout is silent by design; unavailable metadata is unknown, not proof of activity.
         if getattr(adapter, "adapter_id", "") == "claude_cli" and metadata is None:
-            return
+            return _Observation(None, None)
         if metadata and metadata.get("open_tests") is True:
             self._write_attention(task_id, attempt, executor_id, None)
-            return
+            return _Observation(None, None)
         current = self.clock().astimezone(timezone.utc)
         process_last = _parse_time(process_activity.last_output_at)
         metadata_time = _parse_time(metadata.get("last_output_at")) if metadata else None
@@ -487,15 +708,40 @@ class ExecutorServices:
             last, idle, source = None, process_activity.idle_seconds, "process_start"
         if idle < stall_seconds:
             self._write_attention(task_id, attempt, executor_id, None)
-            return
+            return _Observation(None, idle)
         basis = last or _parse_time(process_activity.started_at)
         if basis is None:
             self._write_attention(task_id, attempt, executor_id, None)
-            return
+            return _Observation(None, idle)
         kind = "approval_pending" if metadata and metadata.get("approval_pending") is True else "stalled"
         attention = {"kind": kind, "since": _iso(basis + timedelta(seconds=stall_seconds)),
                      "last_output_at": _iso(last) if last else None, "source": source, "deadline": deadline}
         self._write_attention(task_id, attempt, executor_id, attention)
+        return _Observation(kind, idle)
+
+    def _write_heartbeat(self, task_id: str, attempt: int, executor_id: str, *, elapsed_seconds: float,
+                         idle_seconds: float | None, attention: str | None) -> bool:
+        """Record ``executor.heartbeat`` for the live attempt only (the task is ``running`` in this attempt).
+
+        The payload is numbers and the attention kind: never the prompt, the output or a path. A failure to write it is
+        logged and never touches the program.
+        """
+        try:
+            with self._store.transaction() as conn:
+                task = self._store.get_task(task_id, conn=conn)
+                if task is None or task.get("state") != "running" or task.get("attempt") != attempt:
+                    return False
+                self._store.append_event(
+                    conn, HEARTBEAT_EVENT, actor=WATCHER_ACTOR, group_id=str(task["group_id"]), task_id=task_id,
+                    cause="executor heartbeat", ref=executor_id,
+                    payload=_fit({"attempt": attempt, "elapsed_seconds": elapsed_seconds,
+                                  "idle_seconds": None if idle_seconds is None else round(max(0.0, idle_seconds), 1),
+                                  "attention": attention}))
+            return True
+        except Exception:  # noqa: BLE001 - telemetry about a running program must never reach it
+            _logger.warning("heartbeat of %s could not be recorded", task_id, exc_info=True)
+            return False
+
     @staticmethod
     def _latest(conn: Any, event_type: str, *, task_id: str | None = None, ref: str | None = None) -> dict[str, Any] | None:
         sql, params = "SELECT * FROM team_events WHERE type=?", [event_type]
@@ -690,7 +936,7 @@ class ExecutorServices:
     def run_task(self, task_id: str, executor_id: str | None = None, model: str | None = None,
                  effort: str | None = None, actor: str | None = None, *, profile_id: str | None = None,
                  timeout_seconds: int | None = None, operator_context: Any = None,
-                 step_kind: str | None = None) -> dict[str, Any]:
+                 step_kind: str | None = None, wait: bool | None = None) -> dict[str, Any]:
         """Launch the task in an executor application in a new session; returns the outcome of the attempt.
 
         ``executor_id`` names the executor; without it ``profile_id`` makes the assignment preview choose (it needs a
@@ -710,17 +956,46 @@ class ExecutorServices:
         stored and the gate decides) or what stopped the attempt: ``failed``, ``timeout``, ``cancelled``,
         ``quota_exhausted`` or ``blocked_open_session``; those leave the task ``paused``. Running a task that is held
         by a limit clears its hold (``continuity.resumed``, ``trigger`` ``manual``).
+
+        ``wait`` (AVA-T02, off unless the availability policy is on): ``None`` follows the policy, ``True`` waits for the
+        whole attempt whatever the policy says, ``False`` has no effect while the policy is off and is the same as ``None``
+        while it is on (the caller never waits more than ``max_wait_seconds``). With the policy on, every
+        check and the change of the task to ``running`` still happen here, in the caller's thread; only then the program
+        is launched in the background and the caller waits at most the policy's ``max_wait_seconds`` (never more than
+        ``timeout_seconds``). An attempt that ends in that time answers as always. One that does not answers
+        ``outcome`` ``running`` (``run_status`` ``running``, the other keys empty) and goes on: it writes
+        ``executor.heartbeat`` every ``heartbeat_seconds`` and, whatever happens, ends with ``executor.attempt_finished``
+        and the task ``submitted`` or ``paused`` as in a synchronous run. ``resume_task`` and the automatic resumptions are
+        always synchronous. Errors added: ``invalid_request`` (``wait``), ``invalid_state`` with ``availability_policy_invalid``,
+        ``background_attempt_active`` and ``background_capacity``.
         """
         return self._run_task(task_id, executor_id, model, effort, actor, profile_id=profile_id,
-                              timeout_seconds=timeout_seconds, operator_context=operator_context, step_kind=step_kind)
+                              timeout_seconds=timeout_seconds, operator_context=operator_context, step_kind=step_kind,
+                              wait=wait)
+
+    def _background_policy(self, wait: Any) -> AvailabilityPolicy | None:
+        """The availability policy when this run goes to the background, else None (a synchronous run, as always)."""
+        if wait is not None and not isinstance(wait, bool):
+            raise _invalid("wait", "wait must be true, false or omitted")
+        if wait is True:
+            return None
+        policy = self.availability
+        if policy is None:
+            try:
+                policy = policy_from_settings(self._services.settings)
+            except AvailabilityPolicyError as exc:
+                raise _conflict("availability_policy_invalid",
+                                f"The availability configuration is not valid: {_collapse(str(exc), 200)}") from None
+        return policy if policy.enabled else None
 
     def _run_task(self, task_id: str, executor_id: str | None, model: str | None, effort: str | None,
                   actor: str | None, *, profile_id: str | None = None, timeout_seconds: int | None = None,
                   operator_context: Any = None, step_kind: str | None = None, hold: Mapping[str, Any] | None = None,
-                  trigger: str = "manual", drift: tuple[str, ...] = ()) -> dict[str, Any]:
+                  trigger: str = "manual", drift: tuple[str, ...] = (), wait: bool | None = True) -> dict[str, Any]:
         task_id = self._task_id(task_id)
         if executor_id is not None and (not isinstance(executor_id, str) or not _EXECUTOR_ID.fullmatch(executor_id)):
             raise _invalid("executor_id", f"Invalid executor_id: {executor_id!r}")
+        policy = self._background_policy(wait)       # only ``run_task`` passes anything but ``True`` (the automatic runs wait)
         model, effort = self._optional_token("model", model), self._optional_token("effort", effort)
         profile_id = self._optional_token("profile_id", profile_id)
         if step_kind is not None and step_kind not in STEP_KINDS:
@@ -730,7 +1005,8 @@ class ExecutorServices:
         actor = _text("actor", actor if actor is not None else f"executor:{plan.executor_id}", maximum=100)
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
-        return self._execute(task, plan, actor, timeout, resume_session=None, hold=hold, trigger=trigger, drift=drift)
+        return self._execute(task, plan, actor, timeout, resume_session=None, hold=hold, trigger=trigger, drift=drift,
+                             policy=policy)
 
     @service_errors
     def resume_task(self, task_id: str, model: str | None = None, effort: str | None = None,
@@ -783,10 +1059,15 @@ class ExecutorServices:
     def _execute(self, task: dict[str, Any], plan: _Plan, actor: str, timeout: int, *,
                  resume_session: str | None, recorded: Mapping[str, Any] | None = None,
                  hold: Mapping[str, Any] | None = None, trigger: str = "manual",
-                 drift: tuple[str, ...] = ()) -> dict[str, Any]:
+                 drift: tuple[str, ...] = (), policy: AvailabilityPolicy | None = None) -> dict[str, Any]:
         """One attempt. ``hold`` and ``trigger`` (``auto`` from ``resume_due``, ``condition`` from ``resume_met``, else
         ``manual``) say what hold this run ends; ``drift`` is what ``resume_due`` found different before relaunching; ``recorded`` the settings of the
-        session being resumed (to compare with what the app reports)."""
+        session being resumed (to compare with what the app reports).
+
+        Three steps: the checks and the change of the task to ``running`` (always here, in the caller's thread), the
+        adapter call (``_call_with_watch``) and the record of how it ended (``_finish_attempt``). With ``policy`` (the
+        availability policy, on) the last two run in a thread of their own and this returns ``running`` if they
+        did not end in the policy's wait (``_launch_in_background``); without it they run here and the caller waits."""
         task_id = task["id"]
         mode = "resume" if resume_session else "launch"
         prior = dict(task.get("continuity") or {})
@@ -804,21 +1085,53 @@ class ExecutorServices:
             session_id=claude_session_id)
         self._preflight(plan, request, resume_session)
         cause = f"executor {mode} in {plan.executor_id}"
-        view = self._enter_running(task, actor, cause, hold=held, mode=mode, trigger=trigger, drift=drift,
-                                   executor_id=plan.executor_id)
-        self._write_attention(task_id, int(view["attempt"]), plan.executor_id, None)
-        if plan.selection is not None:
-            # What this attempt was asked to run with and why, kept even if the launch then fails.
-            self._append(ROUTING_EVENT, actor=actor, task=view, ref=plan.executor_id, cause=cause,
-                         payload=plan.selection.event_payload(attempt=view["attempt"], mode=mode))
+        # A place in the background is taken before the task changes, so a refusal leaves the task as it was.
+        background = self.background.reserve(task_id, plan.executor_id) if policy is not None else None
+        try:
+            view = self._enter_running(task, actor, cause, hold=held, mode=mode, trigger=trigger, drift=drift,
+                                       executor_id=plan.executor_id)
+            self._write_attention(task_id, int(view["attempt"]), plan.executor_id, None)
+            if plan.selection is not None:
+                # What this attempt was asked to run with and why, kept even if the launch then fails.
+                self._append(ROUTING_EVENT, actor=actor, task=view, ref=plan.executor_id, cause=cause,
+                             payload=plan.selection.event_payload(attempt=view["attempt"], mode=mode))
+        except BaseException:
+            if background is not None:
+                self.background.release(background)
+            raise
+
+        def call(launch_request: ExecutorLaunchRequest) -> _Attempt:
+            # The one place the service reaches an adapter: after the effects were checked and the task is running.
+            return self._call_adapter(plan.adapter, launch_request, resume_session)
+
+        launch = _Launch(task=task, plan=plan, actor=actor, timeout=timeout, resume_session=resume_session,
+                         recorded=recorded, trigger=trigger, prior=prior, permission=permission, workdir=workdir,
+                         request=request, claude_session_id=claude_session_id, cause=cause, mode=mode, view=view,
+                         call=call)
+        if background is None or policy is None:
+            return self._finish_attempt(launch, self._call_with_watch(launch))
+        return self._launch_in_background(launch, background, policy)
+
+    def _call_with_watch(self, launch: _Launch, *, heartbeat: _Heartbeat | None = None,
+                         background: BackgroundAttempt | None = None) -> _Attempt:
+        """Call the adapter while the process watch observes it (stall detection, CNT-T09).
+
+        With ``heartbeat`` (a background attempt) the same watch writes ``executor.heartbeat`` when one is due, and with
+        ``background`` the handle of the program is kept so the attempt can be cancelled. A failure here that is not an
+        adapter refusal pauses the task (never a task ``running`` with no program behind it) and is raised.
+        """
+        plan, view, task_id = launch.plan, launch.view, launch.task["id"]
+        attempt_number = int(view["attempt"])
         try:
             # Built again: the attempt number, the status and the assignee changed with the transitions above.
-            request = replace(request, task_envelope=self._services.envelopes.get_envelope(task_id))
-            _logger.info("executor %s %s of %s (attempt %s)", plan.executor_id, mode, task_id, view["attempt"])
+            request = replace(launch.request, task_envelope=self._services.envelopes.get_envelope(task_id))
+            _logger.info("executor %s %s of %s (attempt %s)", plan.executor_id, launch.mode, task_id, view["attempt"])
             stall_seconds = self._limit(plan, "stall_minutes", 15) * 60
             watch_interval = max(0.05, min(1.0, stall_seconds / 4))
-            watch_deadline = _iso(self.clock().astimezone(timezone.utc) + timedelta(seconds=timeout))
-            live_session = [claude_session_id or resume_session]
+            if heartbeat is not None:
+                watch_interval = max(0.05, min(watch_interval, heartbeat.interval / 2))
+            watch_deadline = _iso(self.clock().astimezone(timezone.utc) + timedelta(seconds=launch.timeout))
+            live_session = [launch.claude_session_id or launch.resume_session]
             last_probe = [None]
 
             def callback(activity: process.ProcessActivity) -> None:
@@ -831,17 +1144,126 @@ class ExecutorServices:
                             live_session[0] = _copilot._scan(activity._stdout_probe).session_id
                     except BaseException:
                         _logger.debug("live session id probe unavailable", exc_info=True)
-                self._observe_process(
-                    task_id=task_id, attempt=int(view["attempt"]), executor_id=plan.executor_id,
+                observed = self._observe_process(
+                    task_id=task_id, attempt=attempt_number, executor_id=plan.executor_id,
                     adapter=plan.adapter, session_id=live_session[0], process_activity=activity,
                     stall_seconds=stall_seconds, deadline=watch_deadline)
-            with process.watching(watch_interval, callback):
-                attempt = self._call_adapter(plan.adapter, request, resume_session)
+                if heartbeat is not None and heartbeat.due():
+                    self._write_heartbeat(task_id, attempt_number, plan.executor_id, elapsed_seconds=heartbeat.elapsed(),
+                                          idle_seconds=observed.idle_seconds, attention=observed.attention)
+            with ExitStack() as stack:
+                stack.enter_context(process.watching(watch_interval, callback))
+                if background is not None:
+                    stack.enter_context(process.capturing(background.adopt))
+                return launch.call(request)
         except BaseException:
             # Nothing ran or the run was interrupted: do not leave a task "running" with no program behind it.
-            self._write_attention(task_id, int(view["attempt"]), plan.executor_id, None)
-            self._pause_task(task_id, actor, f"executor {mode} interrupted by an error")
+            self._write_attention(task_id, attempt_number, plan.executor_id, None)
+            self._pause_task(task_id, launch.actor, f"executor {launch.mode} interrupted by an error",
+                             attempt=attempt_number)
+            launch.settled = True
             raise
+
+    def _launch_in_background(self, launch: _Launch, background: BackgroundAttempt,
+                              policy: AvailabilityPolicy) -> dict[str, Any]:
+        """Run the adapter call and the record of its end in a thread; wait for it at most the policy's foreground wait.
+
+        Returns what a synchronous run returns when the attempt ended in that time, else the ``running`` answer; the
+        thread goes on, writes the heartbeat and always ends with ``executor.attempt_finished`` (see ``_background_main``).
+        The wait is bounded by the policy (``max_wait_seconds``, at most 120) and by the attempt's own timeout.
+        """
+        task_id, attempt_number = launch.task["id"], int(launch.view["attempt"])
+        wait = policy.foreground_wait(launch.timeout)
+        wait = policy.max_wait_seconds if wait is None else wait
+        background.attempt = attempt_number
+        background.started = time.monotonic()
+        heartbeat = _Heartbeat(policy.heartbeat_seconds, background.started)
+        thread = threading.Thread(target=self._background_main, args=(launch, background, heartbeat),
+                                  name=f"attempt-{task_id}-{attempt_number}", daemon=True)
+        try:
+            thread.start()
+        except BaseException:
+            self.background.release(background)
+            self._write_attention(task_id, attempt_number, launch.plan.executor_id, None)
+            self._pause_task(task_id, launch.actor, f"executor {launch.mode} could not start in the background",
+                             attempt=attempt_number)
+            raise
+        if background.done.wait(wait):
+            return background.result if background.result is not None else self._bare_result(
+                launch, outcome="failed", run_status="failed", evidence="internal_error")
+        result = self._bare_result(launch, outcome=FOREGROUND_RUNNING, run_status="running")
+        result["background"] = {"max_wait_seconds": wait, "heartbeat_seconds": policy.heartbeat_seconds}
+        return result
+
+    def _background_main(self, launch: _Launch, background: BackgroundAttempt, heartbeat: _Heartbeat) -> None:
+        """The thread of a background attempt. Whatever happens, the attempt ends recorded and its place is released."""
+        try:
+            attempt = self._call_with_watch(launch, heartbeat=heartbeat, background=background)
+            background.result = self._finish_attempt(launch, attempt, background)
+        except BaseException as exc:  # noqa: BLE001 - nobody is waiting to receive it: record it
+            _logger.exception("background attempt %s of %s failed", launch.view.get("attempt"), launch.task["id"])
+            try:
+                background.result = self._record_background_failure(launch, background, exc)
+            except BaseException:  # noqa: BLE001
+                _logger.exception("the failure of the background attempt of %s could not be recorded", launch.task["id"])
+        finally:
+            self.background.release(background)
+            background.done.set()
+
+    def _record_background_failure(self, launch: _Launch, background: BackgroundAttempt,
+                                   exc: BaseException) -> dict[str, Any]:
+        """The framework itself failed in a background attempt: pause the task (only if it is still running in this attempt)
+        and write the end it never wrote.
+
+        Only the type of the exception goes in the record (its text could hold a path or part of a prompt).
+        """
+        plan, view, task_id = launch.plan, launch.view, launch.task["id"]
+        evidence = f"internal_error: {type(exc).__name__}"
+        note = None
+        if not launch.settled:
+            # The task is still this attempt's. Once it settled it, it may already run again (a resume or a run keeps the
+            # attempt number), and neither its attention nor its state is touched from here.
+            self._write_attention(task_id, int(view["attempt"]), plan.executor_id, None)
+            note = self._pause_task(task_id, launch.actor, f"attempt {view['attempt']} failed: internal error",
+                                    attempt=int(view["attempt"]))
+            launch.settled = True
+        if background.attempt_recorded:
+            # The end is already in the log, and the task is as that end left it: the answer says the same, with the
+            # failure of what came after as a note, instead of a ``failed`` that the log and the task do not show.
+            return self._bare_result(launch, outcome=background.outcome or "failed",
+                                     run_status=background.run_status or "failed",
+                                     notes=[f"internal_error after the end was recorded: {type(exc).__name__}"])
+        self._append(ATTEMPT_EVENT, actor=launch.actor, task=view, cause=launch.cause, payload={
+            "executor_id": plan.executor_id, "adapter_id": plan.adapter.adapter_id, "attempt": view["attempt"],
+            "mode": launch.mode, "run_status": "failed", "outcome": "failed", "session_id": None,
+            "exit_code": None, "model": plan.model, "effort": plan.effort, "failure_kind": None,
+            "permission": launch.permission.value, "notes": [note] if note else [], "evidence": evidence,
+            "result_ref": None})
+        background.attempt_recorded, background.outcome, background.run_status = True, "failed", "failed"
+        return self._bare_result(launch, outcome="failed", run_status="failed", evidence=evidence,
+                                 notes=[note] if note else [])
+
+    def _bare_result(self, launch: _Launch, *, outcome: str, run_status: str, evidence: str | None = None,
+                     notes: Iterable[str] = ()) -> dict[str, Any]:
+        """The shape ``run_task`` returns with only what is known: for an attempt still running or one that broke."""
+        plan, task_id = launch.plan, launch.task["id"]
+        return {
+            "outcome": outcome, "run_status": run_status, "task_id": task_id, "executor_id": plan.executor_id,
+            "attempt": launch.view["attempt"], "actor": launch.actor, "mode": launch.mode, "session_id": None,
+            "open_target": None, "model": plan.model, "effort": plan.effort,
+            "selection": plan.selection.to_dict() if plan.selection else None, "permission": launch.permission.value,
+            "usage": None, "command": None, "evidence": evidence, "notes": list(notes), "executor_paused_until": None,
+            "checkpoint": None, "hold": None, "result": None, "gate": self._services.gates.get_gate(task_id),
+            "task": self._tasks.get_task(task_id)}
+
+    def _finish_attempt(self, launch: _Launch, attempt: _Attempt,
+                        background: BackgroundAttempt | None = None) -> dict[str, Any]:
+        """Record how the attempt ended and return what ``run_task`` returns: the session, the result through
+        ``submit_result``, ``executor.attempt_finished``, and the pause or hold of the task when it did not submit."""
+        task_id, view, plan, actor = launch.task["id"], launch.view, launch.plan, launch.actor
+        mode, cause, permission, workdir = launch.mode, launch.cause, launch.permission, launch.workdir
+        resume_session, recorded, prior, trigger = launch.resume_session, launch.recorded, launch.prior, launch.trigger
+        timeout = launch.timeout
         attention_deadline = _iso(self.clock().astimezone(timezone.utc) + timedelta(seconds=timeout))
         if attempt.failure_kind is FailureKind.PERMISSION_DENIED:
             now = _iso(self.clock().astimezone(timezone.utc))
@@ -870,6 +1292,8 @@ class ExecutorServices:
                 problem = f"the result envelope was rejected ({exc.code}): {exc.message}"
         elif attempt.status == "completed":
             problem = "the run completed without a task result envelope"
+        if submission is not None:
+            launch.settled = True                                  # the task is ``submitted``: not running any more
         outcome = ("permission_blocked" if attempt.failure_kind is FailureKind.PERMISSION_DENIED else
                    "submitted" if submission else (attempt.status if attempt.status in _FAILURE_OUTCOMES else "failed"))
         evidence = ""
@@ -886,6 +1310,8 @@ class ExecutorServices:
             "notes": attempt.notes, "evidence": evidence,
             "result_ref": submission["result"]["ref"] if submission else None,
             **({"config_drift": reported} if reported else {})})
+        if background is not None:
+            background.attempt_recorded, background.outcome, background.run_status = True, outcome, attempt.status
         paused_until: str | None = None
         task_note: str | None = None
         saved: dict[str, Any] | None = None
@@ -896,9 +1322,12 @@ class ExecutorServices:
                                                   auto=trigger in AUTO_TRIGGERS, drift=reported)
             paused_until, new_hold, saved = outcome_hold["until"], outcome_hold["hold"], outcome_hold["checkpoint"]
             task_note, checkpoint_note = outcome_hold["task_note"], outcome_hold["checkpoint_note"]
+            launch.settled = True                                  # paused, with its hold
         else:
             if submission is None:
-                task_note = self._pause_task(task_id, actor, f"attempt {view['attempt']} {outcome}")
+                task_note = self._pause_task(task_id, actor, f"attempt {view['attempt']} {outcome}",
+                                             attempt=int(view["attempt"]))
+                launch.settled = True
             self._clear_streaks(task_id, prior, actor, reported)
         notes = list(attempt.notes) + [note for note in (task_note, checkpoint_note) if note]
         target = plan.adapter.open_target(attempt.session_id) if attempt.session_id else None
@@ -1101,13 +1530,28 @@ class ExecutorServices:
         except ServiceError:
             _logger.info("continuity counters of %s were not reset", task_id)
 
-    def _pause_task(self, task_id: str, actor: str, cause: str) -> str | None:
-        """Pause the task after a failed attempt; a task that moved on meanwhile is left alone and said so."""
-        try:
-            self._tasks.transition(task_id, "pause", actor=actor, cause=cause)
-        except ServiceError as exc:
-            return f"task_not_paused: {exc.code}"
-        return None
+    def _pause_task(self, task_id: str, actor: str, cause: str, *, attempt: int | None = None) -> str | None:
+        """Pause the task after a failed attempt; a task that moved on meanwhile is left alone and said so.
+
+        With ``attempt`` only a task that is still ``running`` in that attempt is paused, and only at the revision that was
+        read (read again, up to three times, if something else changed the task in between). It is a second guard: a
+        resume keeps the attempt number, so what stops the end of an attempt from pausing a later run of the same task is
+        ``_Launch.settled``.
+        """
+        error: ServiceError | None = None
+        for _ in range(1 if attempt is None else 3):
+            try:
+                expected = None
+                if attempt is not None:
+                    task = self._tasks.get_task(task_id)
+                    if task.get("state") != "running" or task.get("attempt") != attempt:
+                        return "task_not_paused: attempt_changed"
+                    expected = task["revision"]
+                self._tasks.transition(task_id, "pause", actor=actor, cause=cause, expected_revision=expected)
+                return None
+            except ServiceError as exc:
+                error = exc
+        return f"task_not_paused: {error.code}" if error is not None else None
 
     # -------- checkpoint (CNT-T03) --------
     def _save_checkpoint(self, attempt: _Attempt, plan: _Plan, view: Mapping[str, Any], actor: str,
