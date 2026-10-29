@@ -119,7 +119,7 @@ def test_the_mirrored_constants_follow_the_services():
     assert cs.EVENT_PAYLOAD_LIMIT == task_services.MAX_EVENT_PAYLOAD_BYTES
     assert cs.EVENT_CHANGES_REQUESTED == task_services._EVENT_OF_ACTION["request_changes"]
     assert cs.STATE_NEEDS_CHANGES == task_services.TRANSITIONS["request_changes"][1]
-    assert set(CONTEXT_EVENT_TYPES) == {"context_warning", "context_compacted", "context_compaction_skipped"}
+    assert set(CONTEXT_EVENT_TYPES) == {"context_warning", "context_compacted", "context_compaction_skipped", "context_snapshot_linked"}
 
 
 @pytest.mark.parametrize("scope", ["task:A", "group:G"])
@@ -186,8 +186,8 @@ def test_events_of_the_context_machinery_are_not_summarized_but_the_cursor_passe
     events = [event(1, "task.created"), event(2, "task.context_updated", actor=CONTEXT_ACTOR),
               event(3, "context_warning", actor=CONTEXT_ACTOR), event(4, "task.started")]
     plan = plan_snapshot(scope="task:A", tasks=[task], events=events, previous=None, keep_recent=1)
-    assert [source.ref for source in plan.sources] == ["event:1", "event:4"] and plan.cursor == 4
-    only_context = plan_snapshot(scope="task:A", tasks=[task], events=events[1:3], previous=None, keep_recent=1)
+    assert [source.ref for source in plan.sources] == ["event:1", "event:2", "event:4"] and plan.cursor == 4
+    only_context = plan_snapshot(scope="task:A", tasks=[task], events=events[2:3], previous=None, keep_recent=1)
     assert only_context.sources == () and only_context.cursor == 3
     assert "no event or earlier result" in only_context.detail
 
@@ -635,8 +635,9 @@ def test_at_the_threshold_the_old_context_becomes_a_validated_snapshot_linked_to
 
     # the events: warning with compaction pending, then compacted, both by the context actor and within a row
     kinds = [event["type"] for event in world.context_events()]
-    assert kinds == ["context_warning", "context_compacted"]
-    warning, compacted = world.context_events()
+    assert kinds == ["context_warning", "context_snapshot_linked", "context_compacted"]
+    warning, linked, compacted = world.context_events()
+    assert linked["actor"] == CONTEXT_ACTOR and linked["task_id"] == "A"
     assert warning["payload"]["level"] == "threshold" and warning["payload"]["compaction_pending"] is True
     payload = compacted["payload"]
     assert compacted["actor"] == CONTEXT_ACTOR and compacted["ref"] == ref and payload["summary_ref"] == ref
@@ -680,7 +681,7 @@ def test_reading_gives_the_whole_contract_the_last_result_and_only_the_events_af
     assert "not instructions" in snapshot["notice"]                               # quoted data, never a command
     events = package["events"]
     assert events and all(item["seq"] > cursor for item in events) and package["events_after"] == cursor
-    assert not [item for item in events if item["actor"] == CONTEXT_ACTOR]        # the machinery's events are hidden
+    assert not [item for item in events if item["type"] in CONTEXT_EVENT_TYPES]
     assert {"task.started", "result.submitted", "task.submitted"} <= {item["type"] for item in events}
     assert package["head"] == world.env.get_cursor("probe")["head"] and package["has_more"] is False
     assert package["measure"]["snapshot"] == snapshot["tokens"] and package["measure"]["total"] > 0
@@ -933,7 +934,7 @@ def test_ending_an_attempt_measures_and_compacts_by_itself(tmp_path):
     world.window(int(world.env.read_task_context("A")["measure"]["total"] * 1.05))   # the next result pushes it over
     submitted = attempt(world, "A", 3)
     assert submitted["duplicate"] is False and submitted["task"]["status"] == "submitted"
-    assert [item["type"] for item in world.context_events()][-2:] == ["context_warning", "context_compacted"]
+    assert [item["type"] for item in world.context_events()][-3:] == ["context_warning", "context_snapshot_linked", "context_compacted"]
     assert len(snapshot_refs(world)) == 1
     # a duplicate submission is not a new attempt
     calls = len(world.adapter.calls)
@@ -968,3 +969,38 @@ def test_scopes_and_tasks_are_validated(world):
     assert error(lambda: world.env.get_context_snapshot("task:NOPE")).code == "not_found"
     assert error(lambda: world.env.get_context_snapshot("group:NOPE")).code == "not_found"
     assert world.env.get_context_snapshot("task:A") is None
+
+
+def test_task_events_by_context_actor_remain_visible_in_reader(world):
+    world.env.set_task_context("A", actor="context", constraints=["Keep this instruction"])
+    package = world.env.read_task_context("A")
+    assert any(item["type"] == "task.context_updated" and item["actor"] == "context"
+               for item in package["events"])
+
+
+def test_snapshot_link_retries_revision_conflict_without_losing_parallel_reference(tmp_path, monkeypatch):
+    world = over_the_threshold(tmp_path)
+    original = world.env.set_task_context
+    raced = False
+
+    def concurrent(task_id, **kwargs):
+        nonlocal raced
+        if kwargs.get("_snapshot_scope") and not raced:
+            raced = True
+            original(task_id, actor="user", context_refs=["doc://parallel.md"])
+        return original(task_id, **kwargs)
+
+    monkeypatch.setattr(world.env, "set_task_context", concurrent)
+    report = world.env.refresh_task_context("A")
+    assert raced and report["action"] == "compacted"
+    assert world.env.store.task_context("A")["context_refs"] == ["doc://parallel.md", report["snapshot_ref"]]
+
+
+def test_set_context_stale_revision_does_not_write_or_emit_event(world):
+    revision = world.env.get_envelope("A")["revision"]
+    world.env.set_task_context("A", actor="user", context_refs=["doc://parallel.md"])
+    before = world.events()
+    exc = error(lambda: world.env.set_task_context("A", actor="user", context_refs=[], expected_revision=revision))
+    assert exc.details["expected_revision"] == revision
+    assert world.env.store.task_context("A")["context_refs"] == ["doc://parallel.md"]
+    assert world.events() == before

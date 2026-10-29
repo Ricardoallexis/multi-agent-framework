@@ -90,6 +90,100 @@ if (Test-Path -LiteralPath $cloudAssignmentsModulePath -PathType Leaf) {
 
 function Encode([string]$text) { [System.Net.WebUtility]::HtmlEncode($text) }
 function Inline([string]$text) { (Encode $text) -replace '`([^`]*)`', '<code>$1</code>' }
+# FLU-T09: bounded local reader, never an AI CLI. Cache failures as well as successes.
+function ConvertTo-PlanDate($value) {
+    if ($value -is [datetime] -or $value -is [datetimeoffset]) { return [datetimeoffset]$value }
+    [datetimeoffset]::Parse([string]$value, [cultureinfo]::InvariantCulture)
+}
+function Read-PlanJson([string]$path) {
+    try { Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { $null }
+}
+function Invoke-PlanReport {
+    $python = Join-Path $repoRoot '.venv/Scripts/python.exe'
+    if (-not (Test-Path -LiteralPath $python)) { $python = 'python' }
+    $psi = [Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = $python
+    $psi.WorkingDirectory = $repoRoot
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    foreach ($arg in @('-m', 'multiagent.cli', 'usage-report', 'plans')) { [void]$psi.ArgumentList.Add($arg) }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $psi
+    try {
+        [void]$process.Start()
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(5000)) { $process.Kill($true); return $null }
+        if ($process.ExitCode -ne 0) { return $null }
+        $stdout.GetAwaiter().GetResult() | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+    } catch { $null } finally { $process.Dispose() }
+}
+function Get-PlanReport {
+    $path = Join-Path $channel 'contexto/usage-plans-cache.json'
+    $cache = Read-PlanJson $path
+    $now = (Get-ViewerNow).ToUniversalTime()
+    try {
+        if ($cache -and ($now - (ConvertTo-PlanDate $cache.attempted_at).UtcDateTime).TotalSeconds -lt 300) { return $cache.report }
+    } catch { }
+    $report = Invoke-PlanReport
+    if ($report -isnot [System.Collections.IDictionary] -or $report.apps -isnot [array]) { $report = $cache.report }
+    try {
+        [void][IO.Directory]::CreateDirectory((Split-Path $path))
+        $tmp = "$path.$([guid]::NewGuid().ToString('N')).tmp"
+        @{ attempted_at = $now.ToString('o'); report = $report } | ConvertTo-Json -Depth 24 | Set-Content -LiteralPath $tmp -Encoding utf8
+        Move-Item -LiteralPath $tmp -Destination $path -Force
+    } catch { }
+    return $report
+}
+function Format-PlanUsage([string]$application, $report) {
+    try {
+        $key = $application.ToLowerInvariant()
+        $data = if ($key -eq 'claude') { Read-PlanJson (Join-Path $channel 'contexto/uso-claude.json') }
+                else { @($report.apps | Where-Object { $_.app -eq $key }) | Select-Object -First 1 }
+        if ($data -isnot [System.Collections.IDictionary]) { throw 'missing' }
+        $now = (Get-ViewerNow).ToUniversalTime()
+        $observed = if ($key -eq 'claude') { $data.observed_at } else { $data.source.observed_at }
+        $source = if ($key -eq 'claude') { $data.source } else { $data.source.kind }
+        $age = 'sin dato'
+        if ($observed) {
+            $minutes = [math]::Max(0, [math]::Floor(($now - (ConvertTo-PlanDate $observed).UtcDateTime).TotalMinutes))
+            $age = "hace $minutes min" + $(if ($minutes -gt 15) { ' · dato viejo' })
+        }
+        $items = foreach ($window in @($data.windows)) {
+            try {
+                if ($window -isnot [System.Collections.IDictionary]) { continue }
+                $reset = if ($window.resets_at) { (ConvertTo-PlanDate $window.resets_at) } else { $null }
+                $expired = $reset -and $reset.UtcDateTime -le $now
+                $percent = $null
+                if ($null -ne $window.used_percent -and $window.used_percent -isnot [bool]) {
+                    $n = [double]$window.used_percent
+                    if (-not [double]::IsNaN($n) -and $n -ge 0 -and $n -le 100) { $percent = $n }
+                }
+                $used = if ($null -ne $percent -and -not $expired) { $percent.ToString('0.##', [cultureinfo]::InvariantCulture).Replace('.', ',') + ' % usado' } else { 'sin dato' }
+                $resetText = if ($reset) { $reset.ToLocalTime().ToString('dd/MM HH:mm zzz') } else { 'sin dato' }
+                $elapsed = $window.elapsed_percent
+                if ($key -eq 'claude' -and $reset -and -not $expired) {
+                    $duration = if ($window.window -eq 'five_hour') { 300 } elseif ($window.window -like '*week*') { 10080 } else { 0 }
+                    if ($duration) { $elapsed = [math]::Clamp(100 * (1 - ($reset.UtcDateTime - $now).TotalMinutes / $duration), 0, 100) }
+                }
+                $pace = 'sin dato'
+                if ($null -ne $elapsed -and $null -ne $percent -and -not $expired) {
+                    $pace = if ($percent -gt [double]$elapsed) { 'por encima del tiempo transcurrido' } else { 'dentro del tiempo transcurrido' }
+                    $pace += ' (' + ([double]$elapsed).ToString('0.#') + ' % del tiempo)'
+                }
+                $quota = if (-not $expired -and ($window.last_hit_at -or $window.state -eq 'limit_reached')) { "<strong>sin cuota hasta $(Encode $resetText)</strong> · " } else { '' }
+                $label = if ($window.label) { $window.label } else { $window.window }
+                "<li><strong>$(Encode $label)</strong>: $used · ${quota}reinicio: $(Encode $resetText)$(if ($expired) { ' · ventana vencida' })<br>Ritmo: $(Encode $pace)</li>"
+            } catch { '<li>Ventana: sin dato</li>' }
+        }
+        $plan = if ($data.plan) { $data.plan } else { 'sin dato' }
+        if (-not $source) { $source = 'sin dato' }
+        if (-not $items) { $items = '<li>Ventanas: sin dato</li>' }
+        "<div class=""plan-usage""><h3>Uso del plan · $(Encode $plan)</h3><ul>$($items -join '')</ul><p class=""meta"">Fuente: $(Encode $source) · Frescura: $(Encode $age)</p></div>"
+    } catch { '<div class="plan-usage"><h3>Uso del plan</h3><p class="meta">sin dato</p></div>' }
+}
 function Get-ApiJson([string]$path) {
     $baseUri = [uri]::new($script:apiBaseUrl)
     if ($baseUri.Scheme -notin @('http', 'https') -or $baseUri.UserInfo -or $baseUri.Query -or $baseUri.Fragment) { throw 'ApiBaseUrl debe usar HTTP(S) y no incluir credenciales, query ni fragmento.' }
@@ -2578,6 +2672,7 @@ foreach ($application in @($agentCards | ForEach-Object Application) + @($foreig
 }
 # SEG-T05: one card per application; only names with an active task are listed, the rest in one line.
 # SEG-T17: also the active workers of that application, so an application with active workers never says "sin actividad".
+$planReport = Get-PlanReport
 $agentCards = foreach ($application in @($applications)) {
     $members = @($agentCards | Where-Object { $_.Application -ieq $application })
     # SEG-T19: an agent that only waits for a watcher is «en espera de activación», not active and not idle.
@@ -2614,6 +2709,7 @@ $agentCards = foreach ($application in @($applications)) {
 <section class="panel agent-card">
   <div class="card-head"><h2>$(Encode $application)</h2><span class="state $appClass">$(Encode $appStatus)</span></div>
   $(($shownMembers | ForEach-Object Html) -join "`n")
+  $(Format-PlanUsage $application $planReport)
   $workersHtml
   $idleHtml
 </section>
@@ -2787,6 +2883,8 @@ summary { cursor:pointer; }
 .wait-finished li { margin:3px 0; }
 .agent-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap:12px; }
 .agent-card { min-width:0; overflow-wrap:anywhere; }
+.plan-usage { min-width:0; overflow-wrap:anywhere; }
+.plan-usage ul { padding-left:20px; }
 .agent-card h2 { margin:0; font-size:18px; }
 .agent-card h3 { margin:14px 0 6px; font-size:16px; }
 .agent-card h4 { margin:10px 0 4px; font-size:14px; }

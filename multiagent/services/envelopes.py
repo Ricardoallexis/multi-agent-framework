@@ -63,6 +63,7 @@ from ..context.estimate import (
 )
 from ..context.snapshot import (
     CONTEXT_ACTOR,
+    EVENT_CONTEXT_SNAPSHOT_LINKED,
     REASON_INTERNAL_ERROR,
     SNAPSHOT_MEDIA_TYPE,
     ScopeTask,
@@ -254,16 +255,23 @@ class EnvelopeServices:
     @service_errors
     def set_task_context(self, task_id: str, *, actor: str, base_commit: str | None = None,
                          context_refs: Iterable[str] | None = None,
-                         constraints: Iterable[str] | None = None) -> dict[str, Any]:
+                         constraints: Iterable[str] | None = None,
+                         expected_revision: int | None = None,
+                         _snapshot_scope: str | None = None) -> dict[str, Any]:
         """Set the base commit, context references and constraints of a task; event ``task.context_updated``.
 
         Only the given fields change; ``revision`` goes up. Context references
         follow the reference grammar; constraints are plain data, never executed.
+        ``expected_revision``, when supplied, is checked atomically. Internal
+        snapshot links merge references here and emit ``context_snapshot_linked``.
         Returns the task with its ``base_commit``, ``context_refs`` and ``constraints``.
         Errors: ``not_found``, ``invalid_request`` (format or limits, or no field
         given), ``invalid_state`` (the task is terminal or ``validating``).
         """
         actor = _text("actor", actor, maximum=100)
+        if expected_revision is not None and (isinstance(expected_revision, bool)
+                                              or not isinstance(expected_revision, int) or expected_revision < 1):
+            raise _invalid("expected_revision", "expected_revision must be a positive integer")
         fields: list[str] = []
         if base_commit is not None:
             if base_commit != "" and not (isinstance(base_commit, str) and _COMMIT.fullmatch(base_commit)):
@@ -296,13 +304,36 @@ class EnvelopeServices:
             raise _invalid("context", "Give at least one of base_commit, context_refs or constraints")
         with self._tasks.store.transaction() as conn:
             task = self._task_or_missing(task_id, conn)
+            if expected_revision is not None and task["revision"] != expected_revision:
+                raise _conflict("Task revision changed", task_id=task_id,
+                                expected_revision=expected_revision, revision=task["revision"])
             if task["state"] in _FROZEN_STATES:
                 raise _conflict(f"Cannot change the context of a task that is {task['state']}", task_id=task_id,
                                 status=task["state"])
+            if _snapshot_scope is not None:
+                # Merge under the same write transaction as the revision check and update.
+                current = list((self.store.task_context(task_id, conn=conn) or {}).get("context_refs", []))
+                ref = refs[0]
+                refs = []
+                placed = False
+                for item in current:
+                    if item == ref or self._is_snapshot_of(item, _snapshot_scope):
+                        if not placed:
+                            refs.append(ref)
+                            placed = True
+                    else:
+                        refs.append(item)
+                if not placed:
+                    refs.append(ref)
+                if len(refs) > MAX_CONTEXT_REFS:
+                    raise _conflict("No room for the snapshot reference", task_id=task_id)
+                if refs == current:
+                    return {**self._tasks._task_view(task_id, conn), **(self.store.task_context(task_id, conn=conn) or {})}
             self.store.set_task_context(conn, task_id, base_commit=base_commit, context_refs=refs,
                                         constraints=texts)
             self._tasks._bump(conn, task)
-            self._tasks.store.append_event(conn, "task.context_updated", actor=actor, group_id=task["group_id"],
+            event_type = EVENT_CONTEXT_SNAPSHOT_LINKED if _snapshot_scope is not None else "task.context_updated"
+            self._tasks.store.append_event(conn, event_type, actor=actor, group_id=task["group_id"],
                                            task_id=task_id, payload={"fields": fields})
             return {**self._tasks._task_view(task_id, conn), **(self.store.task_context(task_id, conn=conn) or {})}
 
@@ -907,29 +938,18 @@ class EnvelopeServices:
         for task in tasks:
             if task.frozen or task.envelope is None:      # frozen, or without an envelope (see ``_load_scope``)
                 continue
-            current = list((self.store.task_context(task.task_id) or {}).get("context_refs", []))
-            updated: list[str] = []
-            placed = False
-            for item in current:
-                if item == ref or self._is_snapshot_of(item, scope):
-                    if not placed:
-                        updated.append(ref)
-                        placed = True
-                    continue
-                updated.append(item)
-            if not placed:
-                updated.append(ref)
-            if updated == current:
-                continue
-            if len(updated) > MAX_CONTEXT_REFS:
-                unlinked.append(task.task_id)
-                continue
-            try:
-                self.set_task_context(task.task_id, actor=CONTEXT_ACTOR, context_refs=updated)
-            except ServiceError:
-                unlinked.append(task.task_id)
-            else:
-                linked.append(task.task_id)
+            for attempt in range(3):
+                try:
+                    revision = self.get_envelope(task.task_id)["revision"]
+                    self.set_task_context(task.task_id, actor=CONTEXT_ACTOR, context_refs=[ref],
+                                          expected_revision=revision, _snapshot_scope=scope)
+                except ServiceError as exc:
+                    if exc.details.get("expected_revision") is not None and attempt < 2:
+                        continue
+                    unlinked.append(task.task_id)
+                else:
+                    linked.append(task.task_id)
+                break
         return linked, unlinked
 
     def _compact_scope(self, scope: str, reader: Mapping[str, Any], tasks: list[ScopeTask],

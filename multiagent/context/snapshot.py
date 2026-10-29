@@ -29,7 +29,7 @@ Reading
 -------
 :func:`build_package` assembles what a reader needs: the complete envelope, the last results and the pending
 instruction literally, the snapshot, and the events after the cursor. Events written by the context machinery
-itself (actor :data:`CONTEXT_ACTOR`) are neither summarized nor shown.
+itself (types in :data:`CONTEXT_EVENT_TYPES`) are neither summarized nor shown.
 
 Measuring
 ---------
@@ -71,7 +71,9 @@ CURSOR_KIND = "event_seq"
 
 # Events written by the context machinery (and the actor that writes them, also for the links in ``context_refs``).
 CONTEXT_ACTOR = CONTEXT_AGENT_ID
-CONTEXT_EVENT_TYPES = (EVENT_CONTEXT_WARNING, EVENT_CONTEXT_COMPACTED, EVENT_CONTEXT_COMPACTION_SKIPPED)
+EVENT_CONTEXT_SNAPSHOT_LINKED = "context_snapshot_linked"
+CONTEXT_EVENT_TYPES = (EVENT_CONTEXT_WARNING, EVENT_CONTEXT_COMPACTED, EVENT_CONTEXT_COMPACTION_SKIPPED,
+                       EVENT_CONTEXT_SNAPSHOT_LINKED)
 
 # Mirrors of the task service constants (``services.tasks``, ``services.envelopes``); a test keeps them equal.
 TERMINAL_STATES = ("accepted", "failed", "cancelled")
@@ -201,8 +203,8 @@ def kept_results(task: ScopeTask, keep_recent: int) -> tuple[Mapping[str, Any], 
 
 
 def is_context_event(event: Mapping[str, Any]) -> bool:
-    """True for an event written by the context machinery (summary events and the links it makes)."""
-    return event.get("actor") == CONTEXT_ACTOR
+    """True for a context event type, independent of its caller-supplied actor."""
+    return event.get("type") in CONTEXT_EVENT_TYPES
 
 
 def event_source(event: Mapping[str, Any]) -> SummarySource:
@@ -616,7 +618,7 @@ def fit_event_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 
 __all__ = [
-    "CONTEXT_ACTOR", "CONTEXT_EVENT_TYPES", "CURSOR_KIND", "EVENT_CHANGES_REQUESTED", "EVENT_PAYLOAD_LIMIT",
+    "CONTEXT_ACTOR", "CONTEXT_EVENT_TYPES", "EVENT_CONTEXT_SNAPSHOT_LINKED", "CURSOR_KIND", "EVENT_CHANGES_REQUESTED", "EVENT_PAYLOAD_LIMIT",
     "FROZEN_STATES", "PACKAGE_SCHEMA", "QUOTED_DATA_NOTICE", "REASON_INTERNAL_ERROR", "RULES_PREFIX", "SCOPE_KINDS",
     "SNAPSHOT_MEDIA_TYPE",
     "SNAPSHOT_SCHEMA", "STATE_NEEDS_CHANGES", "TERMINAL_STATES", "ContextMeasure", "ScopeTask", "Snapshot",

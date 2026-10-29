@@ -28,6 +28,7 @@ from ..services.usage import UsageServices
 from ..version import __version__
 from . import events
 from .extensions import discover_extensions
+from .project_api import add_project_routes
 from .runs import build_router as build_runs_router
 from .security import GUISecurityHeadersMiddleware, require_json, require_token
 from .sessions_api import add_session_routes
@@ -100,6 +101,7 @@ def mount_gui(app: FastAPI) -> None:
 
     add_session_routes(api, sessions)
     add_usage_routes(api, usage)  # /gui/api/usage/{plans,tokens,costs} (USO-T02)
+    add_project_routes(api, services)  # /gui/api/projects (PRY-T03)
     api.include_router(build_runs_router(services))
     app.include_router(api)
     app.mount("/gui/static", StaticFiles(directory=STATIC_DIR), name="gui-static")
