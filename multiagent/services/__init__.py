@@ -98,6 +98,7 @@ class ApplicationServices:
         engine = getattr(system, "engine", None)
         if engine is not None:
             engine.availability_source = self.inbox.policy
+            self.usage.attach(engine)      # USO-T04: the budget guard and the alerts after each recorded call
 
     @classmethod
     def create(cls, settings: Settings | None = None, *,

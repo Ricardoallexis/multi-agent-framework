@@ -7,7 +7,7 @@ import { Help, helpFor } from "../../js/help.js";
 import { useTaskWaiting, waitBadge, waitRecipient, waitingForUser, waitDate } from "../../js/task-waiting.js";
 import { HELP } from "./help.js";
 
-registerHelp(HELP);
+registerHelp(HELP, "task_waiting");
 
 export function WaitingTask({ task }) {
   const wait = task.waiting;
@@ -61,5 +61,5 @@ export function TaskWaitingPanel({ token }) {
   return html`<${WaitingContent} data=${data} scope="panel" />`;
 }
 
-registerView({ id: "task_waiting", label: "Esperan tu decisión", component: TaskWaitingView, order: 55 });
-registerSlot("task_waiting", TaskWaitingPanel, { title: "Esperan tu decisión", topic: "task_waiting.panel", order: 55 });
+registerView({ id: "task_waiting", owner: "task_waiting", label: "Esperan tu decisión", component: TaskWaitingView, order: 55 });
+registerSlot("task_waiting", TaskWaitingPanel, { title: "Esperan tu decisión", topic: "task_waiting.panel", owner: "task_waiting", order: 55 });

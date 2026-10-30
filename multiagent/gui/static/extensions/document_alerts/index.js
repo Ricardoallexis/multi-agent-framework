@@ -16,7 +16,7 @@ import { registerSlot } from "../../js/panel-slots.js";
 import { AlertItem, pendingCount } from "./alert-item.js";
 import { HELP } from "./help.js";
 
-registerHelp(HELP);
+registerHelp(HELP, "document_alerts");
 
 const alertsPath = (runId) => "/gui/api/document-alerts" + (runId ? "?run_id=" + encodeURIComponent(runId) : "");
 const LOADING = { status: "loading", alerts: [], truncated: false, error: null };
@@ -101,5 +101,5 @@ export function DocumentAlertsView({ token, route }) {
   </section>`;
 }
 
-registerView({ id: "document_alerts", label: "Alertas de documentos", component: DocumentAlertsView, order: 50 });
-registerSlot("document_alerts", DocumentAlertsCard, { title: "Alertas de documentos", topic: "document_alerts.card", order: 50 });
+registerView({ id: "document_alerts", owner: "document_alerts", label: "Alertas de documentos", component: DocumentAlertsView, order: 50 });
+registerSlot("document_alerts", DocumentAlertsCard, { title: "Alertas de documentos", topic: "document_alerts.card", owner: "document_alerts", order: 50 });

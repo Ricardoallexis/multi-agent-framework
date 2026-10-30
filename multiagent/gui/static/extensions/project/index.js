@@ -16,7 +16,7 @@ import { HELP } from "./help.js";
 import { labelSummary, list, needsText, pickProject, progressOf } from "./model.js";
 import { Overview, StagesPanel, TaskDetail } from "./parts.js";
 
-registerHelp(HELP);
+registerHelp(HELP, "project");
 
 const NO_FILTER = { text: "", label: "" };
 const NO_REVIEW = { open: false, text: "", busy: false };
@@ -217,5 +217,5 @@ export function ProjectSlot({ token, route }) {
   </div>`;
 }
 
-registerView({ id: "project", label: "Proyectos", component: ProjectView, order: 40 });
-registerSlot("project", ProjectSlot, { title: "Proyecto", topic: "project.slot", order: 40 });
+registerView({ id: "project", owner: "project", label: "Proyectos", component: ProjectView, order: 40 });
+registerSlot("project", ProjectSlot, { title: "Proyecto", topic: "project.slot", owner: "project", order: 40 });

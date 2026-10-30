@@ -19,8 +19,12 @@ from ..contracts import (
     SocialPostRequest,
     WaitingReason,
 )
+from ..budget_cut import (
+    EVENT_APPROVED as BUDGET_CUT_APPROVED, EVENT_REJECTED as BUDGET_CUT_REJECTED, approval_from_pause, is_budget_pause,
+    rejection_message,
+)
 from ..document_review import (
-    DECISION_APPROVED, DECISION_REJECTED, resolution_payload, review_key, unresolved_requests,
+    DECISION_APPROVED, DECISION_REJECTED, resolution_payload, resolution_source, review_key, unresolved_requests,
 )
 from ..document_trust import EVENT_REVIEW_REQUESTED, EVENT_REVIEW_RESOLVED
 from ..errors import IdempotencyConflict, InvalidStateTransition
@@ -552,6 +556,62 @@ class Store:
             conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
                          (run_id, now, "workflow_failed",
                           json.dumps({"error": error, "type": "EscalationRejected"}, ensure_ascii=False)))
+
+    def finish_budget_cut(self, run: dict[str, Any], *, approve: bool, feedback: str = "",
+                          by: str | None = None, channel: str | None = None) -> None:
+        """Commit a person's decision on a call the budget guard held (USO-T04, ``waiting_reason`` ``budget_cut_approval``).
+
+        Like ``finish_escalation`` it compares the persisted wait again inside the transaction, so a duplicate or a decision
+        after a cancellation is refused. The decision is tied to the latest ``call_paused`` event of the budget guard for the
+        waiting step and attempt that has no decision yet; everything it records comes from that event, nothing from the
+        caller but ``by`` and ``channel`` (as it declared them; nothing authenticates them, see ``document_review``).
+        Approval records ``budget_cut_approved`` with a fresh ``approval_id`` and queues the run: the resumed step lets
+        exactly that call through with it (same step attempt, model and position, the budgets and estimate the person saw;
+        ``budget_cut_released`` spends it). Rejection records ``budget_cut_rejected`` and fails the run with the reason.
+        Only the approval path of runs calls this, and the unauthenticated HTTP route is not allowed to (``RunService.approve``):
+        no guard or model approves a cut.
+        """
+        run_id = run["id"]
+        with self.db.tx() as conn:
+            fresh = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            fields = ("status", "current_step", "waiting_reason", "waiting_step", "waiting_attempt", "cancel_requested")
+            if (fresh is None or fresh["status"] != RunStatus.WAITING_HUMAN.value
+                    or fresh["waiting_reason"] != WaitingReason.BUDGET_CUT.value or fresh["cancel_requested"]
+                    or any(fresh[key] != run[key] for key in fields)):
+                raise InvalidStateTransition("The persisted budget cut changed; read the run again")
+            paused = None
+            for row in conn.execute(
+                    "SELECT event_type,payload_json FROM run_events WHERE run_id=? AND event_type IN (?,?,?) ORDER BY id",
+                    (run_id, "call_paused", BUDGET_CUT_APPROVED, BUDGET_CUT_REJECTED)):
+                payload = json.loads(row["payload_json"])
+                if payload.get("step_id") != fresh["waiting_step"] or payload.get("attempt") != fresh["waiting_attempt"]:
+                    continue
+                paused = payload if row["event_type"] == "call_paused" and is_budget_pause(payload) else None
+            if paused is None:
+                raise InvalidStateTransition("The run has no budget cut waiting for a decision")
+            declared, door = resolution_source(by, channel)
+            now = utcnow()
+            if approve:
+                approval = approval_from_pause(paused, approval_id=uuid.uuid4().hex, by=declared, channel=door)
+                conn.execute(
+                    """UPDATE runs SET status=?,waiting_reason='',waiting_step='',waiting_attempt=NULL,updated_at=?
+                       WHERE id=?""", (RunStatus.QUEUED.value, now, run_id))
+                conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                             (run_id, now, BUDGET_CUT_APPROVED, json.dumps(approval, ensure_ascii=False)))
+                return
+            error = rejection_message(paused, feedback)
+            conn.execute(
+                """UPDATE runs SET status=?,error=?,revision_feedback=?,waiting_reason='',waiting_step='',
+                   waiting_attempt=NULL,updated_at=? WHERE id=?""",
+                (RunStatus.FAILED.value, error, feedback, now, run_id))
+            refusal = approval_from_pause(paused, approval_id="", by=declared, channel=door)
+            del refusal["approval_id"]            # a refusal lets nothing through
+            conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                         (run_id, now, BUDGET_CUT_REJECTED,
+                          json.dumps({**refusal, "feedback": feedback}, ensure_ascii=False)))
+            conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                         (run_id, now, "workflow_failed",
+                          json.dumps({"error": error, "type": "BudgetCutRejected"}, ensure_ascii=False)))
 
     def finish_content_review(self, run: dict[str, Any], *, approve: bool, feedback: str = "",
                               by: str | None = None, channel: str | None = None) -> int:

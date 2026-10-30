@@ -30,10 +30,10 @@ from ..db.store import Store
 from ..errors import HumanSubmissionError
 from ..observability.usage import read_usage, summarize_usage
 from ..run_request import RunRequest
-from ..run_service import RunService
+from ..run_service import PersonRequired, RunService
 from ..worker import LocalWorker
 from ..workflow_engine import WorkflowEngine
-from .errors import HUMAN_STEP_UNAVAILABLE, INVALID_REQUEST, NOT_FOUND, ServiceError, service_errors
+from .errors import HUMAN_STEP_UNAVAILABLE, INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
 
 if TYPE_CHECKING:
     from . import ApplicationServices
@@ -96,6 +96,9 @@ class RunServices:
             inbox = getattr(self._services, "inbox", None)
             if inbox is not None:
                 engine.availability_source = inbox.policy          # one place decides whether the inbox is in use (AVA-T03)
+            usage = getattr(self._services, "usage", None)
+            if usage is not None:
+                usage.attach(engine)                               # the same budget guard and alerts as the system engine (USO-T04)
             runtime = _Runtime(name, store, RunService(settings, store, engine=engine),
                                LocalWorker(store, engine, settings.worker_poll_seconds))
             if settings.worker_enabled:
@@ -171,19 +174,31 @@ class RunServices:
         return runs[:max(1, min(int(limit), 500))]
 
     @service_errors
-    def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None) -> dict[str, Any]:
+    def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None,
+                recorded_only: bool = False) -> dict[str, Any]:
         """Approve the artifact under review and continue or complete the run.
 
         A run paused on a supervised escalation (``waiting_reason`` ``escalation_approval``) has no artifact
         under review: approving it queues the run so the step resumes with the escalated model. A run held by the
         content guard (``waiting_reason`` ``content_review``, policy ``pause``) has none either: approving it settles
         the open reviews (``document_review_resolved``) and queues the run, which goes on with the quarantined
-        prompt it had. ``by`` and ``channel`` (``api`` by default, ``gui`` from the GUI router) are recorded with that
-        resolution as the caller declared them. Known limit (BDI-T07): this method does not authenticate its caller,
-        so any local process that reaches the run API can settle a content review.
+        prompt it had. A run held by the budget guard (``waiting_reason`` ``budget_cut_approval``, USO-T04) has no artifact
+        either: approving it records ``budget_cut_approved`` and queues the run, and the resumed step makes that one call
+        (the approval is for one call and is spent by it). ``by`` and ``channel`` (``api`` by default, ``gui`` from the GUI
+        router) are recorded with that resolution as the caller declared them. Known limit (BDI-T07): this method does not
+        authenticate its caller, so any local process that reaches the run API can settle a content review.
+
+        ``recorded_only`` is for a caller nobody authenticated (``/api/v1``, which has no token): it cannot approve a
+        budget cut, because that spends money. The error is ``invalid_state`` with ``details.reason`` ``person_required``
+        and the run stays waiting; the token route of the GUI and the command line approve it. Rejecting needs no such
+        flag: a refusal spends nothing.
         """
         runtime = self._find(run_id)
-        return self._tag(runtime, runtime.service.approve(run_id, by=by, channel=channel))
+        try:
+            return self._tag(runtime, runtime.service.approve(run_id, by=by, channel=channel, recorded_only=recorded_only))
+        except PersonRequired as exc:
+            raise ServiceError(INVALID_STATE, str(exc), status=409,
+                               details={"reason": "person_required", "run_id": run_id}) from exc
 
     @service_errors
     def request_changes(self, run_id: str, feedback: str) -> dict[str, Any]:
@@ -204,7 +219,7 @@ class RunServices:
 
         Rejecting a paused escalation fails the step and the run (status ``failed``) with the reason. Rejecting a
         run held for a content review rejects it (status ``rejected``) and records the resolution (``by``, ``channel``
-        as in ``approve``).
+        as in ``approve``). Rejecting a run held by the budget guard fails it (status ``failed``): the call is never made.
         """
         runtime = self._find(run_id)
         return self._tag(runtime, runtime.service.reject(run_id, feedback, by=by, channel=channel))

@@ -495,8 +495,14 @@ class ModelSpec:
     # Window evidence (see ``validate_context_window``); ``None`` means unknown. Read it through
     # ``Catalog.context_window`` or ``usable_context_window`` rather than assuming a number.
     context_window: dict[str, Any] | None = None
+    # The most output tokens one call to the model can return, as the provider's own documentation states it (USO-T04: the
+    # budget cut prices a call at this bound, because the router cannot yet ask the provider for less). ``None`` means
+    # unknown, never a number to assume.
+    max_output_tokens: int | None = None
 
     def __post_init__(self) -> None:
+        if self.max_output_tokens is not None and (type(self.max_output_tokens) is not int or self.max_output_tokens <= 0):
+            raise CatalogError(f"Model {self.id!r}: max_output_tokens must be a positive integer, got {self.max_output_tokens!r}")
         if self.level is not None and self.level not in MODEL_LEVELS:
             raise CatalogError(f"Model {self.id!r}: level must be one of {', '.join(MODEL_LEVELS)}, got {self.level!r}")
         if self.classification not in MODEL_CLASSIFICATIONS:

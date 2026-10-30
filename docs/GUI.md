@@ -178,9 +178,9 @@ is lowercase letters and `_` (`projects`, `doc_alerts`):
 
 | File | Role |
 | --- | --- |
-| `index.js` | Required entry module. Calls the register functions of `js/extensions.js` when it loads. |
+| `index.js` | Required entry module. Calls the register functions of `js/extensions.js` when it loads, passing its folder name as `owner`. |
 | `style.css` | Optional stylesheet. The page adds it; `index.html` gets no line. Every selector starts from a class or id prefixed with the name (`.doc-alerts-card`), and colours come from the `app.css` variables. |
-| `help.js` | Optional help texts: `export const HELP = { ... }` as strict JSON, like `js/help-text.js`, with every key under `<name>.`. The entry module passes it to `registerHelp(HELP)`. |
+| `help.js` | Optional help texts: `export const HELP = { ... }` as strict JSON, like `js/help-text.js`, with every key under `<name>.`. The entry module passes it to `registerHelp(HELP, "<name>")`. |
 | anything else | Helpers of the extension (components, models). Import only from the folder itself, `../../js/` and `../../vendor/`. |
 
 ```js
@@ -191,22 +191,25 @@ import { registerSlot } from "../../js/panel-slots.js";   // the same function, 
 import { Help, helpFor } from "../../js/help.js";
 import { HELP } from "./help.js";
 
-registerHelp(HELP);
+registerHelp(HELP, "projects");
 function ProjectView({ token, status, mock, route }) { /* route = { section, id } */ }
 function ProjectCard({ token, route, sessionId }) { /* one section of the right panel */ }
-registerView({ id: "projects", label: "Proyectos", component: ProjectView, order: 40 });  // button + "#projects/<id>"
-registerSlot("projects", ProjectCard, { title: "Proyecto", topic: "projects.card", order: 40 });
+registerView({ id: "projects", owner: "projects", label: "Proyectos", component: ProjectView, order: 40 });  // button + "#projects/<id>"
+registerSlot("projects", ProjectCard, { title: "Proyecto", topic: "projects.card", owner: "projects", order: 40 });
 ```
 
-- `registerView({ id, label, component, order })` adds the sidebar button and the
+- `registerView({ id, owner, label, component, order })` adds the sidebar button and the
   route `#<id>` or `#<id>/<item>`. The ids of the built-in screens are reserved.
-- `registerSlot(name, component, { title, topic, order })` adds a section after the
+- `registerSlot(name, component, { title, topic, owner, order })` adds a section after the
   four fixed ones of the right panel, with its title and its «?» help (`topic` is a
   key of the extension's own help). The names of the fixed sections are reserved.
-- `registerUsageSection({ id, label, component, order })` adds a tab to the «Uso»
+- `registerUsageSection({ id, owner, label, component, order })` adds a tab to the «Uso»
   screen after Planes, Global and API y presupuesto (`component` gets `token`). The
   ids `plans`, `global` and `costs` are reserved. `usage.js` draws the registered tabs
   and knows no extension by name.
+- Every registration passes the folder name as `owner`; `registerHelp` takes it as its
+  second argument. If a module throws after registering, the loader removes its
+  views, slots, Uso sections and help texts by that owner.
 - Topics are plain strings, every control uses `helpFor("<name>.<topic>")` and every
   section heading is followed by its `<${Help} topic=... />`, as in the built-in views.
   Heading ids start with the name (`doc-alerts-title`): ids are shared by the page.

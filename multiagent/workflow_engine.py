@@ -15,6 +15,7 @@ from pydantic import BaseModel, ValidationError
 from .adapters.base import LLMResponse
 from .adapters.fake import FakeAdapter
 from .artifacts import ArtifactWriter
+from .budget_cut import BudgetPolicy, policy_from_settings
 from .call_guards import (
     SCOPE_RUN_STEP, STOP_USER_CANCEL, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
 )
@@ -244,6 +245,9 @@ class WorkflowEngine:
         # inbox that accepts a message and the guard that reads it resolve the policy in the same place (an override on the
         # inbox or the executors included); ``None`` reads the ``availability_*`` settings, as a bare engine always did.
         self.availability_source = None
+        # The usage service the budget guard reads (USO-T04, ``UsageServices.attach``): it answers ``notify_budgets``. ``None`` (a
+        # bare engine) with a budget configured counts as "cannot read the budgets": in cut mode no call is made.
+        self.budgets_source = None
 
     @classmethod
     def from_bundle(cls, bundle: DefinitionBundle, *, store: Store,
@@ -550,7 +554,7 @@ class WorkflowEngine:
                         scope=SCOPE_RUN_STEP, catalog=self.catalog,
                         routing_profile_id=profile_id, routing_profile=profile,
                         context_settings=context_settings, document_policy=self.document_policy,
-                        availability=self._availability_policy(),
+                        availability=self._availability_policy(), budgets=self._budget_policy(),
                         emit=lambda event_type, payload: self.store.db.log_event(run_id, event_type, payload),
                     ),
                     cancel=lambda call: self._check_cancel(run_id),
@@ -1699,10 +1703,11 @@ class WorkflowEngine:
             self.store.increment_llm_calls(run_id)
 
         # No ``document_policy`` here on purpose: a content review belongs to the step whose prompt carries the
-        # untrusted parts, and nobody waits for a compaction (a ``Pause`` would only skip it).
+        # untrusted parts, and nobody waits for a compaction (a ``Pause`` would only skip it). For the same reason there is no
+        # ``emit``: the budget guard never uses a person's approval here, so a summary that would pass a budget is skipped.
         chain = build_call_guards(
             GuardEnvironment(scope=SCOPE_RUN_STEP, catalog=self.catalog, routing_profile_id=profile_id,
-                             routing_profile=profile),
+                             routing_profile=profile, budgets=self._budget_policy()),
             cancel=lambda call: self._check_cancel(run_id), reserve=reserve)
         data_class = "sensitive" if request.get("sensitive") else "non_sensitive"
 
@@ -1829,6 +1834,11 @@ class WorkflowEngine:
             _logger.warning("The availability policy could not be resolved: the inbox is off", exc_info=True)
             return None
         return policy if policy.enabled else None
+
+    def _budget_policy(self) -> BudgetPolicy | None:
+        """How the budget guard reads the budgets (USO-T04), or ``None``: no budget configured (or a dry run, which spends
+        nothing), so there is no guard and nothing changes."""
+        return None if self.router.dry_run else policy_from_settings(self.settings, self.budgets_source)
 
     def _check_cancel(self, run_id: str) -> None:
         if self.store.get_run(run_id)["cancel_requested"]:

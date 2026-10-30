@@ -8,6 +8,10 @@
 # - Local Ollama models declare nothing: the window is the `num_ctx` sent on every call (the model's
 #   `num_ctx`, or OLLAMA_NUM_CTX), with provenance `runtime_setting`.
 # Read it with Catalog.context_window(model_id); it returns None when the window is unknown.
+#
+# Largest answer (USO-T04), optional per model: `max_output_tokens: <positive integer>`, the most output tokens one call can
+# return, copied ONLY from the provider's official documentation. The budget cut (`usage_budgets` with `mode: cut`) prices a
+# paid call at this bound, so a model with a price but no `max_output_tokens` is held for a person, never guessed.
 models:
   local_default:
     provider: ollama

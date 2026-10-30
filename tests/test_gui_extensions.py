@@ -50,7 +50,7 @@ import { registerHelp, registerSlot, registerView } from "../../js/extensions.js
 import { Help, helpFor } from "../../js/help.js";
 import { HELP } from "./help.js";
 
-registerHelp(HELP);
+registerHelp(HELP, "@NAME@");
 
 function View({ token, route }) {
   return html`<section class="@CSS@-view" aria-labelledby="@CSS@-title">
@@ -65,8 +65,8 @@ function Card({ sessionId }) {
   return html`<p class="@CSS@-card">${sessionId || "Sin sesión"}</p>`;
 }
 
-registerView({ id: "@NAME@", label: "@LABEL@", component: View, order: 60 });
-registerSlot("@NAME@", Card, { title: "@LABEL@", topic: "@NAME@.card", order: 20 });
+registerView({ id: "@NAME@", owner: "@NAME@", label: "@LABEL@", component: View, order: 60 });
+registerSlot("@NAME@", Card, { title: "@LABEL@", topic: "@NAME@.card", owner: "@NAME@", order: 20 });
 """
 
 
@@ -304,6 +304,28 @@ def test_two_example_views_pass_every_guard_and_change_no_shared_file(static_cop
          *(f"extensions/{view}/{name}" for view in ("alpha_view", "beta_view") for name in ("index.js", "help.js", "style.css"))])
 
 
+@pytest.mark.parametrize("old, new", [
+    ('owner: "alpha_view"', 'owner: "beta_view"'),
+    ('owner: "alpha_view"', ''),
+    ('registerHelp(HELP, "alpha_view")', 'registerHelp(HELP)'),
+])
+def test_extension_guard_requires_its_own_owner(static_copy, old, new):
+    path = static_copy / "extensions" / "alpha_view" / "index.js"
+    source = path.read_text(encoding="utf-8")
+    assert old in source
+    path.write_text(source.replace(old, new, 1), encoding="utf-8")
+    with pytest.raises(AssertionError, match="must pass owner alpha_view"):
+        check_extensions(static_copy)
+
+
+def test_extension_heading_help_accepts_single_quoted_topic(static_copy):
+    path = static_copy / "extensions" / "alpha_view" / "index.js"
+    source = path.read_text(encoding="utf-8")
+    source = source.replace('topic="alpha_view.view"', "topic='alpha_view.view'")
+    path.write_text(source, encoding="utf-8")
+    check_extensions(static_copy)
+
+
 BROKEN_VIEWS = [      # (view name, file to break, text to find, text to put instead (None: delete the file), the guard's complaint)
     ("control_view", "index.js", ' ...${helpFor("control_view.action")}', "", "control without help"),
     ("heading_view", "index.js", 'id="heading-view-title"', 'id="title"', "must start with 'heading-view-'"),
@@ -422,6 +444,26 @@ def test_registries_validate_and_order_what_extensions_register():
     assert out["slots"] == [["early", "Pronto", "early.card"], ["late", "Tarde", None]]
     assert all(out["badHelp"]) and "already registered" in out["duplicateHelp"]
     assert out["help"] == ["A", None]
+
+
+@needs_node
+def test_slot_and_usage_labels_limit_the_trimmed_text():
+    out = run_node(f"""
+      import {{ registerSlot, registeredSlots, registerUsageSection, registeredUsageSections }} from {url(JS / "extensions.js")};
+      const View = () => null;
+      const attempt = (fn) => {{ try {{ fn(); return null; }} catch (error) {{ return error.message; }} }};
+      const padded = "  " + "a".repeat(30) + "  ";
+      registerSlot("padded_slot", View, {{ title: padded, owner: "sample" }});
+      registerUsageSection({{ id: "padded_usage", label: padded, component: View, owner: "sample" }});
+      console.log(JSON.stringify({{
+        slot: registeredSlots()[0].title, usage: registeredUsageSections()[0].label,
+        tooLongSlot: attempt(() => registerSlot("long_slot", View, {{ title: "a".repeat(31), owner: "sample" }})),
+        tooLongUsage: attempt(() => registerUsageSection({{ id: "long_usage", label: "a".repeat(31), component: View, owner: "sample" }})),
+      }}));
+    """)
+    assert out == {"slot": "a" * 30, "usage": "a" * 30,
+                   "tooLongSlot": "registerSlot: title must be 1 to 30 characters",
+                   "tooLongUsage": "registerUsageSection: label must be 1 to 30 characters"}
 
 
 @needs_node
@@ -591,6 +633,60 @@ def test_the_page_draws_whatever_the_extension_list_does():
     assert "useRegistry();" in main and "subscribeRegistry" in (JS / "route.js").read_text(encoding="utf-8")   # late arrivals redraw
     budget = int(re.search(r"export const LOAD_BUDGET_MS = (\d+);", (JS / "extensions.js").read_text(encoding="utf-8"))[1])
     assert 1000 <= budget <= 5000
+    assert "current?.label" in main
+
+
+@needs_node
+def test_failed_parallel_import_rolls_back_only_its_explicit_owner():
+    out = run_node(f"""
+      import {{ loadExtensions, registerView, registerSlot, registerHelp, registerUsageSection,
+        registeredViews, registeredSlots, registeredHelp, registeredUsageSections }} from {url(JS / "extensions.js")};
+      const entry = (id) => ({{ id, script: `/gui/static/extensions/${{id}}/index.js` }});
+      const C = () => null;
+      let release;
+      const gate = new Promise((resolve) => {{ release = resolve; }});
+      const warnings = [];
+      console.warn = (message) => warnings.push(message);
+      const importModule = async (_url, id) => {{
+        registerView({{ id, owner: id, label: id, component: C }});
+        registerSlot(id, C, {{ owner: id, title: id }});
+        registerHelp({{ [`${{id}}.view`]: {{ title: id, hint: id, more: [] }} }}, id);
+        registerUsageSection({{ id, owner: id, label: id, component: C }});
+        if (id === "broken") {{ await gate; throw new Error("after registering"); }}
+      }};
+      const loading = loadExtensions({{ fetchManifest: async () => ({{ extensions: [entry("broken"), entry("healthy")] }}),
+        importModule, addStylesheet: async () => {{}} }});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      release();
+      const report = await loading;
+      registerView({{ id: "legacy", label: "Legacy", component: C }});
+      const second = await loadExtensions({{ fetchManifest: async () => ({{ extensions: [entry("legacy")] }}),
+        importModule: async () => {{ throw new Error("legacy failed"); }}, addStylesheet: async () => {{}} }});
+      console.log(JSON.stringify({{ report, second, views: registeredViews().map((v) => v.id),
+        slots: registeredSlots().map((s) => s.name), usage: registeredUsageSections().map((s) => s.id),
+        help: [registeredHelp("broken.view"), registeredHelp("healthy.view")?.title], warnings }}));
+    """)
+    assert out["report"]["loaded"] == ["healthy"]
+    assert out["report"]["failed"][0]["id"] == "broken"
+    assert out["views"] == ["healthy", "legacy"]
+    assert out["slots"] == ["healthy"] and out["usage"] == ["healthy"]
+    assert out["help"] == [None, "healthy"]
+    assert out["second"]["failed"][0]["id"] == "legacy"
+    assert any("no explicit owner" in warning for warning in out["warnings"])
+
+
+@needs_node
+def test_view_label_is_checked_after_trimming():
+    out = run_node(f"""
+      import {{ registerView, registeredViews }} from {url(JS / "extensions.js")};
+      registerView({{ id: "padded", owner: "padded", label: "  Name  ", component: () => null }});
+      registerView({{ id: "boundary", owner: "boundary", label: " " + "x".repeat(30) + " ", component: () => null }});
+      let message = null;
+      try {{ registerView({{ id: "long", owner: "long", label: "x".repeat(31) + "  ", component: () => null }}); }}
+      catch (error) {{ message = error.message; }}
+      console.log(JSON.stringify({{ labels: registeredViews().map((view) => view.label), message }}));
+    """)
+    assert out == {"labels": ["x" * 30, "Name"], "message": "registerView: label must be 1 to 30 characters"}
 
 
 def test_a_folder_whose_entry_is_not_a_file_is_not_listed(tmp_path):

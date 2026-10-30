@@ -44,6 +44,10 @@ class WaitingReason(str, Enum):
     # them. They settle it with the approval path of runs (``approve`` goes on, ``reject`` rejects; ``cancel`` always works);
     # the inbox never settles it. The message is consumed when it pauses the run, so it never pauses the run twice.
     USER_MESSAGE = "user_message"
+    # USO-T04 (contract CMP-T01 section 4, order 300): a model call would pass a budget in cut mode, or has no known price, so
+    # the step waits for a person before it is made, the way a supervised escalation waits. They settle it with the approval
+    # path of runs: ``approve`` lets that one call through, ``reject`` fails the run (``Store.finish_budget_cut``).
+    BUDGET_CUT = "budget_cut_approval"
 
 
 class HumanAction(str, Enum):

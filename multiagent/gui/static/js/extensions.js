@@ -12,13 +12,14 @@
 // failed (extensionFailures(), the notice in main.js) and, if it finishes later, it registers late: subscribeRegistry() tells
 // the page, which draws again.
 //
-//   registerView({ id, label, component, order })   a screen: a button in the sidebar and the route "#<id>" or "#<id>/<item>"
+//   registerView({ id, label, component, order, owner })   a screen: a button in the sidebar and the route "#<id>" or "#<id>/<item>"
 //                                                   (component props: token, status, mock, route = { section, id })
-//   registerSlot(name, component, { title, topic, order })   a section of the right panel (also exported by panel-slots.js);
+//   registerSlot(name, component, { title, topic, order, owner })   a section of the right panel (also exported by panel-slots.js);
 //                                                   props: token, route, sessionId; topic is a help key (optional)
-//   registerUsageSection({ id, label, component, order })   a tab of the «Uso» screen after Planes, Global and API y presupuesto
+//   registerUsageSection({ id, label, component, order, owner })   a tab of the «Uso» screen after Planes, Global and API y presupuesto
 //                                                   (CNT-T06; props: token); the ids of the built-in tabs are reserved
-//   registerHelp(entries)                           help entries { title, hint, more } for <Help topic=...> and helpFor()
+//   registerHelp(entries, owner)                    help entries { title, hint, more } for <Help topic=...> and helpFor()
+// owner is the extension folder id. A failed import removes only that owner's registrations; calls without owner stay registered.
 //
 // This file imports nothing, so it loads anywhere (the page, Node tests). The one dynamic import() of the GUI is here:
 // its path is a constant plus an extension id that matched NAME, never a URL taken from elsewhere (see importEntry).
@@ -38,6 +39,7 @@ const views = new Map();
 const slots = new Map();
 const usageSections = new Map();
 const helps = new Map();
+const ownership = new Map(); // owner -> registrations made by that extension, across all registries
 const failures = new Map();   // extension id -> why it is not loaded (the manifest itself is "extensions")
 const listeners = new Set();
 let version = 0;
@@ -60,46 +62,64 @@ function refuse(message) { throw new Error(message); }
 
 const byOrder = (a, b) => (a.order - b.order) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 const orderOf = (value) => (Number.isFinite(value) ? value : 100);
+function record(owner, registry, key) {
+  if (typeof owner !== "string" || !NAME.test(owner)) {
+    console.warn("GUI registration " + key + " has no explicit owner; it cannot be rolled back");
+    return;
+  }
+  if (!ownership.has(owner)) ownership.set(owner, []);
+  ownership.get(owner).push([registry, key]);
+}
 
-export function registerView({ id, label, component, order } = {}) {
+function rollback(owner) {
+  const registrations = ownership.get(owner) || [];
+  ownership.delete(owner);
+  for (const [registry, key] of registrations) registry.delete(key);
+  if (registrations.length) changed();
+}
+
+export function registerView({ id, label, component, order, owner } = {}) {
   if (typeof id !== "string" || !ID.test(id)) refuse("registerView: id must be lowercase letters, digits and _ (got " + String(id) + ")");
   if (RESERVED_SECTIONS.includes(id)) refuse("registerView: \"" + id + "\" is the route of a built-in screen");
   if (views.has(id)) refuse("registerView: \"" + id + "\" is already registered");
-  if (typeof label !== "string" || !label.trim() || label.length > 30) refuse("registerView: label must be 1 to 30 characters");
+  if (typeof label !== "string" || !label.trim() || label.trim().length > 30) refuse("registerView: label must be 1 to 30 characters");
   if (typeof component !== "function") refuse("registerView: component must be a function");
   views.set(id, { id, key: id, label: label.trim(), component, order: orderOf(order) });
+  record(owner, views, id);
   changed();
 }
 
 export function registeredViews() { return [...views.values()].sort(byOrder); }
 export function isRegisteredView(id) { return views.has(id); }
 
-export function registerSlot(name, component, { title, topic = null, order } = {}) {
+export function registerSlot(name, component, { title, topic = null, order, owner } = {}) {
   if (typeof name !== "string" || !ID.test(name)) refuse("registerSlot: name must be lowercase letters, digits and _ (got " + String(name) + ")");
   if (RESERVED_SLOTS.includes(name)) refuse("registerSlot: \"" + name + "\" is a section of the built-in panel");
   if (slots.has(name)) refuse("registerSlot: \"" + name + "\" is already registered");
   if (typeof component !== "function") refuse("registerSlot: component must be a function");
-  if (typeof title !== "string" || !title.trim() || title.length > 30) refuse("registerSlot: title must be 1 to 30 characters");
+  if (typeof title !== "string" || !title.trim() || title.trim().length > 30) refuse("registerSlot: title must be 1 to 30 characters");
   if (topic !== null && (typeof topic !== "string" || !TOPIC.test(topic))) refuse("registerSlot: topic must be a help key like \"name.topic\"");
   slots.set(name, { name, key: name, title: title.trim(), topic, component, order: orderOf(order) });
+  record(owner, slots, name);
   changed();
 }
 
 export function registeredSlots() { return [...slots.values()].sort(byOrder); }
 
-export function registerUsageSection({ id, label, component, order } = {}) {
+export function registerUsageSection({ id, label, component, order, owner } = {}) {
   if (typeof id !== "string" || !ID.test(id)) refuse("registerUsageSection: id must be lowercase letters, digits and _ (got " + String(id) + ")");
   if (RESERVED_USAGE_SECTIONS.includes(id)) refuse("registerUsageSection: \"" + id + "\" is a tab of the built-in Uso screen");
   if (usageSections.has(id)) refuse("registerUsageSection: \"" + id + "\" is already registered");
-  if (typeof label !== "string" || !label.trim() || label.length > 30) refuse("registerUsageSection: label must be 1 to 30 characters");
+  if (typeof label !== "string" || !label.trim() || label.trim().length > 30) refuse("registerUsageSection: label must be 1 to 30 characters");
   if (typeof component !== "function") refuse("registerUsageSection: component must be a function");
   usageSections.set(id, { id, key: id, label: label.trim(), component, order: orderOf(order) });
+  record(owner, usageSections, id);
   changed();
 }
 
 export function registeredUsageSections() { return [...usageSections.values()].sort(byOrder); }
 
-export function registerHelp(entries) {
+export function registerHelp(entries, owner) {
   if (!entries || typeof entries !== "object" || Array.isArray(entries)) refuse("registerHelp: expects an object of entries");
   for (const [topic, entry] of Object.entries(entries)) {
     if (!TOPIC.test(topic)) refuse("registerHelp: bad help key " + topic);
@@ -107,6 +127,7 @@ export function registerHelp(entries) {
     const ok = entry && typeof entry.title === "string" && typeof entry.hint === "string" && Array.isArray(entry.more);
     if (!ok) refuse("registerHelp: \"" + topic + "\" needs { title, hint, more: [..] }");
     helps.set(topic, entry);
+    record(owner, helps, topic);
   }
   changed();
 }
@@ -169,6 +190,7 @@ export async function loadExtensions({ fetchManifest, importModule = importEntry
 
   const loadOne = async (entry, position) => {
     const id = entry && entry.id;
+    let validEntry = false;
     try {
       const script = ENTRY_URL.exec(String(entry && entry.script));
       if (typeof id !== "string" || !NAME.test(id) || !script || script[1] !== id) refuse("bad manifest entry for " + String(id));
@@ -177,9 +199,11 @@ export async function loadExtensions({ fetchManifest, importModule = importEntry
         if (!style || style[1] !== id) refuse("bad stylesheet for " + id);
         sheets.push(Promise.resolve(addStylesheet(entry.style)).catch(() => {}));
       }
+      validEntry = true;
       await importModule(entry.script, id);
       settle(position, id, true, "");
     } catch (error) {
+      if (validEntry) rollback(id);
       settle(position, String(id), false, reason(error));
     }
   };

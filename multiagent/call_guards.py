@@ -43,6 +43,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Protocol
 
 if TYPE_CHECKING:
+    from .budget_cut import BudgetPolicy
     from .catalog import Catalog, ModelSpec
     from .context.estimate import ContextSettings
     from .document_trust import DetectionPolicy
@@ -321,14 +322,18 @@ class GuardEnvironment:
     document_policy: "DetectionPolicy | str | None" = None
     # The availability policy in force (AVA-T01), or None for "off": then there is no inbox guard and nothing changes.
     availability: "AvailabilityPolicy | None" = None
+    # How the budgets are read (USO-T04, ``budget_cut.policy_from_settings``), or None for "no budget is configured":
+    # then there is no budget guard and nothing changes.
+    budgets: "BudgetPolicy | None" = None
 
 
 def build_call_guards(env: GuardEnvironment, *, cancel: Callable[[CallContext], None] | None = None,
                       reserve: Callable[[CallContext], None] | None = None) -> CallGuardChain:
     """The chain of one run step (or task): limits always, the others when their feature is on.
 
-    This is the one place guards are registered. USO-T04 (budget cut, order 300) and CNT-T04/T10 (limit hold)
-    add theirs below with one line each. The inbox guard (AVA-T03) exists only with an enabled availability policy.
+    This is the one place guards are registered. CNT-T04/T10 (limit hold) add theirs below with one line each. The
+    inbox guard (AVA-T03) exists only with an enabled availability policy, and the budget guard (USO-T04, order 300)
+    only when a budget is configured.
     """
     guards: list[CallGuard] = [RunLimitsGuard(env.routing_profile_id, env.routing_profile)]
     if env.availability is not None and env.availability.enabled:     # AVA-T03: the person's inbox, order 50
@@ -341,6 +346,8 @@ def build_call_guards(env: GuardEnvironment, *, cancel: Callable[[CallContext], 
     if env.document_policy is not None:      # BDI-T04: no policy, no barrier, no guard
         from .document_review import UntrustedContentGuard
         guards.append(UntrustedContentGuard(env.document_policy))
-    # USO-T04: guards.append(BudgetCutGuard(env))
+    if env.budgets is not None:              # USO-T04: no budget configured, no guard
+        from .budget_cut import BudgetGuard
+        guards.append(BudgetGuard(env.budgets, emit=env.emit))
     # CNT-T04/T10: guards.append(QuotaHoldGuard(env))
     return CallGuardChain(guards, cancel=cancel, reserve=reserve)

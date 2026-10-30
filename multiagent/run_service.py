@@ -10,6 +10,10 @@ from .run_request import RunRequest
 from .routing_preferences import validate_run_preferences
 
 
+class PersonRequired(InvalidStateTransition):
+    """The decision needs an authenticated person and the caller is not one (``details.reason`` ``person_required``)."""
+
+
 class RunService:
     def __init__(self, settings: Settings, store: Store, engine=None):
         self.settings = settings
@@ -59,15 +63,29 @@ class RunService:
                 and run.get("waiting_reason") == WaitingReason.CONTENT_REVIEW.value)
 
     @staticmethod
+    def _awaits_budget_cut(run: dict[str, Any]) -> bool:
+        """True while the budget guard (USO-T04) holds a call that would pass a budget in cut mode, or has no known price."""
+        return (run["status"] == RunStatus.WAITING_HUMAN.value
+                and run.get("waiting_reason") == WaitingReason.BUDGET_CUT.value)
+
+    @staticmethod
     def _awaits_user_message(run: dict[str, Any]) -> bool:
         """True while a message of the person (AVA-T03, ``interrupt`` or ``adjust``) holds the run at a step boundary."""
         return (run["status"] == RunStatus.WAITING_HUMAN.value
                 and run.get("waiting_reason") == WaitingReason.USER_MESSAGE.value)
 
-    def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None) -> dict[str, Any]:
+    def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None,
+                recorded_only: bool = False) -> dict[str, Any]:
         """``by`` and ``channel`` say who and through which door (``api`` or ``gui``) the caller declared: they are
-        recorded when the approval settles a content review and are not checked (see ``document_review``)."""
+        recorded when the approval settles a content review and are not checked (see ``document_review``).
+
+        ``recorded_only`` is for a caller nobody authenticated (the local HTTP API, which has no token): it cannot approve
+        a spend, so a run held by the budget guard answers ``PersonRequired`` and stays as it was (USO-T04). Every other
+        wait behaves as before. The token route of the GUI and the CLI do not pass it."""
         run = self.store.get_run(run_id)
+        if recorded_only and self._awaits_budget_cut(run):
+            raise PersonRequired("A budget cut spends money, so only a person approves it: use the GUI (it carries the "
+                                 "token) or the command line; this route is not authenticated. Rejecting works here.")
         if self._awaits_escalation(run):
             # Approving an escalation resumes the same step with the stronger model; no artifact is under review.
             self.store.finish_escalation(run, approve=True)
@@ -77,6 +95,11 @@ class RunService:
             # fragments stay replaced); no artifact is under review. The caller is not authenticated: whoever can
             # reach this method can settle the review (known limit, BDI-T07).
             self.store.finish_content_review(run, approve=True, by=by, channel=channel)
+            return self.store.get_run(run_id)
+        if self._awaits_budget_cut(run):
+            # Approving a budget cut lets exactly the held call go ahead (the step resumes and the guard spends this approval on
+            # it). An unauthenticated caller (``recorded_only``) never gets here; nothing but this path approves a cut.
+            self.store.finish_budget_cut(run, approve=True, by=by, channel=channel)
             return self.store.get_run(run_id)
         if self._awaits_user_message(run):
             # The person's own approval lets the run go on after their message paused it. The inbox never calls this.
@@ -125,6 +148,10 @@ class RunService:
         if self._awaits_escalation(run):
             # Rejecting an escalation fails the step (and the run) with the reason; nothing was produced to reject.
             self.store.finish_escalation(run, approve=False, feedback=feedback)
+            return self.store.get_run(run_id)
+        if self._awaits_budget_cut(run):
+            # Rejecting a budget cut fails the run with the reason: the held call is never made.
+            self.store.finish_budget_cut(run, approve=False, feedback=feedback, by=by, channel=channel)
             return self.store.get_run(run_id)
         if self._awaits_user_message(run):
             self.store.finish_user_message(run, approve=False, feedback=feedback)

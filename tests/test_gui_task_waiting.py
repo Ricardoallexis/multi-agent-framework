@@ -199,4 +199,3 @@ def test_view_and_panel_share_one_poll_and_folded_panel_does_not_fetch():
       console.log(JSON.stringify({{folded, shared, polled, closed, timerStopped: tick === null}}));
     """)
     assert out == {"folded": 0, "shared": 1, "polled": 2, "closed": 2, "timerStopped": True}
-

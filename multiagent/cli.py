@@ -671,8 +671,31 @@ def cmd_runs(args) -> None:
     pretty(result)
 
 
+def _approve_with_token(run_id: str):
+    """Approve a run through the token route of the GUI (``/gui/api``), with the token this user keeps in their profile."""
+    from .gui.token import read_token
+
+    settings = get_settings()
+    token = read_token(settings.gui_token_file)
+    if token is None:
+        raise RuntimeError(f"person_required: this approval needs the GUI token and none was found at {settings.gui_token_file}; "
+                           "start `multiagent gui` once or approve it in the GUI")
+    with api_client() as client:
+        response = client.post(f"/gui/api/runs/{run_id}/approve", json={}, headers={"Authorization": f"Bearer {token}"})
+    if response.status_code >= 400:
+        raise RuntimeError(f"HTTP {response.status_code}: {_detail(response)}")
+    return response.json()
+
+
 def cmd_approve(args) -> None:
-    pretty(_api_json("POST", f"/api/v1/runs/{args.run_id}/approve"))
+    try:
+        pretty(_api_json("POST", f"/api/v1/runs/{args.run_id}/approve"))
+    except RuntimeError as exc:
+        if "person_required" not in str(exc):
+            raise
+        # A budget cut spends money (USO-T04): /api/v1 has no token and refuses it, so the person at this terminal goes
+        # through the route that has one.
+        pretty(_approve_with_token(args.run_id))
 
 
 def cmd_changes(args) -> None:
@@ -955,6 +978,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     x = sub.add_parser("init"); x.set_defaults(func=cmd_init)
     x = sub.add_parser("doctor"); x.add_argument("--deep", action="store_true"); x.set_defaults(func=cmd_doctor)
+    try:
+        from .setup.cli import add_parser as add_setup_parser
+    except Exception:
+        x = sub.add_parser("setup", help="CLI detection unavailable")
+        def unavailable_setup(_args):
+            raise RuntimeError("setup is unavailable: its module could not be imported")
+        x.set_defaults(func=unavailable_setup)
+    else:
+        add_setup_parser(sub)
     x = sub.add_parser("ui", help="Start the API with the Stage 0 UI (Mock mode unless --real) and open the browser")
     x.add_argument("--real", action="store_true", help="Use the configured model providers instead of Mock mode")
     x.add_argument("--port", type=int, help="Port to listen on (default: APP_PORT, 8000)")

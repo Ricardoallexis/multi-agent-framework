@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,9 @@ class UsageRecorder:
 
     def __init__(self, store):
         self.store = store
+        # Called with the record after it is stored (USO-T04: ``UsageServices.attach`` announces the budget alerts that
+        # call reached). Best effort: whatever it raises is logged and never touches the call or its telemetry.
+        self.after_record: Callable[[TokenUsageRecord], None] | None = None
 
     def record(self, record: TokenUsageRecord) -> bool:
         try:
@@ -76,6 +83,11 @@ class UsageRecorder:
             except Exception:
                 pass
             return False
+        if self.after_record is not None:
+            try:
+                self.after_record(record)
+            except Exception:
+                _logger.warning("The after-record hook failed; the telemetry was stored", exc_info=True)
         return True
 
 

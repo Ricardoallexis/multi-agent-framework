@@ -527,7 +527,8 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
 
     @app.post("/api/v1/runs/{run_id}/approve")
     def approve(run_id: str):
-        return services.runs.approve(run_id)
+        # No token here: this route never approves a budget cut (it spends money; ``person_required``). The GUI route does.
+        return services.runs.approve(run_id, recorded_only=True)
 
     @app.post("/api/v1/runs/{run_id}/changes")
     def changes(run_id: str, review: HumanReviewRequest):

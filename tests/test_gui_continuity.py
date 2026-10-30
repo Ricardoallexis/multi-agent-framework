@@ -386,8 +386,8 @@ def test_the_stylesheet_is_light_dark_and_phone_safe():
 
 def test_the_extension_registers_a_screen_a_panel_section_and_a_tab_of_uso():
     index = re.sub(r"^\s*//.*$", "", (EXT / "index.js").read_text(encoding="utf-8"), flags=re.M)
-    assert 'registerView({ id: "continuity"' in index and 'registerSlot("continuity", ContinuitySlot' in index
-    assert 'registerUsageSection({ id: "continuity"' in index and "registerHelp(HELP)" in index
+    assert 'registerView({ id: "continuity", owner: "continuity"' in index and 'registerSlot("continuity", ContinuitySlot' in index
+    assert 'registerUsageSection({ id: "continuity", owner: "continuity"' in index and 'registerHelp(HELP, "continuity")' in index
     usage = (JS / "usage.js").read_text(encoding="utf-8")
     assert "registeredUsageSections()" in usage and "extraSection.component" in usage and "extensions/" not in usage
     for shared in JS.rglob("*.js"):

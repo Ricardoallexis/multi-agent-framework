@@ -4,7 +4,7 @@
 
 A task that adds something to the GUI creates ``static/extensions/<name>/`` and puts everything in it:
 
-``index.js``    the entry module (required): calls ``registerView``, ``registerSlot`` and ``registerHelp`` of ``js/extensions.js``
+``index.js``    the entry module (required): calls ``registerView``, ``registerSlot`` and ``registerHelp`` of ``js/extensions.js``, passing its folder name as ``owner`` (the second argument of ``registerHelp``)
 ``style.css``   the stylesheet of the view (optional); the page adds it, ``index.html`` is not edited
 ``help.js``     the help texts of the view (optional): ``export const HELP = { ... }`` as strict JSON, keys ``<name>.*``
 anything else   helpers of the extension (models, components); only ``index.js`` and ``style.css`` are loaded by the page

@@ -236,9 +236,9 @@ def test_every_control_points_at_its_help_or_says_why_it_has_none():
 
 def topics_in(source: str):
     """(topics given to helpFor, topics given to <Help>) of one module, as written in the code without spaces."""
-    helped = [re.sub(r"\s+", "", t) for t in re.findall(r"helpFor\(\s*([^,)]+?(?:\s*\+\s*[\w.]+)?)\s*[,)]", source)]
-    shown = [re.sub(r"\s+", "", f'"{a}"' if a else b)
-             for a, b in re.findall(r'<\$\{Help\}[^>]*?\btopic=(?:"([^"]+)"|\$\{([^}]+)\})', source)]
+    helped = [re.sub(r"\s+", "", t).replace("'", '"') for t in re.findall(r"helpFor\(\s*([^,)]+?(?:\s*\+\s*[\w.]+)?)\s*[,)]", source)]
+    shown = [re.sub(r"\s+", "", f'"{a or b}"' if a or b else dynamic)
+             for a, b, dynamic in re.findall(r'''<\$\{Help\}[^>]*?\btopic=(?:"([^"]+)"|'([^']+)'|\$\{([^}]+)\})''', source)]
     return helped, shown
 
 
@@ -247,6 +247,12 @@ def resolve(expression: str) -> set[str] | None:
         return {expression.strip('"')}
     assert expression in DYNAMIC_TOPICS, f"unexpected topic expression {expression}; add it to DYNAMIC_TOPICS"
     return DYNAMIC_TOPICS[expression]
+
+
+def test_topics_in_accepts_single_quoted_help_for_topic():
+    helped, shown = topics_in("helpFor('sample.action'); <${Help} topic='sample.action' />")
+    assert helped == shown == ['"sample.action"']
+    assert resolve(helped[0]) == {"sample.action"}
 
 
 def test_every_topic_exists_and_has_a_hint_on_the_page():
@@ -381,6 +387,14 @@ def check_extensions(static_dir=STATIC_DIR) -> dict:
         sources = {path: path.read_text(encoding="utf-8") for path in files}
         entry = re.sub(r"^\s*//.*$", "", sources[folder / "index.js"], flags=re.M)      # a comment registers nothing
         assert re.search(r"\bregister(?:View|Slot)\(", entry), f"{folder.name}/index.js registers no view and no slot"
+        owner = re.escape(folder.name)
+        owner_field = rf'\bowner\s*:\s*["\']{owner}["\']'
+        for kind in ("View", "Slot", "UsageSection"):
+            for call in re.finditer(rf'\bregister{kind}\s*\(([^;]+)\)', entry):
+                assert re.search(owner_field, call[1]), f"{folder.name}/index.js: register{kind} must pass owner {folder.name}"
+        for call in re.finditer(r'\bregisterHelp\s*\(([^;]+)\)', entry):
+            assert re.search(rf',\s*["\']{owner}["\']\s*$', call[1]), \
+                f"{folder.name}/index.js: registerHelp must pass owner {folder.name}"
         own_help = folder / HELP_FILE
         assert own_help.is_file() == bool(re.search(r"\bregisterHelp\(", entry)), \
             f"{folder.name}: help.js and registerHelp() go together (one without the other)"
@@ -419,7 +433,7 @@ def check_extensions(static_dir=STATIC_DIR) -> dict:
                     assert exempt[1] in ALLOWED_HEADING_EXEMPT, f"{label}: {ident}"
                     continue
                 after = source[heading.end():heading.end() + 900]
-                topic = re.search(r'<\$\{Help\}[^>]*?\btopic="([^"]+)"', after)
+                topic = re.search(r'''<\$\{Help\}[^>]*?\btopic=["']([^"']+)["']''', after)
                 # the help of a heading comes before the next control or heading, so it is the heading's own and not a later one's
                 assert topic and topic[1] in known and not re.search(r"<(?:button|input|select|textarea|h[34])\b", after[:topic.start()]), \
                     f"{label}: heading {ident} is not followed by its help"

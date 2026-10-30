@@ -98,7 +98,7 @@ function App({ token }) {
   const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} views=${html`<${Views} section=${context.section} />`} />`;
   const panel = html`<${RightPanel} token=${token} route=${context} />`;
   return html`<${Shell} status=${status} statusText=${STATUS_TEXT[status]} mock=${mock} sidebar=${sidebar} panel=${panel}>
-    ${section === "usage" ? html`<h2 id="usage-title">Uso</h2>` : html`<h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : current.label}</h2>`}
+    ${section === "usage" ? html`<h2 id="usage-title">Uso</h2>` : html`<h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : current?.label}</h2>`}
     <${Sessions} token=${token} route=${route} active=${section === "sessions"} />
     ${tree && html`<${AgentTree} key=${route.id || ""} token=${token} sessionId=${route.id} />`}
     ${creating && html`<${NewSession} token=${token} mock=${mock} />`}

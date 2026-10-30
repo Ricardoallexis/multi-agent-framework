@@ -34,8 +34,15 @@ Budgets (USO-T03) compare the framework's own estimated cost with limits the ope
 * ``notify_budgets(run_id)``: the same answer, after appending one ``budget.threshold`` team event for each
   alert percent reached that was not announced before, idempotent per (budget, alert, period, amount, currency
   and project): a month budget alerts once per month, a project budget once, a run budget once per run, and a
-  raised amount alerts again at its own percents. This is the only method here that writes.
-* ``mode`` is ``warn`` (default) or ``cut``. Nothing here stops a call: ``cut`` is reported and USO-T04 acts on it.
+  raised amount alerts again at its own percents.
+* ``mode`` is ``warn`` (default) or ``cut``. Nothing here stops a call: ``cut`` is reported and the budget guard of the
+  call chain (``budget_cut``, USO-T04) acts on it. ``attach(engine)`` plugs both in: the guard reads ``notify_budgets``
+  before each call and every call the engine records announces the alerts it reached.
+* ``reserving(run_id)`` and ``settle(reservation_id)`` (USO-T04) are what makes two calls against one budget safe: a write
+  transaction (``BEGIN IMMEDIATE``) in which the guard reads ``budgets()`` plus the outstanding reservations and books the
+  estimate of the call it lets through as a ``budget.reserved`` team event (no table of its own). The reservation ends with
+  a ``budget.settled`` event when the real usage of that call is recorded (``attach`` hooks the recorder, so a failed call
+  ends it too) or is ignored after ``RESERVATION_TTL``. These and ``notify_budgets`` are the only methods here that write.
 
 Paths come from the settings the session viewer uses (``gui_claude_home``, ``gui_codex_home``,
 ``gui_copilot_home``) and ``gui_session_sources`` says which apps are shown. No working folder, title,
@@ -45,13 +52,18 @@ session id, prompt or credential file is read or returned. Errors (``ServiceErro
 from __future__ import annotations
 
 import json
+import logging
 import math
+import uuid
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..budget_cut import BudgetHold
 from ..observability.usage import load_basis, totals_of
 from ..sessions import SessionsConfig
 from ..sessions._common import normalize_ts
@@ -61,6 +73,8 @@ from .errors import INVALID_REQUEST, ServiceError, service_errors
 
 if TYPE_CHECKING:
     from . import ApplicationServices
+
+_logger = logging.getLogger(__name__)
 
 APPS = ("claude", "codex", "copilot", "framework")
 GROUP_DIMENSIONS = ("app", "model", "level", "role", "day", "month")
@@ -73,7 +87,12 @@ MAX_RUN_LIMIT = 500
 MAX_EVIDENCE = 20
 BUDGET_EVENT = "budget.threshold"    # team event (USO-T03): a budget reached one of its alert percents
 BUDGET_ACTOR = "system:budgets"
-MAX_BUDGET_RUNS = 50                 # run budgets: the most consumed runs shown for each budget
+RESERVED_EVENT = "budget.reserved"   # team event (USO-T04): the estimate of a call the budget guard let through
+SETTLED_EVENT = "budget.settled"     # team event (USO-T04): that call's usage was recorded (or it never happened)
+# A reservation nobody settled (the process died between the guard and the record) stops counting after this long. It must
+# outlast any provider call (the timeouts are 120 s), because a reservation that ends early lets another call through.
+RESERVATION_TTL = timedelta(minutes=15)
+MAX_BUDGET_RUNS = 50                # run budgets: the most consumed runs shown for each budget
 MAX_RECENT_ALERTS = 20
 _RUN_CHUNK = 400                     # run ids per query (SQLite caps the number of parameters)
 _PERCENT_EPS = 1e-9
@@ -195,6 +214,17 @@ def _in_project(record: dict[str, Any], project: str | None) -> bool:
     return project is None or project in (record.get("project"), record.get("project_id"))
 
 
+def _decimal(value: Any) -> Decimal | None:
+    """Exact decimal text (as the guard wrote it into a reservation) as a ``Decimal``; ``None`` when it is not a number."""
+    if not isinstance(value, str):
+        return None
+    try:
+        number = Decimal(value)
+    except InvalidOperation:
+        return None
+    return number if number.is_finite() else None
+
+
 def _number(value: float) -> str:
     """A number as the shortest text that reads back as the same float (``10``, ``87.5``, ``1000004``)."""
     text = repr(float(value))
@@ -232,6 +262,120 @@ class UsageServices:
         # A test sets ``clock`` to move time; every window and "now" below reads it.
         self.clock: Callable[[], datetime] = clock or (lambda: datetime.now(timezone.utc))
         self._announced: set[str] = set()   # budget alerts already written as events (a cache: the events are the truth)
+
+    # --- the engine (USO-T04) -------------------------------------------------------
+
+    def attach(self, engine: Any) -> None:
+        """Plug the budgets into a workflow engine: its budget guard (``budget_cut``) reads them before each model call
+        and every call its recorder stores ends the reservation of that call and announces the alerts it reached
+        (``notify_budgets``).
+
+        ``ApplicationServices`` and the bundle runtimes call this for each engine. With no budget configured nothing is
+        read, reserved or announced.
+        """
+        engine.budgets_source = self
+        engine.usage_recorder.after_record = self._after_call
+
+    def _after_call(self, record: Any) -> None:
+        """After a call is recorded (success or failure): end its reservation, then announce the alerts it reached.
+
+        Best effort and nothing without budgets. The usage is stored before this runs, so for an instant a call counts
+        both as used and as reserved (a call checked right then is held, never let through); the other way round would
+        under-count.
+        """
+        if not self._services.settings.usage_budgets:
+            return
+        try:
+            self._settle_call(record.run_id, record.step_id, record.attempt)
+        except Exception:
+            _logger.warning("The reservation of a recorded call could not be ended; it expires by itself", exc_info=True)
+        try:
+            self.notify_budgets(run_id=record.run_id)
+        except Exception:
+            _logger.warning("Budget alerts could not be announced after a recorded call", exc_info=True)
+
+    # --- reservations (USO-T04) -----------------------------------------------------
+
+    @contextmanager
+    def reserving(self, *, run_id: Any = None) -> Iterator[BudgetHold]:
+        """The section in which the budget guard decides and books a call: one write transaction (``BEGIN IMMEDIATE``).
+
+        Inside it ``hold.status`` is ``budgets(run_id)`` and ``hold.reserved`` the estimates of the calls that were let
+        through and have not been recorded yet (by ``reservation_key``), so two calls against one budget cannot both
+        read the same ``used`` and pass: the second waits for the first transaction and sees its reservation.
+        ``hold.reserve(payload)`` appends the ``budget.reserved`` event (``run_id``, ``step_id``, ``attempt``,
+        ``model_id``, ``currency``, ``amount`` as exact decimal text and the ``budgets`` keys; at most 2048 bytes) and
+        returns its id; it is committed when the section ends without an error, and rolled back if it raises. Nothing
+        else must be written to this database from inside (the lock is taken).
+        """
+        store = self._services.tasks.store
+        with store.transaction() as conn:
+            status = self.budgets(run_id=run_id)
+            reserved: dict[str, Decimal] = {}
+            for _cause, payload in self._outstanding(conn):
+                amount = _decimal(payload.get("amount"))
+                if amount is None:
+                    continue
+                for key in payload.get("budgets") or ():
+                    reserved[key] = reserved.get(key, Decimal(0)) + amount
+
+            def reserve(payload: Any) -> str:
+                reservation_id = uuid.uuid4().hex
+                store.append_event(conn, RESERVED_EVENT, actor=BUDGET_ACTOR, cause=reservation_id,
+                                   ref=f"run:{payload.get('run_id')}", payload=dict(payload))
+                return reservation_id
+
+            yield BudgetHold(status=status, reserved=reserved, reserve=reserve)
+
+    @staticmethod
+    def _outstanding(conn: Any, *, run_id: str | None = None, expired: bool = False) -> list[tuple[str, dict[str, Any]]]:
+        """``(reservation id, payload)`` of the reservations nobody settled, oldest first. Those older than
+        ``RESERVATION_TTL`` are left out unless ``expired``; ``run_id`` keeps one run's."""
+        sql = ("SELECT cause, payload_json FROM team_events WHERE type = ? AND created_at >= ? "
+               "AND cause NOT IN (SELECT cause FROM team_events WHERE type = ?)")
+        cutoff = "" if expired else (datetime.now(timezone.utc) - RESERVATION_TTL).isoformat()
+        params: list[Any] = [RESERVED_EVENT, cutoff, SETTLED_EVENT]
+        if run_id is not None:
+            sql += " AND ref = ?"
+            params.append(f"run:{run_id}")
+        found: list[tuple[str, dict[str, Any]]] = []
+        for row in conn.execute(sql + " ORDER BY seq", params):
+            try:
+                payload = json.loads(row["payload_json"])
+            except ValueError:
+                continue
+            if isinstance(payload, dict):
+                found.append((row["cause"], payload))
+        return found
+
+    def _settle_call(self, run_id: Any, step_id: Any, attempt: Any) -> None:
+        """End the newest outstanding reservation of this run, step and attempt (one record ends one reservation).
+
+        A run makes one call at a time, so the record belongs to the latest reservation; an older one that is still
+        outstanding was left by a call that never recorded anything and expires by itself.
+        """
+        if not isinstance(run_id, str) or not run_id:
+            return
+        store = self._services.tasks.store
+        with store.transaction() as conn:
+            for cause, payload in reversed(self._outstanding(conn, run_id=run_id, expired=True)):
+                if payload.get("step_id") == step_id and payload.get("attempt") == attempt:
+                    store.append_event(conn, SETTLED_EVENT, actor=BUDGET_ACTOR, cause=cause, ref=f"run:{run_id}",
+                                       payload={"run_id": run_id, "reason": "recorded"})
+                    return
+
+    def settle(self, reservation_id: str) -> bool:
+        """End a reservation by hand (the guard uses it when a call it let through did not happen); ``False`` when there is
+        no such outstanding reservation."""
+        store = self._services.tasks.store
+        with store.transaction() as conn:
+            for cause, payload in self._outstanding(conn, expired=True):
+                if cause == reservation_id:
+                    store.append_event(conn, SETTLED_EVENT, actor=BUDGET_ACTOR, cause=cause,
+                                       ref=f"run:{payload.get('run_id')}",
+                                       payload={"run_id": payload.get("run_id"), "reason": "cancelled"})
+                    return True
+        return False
 
     # --- configuration ----------------------------------------------------------
 
@@ -590,7 +734,8 @@ class UsageServices:
         * ``budget_id``, ``scope``, ``project`` (as configured) with its ``project_id`` (taken from the runs counted;
           only for a budget tied to a project), ``run_id`` and ``bundle`` (run rows), ``period`` (``YYYY-MM`` for
           a month budget, ``all`` for a project one) with ``since``/``until`` (month only) and ``currency``;
-        * ``amount``, ``used`` (the known cost in that currency), ``remaining``, ``percent`` (cut to two decimals)
+        * ``amount``, ``used`` (the known cost in that currency, cut to six decimals) with ``used_exact`` (the same sum
+          before cutting it: the budget guard decides on it, never on ``used``), ``remaining``, ``percent`` (cut to two decimals)
           and ``state``: ``ok``, ``alert`` (an alert percent was reached) or ``limit_reached`` (100 % or more);
         * ``mode`` (``warn`` or ``cut``; ``cut`` is applied by USO-T04, not here), ``alerts``, ``crossed`` (the alert
           percents reached) and ``next_alert`` (the first one not reached, ``None`` when there is none);
@@ -705,6 +850,7 @@ class UsageServices:
                 known += 1
             else:
                 other[spent[0]] = other.get(spent[0], 0.0) + spent[1]
+        exact_used = used           # what the budget guard compares; ``used`` below is cut to six decimals for display
         used = round(used, 6)
         percent = used / budget.amount * 100
         alerts = list(budget.alerts if budget.alerts is not None else defaults["alerts"])
@@ -715,7 +861,8 @@ class UsageServices:
             "budget_id": budget.id, "scope": budget.scope, "project": budget.project,
             "project_id": _project_id_of(records) if budget.project is not None else None,
             "run_id": run_id, "bundle": bundle, "period": period, "since": _iso(since), "until": _iso(until), "currency": budget.currency,
-            "amount": budget.amount, "used": used, "remaining": round(max(0.0, budget.amount - used), 6),
+            "amount": budget.amount, "used": used, "used_exact": exact_used,
+            "remaining": round(max(0.0, budget.amount - used), 6),
             "percent": _percent_text(percent), "state": state,
             "mode": budget.mode or defaults["mode"], "alerts": alerts, "crossed": crossed,
             "next_alert": next((alert for alert in alerts if alert not in crossed), None),
