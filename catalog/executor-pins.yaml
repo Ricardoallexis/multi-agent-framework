@@ -1,0 +1,29 @@
+# AXI-T07: pinned versions of the executor applications (see docs/EXECUTORS.md, "Pinned versions").
+#
+# One record per executor, closed list. `pin` is what a person accepted; `candidate` is a newer observation that waits
+# for a person (accepted by hand in a maintenance window, within 7 days of `first_observed_at`, never automatically).
+# Both are null until the operator loads them: this file ships WITHOUT versions or digests, and an executor with no
+# pin is blocked by the pin guard whenever a host turns the guard on. The definitive values are loaded by the operator
+# in an authorized window, not committed from an example.
+#
+# A pin block holds:
+#   version, sha256 (64 lowercase hex), artifact_kind (package | launcher for the three apps; source_archive for Hermes),
+#   first_observed_at, accepted_at (ISO 8601 with a time zone, less than 7 days after first_observed_at),
+#   accepted_by (a person; system:, executor: and agent: identities are refused)
+#   and, for hermes_cli only, tag and commit (40 lowercase hex).
+# A candidate block holds the same, without accepted_at and accepted_by.
+# Quote every text value ("1.2" would otherwise be read as a number).
+version: 1
+executors:
+  claude_cli:
+    pin: null
+    candidate: null
+  codex_cli:
+    pin: null
+    candidate: null
+  copilot_cli:
+    pin: null
+    candidate: null
+  hermes_cli:
+    pin: null
+    candidate: null

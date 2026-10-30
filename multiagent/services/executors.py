@@ -165,6 +165,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from .. import executor_pins as _pins
 from ..db.envelope_store import HARD_MAX_BLOB_BYTES
 from ..document_actions import Action, ActionKind, Approval
 from ..errors import MultiAgentError
@@ -210,6 +211,9 @@ CONDITION_EXPIRED_EVENT = "continuity.condition_expired"
 EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, ATTENTION_EVENT, HEARTBEAT_EVENT, PAUSE_EVENT, OPEN_EVENT,
                LIMIT_EVENT, CHECKPOINT_EVENT, RETIRED_EVENT, PAUSE_LIFTED_EVENT, HELD_EVENT, RESUMED_EVENT,
                CONDITION_MET_EVENT, CONDITION_EXPIRED_EVENT)
+PIN_EVENT = "executor.version_changed"    # AXI-T07: an executor's version or digest differs from its pin (see executor_pins)
+PIN_ACTOR = "system:executor-pins"
+EVENT_TYPES += (PIN_EVENT,)
 WATCHER_ACTOR = "system:watcher"          # who records the end of a wait by condition (CNT-T12); it resumes as the assignee
 AUTO_TRIGGERS = ("auto", "condition")     # resumptions the service makes by itself: a limit that returns counts as a failed one
 NOT_APPROVERS = ("system:", "executor:")  # the framework never approves in the name of a person
@@ -561,6 +565,9 @@ class ExecutorServices:
         # The approvals that allow an effect while a document policy is active (BDI-T04); None means "no evidence",
         # and then every gated effect is refused. Set by the host that turns the barrier on.
         self.effect_evidence: Callable[[Action, Mapping[str, Any]], Iterable[Approval] | None] | None = None
+        # AXI-T07: before a launch the executor's version and digest are compared with its pin (``executor_pins``). ``None``
+        # leaves the check off; a host that turns autonomy on sets a ``PinGuard``, and then a drift refuses the launch.
+        self.pin_guard: _pins.PinGuard | None = None
         # The availability policy (AVA-T01). ``None`` reads it from the settings (``availability_*``), which are off unless
         # configured; a host or a test may set a policy here. With it on, ``run_task`` launches in the background.
         self.availability: AvailabilityPolicy | None = None
@@ -620,6 +627,37 @@ class ExecutorServices:
         if permission is Permission.WRITE:
             for path in task["file_scope"]:
                 self._require_effect(Action(ActionKind.WRITE, path), context)
+        self._require_pin(task, executor_id)         # AXI-T07 (both call sites: a relaunch is refused before it retires)
+
+    def _require_pin(self, task: Mapping[str, Any], executor_id: str) -> None:
+        """AXI-T07: refuse the launch when the executor's version or digest is not its pin (``executor_pin_blocked``).
+
+        Off while ``pin_guard`` is None. A drift writes one ``executor.version_changed`` per observed change; if that
+        cannot be written the launch is refused all the same. Nothing is accepted, updated or started here. The event is
+        about the executor, not about a task: it carries no ``task_id`` or ``group_id`` (``ref`` is the executor).
+        """
+        guard = self.pin_guard
+        if guard is None:
+            return
+        now = self.clock()
+        check = guard.check(executor_id, now)
+        if check.status == _pins.MATCHED:
+            return
+        details: dict[str, Any] = {"executor_id": executor_id, "status": check.status, "changed": list(check.changed),
+                                   "candidate": check.candidate, "task_id": task["id"]}
+        if check.status == _pins.DRIFT:
+            try:
+                with self._store.transaction() as conn:       # read, decide and write in ONE write transaction (two
+                    previous = self._latest(conn, PIN_EVENT, ref=executor_id)        # launches cannot both record it)
+                    if _pins.should_record(previous["payload"] if previous else None, check):
+                        self._store.append_event(conn, PIN_EVENT, actor=PIN_ACTOR, ref=executor_id,    # no task data
+                                                 cause=f"{executor_id} differs from its pin",
+                                                 payload=_fit(_pins.event_payload(check, now)))
+                details["event_recorded"] = True
+            except Exception:  # noqa: BLE001 - the launch is refused either way; the answer says the record failed
+                _logger.warning("the version change of %s could not be recorded", executor_id, exc_info=True)
+                details["event_recorded"] = False
+        raise _conflict("executor_pin_blocked", f"{executor_id} is blocked: {check.reason}", **details)
 
     def _may_hand_out_target(self, task_id: str, executor_id: str, source: str, session_id: str, actor: str) -> bool:
         """True when the open target of a session may be given to the caller (always, while no policy is active).

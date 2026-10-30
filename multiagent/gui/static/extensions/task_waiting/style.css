@@ -1,0 +1,15 @@
+/* Copyright 2026 Ricardoallexis and contributors
+ * SPDX-License-Identifier: Apache-2.0 */
+.task-waiting-view, .task-waiting-content { min-width: 0; }
+.task-waiting-bar, .task-waiting-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.task-waiting-bar p { flex: 1 1 160px; }
+.task-waiting-list { list-style: none; padding: 0; display: grid; gap: 12px; }
+.task-waiting-card { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.task-waiting-title { margin-top: 0; }
+.task-waiting-badge { display: inline-block; padding: 4px 8px; border: 1px solid var(--accent); border-radius: 8px; color: var(--accent); }
+.task-waiting-question { white-space: pre-wrap; }
+.task-waiting-card, .task-waiting-error { overflow-wrap: anywhere; unicode-bidi: isolate; }
+.task-waiting-details { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; font-size: .875rem; }
+.task-waiting-details dt { color: var(--muted); }
+.task-waiting-details dd { min-width: 0; margin: 0 0 6px; }
+.task-waiting-error { color: var(--text); border-left: 3px solid var(--accent); padding-left: 8px; }
