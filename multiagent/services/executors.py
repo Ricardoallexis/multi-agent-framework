@@ -160,7 +160,10 @@ executor id; a background attempt is alive), ``executor.paused`` (``ref`` is the
 executor id; the limit class, ``reset_*`` and ``open_ended`` when a limit caused it), ``executor.pause_lifted`` (``ref``
 is the executor id: who lifted it and why), ``session.opened_in_app`` (``ref`` is the session id),
 ``continuity.limit_detected`` (``ref`` is the executor id), ``task.checkpointed`` (``ref`` is the patch blob, empty
-without a patch), ``session.retired`` (``ref`` is the session id), ``continuity.held`` (the task now waits: reason,
+without a patch), ``session.retired`` (``ref`` is the session id; reason ``context_threshold`` means the next attempt
+starts a new session). At that boundary the result's ``context_handoff`` is None or
+``{ratio, level, snapshot_ref, retired_session, checkpoint, inbox_cursor}``; the new session reads messages after
+that cursor. ``continuity.held`` (the task now waits: reason,
 ``resume_after``, mode, outcome, hand-offs, and the condition's summary for a wait by condition),
 ``continuity.resumed`` (``ref`` is the executor id: ``resume`` or ``relaunch``, minutes waited, ``config_drift``),
 ``continuity.condition_met`` and ``continuity.condition_expired`` (``ref`` is the executor id; the type, the parts with what
@@ -201,6 +204,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from .. import executor_pins as _pins
+from ..context.estimate import LEVEL_THRESHOLD
 from ..db.envelope_store import HARD_MAX_BLOB_BYTES
 from ..document_actions import Action, ActionKind, Approval
 from ..errors import MultiAgentError
@@ -257,7 +261,7 @@ EVENT_TYPES += (PIN_EVENT,)
 WATCHER_ACTOR = "system:watcher"          # who records the end of a wait by condition (CNT-T12); it resumes as the assignee
 AUTO_TRIGGERS = ("auto", "condition")     # resumptions the service makes by itself: a limit that returns counts as a failed one
 NOT_APPROVERS = ("system:", "executor:")  # the framework never approves in the name of a person
-RETIRE_REASONS = ("handoff", "superseded")
+RETIRE_REASONS = ("handoff", "superseded", "context_threshold")
 DEFAULT_MAX_HANDOFFS = 1                  # contract section 7: the default of ``continuity_max_handoffs``
 _DECISION_ID = re.compile(r"^[A-Za-z0-9-]{8,64}$")
 
@@ -1034,7 +1038,7 @@ class ExecutorServices:
 
         Returns ``{outcome, run_status, task_id, executor_id, attempt, actor, session_id, open_target, model, effort,
         selection, permission, usage, command, evidence, notes, executor_paused_until, checkpoint, hold, result, gate,
-        task}``. ``checkpoint`` is what ``checkpoint_limit`` saved when the attempt ended at a limit, else None, and
+        task, context_handoff}``. ``context_handoff`` is None for a normal launch. ``checkpoint`` is what ``checkpoint_limit`` saved when the attempt ended at a limit, else None, and
         ``hold`` the hold the limit put on the task (``continuity.hold``), else None. ``selection`` says where ``model``
         and ``effort`` came from (``user``, ``profile`` or none), what was not sent and why, and the routing evidence
         (profile, mode, step kind, level, price source, effort source). ``outcome`` is ``submitted`` (the result is
@@ -1117,7 +1121,9 @@ class ExecutorServices:
         Only a session recorded by this service is continued, never one the GUI or ``open_target`` opened in an app
         in the last 12 hours. The task must be paused, claimed or in ``needs_changes`` (``actor`` defaults to its
         assignee). ``model`` and ``effort`` default to those of the recorded session. Returns the same shape as
-        ``run_task``. Errors: ``no_stored_session``, ``session_retired``, ``session_open_in_app`` and the ones of
+        ``run_task``, including ``context_handoff``: None when the session continues, otherwise
+        ``{ratio, level, snapshot_ref, retired_session, checkpoint, inbox_cursor}`` for a new session.
+        Errors: ``no_stored_session``, ``session_retired``, ``session_open_in_app`` and the ones of
         ``run_task``. Resuming a task that is held by a limit clears its hold (``continuity.resumed``, ``trigger``
         ``manual``).
         """
@@ -1154,8 +1160,78 @@ class ExecutorServices:
         actor = _text("actor", actor or task.get("assignee") or f"executor:{executor_id}", maximum=100)
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
-        return self._execute(task, plan, actor, timeout, resume_session=session_id, recorded=_session_settings(session),
-                             hold=hold, trigger=trigger, drift=drift)
+        handoff = self._context_handoff(task, session, actor, plan, timeout)
+        # Measuring (a compaction links a snapshot), the checkpoint and the guard all change the task's revision, also
+        # when no hand-off follows: the attempt always starts from the task as it is now.
+        task = self._tasks.get_task(task_id)
+        result = self._execute(task, plan, actor, timeout, resume_session=None if handoff else session_id,
+                               recorded=None if handoff else _session_settings(session), hold=hold,
+                               trigger=trigger, drift=drift)
+        result["context_handoff"] = handoff
+        return result
+
+    def _context_handoff(self, task: Mapping[str, Any], session: Mapping[str, Any], actor: str,
+                         plan: _Plan, timeout: int) -> dict[str, Any] | None:
+        """At a resume boundary, replace a session only when CMP reports the task profile's threshold."""
+        task_id, sid = str(task["id"]), str(session["session_id"])
+        try:
+            report = self._services.envelopes.refresh_task_context(task_id, model_id=session.get("model"))
+        except Exception:
+            _logger.warning("Context measurement for %s failed; resuming its session", task_id, exc_info=True)
+            return None
+        if not report.get("enabled") or report.get("level") != LEVEL_THRESHOLD or report.get("ratio") is None:
+            return None
+        with self._store.db.connect() as conn:
+            previous = self._latest(conn, RETIRED_EVENT, task_id=task_id)
+        if (previous is not None and previous["payload"].get("reason") == "context_threshold"
+                and previous["seq"] < session["seq"]
+                and session.get("attempt") == task.get("attempt")):
+            # A retry of the fresh session in this attempt is still the same hand-off decision.
+            return None
+        # The same guard as CNT-T05: a pending cancel or an app-open session cannot be replaced.
+        self._services.inbox.require_no_cancel("task", task_id)
+        with self._store.db.connect() as conn:
+            blocked = self._opened_until(conn, sid)
+        if blocked is not None:
+            raise _conflict("session_open_in_app", "The session was opened in an app in the last 12 hours",
+                            task_id=task_id, session_id=sid, blocked_until=_iso(blocked))
+        # Check the replacement can launch before the old session is made unusable.
+        permission = Permission.WRITE if task["file_scope"] else Permission.READ
+        self._require_launch_effects(task, plan.executor_id, permission, "launch")
+        workdir = self._workdir(task_id, plan)
+        request = ExecutorLaunchRequest(task_id=task_id, task_envelope=self._services.envelopes.get_envelope(task_id),
+                                        workdir=workdir, model=plan.model, effort=plan.effort,
+                                        permission=permission, timeout_seconds=timeout)
+        self._preflight(plan, request, None)
+        snapshot_ref = report.get("snapshot_ref")
+        if snapshot_ref is None:
+            # Before the checkpoint: a failure here must leave nothing behind that moves the task's revision.
+            try:
+                snapshot = self._services.envelopes.get_context_snapshot(str(report.get("scope") or f"task:{task_id}"))
+            except Exception:
+                _logger.warning("Context snapshot lookup for %s failed; resuming its session", task_id, exc_info=True)
+                return None
+            snapshot_ref = snapshot.get("ref") if snapshot else None
+        # Always this session's own checkpoint (idempotent per task, attempt, session and patch), never an older one.
+        checkpoint = self.checkpoint_limit(task_id, session_id=sid, executor_id=session.get("executor_id"),
+                                           attempt=int(task["attempt"]), actor=actor, record_limit=False)
+        with self._store.transaction() as conn:
+            self._services.inbox.require_no_cancel("task", task_id)
+            blocked = self._opened_until(conn, sid)
+            if blocked is not None:
+                raise _conflict("session_open_in_app", "The session was opened in an app in the last 12 hours",
+                                task_id=task_id, session_id=sid, blocked_until=_iso(blocked))
+            current = self._latest(conn, SESSION_EVENT, task_id=task_id)
+            inbox_cursor = self._services.inbox.cursor("task", task_id)
+            # A concurrent resume or hand-off may have replaced or retired the session while this one measured.
+            if current is None or current["ref"] != sid or not self._retire_in(
+                    conn, sid, "context_threshold", actor,
+                    extra={"ratio": report["ratio"], "level": report["level"], "snapshot_ref": snapshot_ref,
+                           "inbox_cursor": inbox_cursor, "checkpoint_seq": checkpoint.get("seq")}):
+                raise _conflict("session_retired", "The session was replaced or retired while its context was measured",
+                                task_id=task_id, session_id=sid)
+        return {"ratio": report["ratio"], "level": report["level"], "snapshot_ref": snapshot_ref,
+                "retired_session": sid, "checkpoint": checkpoint, "inbox_cursor": inbox_cursor}
 
     def _execute(self, task: dict[str, Any], plan: _Plan, actor: str, timeout: int, *,
                  resume_session: str | None, recorded: Mapping[str, Any] | None = None,
@@ -1364,7 +1440,7 @@ class ExecutorServices:
             "open_target": None, "model": plan.model, "effort": plan.effort,
             "selection": plan.selection.to_dict() if plan.selection else None, "permission": launch.permission.value,
             "usage": None, "command": None, "evidence": evidence, "notes": list(notes), "executor_paused_until": None,
-            "checkpoint": None, "hold": None, "result": None, "gate": self._services.gates.get_gate(task_id),
+            "checkpoint": None, "hold": None, "context_handoff": None, "result": None, "gate": self._services.gates.get_gate(task_id),
             "task": self._tasks.get_task(task_id)}
 
     def _finish_attempt(self, launch: _Launch, attempt: _Attempt,
@@ -1451,7 +1527,8 @@ class ExecutorServices:
             "open_target": _target_view(target) if target else None, "model": plan.model, "effort": plan.effort,
             "selection": plan.selection.to_dict() if plan.selection else None, "permission": permission.value, "usage": dict(attempt.usage) if attempt.usage else None,
             "command": attempt.command, "evidence": evidence or None, "notes": notes,
-            "executor_paused_until": paused_until, "checkpoint": saved, "hold": new_hold, "result": submission,
+            "executor_paused_until": paused_until, "checkpoint": saved, "hold": new_hold, "context_handoff": None,
+            "result": submission,
             "gate": self._services.gates.get_gate(task_id), "task": self._tasks.get_task(task_id)}
 
     def _preflight(self, plan: _Plan, request: ExecutorLaunchRequest, resume_session: str | None) -> None:
@@ -1992,7 +2069,8 @@ class ExecutorServices:
         ``{at, dry_run, held, due, resumed, waiting, skipped}``: ``due`` and ``waiting`` list ``{task_id, reason,
         executor_id, resume_after, open_ended, why}``; ``resumed`` has ``{task_id, mode (resume or relaunch), outcome,
         executor_id, session_id, attempt, config_drift, minutes_waited, hold}`` (``hold`` is the new one when the limit
-        came back); ``skipped`` has the ``why`` (``assignee_changed``, ``not_a_limit_hold``, ``blocked:failed_resumes``,
+        came back; ``context_handoff`` is added only when CMP's threshold replaced the session: mode is then ``relaunch``);
+        ``skipped`` has the ``why`` (``assignee_changed``, ``not_a_limit_hold``, ``blocked:failed_resumes``,
         ``hold_changed``, ``session_open_in_app``, ``executor_paused``, ...).
         """
         if task_id is not None:
@@ -2066,9 +2144,13 @@ class ExecutorServices:
                                     drift, timeout_seconds, trigger)
         since = _hold.parse_utc(hold.get("since"))
         waited = max(int((self.clock() - since).total_seconds() // 60), 0) if since is not None else None
-        return {"task_id": task_id, "mode": "resume" if history else "relaunch", "outcome": result["outcome"],
-                "executor_id": executor_id, "session_id": result["session_id"], "attempt": result["attempt"],
-                "config_drift": list(drift), "minutes_waited": waited, "hold": result.get("hold")}
+        item = {"task_id": task_id, "mode": "resume" if history and not result.get("context_handoff") else "relaunch",
+                "outcome": result["outcome"], "executor_id": executor_id, "session_id": result["session_id"],
+                "attempt": result["attempt"], "config_drift": list(drift), "minutes_waited": waited,
+                "hold": result.get("hold")}
+        if result.get("context_handoff"):
+            item["context_handoff"] = result["context_handoff"]      # only a hand-off adds the key: the shape stays
+        return item
 
     def _drift_before(self, task: Mapping[str, Any], executor_id: str, descriptor: Any, adapter: Any,
                       recorded: Mapping[str, Any]) -> list[str]:
@@ -2760,7 +2842,8 @@ class ExecutorServices:
                 return event
         return None
 
-    def _retire_in(self, conn: Any, session_id: str, reason: str, actor: str) -> bool:
+    def _retire_in(self, conn: Any, session_id: str, reason: str, actor: str,
+                   extra: Mapping[str, Any] | None = None) -> bool:
         """``session.retired`` inside the caller's transaction (what ``retire_session`` does); False when there was nothing to do."""
         sid = session_id.lower()
         stored = self._latest(conn, SESSION_EVENT, ref=sid)
@@ -2770,7 +2853,7 @@ class ExecutorServices:
             conn, RETIRED_EVENT, actor=actor, group_id=stored["group_id"], task_id=stored["task_id"], ref=sid,
             cause=f"session retired: {reason}",
             payload={"reason": reason, "executor_id": stored["payload"].get("executor_id"),
-                     "attempt": stored["payload"].get("attempt")})
+                     "attempt": stored["payload"].get("attempt"), **(extra or {})})
         return True
 
     @service_errors
