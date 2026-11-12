@@ -10,26 +10,26 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Area | Progress | Items |
 | --- | --- | --- |
 | First public baseline — `M1-B01-F00-alpha` | `██████████` 100% | 15 of 15 |
-| Orchestration and agent runtime | `███░░░░░░░` 27% | 3 of 11 |
-| Intelligent model routing | `░░░░░░░░░░` 0% | 0 of 7 |
+| Orchestration and agent runtime | `████░░░░░░` 38% | 5 of 13 |
+| Intelligent model routing | `████░░░░░░` 36% | 5 of 14 |
 | Local and offline AI | `░░░░░░░░░░` 0% | 0 of 9 |
-| Research and knowledge workflows | `░░░░░░░░░░` 0% | 0 of 6 |
+| Research and knowledge workflows | `█░░░░░░░░░` 14% | 1 of 7 |
 | Content, branding, and production | `░░░░░░░░░░` 0% | 0 of 8 |
-| Human-in-the-loop | `█░░░░░░░░░` 11% | 1 of 9 |
-| Collaborative agent teams | `██░░░░░░░░` 17% | 3 of 18 |
-| Planning, delegation, and team orchestration | `█░░░░░░░░░` 14% | 2 of 14 |
+| Human-in-the-loop | `███░░░░░░░` 27% | 3 of 11 |
+| Collaborative agent teams | `████░░░░░░` 38% | 9 of 24 |
+| Planning, delegation, and team orchestration | `███░░░░░░░` 33% | 6 of 18 |
 | Team design from a prompt | `░░░░░░░░░░` 0% | 0 of 9 |
-| Preset sharing and community catalog | `░░░░░░░░░░` 0% | 0 of 7 |
+| Preset sharing and community catalog | `█░░░░░░░░░` 12% | 1 of 8 |
 | Reference tool stacks for team presets | `░░░░░░░░░░` 0% | 0 of 5 |
-| Frontend / UI | `██░░░░░░░░` 24% | 5 of 21 |
+| Frontend / UI | `███░░░░░░░` 30% | 7 of 23 |
 | Advanced operator interface | `░░░░░░░░░░` 0% | 0 of 15 |
-| Memory, context, and project knowledge | `░░░░░░░░░░` 0% | 0 of 6 |
+| Memory, context, and project knowledge | `█░░░░░░░░░` 14% | 1 of 7 |
 | Tools, interoperability, and external applications | `░░░░░░░░░░` 0% | 0 of 13 |
 | Observability, quality, and evaluation | `█░░░░░░░░░` 12% | 1 of 8 |
-| Security and privacy | `░░░░░░░░░░` 0% | 0 of 6 |
+| Security and privacy | `███░░░░░░░` 30% | 3 of 10 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **16%** | **32 of 202** |
+| **All roadmap items** | **25%** | **59 of 232** |
 <!-- progress:table:end -->
 
 ## Current stage — runtime foundations
@@ -43,7 +43,7 @@ The first four features below were released in `M1-B02-F00-alpha`. Application s
 | Review after any step | ✅ Done | Ask for a human review at any step, approve the exact attempt you saw, and continue from the next step without repeating approved work. Edits to a workflow while a run waits are detected before continuing. |
 | Workflows outside the core | ✅ Done | Keep a complete team (workflows, agents, prompts, and contracts) in its own folder, even outside this repository, validate it, and run it with a generic request from Python, the HTTP API, or the CLI. The first example reviews a software specification. |
 | Application services and HTTP parity | ✅ Done | One public Python layer used by the CLI and the HTTP API, and ready for a UI and an MCP server. It runs generic and bundle workflows, gives clear errors with stable codes, and has a Mock mode that needs no API keys. |
-| Minimal operator UI | 🔄 Next | Start runs, follow their state, answer human steps (including pasting an external model's response), and inspect results without the command line, using the mock backend. |
+| Minimal operator UI | ✅ Done | Start runs, follow their state, answer human steps (including pasting an external model's response), and inspect results without the command line, using the mock backend. |
 | Execution backend abstraction | ⏳ Planned | Run the same workflow with the built-in engine, a mock, or an optional [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) backend (graphs, MCP, OpenTelemetry) without making the core depend on it. |
 
 Later candidates, chosen by need: deterministic Python steps, a generic human bridge, provenance, context policies, correlated events with OpenTelemetry, and layered configuration.

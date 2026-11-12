@@ -55,7 +55,7 @@ The first public baseline is backend-first and provides the foundation for the r
 
 ## Orchestration and agent runtime
 
-**Progress:** `███░░░░░░░` 3/11 · 27% <!-- progress -->
+**Progress:** `████░░░░░░` 5/13 · 38% <!-- progress -->
 
 - [ ] Expand the workflow engine so new agents and workflows can be added with minimal changes to the core runtime.
   - [x] Load definition bundles (workflows, agents, prompts, and contracts) from outside the package, validate them, and run them through a generic request from Python, the HTTP API, and the CLI.
@@ -63,27 +63,36 @@ The first public baseline is backend-first and provides the foundation for the r
 - [ ] Introduce an execution backend abstraction: native (default), mock, and an optional Microsoft Agent Framework backend.
 - [ ] Support richer conditional routing, branching, retries, dependencies, and reusable workflow fragments by compiling workflow definitions to the optional Microsoft Agent Framework backend instead of building a separate graph engine.
 - [ ] Improve agent-to-agent context management while preserving explicit contracts and traceability.
+  - [x] Assemble each step's context as ordered, hashed parts and, when a catalog context profile is enabled, replace older step outputs with validated summaries while inputs, the output contract, and the latest outputs stay literal (opt-in).
 - [x] Add stronger validation for workflow definitions before execution.
 - [ ] Improve cancellation, pause/resume, recovery, idempotency, and long-running execution behavior.
+  - [x] Hold a task that reached a usage limit until the limit resets, or until a declared condition holds (dependency, integration window, or approval), then resume the same session; every hold and resumption is recorded as an event.
 - [ ] Support multiple workers and controlled concurrency, bounded by a resource-aware scheduler (CPU, RAM, GPU/VRAM, and provider limits) that works with any backend.
 - [ ] Formalize compatibility rules for workflows, contracts, prompts, migrations, and provider adapters.
 - [ ] Provide a clearer plugin/extension model for custom agents, tools, skills, providers, and workflows.
 
 ## Intelligent model routing
 
-**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
+**Progress:** `████░░░░░░` 5/14 · 36% <!-- progress -->
 
 The framework is intended to use the orchestrator to choose the most appropriate model for each task rather than relying on one model for every capability.
 
 **Implemented in part:** T14 adds opt-in routing profiles, candidate filters, routing evidence, and observable run-scoped usage summaries; T15 adds descriptor-based assignment preview and a guarded task claim. ORQ-6 adds task launch, resume, and open operations through Claude, Codex, and Copilot adapters, which remain disabled by default. CI exercises these paths with synthetic executables; installed CLI behavior, account authentication, live session behavior, and app visibility have not been verified. Routing and assignment remain opt-in, current executor capability evidence can remain unknown, and actual served-model and cost outcomes are not measured. The checklist below tracks full roadmap items, so these partial implementations do not count as completed items. See [model routing and task assignment](docs/model-routing.md) and [executor applications](docs/EXECUTORS.md).
 
 - [ ] Expand routing based on task type, model strengths, latency, context size, privacy, availability, and cost.
+  - [x] Select a model through opt-in routing profiles that filter candidates by step kind, declared capabilities, permissions, privacy class, execution mode, health evidence, and current price evidence, and record the decision with its reasons.
 - [ ] Allow explicit priority rules so text, research, image, and video tasks are routed only to suitable models.
 - [ ] Add model health checks, capability discovery, and automatic fallback policies.
+  - [x] Let a routing profile require fresh, provenance-checked provider health evidence before a candidate is eligible, and escalate at most one model level after an output-quality failure (opt-in).
 - [ ] Track per-model quality, latency, failures, and usage to inform future routing decisions.
+  - [x] Summarize attempts, successes, failures, and durations per model for one run from its recorded attempt events, and report token usage per model and level.
 - [ ] Support configurable local-first, cloud-first, offline-only, and hybrid execution policies.
 - [ ] Evaluate optional external structured-decision providers (for example Jev, a commercial service) behind a provider-neutral interface. The native implementation stays the default, any external provider requires an explicit opt-in, and no provider becomes a required dependency. This is a possible evaluation, not an adoption decision.
 - [ ] Improve token/context budgeting and prevent avoidable context overflow.
+  - [x] Estimate each prompt against the model's context window before every call, warn at a configured level, compact older context after the step, and hold paid calls that would pass a configured budget (all opt-in).
+- [ ] *(proposed)* Stable prompt prefix: put the parts that do not change between calls (system text, skills, output contract) first and the variable input last, so providers' prompt caching can apply, and record cached tokens where the provider reports them.
+  - [x] Local usage reports show cache-read and cache-write tokens per app, model, and level where the application reports them.
+- [ ] *(proposed)* Opt-in cache of step results keyed by prompt hash, input, model, and contract version. It is disabled for human steps and non-deterministic steps, and a cache hit is recorded as an event and never as a provider call.
 
 ## Local and offline AI
 
@@ -103,9 +112,10 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 
 ## Research and knowledge workflows
 
-**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 1/7 · 14% <!-- progress -->
 
 - [ ] Expand research workflows beyond social-content use cases.
+  - [x] Ship a general example bundle with a research workflow that gathers findings from a question and the user's own background and compares options (Mock-compatible).
 - [ ] Add stronger source tracking, evidence normalization, contradiction handling, and freshness metadata.
 - [ ] Support human-supplied research as a first-class input when automated web access is unavailable or undesirable.
 - [ ] Add retrieval over project files and private knowledge sources.
@@ -127,14 +137,16 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 
 ## Human-in-the-loop
 
-**Progress:** `█░░░░░░░░░` 1/9 · 11% <!-- progress -->
+**Progress:** `███░░░░░░░` 3/11 · 27% <!-- progress -->
 
 Human control is intended to remain a first-class part of the architecture rather than an exception path.
 
 - [x] Allow a human review after any step and resume from the next step without repeating approved work.
 - [ ] Improve review queues and actionable human-step requests.
+  - [x] Surface pending decisions (a task held at a limit, a step paused for escalation, a content review, or a budget cut) as actionable cards in the operator GUI and settle them through the existing approve and reject operations.
 - [ ] Improve the human-guided external model flow (copy the prompt, use any external chat or application, import the response, and validate it against the contract) across the CLI, the API, and the UI, as a feature for human control, interoperability, provider independence, and transparency.
 - [ ] Support approval policies per workflow, step, risk level, or project.
+  - [x] Configure supervised or automatic escalation per workflow step, a budget that cuts or only warns, and a content-review policy, each pausing for a human when it applies.
 - [ ] Allow humans to replace an agent step with externally produced output while preserving validation and traceability. Reuse the pattern of the external-delivery importer in `tools/seguimiento/importar-paquete-nube.ps1` (manifest, integrity hashes, allowlisted paths, preview, explicit human confirmation, and an auditable receipt) as a design reference only; that tool is specific to this project's workflow and is not part of the runtime. A hash proves integrity, not authorship: a human confirms who produced the output.
 - [ ] Add clearer revision history and comparisons between attempts.
 - [ ] Add comments, reviewer notes, and structured feedback that can be passed safely into subsequent attempts.
@@ -143,32 +155,38 @@ Human control is intended to remain a first-class part of the architecture rathe
 
 ## Collaborative agent teams
 
-**Progress:** `██░░░░░░░░` 3/18 · 17% <!-- progress -->
+**Progress:** `████░░░░░░` 9/24 · 38% <!-- progress -->
 
 A domain-neutral core for coordinating two or more agents, and the humans who supervise them, on shared work. Software development is one application; the same primitives should serve design, finance, research, operations, or any other domain. Domain-specific behavior lives in team presets and examples that users can extend, and agents can help a user design their own team setup. The protocol is the framework's own and runs on its runs, events, and Human Bridge; A2A or Microsoft Agent Framework may carry messages, but they do not define it.
 
 - [ ] Teams: roles, capabilities, members (framework agents, external agents, or humans), and an entrypoint (an agent or a workflow).
 - [ ] Scoped workspaces: each member changes only the resources assigned to it (for example folders, documents, datasets, or records); shared resources need a proposal and an approval.
+  - [x] Declare a file scope per task: a claim locks it and is refused on overlap, and a write needs approval for every path of the scope.
 - [ ] A team log and member inboxes: an append-only log plus a per-member inbox where reading a message acknowledges it, so members process only unread messages and never poll.
+  - [x] Keep an append-only team event log with a per-consumer cursor that moves only on explicit acknowledgement (at-least-once delivery).
 - [ ] Structured messages and handoffs (delivery, proposal, question, answer, decision, result) that state the baseline, what changed, what was not verified, and what is requested from whom.
+  - [x] Hand a task over as a computed envelope and a bounded result (decisions, contract changes, tests not run, requests, and a patch stored once by hash).
 - [ ] Change proposals: members deliver reviewable change sets in an ordered queue, with dependencies and held drafts, and a supervisor applies them rather than their authors.
 - [x] Task reservation with declared resources: claiming a task locks the files it declares and rejects overlapping work by another assignee (see [`docs/TASKS.md`](docs/TASKS.md)).
 - [x] Task gates: a submitted task is accepted only after an ordered list of checks passes (project commands configured in a local file and run without a shell, and a review by an actor other than the assignee); a failing check stops its branch, and every result is stored per attempt (see [`docs/TASKS.md`](docs/TASKS.md#gates)).
 - [x] Task envelopes and results by reference: an agent starts a task from a small computed envelope (objective, dependencies with references to their results, file scope, gate, base commit), delivers a bounded result whose patch is stored once by sha256 and read by ranges, and resumes from its own acknowledged event cursor, through Python, HTTP, and the CLI (see [`docs/TASKS.md`](docs/TASKS.md#envelopes-and-results)).
 - [ ] *(proposed)* A dependency-aware integration gate: a change waits until its task is finished and its dependencies are applied and verified.
+  - [x] Release a dependent task only when each prerequisite reports a delivery with a patch hash, a passing test on that same patch, or a verified integration, according to the group's release mode.
 - [ ] Review and gates: cross-review between members, and stages that close only when shared checks pass and a supervisor approves.
+  - [x] Accept a submitted task only after an ordered list of checks passes, including a review by an actor other than its assignee, and close a project stage only when its tasks are delivered.
 - [ ] Check results with visibility rules: a member's own checks stay private to it, shared checks are visible to the team, and one designated reader summarizes each report.
 - [ ] Workspace synchronization after each approved stage, only with each member's confirmation and without losing unfinished work.
 - [ ] Operating modes: supervised (a human approves applying, checking, approving, and publishing; members act only when asked) and autonomous (policy-driven gates, budgets, and sandboxing, escalating to a human on failures, shared resources, or external actions).
 - [ ] Per-member token and cost budgets and minimal-reading rules.
 - [ ] A resumable status snapshot (stage, milestones, and next action for each member) and human-readable views of communication, progress, and pending decisions.
 - [ ] Team presets as examples: a software development team (resources are files, change sets are patches, checks are test suites, and stages end in a commit), plus examples for other domains such as design reviews or financial reporting.
+  - [x] Ship a software development example as a definition bundle (seven roles, one contract per step, two human reviews) that runs in Mock mode.
 - [ ] Let users extend presets or create their own (roles, resources, message types, checks, gates, and modes) without changing the core.
 - [ ] A guided setup in which agents help a user design their team, scopes, rules, and mode, and adjust them as the work evolves (built on [team design from a prompt](#team-design-from-a-prompt)).
 
 ## Planning, delegation, and team orchestration
 
-**Progress:** `█░░░░░░░░░` 2/14 · 14% <!-- progress -->
+**Progress:** `███░░░░░░░` 6/18 · 33% <!-- progress -->
 
 Turn a high-level objective into an executable plan for a team the user has defined: understand the objective, decompose the work, find the required capabilities, assign specialists, coordinate execution, request revisions, and integrate the final result. Planners and orchestrators act only within the limits the user declares (roles, capabilities, permissions, contracts, budgets, gates, and policies) and escalate to a human when needed; every decision stays traceable. The core stays domain-neutral; industries appear only in presets and examples.
 
@@ -176,18 +194,22 @@ Turn a high-level objective into an executable plan for a team the user has defi
 
 - [x] Represent tasks, task groups, and dependencies as data in the core: `blocked` and `ready` are computed from native dependencies, every state change goes through one transition function, and a team event log records each change. Available through Python, HTTP, and the CLI with the same results. Source-aware current-state snapshots support preview, atomic import, durable receipts, and guarded rollback; legacy release dependencies/facts remain distinct from native lifecycle and gates, and API v2 provides a release-aware context with fingerprint/unchanged support. These capabilities do not claim a real migration or bulk snapshot facility (see [`docs/TASKS.md`](docs/TASKS.md) and [`docs/API.md`](docs/API.md)).
 - [ ] Represent a plan as data (tasks, subtasks, dependencies, required capabilities, expected outputs and contracts, assignments, parallel groups, review and integration steps) and execute it through the existing workflow engine and backends instead of a second engine.
+  - [x] Validate a project plan as strict data (stages, tasks, dependencies, assignees) and create it atomically only if it still matches the confirmed hash; nothing in a plan is executed.
 - [ ] Make planners pluggable: manual, deterministic, LLM-based, a custom plugin, or an external planner.
 - [ ] Support manual, semi-automatic, and automatic planning on the same core; semi-automatic plans wait for approval through the existing human-in-the-loop mechanism, where users can edit, reassign, or reject them.
 - [ ] Assign tasks by capabilities, roles, tools, provider or model, permissions, availability, relationships, and budget, starting with deterministic rules and reusing the model router.
+  - [x] Preview a policy-constrained assignment from declared executor descriptors (capabilities, roles, permissions, modes, privacy) and claim a ready task only after revalidating the preview.
 - [ ] Describe organizations as data (members, teams, and relationships such as reporting, supervision, delegation, review, consultation, and approval), supporting hierarchical, flat, matrix, peer-to-peer, and temporary structures.
 - [ ] Express sequential, parallel, dependent, optional, conditional, and iterative work.
 - [ ] Coordinate specialists through delegation, consultation, review, revision, approval, and handoff, and integrate partial results through merging, synthesis, conflict detection, cross-review, and final assembly.
 - [x] Record task traceability in the team event log: who created, claimed, and changed each task, when, and why, with its status and attempts.
 - [ ] Record delegation traceability (who created and assigned each task and why, required capabilities, status, attempts, reviews, and results) without storing private model reasoning.
+  - [x] Record each executor attempt (session, routing evidence, pause, result) as team events linked to the task.
 - [ ] Allow editing a plan before and during execution (add, remove, split, or merge tasks; change assignees, priorities, reviewers, or dependencies; pause, resume, or cancel).
 - [ ] Replan when a task fails, an agent or tool is unavailable, validation or a human rejects an output, or new information appears.
 - [ ] Propose temporary teams from a catalog of available agents for the user to approve or modify, once assignment on user-defined teams is stable.
 - [ ] Honor plan constraints: call, cost, and time budgets, local-only or offline execution, allowed or prohibited providers, and required approvals.
+  - [x] Enforce mode, permission, privacy class, and provider-invocation limits when assigning and routing; unmapped constraints block.
 
 ## Team design from a prompt
 
@@ -209,13 +231,14 @@ Roles are not tied to models. A **role** holds rules, skills, contracts, capabil
 
 ## Preset sharing and community catalog
 
-**Progress:** `░░░░░░░░░░` 0/7 · 0% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 1/8 · 12% <!-- progress -->
 
 Presets (teams, workflows, agents, prompts, contracts, and checks) should be easy to share, so that one user's setup for design reviews, financial reporting, or software development can be downloaded and used by others. This builds on the existing definition bundles and stays domain-neutral.
 
 - [ ] Package presets in a portable, versioned format with a manifest: name, version, author, license, description, compatible framework versions, and required capabilities, providers, and permissions.
 - [ ] Publish and install presets from a file, a Git repository, or a community catalog with a single command, including updates and removal.
 - [ ] Validate an installed preset before its first use: structure, references, compatibility with the installed framework, and declared permissions.
+  - [x] Validate a definition bundle's structure, references, contracts, and sample outputs before it runs.
 - [ ] Treat presets that include executable code (such as contract models or tools) as untrusted until the user approves them: show what will run, verify checksums or signatures, prefer data-only presets, and allow sandboxing.
 - [ ] Customize a shared preset with a private overlay instead of copying it (defaults < public preset < private overlay < runtime overrides), so updates to the shared preset can still be applied.
 - [ ] Offer a searchable catalog with descriptions, examples, domains, and compatibility information, and keep private presets out of it unless the user publishes them.
@@ -235,7 +258,7 @@ Research which well-known open-source tools make good examples for the most comm
 
 ## Frontend / UI
 
-**Progress:** `██░░░░░░░░` 5/21 · 24% <!-- progress -->
+**Progress:** `███░░░░░░░` 7/23 · 30% <!-- progress -->
 
 `F00` shipped without a graphical interface. The local operator GUI is now
 available alongside the Stage 0 run-console prototype; it is a separate local
@@ -245,6 +268,7 @@ interface, not the final product. See [docs/GUI.md](docs/GUI.md) and
 - [x] Stage 0, right after the application services and HTTP parity: start a run from an available workflow (mock by default), follow its status and events, handle the pending human action (approve, request changes, regenerate, reject, cancel, or paste an external model's response and see validation errors), and inspect artifacts. Its review and confirmation step for externally produced output can follow the same human-confirmation pattern as the external-delivery importer (`tools/seguimiento/`).
 - [x] Local operator GUI served by the API at `/gui/`: read-only session browsing for configured Claude, Codex, Copilot, and framework sources; framework-run creation and human actions; live session follow; and confirmation-gated open-in-app actions. It uses a local bearer token and stays on loopback. This is a partial delivery of S14, not completion of UI stages 1–3.
 - [ ] Stage 1: agent and workflow configuration, once agent, tool, and capability contracts are stable.
+  - [x] Choose a workflow and its declared inputs, and set routing preferences with a no-dispatch preview, when creating a run in the operator GUI.
 - [ ] Stage 2: teams, plans, and tasks, to inspect and approve generated plans and follow task execution.
 - [ ] Stage 3: tools and interoperability, including pending permissions, channels, MCP, and artifacts.
 - [ ] Stage 4: a more complete experience, including live topology over domain events (see [Advanced operator interface](#advanced-operator-interface)).
@@ -252,6 +276,7 @@ interface, not the final product. See [docs/GUI.md](docs/GUI.md) and
 - [ ] Evaluate AG-UI as the event transport between the framework's domain events and a future UI.
 - [ ] Dashboard for projects, workflows, active runs, queued work, and system health.
 - [ ] Visual workflow execution and status timeline.
+  - [x] Show a run's steps, counters, and history, and a work map of tasks and sessions, in the operator GUI.
 - [ ] Project, workflow, provider, model, and routing configuration.
 - [ ] Brand-profile and asset management.
 - [ ] Artifact previews and revision comparisons.
@@ -290,14 +315,15 @@ It depends on OpenTelemetry events, MCP tool access, and planning with concurren
 
 ## Memory, context, and project knowledge
 
-**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 1/7 · 14% <!-- progress -->
 
 - [ ] Add explicit project-scoped memory/context that does not depend on hidden model memory.
 - [ ] Support reusable knowledge packs and structured project context.
 - [ ] Add retrieval and summarization strategies for large project histories.
 - [ ] Define retention, privacy, provenance, and invalidation rules for stored context.
 - [ ] Allow workflows to request only the context they need instead of loading all available history (context propagation policies such as none, selected, summary, artifacts, and full).
-- [ ] *(proposed)* Per-task context packages with a fingerprint for invalidation that carry only what changed since the last package.
+- [x] *(proposed)* Per-task context packages with a fingerprint for invalidation that carry only what changed since the last package.
+- [ ] *(proposed)* Embedding cache: store embeddings by content hash, model, and version so unchanged content is not embedded again; delivered together with the retrieval over project files.
 
 ## Tools, interoperability, and external applications
 
@@ -334,14 +360,18 @@ The core works with generic concepts (tool, capability, provider, channel, permi
 
 ## Security and privacy
 
-**Progress:** `░░░░░░░░░░` 0/6 · 0% <!-- progress -->
+**Progress:** `███░░░░░░░` 3/10 · 30% <!-- progress -->
 
 - [ ] Continue enforcing the separation between public source code and private runtime data.
 - [ ] Improve secret-management options beyond local `.env` files.
 - [ ] Add configurable policies for sensitive workloads and local-only execution.
+  - [x] Keep sensitive runs off cloud candidates unless a profile and an explicit, verified grant allow the data class (opt-in profiles).
+- [ ] *(proposed)* Guardrail on outgoing content: before every call to a cloud provider, a deterministic check finds secrets and personal data in the prompt and applies the step's policy (allow, redact, block, or escalate to a human), with events. It is opt-in and builds on the existing chain of checks that runs before each model call.
 - [ ] Review uploaded assets, external tool inputs, and generated artifacts for safe handling boundaries.
+  - [x] Quote untrusted content as data, detect instruction-like and hidden text, quarantine or hold it for review, and never let it authorize an effect.
 - [ ] Add dependency, secret, and static-analysis checks to CI where appropriate.
 - [ ] Define responsible defaults for logging and telemetry so confidential content is not exposed unintentionally.
+  - [x] Keep usage telemetry local, keep prompt text and secrets out of executor command records and error payloads.
 
 ## Developer experience and distribution
 

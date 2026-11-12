@@ -40,6 +40,7 @@ from .executors import ExecutorServices
 from .gates import GateServices
 from .inbox import InboxServices
 from .projects import ProjectServices
+from .reports import build_run_report, render_run_report_markdown
 from .runs import RunServices
 from .sessions import SessionServices
 from .tasks import TaskServices
@@ -58,6 +59,8 @@ __all__ = [
     "GateServices",
     "InboxServices",
     "ProjectServices",
+    "build_run_report",
+    "render_run_report_markdown",
     "RunServices",
     "ServiceError",
     "SessionServices",

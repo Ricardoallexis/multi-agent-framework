@@ -292,3 +292,13 @@ class RunServices:
             "records": records,
             "totals": summarize_usage(records),
         }
+
+    @service_errors
+    def report(self, run_id: str, *, format: str = "json", include_raw: bool = False) -> dict[str, Any] | str:
+        """Export a run as JSON-ready data or Markdown. Raw payloads require explicit opt-in."""
+        from .reports import build_run_report, render_run_report_markdown
+
+        if format not in ("json", "markdown"):
+            raise ServiceError(INVALID_REQUEST, "format must be json or markdown", status=422)
+        report = build_run_report(self.get(run_id), self.usage(run_id), include_raw=include_raw)
+        return report if format == "json" else render_run_report_markdown(report)

@@ -671,6 +671,18 @@ def cmd_runs(args) -> None:
     pretty(result)
 
 
+def cmd_run_report(args) -> None:
+    run_id = quote(args.run_id, safe="")
+    result = _api_json("GET", f"/api/v1/runs/{run_id}/report",
+                       params={"format": "json", "include_raw": str(bool(args.include_raw)).lower()})
+    if args.format == "markdown":
+        from .services.reports import render_run_report_markdown
+
+        print(render_run_report_markdown(result))
+    else:
+        pretty(result)
+
+
 def _approve_with_token(run_id: str):
     """Approve a run through the token route of the GUI (``/gui/api``), with the token this user keeps in their profile."""
     from .gui.token import read_token
@@ -1038,6 +1050,10 @@ def build_parser() -> argparse.ArgumentParser:
     x = sub.add_parser("usage", help="Show a run's token usage with totals per run, agent and step (cost is an estimate)")
     x.add_argument("run_id"); x.add_argument("--jsonl", action="store_true", help="One JSON line per usage record")
     x.set_defaults(func=cmd_usage)
+    x = sub.add_parser("run-report", help="Export a run report")
+    x.add_argument("run_id"); x.add_argument("--format", choices=("json", "markdown"), default="json")
+    x.add_argument("--include-raw", action="store_true", help="Include complete run and event payloads")
+    x.set_defaults(func=cmd_run_report)
     report = sub.add_parser("usage-report", help="Plan usage per app, tokens per app/model/level/role and estimated API cost "
                                                    "(local, read-only)")
     report = report.add_subparsers(dest="usage_report_command", required=True)

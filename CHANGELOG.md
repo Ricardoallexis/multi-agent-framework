@@ -6,6 +6,16 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Added
 
+- Add an ordered call-guard chain for inbox, context, content review, call limits, and budget checks before model calls.
+- Add opt-in context compaction that replaces older step outputs with validated summaries while preserving inputs, contracts, and recent outputs.
+- Treat untrusted content as data: detect instruction-like or hidden text, quarantine it or pause for review, and never accept it as effect authorization.
+- Add context-window estimates and configurable usage budgets, with budget cutoffs and a human approval pause before a call that would exceed a budget.
+- Add provider health and availability evidence for opt-in routing, plus a user inbox with explicit acknowledgement.
+- Add task holds and condition-based waits that resume the same session and record each hold and resumption.
+- Add project templates and services for validating plan data and creating projects atomically against a confirmed plan hash.
+- Add read-only setup diagnostics for installed agent applications and requirements.
+- Add reviewed executor version pins and diagnostics that report when installed versions differ.
+- Add GUI usage summaries and a task work map for following project work.
 - Fill the right-panel sections «Cambios», «Tokens» and «Fuentes» of the GUI (GUI2-T05) for the session or run open in the centre: files changed (with +/- lines only where the source counts them), orchestrator against workers with the estimated cost and its price evidence («desconocido», never 0, when unknown), and the references used (files, web pages without query or fragment, searches, attachments; for a run, workflow, prompts, contracts and input names). New read-only route `GET /gui/api/runs/{id}/usage` (token-protected, same data as `/api/v1/runs/{id}/usage`). Only paths and names are shown, never message text. See [`docs/GUI.md`](docs/GUI.md).
 - Complete the ORQ-6 task execution path for Claude, Codex, and Copilot: shared process handling, adapters, and task launch/resume/open operations are available through the executor service. All three adapters remain disabled by default. CI uses synthetic executables only; no installed CLI, live authentication, subscription quota, real session files, app visibility, or cross-process locking was verified. See [`docs/EXECUTORS.md`](docs/EXECUTORS.md).
 - Extend task coordination with exact source-aware snapshot preview/import, durable receipts and guarded rollback; keep native dependencies and legacy release milestones/facts separate; expose the capability-tagged release context through API v2 with fingerprint/unchanged support. These operations do not claim a real migration or bulk snapshot import facility. See [`docs/TASKS.md`](docs/TASKS.md) and [`docs/API.md`](docs/API.md).
@@ -63,6 +73,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Roadmap
 
+- Update the public roadmap and stage plan to reflect audited delivered work, partial implementations, and proposed guardrail and caching tasks.
 - Record the local operator GUI as a partial delivery of S14; UI stages 1–3 and the advanced interface remain planned.
 - Mark task gates as done and stage gates with supervisor approval as partial; check visibility rules and the dependency-aware integration gate for changes remain planned.
 - Mark tasks, groups, and dependencies as data, task traceability in the team event log, and task reservation with declared resources as done; plan schemas, planners, and delegation traceability for reviews and results remain planned.

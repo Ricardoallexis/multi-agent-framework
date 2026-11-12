@@ -68,6 +68,25 @@ def process_bundle_run(services: ApplicationServices) -> None:
     assert runtime is not None and runtime.worker.process_once()
 
 
+def test_run_report_cli_matches_http(monkeypatch, capsys, tmp_path):
+    services = make_services(tmp_path / "local")
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
+        run = client.post("/api/v1/runs", params={"bundle": "team"}, json={
+            "project_name": "Report", "workflow_id": "spec_review",
+            "inputs": {"spec_text": "Synthetic private fixture"},
+        })
+        assert run.status_code == 202
+        run_id = run.json()["id"]
+        expected = client.get(f"/api/v1/runs/{run_id}/report")
+        assert expected.status_code == 200
+        actual = invoke_cli(monkeypatch, capsys, client, ["run-report", run_id])
+        assert json.loads(actual) == expected.json()
+        markdown = invoke_cli(monkeypatch, capsys, client, ["run-report", run_id, "--format", "markdown"])
+        assert markdown.strip() == client.get(f"/api/v1/runs/{run_id}/report",
+                                              params={"format": "markdown"}).text.strip()
+    services.runs.close()
+
+
 def test_cli_workflow_listing_matches_http(monkeypatch, capsys, tmp_path):
     services = make_services(tmp_path / "local")
     with TestClient(create_app(services=services), base_url="http://localhost") as client:

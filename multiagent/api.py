@@ -516,6 +516,14 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         """Token usage records and totals per run, agent and step (cost is an estimate)."""
         return services.runs.usage(run_id)
 
+    @app.get("/api/v1/runs/{run_id}/report")
+    def run_report(run_id: str, format: str = "json", include_raw: bool = False):
+        """Run report with the same read access as the run endpoint."""
+        from fastapi.responses import PlainTextResponse
+
+        result = services.runs.report(run_id, format=format, include_raw=include_raw)
+        return PlainTextResponse(result, media_type="text/markdown") if format == "markdown" else result
+
     @app.get("/api/v1/usage/costs")
     def usage_costs(since: str | None = None, until: str | None = None, limit: int = 100):
         """Estimated cost of the framework's provider calls per run, model, day and month, each with its price evidence.

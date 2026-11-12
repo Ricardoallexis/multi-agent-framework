@@ -58,41 +58,43 @@ Whatever the degree of autonomy, the core keeps contracts, validation, persisten
 | Execution | Deterministic declared workflows (YAML) | ✅ | Steps, order, conditions, checkpoints, preferred and fallback model |
 | Execution | Validation before execution | ✅ | Structure and references checked before a run exists, with stable issue codes |
 | Execution | Structured contracts between steps | ✅ | Pydantic output contracts for model and human output |
-| Execution | Durable, resumable runs (SQLite) | ✅ | Resume after review, restarts, idempotent requests, call and time budgets |
+| Execution | Durable, resumable runs (SQLite) | ✅ | Resume after review, restarts, idempotent requests, call and time budgets; tasks can also be held and resumed at usage limits |
 | Execution | Traceability | ✅ | Prompt id, version, and hash; model or human; telemetry; artifacts |
 | Execution | Execution backend abstraction (native, mock, optional backends) | 🧭 | Next in the development order |
 | Execution | Microsoft Agent Framework as optional backend | 🔌 | Never a required dependency of the core |
 | Execution | Parallel steps and several workers | 🧭 | Today one local worker processes a queue |
 | Humans | Human-in-the-loop review at any step | ✅ | Approve the exact attempt, request changes, regenerate, reject, cancel |
 | Humans | Human Bridge (externally executed steps) | ✅ | The framework hands out the prompt and validates the pasted answer |
-| Humans | Impact-based permissions and policy-driven gates | 🧭 | On top of the existing human-in-the-loop |
+| Humans | Impact-based permissions and policy-driven gates | 🟡 | Effect approval, task gates, and budget holds exist; impact classes for tools and per-risk policies do not |
 | Definitions | Definition bundles outside the package | ✅ | Workflows, agents, prompts, contracts, and sample outputs in a folder |
 | Definitions | Team and organization definitions (members, relationships) | 🧭 | Teams and relationships as data |
 | Definitions | Team design from a prompt (roles, rules, organization chart, recommended model bindings) | 🧭 | Output is a validated, human-approved team definition; roles are not tied to models |
-| Definitions | Capabilities on agents | 🟡 | Declared in the agent catalog; not yet used to select agents |
-| Definitions | Presets (teams, workflows, agents, prompts, checks) | 🟡 | Bundles are the foundation; team presets are planned |
+| Definitions | Capabilities on agents | 🟡 | Declared capabilities select models and executor surfaces; agents are not yet selected this way |
+| Definitions | Presets (teams, workflows, agents, prompts, checks) | 🟡 | Bundles are the foundation; a software development example bundle exists, while team presets are planned |
 | Definitions | Community catalog of presets | 🧭 | Packaging, install, validation, and trust rules planned |
 | Definitions | Reference tool stacks for common teams (for example Tailwind CSS for web design) | 🔬 | Research: examples inside presets, never core dependencies |
 | Interfaces | Python API (application services) | ✅ | `multiagent.services`: one facade with structured errors |
 | Interfaces | HTTP API with parity | ✅ | Generic and bundle runs, definitions, artifacts, structured errors |
 | Interfaces | CLI | ✅ | Uses the same HTTP API |
 | Interfaces | Mock mode without API keys | ✅ | Synthetic fixtures through the same engine and contracts |
-| Interfaces | Graphical UI | 🟡 | Stage 0 run console over the public API (runs, human review, Human Bridge, artifacts); configuration, teams, and plans come in later stages |
+| Interfaces | Graphical UI | 🟡 | Stage 0 run console and local operator GUI over the public API; configuration, teams, and plans come in later stages |
 | Models | Local models (Ollama) | ✅ | Text generation; sensitive runs can stay local |
 | Models | Cloud providers (Gemini, OpenAI) | ✅ | Optional |
 | Models | Routing by preferred model and fallback | ✅ | Static per step and execution mode |
-| Models | Intelligent routing (capability, cost, hardware, availability) | 🧭 | Resource-aware scheduling included |
+| Models | Intelligent routing (capability, cost, hardware, availability) | 🟡 | Opt-in profiles use capabilities, privacy, health evidence, and price; hardware-aware and resource-aware scheduling are not done |
 | Models | More local models: research, embeddings, image, video | 🔬 | Evaluation of models and providers |
-| Orchestration | Structured context between agents | 🟡 | Steps receive earlier outputs as validated context; free agent-to-agent messaging is not implemented |
+| Orchestration | Structured context between agents | 🟡 | Validated summaries and task envelopes are available; free agent-to-agent messaging is not implemented |
 | Orchestration | Manual, semi-automatic, and automatic planning | 🧭 | Plans as data, executed by the existing engine |
-| Orchestration | Delegation and capability-based assignment | 🧭 | Deterministic rules first |
+| Orchestration | Delegation and capability-based assignment | 🟡 | Assignment preview and guarded claim exist; delegation between agents does not |
 | Orchestration | Replanning and dynamic or temporary teams | 🧭 | After planning is stable |
+| Orchestration | Manual, semi-automatic, and automatic planning | 🧭 | Validated plan data exists, but there are no planners |
 | Tools | Generic tool contracts and deterministic function steps | 🧭 | Separate from model-provider adapters |
 | Tools | MCP server (framework exposed as tools) | 🧭 | Over the same application services |
 | Tools | MCP client (use external MCP tools) | 🔌 | Through Microsoft Agent Framework or the official SDK |
 | Tools | A2A (remote agents) | 🔌 | When a concrete need appears |
-| Tools | Shared-folder channel, desktop bridge, application gateway | 🧭 | For applications without an API |
-| Tools | Integrations with external applications (design, CAD/BIM, office, media, development) | 🔌 | Independent adapters or plugins |
+| Tools | Shared-folder channel, desktop bridge, application gateway | 🟡 | Applications can be opened with approval and task executors launched; there is no shared-folder channel or prompt clipboard flow |
+| Tools | Integrations with external applications (design, CAD/BIM, office, media, development) | 🟡 | Three development-agent CLI adapters exist and are disabled by default |
+| Observability | Local usage telemetry | ✅ | Usage records are stored locally |
 | Observability | OpenTelemetry | 🔌 | Through the optional backend or an adapter |
 | Observability | AG-UI as the event transport for the UI | 🔬 | To be evaluated with the UI |
 
@@ -127,13 +129,13 @@ Microsoft Agent Framework is a mature, MIT-licensed runtime. Instead of reimplem
 
 These are roadmap items, not design limits. Each will arrive when its turn in the development order comes:
 
-- graphical interfaces beyond the Stage 0 run console (configuration, teams, plans, tools, and live topology);
+- graphical UI beyond the Stage 0 run console and partial local operator GUI (configuration, teams, plans, tools, and live topology);
 - the execution backend abstraction and the optional Microsoft Agent Framework backend;
-- team and organization definitions, relationships, and capability-based assignment;
+- team and organization definitions and relationships; capability-based assignment is partial;
 - planning (manual, semi-automatic, automatic), delegation, replanning, and dynamic teams;
 - parallel steps, graphs with cycles, and several workers;
-- generic tool contracts, the MCP server and client, A2A, and integrations with external applications;
-- intelligent routing, more local models, and retrieval over large knowledge bases;
+- generic tool contracts, the MCP server and client, A2A, and most external application integrations; development-agent CLI adapters are partial;
+- intelligent routing beyond its partial, opt-in profiles, more local models, and retrieval over large knowledge bases;
 - presets as installable packages and a community catalog;
 - team design from a prompt, and reference tool stacks for common teams.
 

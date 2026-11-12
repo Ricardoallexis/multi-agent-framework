@@ -1,0 +1,48 @@
+name: synthetic-social-post
+version: "1"
+cases:
+  - id: valid-basic
+    workflow: social_post
+    inputs:
+      topic: Community gardening
+      platform: LinkedIn
+      audience: Local community organizers
+      instructions: Keep it friendly and informative.
+      objective: Encourage neighbors to join a community garden.
+    checks:
+      - type: contract_valid
+      - type: field_present
+        field: title
+      - type: max_length
+        field: title
+        max_length: 180
+  - id: valid-second
+    workflow: social_post
+    inputs:
+      topic: Reusable lunch containers
+      platform: Instagram
+      audience: Busy families
+      instructions: Use a practical, upbeat tone.
+      objective: Share a simple way to reduce disposable packaging.
+    checks:
+      - type: contract_valid
+      - type: field_present
+        field: body
+      - type: max_length
+        field: body
+        max_length: 12000
+  - id: intentional-failure
+    workflow: social_post
+    inputs:
+      topic: Reading in public parks
+      platform: LinkedIn
+      audience: Readers and park visitors
+      instructions: Keep the message concise.
+      objective: Invite people to enjoy books outdoors.
+    checks:
+      - type: contract_valid
+      - type: field_present
+        field: title
+      - type: contains
+        field: title
+        expected: __intentionally_absent_eval_text__
