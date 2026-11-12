@@ -66,7 +66,7 @@ class RunService:
     def _awaits_budget_cut(run: dict[str, Any]) -> bool:
         """True while the budget guard (USO-T04) holds a call that would pass a budget in cut mode, or has no known price."""
         return (run["status"] == RunStatus.WAITING_HUMAN.value
-                and run.get("waiting_reason") == WaitingReason.BUDGET_CUT.value)
+                and run.get("waiting_reason") in {WaitingReason.BUDGET_CUT.value, WaitingReason.EGRESS_REVIEW.value})
 
     @staticmethod
     def _awaits_user_message(run: dict[str, Any]) -> bool:
@@ -84,8 +84,8 @@ class RunService:
         wait behaves as before. The token route of the GUI and the CLI do not pass it."""
         run = self.store.get_run(run_id)
         if recorded_only and self._awaits_budget_cut(run):
-            raise PersonRequired("A budget cut spends money, so only a person approves it: use the GUI (it carries the "
-                                 "token) or the command line; this route is not authenticated. Rejecting works here.")
+            raise PersonRequired("This held call requires a person: use the GUI (it carries the token) or the "
+                                 "command line; this route is not authenticated. Rejecting works here.")
         if self._awaits_escalation(run):
             # Approving an escalation resumes the same step with the stronger model; no artifact is under review.
             self.store.finish_escalation(run, approve=True)

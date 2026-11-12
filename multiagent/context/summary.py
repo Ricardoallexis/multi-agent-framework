@@ -47,7 +47,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
-from ..contracts import ModelTier, TaskRequirements
+from ..contracts import EgressBlocked, ModelTier, TaskRequirements
 from ..errors import (
     AuthenticationError,
     BudgetExceeded,
@@ -100,10 +100,12 @@ REASON_VALIDATION_FAILED = "validation_failed"
 REASON_NO_ELIGIBLE_MODEL = "no_eligible_model"
 REASON_WINDOW_UNKNOWN = "window_unknown"
 REASON_BUDGET = "budget"
+REASON_EGRESS = "egress"
 REASON_NO_REDUCTION = "no_reduction"
 REASON_TOO_LARGE = "too_large"
 REASON_PROVIDER_ERROR = "provider_error"
 SKIP_REASONS = (REASON_VALIDATION_FAILED, REASON_NO_ELIGIBLE_MODEL, REASON_WINDOW_UNKNOWN, REASON_BUDGET,
+                REASON_EGRESS,
                 REASON_NO_REDUCTION, REASON_TOO_LARGE, REASON_PROVIDER_ERROR)
 
 # Names of the checks in a validation report.
@@ -1342,6 +1344,8 @@ class _Run:
             )
         except BudgetExceeded as exc:
             raise _Skip(REASON_BUDGET, str(exc)) from exc
+        except EgressBlocked as exc:
+            raise _Skip(REASON_EGRESS, str(exc)) from exc
         except StructuredOutputError as exc:
             raise _InvalidOutput(str(exc)) from exc
         except ContextBudgetError as exc:

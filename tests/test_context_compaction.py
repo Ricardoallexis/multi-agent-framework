@@ -102,27 +102,31 @@ def local_model(name, *, window, level=None, sensitive=False, tier="local"):
     return model
 
 
-def workflow_yaml(steps: str, checkpoints, fallback: bool) -> str:
+def workflow_yaml(steps: str, checkpoints, fallback: bool, cloud_after_compaction: bool = False) -> str:
     document = {"id": "chain", "max_iterations": 2, "inputs": [{"name": "topic", "label": "Topic", "type": "text"}],
                 "steps": [{"id": step, "agent": "worker", "prompt_id": "chain/step", "prompt_version": 1,
-                           "skills": [], "contract": "Note", "preferred_model": "local_default",
+                           "skills": [], "contract": "Note", "preferred_model": "cloud_default" if cloud_after_compaction and step >= "d" else "local_default",
                            "fallback_model": "step_fallback" if fallback else None, "requires_web": False,
                            "when": None, "checkpoint_after": step in checkpoints} for step in steps]}
     return yaml.safe_dump(document, sort_keys=False)
 
 
 def write_bundle(root: Path, *, steps=STEPS, checkpoints=(), fallback=False, window=WINDOW, summary_models=True,
-                 sensitive_summarizer=False, profile: dict[str, Any] | None = None, assign=True) -> Path:
+                 sensitive_summarizer=False, profile: dict[str, Any] | None = None, assign=True,
+                 cloud_after_compaction=False) -> Path:
     """A bundle whose catalog has the step model, an optional fallback, two summary models and a context profile."""
     (root / "workflows").mkdir(parents=True)
     (root / "prompts" / "chain").mkdir(parents=True)
     (root / "catalog").mkdir()
     (root / "contracts.py").write_text(CONTRACTS, encoding="utf-8")
     (root / "prompts" / "chain" / "step.v1.md").write_text(PROMPT, encoding="utf-8")
-    (root / "workflows" / "chain.yaml").write_text(workflow_yaml(steps, checkpoints, fallback), encoding="utf-8")
+    (root / "workflows" / "chain.yaml").write_text(
+        workflow_yaml(steps, checkpoints, fallback, cloud_after_compaction), encoding="utf-8")
     (root / "catalog" / "agents.yaml").write_text(yaml.safe_dump({"agents": {"worker": {
         "role": "Writes a note", "active": True, "capabilities": {"writing": "PRIMARY"}}}}), encoding="utf-8")
     models = {"local_default": local_model("step-main", window=window)}
+    if cloud_after_compaction:
+        models["cloud_default"] = local_model("step-cloud", window=window, tier="cloud")
     if fallback:
         models["step_fallback"] = local_model("step-fallback", window=window)
     if summary_models:
@@ -201,12 +205,23 @@ class Scripted(LLMAdapter):
         return [call for call in self.calls if call.kind == kind]
 
 
-def runtime(tmp_path, *, notes=None, summaries=(), checks=(), max_llm_calls=40, window=WINDOW, **bundle_options):
+def runtime(tmp_path, *, notes=None, summaries=(), checks=(), max_llm_calls=40, window=WINDOW,
+            summary_cloud=False, **bundle_options):
     """A real engine over a temp store with the throwaway bundle. ``notes`` defaults to one distinct text per step.
 
     ``window`` is the window of ``local_default``: the catalog takes it from ``OLLAMA_NUM_CTX``, not from its entry.
     """
     root = write_bundle(tmp_path / "bundle", window=window, **bundle_options)
+    if summary_cloud:
+        catalog_path = root / "catalog" / "models.yaml"
+        catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
+        for model_id in ("sum_t1", "sum_t2"):
+            catalog["models"][model_id] = local_model(model_id, window=SUMMARY_WINDOW,
+                                                         level=model_id[-2:].upper(), tier="cloud")
+            for component in ("input", "output"):
+                catalog["models"][model_id]["pricing"][component].update(
+                    amount=1, provenance="provider_docs", source="synthetic test catalog")
+        catalog_path.write_text(yaml.safe_dump(catalog, sort_keys=False), encoding="utf-8")
     settings = Settings(_env_file=None, local_dir=tmp_path / "local", worker_enabled=False, gemini_api_key="",
                         openai_api_key="", openai_enabled=False, max_llm_calls=max_llm_calls, ollama_num_ctx=window)
     settings.ensure_directories()
@@ -501,6 +516,50 @@ def test_with_no_profile_a_disabled_one_or_nothing_pending_the_prompts_are_what_
         assert [row["prompt_sha256"] for row in telemetry(system, run_id)] == hashes
         assert names(run) == names(base.run)                                   # not even a context event
         assert not system.adapter.of("summary") and not system.adapter.of("check")
+
+
+@pytest.mark.parametrize("action", ["block", "redact"])
+def test_cloud_summary_obeys_egress_guard(tmp_path, action):
+    system = runtime(tmp_path, summary_cloud=True,
+                     notes=[filler("a") + " person@example.test"] + [filler(step) for step in STEPS[1:]])
+    system.settings.egress_default = action
+    run_id = start(system, topic="person@example.test")
+    with system.store.db.connect() as conn:
+        request = json.loads(conn.execute("SELECT request_json FROM runs WHERE id=?", (run_id,)).fetchone()[0])
+        request["effective_permissions"] = ["provider:cloud"]
+        request["authorized_data_classes"] = ["non_sensitive"]
+        conn.execute("UPDATE runs SET request_json=? WHERE id=?", (json.dumps(request), run_id))
+        conn.commit()
+    run = system.engine.process_run(run_id)
+    assert run["status"] == "completed"
+    if action == "block":
+        assert not system.cloud.of("summary")
+        assert events(run, "context_compaction_skipped")
+        assert {e["reason"] for e in events(run, "context_compaction_skipped")} == {"egress"}
+        assert events(run, "egress_blocked"), [(e["reason"], e.get("detail")) for e in events(run, "context_compaction_skipped")]
+    else:
+        assert system.cloud.of("summary"), [(e["reason"], e.get("detail")) for e in events(run, "context_compaction_skipped")]
+        assert all("person@example.test" not in call.prompt for call in system.cloud.of("summary"))
+        assert events(run, "egress_redacted")
+
+
+def test_local_compaction_then_cloud_step_completes_in_block_without_sensitive_data(tmp_path):
+    system = runtime(tmp_path, cloud_after_compaction=True)
+    system.settings.egress_default = "block"
+    run_id = start(system)
+    with system.store.db.connect() as conn:
+        request = json.loads(conn.execute("SELECT request_json FROM runs WHERE id=?", (run_id,)).fetchone()[0])
+        request["effective_permissions"] = ["provider:cloud"]
+        request["authorized_data_classes"] = ["non_sensitive"]
+        conn.execute("UPDATE runs SET request_json=? WHERE id=?", (json.dumps(request), run_id))
+        conn.commit()
+    run = system.engine.process_run(run_id)
+    assert run["status"] == "completed"
+    assert events(run, "context_compacted")
+    assert system.adapter.of("summary")
+    assert system.cloud.of("note")
+    assert "blob:sha256:" in system.cloud.of("note")[0].prompt
+    assert not events(run, "egress_blocked")
 
 
 def test_a_step_over_the_threshold_is_compacted_before_the_next_step(tmp_path):

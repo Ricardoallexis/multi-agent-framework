@@ -48,6 +48,13 @@ class WaitingReason(str, Enum):
     # the step waits for a person before it is made, the way a supervised escalation waits. They settle it with the approval
     # path of runs: ``approve`` lets that one call through, ``reject`` fails the run (``Store.finish_budget_cut``).
     BUDGET_CUT = "budget_cut_approval"
+    EGRESS_REVIEW = "egress_review"
+
+
+class EgressBlocked(Exception):
+    """Outbound content denied before a provider call (stable code for run errors)."""
+
+    code = "egress_blocked"
 
 
 class HumanAction(str, Enum):

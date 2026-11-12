@@ -641,12 +641,15 @@ class ModelRouter:
         if not before_call:
             return None
         if not cls._takes_call(before_call):
-            return lambda model_id, spec, retry, ordinal: before_call()
+            return lambda model_id, spec, retry, ordinal: (before_call(), prompt)[1]
         estimated = estimate_tokens_conservative(prompt)
 
-        def run(model_id: str, spec: ModelSpec, retry: int, ordinal: int) -> None:
+        def run(model_id: str, spec: ModelSpec, retry: int, ordinal: int) -> str:
+            outgoing = [prompt]
             before_call(CallContext(model_id=model_id, spec=spec, retry=retry, ordinal=ordinal,
-                                    estimated_input_tokens=estimated))
+                                    estimated_input_tokens=estimated, outgoing_text=prompt,
+                                    replace_outgoing=lambda value: outgoing.__setitem__(0, value)))
+            return outgoing[0]
 
         return run
 
@@ -664,10 +667,11 @@ class ModelRouter:
             provider_invoked = False
             effort_kwargs, translation = self._plan_effort(adapter, fake_spec, effort)
             try:
+                outgoing_prompt = prompt
                 if check_before_call:
-                    check_before_call("fixture", fake_spec, 0, 1)
+                    outgoing_prompt = check_before_call("fixture", fake_spec, 0, 1)
                 provider_invoked = True
-                response = adapter.generate_structured(spec=fake_spec, prompt=prompt, output_schema=output_schema,
+                response = adapter.generate_structured(spec=fake_spec, prompt=outgoing_prompt, output_schema=output_schema,
                                                        requires_web=requirements.requires_web, **effort_kwargs)
                 if validate_response:
                     try:
@@ -739,11 +743,12 @@ class ModelRouter:
             effort_kwargs, translation = self._plan_effort(adapter, spec, effort)
             for retry in range(retries + 1):
                 ordinal += 1
+                outgoing_prompt = prompt
                 response: LLMResponse | None = None
                 started = time.perf_counter()
                 if check_before_call:
                     try:
-                        check_before_call(model_id, spec, retry, ordinal)
+                        outgoing_prompt = check_before_call(model_id, spec, retry, ordinal)
                     except Exception as exc:
                         failure = self._attempt_payload(model_id=model_id, spec=spec, retry=retry,
                                                         ordinal=ordinal, stage="preflight", provider_invoked=False,
@@ -752,7 +757,7 @@ class ModelRouter:
                         self._notify_attempt(on_attempt, failure)
                         raise
                 try:
-                    response = adapter.generate_structured(spec=spec, prompt=prompt, output_schema=output_schema,
+                    response = adapter.generate_structured(spec=spec, prompt=outgoing_prompt, output_schema=output_schema,
                                                            requires_web=requirements.requires_web, **effort_kwargs)
                     if validate_response:
                         try:

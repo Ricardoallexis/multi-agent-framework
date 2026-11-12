@@ -57,7 +57,8 @@ export const HELP = {
     "hint": "Tareas y actividades en curso, con su responsable.",
     "more": [
       "Incluye lo que alguien tomó, está haciendo, tiene en pausa o se comprueba de forma automática.",
-      "Si no hay responsable, la tarea aún no la tomó nadie."
+      "Si no hay responsable, la tarea aún no la tomó nadie.",
+      "Las actividades se muestran aquí, pero no cuentan para el avance ni para los conteos por estado."
     ]
   },
   "project.milestones": {

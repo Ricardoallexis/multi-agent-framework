@@ -6,7 +6,7 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Optional, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -275,6 +275,7 @@ class Settings(BaseSettings):
     max_llm_calls: int = Field(default=4, ge=1, le=50)
     max_run_seconds: int = Field(default=300, ge=30)
     approval_timeout_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    egress_default: Literal["off", "redact", "block", "escalate"] = "off"
     worker_poll_seconds: float = Field(default=0.75, gt=0.05)
     worker_enabled: bool = True
     mock_mode: bool = False

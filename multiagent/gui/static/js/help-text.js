@@ -1120,6 +1120,15 @@ export const HELP = {
       "Solo filtra lo que ya está en la lista: no busca dentro de las conversaciones."
     ]
   },
+  "shell.activities": {
+    "title": "Actividades",
+    "hint": "Muestra en la lista las actividades abiertas de tus proyectos, en lugar de las sesiones y ejecuciones.",
+    "more": [
+      "Cada actividad lleva su estado y quién trabaja en ella; al elegirla se abre el tablero de su proyecto.",
+      "Las actividades no cuentan en el avance del proyecto.",
+      "Vuelve a pulsar el botón para ver otra vez las sesiones y ejecuciones."
+    ]
+  },
   "panel.changes": {
     "title": "Cambios",
     "hint": "Archivos que la sesión o la ejecución abierta ha modificado.",

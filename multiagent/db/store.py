@@ -23,6 +23,10 @@ from ..budget_cut import (
     EVENT_APPROVED as BUDGET_CUT_APPROVED, EVENT_REJECTED as BUDGET_CUT_REJECTED, approval_from_pause, is_budget_pause,
     rejection_message,
 )
+from ..egress_guard import (
+    EVENT_APPROVED as EGRESS_APPROVED, EVENT_REJECTED as EGRESS_REJECTED,
+    approval_from_pause as egress_approval_from_pause, is_egress_pause,
+)
 from ..document_review import (
     DECISION_APPROVED, DECISION_REJECTED, resolution_payload, resolution_source, review_key, unresolved_requests,
 )
@@ -285,6 +289,8 @@ class Store:
         """Atomically record failure without overwriting a settled run state."""
         message = str(error) if message is None else message
         payload: dict[str, Any] = {"error": message, "type": type(error).__name__}
+        if type(error).__name__ == "EgressBlocked":
+            payload["code"] = "egress_blocked"
         if issues is not None:
             payload["issues"] = issues
         with self.db.tx() as conn:
@@ -559,7 +565,7 @@ class Store:
 
     def finish_budget_cut(self, run: dict[str, Any], *, approve: bool, feedback: str = "",
                           by: str | None = None, channel: str | None = None) -> None:
-        """Commit a person's decision on a call the budget guard held (USO-T04, ``waiting_reason`` ``budget_cut_approval``).
+        """Commit a person's decision on a call held by a budget or egress guard.
 
         Like ``finish_escalation`` it compares the persisted wait again inside the transaction, so a duplicate or a decision
         after a cancellation is refused. The decision is tied to the latest ``call_paused`` event of the budget guard for the
@@ -572,46 +578,53 @@ class Store:
         no guard or model approves a cut.
         """
         run_id = run["id"]
+        egress = run.get("waiting_reason") == WaitingReason.EGRESS_REVIEW.value
+        reason = WaitingReason.EGRESS_REVIEW.value if egress else WaitingReason.BUDGET_CUT.value
+        approved_event = EGRESS_APPROVED if egress else BUDGET_CUT_APPROVED
+        rejected_event = EGRESS_REJECTED if egress else BUDGET_CUT_REJECTED
+        from_pause = egress_approval_from_pause if egress else approval_from_pause
+        is_pause = is_egress_pause if egress else is_budget_pause
         with self.db.tx() as conn:
             fresh = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
             fields = ("status", "current_step", "waiting_reason", "waiting_step", "waiting_attempt", "cancel_requested")
             if (fresh is None or fresh["status"] != RunStatus.WAITING_HUMAN.value
-                    or fresh["waiting_reason"] != WaitingReason.BUDGET_CUT.value or fresh["cancel_requested"]
+                    or fresh["waiting_reason"] != reason or fresh["cancel_requested"]
                     or any(fresh[key] != run[key] for key in fields)):
-                raise InvalidStateTransition("The persisted budget cut changed; read the run again")
+                raise InvalidStateTransition("The persisted call review changed; read the run again")
             paused = None
             for row in conn.execute(
                     "SELECT event_type,payload_json FROM run_events WHERE run_id=? AND event_type IN (?,?,?) ORDER BY id",
-                    (run_id, "call_paused", BUDGET_CUT_APPROVED, BUDGET_CUT_REJECTED)):
+                    (run_id, "call_paused", approved_event, rejected_event)):
                 payload = json.loads(row["payload_json"])
                 if payload.get("step_id") != fresh["waiting_step"] or payload.get("attempt") != fresh["waiting_attempt"]:
                     continue
-                paused = payload if row["event_type"] == "call_paused" and is_budget_pause(payload) else None
+                paused = payload if row["event_type"] == "call_paused" and is_pause(payload) else None
             if paused is None:
-                raise InvalidStateTransition("The run has no budget cut waiting for a decision")
+                raise InvalidStateTransition("The run has no call review waiting for a decision")
             declared, door = resolution_source(by, channel)
             now = utcnow()
             if approve:
-                approval = approval_from_pause(paused, approval_id=uuid.uuid4().hex, by=declared, channel=door)
+                approval = from_pause(paused, approval_id=uuid.uuid4().hex, by=declared, channel=door)
                 conn.execute(
                     """UPDATE runs SET status=?,waiting_reason='',waiting_step='',waiting_attempt=NULL,updated_at=?
                        WHERE id=?""", (RunStatus.QUEUED.value, now, run_id))
                 conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
-                             (run_id, now, BUDGET_CUT_APPROVED, json.dumps(approval, ensure_ascii=False)))
+                             (run_id, now, approved_event, json.dumps(approval, ensure_ascii=False)))
                 return
-            error = rejection_message(paused, feedback)
+            error = ("Egress review rejected" + (f": {feedback}" if feedback else "")) if egress else rejection_message(paused, feedback)
             conn.execute(
                 """UPDATE runs SET status=?,error=?,revision_feedback=?,waiting_reason='',waiting_step='',
                    waiting_attempt=NULL,updated_at=? WHERE id=?""",
                 (RunStatus.FAILED.value, error, feedback, now, run_id))
-            refusal = approval_from_pause(paused, approval_id="", by=declared, channel=door)
+            refusal = from_pause(paused, approval_id="", by=declared, channel=door)
             del refusal["approval_id"]            # a refusal lets nothing through
             conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
-                         (run_id, now, BUDGET_CUT_REJECTED,
+                         (run_id, now, rejected_event,
                           json.dumps({**refusal, "feedback": feedback}, ensure_ascii=False)))
             conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
                          (run_id, now, "workflow_failed",
-                          json.dumps({"error": error, "type": "BudgetCutRejected"}, ensure_ascii=False)))
+                          json.dumps({"error": error, "type": "EgressBlocked" if egress else "BudgetCutRejected",
+                                      "code": "egress_blocked" if egress else "budget_cut_rejected"}, ensure_ascii=False)))
 
     def finish_content_review(self, run: dict[str, Any], *, approve: bool, feedback: str = "",
                               by: str | None = None, channel: str | None = None) -> int:

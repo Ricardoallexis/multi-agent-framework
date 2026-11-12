@@ -58,6 +58,27 @@ def add_project_routes(api: APIRouter, services: ApplicationServices) -> None:
             raise _missing(task_id, project_id)
         return task
 
+    @api.get("/activities")
+    def list_activities() -> dict[str, Any]:
+        """Open activities grouped by active project, for the left bar's «Actividades» filter (PRY-T10).
+
+        ``{projects: [{project_id, name, title, activities: [...]}]}``: only projects with an open activity (not
+        ``done``, ``failed`` or ``cancelled``), in the order of the project list; each activity as
+        ``services.activities.list`` gives it. Activities do not count toward project progress."""
+        projects = []
+        for project in services.projects.list(archived=False):
+            counts = project["activities"]
+            if counts["total"] - counts["done"] <= 0:
+                continue
+            activities = [
+                item for item in services.activities.list(project["id"])
+                if item["label"]["key"] not in {"done", "failed", "cancelled"}
+            ]
+            if activities:
+                projects.append({"project_id": project["id"], "name": project["name"], "title": project.get("title"),
+                                 "activities": activities})
+        return {"projects": projects}
+
     @api.get("/projects")
     def list_projects(archived: bool = False) -> dict[str, Any]:
         """The active projects (or, with ``archived``, only the archived ones), each with progress and what needs you."""

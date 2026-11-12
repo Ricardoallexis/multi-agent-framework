@@ -562,6 +562,7 @@ class WorkflowEngine:
                         routing_profile_id=profile_id, routing_profile=profile,
                         context_settings=context_settings, document_policy=self.document_policy,
                         availability=self._availability_policy(), budgets=self._budget_policy(),
+                        egress=step.egress or {"action": self.settings.egress_default},
                         emit=lambda event_type, payload: self.store.db.log_event(run_id, event_type, payload),
                     ),
                     cancel=lambda call: self._check_cancel(run_id),
@@ -1265,6 +1266,9 @@ class WorkflowEngine:
             if verdict.code == STOP_USER_CANCEL:
                 # A ``cancel`` message of the person (AVA-T03): the run ends as cancelled, not as over budget.
                 raise _CancelledSignal()
+            if verdict.code == "egress_blocked":
+                from .contracts import EgressBlocked
+                raise EgressBlocked(verdict.message)
             error = BudgetExceeded(verdict.message)
             error.code = verdict.code
             error.guard = verdict.guard
@@ -1696,10 +1700,10 @@ class WorkflowEngine:
 
     def _summary_before_call(self, *, run_id: str, step: WorkflowStep, attempt: int, profile_id: str | None,
                              profile: Any, request: dict[str, Any]):
-        """``before_call`` of the summarizer's calls: the limits and budget guards, but not the context guard.
+        """``before_call`` of the summarizer's calls: limits, egress and budget, but not context.
 
         Its calls count in ``max_llm_calls`` and in the step's routing profile like any other call. A ``Stop``,
-        or a ``Pause`` (nobody is waiting for a compaction), skips the compaction as a budget problem instead of
+        or a ``Pause`` (nobody is waiting for a compaction), skips the compaction instead of
         failing or pausing the run; a cancellation is the host's and propagates.
         """
         def reserve(call: CallContext) -> None:
@@ -1711,11 +1715,13 @@ class WorkflowEngine:
             self.store.increment_llm_calls(run_id)
 
         # No ``document_policy`` here on purpose: a content review belongs to the step whose prompt carries the
-        # untrusted parts, and nobody waits for a compaction (a ``Pause`` would only skip it). For the same reason there is no
-        # ``emit``: the budget guard never uses a person's approval here, so a summary that would pass a budget is skipped.
+        # untrusted parts, and nobody waits for a compaction (a ``Pause`` would only skip it).
+        # Egress still screens each outbound summary; an approval request skips this compaction.
         chain = build_call_guards(
             GuardEnvironment(scope=SCOPE_RUN_STEP, catalog=self.catalog, routing_profile_id=profile_id,
-                             routing_profile=profile, budgets=self._budget_policy()),
+                             routing_profile=profile, budgets=self._budget_policy(),
+                             egress=step.egress or {"action": self.settings.egress_default},
+                             emit=lambda event_type, payload: self.store.db.log_event(run_id, event_type, payload)),
             cancel=lambda call: self._check_cancel(run_id), reserve=reserve)
         data_class = "sensitive" if request.get("sensitive") else "non_sensitive"
 
@@ -1724,10 +1730,16 @@ class WorkflowEngine:
                                     attempt=attempt, profile_id=profile_id, data_class=data_class)
             verdict = chain.check(call, self.store.get_run(run_id))
             if isinstance(verdict, Stop):
+                if verdict.guard == "egress":
+                    from .contracts import EgressBlocked
+                    raise EgressBlocked(verdict.message)
                 error = BudgetExceeded(verdict.message)
                 error.code, error.guard = verdict.code, verdict.guard
                 raise error
             if isinstance(verdict, Pause):
+                if verdict.guard == "egress":
+                    from .contracts import EgressBlocked
+                    raise EgressBlocked(verdict.message or "Outbound content needs review")
                 raise BudgetExceeded(verdict.message or f"{verdict.guard or 'A guard'} asked for a decision "
                                                          f"({verdict.waiting_reason}) before a context summary call")
 

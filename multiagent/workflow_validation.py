@@ -394,6 +394,17 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
             add("invalid_type", "kind", f"Expected one of {', '.join(STEP_KINDS)}; got {_kind(step.kind)}")
         elif step.kind not in STEP_KINDS:
             add("invalid_value", "kind", f"Unknown step kind {step.kind!r}; use one of {', '.join(STEP_KINDS)}")
+        if step.egress is not None:
+            policy = step.egress
+            if not isinstance(policy, dict) or set(policy) - {"action", "include_local"} or "action" not in policy:
+                add("invalid_value", "egress", "Expected {action: off|redact|block|escalate, include_local: false}")
+            else:
+                if policy["action"] is False:  # YAML 1.1 parses unquoted `off` as false.
+                    policy["action"] = "off"
+                if policy["action"] not in ("off", "redact", "block", "escalate"):
+                    add("invalid_value", "egress.action", "Unknown egress action")
+                if not isinstance(policy.get("include_local", False), bool):
+                    add("invalid_type", "egress.include_local", "Expected true or false")
         # ``effort`` null (or omitted) leaves the provider default. In YAML, ``none`` is the
         # string "none" (no reasoning); ``off``/``no`` parse as booleans and are rejected.
         if step.effort is not None:

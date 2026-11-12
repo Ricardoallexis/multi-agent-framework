@@ -1,16 +1,15 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// Left sidebar (GUI2-T02): "Nueva sesión", a search box, and the sessions of the apps and the framework runs grouped by
-// project, each with a status dot and a count per app. The shell (shell.js) puts it inside <nav id="sidebar">.
-// It reads only what the GUI API already gives (sessions and runs); there is no task board here because no GUI
-// endpoint serves it. Names, titles and folders are untrusted text: they are only ever rendered as text nodes.
+// Left sidebar (GUI2-T02): "Nueva sesión", search, and sessions and framework runs grouped by project. The
+// «Actividades» filter instead shows open project activities and links to their boards. The shell (shell.js) puts it
+// inside <nav id="sidebar">. Names, titles and folders are untrusted text: they are only ever rendered as text nodes.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet } from "./api.js";
 import { debounce, subscribe } from "./bus.js";
 import { Help, helpFor } from "./help.js";
 import { navigate, routeHref, NEW_SECTION } from "./route.js";
 import { relativeTime } from "./session-text.js";
-import { appLabel, buildGroups, countsOf, isCurrent, runItems, sessionItems } from "./sidebar-model.js";
+import { activityItems, appLabel, buildGroups, countsOf, isCurrent, runItems, sessionItems } from "./sidebar-model.js";
 import { StatusChip } from "./ui/status-chip.js";
 
 const SESSION_LIMIT = 100;
@@ -20,13 +19,18 @@ const REFRESH_MS = 60000;       // sessions of the apps are files: they are look
 
 // The dot is a StatusChip (ui/status-chip.js): a mark whose shape differs per state, with the words for screen readers.
 function Item({ item, current, now }) {
+  const meta = item.who
+    ? appLabel(item.app) + " · " + item.who + " · " + relativeTime(item.updatedAt, now)
+    : appLabel(item.app) + " · " + relativeTime(item.updatedAt, now);
   return html`<li>
     <a class="side-item" href=${routeHref(item.route[0], item.route[1])} aria-current=${current ? "page" : null}
       title=${item.folder || item.title}>
-      <${StatusChip} status=${item.dot} labels="dot" variant="dot" detail=${item.detail} />
+      ${item.dotLabels
+        ? html`<${StatusChip} status=${item.dot} labels=${item.dotLabels} variant="dot" />`
+        : html`<${StatusChip} status=${item.dot} labels="dot" variant="dot" detail=${item.detail} />`}
       <span class="side-text">
         <span class="side-title">${item.title}</span>
-        <span class="side-meta">${appLabel(item.app)} · ${relativeTime(item.updatedAt, now)}</span>
+        <span class="side-meta">${meta}</span>
       </span>
     </a>
   </li>`;
@@ -49,9 +53,12 @@ function Group({ group, route, now }) {
 // views: the buttons that switch between the "Sesiones" and "Ejecuciones" screens (they live next to the section list in main.js).
 export function Sidebar({ token, status, route, views }) {
   const [data, setData] = useState({ sessions: [], runs: [], hint: null, failed: [], loaded: false });
+  const [activityData, setActivityData] = useState({ projects: [], loaded: false, loading: false, failed: false });
+  const [activitiesMode, setActivitiesMode] = useState(false);
   const [query, setQuery] = useState("");
   const [now, setNow] = useState(Date.now());
   const ticket = useRef(0);
+  const activityTicket = useRef(0);
 
   async function load() {
     const mine = ++ticket.current;
@@ -70,6 +77,22 @@ export function Sidebar({ token, status, route, views }) {
     }));
   }
 
+  async function loadActivities() {
+    const mine = ++activityTicket.current;
+    setActivityData((previous) => ({ ...previous, loading: true, failed: false }));
+    try {
+      const answer = await apiGet("/gui/api/activities", token);
+      if (!Array.isArray(answer?.projects)) throw new Error("Respuesta de actividades inválida.");
+      if (mine === activityTicket.current) {
+        setActivityData({ projects: answer.projects, loaded: true, loading: false, failed: false });
+      }
+    } catch (_) {
+      if (mine === activityTicket.current) {
+        setActivityData({ projects: [], loaded: true, loading: false, failed: true });
+      }
+    }
+  }
+
   useEffect(() => { load(); }, [token]);
   useEffect(() => { if (status === "connected") load(); }, [status]);
   useEffect(() => {
@@ -81,15 +104,24 @@ export function Sidebar({ token, status, route, views }) {
     const timer = setInterval(() => { setNow(Date.now()); load(); }, REFRESH_MS);
     return () => clearInterval(timer);
   }, [token]);
+  useEffect(() => {
+    if (activitiesMode) loadActivities();
+    else activityTicket.current += 1;
+  }, [activitiesMode, token]);
 
-  const items = sessionItems(data.sessions).concat(runItems(data.runs));
+  const items = activitiesMode
+    ? activityItems(activityData.projects)
+    : sessionItems(data.sessions).concat(runItems(data.runs));
   const searching = query.trim() !== "";
   const groups = buildGroups(items, query);
   const shown = groups.reduce((total, group) => total + group.items.length, 0);
 
   let summary = "";
-  if (!data.loaded) summary = "Cargando la lista…";
-  else if (items.length === 0) summary = "Todavía no hay sesiones ni ejecuciones.";
+  if (activitiesMode && (!activityData.loaded || activityData.loading)) summary = "Cargando las actividades…";
+  else if (activitiesMode && activityData.failed) summary = "No se pudieron cargar las actividades.";
+  else if (activitiesMode && items.length === 0) summary = "Todavía no hay actividades abiertas.";
+  else if (!activitiesMode && !data.loaded) summary = "Cargando la lista…";
+  else if (!activitiesMode && items.length === 0) summary = "Todavía no hay sesiones ni ejecuciones.";
   else if (shown === 0) summary = "Nada coincide con «" + query.trim() + "».";
   else summary = shown + (shown === 1 ? " elemento" : " elementos") + " en " + groups.length + (groups.length === 1 ? " proyecto." : " proyectos.");
 
@@ -108,11 +140,16 @@ export function Sidebar({ token, status, route, views }) {
             ...${helpFor("shell.search")} value=${query} onInput=${(event) => setQuery(event.target.value)} />
           <${Help} topic="shell.search" compact=${true} />
         </div>
+        <button type="button" class="btn secondary" aria-pressed=${activitiesMode ? "true" : "false"}
+          ...${helpFor("shell.activities")} onClick=${() => setActivitiesMode((enabled) => !enabled)}>Actividades</button>
+        <${Help} topic="shell.activities" compact=${true} />
       </div>
     </div>
-    <p class="muted small side-summary" role="status" aria-live="polite" aria-busy=${data.loaded ? "false" : "true"}>${summary}</p>
-    ${data.failed.length > 0 && html`<p class="message error small" role="alert">No se pudo leer la lista de ${data.failed.join(" ni de ")}; se reintentará sola.</p>`}
-    ${data.loaded && data.hint && data.sessions.length === 0 && html`<p class="muted small">Las sesiones de Claude, Codex y Copilot necesitan carpetas
+    <p class="muted small side-summary" role="status" aria-live="polite"
+      aria-busy=${activitiesMode ? (activityData.loaded && !activityData.loading ? "false" : "true") : (data.loaded ? "false" : "true")}>${summary}</p>
+    ${activitiesMode && activityData.failed && html`<p class="message error small" role="alert">No se pudieron leer las actividades. Vuelve a activar el filtro para reintentarlo.</p>`}
+    ${!activitiesMode && data.failed.length > 0 && html`<p class="message error small" role="alert">No se pudo leer la lista de ${data.failed.join(" ni de ")}; se reintentará sola.</p>`}
+    ${!activitiesMode && data.loaded && data.hint && data.sessions.length === 0 && html`<p class="muted small">Las sesiones de Claude, Codex y Copilot necesitan carpetas
       permitidas (gui_session_roots). En «Sesiones» se explica cómo.</p>`}
     <div class="side-groups">
       ${groups.map((group) => html`<${Group} key=${group.key + (searching ? "|q" : "")} group=${group} route=${route} now=${now} />`)}

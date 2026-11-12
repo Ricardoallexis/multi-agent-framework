@@ -1,24 +1,23 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// What the left sidebar lists (GUI2-T02), as plain functions with no DOM: sessions of the apps and framework runs, as
-// the two existing APIs send them, become items; items become project groups with a status dot and a count per app.
-// Only fields the APIs already give are read: GET /gui/api/sessions (Claude, Codex, Copilot) and GET /gui/api/runs.
+// What the left sidebar lists (GUI2-T02), as plain functions with no DOM: sessions, framework runs and open activities
+// become items; items become project groups with a status dot and a count per kind. Only API fields are read.
 import { sessionTitle, statusInfo as sessionStatus } from "./session-text.js";
 import { statusInfo as runStatus } from "./text.js";
 import { DEFAULT_LABELS, labelEntry, labelSet, statusText } from "./ui/labels.js";
 
-// The apps counted next to each project. "workflow" is a framework run; the other three are the apps' own sessions.
+// The kinds counted next to each project. "workflow" is a framework run; the three app ids are their own sessions.
 export const APPS = [
   { id: "claude", label: "Claude" },
   { id: "codex", label: "Codex" },
   { id: "copilot", label: "Copilot" },
   { id: "workflow", label: "Workflows" },
+  { id: "activity", label: "Actividades" },
 ];
 const APP_LABEL = Object.fromEntries(APPS.map((app) => [app.id, app.label]));
 export const appLabel = (id) => APP_LABEL[id] || String(id);
 
-// The three states of the dot. The words are what a screen reader says (they live in ui/labels.js, set "dot"); the
-// shape and colour are in app.css.
+// The three generic dot states used by sessions and runs; activity dots use their API-provided task labels.
 export const DOTS = Object.fromEntries(Object.keys(DEFAULT_LABELS.dot).map((dot) => [dot, DEFAULT_LABELS.dot[dot].text]));
 
 // A session of an app is "active" when it had activity lately; anything else is finished (the apps do not report errors).
@@ -71,6 +70,24 @@ export function runItems(runs) {
   });
 }
 
+// Open activities from GET /gui/api/activities, grouped under the project's real name and linked to its board.
+export function activityItems(projects) {
+  const closed = new Set(["done", "failed", "cancelled"]);
+  return (projects || []).flatMap((project) => (project.activities || [])
+    .filter((activity) => !closed.has(activity.label?.key))
+    .map((activity) => {
+      const key = activity.label.key;
+      return {
+        key: "activity:" + activity.id, kind: "activity", app: "activity", title: activity.title,
+        project: project.title || project.name, projectId: project.project_id, folder: "",
+        dot: key, dotLabels: { [key]: activity.label }, detail: activity.label.text,
+        who: activity.assignee_info?.name || activity.assignee_info?.app || activity.assignee || activity.preferred || "Sin asignar",
+        updatedAt: activity.updated_at || activity.created_at || null,
+        route: ["project", project.project_id],
+      };
+    }));
+}
+
 const stamp = (value) => {
   const ms = value ? Date.parse(value) : NaN;
   return Number.isNaN(ms) ? 0 : ms;
@@ -83,7 +100,7 @@ const plain = (text) => String(text || "").normalize("NFD").replace(/[̀-ͯ]/g, 
 export function matches(item, query) {
   const words = plain(query).split(/\s+/).filter(Boolean);
   if (!words.length) return true;
-  const haystack = plain([item.title, item.project, appLabel(item.app), DOTS[item.dot], item.detail].join(" "));
+  const haystack = plain([item.title, item.project, appLabel(item.app), DOTS[item.dot], item.detail, item.who].join(" "));
   return words.every((word) => haystack.includes(word));
 }
 

@@ -52,6 +52,7 @@ class WorkflowStep:
     effort: str | None = None
     # Short sentence for people: what the step does.
     description: str | None = None
+    egress: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
