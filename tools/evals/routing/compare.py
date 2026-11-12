@@ -34,6 +34,11 @@ _TEXT_FIELDS = (
     "rubric_hash", "config_hash", "surface", "evaluated_at", "requested", "effective", "observed",
     "cost_unit", "category",
 )
+_CONTEXT_EVENT_FIELDS = frozenset({
+    "event_type", "step_id", "attempt", "level", "ratio", "warning_at", "threshold",
+    "tokens_before", "tokens_after", "summary_ref",
+})
+_CONTEXT_EVENT_TYPES = frozenset({"context_warning", "context_compacted"})
 _BOOL_FIELDS = ("accepted", "critical_error")
 
 
@@ -82,6 +87,25 @@ def _normalize(raw: Mapping[str, Any], row: int) -> dict[str, Any]:
             raise CompareError(f"row {row}: {key} must be true or false")
     for key in _NULLABLE_NUMBERS:
         record[key] = _number(raw.get(key), key, row)
+    if "context_events" in raw and raw["context_events"] not in (None, ""):
+        events = raw["context_events"]
+        if isinstance(events, str):
+            try:
+                events = json.loads(events)
+            except json.JSONDecodeError as exc:
+                raise CompareError(f"row {row}: context_events must be a JSON array") from exc
+        if not isinstance(events, list):
+            raise CompareError(f"row {row}: context_events must be a JSON array")
+        normalized_events = []
+        for event in events:
+            if (not isinstance(event, Mapping) or not isinstance(event.get("event_type"), str)
+                    or event["event_type"] not in _CONTEXT_EVENT_TYPES):
+                raise CompareError(f"row {row}: context_events contains an invalid event")
+            normalized_event = {key: event[key] for key in _CONTEXT_EVENT_FIELDS if key in event}
+            if not isinstance(normalized_event.get("event_type"), str):
+                raise CompareError(f"row {row}: context event type must be text")
+            normalized_events.append(normalized_event)
+        record["context_events"] = normalized_events
     if record["critical_error"] and record["accepted"]:
         raise CompareError(f"row {row}: a critical error cannot be accepted")
     if record["cost"] is not None and not record["cost_unit"]:
@@ -312,6 +336,8 @@ def export_report(report: Mapping[str, Any], output: str | Path, format: str | N
     elif kind in ("jsonl", "csv"):
         records = report.get("records", [])
         fields = list(_TEXT_FIELDS) + list(_BOOL_FIELDS) + list(_NULLABLE_NUMBERS)
+        if any("context_events" in row for row in records):
+            fields.append("context_events")
         if kind == "jsonl":
             content = "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in records)
             with destination.open("w", encoding="utf-8", newline="\n") as handle:
@@ -321,7 +347,12 @@ def export_report(report: Mapping[str, Any], output: str | Path, format: str | N
                 writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
                 writer.writeheader()
                 for row in records:
-                    writer.writerow({key: "" if row.get(key) is None else row.get(key) for key in fields})
+                    writer.writerow({
+                        key: ("" if row.get(key) is None else
+                              json.dumps(row[key], ensure_ascii=False, sort_keys=True)
+                              if key == "context_events" else row.get(key))
+                        for key in fields
+                    })
     else:
         raise CompareError("output format must be json, jsonl, or csv")
 

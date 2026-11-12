@@ -11,7 +11,7 @@ import { OpenInApp } from "./open-in-app.js";
 import { routeHref } from "./route.js";
 import { Items } from "./session-items.js";
 import {
-  modelsText, relativeTime, sessionTitle, sourceLabel, surfaceLabel, tokensText, warningText,
+  contextEventText, modelsText, relativeTime, sessionTitle, sourceLabel, surfaceLabel, tokensText, warningText,
 } from "./session-text.js";
 import { startStream } from "./stream.js";
 import { errorText, fmtDate } from "./text.js";
@@ -28,8 +28,8 @@ const isCursorReset = (warnings) => (warnings || []).some((w) => String(w).start
 // A framework run streams its raw events; the items endpoint turns each into a "system" item with this text.
 function frameworkItem(event) {
   const payload = event && typeof event.payload === "object" && event.payload ? event.payload : {};
-  const body = Object.keys(payload).length ? " " + JSON.stringify(payload) : "";
-  const text = String(event.type || "evento") + body;
+  const text = contextEventText(event && event.type, payload)
+    || String(event.type || "evento") + (Object.keys(payload).length ? " " + JSON.stringify(payload) : "");
   return { cursor: String(event.id), timestamp: event.ts || null, kind: "system", model: payload.model || null,
     text: text.slice(0, 20000), truncated: text.length > 20000, tool: null, files: [], usage: null, child_id: null };
 }

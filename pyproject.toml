@@ -48,6 +48,7 @@ packages = [
   "multiagent.routing",
   "multiagent.executors",
   "multiagent.tasks",
+  "multiagent.tools",
   "multiagent.sessions",
   "multiagent.ui",
   "multiagent.gui",

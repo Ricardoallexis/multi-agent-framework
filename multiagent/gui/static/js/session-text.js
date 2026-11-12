@@ -34,6 +34,27 @@ export function sessionTitle(session) {
 
 const number = (value) => value.toLocaleString("es");
 const known = (value) => typeof value === "number" && Number.isFinite(value);
+const percent = (value) => (value * 100).toLocaleString("es", { maximumFractionDigits: 2 }) + "%";
+
+export function contextEventText(type, payload = {}) {
+  if (!payload || typeof payload !== "object") payload = {};
+  const step = typeof payload.step_id === "string" && payload.step_id ? "paso «" + payload.step_id + "»" : "";
+  if (type === "context_warning") {
+    const facts = ["Aviso de contexto", step];
+    if (known(payload.ratio)) facts.push("fracción medida " + percent(payload.ratio));
+    if (known(payload.warning_at)) facts.push("aviso desde " + percent(payload.warning_at));
+    if (known(payload.threshold)) facts.push("umbral de compactación " + percent(payload.threshold));
+    return facts.filter(Boolean).join(" · ");
+  }
+  if (type === "context_compacted") {
+    const facts = ["Contexto compactado", step];
+    if (known(payload.tokens_before)) facts.push("antes " + number(payload.tokens_before) + " tokens");
+    if (known(payload.tokens_after)) facts.push("después " + number(payload.tokens_after) + " tokens");
+    if (typeof payload.summary_ref === "string" && payload.summary_ref) facts.push("instantánea " + payload.summary_ref);
+    return facts.filter(Boolean).join(" · ");
+  }
+  return null;
+}
 
 // {input, output, cache_read, cache_write, total?} or null (unknown: never shown as 0).
 export function tokensText(tokens, { brief = false } = {}) {

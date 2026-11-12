@@ -55,6 +55,11 @@ _MAX_LABEL_TEXT = 200
 _REQUIRED_LABELS = ("run_id", "case_id", "route", "input_version", "rubric_version", "rubric_hash")
 _OPTIONAL_TEXT_LABELS = ("category", "input_hash", "config_hash", "surface")
 _BOOL_LABELS = ("accepted", "critical_error")
+_CONTEXT_EVENT_TYPES = frozenset({"context_warning", "context_compacted"})
+_CONTEXT_EVENT_FIELDS = (
+    "step_id", "attempt", "level", "ratio", "warning_at", "threshold",
+    "tokens_before", "tokens_after", "summary_ref",
+)
 
 
 class ExportError(ValueError):
@@ -153,6 +158,20 @@ def _ordered_unique(values: Sequence[Any]) -> str | None:
     return ",".join(unique) if unique else None
 
 
+def _context_events(events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Keep only the context-window facts needed to interpret run quality after compaction."""
+    exported = []
+    for event in events:
+        event_type = event["event_type"]
+        if event_type not in _CONTEXT_EVENT_TYPES:
+            continue
+        payload = event["payload"]
+        exported.append({"event_type": event_type, **{
+            key: payload[key] for key in _CONTEXT_EVENT_FIELDS if key in payload
+        }})
+    return exported
+
+
 def _usage_totals(calls: list[dict[str, Any]], events: Sequence[Mapping[str, Any]], cost_unit: str) -> dict[str, Any]:
     """Calls, tokens, duration and cost of the provider calls; unknown stays ``None``."""
     if any(event["event_type"] == "telemetry_failed" for event in events):
@@ -247,6 +266,9 @@ def _export_one(conn: sqlite3.Connection, source: _UsageSource, label: Mapping[s
         "escalations": sum(1 for event in events if event["event_type"] == "model_escalated"),
         **totals,
     }
+    context_events = _context_events(events)
+    if context_events:
+        record["context_events"] = context_events
     return record
 
 

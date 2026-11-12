@@ -12,6 +12,7 @@ import {
   actorText, cursorText, errorText, executorText, fmtDate, fmtJson, historyText, skipReason,
   statusInfo, waitingText, MODE_LABELS,
 } from "./text.js";
+import { contextEventText } from "./session-text.js";
 import { Progress } from "./ui/progress.js";
 import { StatusChip } from "./ui/status-chip.js";
 
@@ -104,7 +105,7 @@ function Technical({ view }) {
     <summary>Eventos técnicos (${view.events_total}${view.events_total > view.events.length ? ", últimos " + view.events.length : ""})</summary>
     <${Help} topic="run.events" />
     <ol class="events">
-      ${view.events.map((event) => html`<li key=${event.seq}><code>#${event.seq}</code> ${fmtDate(event.ts)} · ${event.type}
+      ${view.events.map((event) => html`<li key=${event.seq}><code>#${event.seq}</code> ${fmtDate(event.ts)} · ${contextEventText(event.type, event.payload) || event.type}
         ${Object.keys(event.payload || {}).length > 0 && html`<pre class="data">${fmtJson(event.payload)}</pre>`}</li>`)}
     </ol>
   </details>`;
