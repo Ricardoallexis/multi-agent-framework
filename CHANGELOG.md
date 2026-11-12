@@ -8,6 +8,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 - Add an ordered call-guard chain for inbox, context, content review, call limits, and budget checks before model calls.
 - Add opt-in context compaction that replaces older step outputs with validated summaries while preserving inputs, contracts, and recent outputs.
+- Close stage CMP: document context-profile activation, workflow summaries and task snapshots, event visibility, and offline quality comparison. See [`docs/CONTEXT_COMPACTION.md`](docs/CONTEXT_COMPACTION.md).
 - Treat untrusted content as data: detect instruction-like or hidden text, quarantine it or pause for review, and never accept it as effect authorization.
 - Add context-window estimates and configurable usage budgets, with budget cutoffs and a human approval pause before a call that would exceed a budget.
 - Add provider health and availability evidence for opt-in routing, plus a user inbox with explicit acknowledgement.

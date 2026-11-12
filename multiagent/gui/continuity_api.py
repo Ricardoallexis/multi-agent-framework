@@ -38,14 +38,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..services import hold as _hold
 from ..services.errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError
-from ..services.executors import CHECKPOINT_EVENT, DEFAULT_MAX_HANDOFFS
+from ..services.executors import CHECKPOINT_EVENT
 
 _logger = logging.getLogger(__name__)
 DECIDED_EVENT = "continuity.decided"
 BLOCK_DELEGATION = "delegation_requested"
-DEFAULT_THRESHOLD_HOURS = 5                 # contract section 7: wait up to this long for a reset, else propose a hand-off
 MODES = ("manual", "semi_auto", "auto")
-CANDIDATE_POLICY = {"claude_cli": "no_ask", "codex_cli": "no_ask", "copilot_cli": "ask"}   # contract section 7 defaults
+CANDIDATE_POLICIES = ("no_ask", "ask", "never")
+_POLICY_SETTINGS = ("continuity_mode", "continuity_wait_threshold_hours", "continuity_max_handoffs", "continuity_candidates")
 APPS = {"claude_cli": ("Claude", "claude"), "codex_cli": ("Codex", "codex"), "copilot_cli": ("Copilot", "copilot")}
 LEVELS = ("T1", "T2", "T3", "T4")
 _SESSION_ID_CHARS = 100
@@ -125,9 +125,16 @@ def _checkpoint(services: Any, task_id: str, hold: Mapping[str, Any]) -> dict[st
             "reason": None if patch else payload.get("patch_reason")}
 
 
+def _candidate_policy(policies: Mapping[str, str], executor_id: str, surface: Any) -> str:
+    """``no_ask``, ``ask`` or ``never`` as the policy in force says it: by the executor id, else by its surface, else ``ask``."""
+    found = policies.get(executor_id) or policies.get(str(surface))
+    return found if found in CANDIDATE_POLICIES else "ask"
+
+
 def _candidates(services: Any, hold: Mapping[str, Any], continuity: Mapping[str, Any], level_of: LevelOf,
-                checkpoint: Mapping[str, Any], statuses: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                checkpoint: Mapping[str, Any], statuses: list[dict[str, Any]], task_id: str) -> list[dict[str, Any]]:
     """The executors a person may delegate to: enabled, not the one that hit the limit and not already in the chain."""
+    policies = services.executors.continuity_policy(task_id)["candidates"]       # the policy in force, the task's included
     chain = {str(item) for item in (continuity.get("chain") or [])} | {str(hold.get("executor_id") or "")}
     ceiling = level_of((hold.get("settings") or {}).get("model"))
     found = []
@@ -137,7 +144,7 @@ def _candidates(services: Any, hold: Mapping[str, Any], continuity: Mapping[str,
             continue
         model, level = _suggest_model(services.executors.registry.get(executor_id), level_of, ceiling)
         found.append({"executor_id": executor_id, "app": _app_of(row.get("surface"), executor_id)[0], "model": model,
-                      "level": level, "mode": row.get("mode"), "policy": CANDIDATE_POLICY.get(str(row.get("surface")), "ask"),
+                      "level": level, "mode": row.get("mode"), "policy": _candidate_policy(policies, executor_id, row.get("surface")),
                       "available": bool(row.get("available")), "paused_until": row.get("paused_until"),
                       "sends": _sends(checkpoint)})
     return found
@@ -153,7 +160,7 @@ def _card(services: Any, view: Mapping[str, Any], hold: Mapping[str, Any], statu
     model = (hold.get("settings") or {}).get("model")
     checkpoint = _checkpoint(services, str(view["id"]), hold)
     handoffs = int(continuity.get("handoffs") or 0)
-    maximum = int(continuity.get("max_handoffs") or DEFAULT_MAX_HANDOFFS)
+    maximum = int(continuity.get("max_handoffs") or services.settings.continuity_max_handoffs)
     session_id = hold.get("session_id") or None
     open_ended = bool(hold.get("open_ended")) or hold.get("resume_after") is None
     blocked = hold.get("blocked")
@@ -173,7 +180,7 @@ def _card(services: Any, view: Mapping[str, Any], hold: Mapping[str, Any], statu
         "decided_at": hold.get("decided_at"), "blocked": blocked,
         "can_wait": not open_ended and blocked in (None, BLOCK_DELEGATION),
         "candidates": [] if handoffs >= maximum or _hold.is_condition_hold(hold)
-        else _candidates(services, hold, continuity, level_of, checkpoint, statuses),
+        else _candidates(services, hold, continuity, level_of, checkpoint, statuses, str(view["id"])),
         "handoffs_exhausted": handoffs >= maximum,
     }
 
@@ -199,17 +206,21 @@ def build_cards(services: Any) -> list[dict[str, Any]]:
 
 
 def policy_view(services: Any) -> dict[str, Any]:
-    """The policy as the framework applies it today: the defaults of the contract (CNT-T05 makes them configurable)."""
+    """The policy as the framework applies it: the one in force (``executors.continuity_policy``, the ``continuity_*``
+    settings over the defaults of the contract). ``source`` is ``default`` while no setting was given."""
+    policy = services.executors.continuity_policy()
     candidates = []
     for row in services.executors.status()["executors"]:
         candidates.append({
             "executor_id": row["executor_id"], "app": _app_of(row.get("surface"), str(row["executor_id"]))[0],
             "enabled": row.get("enabled") is True, "available": bool(row.get("available")),
             "paused_until": row.get("paused_until"), "paused_open_ended": bool(row.get("paused_open_ended")),
-            "policy": CANDIDATE_POLICY.get(str(row.get("surface")), "ask")})
-    return {"mode": _hold.DEFAULT_MODE, "modes": list(MODES), "wait_threshold_hours": DEFAULT_THRESHOLD_HOURS,
-            "max_handoffs": DEFAULT_MAX_HANDOFFS, "max_failed_resumes": _hold.MAX_FAILED_RESUMES,
-            "never_during_integration": True, "auto_scope": "project", "source": "default", "candidates": candidates}
+            "policy": _candidate_policy(policy["candidates"], str(row["executor_id"]), row.get("surface"))})
+    given = bool(set(_POLICY_SETTINGS) & set(services.settings.model_fields_set))
+    return {"mode": policy["mode"], "modes": list(MODES), "wait_threshold_hours": policy["wait_threshold_hours"],
+            "max_handoffs": policy["max_handoffs"], "max_failed_resumes": _hold.MAX_FAILED_RESUMES,
+            "never_during_integration": True, "auto_scope": "project", "source": "settings" if given else "default",
+            "candidates": candidates}
 
 
 def held_children(services: Any, session_id: str) -> list[dict[str, Any]]:
@@ -308,7 +319,8 @@ def decide(services: Any, task_id: str, body: ContinuityDecisionBody) -> dict[st
                     changes["blocked"] = None
             else:
                 continuity = _hold.continuity_of(task)
-                if int(continuity.get("handoffs") or 0) >= int(continuity.get("max_handoffs") or DEFAULT_MAX_HANDOFFS):
+                if int(continuity.get("handoffs") or 0) >= int(continuity.get("max_handoffs")
+                                                               or services.settings.continuity_max_handoffs):
                     raise _conflict("handoffs_exhausted", "The hand-offs of this task are used up", task_id=task_id)
                 if not body.executor_id:
                     raise ServiceError(INVALID_REQUEST, "Choose the executor to delegate to", status=422,
@@ -343,7 +355,7 @@ def add_continuity_routes(api: APIRouter, services: Any) -> None:
 
     @api.get("/continuity/policy")
     def continuity_policy():
-        """Mode, wait threshold, hand-off limit and the executors with their policy (the contract defaults until CNT-T05)."""
+        """Mode, wait threshold, hand-off limit and the executors with their policy, as the framework applies them."""
         return policy_view(services)
 
     @api.get("/continuity/decisions")

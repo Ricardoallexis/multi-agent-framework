@@ -4,8 +4,9 @@
 
 They show what the core already knows (``services.projects``, ``services.tasks`` and ``services.envelopes``) and
 nothing else: every field in an answer has its source there, and every rule and every error is the service's own, so
-HTTP, CLI and Python answer alike. The one write is the review of a submitted task, which is the existing
-``tasks.transition`` limited to ``accept`` and ``request_changes`` (PRY-T01 section 7):
+HTTP, CLI and Python answer alike. The writes are the review of a submitted task, which is the existing
+``tasks.transition`` limited to ``accept`` and ``request_changes`` (PRY-T01 section 7), and the visibility of the
+project (CNT-T05: the only way to make a private project ``normal``; ``/api/v1`` refuses that with ``person_required``):
 
 * it needs the GUI token and a JSON body, like every route of ``/gui/api``;
 * the actor is fixed by the server (``user:operator``, the person holding the token); the page cannot pick it;
@@ -36,6 +37,11 @@ class ReviewBody(_Body):
     action: Literal["accept", "request_changes"]
     expected_revision: StrictInt = Field(ge=1)
     cause: str = Field("", max_length=500)
+
+
+class VisibilityBody(_Body):
+    visibility: Literal["normal", "private"]
+    expected_revision: StrictInt = Field(ge=1)    # the revision of the project that the page showed
 
 
 def _missing(task_id: str, project_id: str) -> ServiceError:
@@ -83,3 +89,11 @@ def add_project_routes(api: APIRouter, services: ApplicationServices) -> None:
                                details={"field": "cause"})
         return services.tasks.transition(task_id, body.action, actor=REVIEWER, cause=body.cause.strip(),
                                          expected_revision=body.expected_revision)
+
+    @api.post("/projects/{project_id}/visibility")
+    def set_visibility(project_id: str, body: VisibilityBody) -> dict[str, Any]:
+        """Make the project ``normal`` or ``private`` (CNT-T05). This is the only way to take privacy off a private project:
+        with it a held task may be handed to another executor by the policy, so the token holder (a person) does it, not
+        a caller of ``/api/v1`` that only claims to be one (that route refuses with ``person_required``)."""
+        return services.projects.update(project_id, actor=REVIEWER, expected_revision=body.expected_revision,
+                                        visibility=body.visibility)

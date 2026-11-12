@@ -13,6 +13,7 @@ Where each value comes from (``*_source``):
 * ``profile``: the model routing decision of the assignment profile's routing profile (economic or not), made for the
   task's step kind: ``selected_model`` / ``planned_model`` for the model and ``effort`` for the effort.
 * ``session``: a resume continues what the recorded session used.
+* ``handoff``: the task changed executor at a usage limit and ``select_for_handoff`` chose the value (CNT-T05).
 
 A value that came from the profile is sent only when the executor declares it takes it:
 
@@ -24,24 +25,32 @@ A value that came from the profile is sent only when the executor declares it ta
 ``model_exclusions`` is the other half: it tells the router which catalog models an executor cannot receive, so the
 router picks the cheapest one it *can* receive, with the usual evidence, instead of the cheapest overall. An executor
 whose adapter has ``refuses_model`` (Copilot refuses every Claude model) gets those models excluded too.
+
+``select_for_handoff`` (CNT-T05) answers the same question for a task that changes executor because the first one ran out
+of credits: the model the delegate declares, by catalog level, that is the same level as the one the task was running on
+or the closest cheaper one. A limit never climbs a level (ECO-T01 section 5, CNT-T01 section 8): when the delegate declares
+no model at or below that level, no model is chosen (the app uses its own default) and ``within_level`` says so.
 """
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..routing.executor_capabilities import ExecutorDescriptor, SupportState
+from ..routing_policy import MODEL_LEVELS
 
 __all__ = [
-    "ExecutorSelection", "model_exclusions", "select_for_executor", "select_for_resume",
-    "SOURCE_USER", "SOURCE_PROFILE", "SOURCE_SESSION",
+    "ExecutorSelection", "HandoffSelection", "model_exclusions", "select_for_executor", "select_for_handoff",
+    "select_for_resume",
+    "SOURCE_USER", "SOURCE_PROFILE", "SOURCE_SESSION", "SOURCE_HANDOFF",
     "NOT_DECLARED", "ADAPTER_REFUSES", "EXCLUSION_PREFIX",
 ]
 
 SOURCE_USER = "user"
 SOURCE_PROFILE = "profile"
 SOURCE_SESSION = "session"
+SOURCE_HANDOFF = "handoff"
 
 EXCLUSION_PREFIX = "executor_"
 NOT_DECLARED = "executor_model_not_declared"           # the executor lists models and this one is not among them
@@ -255,3 +264,87 @@ def select_for_resume(executor_id: str, *, model: str | None, effort: str | None
         executor_id=executor_id, model=chosen_model,
         model_source=(SOURCE_USER if model else SOURCE_SESSION) if chosen_model else None,
         effort=chosen_effort, effort_source=(SOURCE_USER if effort else SOURCE_SESSION) if chosen_effort else None)
+
+
+@dataclass(frozen=True)
+class HandoffSelection:
+    """The model and effort a delegate is asked to run with after a hand-off, and whether the level is within the original's.
+
+    ``within_level`` is True when ``model`` is at the original level or cheaper, False when the executor declares models but
+    none is at or below it (then ``model`` is None: the app's own default), and None when it cannot be told (the executor
+    declares no models, the catalog does not classify them, or the original level is unknown).
+    """
+    executor_id: str
+    model: str | None = None
+    level: str | None = None
+    effort: str | None = None
+    within_level: bool | None = None
+    notes: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"executor_id": self.executor_id, "model": self.model, "level": self.level, "effort": self.effort,
+                "within_level": self.within_level, "notes": list(self.notes)}
+
+
+def _level_index(level: Any) -> int | None:
+    return MODEL_LEVELS.index(level) if level in MODEL_LEVELS else None
+
+
+def select_for_handoff(executor_id: str, descriptor: ExecutorDescriptor, adapter: Any = None, *,
+                       recorded_model: str | None = None, recorded_effort: str | None = None,
+                       ceiling_level: str | None = None,
+                       level_of: Callable[[str | None], str | None] = lambda model: None) -> HandoffSelection:
+    """The model and effort ``executor_id`` takes over with: its closest declared model not above ``ceiling_level``.
+
+    ``ceiling_level`` is the catalog level of the model the task was running on (None when unknown), ``level_of`` maps a
+    model name to its level, and ``recorded_model`` / ``recorded_effort`` are what the first session ran with. The model
+    the first session used is kept when the delegate declares it (same model, same level); otherwise the declared model
+    with the highest level that is not above the ceiling is taken (ties: the name that sorts first). A model the adapter
+    refuses (``refuses_model``) or the catalog does not classify is never chosen. With the ceiling unknown the cheapest
+    classified model is chosen, and ``within_level`` is None. The effort is carried only when the delegate lists it.
+    """
+    notes: list[str] = []
+    declared = _declared(descriptor.model_support)
+    refuses = getattr(adapter, "refuses_model", None)
+    model: str | None = None
+    level: str | None = None
+    within: bool | None = None
+    if descriptor.model_support.status is SupportState.UNSUPPORTED:
+        notes.append("model_not_chosen: executor_takes_no_model")
+    elif declared is None:
+        notes.append("model_not_chosen: executor_model_support_unknown")
+    else:
+        ceiling = _level_index(ceiling_level)
+        ranked: list[tuple[int, str]] = []
+        for name in sorted(declared):
+            index = _level_index(level_of(name))
+            if index is None:
+                continue
+            if callable(refuses) and refuses(name):
+                continue
+            ranked.append((index, name))
+        if not ranked:
+            notes.append("model_not_chosen: no_classified_model")
+        elif ceiling is None:
+            index, model = min(ranked)
+            level, within = MODEL_LEVELS[index], None
+            notes.append("level_of_original_unknown")
+        else:
+            allowed = [item for item in ranked if item[0] <= ceiling]
+            if not allowed:
+                within = False
+                notes.append("model_not_chosen: none_at_or_below_the_original_level")
+            else:
+                top = max(index for index, _ in allowed)
+                keep = next((item for item in allowed if item[1] == recorded_model), None)
+                index, model = keep if keep is not None else min(item for item in allowed if item[0] == top)
+                level, within = MODEL_LEVELS[index], True
+    effort: str | None = None
+    if recorded_effort:
+        values = _declared(descriptor.effort_support)
+        if values is not None and recorded_effort in values:
+            effort = recorded_effort
+        else:
+            notes.append("effort_not_carried: not_in_executor_support")
+    return HandoffSelection(executor_id=executor_id, model=model, level=level, effort=effort, within_level=within,
+                            notes=tuple(notes))

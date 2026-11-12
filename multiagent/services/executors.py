@@ -12,8 +12,8 @@ of ORQ-3, a work folder the framework owns, the permission the task scope allows
 adapter. The session id and the attempt are recorded as team events. The result envelope the app printed goes in
 through ``envelopes.submit_result``: the task becomes ``submitted`` and the gate (ORQ-2) decides, never this service.
 This module changes a task only through ``tasks.transition`` (``claim``, ``start``, ``resume``, ``pause``),
-``submit_result`` and, for a checkpoint, ``envelopes.set_task_context``; it never accepts, fails or reopens a task and
-writes no task row itself.
+``tasks._hand_over`` (CNT-T05: ``unclaim`` and ``claim`` in one transaction), ``submit_result`` and, for a checkpoint,
+``envelopes.set_task_context``; it never accepts, fails or reopens a task and writes no task row itself.
 
 Failures are recorded, not retried. An attempt without a valid result envelope, a timeout, a cancellation or a block
 by an open session leaves the task ``paused`` with trimmed evidence in the ``executor.attempt_finished`` event; a quota
@@ -80,6 +80,36 @@ both hold). Nothing in the activation uses a model: ``waits.py`` checks structur
 - The world a condition reads comes from the task store (dependencies, the approvals recorded in the condition) and from two
   hooks a watcher process sets: ``integration_source(window_id, now)`` and ``approval_source(task_id, approval_id)``.
 
+Continuity policy and hand-off (CNT-T05, contract sections 7 to 9, ``handoff.py``, ``selection.select_for_handoff``): what to do
+with a task held by a usage limit is a policy, not a habit. The settings ``continuity_mode`` (``manual`` always asks;
+``semi_auto``, the default, waits for a reset that is ``continuity_wait_threshold_hours`` away or less and otherwise hands
+the task over without asking), ``continuity_max_handoffs`` (1 to 3) and ``continuity_candidates`` (per executor ``no_ask``,
+``ask`` or ``never``) are the profile level; a task's own continuity block can only restrict them (``continuity_policy`` shows
+the result). The hold records the mode and the continuity block the limit of hand-offs (``max_handoffs``) when the limit hits.
+
+- ``handoff_task`` hands a held task over to another executor on a person's decision: in one transaction it records
+  ``continuity.decided`` (unless the card of CNT-T06 already did), retires the original session (``session.retired``,
+  ``handoff``), unclaims the task and has ``executor:<delegate>`` claim it (``tasks._hand_over``), counts the hand-off,
+  extends the ``chain`` and clears the hold, and records ``continuity.handoff``; then it launches the delegate with the model
+  of its own at the original level or cheaper (never a higher one: a limit does not climb a level). The task envelope
+  carries the checkpoint (patch reference and summary), the history of the session never travels. Repeating a
+  ``decision_id`` returns the first result; a stale ``expected_revision`` is refused. Hard limits for everyone: only a task
+  ``paused`` by a limit (never in a gate, an integration or a commit; ``integration_active`` says the host is integrating: by
+  default the shared marker of the watcher, and without a hook, or with one that fails, it counts as integrating),
+  hand-offs left, a delegate that is enabled, not paused and neither the first executor nor already in the chain, and no
+  budget set to ``cut`` at its limit; those that are not in the task row are checked again inside the transaction. A
+  person's decision from the card (``hold.decision`` ``delegate`` with ``hold.candidate``, ``hold.blocked``
+  ``delegation_requested``) is the executor to hand over to. The local API passes ``recorded_only``: its caller is not
+  authenticated, so it carries out only that recorded decision (``person_required`` for any other executor); choosing
+  another one, even one marked ``never``, is the card's job, on the GUI route with the token.
+- ``decide_holds`` (the orchestrator, or the CLI ``executors decide-holds``) applies the policy to every task held by a limit:
+  it carries out a person's recorded delegate decision in any mode, leaves a person's wait to ``resume_due``, and otherwise
+  asks ``handoff.decide``: ``wait`` (recorded once, ``continuity.decided`` ``by`` ``policy:<mode>``), ``delegate`` (only to
+  an enabled, unpaused, unused ``no_ask`` subscription candidate at the original level or cheaper, and only with a saved
+  patch, a project that is not private, an unexhausted budget, hand-offs left and the same work folder) or ``ask`` (nothing
+  is written; the card of the person shows it). If the delegate also runs out, the next hand-off counts; with the maximum
+  reached the policy waits when the reset is reliable and asks when it is not.
+
 ``resume_task`` continues the session the framework created for the task (the latest ``executor.session_recorded``
 event), never one it did not create, and refuses a session that was opened in an app in the last 12 hours
 (``session.opened_in_app``, written by ``record_app_open`` when the GUI launches Claude or ``open_target`` hands out a
@@ -134,13 +164,18 @@ without a patch), ``session.retired`` (``ref`` is the session id), ``continuity.
 ``resume_after``, mode, outcome, hand-offs, and the condition's summary for a wait by condition),
 ``continuity.resumed`` (``ref`` is the executor id: ``resume`` or ``relaunch``, minutes waited, ``config_drift``),
 ``continuity.condition_met`` and ``continuity.condition_expired`` (``ref`` is the executor id; the type, the parts with what
-each said, minutes waited, the deadline; at most once per hold).
+each said, minutes waited, the deadline; at most once per hold), ``continuity.decided`` (``ref`` is the decision id: the
+decision, ``by`` ``user`` or ``policy:<mode>``, the candidate and what would be sent) and ``continuity.handoff`` (``ref`` is the
+executor the task went to: where from, the number of the hand-off, the decision id, the model and level, whether the work folder
+is the same).
 
 Errors (``ServiceError``): ``not_found`` (task, executor), ``invalid_request`` (malformed ids or limits, a request the
 adapter refuses) and ``invalid_state`` (``details.reason`` says why: ``executor_disabled``, ``executor_without_adapter``,
 ``executor_paused``, ``executor_unavailable``, ``task_not_runnable``, ``no_stored_session``, ``session_open_in_app``,
 ``assignment_not_selected``, ``model_not_supported``, ``effort_not_supported``, ``workdir_invalid``, ``session_retired``,
-``hold_changed``, ``relaunch_failed``, ``effect_not_authorized``, for a background run ``availability_policy_invalid``,
+``hold_changed``, ``relaunch_failed``, ``effect_not_authorized``, for a hand-off ``person_required``, ``not_held``,
+``stale_revision``, ``assignee_changed``, ``no_delegate_decision``, ``handoffs_exhausted``, ``executor_already_used``,
+``budget_exhausted``, ``integration_in_progress``, ``policy_changed`` and ``decision_id_reused``, for a background run ``availability_policy_invalid``,
 ``background_attempt_active``, ``background_capacity`` and ``background_closed``, and for a wait by condition ``task_not_holdable``,
 ``already_held``, ``task_without_assignee``, ``not_waiting_for_approval``, ``approver_not_allowed``,
 ``approver_mismatch``, ``already_decided``, ``condition_not_met``). ``model_not_supported``
@@ -172,19 +207,22 @@ from ..errors import MultiAgentError
 from ..executors import codex as _codex, copilot as _copilot, launch_safety, process
 from ..executors.contract import ExecutorApplicationAdapter, ExecutorLaunchRequest, FailureKind, OpenTarget, Permission
 from ..executors.limits import utc_iso
-from ..executors.selection import ExecutorSelection, select_for_executor, select_for_resume
+from ..executors.selection import (
+    SOURCE_HANDOFF, ExecutorSelection, select_for_executor, select_for_handoff, select_for_resume,
+)
 from ..routing.executor_capabilities import CapabilityEvidence, SupportState
-from ..routing_policy import STEP_KINDS
+from ..routing_policy import MODEL_LEVELS, STEP_KINDS
 from ..sessions.models import is_uuid
 from ..tasks.envelopes import MAX_CONSTRAINTS, MAX_CONTEXT_REFS, EnvelopeError
 from . import checkpoint as _checkpoint
+from . import handoff as _handoff
 from . import hold as _hold
 from . import waits as _waits
 from .availability import (
     ATTEMPT_FINISHED_EVENT, FOREGROUND_RUNNING, HEARTBEAT_EVENT, AvailabilityPolicy, AvailabilityPolicyError,
     policy_from_settings,
 )
-from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
+from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors, translate
 from .tasks import _TASK_ID, _text
 
 if TYPE_CHECKING:
@@ -208,9 +246,11 @@ HELD_EVENT = "continuity.held"
 RESUMED_EVENT = "continuity.resumed"
 CONDITION_MET_EVENT = "continuity.condition_met"
 CONDITION_EXPIRED_EVENT = "continuity.condition_expired"
+DECIDED_EVENT = "continuity.decided"      # a decision about a held task; ``ref`` is the decision id (CNT-T05, CNT-T06)
+HANDOFF_EVENT = "continuity.handoff"      # the task changed hands; ``ref`` is the executor it went to
 EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, ATTENTION_EVENT, HEARTBEAT_EVENT, PAUSE_EVENT, OPEN_EVENT,
                LIMIT_EVENT, CHECKPOINT_EVENT, RETIRED_EVENT, PAUSE_LIFTED_EVENT, HELD_EVENT, RESUMED_EVENT,
-               CONDITION_MET_EVENT, CONDITION_EXPIRED_EVENT)
+               CONDITION_MET_EVENT, CONDITION_EXPIRED_EVENT, DECIDED_EVENT, HANDOFF_EVENT)
 PIN_EVENT = "executor.version_changed"    # AXI-T07: an executor's version or digest differs from its pin (see executor_pins)
 PIN_ACTOR = "system:executor-pins"
 EVENT_TYPES += (PIN_EVENT,)
@@ -218,7 +258,8 @@ WATCHER_ACTOR = "system:watcher"          # who records the end of a wait by con
 AUTO_TRIGGERS = ("auto", "condition")     # resumptions the service makes by itself: a limit that returns counts as a failed one
 NOT_APPROVERS = ("system:", "executor:")  # the framework never approves in the name of a person
 RETIRE_REASONS = ("handoff", "superseded")
-DEFAULT_MAX_HANDOFFS = 1                  # contract section 7 until the policy (CNT-T05) supplies one
+DEFAULT_MAX_HANDOFFS = 1                  # contract section 7: the default of ``continuity_max_handoffs``
+_DECISION_ID = re.compile(r"^[A-Za-z0-9-]{8,64}$")
 
 APP_OPEN_GUARD = timedelta(hours=12)      # a session opened in an app is not resumed for this long (ORQ-6 section 6)
 MAX_TIMEOUT_SECONDS = 86400
@@ -573,6 +614,12 @@ class ExecutorServices:
         self.availability: AvailabilityPolicy | None = None
         # The attempts launched in the background (AVA-T02): ``cancel``, ``shutdown``, ``active`` and ``join``.
         self.background = BackgroundAttempts()
+        # True while an integration of the work is going on (CNT-T05): a task is never handed over during one. By default it
+        # reads the marker of the installation (``Settings.integration_marker``, the one ``multiagent watcher`` takes), so
+        # the API and the CLI honour it without being told; a host that coordinates integrations another way replaces it.
+        # It fails closed: ``None`` (nobody can tell), a hook that fails and a marker that cannot be read all count as
+        # "integrating". Whoever integrates must create that file (exclusively) and remove it when done.
+        self.integration_active: Callable[[], bool] | None = self._integration_marker_exists
 
     # -------- wiring --------
     @property
@@ -1029,7 +1076,8 @@ class ExecutorServices:
     def _run_task(self, task_id: str, executor_id: str | None, model: str | None, effort: str | None,
                   actor: str | None, *, profile_id: str | None = None, timeout_seconds: int | None = None,
                   operator_context: Any = None, step_kind: str | None = None, hold: Mapping[str, Any] | None = None,
-                  trigger: str = "manual", drift: tuple[str, ...] = (), wait: bool | None = True) -> dict[str, Any]:
+                  trigger: str = "manual", drift: tuple[str, ...] = (), wait: bool | None = True,
+                  source: str | None = None) -> dict[str, Any]:
         task_id = self._task_id(task_id)
         if executor_id is not None and (not isinstance(executor_id, str) or not _EXECUTOR_ID.fullmatch(executor_id)):
             raise _invalid("executor_id", f"Invalid executor_id: {executor_id!r}")
@@ -1040,6 +1088,21 @@ class ExecutorServices:
             raise _invalid("step_kind", f"step_kind must be one of {', '.join(STEP_KINDS)}")
         task = self._tasks.get_task(task_id)
         plan = self._plan(task_id, executor_id, model, effort, profile_id, operator_context, step_kind)
+        # A task held by a usage limit changes executor only through the hand-off (CNT-T05): ``run_task`` of another
+        # executor, also after an ``unclaim`` and a ``claim`` by it, would skip every limit of the hand-off (``never``, a
+        # private project, the budget, the chain) and leave the original session alive. ``hold`` is set only by the resume
+        # of that same executor; the hand-off clears the hold before it launches the delegate.
+        held_now = self._view_hold(task)
+        if hold is None and _hold.is_limit_hold(held_now) and plan.executor_id != held_now.get("executor_id"):
+            way_out = ("" if task["state"] == "paused" else
+                       ". The task is not paused: claim it as its original actor, start it and pause it so that the card "
+                       "returns, then hand it over")
+            raise _conflict("person_required", "A task held by a usage limit changes executor only through the hand-off"
+                            + way_out, task_id=task_id, executor_id=plan.executor_id, held_by=held_now.get("executor_id"))
+        if source is not None and plan.selection is not None:
+            # The values came from a hand-off (CNT-T05), not from the caller: the record says so.
+            plan.selection = replace(plan.selection, model_source=source if plan.selection.model else None,
+                                     effort_source=source if plan.selection.effort else None)
         actor = _text("actor", actor if actor is not None else f"executor:{plan.executor_id}", maximum=100)
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
@@ -1426,7 +1489,7 @@ class ExecutorServices:
                             "or needs_changes task", task_id=task["id"], status=status)
         view = task
         for action in steps:
-            if hold is not None and action == "resume":
+            if hold is not None and action in ("resume", "start"):
                 changes: dict[str, Any] = {"hold": None}
                 if mode == "launch":
                     changes["config_drift"] = None              # a new session starts clean
@@ -1486,6 +1549,7 @@ class ExecutorServices:
         info = _checkpoint.normalize_limit(attempt.limit)
         rate_used = int(prior.get("rate_retries") or 0) if info["kind"] == "rate_limited" else 0
         configured = self._limit(plan, "quota_pause_minutes", self._services.settings.executor_quota_pause_minutes)
+        policy = self._policy_of(prior)
         held = _hold.plan_hold(info, now=now, configured_minutes=configured, rate_retries=rate_used)
         retrying = info["kind"] == "rate_limited" and held.retries_left > 0     # a backoff retry is not a failed resume
         failed = (int(prior.get("failed_resumes") or 0) + (0 if retrying else 1)) if auto else 0
@@ -1496,7 +1560,9 @@ class ExecutorServices:
             "failed_resumes": failed,
             "rate_retries": (rate_used + 1 if retrying else rate_used) if info["kind"] == "rate_limited" else 0}
         if "handoffs" not in prior:
-            changes["handoffs"] = 0                         # the hand-off (CNT-T05) owns both; this is only a first value
+            changes["handoffs"] = 0                         # ``handoff_task`` (CNT-T05) counts them from here
+        if "max_handoffs" not in prior:
+            changes["max_handoffs"] = policy.max_handoffs   # what the card shows; a task can only lower it later
         if not prior.get("chain"):
             changes["chain"] = [plan.executor_id]
         if drift:
@@ -1513,14 +1579,14 @@ class ExecutorServices:
                            payload=pause_payload)
         block: dict[str, Any] | None = _hold.build_hold(
             held, now=now, executor_id=plan.executor_id, actor=actor, session_id=attempt.session_id,
-            attempt=int(view["attempt"]), settings=settings, pause_seq=seq, blocked=blocked)
+            attempt=int(view["attempt"]), settings=settings, pause_seq=seq, blocked=blocked, mode=policy.mode)
         task_note: str | None = None
         try:
             # One update: the task goes to ``paused`` and the hold is written with it (no state, no migration).
             self._tasks.transition(task_id, "pause", actor=actor, cause=f"attempt {view['attempt']} quota_exhausted",
                                    continuity={**changes, "hold": block})
             self._append(HELD_EVENT, actor=actor, task=view, cause="held by a limit",
-                         payload=self._held_payload(block, held, prior, failed))
+                         payload=self._held_payload(block, held, prior, failed, policy.max_handoffs))
         except ServiceError as exc:             # the task is not running any more: only the executor stays paused
             block, task_note = None, f"task_not_paused: {exc.code}"
         saved, checkpoint_note = self._save_checkpoint(attempt, plan, view, actor, workdir,
@@ -1538,13 +1604,13 @@ class ExecutorServices:
 
     @staticmethod
     def _held_payload(block: Mapping[str, Any], held: _hold.HoldPlan, prior: Mapping[str, Any],
-                      failed: int) -> dict[str, Any]:
+                      failed: int, maximum: int = DEFAULT_MAX_HANDOFFS) -> dict[str, Any]:
         payload = {
             "reason": block["reason"], "window": block["window"], "resume_after": block["resume_after"],
             "open_ended": block["open_ended"], "outcome": block["outcome"], "mode": block["mode"],
             "executor_id": block["executor_id"], "attempt": block["attempt"], "reset_source": block["reset_source"],
             "reset_confidence": block["reset_confidence"], "handoffs": int(prior.get("handoffs") or 0),
-            "max_handoffs": int(prior.get("max_handoffs") or DEFAULT_MAX_HANDOFFS), "failed_resumes": failed,
+            "max_handoffs": maximum, "failed_resumes": failed,
             "retry": held.retry, "blocked": block.get("blocked")}
         return {key: value for key, value in payload.items() if value is not None}
 
@@ -2153,7 +2219,7 @@ class ExecutorServices:
                    "outcome": hold.get("outcome") or "wait_condition", "mode": hold.get("mode"),
                    "executor_id": hold.get("executor_id"), "attempt": hold.get("attempt"), "hold_id": hold["id"],
                    "handoffs": int(prior.get("handoffs") or 0),
-                   "max_handoffs": int(prior.get("max_handoffs") or DEFAULT_MAX_HANDOFFS), "failed_resumes": 0,
+                   "max_handoffs": self._policy_of(prior).max_handoffs, "failed_resumes": 0,
                    "condition": _waits.summarize(block)}
         self._append(HELD_EVENT, actor=actor, task=task, ref=str(hold.get("executor_id") or ""),
                      cause=f"held: {hold['reason']}", payload={key: value for key, value in payload.items()
@@ -2478,6 +2544,623 @@ class ExecutorServices:
                 out["skipped"].append({**info, "why": str(exc.details.get("reason") or exc.code),
                                        "message": exc.message})
         return out
+
+    # -------- continuity policy and hand-off (CNT-T05) --------
+    def _profile_policy(self) -> _handoff.Policy:
+        settings = self._services.settings
+        return _handoff.Policy(
+            mode=settings.continuity_mode, wait_threshold_hours=settings.continuity_wait_threshold_hours,
+            max_handoffs=settings.continuity_max_handoffs, candidates=dict(settings.continuity_candidates))
+
+    def _policy_of(self, continuity: Mapping[str, Any] | None) -> _handoff.Policy:
+        """The policy in force for a task: the settings, restricted by what the task's continuity block says (it only restricts)."""
+        return _handoff.resolve_policy(self._profile_policy(), continuity)
+
+    @service_errors
+    def continuity_policy(self, task_id: str | None = None) -> dict[str, Any]:
+        """The continuity policy in force (contract section 7): ``{mode, wait_threshold_hours, max_handoffs, candidates,
+        source, never_during_integration, subscription_surfaces}``.
+
+        From the settings (``continuity_*``, ``source`` ``settings``); with ``task_id`` it is that task's, restricted by its
+        own continuity block (``source`` ``task``). ``candidates`` maps an executor id to ``no_ask``, ``ask`` or ``never``.
+        """
+        block: Mapping[str, Any] | None = None
+        if task_id is not None:
+            block = self._tasks.get_task(self._task_id(task_id)).get("continuity")
+        policy = self._policy_of(block)
+        return {**policy.to_dict(), "source": "task" if task_id is not None else "settings",
+                "never_during_integration": True, "subscription_surfaces": list(_handoff.SUBSCRIPTION_SURFACES)}
+
+    def _level_of(self) -> Callable[[str | None], str | None]:
+        """Model name or catalog id -> level (T1 to T4) when the catalog classifies it, else None."""
+        models = getattr(getattr(self._services.system, "catalog", None), "models", None) or {}
+        table: dict[str, str] = {}
+        for model_id, spec in models.items():
+            level = getattr(spec, "level", None)
+            if level in MODEL_LEVELS:
+                table[str(model_id).casefold()] = level
+                name = getattr(spec, "model", None)
+                if isinstance(name, str) and name:
+                    table.setdefault(name.casefold(), level)
+        return lambda model: table.get(model.casefold()) if isinstance(model, str) and model else None
+
+    def _integration_marker_exists(self) -> bool:
+        """The default ``integration_active``: the marker of the installation (``Settings.integration_marker``, the one
+        ``multiagent watcher`` takes) exists. It fails closed: only a marker that is not there is calm; a path that cannot
+        be read (a folder, a file where the folder should be, no permission) counts as an integration."""
+        marker = self._services.settings.integration_marker
+        try:
+            os.stat(marker)
+        except FileNotFoundError:
+            # Calm, unless the folder of the marker is a file (Windows says "not found" for that too).
+            return marker.parent.exists() and not marker.parent.is_dir()
+        except OSError:
+            return True
+        return True
+
+    def _integrating(self) -> bool:
+        """True while the host says an integration is going on, or cannot say: no hook, or one that fails, is not evidence
+        of calm (CNT-T05 fails closed, whoever asks and whether the hand-off is automatic or not)."""
+        if self.integration_active is None:
+            return True
+        try:
+            return bool(self.integration_active())
+        except Exception:  # noqa: BLE001
+            _logger.warning("the integration hook failed; no hand-off is made", exc_info=True)
+            return True
+
+    def _integration_block(self, message: str) -> ServiceError:
+        """The ``integration_in_progress`` refusal, saying what blocks and how it ends: with the default hook it names the
+        marker file, its age and who wrote it, because a marker nobody removes (a crashed integration or watcher) would
+        otherwise stop every hand-off with no clue. Nothing is deleted: only a person knows the integration is over."""
+        details: dict[str, Any] = {}
+        if self.integration_active is None:
+            note = "no host says whether an integration is going on"
+        elif self.integration_active == self._integration_marker_exists:
+            marker = self._services.settings.integration_marker
+            note = f"marker {marker}"
+            try:
+                info = os.stat(marker)
+                age = max(int((time.time() - info.st_mtime) // 60), 0)
+                details["marker_age_minutes"] = age
+                note += f", {age} minutes old"
+                if marker.is_file():
+                    try:
+                        owner = json.loads(marker.read_text(encoding="utf-8"))
+                        if isinstance(owner, Mapping) and owner.get("pid") is not None:
+                            details["marker_pid"] = owner.get("pid")
+                            note += f", written by process {owner.get('pid')}"
+                    except (OSError, ValueError):
+                        pass
+                else:
+                    note += " (not a file)"
+            except OSError:
+                note += " (cannot be read)"
+            details["marker"] = str(marker)
+            note += (". If no integration or watcher is running, it is a leftover: `multiagent watcher sweep` removes the "
+                     "one of a dead watcher; any other is deleted by hand")
+        else:
+            note = "the host's integration hook says so (or failed)"
+        return _conflict("integration_in_progress", f"{message} ({note})", **details)
+
+    def _budget_state(self) -> str:
+        """``ok``, ``warn_reached`` (a budget in ``warn`` mode is at its limit), ``cut_reached`` or ``unknown`` (USO-T03).
+
+        Only the estimated cost of the framework's own provider calls is measured, so a subscription app adds nothing to it;
+        what counts here is that a budget at its limit means the operator asked to stop spending.
+        """
+        try:
+            rows = self._services.usage.budgets().get("status") or []
+        except Exception:  # noqa: BLE001 - a budget that cannot be read is not a green light
+            _logger.warning("the budgets could not be read; a hand-off without asking is not made", exc_info=True)
+            return "unknown"
+        state = "ok"
+        for row in rows:
+            if row.get("scope") == "run":      # the cap of one run (an old one, as often as not) says nothing of a hand-off
+                continue
+            if row.get("state") == "limit_reached":
+                if row.get("mode") == "cut":
+                    return "cut_reached"
+                state = "warn_reached"
+        return state
+
+    def _private_project(self, task: Mapping[str, Any], conn: Any = None) -> bool:
+        """True when the task belongs to a private project (PRY-T01 decision 5): its work is never sent elsewhere unasked."""
+        group = self._store.get_group(str(task["group_id"]), conn=conn)
+        project_id = group.get("project_id") if group else None
+        if not project_id:
+            return False
+        project = self._services.projects.store.get_project(str(project_id), conn=conn)
+        return project is None or project.get("visibility") != "normal"
+
+    def _handoff_candidates(self, conn: Any, task: Mapping[str, Any], hold: Mapping[str, Any],
+                            policy: _handoff.Policy) -> list[_handoff.Candidate]:
+        """Every executor with an adapter, with what the policy needs to know about it as a delegate of this held task."""
+        continuity = task.get("continuity") or {}
+        used = {str(item) for item in continuity.get("chain") or []} | {str(hold.get("executor_id") or "")}
+        settings = hold.get("settings") or {}
+        level_of = self._level_of()
+        ceiling = level_of(settings.get("model"))
+        recorded_folder = settings.get("workdir")
+        found: list[_handoff.Candidate] = []
+        for executor_id, descriptor in sorted(self.registry.snapshot().items()):
+            adapter = self.registry.resolve(executor_id)
+            if adapter is None or not isinstance(adapter, ExecutorApplicationAdapter):
+                continue
+            pick = select_for_handoff(executor_id, descriptor, adapter, recorded_model=settings.get("model"),
+                                      recorded_effort=settings.get("effort"), ceiling_level=ceiling, level_of=level_of)
+            folder = self._known_workdir(str(task["id"]), executor_id)
+            found.append(_handoff.Candidate(
+                executor_id=executor_id, surface=descriptor.surface,
+                policy=policy.candidate_policy(executor_id, descriptor.surface), enabled=descriptor.enabled is True,
+                paused=self._pause_of(conn, executor_id) is not None, used=executor_id in used, model=pick.model,
+                level=pick.level, within_level=pick.within_level,
+                same_folder=bool(recorded_folder) and folder is not None and _workdir_id(folder) == recorded_folder))
+        return found
+
+    def _decision_for(self, task: Mapping[str, Any], hold: Mapping[str, Any], now: datetime,
+                      conn: Any = None) -> tuple[_handoff.Decision, list[_handoff.Candidate]]:
+        """What the policy does with one held task now, and the candidates it looked at (``task`` is a ``get_task`` view).
+
+        With ``conn`` (the connection of a transaction in course) everything it reads from the task store comes through it.
+        """
+        continuity = task.get("continuity") or {}
+        policy = self._policy_of(continuity)
+        if conn is not None:
+            candidates = self._handoff_candidates(conn, task, hold, policy)
+            session_open = self._held_session_open(conn, hold) is not None
+        else:
+            with self._store.db.connect() as own:
+                candidates = self._handoff_candidates(own, task, hold, policy)
+                session_open = self._held_session_open(own, hold) is not None
+        decision = _handoff.decide(
+            policy, hold, handoffs=int(continuity.get("handoffs") or 0), now=now, candidates=candidates,
+            has_patch=bool(hold.get("checkpoint")), private_project=self._private_project(task, conn),
+            budget_ok=self._budget_state() == "ok", session_open=session_open)
+        return decision, candidates
+
+    def _held_session_open(self, conn: Any, hold: Mapping[str, Any]) -> datetime | None:
+        """Until when the held session counts as open in an app (the 12 hour rule), else ``None``."""
+        sid = str(hold["session_id"]).lower() if hold.get("session_id") and is_uuid(str(hold["session_id"])) else ""
+        return self._opened_until(conn, sid) if sid else None
+
+    def _require_session_free(self, conn: Any, task_id: str, hold: Mapping[str, Any], *, automatic: bool) -> None:
+        """A session opened in an app in the last 12 hours is not retired and replaced (as ``resume_due`` does not): a person
+        may still be working in it and the delegate would write in the same folder at the same time.
+
+        The automatic hand-off always stops (``session_open_in_app``; the policy asks, see ``handoff.decide``). A person's
+        goes ahead only when the card says explicitly that they accept replacing the open session
+        (``hold.replace_open_session`` true); the card of CNT-T06 has no such confirmation yet, so for now it stops too.
+        """
+        opened = self._held_session_open(conn, hold)
+        if opened is None or (not automatic and hold.get(_handoff.REPLACE_OPEN_SESSION) is True):
+            return
+        raise _conflict("session_open_in_app", "The held session was opened in an app in the last 12 hours: it is not "
+                        "retired and replaced; try again after blocked_until (" + _iso(opened) + ")",
+                        task_id=task_id, session_id=hold.get("session_id"), blocked_until=_iso(opened))
+
+    def _recorded_decision(self, conn: Any, task_id: str, candidate: str | None = None) -> dict[str, Any] | None:
+        """The latest ``continuity.decided`` event of the task that chose to delegate (to ``candidate`` when given) and
+        that no hand-off has carried out yet: one already carried out is history, not a pending decision."""
+        for row in conn.execute("SELECT * FROM team_events WHERE type=? AND task_id=? ORDER BY seq DESC",
+                                (DECIDED_EVENT, task_id)):
+            event = self._row(row)
+            payload = event["payload"]
+            if (payload.get("decision") == "delegate" and (candidate is None or payload.get("candidate") == candidate)
+                    and self._handoff_event(conn, task_id, event["ref"]) is None):
+                return event
+        return None
+
+    def _handoff_event(self, conn: Any, task_id: str, decision_id: str) -> dict[str, Any] | None:
+        """The ``continuity.handoff`` event a decision already produced for this task, if any."""
+        for row in conn.execute("SELECT * FROM team_events WHERE type=? AND task_id=? ORDER BY seq",
+                                (HANDOFF_EVENT, task_id)):
+            event = self._row(row)
+            if event["payload"].get("decision_id") == decision_id:
+                return event
+        return None
+
+    def _retire_in(self, conn: Any, session_id: str, reason: str, actor: str) -> bool:
+        """``session.retired`` inside the caller's transaction (what ``retire_session`` does); False when there was nothing to do."""
+        sid = session_id.lower()
+        stored = self._latest(conn, SESSION_EVENT, ref=sid)
+        if stored is None or self._latest(conn, RETIRED_EVENT, ref=sid) is not None:
+            return False
+        self._store.append_event(
+            conn, RETIRED_EVENT, actor=actor, group_id=stored["group_id"], task_id=stored["task_id"], ref=sid,
+            cause=f"session retired: {reason}",
+            payload={"reason": reason, "executor_id": stored["payload"].get("executor_id"),
+                     "attempt": stored["payload"].get("attempt")})
+        return True
+
+    @service_errors
+    def handoff_task(self, task_id: str, executor_id: str | None = None, *, decision_id: str | None = None,
+                     expected_revision: int | None = None, actor: str = "user", run: bool = True,
+                     timeout_seconds: int | None = None, recorded_only: bool = False) -> dict[str, Any]:
+        """Hand a task held by a usage limit over to another executor, on a person's decision (contract section 9).
+
+        ``executor_id`` is the delegate; without it the one a person chose on the card (CNT-T06 recorded it in the hold:
+        ``decision`` ``delegate``, ``candidate``, ``blocked`` ``delegation_requested``). ``actor`` is that person: the
+        framework never decides for one, so an ``executor:*``, ``system:*`` or ``policy:*`` actor is refused
+        (``person_required``). The automatic hand-off of the semi-automatic policy goes through ``decide_holds``.
+
+        ``recorded_only`` is for a caller nobody authenticated (the local HTTP API and the CLI behind it): an ``actor`` is
+        only a claim there, so it carries out nothing but the delegation a person already recorded on the card (the token
+        route of the GUI): ``executor_id`` must be the executor the hold records (``requested_delegation``), otherwise
+        ``person_required``. Choosing any other executor (one marked ``never``, a paid API, a task of a private project)
+        is not possible this way. The decision id and the actor of the events are the ones the card recorded, not the
+        caller's.
+
+        In one transaction (so nothing is half done): ``continuity.decided`` (unless the card already recorded it), the
+        original session is retired (``session.retired``, reason ``handoff``), the task is unclaimed and claimed by
+        ``executor:<executor_id>``, ``handoffs`` goes up, ``chain`` gets the delegate, the hold is cleared and
+        ``continuity.handoff`` is recorded. The envelope of the task carries the checkpoint (the patch reference and the
+        summary the checkpoint attached), so the delegate starts from it; the history of the session never travels. Then, with
+        ``run``, the delegate is launched (``run_task``) with the model of its own that is at the original level or cheaper
+        (a limit never climbs a level); without a model at that level the app uses its own default.
+
+        Idempotent per ``decision_id`` (default: the id the card recorded, else a new one): repeating it returns the first
+        result with ``repeated`` true and does nothing. ``expected_revision`` is the revision the person saw.
+
+        A delegate the policy marks ``never`` is still taken when a person chooses it (the person knows; the policy is for
+        what happens without asking). Hard limits, whoever asks (section 8): the task is ``paused`` by a usage limit (not in a gate, an integration or
+        a commit; ``integration_in_progress`` while the host says one runs), still owned by the agent that held it, hand-offs
+        are left, the delegate is enabled, not paused and neither the first executor nor in the ``chain``, no budget set
+        to ``cut`` is at its limit (nor one that cannot be read), the person has not asked to cancel (``inbox_cancelled``,
+        AVA-T03) and the held session was not opened in an app in the last 12 hours (``session_open_in_app``: the
+        automatic hand-off always stops, a person's only goes ahead when the card confirms ``replace_open_session``).
+        Errors (``invalid_state`` ``details.reason``): ``person_required``, ``not_held``,
+        ``stale_revision``, ``hold_changed``, ``assignee_changed``, ``no_delegate_decision``, ``handoffs_exhausted``,
+        ``executor_already_used``, ``budget_exhausted``, ``integration_in_progress``, ``decision_id_reused``,
+        ``inbox_cancelled``, ``session_open_in_app``,
+        ``policy_changed`` (an automatic hand-off whose policy decision no longer holds when it is made) and those of
+        ``run_task`` for the delegate (``executor_paused``, ``executor_disabled``, ``effect_not_authorized``, ...). The
+        conditions outside the task row (integration, cancel, open session, delegate enabled and unpaused, effects, budget
+        and, for an automatic hand-off, the policy decision with the visibility of the project) are checked before the
+        transaction and again inside it. A person's choice always wins over the policy: a hold where the person chose
+        to wait is never handed over by the policy, and the policy never writes over a decision.
+        Returns ``{task_id, from_executor, to_executor, decision_id, handoff_no, max_handoffs, by, repeated, model, level,
+        effort, within_level, session_retired, same_folder, sends, task, run, run_error}``.
+        """
+        task_id = self._task_id(task_id)
+        if executor_id is not None and (not isinstance(executor_id, str) or not _EXECUTOR_ID.fullmatch(executor_id)):
+            raise _invalid("executor_id", f"Invalid executor_id: {executor_id!r}")
+        if decision_id is not None and (not isinstance(decision_id, str) or not _DECISION_ID.fullmatch(decision_id)):
+            raise _invalid("decision_id", "decision_id must be 8 to 64 letters, digits or dashes")
+        if expected_revision is not None and (isinstance(expected_revision, bool) or not isinstance(expected_revision, int)):
+            raise _invalid("expected_revision", "expected_revision must be an integer")
+        actor = _text("actor", actor, maximum=100)
+        if actor.startswith(NOT_APPROVERS + ("policy:",)):
+            raise _conflict("person_required", "Only a person hands a task over by hand; the policy does it through "
+                            "decide_holds", task_id=task_id)
+        if executor_id is None:
+            executor_id = _handoff.requested_delegation(self._view_hold(self._tasks.get_task(task_id)))
+            if executor_id is None:
+                raise _conflict("no_delegate_decision", "Give executor_id: no person chose a delegate for this task",
+                                task_id=task_id)
+        return self._handoff(task_id, executor_id, by="user", actor=actor, decision_id=decision_id,
+                             expected_revision=expected_revision, run=run, timeout_seconds=timeout_seconds,
+                             automatic=False, recorded_only=bool(recorded_only))
+
+    def _handoff_delegate(self, task: Mapping[str, Any], executor_id: str, *, automatic: bool) -> tuple[Any, Any]:
+        """What a hand-off needs from the world outside the task row: ``(descriptor, adapter)`` of a delegate that may run
+        now (enabled, not paused, with an adapter), the effects of launching it and a budget that allows it.
+
+        ``_handoff`` asks it before the transaction (a refusal costs nothing) and again inside it, under the write lock:
+        none of this is in the task row, so a task whose revision did not change can still have a delegate that was paused
+        or a budget that was filled in the meantime.
+        """
+        descriptor, adapter, _declaration = self._executor(executor_id)       # disabled, paused, no adapter
+        permission = Permission.WRITE if task["file_scope"] else Permission.READ
+        self._require_launch_effects(task, executor_id, permission, "handoff")
+        budget = self._budget_state()
+        # A budget that cannot be read stops everybody like a ``cut`` one, a person included: it is not a green light.
+        if budget in ("cut_reached", "unknown") or (automatic and budget != "ok"):
+            raise _conflict("budget_exhausted", "A budget is at its limit or cannot be read: the task is not handed over",
+                            task_id=task["id"], budget=budget)
+        return descriptor, adapter
+
+    def _handoff(self, task_id: str, executor_id: str, *, by: str, actor: str, decision_id: str | None,
+                 expected_revision: int | None, run: bool, timeout_seconds: int | None, automatic: bool,
+                 seen: Mapping[str, Any] | None = None, recorded_only: bool = False) -> dict[str, Any]:
+        """The hand-off itself (see ``handoff_task``); ``automatic`` is true when the policy decided it and ``recorded_only``
+        when the caller is not authenticated (only a delegation a person recorded is carried out)."""
+        task = self._tasks.get_task(task_id)
+        hold = self._view_hold(task)
+        with self._store.db.connect() as conn:
+            if decision_id is None:
+                # The id a person recorded on the card is reused only for that person's own, still standing choice: the
+                # policy never inherits the id of a decision that was taken back (the audit would show a person's id).
+                known = (self._recorded_decision(conn, task_id, executor_id)
+                         if by == "user" and _handoff.requested_delegation(hold) == executor_id else None)
+                decision_id = known["ref"] if known is not None else str(uuid.uuid4())
+            done = self._handoff_event(conn, task_id, decision_id)
+            elsewhere = self._latest(conn, DECIDED_EVENT, ref=decision_id)
+        if done is not None:                    # the same decision again: the first result, nothing more is done
+            data = done["payload"]
+            # The delegate may never have started (the launch failed after the hand-off stood): say so, a retry is not a start.
+            unstarted = (task["state"] == "claimed" and task["assignee"] == f"executor:{done['ref']}")
+            return {"task_id": task_id, "from_executor": data.get("from"), "to_executor": done["ref"],
+                    "decision_id": decision_id, "handoff_no": data.get("handoff_no"),
+                    "max_handoffs": data.get("max_handoffs"), "by": data.get("by"), "repeated": True,
+                    "model": data.get("model"), "level": data.get("level"), "effort": data.get("effort"),
+                    "within_level": data.get("within_level"), "session_retired": data.get("session_retired"),
+                    "same_folder": data.get("same_folder"), "sends": data.get("sends"), "task": task, "run": None,
+                    "run_error": ({"code": "invalid_state", "reason": "delegate_not_started",
+                                   "message": f"The hand-off was made but {done['ref']} has not started the task "
+                                   "(its launch failed or was not asked for): run it with `executors run`"}
+                                  if unstarted else None)}
+        if elsewhere is not None and elsewhere["task_id"] != task_id:
+            raise _conflict("decision_id_reused", "That decision id was used for another task", task_id=task_id)
+        if task["state"] != "paused" or hold is None or not _hold.is_limit_hold(hold) or _hold.is_condition_hold(hold):
+            raise _conflict("not_held", f"Task {task_id} is not waiting for a usage limit; only a task paused by one "
+                            "is handed over (never one in a gate, an integration or a commit)", task_id=task_id,
+                            status=task["state"])
+        if recorded_only:
+            # Nobody authenticated this caller: only what a person recorded on the card (the token route) is carried out.
+            if _handoff.requested_delegation(hold) != executor_id:
+                raise _conflict("person_required", "Only the delegation a person recorded on the card is carried out "
+                                "here: choose the executor on the card", task_id=task_id)
+            with self._store.db.connect() as conn:
+                known = self._recorded_decision(conn, task_id, executor_id)
+            if known is None:        # a hold that says "delegate" with no event of the card behind it is not a person's word
+                raise _conflict("person_required", "No person recorded this decision on the card", task_id=task_id)
+            if decision_id != known["ref"]:
+                raise _conflict("person_required", "The decision id is the one the card recorded", task_id=task_id)
+            actor = str(known.get("actor") or actor)
+        if seen is not None and not self._same_hold(hold, seen):
+            raise _conflict("hold_changed", "The task or its hold changed since it was checked", task_id=task_id)
+        if expected_revision is not None and task["revision"] != expected_revision:
+            raise _conflict("stale_revision", "The task changed since the person saw it", task_id=task_id,
+                            revision=task["revision"])
+        if task["assignee"] != hold.get("actor"):
+            raise _conflict("assignee_changed", "The task is no longer owned by the agent that held it", task_id=task_id,
+                            assignee=task["assignee"])
+        if self._integrating():
+            raise self._integration_block("An integration is going on: nothing is handed over now")
+        # A person who asked to cancel is not answered with a new session (AVA-T03); read again inside the transaction.
+        self._services.inbox.require_no_cancel("task", task_id)
+        with self._store.db.connect() as conn:
+            self._require_session_free(conn, task_id, hold, automatic=automatic)
+        continuity = dict(task.get("continuity") or {})
+        policy = self._policy_of(continuity)
+        used = int(continuity.get("handoffs") or 0)
+        if used >= policy.max_handoffs:
+            raise _conflict("handoffs_exhausted", f"The {policy.max_handoffs} hand-off(s) of this task are used up",
+                            task_id=task_id, handoffs=used, max_handoffs=policy.max_handoffs)
+        origin = str(hold.get("executor_id") or "")
+        chain = [str(item) for item in continuity.get("chain") or []]
+        if executor_id == origin or executor_id in chain:
+            raise _conflict("executor_already_used", f"{executor_id} already worked on this task: no going back "
+                            "and forth", task_id=task_id, executor_id=executor_id, chain=chain)
+        descriptor, adapter = self._handoff_delegate(task, executor_id, automatic=automatic)
+        settings = hold.get("settings") or {}
+        level_of = self._level_of()
+        pick = select_for_handoff(executor_id, descriptor, adapter, recorded_model=settings.get("model"),
+                                  recorded_effort=settings.get("effort"), ceiling_level=level_of(settings.get("model")),
+                                  level_of=level_of)
+        folder = self._known_workdir(task_id, executor_id)
+        same_folder = bool(settings.get("workdir")) and folder is not None and _workdir_id(folder) == settings["workdir"]
+        sid = str(hold["session_id"]).lower() if hold.get("session_id") and is_uuid(str(hold["session_id"])) else ""
+        with self._store.db.connect() as conn:
+            saved = self._latest(conn, CHECKPOINT_EVENT, task_id=task_id)
+        files = (saved["payload"].get("files_total") if saved else None) or 0
+        sends = ("task envelope and patch" + (f" ({files} file{'' if files == 1 else 's'})" if files else "")
+                 if hold.get("checkpoint") else "task envelope (no patch)")
+        delegate_actor = f"executor:{executor_id}"
+        group_id = str(task["group_id"])
+        with self._store.transaction() as conn:
+            current = self._store.get_task(task_id, conn=conn)
+            now_hold = _hold.hold_of(current) if current is not None else None
+            if (current is None or current["state"] != "paused" or now_hold is None
+                    or not self._same_hold(now_hold, hold) or current["revision"] != task["revision"]):
+                raise _conflict("hold_changed", "The task or its hold changed while it was being handed over",
+                                task_id=task_id)
+            # What the checks above read outside the task row can change after them: read it again under the write lock,
+            # so that the task cannot change between this reading and the commit (the delegate is paused or disabled, a
+            # budget fills up, the project turns private, the policy no longer picks this delegate, the person asks to
+            # cancel, the session is opened in the app). The integration marker is a file outside the database: it is read
+            # again here, but nothing stops one from appearing between this reading and the commit or the launch below.
+            if self._integrating():
+                raise self._integration_block("An integration started: nothing is handed over now")
+            self._services.inbox.require_no_cancel("task", task_id)
+            self._require_session_free(conn, task_id, now_hold, automatic=automatic)
+            self._handoff_delegate(task, executor_id, automatic=automatic)
+            if recorded_only and _handoff.requested_delegation(now_hold) != executor_id:
+                raise _conflict("person_required", "The delegation a person recorded on the card changed", task_id=task_id)
+            if automatic:
+                decision, _unused = self._decision_for(task, hold, self.clock(), conn=conn)
+                if decision.action != "delegate" or decision.candidate != executor_id:
+                    raise _conflict("policy_changed", "The policy no longer hands this task over to that delegate",
+                                    task_id=task_id, executor_id=executor_id, action=decision.action, why=decision.why)
+            if self._latest(conn, DECIDED_EVENT, ref=decision_id) is None:
+                self._store.append_event(
+                    conn, DECIDED_EVENT, actor=actor, group_id=group_id, task_id=task_id,
+                    cause="decision on the usage limit", ref=decision_id, payload=_fit({key: value for key, value in {
+                        "decision": "delegate", "by": by, "executor_id": origin, "candidate": executor_id,
+                        "sends": sends, "reason": hold.get("reason"), "resume_after": hold.get("resume_after"),
+                        "reset_at": hold.get("reset_at")}.items() if value is not None}))
+            retired = bool(sid) and self._retire_in(conn, sid, "handoff", actor)
+            view = self._tasks._hand_over(
+                conn, task_id, delegate_actor, actor=actor, cause=f"handed off from {origin} to {executor_id}",
+                continuity={"hold": None, "handoffs": used + 1, "chain": [*chain, executor_id], "failed_resumes": 0,
+                            "rate_retries": 0, "config_drift": None})
+            payload = {key: value for key, value in {
+                "from": origin, "handoff_no": used + 1, "max_handoffs": policy.max_handoffs, "decision_id": decision_id,
+                "by": by, "reason": hold.get("reason"), "window": hold.get("window"), "mode": hold.get("mode"),
+                "model": pick.model, "level": pick.level, "effort": pick.effort, "within_level": pick.within_level,
+                "patch": hold.get("checkpoint"), "sends": sends, "session_retired": sid or None,
+                "same_folder": same_folder, "attempt": hold.get("attempt")}.items() if value is not None}
+            self._store.append_event(conn, HANDOFF_EVENT, actor=actor, group_id=group_id, task_id=task_id,
+                                     ref=executor_id, cause=f"handed off from {origin}", payload=_fit(payload))
+        result: dict[str, Any] = {
+            "task_id": task_id, "from_executor": origin, "to_executor": executor_id, "decision_id": decision_id,
+            "handoff_no": used + 1, "max_handoffs": policy.max_handoffs, "by": by, "repeated": False,
+            "model": pick.model, "level": pick.level, "effort": pick.effort, "within_level": pick.within_level,
+            "session_retired": sid if retired else None, "same_folder": same_folder, "sends": sends, "task": view,
+            "run": None, "run_error": None}
+        if run:
+            try:
+                result["run"] = self._run_task(task_id, executor_id, pick.model, pick.effort, delegate_actor,
+                                               timeout_seconds=timeout_seconds, source=SOURCE_HANDOFF)
+                result["task"] = self._tasks.get_task(task_id)
+            except Exception as exc:          # noqa: BLE001 - the hand-off stands: the delegate owns the task, a person can run it
+                error = exc if isinstance(exc, ServiceError) else translate(exc)
+                if error is None:       # an unexpected error: the hand-off stands and its report must not be lost with it
+                    _logger.exception("the delegate %s could not be launched for %s", executor_id, task_id)
+                    result["run_error"] = {"code": "internal_error", "reason": type(exc).__name__,
+                                           "message": "The delegate could not be launched; the cause is in the log"}
+                else:
+                    result["run_error"] = {"code": error.code, "reason": error.details.get("reason"),
+                                           "message": error.message}
+        return result
+
+    @service_errors
+    def decide_holds(self, *, task_id: str | None = None, limit: int | None = None, dry_run: bool = False,
+                     run: bool = True, timeout_seconds: int | None = None) -> dict[str, Any]:
+        """Apply the continuity policy to the tasks held by a usage limit (contract sections 7 to 9); the orchestrator or the
+        CLI calls it next to ``resume_due``.
+
+        For each task paused by a limit (a hold with a condition belongs to ``resume_met``):
+
+        - a person's recorded decision to delegate (``requested_delegation``) is carried out, in any mode: the person
+          decided, and the hard limits of ``handoff_task`` still apply;
+        - a person's decision to wait leaves the task to ``resume_due``;
+        - otherwise ``handoff.decide`` answers from the mode, the reset time, the threshold, the hand-offs left and the
+          candidates. ``wait`` is recorded once (``hold.decision`` ``wait``, ``continuity.decided`` with ``by``
+          ``policy:<mode>``) and ``resume_due`` resumes the task at the reset; ``delegate`` hands the task over (``by``
+          ``policy:<mode>``; the executor chosen is the enabled, unpaused, unused ``no_ask`` subscription candidate whose
+          model is the closest to the original level without passing it); ``ask`` writes nothing: the person decides on the
+          card, and the entry says what the best proposal is and what stopped an automatic hand-off.
+
+        Nothing is decided while an integration is going on (``integration``, with ``integration_message`` saying what
+        blocks and how it ends). Each task is read again when its turn comes (a hand-off can take minutes): what a person
+        decided meanwhile counts, and a task that changed is ``skipped`` with ``hold_changed``. ``task_id`` limits the call
+        to one task, ``limit`` to that many hand-offs, ``dry_run`` only reports, ``run`` false hands over without launching
+        the delegate. A failure of one task is reported in ``skipped`` and the others go on.
+        Returns ``{at, dry_run, integration, held, waiting, asked, delegated, skipped}``; each entry has ``task_id``,
+        ``reason``, ``executor_id``, ``why`` and, for ``asked``, ``candidate`` and ``ask``; for ``delegated``, ``to_executor``,
+        ``by`` and ``executed`` (the hand-off result when executed).
+        """
+        if task_id is not None:
+            task_id = self._task_id(task_id)
+        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 1):
+            raise _invalid("limit", "limit must be an integer of one or more")
+        now = self.clock()
+        out: dict[str, Any] = {"at": _iso(now), "dry_run": bool(dry_run), "integration": False, "held": 0,
+                               "waiting": [], "asked": [], "delegated": [], "skipped": []}
+        rows = [(row, hold) for row in self._store.list_tasks(states=["paused"])
+                if (hold := _hold.hold_of(row)) is not None and _hold.is_limit_hold(hold)
+                and not _hold.is_condition_hold(hold) and (task_id is None or row["id"] == task_id)]
+        out["held"] = len(rows)
+        if rows and self._integrating():
+            out["integration"] = True
+            out["integration_message"] = self._integration_block("An integration is going on: nothing is decided now").message
+            out["skipped"] = [{"task_id": row["id"], "why": "integration_in_progress"} for row, _unused in rows]
+            return out
+        done = 0
+        for row, listed in rows:
+            info = {"task_id": row["id"], "reason": listed.get("reason"), "executor_id": listed.get("executor_id"),
+                    "resume_after": listed.get("resume_after")}
+            try:
+                # The list was read before the loop and every hand-off waits for its delegate, perhaps for minutes: what a
+                # person decided in the meantime is what counts, so the task and its hold are read again here (the person
+                # always wins over the policy).
+                view = self._tasks.get_task(str(row["id"]))
+                hold = self._view_hold(view)
+                if (view["state"] != "paused" or hold is None or not _hold.is_limit_hold(hold)
+                        or _hold.is_condition_hold(hold) or not self._same_hold(hold, listed)):
+                    out["skipped"].append({**info, "why": "hold_changed"})
+                    continue
+                if view["assignee"] != hold.get("actor"):
+                    out["skipped"].append({**info, "why": "assignee_changed", "assignee": view["assignee"]})
+                    continue
+                requested = _handoff.requested_delegation(hold)
+                if requested is None and hold.get("decision") == "wait":
+                    out["waiting"].append({**info, "why": f"decided:wait:{hold.get('decided_by') or 'user'}"})
+                    continue
+                if requested is None:
+                    decision, _candidates = self._decision_for(view, hold, self.clock())
+                    if decision.action == "none":
+                        out["skipped"].append({**info, "why": decision.why})
+                        continue
+                    if decision.action == "wait":
+                        out["waiting"].append({**info, "why": decision.why, "by": decision.by})
+                        if not dry_run:
+                            self._record_wait(view, hold, decision)
+                        continue
+                    if decision.action == "ask":
+                        out["asked"].append({**info, "why": decision.why, "candidate": decision.candidate,
+                                             "ask": list(decision.ask)})
+                        continue
+                    target, by, why = str(decision.candidate), decision.by, decision.why
+                else:
+                    target, by, why = requested, "user", "person_decided"
+                if limit is not None and done >= limit:
+                    out["waiting"].append({**info, "why": "limit"})
+                    continue
+                entry = {**info, "to_executor": target, "by": by, "why": why, "executed": False}
+                if dry_run:
+                    out["delegated"].append(entry)
+                    done += 1
+                    continue
+                try:
+                    result = self._handoff(
+                        str(row["id"]), target, by=by, actor=by if by != "user" else str(self._decided_actor(row) or "user"),
+                        decision_id=None, expected_revision=None, run=run, timeout_seconds=timeout_seconds,
+                        automatic=by != "user", seen=hold)
+                except Exception as exc:  # noqa: BLE001 - one task that fails must not hide what the others already did
+                    error = exc if isinstance(exc, ServiceError) else translate(exc)
+                    if error is None:
+                        _logger.exception("the hand-off of %s failed", row["id"])
+                        out["skipped"].append({**entry, "why": "internal_error", "message": type(exc).__name__})
+                    else:
+                        out["skipped"].append({**entry, "why": str(error.details.get("reason") or error.code),
+                                               "message": error.message})
+                    continue
+                out["delegated"].append({**entry, "executed": True, "decision_id": result["decision_id"],
+                                         "handoff_no": result["handoff_no"], "model": result["model"],
+                                         "run_outcome": (result["run"] or {}).get("outcome"),
+                                         "run_error": result["run_error"]})
+                done += 1
+            except Exception as exc:  # noqa: BLE001 - one task's error must not abort the sweep after others moved
+                error = exc if isinstance(exc, ServiceError) else translate(exc)
+                if error is None:
+                    _logger.exception("deciding the hold of %s failed", row["id"])
+                    out["skipped"].append({**info, "why": "internal_error", "message": type(exc).__name__})
+                else:
+                    out["skipped"].append({**info, "why": str(error.details.get("reason") or error.code),
+                                           "message": error.message})
+        return out
+
+    def _decided_actor(self, row: Mapping[str, Any]) -> str | None:
+        """Who recorded the person's decision (the actor of the latest ``continuity.decided`` that delegates), else None."""
+        with self._store.db.connect() as conn:
+            event = self._recorded_decision(conn, str(row["id"]))
+        return str(event["actor"]) if event is not None and event.get("actor") else None
+
+    def _record_wait(self, task: Mapping[str, Any], seen: Mapping[str, Any], decision: _handoff.Decision) -> None:
+        """Record once that the policy chose to wait: ``hold.decision`` and ``continuity.decided`` (a notice, not a question)."""
+        now, task_id = self.clock(), str(task["id"])
+        with self._store.transaction() as conn:          # the hold and the event, or neither
+            current = self._store.get_task(task_id, conn=conn)
+            hold = _hold.hold_of(current) if current is not None else None
+            # Only a hold still waiting for a decision is written: a person who chose in the meantime (to wait, or to
+            # delegate) or an earlier wait stays as it is. The policy never takes a person's choice back.
+            if (current is None or current["state"] != "paused" or hold is None or not self._same_hold(hold, seen)
+                    or hold.get("decision") not in (None, "pending")):
+                return
+            new_hold = {**hold, "decision": "wait", "decided_by": decision.by, "decided_at": utc_iso(now)}
+            new_hold.pop("candidate", None)
+            self._store.update_task(conn, task_id, expected_revision=current["revision"],
+                                    execution=_hold.merge_continuity(current.get("execution"), {"hold": new_hold}))
+            self._store.append_event(
+                conn, DECIDED_EVENT, actor=decision.by, group_id=str(current["group_id"]), task_id=task_id,
+                ref=str(uuid.uuid4()), cause="decision on the usage limit",
+                payload=_fit({key: value for key, value in {
+                    "decision": "wait", "by": decision.by, "why": decision.why, "executor_id": new_hold.get("executor_id"),
+                    "reason": new_hold.get("reason"), "resume_after": new_hold.get("resume_after"),
+                    "reset_at": new_hold.get("reset_at")}.items() if value is not None}))
 
     # -------- opening and status --------
     @service_errors

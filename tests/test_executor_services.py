@@ -711,6 +711,11 @@ SCRIPT: list[tuple[str, dict]] = [
     ("resume-due", {"task_id": "NOPE", "dry_run": True}),
     ("lift-pause", {"executor_id": "codex_cli"}),                                # not paused: nothing to lift
     ("lift-pause", {"executor_id": "NOPE"}),
+    ("decide-holds", {}),                                                        # CNT-T05: nothing is held
+    ("decide-holds", {"task_id": "NOPE", "dry_run": True}),
+    ("handoff", {"task_id": "T1"}),                                              # no person chose a delegate
+    ("handoff", {"task_id": "T1", "executor_id": "copilot_cli"}),                # submitted: not held
+    ("handoff", {"task_id": "NOPE", "executor_id": "codex_cli"}),
 ]
 
 
@@ -728,6 +733,10 @@ def run_facade(services, op: str, args: dict):
         return executors.resume_due(task_id=args.get("task_id"), dry_run=args.get("dry_run", False))
     if op == "lift-pause":
         return executors.lift_pause(args["executor_id"])
+    if op == "decide-holds":
+        return executors.decide_holds(task_id=args.get("task_id"), dry_run=args.get("dry_run", False))
+    if op == "handoff":
+        return executors.handoff_task(args["task_id"], args.get("executor_id"))
     return executors.resume_task(args["task_id"])
 
 
@@ -742,7 +751,7 @@ def run_http(client: TestClient, op: str, args: dict) -> tuple[int, object]:
 def cli_args(op: str, args: dict) -> list[str]:
     if op == "status":
         return ["executors", "status"] + (["--task", args["task_id"]] if "task_id" in args else [])
-    if op == "resume-due":
+    if op in ("resume-due", "decide-holds"):
         return ["executors", op] + (["--task", args["task_id"]] if "task_id" in args else []) \
             + (["--dry-run"] if args.get("dry_run") else [])
     if op == "lift-pause":
@@ -803,15 +812,19 @@ def test_facade_http_and_cli_give_the_same_results(monkeypatch, capsys, tmp_path
 
 def test_the_script_covers_every_public_operation():
     operations = {"status": "status", "run": "run_task", "open": "open_target", "resume": "resume_task",
-                  "resume-due": "resume_due", "lift-pause": "lift_pause"}
+                  "resume-due": "resume_due", "lift-pause": "lift_pause", "handoff": "handoff_task",
+                  "decide-holds": "decide_holds"}
     assert {op for op, _ in SCRIPT} == set(operations)
     public = {name for name, member in vars(ExecutorServices).items() if callable(member) and not name.startswith("_")}
     assert set(operations.values()) <= public
     # The checkpoint operations (CNT-T03) are for the other services (hold and hand-off), not for HTTP or the CLI.
     # The waits by condition (CNT-T12) are for the watcher process (CNT-T13), which calls the services itself.
+    # The hand-off (CNT-T05) is both: ``handoff`` and ``decide-holds`` have a route and a command; ``continuity_policy`` is read
+    # by the other services (the GUI shows it).
     assert public - set(operations.values()) == {"build_adapters", "record_app_open", "session_guard",
                                                  "checkpoint_limit", "latest_checkpoint", "retire_session",
-                                                 "hold_on_condition", "record_approval", "check_waits", "resume_met"}
+                                                 "hold_on_condition", "record_approval", "check_waits", "resume_met",
+                                                 "continuity_policy"}
 
 def test_structured_claude_permission_denial_pauses_only_the_task(world):
     world.fake.set("claude", stdout=claude_out(permission_denials=[

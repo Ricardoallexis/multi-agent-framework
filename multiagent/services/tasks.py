@@ -1759,6 +1759,34 @@ class TaskServices:
                                expected_revision=expected_revision, actor_domain=actor_domain, continuity=changes)
 
     @service_errors
+    def _hand_over(self, conn: sqlite3.Connection, task_id: str, to_assignee: str, *, actor: str, cause: str = "",
+                   continuity: Mapping[str, Any] | None = None, expected_revision: int | None = None) -> dict[str, Any]:
+        """Give a ``paused`` task to another assignee inside the caller's transaction (CNT-T05): ``unclaim`` by ``actor``,
+        then ``claim`` by ``to_assignee``, both through the lifecycle's single function (two events, one commit).
+
+        The caller opens the transaction (``store.transaction()``) so that its own records commit with the change; if either
+        step is refused (the files are locked by another task, the task is blocked again, a stale ``expected_revision``) the
+        exception leaves the transaction to roll back and nothing changed. ``continuity`` is merged into the task in the
+        same update as the ``claim``, as in ``transition``. The new assignee is ``claimed``, not started: it starts the task
+        itself. Returns the task view. Errors: ``not_found``, ``invalid_request``, ``invalid_state`` (the task is not
+        ``paused``, or the ``claim`` is refused).
+        """
+        actor = _text("actor", actor, maximum=100)
+        to_assignee = _text("to_assignee", to_assignee, maximum=100)
+        cause = _text("cause", cause, maximum=500, required=False)
+        if expected_revision is not None and (isinstance(expected_revision, bool) or not isinstance(expected_revision, int)):
+            raise _invalid("expected_revision", "expected_revision must be an integer")
+        changes = _continuity_changes(continuity)
+        task = self.store.get_task(task_id, conn=conn)
+        if task is None:
+            raise _missing("Task", task_id)
+        if task["state"] != "paused":
+            raise _conflict(f"Only a paused task is handed over; {task_id} is {task['state']}", task_id=task_id,
+                            status=task["state"])
+        self._apply(conn, task_id, "unclaim", actor=actor, cause=cause, expected_revision=expected_revision)
+        return self._apply(conn, task_id, "claim", actor=to_assignee, cause=cause, continuity=changes)
+
+    @service_errors
     def _edit_continuity(self, task_id: str, changes: Mapping[str, Any], *, actor: str,
                           expected_revision: int | None = None) -> dict[str, Any]:
         """Merge ``changes`` into the ``continuity`` block of the task's ``execution`` (CNT-T04); no state changes.

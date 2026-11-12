@@ -1106,7 +1106,9 @@ SCRIPT: list[tuple[str, dict[str, Any]]] = [
     ("task_list", {"project_id": "par", "due_from": "2026-11-01", "due_to": "2026-11-30"}),
     ("task_list", {"project_id": "par", "state": "almost"}),
     ("task_list", {"project_id": "ghost"}),
-    ("update", {"project_id": "par", "actor": OWNER, "expected_revision": 1, "title": "Renamed", "visibility": "normal"}),
+    # "private" is what the project already is: HTTP and the CLI do not make a private project "normal" (CNT-T05, see
+    # tests/test_quota_handoff.py); the facade does, being in-process.
+    ("update", {"project_id": "par", "actor": OWNER, "expected_revision": 1, "title": "Renamed", "visibility": "private"}),
     ("update", {"project_id": "par", "actor": OWNER, "expected_revision": 1, "title": "Stale"}),
     ("archive", {"project_id": "par", "actor": OWNER, "expected_revision": 2}),
     ("list", {"archived": True}),

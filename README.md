@@ -315,6 +315,7 @@ See [`docs/VERSIONING.md`](docs/VERSIONING.md), including the release procedure.
 - [`CHANGELOG.md`](CHANGELOG.md) — public release history.
 - [`docs/API.md`](docs/API.md) — Python facade, HTTP endpoints, structured errors, and Mock mode.
 - [`docs/GUI.md`](docs/GUI.md) — local operator GUI, session viewer, configuration, and security.
+- [`docs/CONTEXT_COMPACTION.md`](docs/CONTEXT_COMPACTION.md) — opt-in workflow and task context compaction, validation, events, and measurement.
 - [`docs/model-routing.md`](docs/model-routing.md) — model profiles, routing evidence, budgets, and task-assignment limits.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components and execution flow.
 - [`docs/COMPARISON.md`](docs/COMPARISON.md) — how this project differs from other multi-agent frameworks.

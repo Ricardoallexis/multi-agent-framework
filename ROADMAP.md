@@ -315,11 +315,12 @@ It depends on OpenTelemetry events, MCP tool access, and planning with concurren
 
 ## Memory, context, and project knowledge
 
-**Progress:** `█░░░░░░░░░` 1/7 · 14% <!-- progress -->
+**Progress:** `██░░░░░░░░` 2/8 · 25% <!-- progress -->
 
 - [ ] Add explicit project-scoped memory/context that does not depend on hidden model memory.
 - [ ] Support reusable knowledge packs and structured project context.
 - [ ] Add retrieval and summarization strategies for large project histories.
+  - [x] *(CMP)* Estimate context against evidenced model windows, warn before overflow, and compact eligible workflow and task history with validated summaries while retaining originals.
 - [ ] Define retention, privacy, provenance, and invalidation rules for stored context.
 - [ ] Allow workflows to request only the context they need instead of loading all available history (context propagation policies such as none, selected, summary, artifacts, and full).
 - [x] *(proposed)* Per-task context packages with a fingerprint for invalidation that carry only what changed since the last package.

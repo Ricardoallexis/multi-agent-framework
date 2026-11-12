@@ -337,6 +337,24 @@ class ExecutorResumeDueRequest(_Body):
     timeout_seconds: int | None = None
 
 
+class ExecutorHandoffRequest(_Body):
+    task_id: str
+    executor_id: str | None = None        # without it, or the same one: the delegate a person chose on the card; no other
+    decision_id: str | None = None
+    expected_revision: int | None = None
+    actor: str | None = None              # only a claim here (no token): an executor, system or policy actor is refused
+    run: bool = True
+    timeout_seconds: int | None = None
+
+
+class ExecutorDecideHoldsRequest(_Body):
+    task_id: str | None = None
+    limit: int | None = None
+    dry_run: bool = False
+    run: bool = True
+    timeout_seconds: int | None = None
+
+
 class ExecutorLiftPauseRequest(_Body):
     executor_id: str
     actor: str | None = None
@@ -771,8 +789,10 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
 
     @app.patch("/api/v1/projects/{project_id}")
     def update_project(project_id: str, body: ProjectUpdateRequest):
+        """Title and visibility. ``actor`` is only a claim here (no token): a project may be made ``private`` but a
+        private one is not made ``normal`` (``person_required``): that is ``/gui/api/projects/{id}/visibility``."""
         return services.projects.update(project_id, actor=body.actor, expected_revision=body.expected_revision,
-                                        title=body.title, visibility=body.visibility)
+                                        title=body.title, visibility=body.visibility, may_lift_private=False)
 
     @app.post("/api/v1/projects/{project_id}/archive")
     def archive_project(project_id: str, body: ProjectRevisionRequest):
@@ -933,6 +953,25 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         """Resume the tasks held by a usage limit whose time has come (CNT-T04); waits for every attempt it makes."""
         return await anyio.to_thread.run_sync(lambda: services.executors.resume_due(
             task_id=body.task_id, limit=body.limit, dry_run=body.dry_run, timeout_seconds=body.timeout_seconds))
+
+    @app.post("/api/v1/executors/handoff")
+    async def hand_off_executor_task(body: ExecutorHandoffRequest):
+        """Carry out the hand-off a person recorded on the decision card (CNT-T05); waits for the delegate.
+
+        This route has no token and ``actor`` is only a claim, so it executes nothing but a decision a person already
+        recorded (the executor must be the one the hold records, else ``person_required``). Choosing the executor, any of
+        them, is the card's job (``/gui/api``, with the token).
+        """
+        return await anyio.to_thread.run_sync(lambda: services.executors.handoff_task(
+            body.task_id, body.executor_id, decision_id=body.decision_id, expected_revision=body.expected_revision,
+            actor=body.actor or "user", run=body.run, timeout_seconds=body.timeout_seconds, recorded_only=True))
+
+    @app.post("/api/v1/executors/decide-holds")
+    async def decide_executor_holds(body: ExecutorDecideHoldsRequest):
+        """Apply the continuity policy to the tasks held by a usage limit: wait, hand over or ask (CNT-T05)."""
+        return await anyio.to_thread.run_sync(lambda: services.executors.decide_holds(
+            task_id=body.task_id, limit=body.limit, dry_run=body.dry_run, run=body.run,
+            timeout_seconds=body.timeout_seconds))
 
     @app.post("/api/v1/executors/lift-pause")
     def lift_executor_pause(body: ExecutorLiftPauseRequest):

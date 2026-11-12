@@ -726,11 +726,15 @@ class ProjectServices:
 
     @service_errors
     def update(self, project_id: str, *, actor: str, expected_revision: int, title: str | None = None,
-               visibility: str | None = None) -> dict[str, Any]:
+               visibility: str | None = None, may_lift_private: bool = True) -> dict[str, Any]:
         """Change the title or the visibility; event ``project.updated`` when something changed.
 
-        Needs a ``user`` actor and the project's ``expected_revision``. Errors: ``not_found``,
-        ``invalid_request`` (title, visibility or nothing to change), ``invalid_state`` (not a user, stale revision).
+        Needs a ``user`` actor and the project's ``expected_revision``. ``may_lift_private`` false is for a caller nobody
+        authenticated (the local HTTP API and the CLI behind it, where ``actor`` is only a claim): it may make a project
+        private, which restricts, but not make a private one ``normal``, which lets its tasks be handed to another
+        executor by the policy (CNT-T05): that change needs the GUI token (``/gui/api/projects/{id}/visibility``).
+        Errors: ``not_found``, ``invalid_request`` (title, visibility or nothing to change), ``invalid_state`` (not a user,
+        stale revision, ``person_required`` when a private project is lifted without ``may_lift_private``).
         """
         actor = _user_actor(actor)
         expected_revision = _revision(expected_revision)
@@ -747,6 +751,9 @@ class ProjectServices:
             project = self._project_or_missing(conn, project_id)
             self._stale(project, expected_revision)
             changes = {k: v for k, v in changes.items() if project[k] != v}
+            if not may_lift_private and changes.get("visibility") == "normal":
+                raise _conflict("A private project is made normal only with the GUI token, not by a caller nobody "
+                                "authenticated", project_id=project["id"], reason="person_required")
             if changes:
                 try:
                     self.store.update_project(conn, project["id"], expected_revision=expected_revision, **changes)

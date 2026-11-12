@@ -16,7 +16,12 @@ BUDGET_SCOPES = ("month", "project", "run")   # USO-T03: what a budget limits
 BUDGET_MODES = ("warn", "cut")                # USO-T03: only report (default) or let USO-T04 cut the call
 DEFAULT_BUDGET_ALERTS = (80.0, 95.0)          # percent of a budget that raises an alert
 AVAILABILITY_KINDS = ("cancel", "interrupt", "adjust", "note")   # AVA-T01: what a message of the person asks for
+CONTINUITY_MODES = ("manual", "semi_auto")    # CNT-T05; ``auto`` (CNT-T07) is only ever set per project, never here
+CONTINUITY_CANDIDATE_POLICIES = ("no_ask", "ask", "never")   # per executor: delegate without asking / ask first / never
+CONTINUITY_WAIT_THRESHOLDS = (1, 3, 5, 24)    # hours: a reset that far away or less is waited for, not delegated
+DEFAULT_CONTINUITY_CANDIDATES = {"claude_cli": "no_ask", "codex_cli": "no_ask", "copilot_cli": "ask"}
 _BUDGET_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_EXECUTOR_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _CURRENCY = re.compile(r"^[A-Za-z][A-Za-z0-9]{1,15}$")
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
@@ -233,6 +238,23 @@ class Settings(BaseSettings):
     availability_priorities: Annotated[tuple[str, ...], NoDecode] = AVAILABILITY_KINDS
     availability_orchestrator_threshold: Optional[float] = Field(default=None, ge=0.5, le=0.6, allow_inf_nan=False)
 
+    # CNT-T05 continuity policy (contract CNT-T01 section 7), the profile level: what to do with a task held by a usage
+    # limit. ``manual`` always asks; ``semi_auto`` waits for a reset that is ``continuity_wait_threshold_hours`` away or
+    # less, and otherwise delegates without asking only to an executor marked ``no_ask`` (see ``services/handoff.py``).
+    # ``auto`` is not accepted here: it is opt-in per project (CNT-T07). A task can only restrict these values further.
+    # ``continuity_candidates`` maps an executor id to ``no_ask``, ``ask`` or ``never`` (an environment value is a JSON
+    # object or ``claude_cli=no_ask;copilot_cli=never``); the ones it names replace the defaults, the rest keep them, and
+    # an executor it does not know is asked about.
+    continuity_mode: str = "semi_auto"
+    continuity_wait_threshold_hours: int = 5
+    continuity_max_handoffs: int = Field(default=1, ge=1, le=3)
+    continuity_candidates: Annotated[dict[str, str], NoDecode] = Field(
+        default_factory=lambda: dict(DEFAULT_CONTINUITY_CANDIDATES))
+    # The one integration marker of the installation (empty means <data_dir>/watchers/integration.lock). While the file
+    # exists an integration (or a watcher resuming a task) is going on and no held task is handed over (contract section 8).
+    # The services and ``multiagent watcher`` both read it from here: a command option cannot point somewhere else.
+    integration_marker: Optional[Path] = None
+
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:8b"
     ollama_num_ctx: int = Field(default=4096, ge=1024)
@@ -291,6 +313,46 @@ class Settings(BaseSettings):
     def _validate_budget_alerts(cls, value: Any) -> tuple[float, ...]:
         return _percents(value)
 
+    @field_validator("continuity_mode")
+    @classmethod
+    def _validate_continuity_mode(cls, value: str) -> str:
+        if value not in CONTINUITY_MODES:
+            raise ValueError(f"continuity_mode accepts only {', '.join(CONTINUITY_MODES)}")
+        return value
+
+    @field_validator("continuity_wait_threshold_hours")
+    @classmethod
+    def _validate_continuity_threshold(cls, value: int) -> int:
+        if value not in CONTINUITY_WAIT_THRESHOLDS:
+            raise ValueError("continuity_wait_threshold_hours accepts only "
+                             + ", ".join(str(hours) for hours in CONTINUITY_WAIT_THRESHOLDS))
+        return value
+
+    @field_validator("continuity_candidates", mode="before")
+    @classmethod
+    def _validate_continuity_candidates(cls, value: Any) -> dict[str, str]:
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                value = {}
+            elif text.startswith("{"):
+                value = json.loads(text)
+            else:
+                pairs = [part.split("=", 1) for part in re.split(r"[;,]", text) if part.strip()]
+                if any(len(pair) != 2 for pair in pairs):
+                    raise ValueError("continuity_candidates must be a JSON object or items like claude_cli=no_ask")
+                value = {key.strip(): policy.strip() for key, policy in pairs}
+        if not isinstance(value, dict):
+            raise ValueError("continuity_candidates must map executor ids to no_ask, ask or never")
+        found = dict(DEFAULT_CONTINUITY_CANDIDATES)
+        for key, policy in value.items():
+            if not isinstance(key, str) or not _EXECUTOR_KEY.fullmatch(key):
+                raise ValueError("continuity_candidates keys must be executor ids")
+            if policy not in CONTINUITY_CANDIDATE_POLICIES:
+                raise ValueError(f"continuity_candidates values accept only {', '.join(CONTINUITY_CANDIDATE_POLICIES)}")
+            found[key] = policy
+        return found
+
     @field_validator("availability_priorities", mode="before")
     @classmethod
     def _validate_availability_priorities(cls, value: Any) -> tuple[str, ...]:
@@ -345,6 +407,14 @@ class Settings(BaseSettings):
             normalized.append(host)
         return list(dict.fromkeys(normalized))
 
+    @field_validator("assets_dir", "integration_marker", mode="before")
+    @classmethod
+    def _empty_path_is_unset(cls, value):
+        # An empty variable (``INTEGRATION_MARKER=``) means "not set", not ``Path("")``, which is the current folder.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @model_validator(mode="after")
     def _resolve_paths(self):
         self.local_dir = Path(self.local_dir).resolve()
@@ -354,6 +424,8 @@ class Settings(BaseSettings):
         self.assets_dir = Path(self.assets_dir or self.data_dir / "assets").resolve()
         self.project_commands_file = Path(self.project_commands_file or self.local_dir / "project_commands.toml").resolve()
         self.executor_workdir_root = Path(self.executor_workdir_root or self.local_dir / "executor_runs").resolve()
+        self.integration_marker = Path(self.integration_marker
+                                       or self.data_dir / "watchers" / "integration.lock").expanduser().resolve()
         self.gui_token_file = Path(self.gui_token_file or Path.home() / ".multiagent" / "gui-token").expanduser().resolve()
         return self
 

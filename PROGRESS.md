@@ -23,13 +23,13 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Reference tool stacks for team presets | `░░░░░░░░░░` 0% | 0 of 5 |
 | Frontend / UI | `███░░░░░░░` 30% | 7 of 23 |
 | Advanced operator interface | `░░░░░░░░░░` 0% | 0 of 15 |
-| Memory, context, and project knowledge | `█░░░░░░░░░` 14% | 1 of 7 |
+| Memory, context, and project knowledge | `██░░░░░░░░` 25% | 2 of 8 |
 | Tools, interoperability, and external applications | `░░░░░░░░░░` 0% | 0 of 13 |
 | Observability, quality, and evaluation | `█░░░░░░░░░` 12% | 1 of 8 |
 | Security and privacy | `███░░░░░░░` 30% | 3 of 10 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **25%** | **59 of 232** |
+| **All roadmap items** | **26%** | **60 of 233** |
 <!-- progress:table:end -->
 
 ## Current stage — runtime foundations

@@ -264,6 +264,22 @@ def cmd_executors(args) -> None:
         body["dry_run"] = bool(args.dry_run)
         pretty(_api_json("POST", "/api/v1/executors/resume-due", json_body=body, timeout=None))
         return
+    if args.executors_command == "decide-holds":
+        body = {key: value for key, value in (("task_id", args.task), ("limit", args.limit),
+                                              ("timeout_seconds", args.timeout)) if value is not None}
+        body["dry_run"] = bool(args.dry_run)
+        body["run"] = not args.no_run
+        pretty(_api_json("POST", "/api/v1/executors/decide-holds", json_body=body, timeout=None))
+        return
+    if args.executors_command == "handoff":
+        body = {"task_id": args.task_id}
+        body.update({key: value for key, value in (
+            ("executor_id", args.executor), ("decision_id", args.decision_id),
+            ("expected_revision", args.expected_revision), ("actor", args.actor),
+            ("timeout_seconds", args.timeout)) if value is not None})
+        body["run"] = not args.no_run
+        pretty(_api_json("POST", "/api/v1/executors/handoff", json_body=body, timeout=None))
+        return
     if args.executors_command == "lift-pause":
         body = {"executor_id": args.executor_id, "reason": args.reason or ""}
         if args.actor:
@@ -1265,6 +1281,21 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--task", help="Only this task"); x.add_argument("--limit", type=int, help="At most this many resumptions")
     x.add_argument("--dry-run", action="store_true", help="Only report what is due"); x.add_argument("--timeout", type=int)
     x.set_defaults(func=cmd_executors)
+    x = executors.add_parser("handoff", help="Carry out the hand-off of a task held by a usage limit that you chose on the "
+                             "decision card (the original session is retired; the delegate starts from the saved checkpoint)")
+    x.add_argument("task_id"); x.add_argument("--executor", help="Executor to hand it to; it must be the one chosen on the "
+                                                                 "card (without it, that one): choose it on the card")
+    x.add_argument("--decision-id", help="Makes a repeated call return the first result")
+    x.add_argument("--expected-revision", type=int, help="The task revision you saw; a different one is refused")
+    x.add_argument("--actor", help="Who decides (default: user)"); x.add_argument("--timeout", type=int)
+    x.add_argument("--no-run", action="store_true", help="Hand it over without launching the delegate")
+    x.set_defaults(func=cmd_executors)
+    x = executors.add_parser("decide-holds", help="Apply the continuity policy to the tasks held by a usage limit: wait, "
+                             "hand over to a candidate without asking (semi-automatic only) or ask you")
+    x.add_argument("--task", help="Only this task"); x.add_argument("--limit", type=int, help="At most this many hand-offs")
+    x.add_argument("--dry-run", action="store_true", help="Only report what would happen")
+    x.add_argument("--no-run", action="store_true", help="Hand over without launching the delegate")
+    x.add_argument("--timeout", type=int); x.set_defaults(func=cmd_executors)
     x = executors.add_parser("lift-pause", help="Lift the pause of an executor (the only end of a credits_exhausted pause)")
     x.add_argument("executor_id"); x.add_argument("--actor", help="Default: user"); x.add_argument("--reason")
     x.set_defaults(func=cmd_executors)
@@ -1300,7 +1331,10 @@ def build_parser() -> argparse.ArgumentParser:
             x.set_defaults(func=cmd_project_plan)
     x = project.add_parser("update", help="Change the title or the visibility")
     x.add_argument("project_id"); x.add_argument("--actor", required=True); x.add_argument("--revision", type=int, required=True)
-    x.add_argument("--title"); x.add_argument("--visibility", choices=["normal", "private"]); x.set_defaults(func=cmd_project_update)
+    x.add_argument("--title"); x.add_argument("--visibility", choices=["normal", "private"],
+                                              help="private always; a private project is made normal in the GUI (it needs "
+                                                   "the token), not from here")
+    x.set_defaults(func=cmd_project_update)
     for name in ("archive", "unarchive"):
         x = project.add_parser(name, help=f"{name.capitalize()} the project (nothing is deleted)")
         x.add_argument("project_id"); x.add_argument("--actor", required=True)
@@ -1389,9 +1423,11 @@ def build_parser() -> argparse.ArgumentParser:
     watch_sub = watch.add_subparsers(dest="watcher_action", required=True)
     for action in ("run", "sweep"):
         command = watch_sub.add_parser(action)
-        command.add_argument("--state-dir", help="Local watcher state folder (default: data_dir/watchers)")
+        command.add_argument("--state-dir", help="Local watcher state folder (default: data_dir/watchers); the integration "
+                             "marker is not in it unless that is also where the installation's marker is")
         command.add_argument("--integration-marker", required=action == "run",
-                             help="Shared exclusive marker; sweep only removes gates owned by proven-dead watchers")
+                             help="Shared exclusive marker; it must be the installation's (Settings.integration_marker, "
+                                  "INTEGRATION_MARKER); sweep only removes gates owned by proven-dead watchers")
         command.set_defaults(func=cmd_watcher)
         if action == "run":
             command.add_argument("--task", required=True)
@@ -1408,7 +1444,12 @@ def cmd_watcher(args) -> None:
 
     settings = get_settings()
     root = Path(args.state_dir) if args.state_dir else settings.data_dir / "watchers"
-    marker = Path(args.integration_marker) if args.integration_marker else root / "integration.lock"
+    # One marker for the whole installation (CNT-T05): the hand-off of a held task reads ``Settings.integration_marker``,
+    # so neither ``--state-dir`` nor ``--integration-marker`` may point the watcher to another file and hide it.
+    marker = settings.integration_marker
+    if args.integration_marker and Path(args.integration_marker).expanduser().resolve() != marker:
+        raise ValueError(f"--integration-marker must be the marker of this installation, {marker}: the hand-off of held "
+                         "tasks reads that one. Set INTEGRATION_MARKER to move it for every process.")
     if args.watcher_action == "sweep":
         pretty({"lost": WatcherProcess(root, None, integration_marker=marker, integration_active=lambda: True).sweep()})
         return

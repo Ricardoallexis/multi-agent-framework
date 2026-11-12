@@ -1,0 +1,11 @@
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = false
+# Machine-specific roots are added locally and never committed.
+writable_roots = []
+
+[windows]
+# Keep Codex's filesystem sandbox enabled on Windows.
+sandbox = "elevated"
