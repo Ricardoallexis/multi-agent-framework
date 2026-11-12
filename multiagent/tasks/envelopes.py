@@ -77,6 +77,11 @@ ENVELOPE_STATUSES = ("blocked", "ready", "claimed", "running", "paused", "submit
 TASK_ENVELOPE_FIELDS = ("schema", "task_id", "group_id", "revision", "attempt", "assignee", "status",
                         "objective", "depends_on", "artifact_refs", "context_refs", "file_scope",
                         "constraints", "gate", "base_commit", "events_after")
+# MOD-T04: optional, emitted only when a trusted source resolved it (never inferred from the text of the task), so an
+# envelope without it keeps its fields, its order and its hash. A classification scoped to ``envelope:<hash>`` is
+# resolved against the hash taken without it (``classification_envelope_sha256``), or the scope would be circular.
+OPTIONAL_TASK_ENVELOPE_FIELDS = ("data_class",)
+_DATA_CLASS = re.compile(r"[a-z][a-z0-9_]{0,39}")
 TASK_RESULT_FIELDS = ("schema", "task_id", "attempt", "agent", "base_commit", "patch", "summary",
                       "decisions", "contract_changes", "tests_not_run", "requests")
 
@@ -138,6 +143,11 @@ def envelope_sha256(data: Any) -> str:
 # Fields that say where to read events from, not what the task is: they change with every event of
 # the team, so they stay out of the hash that tells a caller whether its envelope is still current.
 HASH_EXCLUDED_FIELDS = ("events_after",)
+
+
+def classification_envelope_sha256(envelope: Mapping[str, Any]) -> str:
+    """``envelope_sha256`` of an envelope without its optional ``data_class``: what an ``envelope:<hash>`` scope names."""
+    return envelope_sha256({key: value for key, value in envelope.items() if key not in OPTIONAL_TASK_ENVELOPE_FIELDS})
 
 
 def task_envelope_sha256(envelope: Mapping[str, Any]) -> str:
@@ -332,14 +342,18 @@ def build_task_envelope(*, task_id: str, group_id: str, revision: int, attempt: 
                         status: str, objective: str, depends_on: Iterable[Mapping[str, Any]] = (),
                         artifact_refs: Iterable[str] = (), context_refs: Iterable[str] = (),
                         file_scope: Iterable[str] = (), constraints: Iterable[str] = (),
-                        gate: Iterable[str] = (), base_commit: str = "", events_after: int = 0) -> dict[str, Any]:
-    """Build and validate a task envelope v1 with exactly the fields of the contract, in its order."""
+                        gate: Iterable[str] = (), base_commit: str = "", events_after: int = 0,
+                        data_class: str | None = None) -> dict[str, Any]:
+    """Build and validate a task envelope v1 with exactly the fields of the contract, in its order.
+
+    ``data_class`` (optional) is added after them only when given."""
     return validate_task_envelope({
         "schema": TASK_ENVELOPE_SCHEMA, "task_id": task_id, "group_id": group_id, "revision": revision,
         "attempt": attempt, "assignee": assignee, "status": status, "objective": objective,
         "depends_on": list(depends_on), "artifact_refs": list(artifact_refs), "context_refs": list(context_refs),
         "file_scope": list(file_scope), "constraints": list(constraints), "gate": list(gate),
         "base_commit": base_commit, "events_after": events_after,
+        **({"data_class": data_class} if data_class is not None else {}),
     })
 
 
@@ -359,6 +373,9 @@ def validate_task_envelope(data: Any) -> dict[str, Any]:
     if status not in ENVELOPE_STATUSES:
         raise EnvelopeError("status", f"Unknown status: {status!r}")
     deps = [_dependency(raw) for raw in _list("depends_on", data.get("depends_on"), maximum=MAX_DEPENDENCIES)]
+    data_class = data.get("data_class")
+    if data_class is not None:
+        data_class = _identifier("data_class", data_class, _DATA_CLASS)
     return {
         "schema": TASK_ENVELOPE_SCHEMA,
         "task_id": _identifier("task_id", data.get("task_id"), _TASK_ID),
@@ -378,6 +395,7 @@ def validate_task_envelope(data: Any) -> dict[str, Any]:
         "gate": _gate(data.get("gate")),
         "base_commit": _commit("base_commit", data.get("base_commit")),
         "events_after": _integer("events_after", data.get("events_after", 0), minimum=0),
+        **({"data_class": data_class} if data_class is not None else {}),
     }
 
 

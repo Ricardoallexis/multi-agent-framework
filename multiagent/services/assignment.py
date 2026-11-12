@@ -15,7 +15,7 @@ from ..executors.selection import model_exclusions, select_for_executor
 from ..routing.assignment import AssignmentDecision, AssignmentRequest, select_assignment
 from ..routing.executor_capabilities import VerifiedOperatorContext, validate_executor_config
 from ..routing_policy import DEFAULT_STEP_KIND, STEP_KINDS, RoutingRequest
-from ..tasks.envelopes import envelope_sha256
+from ..tasks.envelopes import classification_envelope_sha256, envelope_sha256
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
 
 __all__ = ["AssignmentServices"]
@@ -161,7 +161,7 @@ class AssignmentServices:
         configured = self._config.get("data_classifications", {})
         if not isinstance(configured, Mapping):
             configured = {}
-        envelope_hash = envelope_sha256(envelope)
+        envelope_hash = classification_envelope_sha256(envelope)     # without ``data_class``: it is what this resolves
         scopes = (f"task:{task.get('id')}", f"group:{task.get('group_id')}",
                   f"envelope:{envelope_hash}")
         applicable = {scope: configured[scope] for scope in scopes

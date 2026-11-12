@@ -12,6 +12,17 @@
 # Largest answer (USO-T04), optional per model: `max_output_tokens: <positive integer>`, the most output tokens one call can
 # return, copied ONLY from the provider's official documentation. The budget cut (`usage_budgets` with `mode: cut`) prices a
 # paid call at this bound, so a model with a price but no `max_output_tokens` is held for a person, never guessed.
+#
+# Where a model runs and what it keeps (MOD-T04), optional per model; whatever is missing is `unknown`, never a guess:
+#   host: local | organization | provider_hosted | third_party | unknown          (default unknown)
+#   retention: {status: none | zero_retention | limited | provider_default | unknown, period_days: <integer >= 0> | null}
+#   evidence:                      # by field: provider, host, retention; each needs source, provenance and observed_at
+#     host: {source: "<page or test>", provenance: provider_docs | operator_test | catalog_declared | runtime_setting,
+#            observed_at: "YYYY-MM-DD", scope: "<optional>", model: "<provider model name, optional>", note: "<optional>"}
+# Copy a value only from the provider's terms or a test you can name. The class `restricted` (secrets, credentials,
+# private folders) goes only to a model whose host is `local` and whose retention is known; an unknown host or retention
+# blocks `restricted` and nothing else. `allowed_data_classes` still decides sensitive and non_sensitive. No entry below
+# declares host, retention or evidence yet: there is no evidence to cite, so they are all unknown.
 models:
   local_default:
     provider: ollama

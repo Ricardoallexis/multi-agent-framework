@@ -14,11 +14,18 @@ import yaml
 
 from .config import Settings
 from .errors import MultiAgentError
+from .executors.privacy import HOSTS, RETENTION_STATUSES
+from .routing.executor_capabilities import CapabilityEvidence, SupportState
 from .routing_policy import EFFORT_LEVELS, MODEL_LEVELS, STEP_KINDS
 
 _logger = logging.getLogger(__name__)
 
 MODEL_CLASSIFICATIONS = ("classified", "unclassified")
+# MOD-T04 (contract MOD section 2): what a model entry may declare about where it runs and what it keeps, and the
+# evidence for it. Every one of them is optional; what is missing is ``unknown``, never a guess.
+MODEL_EVIDENCE_FIELDS = ("provider", "host", "retention")
+MODEL_EVIDENCE_PROVENANCES = ("provider_docs", "operator_test", "catalog_declared", "runtime_setting")
+UNKNOWN_RETENTION = {"status": "unknown", "period_days": None}
 LOCAL_NO_CHARGE = "local_no_charge"
 _PRICE_COMPONENTS = ("input", "output")
 _PRICE_FIELDS = ("amount", "denominator", "unit", "currency", "source", "valid_from", "valid_until", "provenance")
@@ -470,6 +477,63 @@ def validate_context_profile(profile_id: str, profile: Any) -> dict[str, Any]:
     }
 
 
+def _validate_retention(model_id: str, value: Any) -> dict[str, Any]:
+    """``{status, period_days}``; a model that declares nothing keeps the unknown retention (never none)."""
+    if value is None:
+        return dict(UNKNOWN_RETENTION)
+    if not isinstance(value, dict):
+        raise CatalogError(f"Model {model_id!r}: retention must be a mapping with status and period_days")
+    extra = sorted(str(key) for key in value if key not in ("status", "period_days"))
+    if extra:
+        raise CatalogError(f"Model {model_id!r}: retention has unknown keys {extra}; expected status, period_days")
+    status = value.get("status", "unknown")
+    if status not in RETENTION_STATUSES:
+        raise CatalogError(f"Model {model_id!r}: retention.status must be one of {', '.join(RETENTION_STATUSES)}, got {status!r}")
+    days = value.get("period_days")
+    if days is not None and (type(days) is not int or days < 0):
+        raise CatalogError(f"Model {model_id!r}: retention.period_days must be an integer of 0 or more or null, got {days!r}")
+    return {"status": status, "period_days": days}
+
+
+def _validate_model_evidence(model_id: str, value: Any) -> dict[str, CapabilityEvidence] | None:
+    """Evidence by field. Each entry needs ``source``, ``provenance`` and ``observed_at`` (YYYY-MM-DD); ``scope``, ``model``
+    and ``note`` are optional. A field with no entry is unknown."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise CatalogError(f"Model {model_id!r}: evidence must be a mapping from field to evidence")
+    checked: dict[str, CapabilityEvidence] = {}
+    for name, entry in value.items():
+        where = f"Model {model_id!r}: evidence.{name}"
+        if name not in MODEL_EVIDENCE_FIELDS:
+            raise CatalogError(f"Model {model_id!r}: evidence has unknown field {name!r}; expected {', '.join(MODEL_EVIDENCE_FIELDS)}")
+        if isinstance(entry, CapabilityEvidence):
+            entry = entry.to_dict()
+        if not isinstance(entry, dict):
+            raise CatalogError(f"{where} must be a mapping")
+        extra = sorted(str(key) for key in entry if key not in ("source", "provenance", "observed_at", "scope", "model", "note"))
+        if extra:
+            raise CatalogError(f"{where} has unknown keys {extra}")
+        if type(entry.get("observed_at")) is date:          # YAML reads an unquoted 2026-10-27 as a date
+            entry = {**entry, "observed_at": entry["observed_at"].isoformat()}
+        for key in ("source", "provenance", "observed_at"):
+            if not isinstance(entry.get(key), str) or not entry[key].strip():
+                raise CatalogError(f"{where}.{key} is required and must be text")
+        if entry["provenance"] not in MODEL_EVIDENCE_PROVENANCES:
+            raise CatalogError(f"{where}.provenance must be one of {', '.join(MODEL_EVIDENCE_PROVENANCES)}, got {entry['provenance']!r}")
+        try:
+            observed = date.fromisoformat(entry["observed_at"])
+        except ValueError:
+            raise CatalogError(f"{where}.observed_at must be a date YYYY-MM-DD, got {entry['observed_at']!r}") from None
+        for key in ("scope", "model", "note"):
+            if entry.get(key) is not None and not isinstance(entry[key], str):
+                raise CatalogError(f"{where}.{key} must be text")
+        checked[str(name)] = CapabilityEvidence(
+            status=SupportState.SUPPORTED, source=entry["source"], provenance=entry["provenance"],
+            scope=entry.get("scope"), observed_at=observed.isoformat(), model=entry.get("model"), note=entry.get("note"))
+    return checked
+
+
 @dataclass(frozen=True)
 class ModelSpec:
     id: str
@@ -499,8 +563,17 @@ class ModelSpec:
     # budget cut prices a call at this bound, because the router cannot yet ask the provider for less). ``None`` means
     # unknown, never a number to assume.
     max_output_tokens: int | None = None
+    # MOD-T04: where the model runs (``local``, ``organization``, ``provider_hosted``, ``third_party``, ``unknown``), what
+    # the provider keeps (``{status, period_days}``) and the evidence by field (``provider``, ``host``, ``retention``).
+    host: str = "unknown"
+    retention: dict[str, Any] | None = None
+    evidence: dict[str, CapabilityEvidence] | None = None
 
     def __post_init__(self) -> None:
+        if self.host not in HOSTS:
+            raise CatalogError(f"Model {self.id!r}: host must be one of {', '.join(HOSTS)}, got {self.host!r}")
+        object.__setattr__(self, "retention", _validate_retention(self.id, self.retention))
+        object.__setattr__(self, "evidence", _validate_model_evidence(self.id, self.evidence))
         if self.max_output_tokens is not None and (type(self.max_output_tokens) is not int or self.max_output_tokens <= 0):
             raise CatalogError(f"Model {self.id!r}: max_output_tokens must be a positive integer, got {self.max_output_tokens!r}")
         if self.level is not None and self.level not in MODEL_LEVELS:

@@ -338,7 +338,7 @@ class EnvelopeServices:
             return {**self._tasks._task_view(task_id, conn), **(self.store.task_context(task_id, conn=conn) or {})}
 
     @service_errors
-    def get_envelope(self, task_id: str, *, known_hash: str | None = None) -> dict[str, Any]:
+    def get_envelope(self, task_id: str, *, known_hash: str | None = None, data_class: str | None = None) -> dict[str, Any]:
         """The task envelope, or ``{"unchanged": true, "hash": ..., "revision": ...}`` when ``known_hash`` matches.
 
         The hash is the sha256 of the canonical JSON of the envelope without
@@ -349,6 +349,8 @@ class EnvelopeServices:
         task without an objective uses its title. ``events_after`` is the head
         of the team event log when the envelope is computed; read the events
         after it with a cursor (``read_events``), not through the hash.
+        ``data_class`` (MOD-T04) is only passed through by a caller that resolved it from a trusted source; the envelope
+        carries it when given and is otherwise as before.
         Errors: ``not_found``, ``invalid_request`` (``known_hash``).
         """
         if known_hash is not None and not (isinstance(known_hash, str) and _SHA256.fullmatch(known_hash)):
@@ -390,7 +392,7 @@ class EnvelopeServices:
                 objective=task["objective"] or task["title"], depends_on=depends_on, artifact_refs=artifacts,
                 context_refs=context.get("context_refs", []), file_scope=task["file_scope"],
                 constraints=context.get("constraints", []), gate=gate,
-                base_commit=context.get("base_commit", ""), events_after=head)
+                base_commit=context.get("base_commit", ""), events_after=head, data_class=data_class)
         except EnvelopeError as error:
             raise _from_envelope_error(error) from None
         if known_hash is not None and known_hash == task_envelope_sha256(envelope):

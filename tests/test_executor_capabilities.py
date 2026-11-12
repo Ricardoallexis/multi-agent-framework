@@ -88,6 +88,18 @@ def test_new_fields_round_trip_through_json():
     assert restored.terms.status is SupportState.UNSUPPORTED
 
 
+def test_model_and_note_are_optional_and_round_trip_without_changing_the_old_shape():
+    old = _evidence()
+    assert "model" not in old.to_dict() and "note" not in old.to_dict()      # an executor descriptor keeps its shape
+    assert old.model is None and old.note is None
+    new = _evidence(model="synthetic-model", note="synthetic caveat")
+    assert new.to_dict()["model"] == "synthetic-model" and new.to_dict()["note"] == "synthetic caveat"
+    assert CapabilityEvidence(**json.loads(json.dumps(new.to_dict()))) == new
+    legacy = json.loads(json.dumps(validate_executor_descriptor(ExecutorDescriptor(
+        executor_id="rt", surface="codex_cli", mode="manual", model_support=_evidence())).to_dict()))
+    assert "model" not in legacy["model_support"] and ExecutorDescriptor(**legacy).model_support == _evidence()
+
+
 # -- validation ---------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("name", EXECUTOR_EVIDENCE_FIELDS)

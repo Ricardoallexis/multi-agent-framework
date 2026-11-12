@@ -41,6 +41,10 @@ class CapabilityEvidence:
     scope: str | None = None
     observed_at: str | None = None
     values: frozenset[str] | None = None
+    # MOD-T04 (contract MOD section 2): model evidence names the provider model it describes and may carry a caveat.
+    # Both are optional and left out of ``to_dict`` while ``None``, so an executor descriptor keeps its old shape.
+    model: str | None = None
+    note: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, SupportState):
@@ -48,10 +52,15 @@ class CapabilityEvidence:
         object.__setattr__(self, "values", _set(self.values))
 
     def to_dict(self) -> dict[str, Any]:
-        return {"status": self.status.value, "source": self.source,
-                "provenance": self.provenance, "scope": self.scope,
-                "observed_at": self.observed_at,
-                "values": sorted(self.values) if self.values is not None else None}
+        result = {"status": self.status.value, "source": self.source,
+                  "provenance": self.provenance, "scope": self.scope,
+                  "observed_at": self.observed_at,
+                  "values": sorted(self.values) if self.values is not None else None}
+        if self.model is not None:
+            result["model"] = self.model
+        if self.note is not None:
+            result["note"] = self.note
+        return result
 
 
 @dataclass(frozen=True)

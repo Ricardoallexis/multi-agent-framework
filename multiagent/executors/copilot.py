@@ -58,6 +58,7 @@ from pathlib import Path
 from typing import Any
 
 from ..errors import MultiAgentError
+from .privacy import decide_privacy
 from ..routing.executor_capabilities import (
     CapabilityEvidence, ExecutorDescriptor, SupportState, descriptor_from_declaration, validate_executor_descriptor,
 )
@@ -165,6 +166,21 @@ def _check_model(model: object) -> str | None:
     if not _MODEL.fullmatch(model):
         raise CopilotAdapterError("invalid_model", f"model {model!r} is not a plain model id (letters, digits, . _ -)")
     return model
+
+
+def _check_privacy(request: ExecutorLaunchRequest) -> None:
+    """MOD-T04, check 2 of the contract: the decision of ``privacy.decide_privacy`` again, before any argv or prompt.
+
+    Fails closed when either is present: a class with no policy is ``privacy_class_unknown`` (``decide_privacy`` reads a
+    missing policy as nothing declared). Only a request with NEITHER field (a caller that predates MOD-T04, such as the
+    adapter's own contract tests) is not checked here; the service checks it in ``_execute``. The error carries the reason code only: no prompt, path or class.
+    """
+    if request.data_class is None and request.privacy is None:
+        return
+    _check_model(request.model)          # a Claude model keeps its own code, ``claude_model_rejected``, ahead of this check
+    decision = decide_privacy(request.data_class, request.privacy)
+    if not decision.allowed:
+        raise CopilotAdapterError(str(decision.reason), "the privacy check refused this model for this task")
 
 
 def _check_effort(effort: object) -> str | None:
@@ -563,11 +579,13 @@ class CopilotAdapter:
 
     def launch(self, request: ExecutorLaunchRequest) -> ExecutorRunResult:
         """Run the task in a new Copilot session through the process executor."""
+        _check_privacy(request)
         notes = ["requested_session_id_ignored"] if request.session_id is not None else []
         return self._execute(request, self.build_command(request), resume=False, notes=notes)
 
     def resume(self, request: ExecutorLaunchRequest, session_id: str) -> ExecutorRunResult:
         """Continue a session the framework created with the task in ``request``."""
+        _check_privacy(request)
         notes = ["requested_session_id_ignored"] if request.session_id is not None else []
         return self._execute(request, self.build_resume_command(request, session_id), resume=True, notes=notes)
 

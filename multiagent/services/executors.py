@@ -211,6 +211,7 @@ from ..errors import MultiAgentError
 from ..executors import codex as _codex, copilot as _copilot, launch_safety, process
 from ..executors.contract import ExecutorApplicationAdapter, ExecutorLaunchRequest, FailureKind, OpenTarget, Permission
 from ..executors.limits import utc_iso
+from ..executors.privacy import decide_privacy, resolve_model_privacy
 from ..executors.selection import (
     SOURCE_HANDOFF, ExecutorSelection, select_for_executor, select_for_handoff, select_for_resume,
 )
@@ -1016,6 +1017,59 @@ class ExecutorServices:
         folder.mkdir(parents=True, exist_ok=True)
         return folder
 
+    def _privacy_decision(self, task: Mapping[str, Any], executor_id: str, descriptor: Any, model: str | None,
+                          operator_context: Any, profile_id: str | None = None) -> tuple[Any, str | None, Any]:
+        """The privacy decision for a task and a model, with no effect on anything: ``(decision, data_class, ModelPrivacy)``.
+
+        The class comes from the trusted scoped classification (``AssignmentServices._trusted_data_class``), never from the
+        text of the task; sources that contradict each other give no class.
+        """
+        assignment = self._services.assignment
+        envelope = self._services.envelopes.get_envelope(task["id"])
+        data_class, _scope, conflict = assignment._trusted_data_class(task, envelope, operator_context)
+        profile = assignment._config.get("profiles", {}).get(profile_id) if profile_id else None
+        catalog = getattr(self._services.system, "catalog", None)
+        privacy = resolve_model_privacy(
+            getattr(catalog, "models", None), model, descriptor=descriptor,
+            profile_data_classes=profile.get("allowed_data_classes") if isinstance(profile, Mapping) else None)
+        # A value outside the vocabulary is ``privacy_class_unknown``, which is what contradicting sources are.
+        decision = decide_privacy("conflict" if conflict else data_class, privacy)
+        return decision, data_class, privacy
+
+    @staticmethod
+    def _privacy_refusal(task_id: str, executor_id: str, decision: Any) -> ServiceError:
+        return _conflict(str(decision.reason), "The model cannot receive this task: the privacy check refused it",
+                         task_id=task_id, executor_id=executor_id, action="stop", level=decision.level)
+
+    def _privacy_precheck(self, task: Mapping[str, Any], executor_id: str, descriptor: Any, model: str | None) -> None:
+        """MOD-T04 (contract section 9): refuse BEFORE anything irreversible (a session retired, a hand-off committed).
+
+        Changes nothing and writes nothing. ``_execute`` still takes the decision again (``_privacy_gate``), so this is a
+        second line, never the only one. It sees no operator context and no profile, like a resume.
+        """
+        decision, _class, _privacy = self._privacy_decision(task, executor_id, descriptor, model, None)
+        if not decision.allowed:
+            raise self._privacy_refusal(str(task["id"]), executor_id, decision)
+
+    def _privacy_gate(self, task: Mapping[str, Any], plan: _Plan, operator_context: Any) -> tuple[str | None, Any, dict[str, Any]]:
+        """MOD-T04, check 1 of the contract: may this model receive this task's data? ``(data_class, ModelPrivacy,
+        decision as a dict)`` or a refusal.
+
+        Launch and resume both come through here (a resume has no operator context, so only the configured classification
+        can give its class). The refusal is ``invalid_state`` with the code in ``details.reason`` and no prompt, path or
+        class in it; nothing has been created or changed yet. The warnings (an unresolved class, an unknown host or
+        retention) are logged at WARNING, and the decision itself (with the warnings) rides on the launch request as
+        ``privacy_decision`` for MOD-T05 to read. No event is created here (the selection notes are not used: tests pin them).
+        """
+        decision, data_class, privacy = self._privacy_decision(
+            task, plan.executor_id, plan.descriptor, plan.model, operator_context,
+            (plan.decision or {}).get("profile_id"))
+        for code in decision.warnings:
+            _logger.warning("model privacy: %s (task %s, executor %s)", code, task["id"], plan.executor_id)
+        if not decision.allowed:
+            raise self._privacy_refusal(task["id"], plan.executor_id, decision)
+        return data_class, privacy, decision.to_dict()
+
     def _limit(self, plan: _Plan, name: str, default: int) -> int:
         value = plan.declaration.get(name)
         return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else default
@@ -1111,7 +1165,7 @@ class ExecutorServices:
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
         return self._execute(task, plan, actor, timeout, resume_session=None, hold=hold, trigger=trigger, drift=drift,
-                             policy=policy)
+                             policy=policy, operator_context=operator_context)
 
     @service_errors
     def resume_task(self, task_id: str, model: str | None = None, effort: str | None = None,
@@ -1160,6 +1214,7 @@ class ExecutorServices:
         actor = _text("actor", actor or task.get("assignee") or f"executor:{executor_id}", maximum=100)
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
+        self._privacy_precheck(task, executor_id, descriptor, selection.model)     # MOD-T04: before a session is retired
         handoff = self._context_handoff(task, session, actor, plan, timeout)
         # Measuring (a compaction links a snapshot), the checkpoint and the guard all change the task's revision, also
         # when no hand-off follows: the attempt always starts from the task as it is now.
@@ -1236,7 +1291,8 @@ class ExecutorServices:
     def _execute(self, task: dict[str, Any], plan: _Plan, actor: str, timeout: int, *,
                  resume_session: str | None, recorded: Mapping[str, Any] | None = None,
                  hold: Mapping[str, Any] | None = None, trigger: str = "manual",
-                 drift: tuple[str, ...] = (), policy: AvailabilityPolicy | None = None) -> dict[str, Any]:
+                 drift: tuple[str, ...] = (), policy: AvailabilityPolicy | None = None,
+                 operator_context: Any = None) -> dict[str, Any]:
         """One attempt. ``hold`` and ``trigger`` (``auto`` from ``resume_due``, ``condition`` from ``resume_met``, else
         ``manual``) say what hold this run ends; ``drift`` is what ``resume_due`` found different before relaunching; ``recorded`` the settings of the
         session being resumed (to compare with what the app reports).
@@ -1246,6 +1302,7 @@ class ExecutorServices:
         availability policy, on) the last two run in a thread of their own and this returns ``running`` if they
         did not end in the policy's wait (``_launch_in_background``); without it they run here and the caller waits."""
         task_id = task["id"]
+        privacy = self._privacy_gate(task, plan, operator_context)      # MOD-T04: before anything is created or changed
         mode = "resume" if resume_session else "launch"
         prior = dict(task.get("continuity") or {})
         held = dict(hold) if hold else (dict(prior["hold"]) if isinstance(prior.get("hold"), Mapping) else None)
@@ -1259,7 +1316,8 @@ class ExecutorServices:
         request = ExecutorLaunchRequest(
             task_id=task_id, task_envelope=self._services.envelopes.get_envelope(task_id), workdir=workdir,
             model=plan.model, effort=plan.effort, permission=permission, timeout_seconds=timeout,
-            session_id=claude_session_id)
+            session_id=claude_session_id, data_class=privacy[0], privacy=privacy[1],
+            privacy_decision=privacy[2])
         self._preflight(plan, request, resume_session)
         cause = f"executor {mode} in {plan.executor_id}"
         # A place in the background is taken before the task changes, so a refusal leaves the task as it was.
@@ -2139,6 +2197,9 @@ class ExecutorServices:
             # BDI-T04: a relaunch that will be refused must not retire the held session first.
             self._require_launch_effects(task, executor_id, Permission.WRITE if task["file_scope"] else Permission.READ,
                                          "launch")
+            # MOD-T04: nor may the privacy check refuse it after the retirement (the model is the one ``_relaunch`` sends).
+            self._privacy_precheck(task, executor_id, descriptor,
+                                   recorded.get("model") if _supports(descriptor.model_support, recorded.get("model")) else None)
             self._supersede(task_id, hold, actor)
             result = self._relaunch(task_id, executor_id, recorded.get("model"), recorded.get("effort"), actor, hold,
                                     drift, timeout_seconds, trigger)
@@ -3022,6 +3083,9 @@ class ExecutorServices:
         pick = select_for_handoff(executor_id, descriptor, adapter, recorded_model=settings.get("model"),
                                   recorded_effort=settings.get("effort"), ceiling_level=level_of(settings.get("model")),
                                   level_of=level_of)
+        if run:
+            # MOD-T04: a delegate that could not receive this task is refused before the hand-off is committed.
+            self._privacy_precheck(task, executor_id, descriptor, pick.model)
         folder = self._known_workdir(task_id, executor_id)
         same_folder = bool(settings.get("workdir")) and folder is not None and _workdir_id(folder) == settings["workdir"]
         sid = str(hold["session_id"]).lower() if hold.get("session_id") and is_uuid(str(hold["session_id"])) else ""

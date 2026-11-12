@@ -11,6 +11,7 @@ import pytest
 
 from multiagent.tasks.envelopes import (
     MAX_RESULT_BYTES,
+    OPTIONAL_TASK_ENVELOPE_FIELDS,
     TASK_ENVELOPE_FIELDS,
     TASK_ENVELOPE_SCHEMA,
     TASK_RESULT_FIELDS,
@@ -18,6 +19,7 @@ from multiagent.tasks.envelopes import (
     EnvelopeError,
     blob_ref,
     build_task_envelope,
+    classification_envelope_sha256,
     canonical_json,
     envelope_sha256,
     parse_reference,
@@ -131,6 +133,21 @@ def test_task_envelope_has_exactly_the_contract_fields_in_order():
     assert env["gate"] == ["command:test"]          # alias normalized as ORQ-2 does
     assert env["depends_on"][0]["result_ref"] == "result://G5-T01/1"
     assert len(canonical_json(env)) < 1200
+
+
+def test_task_envelope_data_class_is_optional_and_leaves_a_legacy_envelope_untouched():
+    legacy = envelope()
+    assert "data_class" not in legacy and OPTIONAL_TASK_ENVELOPE_FIELDS == ("data_class",)
+    classified = envelope(data_class="restricted")
+    assert tuple(classified) == (*TASK_ENVELOPE_FIELDS, "data_class") and classified["data_class"] == "restricted"
+    # A legacy envelope keeps its hash; a classified one reads back as it was written; the scope hash ignores the class.
+    assert validate_task_envelope(legacy) == legacy and validate_task_envelope(classified) == classified
+    assert classification_envelope_sha256(classified) == envelope_sha256(legacy) == classification_envelope_sha256(legacy)
+    assert task_envelope_sha256(classified) != task_envelope_sha256(legacy)
+    for bad in ("Restricted", "re stricted", "", 5):
+        with pytest.raises(EnvelopeError) as raised:
+            validate_task_envelope(dict(legacy, data_class=bad))
+        assert raised.value.field == "data_class"
 
 
 def test_task_envelope_defaults_and_deduplication():

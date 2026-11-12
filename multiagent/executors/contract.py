@@ -181,6 +181,12 @@ class ExecutorLaunchRequest:
     permission: Permission = Permission.READ
     timeout_seconds: int = 1800
     session_id: str | None = None          # fixed up front when the app allows it (Claude --session-id)
+    # MOD-T04 (check 2 of the contract): what the service resolved for the privacy decision, so an adapter can take it
+    # again before it builds a prompt. ``data_class`` comes from a trusted classification, never from the task text;
+    # ``privacy`` is a ``privacy.ModelPrivacy``. A request with neither (a legacy caller) is not checked by the adapter.
+    data_class: str | None = None
+    privacy: Any = None
+    privacy_decision: Mapping[str, Any] | None = None   # ``PrivacyDecision.to_dict()`` at launch, for MOD-T05 to read
 
 
 @dataclass(frozen=True)
