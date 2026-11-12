@@ -638,6 +638,46 @@ class ProjectServices:
             return self._project_view_in(conn, _text("project_id", project_id, maximum=128))
 
     @service_errors
+    def task_list(self, project_id: str, *, owner: str = "", state: str = "", due_from: str = "",
+                  due_to: str = "") -> dict[str, Any]:
+        """The flat list of the tasks of a project's stages (the List view), with optional filters.
+
+        ``owner`` is an actor as stored (the assignee, or the suggested actor when nobody took the task);
+        ``state`` is a label key (``labels()["task"]``); ``due_from`` / ``due_to`` are inclusive dates AAAA-MM-DD.
+        A date filter leaves out the tasks with no due date: a date that does not exist is never invented.
+        Each row is the task reference of ``get`` plus its stage (``stage_code``, ``stage_title``) and the planned
+        dates of that stage (``None`` when the plan has none). ``owners`` and ``states`` list the values present in
+        the whole project, so a screen can offer them as filter choices. Errors: ``not_found``, ``invalid_input``.
+        """
+        who = _text("owner", owner, maximum=100, required=False) if owner else ""
+        wanted = _text("state", state, maximum=32, required=False) if state else ""
+        if wanted and wanted not in labels.TASK_KEYS:
+            raise _invalid("state", f"state must be one of: {', '.join(labels.TASK_KEYS)}")
+        start = _date("due_from", due_from) if due_from else ""
+        end = _date("due_to", due_to) if due_to else ""
+        with self.store.db.connect() as conn:
+            view = self._project_view_in(conn, _text("project_id", project_id, maximum=128))
+        rows = [{**ref, "stage_code": stage["code"], "stage_title": stage["title"],
+                 "planned_start": stage["planned_start"], "planned_end": stage["planned_end"]}
+                for stage in view["stages"] for ref in stage["tasks"]]
+
+        def keep(row: Mapping[str, Any]) -> bool:
+            if who and who not in (row["assignee"], row["preferred"]):
+                return False
+            if wanted and row["label"]["key"] != wanted:
+                return False
+            if start or end:
+                due = (row["due_at"] or "")[:10]
+                if not due or (start and due < start) or (end and due > end):
+                    return False
+            return True
+
+        owners = sorted({value for row in rows for value in [row["assignee"] or row["preferred"]] if value})
+        found = {row["label"]["key"] for row in rows}
+        return {"project_id": view["id"], "total": len(rows), "tasks": [row for row in rows if keep(row)],
+                "owners": owners, "states": [key for key in labels.TASK_KEYS if key in found]}
+
+    @service_errors
     def list(self, *, archived: bool = False) -> list[dict[str, Any]]:
         """Projects in creation order: the active ones, or with ``archived=True`` only the archived ones.
 

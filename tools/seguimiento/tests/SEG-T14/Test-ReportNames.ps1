@@ -111,7 +111,7 @@ try {
     $html = Invoke-Viewer
     foreach ($stage in 'NEW', 'OLD', 'PAT', 'BAR', 'CCF') {
         $badge = Get-Badge (Get-Summary $html "seg:$stage")
-        Assert-True ($badge.Text -ceq 'Etapa cerrada' -and $badge.Class -eq 's-integrada') "$stage shows as a verified closed stage (got '$($badge.Text)' $($badge.Class))"
+        Assert-True ($badge.Text -ceq 'Cerrada' -and $badge.Class -eq 's-integrada') "$stage shows as a verified closed stage (got '$($badge.Text)' $($badge.Class))"
     }
     foreach ($stage in 'MIS', 'RED', 'TRU') {
         $badge = Get-Badge (Get-Summary $html "seg:$stage")

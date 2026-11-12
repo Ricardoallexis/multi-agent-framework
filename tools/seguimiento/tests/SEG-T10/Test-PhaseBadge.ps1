@@ -41,12 +41,12 @@ try {
     $html = [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
 
     $expected = [ordered]@{
-        'fase-1' = @('Con cambios requeridos', 's-requiere-cambios')
+        'fase-1' = @('Cambios pedidos', 's-requiere-cambios')
         'fase-2' = @('Fase completa', 's-integrada')
         'fase-3' = @('Fase terminada · falta integrar', 's-pendiente')
-        'fase-4' = @('En progreso', 's-en-curso')
+        'fase-4' = @('En curso', 's-en-curso')
         'fase-5' = @('Avance parcial · 1 de 2', 's-pendiente')
-        'fase-6' = @('Disponible', 's-disponible')
+        'fase-6' = @('Lista', 's-disponible')
         'fase-7' = @('En espera de dependencias', 's-idle')
     }
     foreach ($key in $expected.Keys) {
@@ -54,8 +54,8 @@ try {
         Assert-True ($summary -match [regex]::Escape($expected[$key][0])) "$key label '$($expected[$key][0])' in summary: $summary"
         Assert-True ($summary -match [regex]::Escape($expected[$key][1])) "$key class $($expected[$key][1])"
     }
-    # Only the in-progress phase says "En progreso".
-    Assert-True ([regex]::Matches($html, '>En progreso</span>').Count -eq 1) 'En progreso appears once'
+    # Only the in-progress phase says "En curso".
+    Assert-True ([regex]::Matches($html, '>En curso</span>').Count -eq 1) 'En curso appears once'
 }
 catch {
     Write-Host $_.Exception.Message

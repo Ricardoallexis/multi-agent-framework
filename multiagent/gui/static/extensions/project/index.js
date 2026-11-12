@@ -13,8 +13,8 @@ import { navigate, routeHref } from "../../js/route.js";
 import { Progress } from "../../js/ui/progress.js";
 import { Tabs } from "../../js/ui/tabs.js";
 import { HELP } from "./help.js";
-import { labelSummary, list, needsText, pickProject, progressOf } from "./model.js";
-import { Overview, StagesPanel, TaskDetail } from "./parts.js";
+import { labelSummary, list, NO_LIST_FILTER, needsText, pickProject, progressOf } from "./model.js";
+import { ListPanel, Overview, StagesPanel, TaskDetail } from "./parts.js";
 
 registerHelp(HELP, "project");
 
@@ -23,7 +23,7 @@ const NO_REVIEW = { open: false, text: "", busy: false };
 const enc = encodeURIComponent;
 const CHANGED = "project:changed";      // the screen tells the panel card that the numbers moved (a decision, a refresh)
 const announce = () => window.dispatchEvent(new Event(CHANGED));
-const TABS = [{ id: "overview", label: "Resumen" }, { id: "stages", label: "Etapas y tareas" }];
+const TABS = [{ id: "overview", label: "Resumen" }, { id: "stages", label: "Etapas y tareas" }, { id: "list", label: "Lista plana" }];
 
 // What the user reads when a call fails: a clash of revisions or a missing task gets its own words; the rest is the server's.
 function failure(error, fallback) {
@@ -40,6 +40,7 @@ export function ProjectView({ token, route }) {
   const [error, setError] = useState("");
   const [tab, setTab] = useState("overview");
   const [filter, setFilter] = useState(NO_FILTER);
+  const [listFilter, setListFilter] = useState(NO_LIST_FILTER);
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [taskId, setTaskId] = useState("");
   const [task, setTask] = useState(null);
@@ -58,7 +59,7 @@ export function ProjectView({ token, route }) {
 
   const selectProject = (id) => {
     calls.current.project += 1;
-    setSelected(id); setProject(null); setError(""); setFilter(NO_FILTER); setCollapsed(new Set()); closeTask();
+    setSelected(id); setProject(null); setError(""); setFilter(NO_FILTER); setListFilter(NO_LIST_FILTER); setCollapsed(new Set()); closeTask();
   };
 
   const loadProjects = async () => {
@@ -116,8 +117,8 @@ export function ProjectView({ token, route }) {
     }
   }, [task]);
 
-  const openTask = (id) => {
-    setTab("stages");
+  const openTask = (id, inTab = "stages") => {
+    setTab(inTab);
     if (id !== taskId) { setTask(null); setNotice(""); setReview(NO_REVIEW); }
     loadTask(id, { focus: true });
   };
@@ -158,6 +159,13 @@ export function ProjectView({ token, route }) {
         review=${review} headingRef=${heading} onReview=${sendReview} onFeedback=${patchReview} />` : null}
     </div>` : null;
 
+  const listTab = project ? html`<div class=${"project-split" + (taskId ? " project-has-detail" : "")}>
+      <${ListPanel} project=${project} filter=${listFilter} labels=${labels} selectedId=${taskId} onFilter=${setListFilter}
+        onOpen=${(id) => openTask(id, "list")} />
+      ${taskId ? html`<${TaskDetail} project=${project} task=${task} loading=${taskLoading} error=${taskError} notice=${notice}
+        review=${review} headingRef=${heading} onReview=${sendReview} onFeedback=${patchReview} />` : null}
+    </div>` : null;
+
   return html`<section class="project-view" aria-labelledby="project-view-title">
     <div class="project-head">
       <div>
@@ -185,7 +193,7 @@ export function ProjectView({ token, route }) {
     ${project ? html`<${Tabs} id="project-tabs" label="Secciones del proyecto" tabs=${TABS} selected=${tab} onSelect=${setTab}
         after=${html`<${Help} topic="project.tabs" compact=${true} />`} panelProps=${{ "aria-busy": loading ? "true" : "false" }}
         ...${helpFor("project.tabs")}>
-      ${tab === "overview" ? html`<${Overview} project=${project} onOpen=${openTask} />` : stagesTab}
+      ${tab === "overview" ? html`<${Overview} project=${project} onOpen=${openTask} />` : tab === "list" ? listTab : stagesTab}
     <//>` : null}
   </section>`;
 }

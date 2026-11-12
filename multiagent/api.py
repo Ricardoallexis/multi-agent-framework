@@ -808,6 +808,10 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         response.status_code = 201 if started["created"] else 200
         return started
 
+    @app.get("/api/v1/projects/{project_id}/tasks")
+    def list_project_tasks(project_id: str, owner: str = "", state: str = "", due_from: str = "", due_to: str = ""):
+        return services.projects.task_list(project_id, owner=owner, state=state, due_from=due_from, due_to=due_to)
+
     @app.get("/api/v1/projects/{project_id}/activities")
     def list_activities(project_id: str, status: str | None = None, since: str | None = None):
         return services.activities.list(project_id, status=status, since=since)

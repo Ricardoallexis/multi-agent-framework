@@ -553,19 +553,33 @@ function Get-IntegrationRound {
     }
     [pscustomobject]@{ Active = $true; Patches = $patches; Since = $since; TestsRunning = -not $reportAfter }
 }
+# PRY-T05: the words of the task and stage labels come from the ONE shared map (multiagent/tasks/labels.json) that the project
+# view of the GUI shows too. Without the file (a copy of this script away from the repository) the given fallback text is used.
+$script:SharedLabels = $null
+function Get-SharedLabelText([string]$scope, [string]$key, [string]$fallback) {
+    if ($null -eq $script:SharedLabels) {
+        $script:SharedLabels = $false
+        $file = Join-Path $PSScriptRoot '../../multiagent/tasks/labels.json'
+        if (Test-Path -LiteralPath $file -PathType Leaf) {
+            try { $script:SharedLabels = Get-Content -LiteralPath $file -Raw -Encoding utf8 | ConvertFrom-Json } catch { $script:SharedLabels = $false }
+        }
+    }
+    $entry = if ($script:SharedLabels -and $script:SharedLabels.$scope) { $script:SharedLabels.$scope.$key } else { $null }
+    if ($entry -and $entry.text) { [string]$entry.text } else { $fallback }
+}
 # SEG-T13: one label for phases and stages, first match wins. $kind is 'Fase' or 'Etapa'; $rows are the tasks (State, Patch,
 # WaitingFor, Integrating); $closure is, for a stage, 'cerrada' (verified closure), 'sin verificar' (the card says closed
 # but it is not verified) or ''. Returns Text and Class, or $null when there is nothing to say (no tasks).
 function Get-StatusLabel([string]$kind, [object[]]$rows, [string]$closure = '', $since = $null) {
     $rows = @($rows | Where-Object { $_ })
     $make = { param($text, $class) [pscustomobject]@{ Text = $text; Class = $class } }
-    if ($closure -eq 'cerrada') { return & $make "$kind cerrada" 's-integrada' }
+    if ($closure -eq 'cerrada') { return & $make (Get-SharedLabelText 'stage' 'closed' "$kind cerrada") 's-integrada' }
     if ($closure -eq 'sin verificar') { return & $make 'cierre no verificado' 's-unknown' }
     if (-not $rows.Count) { return $null }
     # Settled = integrated, or finished with no patch to integrate (analysis deliverables).
     $settled = @($rows | Where-Object { $_.State -eq 'integrada' -or ($_.State -eq 'terminada' -and -not (Test-TaskPatchRequired $_.Patch)) }).Count
     $done = @($rows | Where-Object { $_.State -in 'terminada', 'integrada' }).Count
-    if (@($rows | Where-Object { $_.State -eq 'requiere cambios' }).Count) { return & $make 'Con cambios requeridos' 's-requiere-cambios' }
+    if (@($rows | Where-Object { $_.State -eq 'requiere cambios' }).Count) { return & $make (Get-SharedLabelText 'task' 'changes' 'Con cambios requeridos') 's-requiere-cambios' }
     if (@($rows | Where-Object { $_.Integrating }).Count) {
         $from = if ($since) { ([datetime]$since).ToString('HH:mm', [cultureinfo]::InvariantCulture) } else { '' }
         return & $make "Integrando · pruebas$(if ($from) { " desde $from" })" 's-en-curso'
@@ -575,10 +589,10 @@ function Get-StatusLabel([string]$kind, [object[]]$rows, [string]$closure = '', 
         return & $make 'Etapa terminada · falta cerrar' 's-pendiente'
     }
     if ($done -eq $rows.Count) { return & $make "$kind terminada · falta integrar" 's-pendiente' }
-    if (@($rows | Where-Object { $_.State -eq 'en curso' }).Count) { return & $make 'En progreso' 's-en-curso' }
+    if (@($rows | Where-Object { $_.State -eq 'en curso' }).Count) { return & $make (Get-SharedLabelText 'task' 'doing' 'En progreso') 's-en-curso' }
     if ($done) { return & $make "Avance parcial · $done de $($rows.Count)" 's-pendiente' }
     # SEG-T10: takeable = disponible/liberada/reabierta with no dependency wait (reuses WaitingFor).
-    if (@($rows | Where-Object { $_.State -in 'disponible', 'liberada', 'reabierta' -and -not $_.WaitingFor.Count }).Count) { return & $make 'Disponible' 's-disponible' }
+    if (@($rows | Where-Object { $_.State -in 'disponible', 'liberada', 'reabierta' -and -not $_.WaitingFor.Count }).Count) { return & $make (Get-SharedLabelText 'task' 'ready' 'Disponible') 's-disponible' }
     & $make 'En espera de dependencias' 's-idle'
 }
 

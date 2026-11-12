@@ -1100,6 +1100,12 @@ SCRIPT: list[tuple[str, dict[str, Any]]] = [
     ("list", {"archived": True}),
     ("get", {"project_id": "par"}),
     ("get", {"project_id": "ghost"}),
+    ("task_list", {"project_id": "par"}),
+    ("task_list", {"project_id": "par", "owner": AGENT}),
+    ("task_list", {"project_id": "par", "state": "ready"}),
+    ("task_list", {"project_id": "par", "due_from": "2026-11-01", "due_to": "2026-11-30"}),
+    ("task_list", {"project_id": "par", "state": "almost"}),
+    ("task_list", {"project_id": "ghost"}),
     ("update", {"project_id": "par", "actor": OWNER, "expected_revision": 1, "title": "Renamed", "visibility": "normal"}),
     ("update", {"project_id": "par", "actor": OWNER, "expected_revision": 1, "title": "Stale"}),
     ("archive", {"project_id": "par", "actor": OWNER, "expected_revision": 2}),
@@ -1139,6 +1145,8 @@ def run_facade(svc: ApplicationServices, op: str, args: dict[str, Any]) -> Any:
         return getattr(projects, op)(args.pop("project_id"), **args)
     if op == "list":
         return projects.list(**args)
+    if op == "task_list":
+        return projects.task_list(args.pop("project_id"), **args)
     if op == "reorder":
         return projects.reorder(args.pop("project_id"), args.pop("group_ids"), **args)
     if op in ("attach_stage", "close_stage"):
@@ -1163,6 +1171,8 @@ def run_http(client: TestClient, op: str, args: dict[str, Any]) -> tuple[int, An
         response = client.get("/api/v1/projects", params={"archived": str(a.get("archived", False)).lower()})
     elif op == "get":
         response = client.get(f"/api/v1/projects/{seg(a['project_id'])}")
+    elif op == "task_list":
+        response = client.get(f"/api/v1/projects/{seg(a.pop('project_id'))}/tasks", params=a or None)
     elif op == "update":
         response = client.patch(f"/api/v1/projects/{seg(a.pop('project_id'))}", json=a)
     elif op in ("archive", "unarchive"):
@@ -1198,6 +1208,11 @@ def cli_args(op: str, args: dict[str, Any], doc_file: Path) -> list[str]:
         return ["projects"] + (["--archived"] if a.get("archived") else [])
     if op == "get":
         return ["project", "show", a["project_id"]]
+    if op == "task_list":
+        argv = ["project", "tasks", a.pop("project_id")]
+        for name, value in a.items():
+            argv += ["--" + name.replace("_", "-"), value]
+        return argv
     if op == "update":
         argv = ["project", "update", a["project_id"], "--actor", a["actor"], "--revision", str(a["expected_revision"])]
         argv += ["--title", a["title"]] if "title" in a else []

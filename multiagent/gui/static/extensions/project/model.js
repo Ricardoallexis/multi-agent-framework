@@ -87,6 +87,36 @@ export function planText(stage) {
   return "Previsto: " + dayText(stage.planned_start, "?") + " a " + dayText(stage.planned_end, "?");
 }
 
+// The List view (PRY-T05): every task of the stages as one flat row, with its stage and the stage's planned dates (null when the
+// plan has none: nothing is invented). Same shape as the rows of ProjectServices.task_list.
+export function listRows(project) {
+  return [...taskIndex(project).values()].map(({ task, stage }) => ({
+    ...task, stage_code: stage.code, stage_title: stage.title, planned_start: stage.planned_start || null, planned_end: stage.planned_end || null,
+  }));
+}
+
+export const ownerOf = (task) => task?.assignee || task?.preferred || "";
+
+// The owners present (as stored, with their shown name) and the filters of the List view. A date filter leaves out the tasks with
+// no due date, like the service does.
+export function listOwners(rows) {
+  const found = new Map();
+  for (const row of list(rows)) if (ownerOf(row) && !found.has(ownerOf(row))) found.set(ownerOf(row), actorText(row.assignee_info) || ownerOf(row));
+  return [...found].map(([value, text]) => ({ value, text })).sort((a, b) => a.text.localeCompare(b.text));
+}
+
+export const NO_LIST_FILTER = { owner: "", label: "", from: "", to: "" };
+
+export function matchesList(row, { owner = "", label = "", from = "", to = "" } = {}) {
+  if (owner && ownerOf(row) !== owner) return false;
+  if (label && row.label?.key !== label) return false;
+  if (from || to) {
+    const due = String(row.due_at || "").slice(0, 10);
+    if (!due || (from && due < from) || (to && due > to)) return false;
+  }
+  return true;
+}
+
 // Does the task match the filter? `text` looks in title, id and phase; `label` is a label key or "" for all.
 export function matchesFilter(task, { text = "", label = "" } = {}) {
   if (label && task.label?.key !== label) return false;

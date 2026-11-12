@@ -41,6 +41,7 @@ packages = [
   "multiagent.adapters",
   "multiagent.context",
   "multiagent.db",
+  "multiagent.evaluation",
   "multiagent.observability",
   "multiagent.services",
   "multiagent.setup",

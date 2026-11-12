@@ -545,6 +545,12 @@ def cmd_project_show(args) -> None:
     pretty(_api_json("GET", f"/api/v1/projects/{_segment(args.project_id)}"))
 
 
+def cmd_project_tasks(args) -> None:
+    params = {name: value for name, value in (("owner", args.owner), ("state", args.state), ("due_from", args.due_from),
+                                              ("due_to", args.due_to)) if value}
+    pretty(_api_json("GET", f"/api/v1/projects/{_segment(args.project_id)}/tasks", params=params or None))
+
+
 def cmd_project_plan(args) -> None:
     pretty(_api_json("POST", "/api/v1/projects/plan", json_body=_plan_body(args)))
 
@@ -1276,6 +1282,10 @@ def build_parser() -> argparse.ArgumentParser:
         dest="project_command", required=True)
     x = project.add_parser("show", help="The aggregated view: progress, stages, what needs you, who is working")
     x.add_argument("project_id"); x.set_defaults(func=cmd_project_show)
+    x = project.add_parser("tasks", help="The flat list of the tasks, optionally by owner, state (label key) and due date")
+    x.add_argument("project_id"); x.add_argument("--owner"); x.add_argument("--state")
+    x.add_argument("--due-from", dest="due_from", help="AAAA-MM-DD"); x.add_argument("--due-to", dest="due_to", help="AAAA-MM-DD")
+    x.set_defaults(func=cmd_project_tasks)
     for name, help_text in (("plan", "Validate a plan or template file (JSON or YAML) without writing"),
                             ("create", "Create the project from a plan or template file, in one transaction")):
         x = project.add_parser(name, help=help_text)

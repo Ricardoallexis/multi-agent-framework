@@ -8,7 +8,7 @@ import { Help, helpFor } from "../../js/help.js";
 import { Progress } from "../../js/ui/progress.js";
 import { StatusChip } from "../../js/ui/status-chip.js";
 import {
-  canReview, chipOf, dayText, deliverables, detailOf, labelSummary, list, matchesFilter, phaseGroups, planText, progressOf, requiresText,
+  canReview, chipOf, dayText, deliverables, detailOf, labelSummary, list, listOwners, listRows, matchesFilter, matchesList, phaseGroups, planText, progressOf, requiresText,
   shortId, taskIndex, taskName, whoText,
 } from "./model.js";
 
@@ -166,6 +166,47 @@ export function StagesPanel({ project, filter, labels, collapsed, selectedId, on
         })}
       </section>`;
     })}
+  </div>`;
+}
+
+// The List view (PRY-T05): one flat list of all the tasks with filters by owner, state and due date.
+export function ListPanel({ project, filter, labels, onFilter, onOpen, selectedId }) {
+  const rows = listRows(project);
+  const owners = listOwners(rows);
+  const shown = rows.filter((row) => matchesList(row, filter));
+  const set = (changes) => onFilter({ ...filter, ...changes });
+  return html`<div class="project-stages">
+    <h4 id="project-list-title">Lista de tareas</h4><${Help} topic="project.list_view" />
+    <div class="project-filters">
+      <div class="project-filter">
+        <label for="project-list-owner">Responsable</label>
+        <select id="project-list-owner" value=${filter.owner} onChange=${(event) => set({ owner: event.target.value })} ...${helpFor("project.list_owner")}>
+          <option value="">Todos</option>
+          ${owners.map((owner) => html`<option key=${owner.value} value=${owner.value}>${owner.text}</option>`)}
+        </select>
+        <${Help} topic="project.list_owner" />
+      </div>
+      <div class="project-filter">
+        <label for="project-list-state">Estado</label>
+        <select id="project-list-state" value=${filter.label} onChange=${(event) => set({ label: event.target.value })} ...${helpFor("project.list_state")}>
+          <option value="">Todos</option>
+          ${labels.map(({ label }) => html`<option key=${label.key} value=${label.key}>${label.text}</option>`)}
+        </select>
+        <${Help} topic="project.list_state" />
+      </div>
+      <div class="project-filter">
+        <label for="project-list-since">Vence desde</label>
+        <input id="project-list-since" type="date" value=${filter.from} onInput=${(event) => set({ from: event.target.value })} ...${helpFor("project.list_dates")} />
+        <label for="project-list-until">Vence hasta</label>
+        <input id="project-list-until" type="date" value=${filter.to} onInput=${(event) => set({ to: event.target.value })} ...${helpFor("project.list_dates")} />
+        <${Help} topic="project.list_dates" />
+      </div>
+    </div>
+    <p class="project-meta" role="status">${shown.length} de ${rows.length} tareas.</p>
+    ${shown.length ? html`<ul class="project-items">${shown.map((task) => html`<${TaskRow} key=${task.id} task=${task} project=${project}
+        current=${selectedId === task.id} onOpen=${onOpen}>
+        <span class="project-meta">Etapa ${task.stage_code} · ${planText(task)}</span>
+      <//>`)}</ul>` : html`<p class="project-empty">${rows.length ? "Ninguna tarea coincide con los filtros." : "Este proyecto todavía no tiene tareas."}</p>`}
   </div>`;
 }
 

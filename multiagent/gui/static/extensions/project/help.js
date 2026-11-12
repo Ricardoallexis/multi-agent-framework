@@ -29,10 +29,11 @@ export const HELP = {
   },
   "project.tabs": {
     "title": "Secciones",
-    "hint": "Cambia entre el resumen y las etapas con sus tareas.",
+    "hint": "Cambia entre el resumen, las etapas con sus tareas y la lista plana.",
     "more": [
       "«Resumen» muestra el avance y qué debes hacer tú.",
-      "«Etapas y tareas» muestra cada etapa con sus fases, filtros y el detalle de una tarea."
+      "«Etapas y tareas» muestra cada etapa con sus fases, filtros y el detalle de una tarea.",
+      "«Lista plana» muestra todas las tareas en una lista plana, con filtros por responsable, estado y fecha."
     ]
   },
   "project.progress": {
@@ -89,6 +90,38 @@ export const HELP = {
     "more": [
       "Los estados son los mismos que usa el núcleo, como «Espera tu revisión» o «Bloqueada».",
       "Elige «Todos» para quitar el filtro."
+    ]
+  },
+  "project.list_view": {
+    "title": "Lista de tareas",
+    "hint": "Todas las tareas del proyecto en una sola lista plana.",
+    "more": [
+      "Cada fila dice su etapa, quién la tiene, su fecha límite y las fechas previstas de su etapa.",
+      "Lo que no tiene fecha dice «Sin fecha»; nunca se inventa una."
+    ]
+  },
+  "project.list_owner": {
+    "title": "Filtrar por responsable",
+    "hint": "Muestra solo las tareas de la persona o el agente elegido.",
+    "more": [
+      "Cuenta quien tomó la tarea o, si nadie la tomó, quien está sugerido.",
+      "Elige «Todos» para quitar el filtro."
+    ]
+  },
+  "project.list_state": {
+    "title": "Filtrar por estado",
+    "hint": "Muestra solo las tareas con el estado elegido.",
+    "more": [
+      "Los estados son los mismos que usa el núcleo y que enseña Seguimiento.",
+      "Elige «Todos» para quitar el filtro."
+    ]
+  },
+  "project.list_dates": {
+    "title": "Filtrar por fecha límite",
+    "hint": "Muestra solo las tareas cuya fecha límite cae entre las dos fechas.",
+    "more": [
+      "Las dos fechas son opcionales y cuentan los días indicados.",
+      "Con una fecha elegida, las tareas sin fecha límite no aparecen."
     ]
   },
   "project.phase_toggle": {

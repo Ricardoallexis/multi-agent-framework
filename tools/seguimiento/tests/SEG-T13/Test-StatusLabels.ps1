@@ -86,25 +86,25 @@ try {
     $html = Invoke-Viewer
 
     $expected = [ordered]@{
-        'seg:PHA:fase-1' = @('Con cambios requeridos', 's-requiere-cambios')
+        'seg:PHA:fase-1' = @('Cambios pedidos', 's-requiere-cambios')
         'seg:PHA:fase-2' = @('Integrando · pruebas desde 12:34', 's-en-curso')
         'seg:PHA:fase-3' = @('Fase completa', 's-integrada')
         'seg:PHA:fase-4' = @('Fase completa', 's-integrada')
         'seg:PHA:fase-5' = @('Fase terminada · falta integrar', 's-pendiente')
-        'seg:PHA:fase-6' = @('En progreso', 's-en-curso')
+        'seg:PHA:fase-6' = @('En curso', 's-en-curso')
         'seg:PHA:fase-7' = @('Avance parcial · 1 de 2', 's-pendiente')
-        'seg:PHA:fase-8' = @('Disponible', 's-disponible')
+        'seg:PHA:fase-8' = @('Lista', 's-disponible')
         'seg:PHA:fase-9' = @('En espera de dependencias', 's-idle')
-        'seg:PHA' = @('Con cambios requeridos', 's-requiere-cambios')
-        'seg:S01' = @('Con cambios requeridos', 's-requiere-cambios')
+        'seg:PHA' = @('Cambios pedidos', 's-requiere-cambios')
+        'seg:S01' = @('Cambios pedidos', 's-requiere-cambios')
         'seg:S02' = @('Integrando · pruebas desde 12:34', 's-en-curso')
         'seg:S03' = @('Etapa terminada · falta cerrar', 's-pendiente')
-        'seg:S04' = @('Etapa cerrada', 's-integrada')
+        'seg:S04' = @('Cerrada', 's-integrada')
         'seg:S05' = @('cierre no verificado', 's-unknown')
         'seg:S06' = @('Etapa terminada · falta integrar', 's-pendiente')
-        'seg:S07' = @('En progreso', 's-en-curso')
+        'seg:S07' = @('En curso', 's-en-curso')
         'seg:S08' = @('Avance parcial · 1 de 2', 's-pendiente')
-        'seg:S09' = @('Disponible', 's-disponible')
+        'seg:S09' = @('Lista', 's-disponible')
         'seg:S10' = @('En espera de dependencias', 's-idle')
     }
     foreach ($id in $expected.Keys) {
