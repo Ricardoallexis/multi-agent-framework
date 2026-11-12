@@ -35,6 +35,30 @@ class PromptManager:
             raise ValueError(f"Could not render {prompt_id}.v{version}: {exc}") from exc
         return PromptTemplate(prompt_id, version, rendered)
 
+    @staticmethod
+    def stable_prefix(skill_text: str, schema_block: str) -> str:
+        """The part of a prompt that does not change between attempts or steps: skills, then the output schema.
+
+        Providers cache a prompt by its leading bytes, so this goes first and the variable part after it. Nothing
+        that varies per run (dates, ids, inputs) may go in here.
+        """
+        parts = []
+        if skill_text:
+            parts.append("## Active skill\n" + skill_text)
+        if schema_block:
+            parts.append(schema_block.strip("\n"))
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def assemble(prefix: str, rendered: str, sections: list[str] | tuple[str, ...] = (), suffix: str = "") -> str:
+        """``prefix`` (stable) + the rendered template + the context sections (variable) + ``suffix`` (fixed tail).
+
+        The fixed tail keeps trusted text after any untrusted data in the variable part.
+        """
+        variable = rendered + "".join("\n\n" + section for section in sections)
+        text = prefix + "\n\n" + variable if prefix else variable
+        return text + "\n\n" + suffix.strip("\n") if suffix else text
+
     def skill_text(self, skill_id: str) -> str:
         path = self.skills_dir / f"{skill_id}.md"
         if not path.exists():

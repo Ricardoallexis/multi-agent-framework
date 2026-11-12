@@ -108,6 +108,11 @@ class _Escalation(NamedTuple):
 
 # ---------- untrusted sources in the context of a step (BDI-T02, contract BDI-T01 sections 4 to 8) ----------
 DOCUMENT_ACTOR = "document_trust"        # the actor that stores the blob of a quarantined fragment
+OUTPUT_CONTRACT_REMINDER = (          # fixed tail of every step prompt: trusted text after any untrusted data
+    "## REQUIRED OUTPUT CONTRACT\n"
+    "Return only a valid JSON object that satisfies the OUTPUT SCHEMA above. "
+    "Do not use Markdown or text outside the JSON."
+)
 SUMMARY_HEADING = "## Context summary"   # first line of the CMP summary section; it stays outside the envelope
 _SEVERITY_ORDER = {"low": 1, "medium": 2, "high": 3}
 MAX_EVENT_SIGNALS = 100                  # what one document_quarantined / document_review_requested event lists
@@ -437,10 +442,12 @@ class WorkflowEngine:
                 recorded_context = step_context.original.variables()  # what the step is recorded with: plain values
                 prompt = self.prompts.render(step.prompt_id, step.prompt_version, **context)
                 skill_text = "\n\n".join(self.prompts.skill_text(skill) for skill in step.skills)
-                final_prompt = prompt.text + ("\n\n## Active skill\n" + skill_text if skill_text else "")
-                for section in step_context.sections():
-                    final_prompt += "\n\n" + section  # the context summary, after the skills (CMP-T04)
-                final_prompt += self._output_contract_instruction(output_schema)
+                # Stable prefix first (skills, output schema), then the variable part (the rendered step prompt with its
+                # input, prior artifacts and feedback, then the context sections), then a short fixed tail, so that
+                # untrusted content is always followed by trusted text. Providers cache the leading bytes.
+                final_prompt = self.prompts.assemble(
+                    self.prompts.stable_prefix(skill_text, self._output_schema_block(output_schema)),
+                    prompt.text, step_context.sections(), OUTPUT_CONTRACT_REMINDER)
                 prompt_sha256 = hashlib.sha256(final_prompt.encode("utf-8")).hexdigest()
                 estimated_input = estimate_tokens_conservative(final_prompt)
 
@@ -1376,6 +1383,7 @@ class WorkflowEngine:
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             num_ctx=int(response.metadata.get("num_ctx") or 0) or None,
+            cache_read_tokens=response.metadata.get("cache_read_tokens"),
             duration_ms=response.latency_ms,
             **self._call_cost(response.metadata.get("catalog_model_id"), tokens_in, tokens_out),
             success=True,
@@ -1810,13 +1818,9 @@ class WorkflowEngine:
         return payload
 
     @staticmethod
-    def _output_contract_instruction(output_schema) -> str:
+    def _output_schema_block(output_schema) -> str:
         schema = json.dumps(output_schema.model_json_schema(), ensure_ascii=False, indent=2)
-        return (
-            "\n\n## REQUIRED OUTPUT CONTRACT\n"
-            "Return only a valid JSON object. Do not use Markdown or text outside the JSON. "
-            "The object must satisfy this JSON Schema:\n" + schema
-        )
+        return "## OUTPUT SCHEMA\nThe object must satisfy this JSON Schema:\n" + schema
 
     def _availability_policy(self):
         """The availability policy when it is on, else ``None``: no inbox guard, nothing changes.

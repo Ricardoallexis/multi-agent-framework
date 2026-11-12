@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from .base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
+from .base import EffortTranslation, LLMAdapter, LLMResponse, cached_tokens, ignored_effort
 from ..catalog import ModelSpec
 from ..config import Settings
 from ..errors import (
@@ -109,6 +109,10 @@ class GeminiAdapter(LLMAdapter):
         usage = getattr(interaction, "usage", None)
         tokens_in = int(getattr(usage, "input_tokens", 0) or getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
         tokens_out = int(getattr(usage, "output_tokens", 0) or getattr(usage, "completion_tokens", 0) or 0) if usage else 0
+        metadata = {"grounded": requires_web, "thinking": spec.thinking, **translation.metadata()}
+        cached = cached_tokens(usage, "cached_content_token_count", "total_cached_tokens", "cached_tokens")
+        if cached is not None:
+            metadata["cache_read_tokens"] = cached  # prompt tokens Gemini reports as served from its cache
         return LLMResponse(
             parsed=parsed,
             raw_text=text,
@@ -118,7 +122,7 @@ class GeminiAdapter(LLMAdapter):
             tokens_out=tokens_out,
             latency_ms=latency_ms,
             sources=sources,
-            metadata={"grounded": requires_web, "thinking": spec.thinking, **translation.metadata()},
+            metadata=metadata,
         )
 
     def health(self) -> dict[str, Any]:

@@ -110,7 +110,7 @@ CONVENTIONS = {
     "claude": "total = input + output + cache_read + cache_write (input excludes the cache)",
     "codex": "total = the reported total_tokens (its input already counts the cached part)",
     "copilot": "total = input + output (cache and reasoning are reported apart)",
-    "framework": "total = input + output",
+    "framework": "total = input + output (input already counts the cached part; cache_read is shown apart)",
 }
 RESET_CONFIDENCE = {sources.RESET_APP_EPOCH: "high", sources.RESET_RULE: "medium", sources.RESET_NONE: "none"}
 # What an app does not leave on disk, from USO-T01 (section 4); shown instead of a number.
@@ -609,6 +609,7 @@ class UsageServices:
             records = self._telemetry(start, end)
             events = [TokenEvent(app="framework", at=r["at"], model=r["model"] or None, role=sources.ROLE_PRIMARY,
                                  input=r["tokens_in"], output=r["tokens_out"],
+                                 cache_read=r["cache_read_tokens"], cache_write=r["cache_write_tokens"],
                                  total=_add(r["tokens_in"], r["tokens_out"]))
                       for r in records if r["tokens_in"] is not None or r["tokens_out"] is not None]
             return events, [], {"records_without_usage": len(records) - len(events)}
@@ -648,7 +649,7 @@ class UsageServices:
                 with store.db.connect() as conn:
                     rows += conn.execute(
                         "SELECT t.id,t.run_id,t.step_id,t.agent_id,t.provider,t.model,t.tokens_in,t.tokens_out,"
-                        "t.duration_ms,t.estimated_cost_usd,t.cost_basis,t.success,t.created_at,"
+                        "t.cache_read_tokens,t.cache_write_tokens,t.duration_ms,t.estimated_cost_usd,t.cost_basis,t.success,t.created_at,"
                         "p.name AS project,p.id AS project_id FROM telemetry t "
                         "LEFT JOIN runs r ON r.id = t.run_id LEFT JOIN projects p ON p.id = r.project_id"
                         + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY t.id",

@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
+from .base import EffortTranslation, LLMAdapter, LLMResponse, cached_tokens, ignored_effort
 from ..catalog import ModelSpec
 from ..config import Settings
 from ..errors import ProviderUnavailable, StructuredOutputError
@@ -98,6 +98,10 @@ class OpenAIAdapter(LLMAdapter):
         except Exception as exc:
             raise ProviderUnavailable(f"OpenAI failed: {exc}") from exc
 
+        metadata = translation.metadata()
+        cached = cached_tokens(usage, "input_tokens_details.cached_tokens", "prompt_tokens_details.cached_tokens")
+        if cached is not None:
+            metadata["cache_read_tokens"] = cached  # prompt tokens served from the provider's prompt cache
         return LLMResponse(
             parsed=parsed,
             raw_text=getattr(response, "output_text", "") or parsed.model_dump_json(),
@@ -106,7 +110,7 @@ class OpenAIAdapter(LLMAdapter):
             tokens_in=int(getattr(usage, "input_tokens", 0) or 0) if usage else 0,
             tokens_out=int(getattr(usage, "output_tokens", 0) or 0) if usage else 0,
             latency_ms=int((time.perf_counter() - started) * 1000),
-            metadata=translation.metadata(),
+            metadata=metadata,
         )
 
     def health(self) -> dict[str, Any]:

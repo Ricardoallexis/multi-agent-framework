@@ -24,6 +24,27 @@ class LLMResponse:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def cached_tokens(usage: Any, *paths: str) -> int | None:
+    """Cached prompt tokens a provider reported, or None when it reported none.
+
+    Each path is dotted (``"input_tokens_details.cached_tokens"``) and read from an object or a dict; the first one
+    that holds a non-negative integer wins. Used only to record what the response already says: no extra API call.
+    """
+    if usage is None:
+        return None
+    for path in paths:
+        value: Any = usage
+        for part in path.split("."):
+            value = value.get(part) if isinstance(value, dict) else getattr(value, part, None)
+            if value is None:
+                break
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+    return None
+
+
+
+
 @dataclass(frozen=True)
 class EffortTranslation:
     """What one provider does with a requested reasoning effort.

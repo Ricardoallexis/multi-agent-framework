@@ -413,6 +413,10 @@ def test_migration_adds_cost_basis_to_an_existing_database_and_keeps_rows(tmp_pa
     shutil.copyfile(source / "011_projects.sql", migrations_dir / "011_projects.sql")
     assert db.migrate() == ["011_projects.sql"]
 
+    # And the cache token columns of migration 013 (CAP-T04), which the store writes too.
+    shutil.copyfile(source / "013_telemetry_cache_tokens.sql", migrations_dir / "013_telemetry_cache_tokens.sql")
+    assert db.migrate() == ["013_telemetry_cache_tokens.sql"]
+
     store = Store(db)
     [old] = read_usage(store, "old")
     assert (old["tokens_in"], old["tokens_out"], old["estimated_cost_usd"], old["cost_basis"]) == (5, 6, None, None)

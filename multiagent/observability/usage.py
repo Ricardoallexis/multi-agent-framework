@@ -34,6 +34,9 @@ class TokenUsageRecord:
     error_type: str = ""
     # Evidence behind ``estimated_cost_usd`` (see ``observability.cost``); None when no cost was computed.
     cost_basis: dict[str, Any] | None = None
+    # Provider-reported cached input tokens (CAP-T04); None = not reported. Already counted in tokens_in.
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
 
     def as_store_data(self) -> dict[str, Any]:
         return {
@@ -56,6 +59,8 @@ class TokenUsageRecord:
             "estimated_cost_usd": self.estimated_cost_usd,
             "cost_basis": (json.dumps(self.cost_basis, ensure_ascii=False, sort_keys=True)
                            if self.cost_basis else None),
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
             "success": int(self.success),
             "error_type": self.error_type,
         }
