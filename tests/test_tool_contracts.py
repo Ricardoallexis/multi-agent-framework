@@ -57,7 +57,8 @@ def test_spec_invariants_and_frozen():
         with pytest.raises(ValidationError):
             ToolSpec.model_validate({**spec.model_dump(mode="json"), **changes})
     with pytest.raises(ValidationError):
-        EffectDecl(kind="destructive")
+        EffectDecl(kind="unknown_kind")
+    assert EffectDecl(kind="destructive", target="a.txt").kind.value == "destructive"
     with pytest.raises(ValidationError):
         spec.title = "changed"
 
@@ -128,7 +129,8 @@ def test_permissions_and_untrusted_evidence():
                      [denied.permission_request], [denied]):
         assert invoker.invoke(write, grants={"tool:mock.note_write"}, evidence=evidence).error.code == ToolErrorCode.APPROVAL_REQUIRED
     destructive = r.lookup("mock.note_write").spec.model_copy(update={"tool_id": "mock.delete",
-                                                                  "impacts": frozenset({ImpactClass.DESTRUCTIVE})})
+                                                                  "impacts": frozenset({ImpactClass.DESTRUCTIVE}),
+                                                                  "effects": (EffectDecl(kind="destructive", target_from="/target"),)})
     r.register(destructive, r.lookup("mock.note_write").executor)
     delete = request("mock.delete", {"target": "note.txt", "text": "x"})
     assert invoker.invoke(delete, grants={"tool:mock.delete"}, evidence=[approval()]).error.code == ToolErrorCode.APPROVAL_REQUIRED
@@ -288,7 +290,7 @@ echo = r.lookup('mock.echo').spec.model_dump(mode='json')
 echo.update(capabilities=['cap.alpha', 'cap.beta', 'cap.gamma', 'cap.delta', 'cap.omega'],
             permissions_required=['perm.one', 'perm.two', 'perm.three', 'perm.four'])
 write = r.lookup('mock.note_write').spec.model_dump(mode='json')
-write.update(impacts=['write', 'destructive'], allowed_data_classes=['public', 'internal', 'secret', 'other'])
+write.update(impacts=['write', 'destructive'], effects=[{'kind': 'write', 'target_from': '/target'}, {'kind': 'destructive', 'target_from': '/target'}], allowed_data_classes=['public', 'internal', 'secret', 'other'])
 write = ToolSpec.model_validate(write)
 print(spec_sha256(ToolSpec.model_validate(echo)), spec_sha256(write), json.dumps(write.model_dump(mode='json')['impacts']))
 """

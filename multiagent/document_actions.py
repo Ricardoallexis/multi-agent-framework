@@ -36,6 +36,7 @@ class ActionKind(str, Enum):
     """The neutral kinds of effect that need authorization."""
 
     WRITE = "write"
+    DESTRUCTIVE = "destructive"
     NETWORK = "network"
     LAUNCH_EXECUTOR = "launch_executor"
     OPEN_APPLICATION = "open_application"

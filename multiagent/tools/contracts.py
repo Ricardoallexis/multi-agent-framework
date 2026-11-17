@@ -135,17 +135,19 @@ class ToolSpec(ToolModel):
             raise ValueError("Read is exclusive and effect-free")
         if ImpactClass.WRITE in self.impacts and ActionKind.WRITE not in kinds:
             raise ValueError("Write needs a write effect")
-        if ImpactClass.DESTRUCTIVE in self.impacts and ActionKind.WRITE not in kinds:
-            raise ValueError("Destructive needs a write effect until S5.B")
+        if ImpactClass.DESTRUCTIVE in self.impacts and ActionKind.DESTRUCTIVE not in kinds:
+            raise ValueError("Destructive needs a destructive effect")
         if ImpactClass.DESTRUCTIVE in self.impacts and any(
-                effect.kind == ActionKind.WRITE and effect.target is None and effect.target_from is None
+                effect.kind == ActionKind.DESTRUCTIVE and effect.target is None and effect.target_from is None
                 for effect in self.effects):
-            raise ValueError("Destructive write effects need a target")
+            raise ValueError("Destructive effects need a target")
         external = {ActionKind.NETWORK, ActionKind.LAUNCH_EXECUTOR, ActionKind.OPEN_APPLICATION}
         if ImpactClass.EXTERNAL in self.impacts and not kinds.intersection(external):
             raise ValueError("External needs an external effect")
-        if ActionKind.WRITE in kinds and not self.impacts.intersection({ImpactClass.WRITE, ImpactClass.DESTRUCTIVE}):
+        if ActionKind.WRITE in kinds and ImpactClass.WRITE not in self.impacts:
             raise ValueError("Write effect needs write impact")
+        if ActionKind.DESTRUCTIVE in kinds and ImpactClass.DESTRUCTIVE not in self.impacts:
+            raise ValueError("Destructive effect needs destructive impact")
         if kinds.intersection(external) and ImpactClass.EXTERNAL not in self.impacts:
             raise ValueError("External effect needs external impact")
         return self

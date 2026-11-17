@@ -23,6 +23,7 @@ class RunStatus(str, Enum):
 
 
 class WaitingReason(str, Enum):
+    TOOL_APPROVAL = "tool_approval"
     EXECUTE_STEP = "execute_step"
     RESEARCH = "research"
     REVIEW = "review"

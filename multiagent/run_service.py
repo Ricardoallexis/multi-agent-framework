@@ -74,8 +74,13 @@ class RunService:
         return (run["status"] == RunStatus.WAITING_HUMAN.value
                 and run.get("waiting_reason") == WaitingReason.USER_MESSAGE.value)
 
+    @staticmethod
+    def _awaits_tool_approval(run: dict[str, Any]) -> bool:
+        return (run["status"] == RunStatus.WAITING_HUMAN.value
+                and run.get("waiting_reason") == WaitingReason.TOOL_APPROVAL.value)
+
     def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None,
-                recorded_only: bool = False) -> dict[str, Any]:
+                recorded_only: bool = False, permission_request_id: str | None = None) -> dict[str, Any]:
         """``by`` and ``channel`` say who and through which door (``api`` or ``gui``) the caller declared: they are
         recorded when the approval settles a content review and are not checked (see ``document_review``).
 
@@ -83,12 +88,18 @@ class RunService:
         a spend, so a run held by the budget guard answers ``PersonRequired`` and stays as it was (USO-T04). Every other
         wait behaves as before. The token route of the GUI and the CLI do not pass it."""
         run = self.store.get_run(run_id)
-        if recorded_only and self._awaits_budget_cut(run):
+        if recorded_only and (self._awaits_budget_cut(run) or self._awaits_tool_approval(run)):
             raise PersonRequired("This held call requires a person: use the GUI (it carries the token) or the "
                                  "command line; this route is not authenticated. Rejecting works here.")
         if self._awaits_escalation(run):
             # Approving an escalation resumes the same step with the stronger model; no artifact is under review.
             self.store.finish_escalation(run, approve=True)
+            return self.store.get_run(run_id)
+        if self._awaits_tool_approval(run):
+            # The person must name the request they saw (ToolApprovalMismatch otherwise). Wiring this id into the
+            # API and the GUI is a future task: no real engine step calls tools yet (S5.D1).
+            self.store.finish_tool_approval(run, approve=True, by=by, channel=channel,
+                                            permission_request_id=permission_request_id)
             return self.store.get_run(run_id)
         if self._awaits_content_review(run):
             # Approving a content review lets the held step go on with the prompt as it was built (the quarantined
@@ -148,6 +159,9 @@ class RunService:
         if self._awaits_escalation(run):
             # Rejecting an escalation fails the step (and the run) with the reason; nothing was produced to reject.
             self.store.finish_escalation(run, approve=False, feedback=feedback)
+            return self.store.get_run(run_id)
+        if self._awaits_tool_approval(run):
+            self.store.finish_tool_approval(run, approve=False, feedback=feedback, by=by, channel=channel)
             return self.store.get_run(run_id)
         if self._awaits_budget_cut(run):
             # Rejecting a budget cut fails the run with the reason: the held call is never made.

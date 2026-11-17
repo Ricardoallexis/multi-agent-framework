@@ -31,6 +31,7 @@ dependencies = [
 [project.optional-dependencies]
 gemini = ["google-genai==2.13.0"]
 openai = ["openai==2.46.0"]
+mcp = ["mcp>=2.3,<3"]
 
 [project.scripts]
 multiagent = "multiagent.cli:main"
@@ -42,6 +43,7 @@ packages = [
   "multiagent.context",
   "multiagent.db",
   "multiagent.evaluation",
+  "multiagent.interop",
   "multiagent.observability",
   "multiagent.services",
   "multiagent.setup",

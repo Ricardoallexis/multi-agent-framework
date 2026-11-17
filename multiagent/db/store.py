@@ -33,6 +33,11 @@ from ..document_review import (
 from ..document_trust import EVENT_REVIEW_REQUESTED, EVENT_REVIEW_RESOLVED
 from ..errors import IdempotencyConflict, InvalidStateTransition
 from ..run_request import RunRequest
+from ..tools.approvals import (EVENT_APPROVED as TOOL_APPROVED, EVENT_REJECTED as TOOL_REJECTED,
+                               EVENT_RELEASED as TOOL_RELEASED, EVENT_REQUESTED as TOOL_REQUESTED, ToolApprovalMismatch,
+                               _approval_from_decision)
+from ..tools.contracts import PermissionRequest
+from datetime import timedelta, timezone
 
 
 def _canonical_request_fingerprint(req: SocialPostRequest | RunRequest) -> str:
@@ -49,6 +54,100 @@ def _canonical_request_fingerprint(req: SocialPostRequest | RunRequest) -> str:
 class Store:
     def __init__(self, db: Database):
         self.db = db
+
+    def hold_tool_approval(self, permission: PermissionRequest) -> None:
+        """Host bridge for an invoker approval_required result; no decision is made here."""
+        if permission.context.scope != "run_step" or not permission.context.run_id or not permission.context.step_id:
+            raise InvalidStateTransition("Tool approval requires a run step")
+        run_id = permission.context.run_id
+        with self.db.tx() as conn:
+            fresh = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            if (fresh is None or fresh["status"] != RunStatus.RUNNING.value or fresh["cancel_requested"]):
+                raise InvalidStateTransition("The run is not executing this tool step")
+            now = utcnow()
+            conn.execute("""UPDATE runs SET status=?,waiting_reason=?,waiting_step=?,waiting_attempt=?,updated_at=?
+                            WHERE id=?""", (RunStatus.WAITING_HUMAN.value, WaitingReason.TOOL_APPROVAL.value,
+                                           permission.context.step_id, permission.context.attempt, now, run_id))
+            conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                         (run_id, now, TOOL_REQUESTED, permission.model_dump_json()))
+
+    def finish_tool_approval(self, run: dict[str, Any], *, approve: bool, feedback: str = "",
+                             by: str | None = None, channel: str | None = None,
+                             permission_request_id: str | None = None) -> None:
+        """Atomically settle exactly the pending tool request."""
+        run_id = run["id"]
+        with self.db.tx() as conn:
+            fresh = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            fields = ("status", "current_step", "waiting_reason", "waiting_step", "waiting_attempt", "cancel_requested")
+            if (fresh is None or fresh["status"] != RunStatus.WAITING_HUMAN.value
+                    or fresh["waiting_reason"] != WaitingReason.TOOL_APPROVAL.value or fresh["cancel_requested"]
+                    or any(fresh[key] != run[key] for key in fields)):
+                raise InvalidStateTransition("The persisted tool approval changed")
+            pending = None
+            for row in conn.execute("SELECT event_type,payload_json FROM run_events WHERE run_id=? "
+                                    "AND event_type IN (?,?,?) ORDER BY id", (run_id, TOOL_REQUESTED,
+                                    TOOL_APPROVED, TOOL_REJECTED)):
+                if row["event_type"] == TOOL_REQUESTED:
+                    try:
+                        candidate = PermissionRequest.model_validate_json(row["payload_json"])
+                    except Exception:
+                        pending = None
+                        continue
+                    pending = candidate if (candidate.context.step_id == fresh["waiting_step"] and
+                                            candidate.context.attempt == fresh["waiting_attempt"] and
+                                            candidate.context.run_id == run_id) else None
+                else:
+                    pending = None
+            if approve:
+                if pending is None:
+                    raise ToolApprovalMismatch("No pending tool approval", code="no_pending_tool_approval")
+                if permission_request_id is None or permission_request_id != pending.permission_request_id:
+                    raise ToolApprovalMismatch("The approval does not name the pending tool request",
+                                               code="permission_request_mismatch")
+            # Rejecting never releases anything, so it works even when the request event is missing or unreadable.
+            now = utcnow()
+            payload = {"permission_request": pending.model_dump(mode="json") if pending is not None else None,
+                       "by": by, "channel": channel,
+                       "feedback": feedback, "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()}
+            conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                         (run_id, now, TOOL_APPROVED if approve else TOOL_REJECTED,
+                          json.dumps(payload, ensure_ascii=False)))
+            if approve:
+                conn.execute("UPDATE runs SET status=?,waiting_reason='',waiting_step='',waiting_attempt=NULL,updated_at=? "
+                             "WHERE id=?", (RunStatus.QUEUED.value, now, run_id))
+            else:
+                conn.execute("UPDATE runs SET status=?,error=?,revision_feedback=?,waiting_reason='',waiting_step='',"
+                             "waiting_attempt=NULL,updated_at=? WHERE id=?",
+                             (RunStatus.FAILED.value, "Tool approval rejected", feedback, now, run_id))
+
+    def take_tool_approval(self, permission: PermissionRequest):
+        """Release a human grant once for the exact permission request; never infer one from request text."""
+        run_id = permission.context.run_id
+        if not run_id:
+            return None
+        with self.db.tx() as conn:
+            fresh = conn.execute("SELECT status,cancel_requested FROM runs WHERE id=?", (run_id,)).fetchone()
+            if (fresh is None or fresh["cancel_requested"] or
+                    fresh["status"] not in (RunStatus.QUEUED.value, RunStatus.RUNNING.value)):
+                return None
+            rows = conn.execute("SELECT event_type,payload_json FROM run_events WHERE run_id=? AND event_type IN (?,?) "
+                                "ORDER BY id", (run_id, TOOL_APPROVED, TOOL_RELEASED)).fetchall()
+            approved = None
+            for row in rows:
+                payload = json.loads(row["payload_json"])
+                if row["event_type"] == TOOL_RELEASED and payload.get("permission_request_id") == permission.permission_request_id:
+                    approved = None
+                elif row["event_type"] == TOOL_APPROVED and payload.get("permission_request") == permission.model_dump(mode="json"):
+                    approved = payload
+            if approved is None:
+                return None
+            expiry = datetime.fromisoformat(approved["expires_at"])
+            if expiry.tzinfo is None or datetime.now(timezone.utc) >= expiry:
+                return None
+            conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                         (run_id, utcnow(), TOOL_RELEASED,
+                          json.dumps({"permission_request_id": permission.permission_request_id})))
+            return _approval_from_decision(PermissionRequest.model_validate(approved["permission_request"]), expiry)
 
     # -------- projects / runs --------
     def get_or_create_project(self, name: str) -> str:
