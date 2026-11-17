@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import logging
@@ -19,7 +20,7 @@ from .budget_cut import BudgetPolicy, policy_from_settings
 from .call_guards import (
     SCOPE_RUN_STEP, STOP_USER_CANCEL, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
 )
-from .catalog import Catalog, CatalogError, validate_routing_profile
+from .catalog import Catalog, CatalogError, ModelSpec, validate_routing_profile
 from .context.estimate import ContextSettings, compaction_pending, context_settings_for
 from .context.summary import (
     CONTEXT_AGENT_ID, SummaryAccess, SummaryPolicy, SummarySchemaError, content_text, render_summary_for_prompt,
@@ -66,7 +67,9 @@ from .routing_policy import (
 )
 from .observability.usage import read_usage, summarize_usage
 from .schema_utils import estimate_tokens_conservative
-from .tasks.envelopes import blob_ref
+from .step_cache import (EVENT_HIT, KIND_MODEL, STEP_CACHE_CODE_VERSION, ZERO_USAGE, StepCache, StepCachePolicy,
+                         model_step_key)
+from .tasks.envelopes import blob_ref, envelope_sha256
 from .workflows import WorkflowCatalog, WorkflowDefinition, WorkflowStep, condition_is_true
 from .workflow_validation import (
     WorkflowDefinitionError, validate_resume_point, validate_workflow_definition,
@@ -224,7 +227,8 @@ class WorkflowEngine:
                  artifacts: ArtifactWriter, settings,
                  output_schemas: Mapping[str, type[BaseModel]] | None = None,
                  document_policy: str | DetectionPolicy | None = DEFAULT_DOCUMENT_POLICY,
-                 approval_timeout_seconds: float | None = None):
+                 approval_timeout_seconds: float | None = None,
+                 step_cache: StepCachePolicy | None = None):
         self.store = store
         self.catalog = catalog
         self.prompts = prompts
@@ -241,6 +245,8 @@ class WorkflowEngine:
         self.output_schemas = dict(OUTPUT_SCHEMAS if output_schemas is None else output_schemas)
         self.usage_recorder = UsageRecorder(store)
         self._envelope_store: EnvelopeStore | None = None
+        # Step result cache (CAP-T13): off unless a policy with ``enabled=True`` is given; then only the steps it allows.
+        self.step_cache_policy: StepCachePolicy = step_cache if step_cache is not None else StepCachePolicy()
         # The document barrier of the context of a step (BDI-T02). ``None``: off, nothing is screened, quoted or
         # recorded. A policy ("quarantine_warn" replaces a suspicious fragment, keeps the original, records an
         # event and goes on; "pause" also asks for a review) turns it on. ``ValueError`` if unknown.
@@ -556,18 +562,53 @@ class WorkflowEngine:
                 # context estimate (only with an enabled context profile), the content review (only with the
                 # document policy ``pause``, BDI-T04), the limits of this call, the budget guards that plug in
                 # there, and last the reservation. A dry run has no real model or window, so it is not measured.
+                egress_policy = step.egress or {"action": self.settings.egress_default}
+                guard_env = GuardEnvironment(
+                    scope=SCOPE_RUN_STEP, catalog=self.catalog,
+                    routing_profile_id=profile_id, routing_profile=profile,
+                    context_settings=context_settings, document_policy=self.document_policy,
+                    availability=self._availability_policy(), budgets=self._budget_policy(),
+                    egress=egress_policy,
+                    emit=lambda event_type, payload: self.store.db.log_event(run_id, event_type, payload),
+                )
                 call_guards = build_call_guards(
-                    GuardEnvironment(
-                        scope=SCOPE_RUN_STEP, catalog=self.catalog,
-                        routing_profile_id=profile_id, routing_profile=profile,
-                        context_settings=context_settings, document_policy=self.document_policy,
-                        availability=self._availability_policy(), budgets=self._budget_policy(),
-                        egress=step.egress or {"action": self.settings.egress_default},
-                        emit=lambda event_type, payload: self.store.db.log_event(run_id, event_type, payload),
-                    ),
+                    guard_env,
                     cancel=lambda call: self._check_cancel(run_id),
                     reserve=reserve_llm_call,
                 )
+
+                # Step result cache (CAP-T13): off by default. A hit never skips a guard: the same chain that runs
+                # before a model call (inbox, content review, egress, budget, limits; without the reservation) runs
+                # before the saved result is used, so a call that a guard would stop or pause behaves the same with
+                # the cache. Steps that wait for a person (checkpoint), that need the web or that depend on the
+                # request's own web flag are never cached. A hit completes the step without calling the model; it
+                # counts as no call and no tokens. Any cache failure falls through to the normal model call.
+                cache_key: str | None = None
+                if (self.step_cache_policy.allows(step.id) and not step.checkpoint_after and not requires_web
+                        and not request.get("requires_web")):
+                    cache_key = self._step_cache_key(
+                        step=step, binding=binding, profile_id=profile_id, routing_decision=routing_decision,
+                        effort=effective_effort, requires_web=requires_web, execution_mode=execution_mode,
+                        output_schema=output_schema, prompt_sha256=prompt_sha256, inputs=recorded_context,
+                        sensitive=bool(request.get("sensitive")), run=fresh, egress=egress_policy,
+                        data_class=request.get("data_class"))
+                    if cache_key is not None and self._try_step_cache_hit(
+                            run_id=run_id, index=index, step=step, attempt=attempt, key=cache_key,
+                            context=recorded_context, output_schema=output_schema, binding=binding,
+                            requirements=requirements, final_prompt=final_prompt, estimated_input=estimated_input,
+                            profile_id=profile_id, sensitive=bool(request.get("sensitive")),
+                            guards=build_call_guards(guard_env, cancel=lambda call: self._check_cancel(run_id)),
+                            requires_web=requires_web, revision_feedback=fresh.get("revision_feedback", "")):
+                        self._check_cancel(run_id)
+                        self.store.update_run(run_id, revision_feedback="")
+                        self._compact_after_step(
+                            run_id=run_id, definition=definition, index=index, step=step, attempt=attempt,
+                            request=request, settings=context_settings, profile_id=profile_id, profile=profile,
+                            brand_version=fresh.get("brand_version"),
+                        )
+                        index += 1
+                        self.store.update_run(run_id, current_step=index)
+                        continue
 
                 def consume_llm_call(call: CallContext, *, skip: tuple[str, ...] = ()) -> None:
                     """``before_call`` of the router for this step. ``skip`` names guards to leave out (the
@@ -706,6 +747,21 @@ class WorkflowEngine:
                     fresh=fresh,
                     escalation=escalation_info,
                 )
+                if cache_key is not None and (escalation_info is not None or carried_attempts):
+                    # An escalation changed the binding and the effort: the saved output belongs to the final
+                    # ones, never to the key of the original binding.
+                    cache_key = self._step_cache_key(
+                        step=step, binding=binding, profile_id=profile_id, routing_decision=routing_decision,
+                        effort=effective_effort, requires_web=requires_web, execution_mode=execution_mode,
+                        output_schema=output_schema, prompt_sha256=prompt_sha256, inputs=recorded_context,
+                        sensitive=bool(request.get("sensitive")), run=fresh, egress=egress_policy,
+                        data_class=request.get("data_class"))
+                if cache_key is not None:
+                    self._step_cache().store(
+                        cache_key, kind=KIND_MODEL,
+                        result={"data": data, "model": response.model, "provider": response.provider},
+                        emit=lambda kind, payload: self.store.db.log_event(run_id, kind, payload),
+                        step_id=step.id, attempt=attempt)
                 self._check_cancel(run_id)
 
                 self.store.update_run(run_id, revision_feedback="")
@@ -1577,6 +1633,109 @@ class WorkflowEngine:
                  "revision_feedback": KIND_REVISION_FEEDBACK}
         return tuple(ContextPart(name, value, kinds.get(name, KIND_INPUT)) for name, value in variables.items())
 
+    # ---------- step result cache (CAP-T13) ----------
+    def _step_cache(self) -> StepCache:
+        return StepCache(self._blob_store(), self.store.db)
+
+    def _step_cache_key(self, *, step: WorkflowStep, binding: ModelBinding, profile_id: str | None,
+                        routing_decision: Any, effort: str | None, requires_web: bool, execution_mode: ExecutionMode,
+                        output_schema: type[BaseModel], prompt_sha256: str, inputs: Mapping[str, Any],
+                        sensitive: bool, run: Mapping[str, Any], egress: Mapping[str, Any],
+                        data_class: str | None = None) -> str | None:
+        """Key of a model step: everything that changes the output. ``None`` (no caching) if it cannot be built."""
+        try:
+            def catalog_spec(model_id: str | None) -> str | None:
+                spec = self.catalog.models.get(str(model_id)) if model_id else None
+                return envelope_sha256(_json_safe(dataclasses.asdict(spec))) if spec is not None else None
+
+            policy = self.document_policy
+            return model_step_key({
+                "code_version": STEP_CACHE_CODE_VERSION,
+                "scope": {"project_id": run.get("project_id"), "workflow_id": run.get("workflow_id"),
+                          "data_class": "sensitive" if sensitive else str(data_class or "non_sensitive")},
+                "step": {"id": step.id, "agent": step.agent, "kind": step.kind, "contract": step.contract,
+                         "prompt_id": step.prompt_id, "prompt_version": step.prompt_version,
+                         "skills": list(step.skills), "definition_sha256": envelope_sha256(
+                             {name: getattr(step, name) for name in step.__dataclass_fields__})},
+                "model": {"preferred": binding.preferred_model, "fallback": binding.fallback_model,
+                          "preferred_spec_sha256": catalog_spec(binding.preferred_model),
+                          "fallback_spec_sha256": catalog_spec(binding.fallback_model),
+                          "max_retries": binding.max_retries, "fallback_max_retries": binding.fallback_max_retries,
+                          "profile_id": profile_id,
+                          "requested": getattr(routing_decision, "requested_model", None),
+                          "dry_run": bool(self.router.dry_run)},
+                "params": {"effort": effort, "requires_web": requires_web, "execution_mode": execution_mode.value,
+                           "sensitive": sensitive,
+                           "egress": dict(egress),
+                           "document_policy": None if policy is None else str(getattr(policy, "value", policy)),
+                           "output_schema_sha256": envelope_sha256(output_schema.model_json_schema())},
+                "prompt_sha256": prompt_sha256,
+                "inputs_sha256": envelope_sha256(inputs),
+            })
+        except Exception:
+            _logger.warning("Could not build the step cache key; running the step", exc_info=True)
+            return None
+
+    def _try_step_cache_hit(self, *, run_id: str, index: int, step: WorkflowStep, attempt: int, key: str,
+                            context: dict[str, Any], output_schema: type[BaseModel], binding: ModelBinding,
+                            requirements: Any, final_prompt: str, estimated_input: int, profile_id: str | None,
+                            sensitive: bool, guards: Any, requires_web: bool, revision_feedback: str) -> bool:
+        """Complete the step from a saved result; ``False`` (nothing recorded) when there is none or it is unusable.
+
+        With a saved entry, its output is validated first, then the call guards run as before a model call; a ``Stop`` or ``Pause``
+        is enforced exactly as then, and a guard that rewrites the outgoing text (egress ``redact``) means no hit.
+        The saved output then goes through the output validation of a new response (contract and semantic).
+        """
+        found = self._step_cache().lookup(key, kind=KIND_MODEL,
+                                          emit=lambda kind, payload: self.store.db.log_event(run_id, kind, payload))
+        if found is None:
+            return False
+        result, ref = found
+        try:
+            if self.router.dry_run:
+                model_id = "fixture"
+                spec = ModelSpec(id="fixture", provider="fake", model="fixture", tier=requirements.tier.value,
+                                 structured_output=True, web=True)
+            else:
+                model_id = binding.preferred_model
+                spec = self.catalog.model(model_id)
+        except Exception:
+            return False
+        try:
+            parsed = output_schema.model_validate(result["data"])
+            self._prepare_and_semantic_validate(step_id=step.id, parsed=parsed, requires_web=requires_web,
+                                                cited_sources=[], revision_feedback=revision_feedback)
+            data = parsed.model_dump(mode="json")
+        except Exception:
+            return False
+        outgoing = [final_prompt]
+        call = CallContext(model_id=model_id, spec=spec, retry=0, ordinal=1, estimated_input_tokens=estimated_input,
+                           outgoing_text=final_prompt,
+                           replace_outgoing=lambda value: outgoing.__setitem__(0, value)).with_fields(
+            scope=SCOPE_RUN_STEP, run_id=run_id, step_id=step.id, step_kind=step.kind, attempt=attempt,
+            profile_id=profile_id, data_class="sensitive" if sensitive else "non_sensitive")
+        verdict = guards.check(call, self.store.get_run(run_id))
+        self._enforce_call_verdict(verdict, call=call, run_id=run_id, index=index, step=step, attempt=attempt)
+        if outgoing[0] != final_prompt:
+            return False
+        self.store.db.log_event(run_id, EVENT_HIT, {
+            "step_id": step.id, "attempt": attempt, "key": key, "blob_ref": ref, "kind": KIND_MODEL,
+            "usage": dict(ZERO_USAGE)})
+        self.store.record_step(run_id=run_id, step_id=step.id, attempt=attempt, status="completed",
+                               input_data=context, output_data=data, model_id=str(result.get("model") or ""),
+                               prompt_id=step.prompt_id, prompt_version=step.prompt_version)
+        path = self.artifacts.write(run_id=run_id, step_index=index, step_id=step.id, attempt=attempt, data=data)
+        relative_path = path.relative_to(self.settings.data_dir)
+        self.store.add_artifact(run_id=run_id, step_id=step.id, attempt=attempt, kind=step.contract,
+                                path=str(relative_path), data=data)
+        self.store.db.log_event(run_id, "model_selected", {
+            "step_id": step.id, "provider": str(result.get("provider") or ""), "model": str(result.get("model") or ""),
+            "model_digest": "", "attempts": [], "estimated_input_tokens": None, "thinking": None,
+            "cached": True, "cache_key": key})
+        self.store.db.log_event(run_id, "step_completed", {
+            "step_id": step.id, "attempt": attempt, "artifact_path": str(relative_path), "cached": True})
+        return True
+
     def _output_record(self, run_id: str, step_id: str) -> OutputRecord | None:
         """The latest completed output of a step with the attempt it came from, or None."""
         found = self.store.latest_completed_step(run_id, step_id)
@@ -1878,6 +2037,17 @@ class WorkflowEngine:
     def _estimate_cost(self, model_id: str, tokens_in: int, tokens_out: int) -> float | None:
         # Catalog values have no verified source, date, or billing unit.
         return None
+
+
+def _json_safe(value: Any) -> Any:
+    """``value`` with every set turned into a sorted list (deterministic); other non-JSON values still fail later."""
+    if isinstance(value, Mapping):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (set, frozenset)):
+        return sorted((_json_safe(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True))
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 class _CancelledSignal(Exception):
