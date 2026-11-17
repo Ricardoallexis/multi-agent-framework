@@ -12,6 +12,7 @@ from typing import Any
 
 import yaml
 
+from .capabilities import CapabilityIdError, validate_capability_ids
 from .config import Settings
 from .errors import MultiAgentError
 from .executors.privacy import HOSTS, RETENTION_STATUSES
@@ -598,6 +599,7 @@ class Catalog:
         self.settings = settings
         self.catalog_dir = Path(catalog_dir) if catalog_dir is not None else settings.catalog_dir
         self.agents = self._load_yaml(self.catalog_dir / "agents.yaml").get("agents", {})
+        self._check_agent_capabilities(self.agents)
         models_document = self._load_yaml(self.catalog_dir / "models.yaml")
         raw_models = models_document.get("models", {})
         routing = models_document.get("routing_profiles", {}) or {}
@@ -711,6 +713,25 @@ class Catalog:
             )
             return None
         return window
+
+    @staticmethod
+    def _check_agent_capabilities(agents: Any) -> None:
+        """S5.C1: an agent's ``capabilities`` may be a list of namespaced ids (strict: an invalid id is a ``CatalogError``).
+
+        The older mapping form (``{skill: LEVEL}``) predates the namespace and is not an id list: it is left untouched.
+        """
+        if not isinstance(agents, dict):
+            return
+        for agent_id, fields in agents.items():
+            declared = fields.get("capabilities") if isinstance(fields, dict) else None
+            if declared is None:
+                continue
+            if isinstance(declared, dict):
+                continue  # legacy skill levels, left as they are: the bundled catalogs load without warnings
+            try:
+                validate_capability_ids(declared)
+            except (CapabilityIdError, TypeError) as exc:
+                raise CatalogError(f"Agent {agent_id!r}: invalid capability id ({exc})") from exc
 
     @staticmethod
     def _warn_legacy_cost(spec: ModelSpec) -> None:

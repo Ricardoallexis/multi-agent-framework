@@ -1,9 +1,14 @@
 """Versioned, provider-neutral executor capability declarations for assignment."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping
+
+from ..capabilities import invalid_capability_ids
+
+_logger = logging.getLogger(__name__)
 
 
 class SupportState(str, Enum):
@@ -173,14 +178,24 @@ def validate_executor_descriptor(value: ExecutorDescriptor | Mapping[str, Any]) 
     return descriptor
 
 
+def executor_capability_warnings(descriptor: ExecutorDescriptor) -> list[str]:
+    """Declared ``capabilities_available`` ids outside the namespaced pattern (a warning, not an error)."""
+    return invalid_capability_ids(descriptor.capabilities_available or ())
+
+
 def descriptor_from_declaration(executor_id: str, declaration: Mapping[str, Any]) -> ExecutorDescriptor:
     """Manual descriptor from a catalog declaration (no adapter): never automatic, evidence as declared."""
     kwargs: dict[str, Any] = {name: declaration.get(name) for name in _SET_FIELDS}
     kwargs.update({name: declaration.get(name) for name in EVIDENCE_FIELDS if declaration.get(name) is not None})
-    return validate_executor_descriptor(ExecutorDescriptor(
+    descriptor = validate_executor_descriptor(ExecutorDescriptor(
         executor_id=str(executor_id), surface=str(declaration.get("surface", "unknown")),
         version=str(declaration.get("version", "1")), mode="manual", provenance="catalog_declared",
         enabled=declaration.get("enabled", True) is True, **kwargs))
+    # S5.C1: existing declarations may use ids outside the namespaced pattern; warn, never reject.
+    for bad in executor_capability_warnings(descriptor):
+        _logger.warning("Executor %s declares capability %r outside the namespaced pattern (e.g. file.read)",
+                        descriptor.executor_id, bad)
+    return descriptor
 
 
 def validate_executor_config(config: Mapping[str, Any]) -> dict[str, Any]:
