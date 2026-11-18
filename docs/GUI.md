@@ -194,6 +194,19 @@ and reset measurements stay unavailable rather than becoming zero. The service
 does not expose a budget or an alert/cutoff mode, so the view does not
 calculate budget percentages or offer those controls.
 
+The **Evaluación** view (`#evaluation`) is read only. It lists the evaluation sets
+that have saved runs, each with its latest score, whether that run was Mock or
+live, and its state against the set's baseline: «Regresión» (the latest run
+regressed), «Sin línea base» or «Al día». Opening a set (`#evaluation/<set name>`)
+shows its saved runs and compares the latest one with the baseline: each case as
+regressed, improved, changed or unchanged, the cases found in only one run, and
+what changed in the fingerprint (agent or prompt, workflow, models, or the set).
+A regression is a result of the comparison, not an error. The view never runs a
+set or sets a baseline; use `multiagent eval` or the API for that. It reads
+`GET /gui/api/evaluations`, `/evaluations/runs?set_name=`, `/evaluations/runs/{id}`
+and `/evaluations/comparison?set_name=`; the sets are read from the newest 1000
+saved runs. See `docs/EVALUATION.md`.
+
 The **Mapa** view (`#map`) combines projects, stages and tasks with linked
 sessions and their children. `GET /gui/api/map?project=<id>&only=active|all`
 returns the read-only map; the project filter is optional and `only` defaults
@@ -215,6 +228,7 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/stream?session=<id>&only=children` | Lightweight child-change notices. |
 | `GET /gui/api/map?project=<id>&only=active\|all` | Project, task and linked-session map. |
 | `GET /gui/api/usage/plans`, `/usage/tokens`, `/usage/costs` | Plan measurements, token totals and estimated costs for Uso. |
+| `GET /gui/api/evaluations`, `/evaluations/runs`, `/evaluations/runs/{id}`, `/evaluations/comparison?set_name=` | Evaluation sets, saved runs and the latest run against the baseline (read only). |
 | `GET /gui/api/runs/{id}/usage` | Token and cost details for the right panel. |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts` | Completed attempts of one step (producer, input, output, review, tokens). |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts/compare?a=1&b=2` | Field-by-field and unified line diff between two completed attempts. |

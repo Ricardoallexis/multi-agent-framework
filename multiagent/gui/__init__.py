@@ -9,6 +9,7 @@ Host and Origin checks come from ``LocalAPISecurityMiddleware`` in ``api.py``.
 ``/gui/api/sessions`` (list, counts, one session, its items, its children) and ``/gui/api/stream?session=`` (live
 follow; ``&only=children`` for the subagents panel) serve the session viewer; see ``sessions_api`` and ``events``.
 ``/gui/api/usage/{plans,tokens,costs}`` serve the usage view (plan usage, tokens and estimated cost); see ``usage_api``.
+``/gui/api/evaluations`` serves the evaluation view: sets, saved runs and the comparison with the baseline (EVA-T03, read only); see ``evaluation_api``.
 ``/gui/api/continuity/*`` and ``/gui/api/tasks/{id}/continuity/decision`` serve the decision cards of tasks held by a usage limit
 (CNT-T06); see ``continuity_api``.
 ``/gui/api/extensions`` lists the folders of ``static/extensions/`` that views, panel slots and help texts are added
@@ -32,6 +33,7 @@ from ..version import __version__
 from . import events
 from .continuity_api import add_continuity_routes, held_children, with_extra_children
 from .document_alerts_api import add_document_alerts_routes
+from .evaluation_api import add_evaluation_routes
 from .extensions import discover_extensions
 from .project_api import add_project_routes
 from .runs import build_router as build_runs_router
@@ -110,6 +112,7 @@ def mount_gui(app: FastAPI) -> None:
     add_project_routes(api, services)  # /gui/api/projects (PRY-T03)
     add_document_alerts_routes(api, services)
     add_continuity_routes(api, services)  # /gui/api/continuity/* (CNT-T06)
+    add_evaluation_routes(api, services)  # /gui/api/evaluations/* (EVA-T03, read only)
     api.include_router(build_runs_router(services))
     app.include_router(api)
     app.mount("/gui/static", StaticFiles(directory=STATIC_DIR), name="gui-static")

@@ -149,3 +149,8 @@ CI can tell them apart.
 | `POST /api/v1/evaluations/compare` | Body `{candidate_id, base_id?, threshold?}` |
 
 A regression is not an HTTP error: the comparison answers 200 with `regression: true`.
+
+The GUI shows the same data read only, in the **Evaluación** view (`#evaluation`): the sets with their
+latest score, Mock or live, and state against the baseline, and for each set its runs and the cases
+that regressed, improved, changed or stayed the same. It cannot run a set or set a baseline (see
+[`GUI.md`](GUI.md)).

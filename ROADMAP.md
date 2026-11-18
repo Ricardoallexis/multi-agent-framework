@@ -357,7 +357,7 @@ The core works with generic concepts (tool, capability, provider, channel, permi
 - [ ] Emit OpenTelemetry traces and metrics (GenAI semantic conventions) alongside the framework's own domain events.
 - [x] Add structured evaluation datasets for agents, prompts, and workflows.
 - [ ] Compare local and cloud model performance on the same contracts and tasks.
-- [x] Track regressions when prompts, models, workflows, or providers change: every evaluation run is saved with its fingerprint, a set can have a baseline, and a comparison reports regressed, improved, changed and unchanged cases and what changed (prompt or agent, workflow, models, or the set itself); `multiagent eval compare` exits 3 on a regression so CI can stop on it (see [`docs/EVALUATION.md`](docs/EVALUATION.md)).
+- [x] Track regressions when prompts, models, workflows, or providers change: every evaluation run is saved with its fingerprint, a set can have a baseline, and a comparison reports regressed, improved, changed and unchanged cases and what changed (prompt or agent, workflow, models, or the set itself); `multiagent eval compare` exits 3 on a regression so CI can stop on it, and the GUI's read-only «Evaluación» view shows the sets, their runs and the latest run against the baseline (see [`docs/EVALUATION.md`](docs/EVALUATION.md)).
 - [ ] Add richer diagnostics for model availability, context limits, GPU resources, and dependency health.
 - [x] Provide exportable run reports for debugging and audit purposes.
 

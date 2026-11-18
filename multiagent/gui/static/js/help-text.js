@@ -861,6 +861,63 @@ export const HELP = {
       "El subtotal sigue siendo una estimación y no un importe facturado."
     ]
   },
+  "evaluation.section": {
+    "title": "Evaluación",
+    "hint": "Consulta los conjuntos de evaluación y si su última ejecución empeoró.",
+    "more": [
+      "La vista solo lee ejecuciones ya guardadas; no ejecuta conjuntos ni fija líneas base.",
+      "Los conjuntos se ejecutan y se fijan desde la línea de comandos o la API."
+    ]
+  },
+  "evaluation.refresh": {
+    "title": "Actualizar la evaluación",
+    "hint": "Vuelve a leer los conjuntos o el conjunto abierto.",
+    "more": [
+      "La pantalla conserva la última respuesta si la lectura falla.",
+      "Una ejecución nueva aparece al actualizar."
+    ]
+  },
+  "evaluation.sets": {
+    "title": "Conjuntos de evaluación",
+    "hint": "Muestra la última puntuación de cada conjunto y su estado frente a la línea base.",
+    "more": [
+      "Mock significa que se ejecutó con respuestas simuladas; En vivo, con un modelo real.",
+      "Regresión indica que la última ejecución empeoró respecto de la línea base; Sin línea base, que aún no hay con qué comparar.",
+      "Abre un conjunto con su nombre para ver sus ejecuciones y la comparación."
+    ]
+  },
+  "evaluation.runs": {
+    "title": "Ejecuciones guardadas",
+    "hint": "Lista las ejecuciones del conjunto, la más reciente primero.",
+    "more": [
+      "Cada fila muestra la versión del conjunto, la puntuación, quién la guardó y si es la línea base.",
+      "Solo se listan las ejecuciones guardadas en la base de datos del sistema."
+    ]
+  },
+  "evaluation.compare": {
+    "title": "Comparación con la línea base",
+    "hint": "Compara la última ejecución con la que se fijó como línea base.",
+    "more": [
+      "Un caso es regresión si pasaba y dejó de pasar, o si su puntuación bajó más que el umbral.",
+      "Una regresión es un resultado de la comparación, no un error."
+    ]
+  },
+  "evaluation.cases": {
+    "title": "Casos comparados",
+    "hint": "Clasifica cada caso como regresión, mejora, cambio o sin cambios.",
+    "more": [
+      "Cambió significa que difieren sus comprobaciones o su huella sin cruzar el umbral.",
+      "Los casos que solo están en una de las dos ejecuciones se listan aparte y no cuentan como regresión."
+    ]
+  },
+  "evaluation.fingerprint": {
+    "title": "Cambios en la huella",
+    "hint": "Indica qué difiere entre la línea base y la última ejecución.",
+    "more": [
+      "La huella recoge el agente o prompt, el flujo, los modelos con sus proveedores y el propio conjunto.",
+      "Sirve para saber qué cambió cuando un caso empeora."
+    ]
+  },
   "open.copilot": {
     "title": "Abrir en Copilot",
     "hint": "Abre esta sesión en la app de Copilot mediante un enlace.",

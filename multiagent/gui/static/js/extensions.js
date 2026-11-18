@@ -24,7 +24,7 @@
 // This file imports nothing, so it loads anywhere (the page, Node tests). The one dynamic import() of the GUI is here:
 // its path is a constant plus an extension id that matched NAME, never a URL taken from elsewhere (see importEntry).
 
-export const RESERVED_SECTIONS = ["sessions", "runs", "usage", "tree", "map", "new"];   // the routes of the built-in screens
+export const RESERVED_SECTIONS = ["sessions", "runs", "usage", "evaluation", "tree", "map", "new"];   // the routes of the built-in screens
 export const RESERVED_SLOTS = ["changes", "subagents", "tokens", "sources"];            // the sections of the built-in panel
 export const RESERVED_USAGE_SECTIONS = ["plans", "global", "costs"];                    // the tabs of the built-in «Uso» screen (usage.js)
 export const LOAD_BUDGET_MS = 3000;   // the most the first render waits for the manifest, the modules and the sheets together
