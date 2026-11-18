@@ -3,7 +3,8 @@
 """CAP-T21: with OpenTelemetry off or not installed, nothing changes.
 
 These checks need no OpenTelemetry package, so they live apart from tests/test_otel_traces.py, which is
-skipped as a whole where opentelemetry-api is missing (the default install and CI).
+skipped as a whole where opentelemetry-api is missing (an install without requirements-dev.txt). They also
+pass with the packages installed, as in CI: the setting off still imports no OpenTelemetry module.
 """
 
 from __future__ import annotations

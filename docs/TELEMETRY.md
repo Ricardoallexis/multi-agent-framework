@@ -212,6 +212,9 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
 OTEL_SERVICE_NAME=multi-agent-framework
 ```
 
+The development requirements (`requirements-dev.txt`) pin the API and the SDK,
+so the trace tests run in CI; the OTLP exporter is only in the extra.
+
 With the setting off, or without `opentelemetry-api` installed, the engine
 builds no telemetry object and imports no OpenTelemetry module. A tracer or
 meter provider of the SDK that the host application already set as global is

@@ -2,3 +2,6 @@
 setuptools>=75
 wheel
 pytest==9.0.2
+# The OpenTelemetry trace tests (tests/test_otel_traces.py) need the API and the SDK; the OTLP exporter stays in the otel extra.
+opentelemetry-api==1.45.2
+opentelemetry-sdk==1.45.2
