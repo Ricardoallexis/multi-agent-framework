@@ -32,7 +32,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | **All roadmap items** | **26%** | **60 of 233** |
 <!-- progress:table:end -->
 
-## Current focus — MVP 1.0 (`1.0.0-rc1`)
+## Current focus — MVP 1.0 (`M1-B03-F01-rc1`, package `1.0.0rc1`)
 
 Scope is closed in [`docs/SCOPE.md`](docs/SCOPE.md): only these five capabilities are worked on until 1.0. Status on 2026-11-17, verified end to end through the Python facade (`build_system`, `process_run`, `approve`) in a clean folder, and for capability 4 through the GUI in a browser.
 
@@ -46,7 +46,7 @@ Scope is closed in [`docs/SCOPE.md`](docs/SCOPE.md): only these five capabilitie
 
 ## Previous stage — runtime foundations
 
-The first four features below were released in `M1-B02-F00-alpha`. Application services and HTTP parity are done in the repository and will ship in the next release (see `[Unreleased]` in the changelog). Goal: make the existing runtime reliable and general before adding larger capabilities, so new agents, teams, and backends can be added without rewriting the core.
+The first four features below were released in `M1-B02-F00-alpha`. Application services and HTTP parity shipped in `M1-B03-F01-rc1`. Goal: make the existing runtime reliable and general before adding larger capabilities, so new agents, teams, and backends can be added without rewriting the core.
 
 | Feature | Status | What it lets you do |
 | --- | --- | --- |
@@ -69,5 +69,6 @@ Longer term, the roadmap adds **collaborative agent teams**: a domain-neutral co
 | 2026-09-23 | `M1-B01-F00-alpha` — first public baseline. |
 | 2026-09-27 | `M1-B02-F00-alpha` — installable package, validation before execution, review after any step, and definition bundles. |
 | 2026-09-26 | Microsoft Agent Framework chosen as a future optional backend; collaborative agent teams and preset sharing added to the roadmap. |
+| 2026-11-17 | `M1-B03-F01-rc1` — first 1.0 release candidate: real three-step Ollama flow, workflow tools with per-call approval, and `/gui/` as the one local UI. |
 
 Legend: ✅ done · 🔄 in progress or next · ⏳ planned

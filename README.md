@@ -1,8 +1,8 @@
 # Multi-Agent Framework
 
-**Current release:** `M1-B02-F00-alpha` <!-- version:release -->
+**Current release:** `M1-B03-F01-rc1` <!-- version:release -->
 
-**Python package:** `0.2.0a1` <!-- version:package -->
+**Python package:** `1.0.0rc1` <!-- version:package -->
 
 **Status:** Alpha / backend-first
 

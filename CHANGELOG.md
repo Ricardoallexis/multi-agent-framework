@@ -4,6 +4,12 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ## [Unreleased]
 
+## [M1-B03-F01-rc1] - 2026-11-17
+
+Python package: `1.0.0rc1`.
+
+First release candidate of 1.0 (MVP 1.0, scope in [`docs/SCOPE.md`](docs/SCOPE.md)): clean start on `main`, the real three-step flow on Ollama, workflow-step tools through `ToolInvoker` with per-call approval, `/gui/` as the one local interface, and docs in sync.
+
 ### Added
 
 - Run the tools a workflow step declares (`tools:` with a tool id or a capability resolved by `select_tool`, literal arguments or `${input}` values) through `ToolInvoker` in the real engine; results reach the step prompt as untrusted text, and a write tool pauses the run in `tool_approval` until a person approves that call (MVP 1.0).
@@ -66,6 +72,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Changed
 
+- Bump the product version to `M1-B03-F01-rc1` and the Python package version to `1.0.0rc1`.
 - Make `/gui/` the one supported local interface (MVP 1.0): the server root redirects to `/gui/`, `run_ui_windows.bat` starts `multiagent gui`, and the Stage 0 prototype (`multiagent ui`, `/ui/`) prints a deprecation notice and links to `/gui/`; it is removed after 1.0.
 - Raise the default Ollama context window (`num_ctx`, `OLLAMA_NUM_CTX`) to 8192 tokens so the three-step `social_post_full` flow with `qwen3:8b` completes without overflowing (MVP 1.0).
 - Tracker (`tools/seguimiento`): agent cards, board status, and token parsing come from the channel's agent registry (`AGENTES.md`) and accept Application-Model names such as `Claude-Fable`; retired names are listed folded. Without a registry the three founding names are used.

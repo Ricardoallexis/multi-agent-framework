@@ -5,14 +5,14 @@ scripts/check_version_consistency.py (run in CI).
 """
 
 PLATFORM_GENERATION = 1
-BACKEND_REVISION = 2
-FRONTEND_REVISION = 0
+BACKEND_REVISION = 3
+FRONTEND_REVISION = 1
 # "alpha", "beta", "rcN", or "" for a stable release.
-STAGE = "alpha"
+STAGE = "rc1"
 
 # PEP 440 version used by Python packaging tools. Its pre-release must match STAGE
 # (alpha -> aN, beta -> bN, rcN -> rcN, stable -> none).
-__package_version__ = "0.2.0a1"
+__package_version__ = "1.0.0rc1"
 
 # Human-facing release version used by CLI/API/GitHub releases.
 __version__ = (
