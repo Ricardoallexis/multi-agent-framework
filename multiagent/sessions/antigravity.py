@@ -150,13 +150,17 @@ def read_gen_tokens(db: Path) -> TokenUsage | None:
 
 
 def workspace_path(uris: object) -> str | None:
-    """The first ``file:///`` workspace of the JSON list agy stores, as a local path (``None`` if there is none)."""
+    """The working folder among the ``file:///`` workspaces agy stores (a JSON list), as a local path.
+
+    agy keeps the launch folder and every ``--add-dir`` folder in that list, sorted by name rather than by launch, so
+    the first workspace that is a Git checkout wins; without one, the first workspace (``None`` if there is none)."""
     try:
         values = json.loads(uris) if isinstance(uris, str) else uris
     except ValueError:
         return None
     if not isinstance(values, list):
         return None
+    paths: list[str] = []
     for value in values:
         if not isinstance(value, str):
             continue
@@ -168,8 +172,13 @@ def workspace_path(uris: object) -> str | None:
             path = path[1:]
         if os.name == "nt":
             path = path.replace("/", "\\")
-        return clean_cwd(path)
-    return None
+        cleaned = clean_cwd(path)
+        if cleaned:
+            paths.append(cleaned)
+    for path in paths:
+        if os.path.exists(os.path.join(path, ".git")):  # a checkout has .git (a folder, or a file in a worktree)
+            return path
+    return paths[0] if paths else None
 
 
 def _truthy(value: object) -> bool:

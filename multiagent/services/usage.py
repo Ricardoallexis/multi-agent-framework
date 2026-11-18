@@ -110,14 +110,14 @@ MEASUREMENT = {
     "claude": "per_message",       # one record per assistant message, deduplicated by message id
     "codex": "counter_growth",     # growth of the session's cumulative counters inside the window
     "copilot": "per_call",         # one row per call in the usage database
-    "antigravity": "not_recorded",  # agy keeps no token counts on disk (they are in protobuf blobs)
+    "antigravity": "not_recorded",  # its per-generation counts (gen_metadata) carry no time, so none fall in a window
     "framework": "per_call",       # one telemetry row per provider call
 }
 CONVENTIONS = {
     "claude": "total = input + output + cache_read + cache_write (input excludes the cache)",
     "codex": "total = the reported total_tokens (its input already counts the cached part)",
     "copilot": "total = input + output (cache and reasoning are reported apart)",
-    "antigravity": "no tokens: agy leaves none on disk (per-run tokens are the channel's)",
+    "antigravity": "per session only (multiagent sessions): total = input + output + cache_read (input excludes the cache)",
     "framework": "total = input + output (input already counts the cached part; cache_read is shown apart)",
 }
 RESET_CONFIDENCE = {sources.RESET_APP_EPOCH: "high", sources.RESET_RULE: "medium", sources.RESET_NONE: "none"}
@@ -685,7 +685,7 @@ class UsageServices:
         elif app == "copilot":
             home, reader = config.copilot_home, sources.read_copilot_tokens
         elif app == "antigravity":
-            return [], ["tokens_not_recorded: agy keeps no token counts on disk"], {}
+            return [], ["tokens_not_recorded: agy's token counts carry no time; per-session totals are in multiagent sessions"], {}
         else:
             records = self._telemetry(start, end)
             events = [TokenEvent(app="framework", at=r["at"], model=r["model"] or None, role=sources.ROLE_PRIMARY,

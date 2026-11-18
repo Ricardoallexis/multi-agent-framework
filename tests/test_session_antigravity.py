@@ -243,6 +243,18 @@ def test_workspace_path(uris, expected):
     assert (got.replace("\\", "/") if got else got) == expected
 
 
+def test_workspace_path_prefers_the_git_checkout_over_added_folders(tmp_path):
+    # agy stores --add-dir folders next to the launch folder, sorted by name: the checkout is the working folder.
+    added, work, venv = tmp_path / "a-python", tmp_path / "b-worktree", tmp_path / "c-venv"
+    for folder in (added, work, venv):
+        folder.mkdir()
+    (work / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")   # a worktree's .git is a file
+    uris = json.dumps([added.as_uri(), work.as_uri(), venv.as_uri()])
+    assert Path(workspace_path(uris)) == work
+    (work / ".git").unlink()
+    assert Path(workspace_path(uris)) == added                               # no checkout: the first one
+
+
 # ---------------- tokens (gen_metadata) ----------------
 def tokens_of(tmp_path, gens, **extra):
     work = tmp_path / "work" / "proj"
