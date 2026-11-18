@@ -473,7 +473,8 @@ export function NewSession({ token, mock }) {
       <div class="actions">
         <button type="button" class="btn" disabled=${busy} ...${helpFor("chat.cloud_confirm")}
           onClick=${() => answerCloud(true)}>Enviar</button>
-        <button type="button" class="btn secondary" disabled=${busy} onClick=${() => answerCloud(false)}>No enviar</button>
+        <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.cloud_confirm")}
+          onClick=${() => answerCloud(false)}>No enviar</button>
         <${Help} topic="chat.cloud_confirm" compact=${true} />
       </div>
     </div>`}
