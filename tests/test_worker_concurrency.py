@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 
 from multiagent.cli import build_parser
 from multiagent.config import Settings
@@ -133,6 +134,41 @@ def test_active_worker_renews_lease_during_blocked_execution(tmp_path):
         assert renewed.wait(5)
         assert second.recover_running_runs("other", lease_seconds=30, now=LATER) == []
         assert second.get_run(run_id)["worker_id"] == worker.worker_id
+    finally:
+        engine.release.set()
+        worker.stop()
+
+
+def test_worker_never_recovers_its_own_live_run_within_one_pass(tmp_path):
+    # Every clock reading is 31 s after the previous one, so a pass that renewed its lease with
+    # one reading and recovered stale runs with a later one would requeue its own live run.
+    first, _ = stores(tmp_path)
+    run_id = queued(first)
+    engine = BlockingEngine(first)
+    lock = threading.Lock()
+    readings = [0]
+    after_start = [0]
+    passes = threading.Event()
+
+    def clock():
+        with lock:
+            readings[0] += 1
+            if engine.started.is_set():
+                after_start[0] += 1
+                if after_start[0] >= 4:
+                    passes.set()
+            return (datetime.fromisoformat(NOW) + timedelta(seconds=31 * readings[0])).isoformat()
+
+    worker = LocalWorker(first, engine, 0.02, lease_seconds=30, clock=clock)
+    worker.start()
+    try:
+        assert engine.started.wait(5)
+        assert passes.wait(5)
+        run = first.get_run(run_id)
+        assert run["worker_id"] == worker.worker_id
+        assert run["status"] == RunStatus.RUNNING.value
+        assert not any(e["event_type"] == "run_interrupted" for e in run["events"])
+        assert engine.calls == [run_id]
     finally:
         engine.release.set()
         worker.stop()

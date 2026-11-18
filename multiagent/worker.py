@@ -63,11 +63,14 @@ class LocalWorker:
     def _loop(self) -> None:
         interval = min(self.poll_seconds, self.lease_seconds / 3)
         while True:
+            # One clock reading per pass: recovery must judge leases against the time they were
+            # renewed at, or a late reading would requeue this worker's own live runs.
+            now = self.clock()
             for run_id, thread in tuple(self._active.items()):
                 if not thread.is_alive():
                     del self._active[run_id]
                 else:
-                    self.store.renew_lease(run_id, self.worker_id, now=self.clock())
+                    self.store.renew_lease(run_id, self.worker_id, now=now)
             if self._stop.is_set():
                 if not self._active or (self._deadline is not None and time.monotonic() >= self._deadline):
                     return
@@ -76,12 +79,12 @@ class LocalWorker:
                     self.engine.check_approval_deadlines()
                 except Exception:
                     logger.exception("Could not inspect approval deadlines")
-                self.store.recover_running_runs(self.worker_id, lease_seconds=self.lease_seconds, now=self.clock())
+                self.store.recover_running_runs(self.worker_id, lease_seconds=self.lease_seconds, now=now)
                 while len(self._active) < self.concurrency and not self._stop.is_set():
                     run = self.store.claim_queued_run(
                         self.worker_id, lease_seconds=self.lease_seconds,
                         max_active_total=self.max_active_total,
-                        max_active_per_project=self.max_active_per_project, now=self.clock(),
+                        max_active_per_project=self.max_active_per_project, now=now,
                     )
                     if not run:
                         break
