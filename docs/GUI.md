@@ -2,10 +2,8 @@
 
 The local operator GUI at `/gui/` is the supported local interface for 1.0:
 `multiagent gui`, `python -m multiagent.gui` and `run_ui_windows.bat` all open
-it. The Stage 0 run-console prototype at `/ui/` (`multiagent ui`) is
-deprecated: it still starts, prints a notice and points to `/gui/`, and it will
-be removed after 1.0. The GUI is served by the local API and is an operator
-view, not a public API or a separate orchestration layer.
+it. The Stage 0 run-console prototype has been removed. The GUI is served by
+the local API and is an operator view, not a public API or a separate orchestration layer.
 
 ## Start
 
@@ -33,9 +31,8 @@ A *definition bundle* is a folder with its own workflows, agents,
 prompts and output contracts (see the [bundle contract](API.md)); registering one
 adds it to the **Origen del workflow** selector of **Ejecuciones**, with its own workflows.
 
-Register bundles when you start the GUI with `--bundle NAME=FOLDER`, repeated
-once per bundle. It is the same option, with the same parser, as in
-`multiagent ui`:
+Register bundles when you start the GUI with the repeatable
+`--bundle NAME=FOLDER` option:
 
 ```console
 multiagent gui --bundle general=examples/bundles/general --bundle team=examples/teams/software_development
@@ -221,8 +218,8 @@ Contextual help is available throughout the GUI: controls have a short hint
 and a «?» disclosure with a concise explanation. The disclosures are
 accessible by keyboard and can be closed with Esc.
 
-Stop either GUI server with Ctrl+C. `multiagent gui` prints «GUI detenida.»;
-the deprecated Stage 0 `multiagent ui` command prints «UI detenida.» after clean shutdown.
+Stop either GUI server with Ctrl+C. The `multiagent gui` command prints
+«GUI detenida.» after clean shutdown.
 On Windows, a batch launcher may additionally prompt `Terminate batch job
 (Y/N)?`; answer `Y`.
 

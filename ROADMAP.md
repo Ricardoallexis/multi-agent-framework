@@ -260,13 +260,12 @@ Research which well-known open-source tools make good examples for the most comm
 
 **Progress:** `███░░░░░░░` 7/23 · 30% <!-- progress -->
 
-`F00` shipped without a graphical interface. The local operator GUI is now
-available alongside the Stage 0 run-console prototype; it is a separate local
-interface, not the final product. See [docs/GUI.md](docs/GUI.md) and
-[docs/UI0.md](docs/UI0.md).
+`F00` shipped without a graphical interface. The local operator GUI is now available as a local interface, not the final
+product. The Stage 0 run-console prototype has been removed. See
+[docs/GUI.md](docs/GUI.md).
 
 - [x] Stage 0, right after the application services and HTTP parity: start a run from an available workflow (mock by default), follow its status and events, handle the pending human action (approve, request changes, regenerate, reject, cancel, or paste an external model's response and see validation errors), and inspect artifacts. Its review and confirmation step for externally produced output can follow the same human-confirmation pattern as the external-delivery importer (`tools/seguimiento/`).
-- [x] Local operator GUI served by the API at `/gui/`: read-only session browsing for configured Claude, Codex, Copilot, and framework sources; framework-run creation, human actions and per-call tool approval; live session follow; confirmation-gated open-in-app actions; three-zone layout with subagent, changes, token and source panels; guided workflow chat with routing preview; agent tree; usage view; and project work map. It uses a local bearer token and stays on loopback. It replaces the Stage 0 prototype, which is deprecated. This is a partial delivery of S14, not completion of UI stages 1–3.
+- [x] Local operator GUI served by the API at `/gui/`: read-only session browsing for configured Claude, Codex, Copilot, and framework sources; framework-run creation, human actions and per-call tool approval; live session follow; confirmation-gated open-in-app actions; three-zone layout with subagent, changes, token and source panels; guided workflow chat with routing preview; agent tree; usage view; and project work map. It uses a local bearer token and stays on loopback. It replaces the Stage 0 prototype, which has been removed. This is a partial delivery of S14, not completion of UI stages 1–3.
 - [ ] Stage 1: agent and workflow configuration, once agent, tool, and capability contracts are stable.
   - [x] Choose a workflow and its declared inputs, and set routing preferences with a no-dispatch preview, when creating a run in the operator GUI.
 - [ ] Stage 2: teams, plans, and tasks, to inspect and approve generated plans and follow task execution.
@@ -297,7 +296,7 @@ A later evolution of the operator UI for large or long-running teams: many agent
 
 It depends on OpenTelemetry events, MCP tool access, and planning with concurrent agents, and is built after them (see the development order). The technologies named below are candidates to evaluate in an architecture decision, not commitments.
 
-- [ ] Record an architecture decision for the advanced UI: rendering stack, build toolchain, state management, and how it coexists with the stage 0 UI that needs no build step.
+- [ ] Record an architecture decision for the advanced UI: rendering stack, build toolchain, and state management, after removal of the Stage 0 prototype.
 - [ ] Measurable performance targets before building: events per second ingested, frames per second while panning and zooming, main-thread load, and memory over multi-day runs.
 - [ ] Ingest events in a background worker (Web Workers over WebSocket or SSE) so the main thread only renders. Zero-copy transfer (`SharedArrayBuffer`) is optional, because it requires cross-origin isolation headers.
 - [ ] Client-side state machines (for example XState) for agents, tools, and teams that mirror the lifecycle published by the core and reject impossible transitions. The core stays the source of truth: the UI resynchronizes from a snapshot and never decides transitions itself.

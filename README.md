@@ -6,10 +6,9 @@
 
 **Status:** 1.0 / backend-first
 
-Multi-Agent Framework is a domain-neutral, configurable runtime for building and operating teams of AI agents, humans, models, and tools. Today it runs declared workflows with specialized agents, local and cloud models, structured contracts, human checkpoints, persistence, and traceability. Over time, users will define their own agents, capabilities, relationships, workflows, and execution policies, and the same core will support everything from deterministic and human-guided execution to progressively more dynamic planning and delegation. The local operator GUI and the Stage 0 run-console prototype are available as
-separate interfaces; see [Operator GUI](docs/GUI.md) and [Stage 0 operation](docs/UI0.md).
+Multi-Agent Framework is a domain-neutral, configurable runtime for building and operating teams of AI agents, humans, models, and tools. Today it runs declared workflows with specialized agents, local and cloud models, structured contracts, human checkpoints, persistence, and traceability. Over time, users will define their own agents, capabilities, relationships, workflows, and execution policies, and the same core will support everything from deterministic and human-guided execution to progressively more dynamic planning and delegation. The local operator GUI is available at `/gui/`; see [Operator GUI](docs/GUI.md). The Stage 0 run-console prototype has been removed.
 
-> **Scope of 1.0:** the supported surface is the MVP in [`docs/SCOPE.md`](docs/SCOPE.md): clean start, declared workflows on Mock, Ollama, or cloud models, workflow tools with per-call approval, and the local operator GUI at `/gui/`. Roadmap items beyond it, and the deprecated Stage 0 UI, may still change.
+> **Scope of 1.0:** the supported surface is the MVP in [`docs/SCOPE.md`](docs/SCOPE.md): clean start, declared workflows on Mock, Ollama, or cloud models, workflow tools with per-call approval, and the local operator GUI at `/gui/`. Roadmap items beyond it may still change.
 
 ## What is included
 
@@ -25,7 +24,6 @@ separate interfaces; see [Operator GUI](docs/GUI.md) and [Stage 0 operation](doc
 - SQLite persistence for runs, artifacts, assets, publications, and brand profiles.
 - Python application-services facade, CLI, and FastAPI API.
 - Server Mock mode for synthetic runs without model API keys.
-- A Stage 0 browser console (`multiagent ui`) to create and follow runs, handle human review and the Human Bridge, and inspect artifacts, in Mock mode by default.
 - A private writable workspace for secrets, databases, runs, and assets.
 - An automated test suite, run in CI on every push and pull request.
 
@@ -203,8 +201,7 @@ or `run_ui_windows.bat` on Windows. The launcher enables Mock by default and
 opens `http://127.0.0.1:8000/gui/` with the default settings. Keep its terminal
 open; use Ctrl+C to stop the server. See the [operator GUI guide](docs/GUI.md).
 
-The Stage 0 run-console prototype (`multiagent ui`, `/ui/`, described in
-[Stage 0 operation](docs/UI0.md)) is deprecated and is removed after 1.0.
+The Stage 0 run-console prototype has been removed; use the operator GUI.
 
 ## Python quickstart and standalone installation
 

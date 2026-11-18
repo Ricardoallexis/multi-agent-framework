@@ -14,7 +14,7 @@ LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 
 
 def serve(app, *, host: str, port: int, stopped: str) -> None:
-    """Serve ``app`` until Ctrl+C, then print ``stopped`` (``multiagent ui`` uses it too).
+    """Serve ``app`` until Ctrl+C, then print ``stopped``.
 
     The first Ctrl+C sets the stop flag (``events.request_shutdown``), so open SSE streams end at once;
     uvicorn then closes the rest, waiting at most 3 s. The Ctrl+C that uvicorn re-raises when its shutdown
@@ -40,7 +40,7 @@ def serve(app, *, host: str, port: int, stopped: str) -> None:
 
 def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
         bundles: Mapping[str, str | Path] | None = None) -> None:
-    """Start the server; ``bundles`` maps a name to a trusted definition-bundle folder (as in ``multiagent ui``)."""
+    """Start the server; ``bundles`` maps a name to a trusted definition-bundle folder."""
     from ..api import create_app
     from ..bootstrap import build_system
     from ..cli import _check_port_free

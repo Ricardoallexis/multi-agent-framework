@@ -3,7 +3,7 @@
 """Bundles in the new GUI (GUI-T13): ``multiagent gui --bundle`` and the general example bundle.
 
 * Registration: ``multiagent gui`` and ``python -m multiagent.gui`` take ``--bundle NAME=FOLDER`` (repeatable)
-  and register it exactly as ``multiagent ui`` does (same option, same parser, same ``create_app(bundles=...)``).
+  and register it through ``create_app(bundles=...)``.
 * The ``examples/bundles/general`` bundle: structure, declared inputs, loading, validation and a full Mock run
   of each of its workflows.
 
@@ -151,19 +151,18 @@ def run_cli(*argv: str) -> int:
     return 0
 
 
-def test_the_option_is_defined_for_gui_and_ui_alike():
+def test_the_option_is_defined_for_gui():
     parser = cli.build_parser()
-    for command in ("gui", "ui"):
-        assert parser.parse_args([command]).bundle is None
-        args = parser.parse_args([command, "--bundle", "a=uno", "--bundle", "b=dos"])
-        assert args.bundle == ["a=uno", "b=dos"]  # repeatable, in order
+    assert parser.parse_args(["gui"]).bundle is None
+    args = parser.parse_args(["gui", "--bundle", "a=uno", "--bundle", "b=dos"])
+    assert args.bundle == ["a=uno", "b=dos"]
 
 
-def test_gui_registers_repeated_bundles_like_ui(launched):
+def test_gui_registers_repeated_bundles(launched):
     argv = ["--bundle", f"general={GENERAL}", "--bundle", f"team={TEAM}", "--no-browser"]
     assert run_cli("gui", *argv) == 0
     gui_main.main(argv)  # `python -m multiagent.gui` takes the same option
-    expected = cli._parse_ui_bundles([f"general={GENERAL}", f"team={TEAM}"])  # the parser `ui` uses
+    expected = cli._parse_ui_bundles([f"general={GENERAL}", f"team={TEAM}"])
     assert expected == {"general": GENERAL, "team": TEAM}
     assert launched == [{"port": 0, "real": False, "no_browser": True, "bundles": expected}] * 2
 

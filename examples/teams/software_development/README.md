@@ -75,15 +75,15 @@ runs steps again and uses more calls, so a higher value such as `10` leaves room
 Requirements: Python 3.12 to 3.14 and this repository installed
 (`python -m pip install -e .` inside a virtual environment).
 
-### With the browser console
+### With the operator GUI
 
 From the repository root, with `MAX_LLM_CALLS` set as above:
 
 ```text
-multiagent ui --bundle team=examples/teams/software_development
+multiagent gui --bundle team=examples/teams/software_development
 ```
 
-Mock mode is the default for `multiagent ui`. In the console choose **Bundle: team**, workflow
+Mock mode is the default for `multiagent gui`. In the console choose **Bundle: team**, workflow
 `software_development`, give the project a name, and enter a `feature_request` such as
 "Let users reset a forgotten password by email". Approve the run at the first review
 (after `design_solution`) and again at the second (after `review_delivery`).
@@ -118,7 +118,7 @@ services.runs.close()
 ```
 
 `worker.process_once()` is used here because the example turns the background worker off; a
-server (`multiagent ui`) processes runs on its own.
+server (`multiagent gui`) processes runs on its own.
 
 ## Expected result
 
@@ -138,7 +138,7 @@ server (`multiagent ui`) processes runs on its own.
    `catalog/agents.yaml`, `prompts/dev/*.md`, and `contracts.py` for your own roles and outputs.
    Keep every step's `contract` in `contracts.py` and give each contract a sample in
    `SAMPLE_OUTPUTS` so Mock runs keep working.
-3. Register your copy with `multiagent ui --bundle NAME=YOUR_FOLDER`, or pass it to
+3. Register your copy with `multiagent gui --bundle NAME=YOUR_FOLDER`, or pass it to
    `ApplicationServices.create(..., bundles={"NAME": Path("YOUR_FOLDER")})`.
 4. To use real models, choose entries from your model catalog in each step's
    `preferred_model` and start the console with `--real`. Provider calls may cost money.

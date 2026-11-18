@@ -20,7 +20,7 @@ Se lee al empezar junto a REGLAS.md. Manda sobre ROADMAP.md, PROPUESTAS.md, ETAP
 | 1 | Arranque limpio en `main` | Roto por migración 009 suelta | Unificar migraciones 001–009 en rama canónica | `db.migrate()` en base limpia pasa sin error |
 | 2 | Flujo real 3 pasos en Ollama | Falla en paso 3 (3078 > 3072 tokens) | Subir `num_ctx`/soft limit por defecto o activar compactación | Flujo 3 pasos con `qwen3:8b` llega a `completed` |
 | 3 | Cableado real de Herramientas | `ToolInvoker` aislado en tests | Conectar `workflow_engine.py` y `run_service.py` (`CAP-T02/T19/T12`) en ejecución real | Un paso de workflow invoca tool y pasa por `tool_approval` |
-| 4 | Unificación de UI Local | `/ui/` y `/gui/` duplicadas; `GUI2-T03` sin cablear | Consolidar `/gui/`, cerrar `GUI2-T07` (#720 mínimo) y ocultar/cablear botones muertos | Ejecutar y aprobar Caso #1 desde GUI sin errores |
+| 4 | Unificación de UI Local | GUI Stage 0 retirada; `GUI2-T03` sin cablear | Consolidar `/gui/`, cerrar `GUI2-T07` (#720 mínimo) y ocultar/cablear botones muertos | Ejecutar y aprobar Caso #1 desde GUI sin errores |
 | 5 | Limpieza y sincronización docs | Ruta local en `docs/GUI.md:12` y `PROGRESS.md` desfasado | Eliminar ruta personal (Regla 34) y actualizar `PROGRESS.md` | Escaneo limpio y docs al día |
 
 ## 3. Prohibido hasta liberar 1.0 (Congelado de inmediato)

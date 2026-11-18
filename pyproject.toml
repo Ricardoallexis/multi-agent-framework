@@ -52,7 +52,6 @@ packages = [
   "multiagent.tasks",
   "multiagent.tools",
   "multiagent.sessions",
-  "multiagent.ui",
   "multiagent.gui",
   "multiagent.project_templates",
   "multiagent._resources",
@@ -72,7 +71,6 @@ packages = [
 
 [tool.setuptools.package-data]
 "multiagent.tasks" = ["labels.json"]
-"multiagent.ui" = ["static/*.html", "static/*.css", "static/js/*.js"]
 "multiagent.gui" = ["static/*.html", "static/*.css", "static/js/*.js", "static/js/ui/*.js", "static/vendor/*",
   "static/extensions/*/*", "static/extensions/*/*/*"]
 "multiagent.project_templates" = ["*.yaml", "*.json"]

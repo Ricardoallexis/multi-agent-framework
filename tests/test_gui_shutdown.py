@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 import uvicorn
 
-from multiagent import cli
 from multiagent.gui import __main__ as gui_main
 from multiagent.gui import events
 
@@ -165,13 +164,3 @@ def test_the_gui_server_gets_a_three_second_stop_limit_and_flags_its_streams(lau
     assert seen["config"].host == "127.0.0.1"
     assert seen["flagged"] is True and seen["should_exit"] is True
     assert capsys.readouterr().out.splitlines()[-1] == "GUI detenida."
-
-
-def test_ctrl_c_stops_the_stage0_ui_without_an_exception(launch, monkeypatch, capsys):
-    def interrupted(self):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr(uvicorn.Server, "run", interrupted)
-    args = cli.build_parser().parse_args(["ui", "--no-browser", "--port", str(free_port())])
-    cli.cmd_ui(args)  # must return normally
-    assert capsys.readouterr().out.splitlines()[-1] == "UI detenida."

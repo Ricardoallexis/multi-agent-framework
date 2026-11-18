@@ -19,7 +19,6 @@ GENERIC = {
     "project_name": "Event sequence", "workflow_id": "spec_review",
     "inputs": {"spec_text": "Users can reset a password by email."},
 }
-RUN_VIEW = Path(__file__).parents[1] / "multiagent" / "ui" / "static" / "js" / "run-view.js"
 
 
 @pytest.fixture
@@ -133,13 +132,3 @@ def test_cli_events_matches_http(monkeypatch, capsys, client, services):
     cli.main(["events", run["id"], "--after", "1"])
     output = capsys.readouterr().out
     assert json.loads(output) == client.get(f"/api/v1/runs/{run['id']}/events", params={"after": 1}).json()
-
-
-def test_run_view_checks_the_sequence_and_reloads():
-    # The UI has no JavaScript test runner; check that the view keeps the contract it documents.
-    source = RUN_VIEW.read_text(encoding="utf-8")
-    assert "export function checkEventSequence(events)" in source
-    for problem in ("has no sequence number", "is repeated or out of order", "are missing"):
-        assert problem in source
-    assert "if (!acceptSequence(run)) return;" in source
-    assert "reloading the run from the API" in source

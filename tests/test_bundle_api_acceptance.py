@@ -1,16 +1,14 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Stage 0 UI serving and Mock-mode acceptance checks (UI0-T09)."""
+"""Mock-mode API acceptance checks for definition bundles."""
 from __future__ import annotations
 
 import json
-import socket
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from multiagent import cli
 from multiagent.api import create_app
 from multiagent.bundles import load_bundle
 from multiagent.config import Settings
@@ -18,7 +16,7 @@ from multiagent.services import ApplicationServices
 
 BUNDLE = Path(__file__).parent / "fixtures" / "bundles" / "spec_review"
 GENERIC_RUN = {
-    "project_name": "Stage 0 acceptance",
+    "project_name": "Bundle API acceptance",
     "workflow_id": "spec_review",
     "inputs": {"spec_text": "Users can reset a password by email."},
 }
@@ -71,96 +69,6 @@ def create_bundle_run(client: TestClient, **overrides) -> dict:
     )
     assert response.status_code == 202, response.text
     return response.json()
-
-
-def test_ui_redirect_and_static_modules_are_served(client: TestClient):
-    redirect = client.get("/ui", follow_redirects=False)
-    assert redirect.status_code == 307
-    assert redirect.headers["location"] == "/ui/"
-
-    page = client.get("/ui/")
-    assert page.status_code == 200
-    assert page.headers["content-type"].startswith("text/html")
-    assert 'id="catalog"' in page.text
-    assert 'id="run-view"' in page.text
-    assert 'id="human-actions"' in page.text
-
-    for path, media_type in [
-        ("/ui/static/app.css", "text/css"),
-        ("/ui/static/js/api.js", ("text/javascript", "application/javascript")),
-        ("/ui/static/js/create-run.js", ("text/javascript", "application/javascript")),
-        ("/ui/static/js/run-view.js", ("text/javascript", "application/javascript")),
-        ("/ui/static/js/human-actions.js", ("text/javascript", "application/javascript")),
-    ]:
-        response = client.get(path)
-        assert response.status_code == 200, path
-        content_type = response.headers["content-type"]
-        expected_types = (media_type,) if isinstance(media_type, str) else media_type
-        assert any(content_type.startswith(expected) for expected in expected_types), path
-
-
-def test_ui_command_defaults_to_mock_and_registers_trusted_bundles(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
-):
-    import uvicorn
-
-    from multiagent import api
-
-    monkeypatch.delenv("MOCK_MODE", raising=False)
-    real_settings = Settings
-    observed = {}
-    fake_app = object()
-
-    def settings_factory() -> Settings:
-        return real_settings(
-            _env_file=None,
-            local_dir=tmp_path / "local",
-            worker_enabled=False,
-        )
-
-    def build_system(settings: Settings):
-        observed["mock_mode"] = settings.mock_mode
-        return object()
-
-    def create_app(system, *, bundles):
-        observed["bundles"] = bundles
-        return fake_app
-
-    monkeypatch.setattr(cli, "Settings", settings_factory)
-    monkeypatch.setattr(cli, "build_system", build_system)
-    monkeypatch.setattr(api, "create_app", create_app)
-    monkeypatch.setattr(cli, "_check_port_free", lambda host, port: None)
-    monkeypatch.setattr(uvicorn.Server, "run", lambda self: observed.update(app=self.config.app, server=dict(
-        host=self.config.host, port=self.config.port, log_level=self.config.log_level,
-        timeout_graceful_shutdown=self.config.timeout_graceful_shutdown)))
-
-    args = cli.build_parser().parse_args([
-        "ui",
-        "--no-browser",
-        "--port",
-        "8123",
-        "--bundle",
-        f"team={BUNDLE}",
-    ])
-    cli.cmd_ui(args)
-
-    assert observed["mock_mode"] is True
-    assert observed["bundles"] == {"team": BUNDLE}
-    assert observed["app"] is fake_app
-    assert observed["server"] == {"host": "127.0.0.1", "port": 8123, "log_level": "warning",
-                                  "timeout_graceful_shutdown": 3}
-    output = capsys.readouterr().out
-    assert "Mode: Mock (synthetic results, no API keys)" in output
-    assert "Bundles: team" in output
-
-
-def test_ui_command_reports_an_occupied_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
-        occupied.bind(("127.0.0.1", 0))
-        occupied.listen()
-        port = occupied.getsockname()[1]
-        with pytest.raises(RuntimeError, match="choose another port with --port"):
-            cli._check_port_free("127.0.0.1", port)
 
 
 def test_mock_run_supports_review_actions_status_events_and_artifacts(
@@ -281,7 +189,7 @@ def test_human_bridge_validates_responses_and_completes_the_run(
     assert len(client.get(f"/api/v1/runs/{run['id']}/artifacts").json()) == 3
 
 
-def test_stage0_api_errors_remain_structured(client: TestClient):
+def test_api_errors_remain_structured(client: TestClient):
     assert_api_error(client.get("/api/v1/runs/missing"), 404, "not_found")
     assert_api_error(client.get("/api/v1/workflows", params={"bundle": "missing"}), 404, "not_found")
     invalid = assert_api_error(client.post("/api/v1/runs", json={"workflow_id": "spec_review"}), 422, "invalid_request")

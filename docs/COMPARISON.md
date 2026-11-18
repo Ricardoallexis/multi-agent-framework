@@ -77,7 +77,7 @@ Whatever the degree of autonomy, the core keeps contracts, validation, persisten
 | Interfaces | HTTP API with parity | ✅ | Generic and bundle runs, definitions, artifacts, structured errors |
 | Interfaces | CLI | ✅ | Uses the same HTTP API |
 | Interfaces | Mock mode without API keys | ✅ | Synthetic fixtures through the same engine and contracts |
-| Interfaces | Graphical UI | 🟡 | Stage 0 run console and local operator GUI over the public API; configuration, teams, and plans come in later stages |
+| Interfaces | Graphical UI | 🟡 | Local operator GUI over the public API; configuration, teams, and plans come in later stages |
 | Models | Local models (Ollama) | ✅ | Text generation; sensitive runs can stay local |
 | Models | Cloud providers (Gemini, OpenAI) | ✅ | Optional |
 | Models | Routing by preferred model and fallback | ✅ | Static per step and execution mode |
@@ -129,7 +129,7 @@ Microsoft Agent Framework is a mature, MIT-licensed runtime. Instead of reimplem
 
 These are roadmap items, not design limits. Each will arrive when its turn in the development order comes:
 
-- graphical UI beyond the Stage 0 run console and partial local operator GUI (configuration, teams, plans, tools, and live topology);
+- graphical UI beyond the local operator GUI (configuration, teams, plans, tools, and live topology);
 - the execution backend abstraction and the optional Microsoft Agent Framework backend;
 - team and organization definitions and relationships; capability-based assignment is partial;
 - planning (manual, semi-automatic, automatic), delegation, replanning, and dynamic teams;

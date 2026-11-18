@@ -4,6 +4,10 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ## [Unreleased]
 
+### Removed
+
+- Remove the Stage 0 run-console prototype, its route, CLI command, package, and guide.
+
 ## [M1-B03-F01] - 2026-11-18
 
 Python package: `1.0.0`.

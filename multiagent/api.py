@@ -11,7 +11,6 @@ from fastapi import FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.datastructures import MutableHeaders
 
 from .bootstrap import build_system
 from .contracts import HumanReviewRequest, HumanStepSubmission, SocialPostRequest
@@ -20,7 +19,6 @@ from .services import ApplicationServices, ServiceError
 from .services.availability import FOREGROUND_RUNNING
 from .services.errors import INVALID_REQUEST
 from .gui import mount_gui
-from .ui import mount_ui
 from .version import __version__
 
 
@@ -77,36 +75,6 @@ class LocalAPISecurityMiddleware:
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)
-
-
-class UISecurityHeadersMiddleware:
-    """Apply the operator UI policy to documents, assets, redirects, and errors."""
-
-    policy = (
-        "default-src 'self'; script-src 'self'; style-src 'self'; "
-        "connect-src 'self'; img-src 'self'; font-src 'self'; "
-        "object-src 'none'; frame-src 'none'; frame-ancestors 'none'; "
-        "base-uri 'none'; form-action 'self'"
-    )
-
-    def __init__(self, app):
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        path = scope.get("path", "")
-        if scope["type"] != "http" or not (path == "/ui" or path.startswith("/ui/")):
-            await self.app(scope, receive, send)
-            return
-
-        async def send_with_headers(message):
-            if message["type"] == "http.response.start":
-                headers = MutableHeaders(scope=message)
-                headers["Content-Security-Policy"] = self.policy
-                headers["X-Content-Type-Options"] = "nosniff"
-                headers["Referrer-Policy"] = "no-referrer"
-            await send(message)
-
-        await self.app(scope, receive, send_with_headers)
 
 
 # Request bodies of the task routes. Field rules live in services.tasks; these only fix the shape.
@@ -455,7 +423,6 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
 
     app = FastAPI(title="Multi-Agent Framework API", version=__version__, lifespan=lifespan)
     app.add_middleware(LocalAPISecurityMiddleware, allowed_hosts=system_obj.settings.api_allowed_hosts)
-    app.add_middleware(UISecurityHeadersMiddleware)
     app.state.services = services
 
     @app.exception_handler(ServiceError)
@@ -1041,5 +1008,4 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         return RedirectResponse("/gui/")
 
     mount_gui(app)  # operator GUI at /gui (token-protected /gui/api, docs/GUI.md)
-    mount_ui(app)  # deprecated Stage 0 UI at /ui (removed after 1.0): static files only, a client of the routes above
     return app

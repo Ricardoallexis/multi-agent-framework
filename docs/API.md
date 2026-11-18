@@ -186,7 +186,7 @@ or `multiagent events <run_id> --after N`.
 If a client sees a gap, a repeated number, or a copy that ends before events it
 already has, its copy is inconsistent, for example because responses arrived out
 of order. It should reload the run (`GET /api/v1/runs/{run_id}`) instead of
-guessing its state. The Stage 0 run view does this and shows a notice while it
+guessing its state. The operator GUI can do this and show a notice while it
 reloads. `seq` is additive: existing fields, including the event `id`, keep
 their meaning. An `after` below 0 or not an integer returns 422 `invalid_request`.
 

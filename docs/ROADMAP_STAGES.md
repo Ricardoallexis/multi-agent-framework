@@ -91,7 +91,7 @@ One Python facade (`multiagent.services`) used by the CLI, the HTTP API, and the
 
 ### S2 · Operator UI, UI stage 0 ✅
 
-A local browser console in Mock mode by default: create and follow runs, human review and the Human Bridge, artifacts, sequence-numbered events with resynchronization, a restrictive Content Security Policy, and status shown by more than color. See [UI0.md](UI0.md).
+A local browser console in Mock mode by default: create and follow runs, human review and the Human Bridge, artifacts, sequence-numbered events with resynchronization, a restrictive Content Security Policy, and status shown by more than color. The Stage 0 prototype has since been removed.
 
 ### S3 · Local usage telemetry ✅
 
@@ -401,7 +401,7 @@ discovery, local model expansion, and the other planned items remain open. See
 configurable session viewer, framework-run creation and human actions, live
 session follow, and confirmation-gated open-in-app support. It uses the local
 API with a bearer token and is documented in [GUI.md](GUI.md). The Stage 0
-prototype remains at `/ui/` until its use cases are covered. This does not
+prototype has been removed. This does not
 complete UI stages 1–3; the configuration, teams/plans/tasks, tools, and
 advanced visualization items below remain planned.
 

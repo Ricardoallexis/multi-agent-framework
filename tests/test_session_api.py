@@ -85,7 +85,7 @@ def test_unauthorized_answers_leak_nothing_and_keep_the_gui_headers(world):
 
 
 def test_sessions_are_not_part_of_the_public_api(world):
-    for path in ("/api/v1/sessions", f"/api/v1/sessions/{SID}", "/ui/api/sessions"):
+    for path in ("/api/v1/sessions", f"/api/v1/sessions/{SID}"):
         assert world.client.get(path, headers=world.auth).status_code == 404
 
 

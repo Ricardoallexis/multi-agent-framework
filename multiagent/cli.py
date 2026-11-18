@@ -896,7 +896,7 @@ def _parse_ui_bundles(values: list[str] | None) -> dict[str, Path]:
 
 
 def _add_bundle_argument(parser: argparse.ArgumentParser) -> None:
-    """The ``--bundle NAME=FOLDER`` option of ``multiagent ui`` and ``multiagent gui`` (defined once)."""
+    """The ``--bundle NAME=FOLDER`` option of ``multiagent gui`` (defined once)."""
     parser.add_argument("--bundle", action="append", metavar="NAME=FOLDER",
                         help="Register a trusted definition bundle (its contracts.py is imported); repeatable")
 
@@ -911,40 +911,6 @@ def _check_port_free(host: str, port: int) -> None:
             raise RuntimeError(
                 f"Port {port} on {host} is already in use. Stop the other server or choose another port with --port."
             ) from exc
-
-
-def cmd_ui(args) -> None:
-    """Start the API with the deprecated Stage 0 UI, in Mock mode unless --real, and open the browser.
-
-    The supported interface is ``multiagent gui`` (``/gui/``); this prototype is removed after 1.0."""
-    import os
-    import threading
-    import webbrowser
-
-    from .api import create_app
-    from .gui.__main__ import serve
-
-    if not args.real:
-        os.environ["MOCK_MODE"] = "true"  # synthetic fixtures, no model calls or API keys
-    settings = Settings()
-    settings.ensure_directories()
-    host = settings.app_host
-    port = args.port or settings.app_port
-    bundles = _parse_ui_bundles(args.bundle)
-    _check_port_free(host, port)
-    app = create_app(build_system(settings), bundles=bundles)
-
-    url = f"http://{f'[{host}]' if ':' in host else host}:{port}/ui/"
-    mode = "REAL models (provider calls may cost money)" if args.real else "Mock (synthetic results, no API keys)"
-    print("Deprecated: the Stage 0 prototype at /ui/ is removed after 1.0; use `multiagent gui` (/gui/).")
-    print(f"Multi-Agent Framework UI: {url}")
-    print(f"Mode: {mode}")
-    if bundles:
-        print(f"Bundles: {', '.join(sorted(bundles))}")
-    print("Press Ctrl+C to stop.")
-    if not args.no_browser:
-        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
-    serve(app, host=host, port=port, stopped="UI detenida.")
 
 
 def add_gui_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1041,13 +1007,6 @@ def build_parser() -> argparse.ArgumentParser:
         x.set_defaults(func=unavailable_setup)
     else:
         add_setup_parser(sub)
-    x = sub.add_parser("ui", help="Deprecated Stage 0 UI at /ui/ (use `gui`); Mock mode unless --real")
-    x.add_argument("--real", action="store_true", help="Use the configured model providers instead of Mock mode")
-    x.add_argument("--port", type=int, help="Port to listen on (default: APP_PORT, 8000)")
-    _add_bundle_argument(x)
-    x.add_argument("--no-browser", action="store_true", help="Do not open the browser")
-    x.set_defaults(func=cmd_ui)
-
     x = sub.add_parser("gui", help="Start the local server with the new GUI (Mock mode unless --real) and open the browser")
     add_gui_arguments(x); x.set_defaults(func=cmd_gui)
     sess = sub.add_parser("sessions", help="Read Claude, Codex, Copilot and framework sessions (local, read-only)")
