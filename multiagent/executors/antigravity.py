@@ -12,8 +12,9 @@ Command (``build_command``), in this order; ``--model`` and ``--add-dir`` are co
 
 * **Off by default, and supervised.** The executor is enabled only when its catalog declaration says
   ``enabled: true`` AND the person who runs the framework accepted the third-party notice (``notice_accepted`` must be
-  ``NOTICE_ID``; the visible notice text is GEM-T05). Each launch goes through the same per-launch approval as the
-  other CLI executors (the ``launch_executor`` effect of the service, BDI-T04).
+  ``NOTICE_ID``; the notice text is in ``docs/EXECUTORS.md``, the README and ``.env.example``). Each launch goes
+  through the same per-launch approval as the other CLI executors (the ``launch_executor`` effect of the service,
+  BDI-T04).
 * **Kill switch.** While the file ``kill_switch`` exists nothing is launched, not even the ``/usage`` probe, and a run
   in progress is stopped (its process tree is killed) within ``kill_poll_seconds``.
 * **One run at a time** per installation: a lock in this process plus an operating-system lock on the file

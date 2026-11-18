@@ -112,6 +112,14 @@ Start the backend with:
 python main.py
 ```
 
+### Optional: Antigravity CLI (`agy`) executor
+
+The framework includes an optional, supervised executor adapter (`antigravity_cli`) for running tasks through the Antigravity CLI (`agy`). It is **disabled by default**: enabling it requires setting `enabled: true` in `catalog/models.yaml` and accepting the third-party notice below with `ANTIGRAVITY_NOTICE_ACCEPTED=agy-third-party-notice/1` in `.local/.env`:
+
+> Antigravity (agy) runs with the subscription of the person who enables it, through its official CLI. Review your plan's terms before you enable it. The framework spends no AI credits, but only if you keep them turned off in your account. Respect the quota limits that `agy /usage` shows. Do not use it with shared or third-party accounts.
+
+See [`docs/EXECUTORS.md`](docs/EXECUTORS.md#antigravity-agy-supervised) for controls, quota floors, and configuration details.
+
 ## API and CLI quick start with Mock
 
 After installation, start the server in Mock mode to try the workflow without

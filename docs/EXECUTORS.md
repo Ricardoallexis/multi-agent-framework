@@ -42,14 +42,26 @@ framework does not infer token counts or cost from output that lacks usage field
 ## Antigravity (agy), supervised
 
 `antigravity_cli` runs a task through `agy -p`, with the subscription of the person who enables it. It is off by
-default and stays supervised:
+default and stays supervised.
 
-- **Two switches.** The catalog declaration must say `enabled: true`, and the person must accept the third-party notice
-  by setting `ANTIGRAVITY_NOTICE_ACCEPTED=agy-third-party-notice/1`. Until both hold, the executor is disabled
-  (`executor_disabled`; `details.code` is `notice_not_accepted` when the notice is missing). The notice says that agy runs
-  with the subscription of whoever enables it, through its official CLI; that the plan's terms apply; that the framework
-  spends no AI credits only if they stay off in the account; that the quota shown by `agy /usage` is respected; and that
-  it is not for shared or third-party accounts. Where the notice is shown is a separate task (GEM-T05).
+### Third-party notice
+
+> Antigravity (agy) runs with the subscription of the person who enables it, through its official CLI. Review your
+> plan's terms before you enable it. The framework spends no AI credits, but only if you keep them turned off in your
+> account. Respect the quota limits that `agy /usage` shows. Do not use it with shared or third-party accounts.
+
+To accept this notice, set the following line in `.local/.env` (created from `.env.example`):
+
+```dotenv
+ANTIGRAVITY_NOTICE_ACCEPTED=agy-third-party-notice/1
+```
+
+### Controls and launch
+
+- **Two switches.** The catalog declaration (`catalog/models.yaml`) must say `enabled: true`, and
+  `ANTIGRAVITY_NOTICE_ACCEPTED` must equal `agy-third-party-notice/1` (see [Third-party notice](#third-party-notice)).
+  Until both hold, the executor stays disabled (`executor_disabled`; `details.code` is `notice_not_accepted` when the
+  notice is missing).
 - **Kill switch.** While the file `ANTIGRAVITY_KILL_SWITCH` (default `<data_dir>/antigravity-off`) exists, nothing is
   launched, not even the quota check, and a running agy is stopped within half a second. The service refuses before the
   task changes (`executor_unavailable`, `details.code` `kill_switch_on`).

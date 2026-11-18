@@ -723,3 +723,9 @@ def test_under_the_pause_floor_the_service_pauses_agy_until_the_window_resets(fa
     assert until <= datetime(2026, 11, 18, 15, 10, tzinfo=timezone.utc)
     assert fake.runs() == [] and services.tasks.get_task("T1")["state"] == "paused"
     refused(lambda: services.executors.run_task("T1", "antigravity_cli"), reason="executor_paused")
+
+
+@pytest.mark.parametrize("relative", ["README.md", "docs/EXECUTORS.md", ".env.example"])
+def test_the_third_party_notice_id_is_documented_in_each_visible_place(relative):
+    text = (Path(__file__).resolve().parents[1] / relative).read_text(encoding="utf-8")
+    assert NOTICE_ID in text
