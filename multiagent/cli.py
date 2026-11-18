@@ -914,7 +914,9 @@ def _check_port_free(host: str, port: int) -> None:
 
 
 def cmd_ui(args) -> None:
-    """Start the API with the Stage 0 UI, in Mock mode unless --real, and open the browser."""
+    """Start the API with the deprecated Stage 0 UI, in Mock mode unless --real, and open the browser.
+
+    The supported interface is ``multiagent gui`` (``/gui/``); this prototype is removed after 1.0."""
     import os
     import threading
     import webbrowser
@@ -934,6 +936,7 @@ def cmd_ui(args) -> None:
 
     url = f"http://{f'[{host}]' if ':' in host else host}:{port}/ui/"
     mode = "REAL models (provider calls may cost money)" if args.real else "Mock (synthetic results, no API keys)"
+    print("Deprecated: the Stage 0 prototype at /ui/ is removed after 1.0; use `multiagent gui` (/gui/).")
     print(f"Multi-Agent Framework UI: {url}")
     print(f"Mode: {mode}")
     if bundles:
@@ -1038,7 +1041,7 @@ def build_parser() -> argparse.ArgumentParser:
         x.set_defaults(func=unavailable_setup)
     else:
         add_setup_parser(sub)
-    x = sub.add_parser("ui", help="Start the API with the Stage 0 UI (Mock mode unless --real) and open the browser")
+    x = sub.add_parser("ui", help="Deprecated Stage 0 UI at /ui/ (use `gui`); Mock mode unless --real")
     x.add_argument("--real", action="store_true", help="Use the configured model providers instead of Mock mode")
     x.add_argument("--port", type=int, help="Port to listen on (default: APP_PORT, 8000)")
     _add_bundle_argument(x)

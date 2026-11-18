@@ -5,10 +5,7 @@
 // only thing that creates a run (the same POST /gui/api/runs the form uses). «Ver como formulario» opens the existing
 // form (create-run.js) with the answers already in place. What happens next is decided by new-session-model.js (pure);
 // this file reads the workflows, draws the conversation and calls the API. Every message is rendered as text.
-//
-// `interpret` is the hook for the interpretation of free text with a cheap model (a "T1" of the economic profile). It is
-// NOT wired in this task: main.js passes nothing, so the proposals come from comparing the text with names and descriptions.
-// When it is wired, it is an async function (text, catalog) that returns [{ id, bundle }] or null.
+// Free text is matched against workflow names and descriptions; no model reads it.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost } from "./api.js";
 import { CreateRun, PreviewPanel } from "./create-run.js";
@@ -204,7 +201,7 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
   </section>`;
 }
 
-export function NewSession({ token, mock, interpret = null }) {
+export function NewSession({ token, mock }) {
   const store = useRef(createConversation());
   const [conv, setConv] = useState(store.current);
   const [view, setView] = useState("chat");                        // "chat" or "form" (the existing create-run form)
@@ -307,7 +304,6 @@ export function NewSession({ token, mock, interpret = null }) {
     if (busy || (!asking && !trimmed)) return;
     const command = parseCommand(trimmed);
     let entries = catalog.entries;
-    let hinted = null;
     if (!asking && (!command || command.name === "workflow")) {
       setBusy(true);
       try {
@@ -317,13 +313,10 @@ export function NewSession({ token, mock, interpret = null }) {
           dispatch({ type: "notice", text: "No se pudo leer la lista de workflows: " + errorText(loaded.error) }, { keepDraft: true });
           return;
         }
-        if (!command && typeof interpret === "function") {
-          try { hinted = await interpret(trimmed, entries); } catch (_) { hinted = null; }
-        }
       } finally { setBusy(false); }
     }
     const before = store.current.messages.length;
-    const next = dispatch({ type: "send", text: trimmed, catalog: entries, hinted }, { keepDraft: true });
+    const next = dispatch({ type: "send", text: trimmed, catalog: entries }, { keepDraft: true });
     if (next.messages.length !== before) setDraft(prefillOf(next));      // accepted; an answer that is not accepted stays in the box
   }
 

@@ -194,20 +194,17 @@ To return to provider inference, stop the server, set `MOCK_MODE=false`, and
 restart it with your provider configuration. This server mode is separate from
 the standalone `dry-run` command below, which does not need the HTTP server.
 
-## Stage 0 local run console
+## Local operator GUI
 
-This checkout includes a browser UI for creating and following Runs, reviewing
-outputs, using Human Bridge, and inspecting artifacts. After installation, run
-`multiagent ui` in the activated environment, or `run_ui_windows.bat` on Windows.
-The launcher enables Mock by default and opens `http://127.0.0.1:8000/ui/` with
-the default settings. Keep its terminal open; use Ctrl+C to stop the server.
+This checkout includes a browser GUI for creating and following Runs, reviewing
+outputs, approving tool calls, using Human Bridge, and inspecting artifacts and
+sessions. After installation, run `multiagent gui` in the activated environment,
+or `run_ui_windows.bat` on Windows. The launcher enables Mock by default and
+opens `http://127.0.0.1:8000/gui/` with the default settings. Keep its terminal
+open; use Ctrl+C to stop the server. See the [operator GUI guide](docs/GUI.md).
 
-See [Stage 0 operation](docs/UI0.md) for bundles, provider mode, human actions,
-recovery, and current limits. This describes the checkout implementation;
-publication and acceptance validation are separate steps.
-The newer local operator GUI is served at `/gui/`; see the [operator GUI
-guide](docs/GUI.md). The `/ui/` prototype remains available until its use
-cases are covered by the new interface.
+The Stage 0 run-console prototype (`multiagent ui`, `/ui/`, described in
+[Stage 0 operation](docs/UI0.md)) is deprecated and is removed after 1.0.
 
 ## Python quickstart and standalone installation
 

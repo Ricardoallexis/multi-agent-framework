@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 import anyio
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.datastructures import MutableHeaders
 
@@ -1035,6 +1035,11 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         """The messages of a task with ``seq`` greater than ``after`` (the cursor), oldest first."""
         return services.inbox.messages("task", task_id, after=after, limit=limit, state=state)
 
+    @app.get("/", include_in_schema=False)
+    def root():
+        """The server root opens the operator GUI, the one supported local interface."""
+        return RedirectResponse("/gui/")
+
     mount_gui(app)  # operator GUI at /gui (token-protected /gui/api, docs/GUI.md)
-    mount_ui(app)  # Stage 0 UI at /ui: static files only, a client of the routes above
+    mount_ui(app)  # deprecated Stage 0 UI at /ui (removed after 1.0): static files only, a client of the routes above
     return app

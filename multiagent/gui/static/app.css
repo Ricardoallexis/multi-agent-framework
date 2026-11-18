@@ -184,6 +184,10 @@ fieldset.inputs legend { padding: 0 6px; font-weight: 600; }
 .message.ok { border-color: var(--ok); color: var(--ok); }
 .notice.check, p.notice, .confirm { border: 1px solid var(--warn); border-radius: 6px; padding: 8px 10px; background: var(--panel); }
 .confirm { margin: 8px 0; }
+.tool-approval { margin: 8px 0; }
+.tool-approval dt { font-weight: 600; margin-top: 6px; }
+.tool-approval dd { margin: 2px 0 0; overflow-wrap: break-word; }
+.tool-approval ul { margin: 0; padding-left: 18px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
 .panel h4 { margin: 0 0 8px; }
 .run-detail h3 { margin: 0 0 6px; overflow-wrap: anywhere; }

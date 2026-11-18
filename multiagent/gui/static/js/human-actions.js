@@ -81,6 +81,23 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
           onClick=${() => setConfirm("cancel")}>Cancelar ejecución…</button>
         <${Help} topic="human.cancel" /></div>`)
     : null;
+  // Rejecting a tool call fails the run without running the tool; rejecting a review ends it as rejected.
+  const rejectControl = (toolCall) => (confirm === "reject"
+    ? html`<${Confirm} title="¿Rechazar la ejecución?" confirmLabel="Sí, rechazar" keepLabel="Mantenerla" danger=${true}
+        busy=${busy} onKeep=${() => setConfirm(null)}
+        onConfirm=${() => act(runPath(id, "reject"), { feedback: reason.trim() }, () => toolCall
+          ? "La llamada quedó rechazada y la ejecución terminó con error." : "La ejecución quedó rechazada.")}>
+        <p class="muted">${toolCall
+          ? "La herramienta no se ejecutará y la ejecución terminará con error; no se puede deshacer."
+          : "La ejecución terminará como rechazada; no se puede deshacer."}</p>
+        <label for="reject-reason">Motivo (opcional)</label>
+        <${Help} topic="human.reject_reason" />
+        <textarea id="reject-reason" rows="2" maxlength="4000" value=${reason} ...${helpFor("human.reject_reason")}
+          onInput=${(event) => setReason(event.target.value)}></textarea>
+      <//>`
+    : html`<div class="action-item"><button type="button" class="btn secondary" disabled=${busy} ...${helpFor("human.reject")}
+        onClick=${() => setConfirm("reject")}>Rechazar ejecución…</button>
+      <${Help} topic="human.reject" /></div>`);
 
   let body;
   if (view.terminal) {
@@ -114,22 +131,35 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
         <div class="actions"><button type="submit" class="btn secondary" disabled=${busy} ...${helpFor("human.changes")}>Pedir cambios</button></div>
       </form>`}
       <div class="action-list">
-        ${confirm === "reject"
-          ? html`<${Confirm} title="¿Rechazar la ejecución?" confirmLabel="Sí, rechazar" keepLabel="Mantenerla" danger=${true}
-              busy=${busy} onKeep=${() => setConfirm(null)}
-              onConfirm=${() => act(runPath(id, "reject"), { feedback: reason.trim() }, () => "La ejecución quedó rechazada.")}>
-              <p class="muted">La ejecución terminará como rechazada; no se puede deshacer.</p>
-              <label for="reject-reason">Motivo (opcional)</label>
-              <${Help} topic="human.reject_reason" />
-              <textarea id="reject-reason" rows="2" maxlength="4000" value=${reason} ...${helpFor("human.reject_reason")}
-                onInput=${(event) => setReason(event.target.value)}></textarea>
-            <//>`
-          : html`<div class="action-item"><button type="button" class="btn secondary" disabled=${busy} ...${helpFor("human.reject")}
-              onClick=${() => setConfirm("reject")}>Rechazar ejecución…</button>
-            <${Help} topic="human.reject" /></div>`}
+        ${rejectControl(false)}
         ${cancelControl}
       </div>
     </div>`;
+  } else if (waiting && waiting.reason === "tool_approval") {
+    const call = view.tool_approval;
+    body = call
+      ? html`<div>
+          <p class="muted">El paso «${call.step_id}» quiere usar la herramienta «${call.tool_id}». Revisa qué hará y decide.</p>
+          <dl class="tool-approval">
+            <dt>Qué hará</dt><dd>${call.summary || "(sin resumen)"}</dd>
+            <dt>Efectos</dt><dd>${call.impacts.length ? call.impacts.join(", ") : "ninguno declarado"}</dd>
+            <dt>Acciones</dt><dd>${call.actions.length
+              ? html`<ul>${call.actions.map((item, index) => html`<li key=${index}>${item.kind}${item.target ? ": " + item.target : ""}</li>`)}</ul>`
+              : "ninguna declarada"}${call.actions_omitted && html` <span class="muted">${call.actions_omitted}</span>`}</dd>
+          </dl>
+          <div class="action-item">
+            <button type="button" class="btn" disabled=${busy} ...${helpFor("human.tool_approve")}
+              onClick=${() => act(runPath(id, "approve"), { permission_request_id: call.permission_request_id },
+                (v) => v.status === "completed" ? "Llamada aprobada. La ejecución terminó." : "Llamada aprobada. La ejecución continúa.")}>Aprobar esta llamada</button>
+            <${Help} topic="human.tool_approve" />
+          </div>
+          <div class="action-list">
+            ${rejectControl(true)}
+            ${cancelControl}
+          </div>
+        </div>`
+      : html`<div><p class="muted">La ejecución espera la aprobación de una herramienta, pero no se encontró la petición. Recarga la vista o cancela.</p>
+          <div class="action-list">${cancelControl}</div></div>`;
   } else if (waiting && view.pending_human) {
     body = html`<div>
       <${HumanStep} token=${token} view=${view} busy=${busy} act=${act} setMessage=${setMessage} onStale=${onStale} />

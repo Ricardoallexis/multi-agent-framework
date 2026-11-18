@@ -1,7 +1,8 @@
 # Stage 0 run console
 
-The newer operator GUI is documented in [GUI.md](GUI.md). This prototype is
-kept at `/ui/` only until the new GUI covers its use cases.
+**Deprecated.** The operator GUI at `/gui/` ([GUI.md](GUI.md)) covers these use
+cases and is the one supported local interface; `run_ui_windows.bat` now opens
+it. This prototype still starts with `multiagent ui` and is removed after 1.0.
 
 Stage 0 is a local operator interface for declared workflows. It uses the public
 HTTP API at `/api/v1` for every operation. Runs, artifacts, and workflow state
@@ -19,7 +20,7 @@ no separate frontend build or Node installation.
 From the repository root on Windows:
 
 ```powershell
-.\run_ui_windows.bat
+.venv\Scripts\python.exe -m multiagent ui
 ```
 
 With the project environment activated on Linux/macOS (or Windows):
@@ -49,11 +50,11 @@ are saved even in Mock mode.
 For example, on Windows:
 
 ```powershell
-.\run_ui_windows.bat --port 8010 --no-browser
+.venv\Scripts\python.exe -m multiagent ui --port 8010 --no-browser
 ```
 
 If a server already occupies the port, stop it or choose another port. Do not
-start `run_backend.bat` and the UI launcher on the same port. An existing API
+start `run_backend.bat` and `multiagent ui` on the same port. An existing API
 server from this checkout also serves `/ui/`, but its own settings determine
 Mock mode; opening that URL does not enable Mock.
 
@@ -64,7 +65,7 @@ Configure the desired providers as described in [API.md](API.md) and
 
 ```powershell
 $env:MOCK_MODE = "false"
-.\run_ui_windows.bat --real
+.venv\Scripts\python.exe -m multiagent ui --real
 ```
 
 ```bash
@@ -110,7 +111,7 @@ also loses the key, so inspect the server before repeating an uncertain request.
 The repository includes a trusted synthetic fixture with `SAMPLE_OUTPUTS`:
 
 ```powershell
-.\run_ui_windows.bat --bundle spec=tests/fixtures/bundles/spec_review
+.venv\Scripts\python.exe -m multiagent ui --bundle spec=tests/fixtures/bundles/spec_review
 ```
 
 Or, from the repository root in an activated environment:

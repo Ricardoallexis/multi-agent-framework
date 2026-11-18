@@ -91,7 +91,7 @@ def test_the_chat_replaces_the_form_at_new_and_the_form_stays_available():
     main = source("main.js")
     assert 'import { NewSession } from "./new-session.js"' in main
     assert re.search(r"\$\{creating && html`<\$\{NewSession\} token=\$\{token\} mock=\$\{mock\} />`\}", main)
-    assert "interpret" not in main                                     # the model hook is not wired in this task
+    assert "interpret" not in main                                     # no model reads the free text
     assert "<${Runs}" in main and "startCreating" not in main + source("runs.js")
     chat = source("new-session.js")
     assert 'import { CreateRun, PreviewPanel } from "./create-run.js"' in chat
@@ -104,15 +104,14 @@ def test_the_chat_replaces_the_form_at_new_and_the_form_stays_available():
     assert 'if (!seed.current) setWorkflowId("")' in form              # without a seed the form clears the workflow as before
 
 
-def test_the_model_is_pure_and_the_hook_for_interpretation_is_documented_but_not_wired():
+def test_the_model_is_pure_and_matching_is_deterministic_with_no_dead_hooks():
     model = source("new-session-model.js")
     assert not re.search(r"^import\b", model, re.M)                    # loads in Node with no DOM, no Preact
     for forbidden in ("fetch(", "apiPost", "apiGet", "document.", "window.", "localStorage"):
         assert forbidden not in model, forbidden
-    assert "hinted" in model and "NOT wired" in model                  # the single place where the T1 interpretation plugs in
     chat = source("new-session.js")
-    assert "interpret = null" in chat and "NOT wired in this task" in chat
-    assert chat.count("interpret(") == 1                               # called only from submit(), and only when it is a function
+    for text in (model, chat):                                         # MVP 1.0: no unwired model-interpretation hook
+        assert "hinted" not in text and "NOT wired" not in text and "interpret" not in text
 
 
 def test_messages_are_rendered_as_text_and_the_log_is_announced():
@@ -320,8 +319,6 @@ FLOW = """
   log.empty = { phase: s.phase, n: s.suggestions.length, last: s.messages[s.messages.length - 1].text };
   step({ type: "send", text: "qwerty", catalog });
   log.nomatch = { source: s.source, showAll: s.showAll, n: s.suggestions.length };
-  step({ type: "send", text: "algo distinto", catalog, hinted: [{ id: "plan_event", bundle: "synthetic" }, { id: "nope", bundle: null }] });
-  log.hinted = { source: s.source, keys: s.suggestions.map((x) => x.key) };
 
   step({ type: "pick", workflow: { id: "summarize_document", bundle: "general", description: "d" }, spec });
   log.pick = { phase: s.phase, index: s.index, q: m.currentQuestion(s).key, progress: m.progress(s), last: s.messages[s.messages.length - 1].text, names: s.inputNames };
@@ -394,7 +391,6 @@ def test_the_conversation_flows_from_the_greeting_to_the_summary_without_running
     assert log["all"] == {"n": len(CATALOG), "showAll": True}
     assert log["empty"]["n"] == 0 and "No hay workflows disponibles" in log["empty"]["last"]
     assert log["nomatch"] == {"source": "", "showAll": True, "n": len(CATALOG)}   # nothing matched: all of them, and it says so
-    assert log["hinted"] == {"source": "interpretation", "keys": ["synthetic|plan_event"]}    # the hook of the future T1
 
     assert log["pick"]["phase"] == "ask" and log["pick"]["index"] == 0 and log["pick"]["q"] == "question"
     assert log["pick"]["progress"] == {"n": 1, "total": 5}

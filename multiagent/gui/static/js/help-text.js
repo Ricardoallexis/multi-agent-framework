@@ -352,6 +352,14 @@ export const HELP = {
       "El resultado aprobado queda marcado como tal en «Resultados»."
     ]
   },
+  "human.tool_approve": {
+    "title": "Aprobar esta llamada",
+    "hint": "Deja que el paso use la herramienta una vez, con lo que se muestra arriba.",
+    "more": [
+      "La aprobación vale solo para esta llamada: otra llamada vuelve a pedir permiso.",
+      "Si los datos de la llamada cambian, la aprobación ya no sirve y se pide otra vez."
+    ]
+  },
   "human.regenerate": {
     "title": "Regenerar sin comentarios",
     "hint": "Repite el paso otra vez, sin darle indicaciones.",

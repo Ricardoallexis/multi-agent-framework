@@ -34,14 +34,14 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 
 ## Current focus — MVP 1.0 (`1.0.0-rc1`)
 
-Scope is closed in [`docs/SCOPE.md`](docs/SCOPE.md): only these five capabilities are worked on until 1.0. Status on 2026-11-17, verified end to end through the Python facade (`build_system`, `process_run`, `approve`) in a clean folder.
+Scope is closed in [`docs/SCOPE.md`](docs/SCOPE.md): only these five capabilities are worked on until 1.0. Status on 2026-11-17, verified end to end through the Python facade (`build_system`, `process_run`, `approve`) in a clean folder, and for capability 4 through the GUI in a browser.
 
 | # | Capability | Status | Evidence |
 | --- | --- | --- | --- |
 | 1 | Clean start on `main` | ✅ Done | `main` carries the integration branch; migrations 001–013 apply on an empty database. |
 | 2 | Real 3-step flow on Ollama | ✅ Done | Default `num_ctx` is 8192 (catalog and `OLLAMA_NUM_CTX`); `social_post_full` with `qwen3:8b` reaches review and `completed` 10 of 10 times (about 35 s each). |
 | 3 | Tools wired into the engine | ✅ Done | A step declares `tools:`; the engine calls them through `ToolInvoker` (`select_tool` for capabilities); a write tool pauses in `tool_approval` and runs once after approval, in Mock and with Ollama. |
-| 4 | One local UI | 🔄 Next | Consolidate `/gui/`, close `GUI2-T07` with the minimal scope, and hide or wire dead buttons. |
+| 4 | One local UI | ✅ Done | `/gui/` is the one interface (root and `run_ui_windows.bat` open it; `/ui/` deprecated). From the GUI in Mock: `social_post` created and approved to `completed`; a bundle step with a write tool shows the pending call, «Aprobar esta llamada» runs it once, and the run completes with no console errors. The unwired chat hook was removed. |
 | 5 | Docs in sync | ✅ Done | No personal paths in `docs/`; this page reflects the integrated state. |
 
 ## Previous stage — runtime foundations

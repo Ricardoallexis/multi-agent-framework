@@ -1,9 +1,11 @@
 # Operator GUI
 
-The local operator GUI at `/gui/` is a separate interface from the Stage 0
-run-console prototype at `/ui/`. The prototype remains available until the
-new GUI covers its use cases. The GUI is served by the local API and is an
-operator view, not a public API or a separate orchestration layer.
+The local operator GUI at `/gui/` is the supported local interface for 1.0:
+`multiagent gui`, `python -m multiagent.gui` and `run_ui_windows.bat` all open
+it. The Stage 0 run-console prototype at `/ui/` (`multiagent ui`) is
+deprecated: it still starts, prints a notice and points to `/gui/`, and it will
+be removed after 1.0. The GUI is served by the local API and is an operator
+view, not a public API or a separate orchestration layer.
 
 ## Start
 
@@ -92,8 +94,11 @@ The views sit inside a three-zone shell (GUI2-T02):
   plus the framework runs, grouped by project (the folder name of a session, the
   project name of a run). Each item has a status dot (working, finished, error;
   also written as text for screen readers) and each group counts its items per
-  app. It uses only `/gui/api/sessions` and `/gui/api/runs`; there is no task
-  board because the GUI API does not serve one.
+  app. The sidebar uses `/gui/api/sessions` and `/gui/api/runs`; the work map
+  (`#map`, below) shows projects, stages and tasks. `GET /gui/api/sessions/counts`
+  returns totals per source and status for other clients. Session readers keep a
+  bounded per-file index (up to 5,000 entries) and reuse source listings for 2
+  seconds, so a transcript that only grew is not read again.
 - **Centre** (`main`): the view of the current route. In a session, consecutive
   tool calls and results fold into one block, "Trabajó N min · K herramientas",
   that opens to show them.
@@ -121,7 +126,10 @@ The views sit inside a three-zone shell (GUI2-T02):
 
 Below about 900 px the sidebar becomes a drawer opened by the "Menú" button
 (Esc or a click outside closes it) and the right panel stacks under the content.
-There is a skip link, visible focus and 44 px touch targets; the palette follows
+Shared UI components in `js/ui/` provide status chips, progress bars, tabs and
+level badges. Status text accompanies color; tabs support arrow keys, Home and
+End, and progress indicators expose their values accessibly. The interface uses
+a skip link, visible focus and 44 px touch targets; the palette follows
 `prefers-color-scheme`.
 
 ## Views
@@ -131,24 +139,73 @@ quieres hacer?" and three starters (Trabajar en un workflow, Continuar una
 ejecución, Ayuda), also available as the commands `/workflow`, `/continuar` and
 `/ayuda` in the writing box. Free text proposes workflows as cards (name,
 description, origin) by comparing the words with the names and descriptions of
-the workflows: deterministic, no model is called. The optional interpretation of
-free text with a cheap model is not wired yet; `interpret` in `js/new-session.js`
-and `hinted` in `js/new-session-model.js` are the hook for it. After choosing a
+the workflows: deterministic, no model is called. After choosing a
 workflow the chat asks its inputs one at a time ("Pregunta N de M", with the
 label, description and example; the project name comes last, and the optional
 extra-context inputs are left to the form). A summary card shows the answers and
 the rendered prompts with **Lanzar**, **Editar** and **Ver como formulario**;
 nothing is created until **Lanzar**, which posts to the same
 `POST /gui/api/runs` as the form (the real-model confirmation of a non-Mock
-server is kept). "Ver como formulario" opens the create-run form with the same
-workflow and answers. The conversation model is pure (`js/new-session-model.js`)
-and is tested with Node.
+server is kept). The writing box accepts an answer with **Enviar** (Enter sends;
+Shift+Enter adds a line); starter and choice chips are options for the chat.
+Before launch, the summary can override mode, profile, level, model and effort
+where the preview exposes choices; `POST /gui/api/runs/preview` validates these
+preferences without creating or executing a run. The chat launches framework
+workflows, not Claude, Codex or Copilot executor tasks. "Ver como formulario"
+opens the create-run form with the same workflow and answers. The conversation
+model is pure (`js/new-session-model.js`) and is tested with Node.
 
 **Sesiones** is the default view. It combines a read-only, filterable and
 paginated list of Claude Code, Claude Desktop, Codex, GitHub Copilot, and
 framework-run sessions. Details are rendered according to item kind and
 include subagents; keyboard navigation and live follow over server-sent events
 (SSE) are supported.
+
+The **agent tree** is available at `#tree/<session-id>` from a session's
+«Árbol de agentes» link. It places the session above its children, shows
+available status, model, level, elapsed time and token data, and offers a
+filter for active agents, a selected-node detail and a short change log. It
+refreshes from `GET /gui/api/sessions/{id}` and
+`GET /gui/api/sessions/{id}/children`, follows the children SSE stream, and
+polls every 10 seconds as a fallback. The tree supports arrow-key navigation,
+Home/End, Enter/Space to select and Esc to clear the selection. It does not
+claim to show every delegation or review relationship.
+
+The **Uso** view (`#usage`) has **Planes**, **Global** and **API y presupuesto**
+tabs. It reads `GET /gui/api/usage/plans`, `/gui/api/usage/tokens` and
+`/gui/api/usage/costs` for plan measurements, token totals by app, model, level
+and role, and estimated framework provider costs with price evidence. Missing
+and reset measurements stay unavailable rather than becoming zero. The service
+does not expose a budget or an alert/cutoff mode, so the view does not
+calculate budget percentages or offer those controls.
+
+The **Mapa** view (`#map`) combines projects, stages and tasks with linked
+sessions and their children. `GET /gui/api/map?project=<id>&only=active|all`
+returns the read-only map; the project filter is optional and `only` defaults
+to `active`. The view offers tree and list presentations, active-only and
+finished-item folding, and a manual refresh. It follows the child streams of up
+to 300 sessions, coalesces refresh requests and polls every 10 seconds as a
+fallback; stable node identities let it reconcile new snapshots while keeping
+unchanged rows. It shows only allowlisted titles and state, never private child
+labels. Nodes and relation chips are keyboard-focusable and have text labels,
+reduced motion is respected, status is not conveyed by color alone, and the
+palette is checked for text contrast of at least 4.5:1 in light and dark themes.
+
+The token-protected GUI routes these views use:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /gui/api/sessions/counts` | Session totals by source and status. |
+| `GET /gui/api/sessions/{id}/children` | Child agents for the right panel, tree and map. |
+| `GET /gui/api/stream?session=<id>&only=children` | Lightweight child-change notices. |
+| `GET /gui/api/map?project=<id>&only=active\|all` | Project, task and linked-session map. |
+| `GET /gui/api/usage/plans`, `/usage/tokens`, `/usage/costs` | Plan measurements, token totals and estimated costs for Uso. |
+| `GET /gui/api/runs/{id}/usage` | Token and cost details for the right panel. |
+| `POST /gui/api/runs/preview` | Validate and preview a workflow without creating a run. |
+| `POST /gui/api/runs` | Create the confirmed framework run. |
+
+These are local GUI routes under `/gui/api`, not additions to the public
+`/api/v1` contract.
 
 **Ejecuciones** creates a framework run using the selected workflow's inputs.
 Workflows may declare inputs with a name, label, description, example,
@@ -165,7 +222,7 @@ and a «?» disclosure with a concise explanation. The disclosures are
 accessible by keyboard and can be closed with Esc.
 
 Stop either GUI server with Ctrl+C. `multiagent gui` prints «GUI detenida.»;
-the Stage 0 `multiagent ui` command prints «UI detenida.» after clean shutdown.
+the deprecated Stage 0 `multiagent ui` command prints «UI detenida.» after clean shutdown.
 On Windows, a batch launcher may additionally prompt `Terminate batch job
 (Y/N)?`; answer `Y`.
 

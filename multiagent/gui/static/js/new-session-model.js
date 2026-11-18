@@ -10,9 +10,7 @@
 //   ask       one question at a time, one per workflow input, and the project name last
 //   confirm   the summary card; only its «Lanzar» button creates a run
 //   launched  the run was created
-// Matching is deterministic (names and descriptions, no model). The optional interpretation of free text with a cheap
-// model (a "T1" of the economic profile) is NOT wired in this task: `hinted` in the "send" action is the single place
-// where it will plug in. Nothing here calls a model.
+// Matching is deterministic: it compares the text with workflow names and descriptions. Nothing here calls a model.
 
 export const COMMANDS = ["workflow", "continuar", "ayuda"];
 export const MAX_SUGGESTIONS = 4;
@@ -202,25 +200,14 @@ function helpMessage(state) {
     (question.required ? "." : " o pulsa «Omitir».");
 }
 
-// Proposes workflows for a text. `hinted` is the hook for the future interpretation with a model: a list of
-// { id, bundle } it would propose; empty or missing means the deterministic match decides.
-function suggest(state, text, catalog, hinted) {
+// Proposes workflows for a text by comparing it with their names and descriptions.
+function suggest(state, text, catalog) {
   const all = sortCatalog(catalog || []);
   if (all.length === 0) {
     return { ...say(state, "assistant", "No hay workflows disponibles en este servidor. Puedes probar «Ver como formulario»."), phase: "choose", suggestions: [], source: "", showAll: true };
   }
-  const known = new Map(all.map((entry) => [entryKey(entry), entry]));
-  const proposed = (Array.isArray(hinted) ? hinted : [])
-    .map((hint) => known.get(entryKey({ id: hint.id, bundle: hint.bundle || null }))).filter(Boolean);
-  let found = [];
-  let source = "";
-  if (proposed.length) {
-    found = proposed.map((entry) => ({ entry, matched: [] }));
-    source = "interpretation";
-  } else {
-    found = matchWorkflows(text, all, { limit: MAX_SUGGESTIONS });
-    source = "keywords";
-  }
+  const found = matchWorkflows(text, all, { limit: MAX_SUGGESTIONS });
+  const source = "keywords";
   if (found.length === 0) {
     return { ...say(state, "assistant", "No encontré un workflow que encaje con eso. Estos son todos los disponibles: elige uno o prueba con otras palabras."),
       phase: "choose", suggestions: everyone(all), source: "", showAll: true };
@@ -243,7 +230,7 @@ function onCommand(state, action) {
   if (action.name === "ayuda") return say(echoed, "assistant", helpMessage(state));
   const fresh = clearWorkflow(echoed);
   if (action.name === "continuar") return { ...say(fresh, "assistant", "Estas son las ejecuciones que puedes retomar."), phase: "continue", suggestions: [], source: "" };
-  return action.rest ? suggest(fresh, action.rest, action.catalog, action.hinted) : listAll(fresh, action.catalog);
+  return action.rest ? suggest(fresh, action.rest, action.catalog) : listAll(fresh, action.catalog);
 }
 
 function advance(state, value, echo) {
@@ -296,7 +283,7 @@ function onPick(state, action) {
 
 // Every change of the conversation goes through here. Actions:
 //   reset                               back to the greeting
-//   send   { text, catalog, hinted }    what the user typed: a command, an answer or free text, depending on the phase
+//   send   { text, catalog }            what the user typed: a command, an answer or free text, depending on the phase
 //   command{ name, rest, echo, catalog }a starter chip (echo is the chip label)
 //   pick   { workflow, spec }           a workflow card was chosen and its inputs were read
 //   show_all { catalog }                the full list of workflows
@@ -317,7 +304,7 @@ export function reduce(state, action) {
         return say(say(state, "user", text), "assistant",
           "Para seguir usa los botones del resumen: «Lanzar», «Editar» o «Ver como formulario». Escribe /workflow para empezar con otro workflow.");
       }
-      return suggest(clearWorkflow(say(state, "user", text)), text, action.catalog, action.hinted);
+      return suggest(clearWorkflow(say(state, "user", text)), text, action.catalog);
     }
     case "command": return onCommand(state, action);
     case "pick": return onPick(state, action);
