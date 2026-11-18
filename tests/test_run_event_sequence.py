@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Per-run event sequence numbers and incremental reads (UI0-T13)."""
+"""Per-run event sequence numbers and incremental reads."""
 from __future__ import annotations
 
 import json

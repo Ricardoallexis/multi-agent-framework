@@ -2,8 +2,8 @@
 
 The local operator GUI at `/gui/` is the supported local interface for 1.0:
 `multiagent gui`, `python -m multiagent.gui` and `run_ui_windows.bat` all open
-it. The Stage 0 run-console prototype has been removed. The GUI is served by
-the local API and is an operator view, not a public API or a separate orchestration layer.
+it. The GUI is served by the local API and is an operator view, not a public API
+or a separate orchestration layer.
 
 ## Start
 

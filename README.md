@@ -6,7 +6,7 @@
 
 **Status:** 1.0 / backend-first
 
-Multi-Agent Framework is a domain-neutral, configurable runtime for building and operating teams of AI agents, humans, models, and tools. Today it runs declared workflows with specialized agents, local and cloud models, structured contracts, human checkpoints, persistence, and traceability. Over time, users will define their own agents, capabilities, relationships, workflows, and execution policies, and the same core will support everything from deterministic and human-guided execution to progressively more dynamic planning and delegation. The local operator GUI is available at `/gui/`; see [Operator GUI](docs/GUI.md). The Stage 0 run-console prototype has been removed.
+Multi-Agent Framework is a domain-neutral, configurable runtime for building and operating teams of AI agents, humans, models, and tools. Today it runs declared workflows with specialized agents, local and cloud models, structured contracts, human checkpoints, persistence, and traceability. Over time, users will define their own agents, capabilities, relationships, workflows, and execution policies, and the same core will support everything from deterministic and human-guided execution to progressively more dynamic planning and delegation. The local operator GUI is available at `/gui/`; see [Operator GUI](docs/GUI.md).
 
 > **Scope of 1.0:** the supported surface is the MVP in [`docs/SCOPE.md`](docs/SCOPE.md): clean start, declared workflows on Mock, Ollama, or cloud models, workflow tools with per-call approval, and the local operator GUI at `/gui/`. Roadmap items beyond it may still change.
 
@@ -200,8 +200,6 @@ sessions. After installation, run `multiagent gui` in the activated environment,
 or `run_ui_windows.bat` on Windows. The launcher enables Mock by default and
 opens `http://127.0.0.1:8000/gui/` with the default settings. Keep its terminal
 open; use Ctrl+C to stop the server. See the [operator GUI guide](docs/GUI.md).
-
-The Stage 0 run-console prototype has been removed; use the operator GUI.
 
 ## Python quickstart and standalone installation
 
