@@ -5,7 +5,7 @@
 # Several pairs: -Tipo 'a,b' -Valor 'x;;y' (or arrays); all must hold. The only action is the fixed verb 'avisar':
 # write a ready marker for an agent to consume. It never executes a supplied script or starts an application.
 # -Tarea (ETAPA-Tnn) and -Agente say what waits and who is reactivated; the state is kept in orquestacion/esperas/activas/<id>.json
-# (moved to ...\terminadas when done) so Seguimiento and the GUI can show «En espera de activación». Every check and the outcome go to -Registro. Gives up after -MaximoHoras without running the action.
+# (moved to .../terminadas when done) so Seguimiento and the GUI can show «En espera de activación». Every check and the outcome go to -Registro. Gives up after -MaximoHoras without running the action.
 #
 # SEG-T19: every check also writes an honest progress estimate, per condition and overall, with no AI model:
 #   avance (0-100, or null when it cannot be estimated), estimado (ISO time the wait should end, or null) and base (Spanish text saying how
@@ -114,7 +114,7 @@ if (-not $Probar) {
     if (-not $Registro.StartsWith($logRoot, $pathCase) -or [IO.Path]::GetExtension($Registro) -ne '.log') {
         throw 'Registro debe ser un archivo .log dentro de orquestacion/esperas.'
     }
-    New-Item -ItemType Directory -Force -Path (Split-Path $Registro) | Out-Null
+    New-Item -ItemType Directory -Force -Path (Split-Path -LiteralPath $Registro) | Out-Null
 }
 function Log([string]$m) {
     if (-not $Probar) {
@@ -138,7 +138,7 @@ $deadline = $started.AddHours($MaximoHoras)
 $script:NoEstimate = 'sin estimación (depende de que un agente actúe)'
 $script:MetAt = @{}   # condition index -> when it was first seen to hold
 $script:RecentRounds = 5
-function Get-HoraTarget([string]$v) { if ($v -match '^\d{1,2}:\d{2}$') { [datetime]::ParseExact($v, 'H:mm', $null) } else { [datetime]$v } }
+function Get-HoraTarget([string]$v) { if ($v -match '^\d{1,2}:\d{2}$') { [datetime]::ParseExact($v, 'H:mm', [cultureinfo]::InvariantCulture) } else { [datetime]$v } }
 # The time a finished integration report was written: its name carries it (yyyy-MM-dd_HHmmss_fff_ or the old yyyy-MM-dd_HHmm_).
 function Get-ReportEnd([string]$name, [datetime]$fallback) {
     if ($name -match '^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})(\d{2})_(\d{3})_') {
@@ -279,7 +279,7 @@ function Test-One([string]$t, [string]$v) {
         'archivo' { return [bool](Get-ChildItem -Path (ConvertTo-NativePath $v) -ErrorAction SilentlyContinue | Select-Object -First 1) }
         'reporte' {
             $dir = Join-Path $channel 'pruebas' 'integracion'
-            $new = Get-ChildItem $dir -Filter '*_integracion.md' -File | Where-Object { $_.LastWriteTime -gt $Desde }
+            $new = Get-ChildItem -LiteralPath $dir -Filter '*_integracion.md' -File | Where-Object { $_.LastWriteTime -gt $Desde }
             foreach ($f in $new) { if (Select-String -LiteralPath $f.FullName -Pattern 'Resultado global:\s*\*\*OK\*\*' -Quiet) { return $true } }
             return $false
         }
@@ -288,7 +288,7 @@ function Test-One([string]$t, [string]$v) {
         'proceso' { return -not (Get-Process -Id ([int]$v) -ErrorAction SilentlyContinue) }
         'estado' {
             if ($v -notmatch '^([A-Z][A-Z0-9]*)-(T\d+)=(.+)$') { throw "estado espera 'ETAPA-Tnn=estado': $v" }
-            $card = Get-ChildItem (Join-Path $channel 'tareas' $Matches[1]) -Filter "$($Matches[2])-*.md" | Select-Object -First 1
+            $card = Get-ChildItem -LiteralPath (Join-Path $channel 'tareas' $Matches[1]) -Filter "$($Matches[2])-*.md" | Select-Object -First 1
             if (-not $card) { return $false }
             return [bool](Select-String -LiteralPath $card.FullName -Pattern ('^\| Estado \| ' + [regex]::Escape($Matches[3]) + ' \|') -Quiet)
         }
