@@ -1,0 +1,25 @@
+id: human_step
+max_iterations: 2
+steps:
+  - id: human
+    agent: fixture_writer
+    prompt_id: fixture/write
+    prompt_version: 1
+    skills: []
+    contract: ContentOutput
+    preferred_model: fixture_model
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+  - id: second
+    agent: fixture_writer
+    prompt_id: fixture/write
+    prompt_version: 1
+    skills: []
+    contract: ContentOutput
+    preferred_model: fixture_model
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false

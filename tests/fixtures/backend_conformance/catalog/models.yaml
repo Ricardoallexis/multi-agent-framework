@@ -1,0 +1,7 @@
+models:
+  fixture_model:
+    provider: fake
+    model: fixture
+    tier: local
+    structured_output: true
+    web: false

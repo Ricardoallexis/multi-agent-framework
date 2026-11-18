@@ -1,0 +1,6 @@
+agents:
+  fixture_writer:
+    role: Writes deterministic fixture output
+    active: true
+    capabilities:
+      content_creation: PRIMARY
