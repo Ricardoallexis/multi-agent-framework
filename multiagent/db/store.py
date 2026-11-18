@@ -33,9 +33,10 @@ from ..document_review import (
 from ..document_trust import EVENT_REVIEW_REQUESTED, EVENT_REVIEW_RESOLVED
 from ..errors import IdempotencyConflict, InvalidStateTransition
 from ..run_request import RunRequest
-from ..tools.approvals import (EVENT_APPROVED as TOOL_APPROVED, EVENT_REJECTED as TOOL_REJECTED,
-                               EVENT_RELEASED as TOOL_RELEASED, EVENT_REQUESTED as TOOL_REQUESTED, ToolApprovalMismatch,
-                               _approval_from_decision)
+from ..tools import approvals as _tool_approvals
+from ..tools.approvals import (APPROVAL_TTL as TOOL_APPROVAL_TTL, EVENT_APPROVED as TOOL_APPROVED,
+                               EVENT_REJECTED as TOOL_REJECTED, EVENT_RELEASED as TOOL_RELEASED,
+                               EVENT_REQUESTED as TOOL_REQUESTED, ToolApprovalMismatch, _approval_from_decision)
 from ..tools.contracts import PermissionRequest
 from datetime import timedelta, timezone
 
@@ -106,9 +107,14 @@ class Store:
                                                code="permission_request_mismatch")
             # Rejecting never releases anything, so it works even when the request event is missing or unreadable.
             now = utcnow()
+            declared, door = resolution_source(by, channel)
             payload = {"permission_request": pending.model_dump(mode="json") if pending is not None else None,
-                       "by": by, "channel": channel,
-                       "feedback": feedback, "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()}
+                       "by": declared, "channel": door, "feedback": feedback}
+            if approve:
+                # The clock is the approvals module's ``_now`` (injectable); the grant lives ten minutes from here.
+                approved_at = _tool_approvals._now()
+                payload["approved_at"] = approved_at.isoformat()
+                payload["expires_at"] = (approved_at + TOOL_APPROVAL_TTL).isoformat()
             conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
                          (run_id, now, TOOL_APPROVED if approve else TOOL_REJECTED,
                           json.dumps(payload, ensure_ascii=False)))
@@ -119,6 +125,16 @@ class Store:
                 conn.execute("UPDATE runs SET status=?,error=?,revision_feedback=?,waiting_reason='',waiting_step='',"
                              "waiting_attempt=NULL,updated_at=? WHERE id=?",
                              (RunStatus.FAILED.value, "Tool approval rejected", feedback, now, run_id))
+                conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                             (run_id, now, "workflow_failed",
+                              json.dumps({"error": "Tool approval rejected", "type": "ToolApprovalRejected",
+                                          "code": "denied"}, ensure_ascii=False)))
+
+    @staticmethod
+    def _same_request(stored: Any, wanted: dict[str, Any]) -> bool:
+        if not isinstance(stored, dict):
+            return False
+        return {k: v for k, v in stored.items() if k not in ("reason", "summary")} == wanted
 
     def take_tool_approval(self, permission: PermissionRequest):
         """Release a human grant once for the exact permission request; never infer one from request text."""
@@ -127,9 +143,10 @@ class Store:
             return None
         with self.db.tx() as conn:
             fresh = conn.execute("SELECT status,cancel_requested FROM runs WHERE id=?", (run_id,)).fetchone()
-            if (fresh is None or fresh["cancel_requested"] or
-                    fresh["status"] not in (RunStatus.QUEUED.value, RunStatus.RUNNING.value)):
+            if fresh is None or fresh["cancel_requested"] or fresh["status"] != RunStatus.RUNNING.value:
                 return None
+            # The binding ignores the wording (reason, summary): the same call asked again with other evidence is the same call.
+            wanted = permission.model_dump(mode="json", exclude={"reason", "summary"})
             rows = conn.execute("SELECT event_type,payload_json FROM run_events WHERE run_id=? AND event_type IN (?,?) "
                                 "ORDER BY id", (run_id, TOOL_APPROVED, TOOL_RELEASED)).fetchall()
             approved = None
@@ -137,17 +154,23 @@ class Store:
                 payload = json.loads(row["payload_json"])
                 if row["event_type"] == TOOL_RELEASED and payload.get("permission_request_id") == permission.permission_request_id:
                     approved = None
-                elif row["event_type"] == TOOL_APPROVED and payload.get("permission_request") == permission.model_dump(mode="json"):
+                elif row["event_type"] == TOOL_APPROVED and self._same_request(payload.get("permission_request"), wanted):
                     approved = payload
             if approved is None:
                 return None
-            expiry = datetime.fromisoformat(approved["expires_at"])
-            if expiry.tzinfo is None or datetime.now(timezone.utc) >= expiry:
+            try:
+                expiry = datetime.fromisoformat(approved["expires_at"])
+                approved_at = datetime.fromisoformat(approved["approved_at"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            now_dt = _tool_approvals._now()
+            if (expiry.tzinfo is None or approved_at.tzinfo is None or now_dt >= expiry or now_dt < approved_at
+                    or expiry - now_dt > TOOL_APPROVAL_TTL):
                 return None
             conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
                          (run_id, utcnow(), TOOL_RELEASED,
                           json.dumps({"permission_request_id": permission.permission_request_id})))
-            return _approval_from_decision(PermissionRequest.model_validate(approved["permission_request"]), expiry)
+            return _approval_from_decision(PermissionRequest.model_validate(approved["permission_request"]), expiry, approved_at)
 
     # -------- projects / runs --------
     def get_or_create_project(self, name: str) -> str:

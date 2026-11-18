@@ -451,7 +451,7 @@ def build_router(services) -> APIRouter:
 
     @router.post("/runs/{run_id}/approve")
     def approve(run_id: str, body: ApproveBody | None = None):
-        services.runs.approve(run_id, channel="gui",
+        services.runs.approve(run_id, channel="gui", person=True,
                               permission_request_id=body.permission_request_id if body else None)
         return run_view(services, services.runs.get(run_id))
 

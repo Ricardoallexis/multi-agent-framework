@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from enum import Enum
 from typing import Annotated, Any, Literal
 
@@ -22,7 +23,11 @@ MAX_SUMMARY_CHARS = 300
 _ID = re.compile(r"[a-z][a-z0-9_]{0,39}(?:\.[a-z][a-z0-9_]{0,39}){1,3}\Z")
 _SCHEMA_ID = re.compile(r"[a-z][a-z0-9_.]*/[1-9][0-9]*\Z")
 _REQUEST_ID = re.compile(r"[A-Za-z0-9_-]{8,64}\Z")
-_TARGET_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+# Categories a destination may not contain (controls, format, surrogate, private use, unassigned, line and paragraph
+# separators) and the closed list of invisible fillers (CAP-T15, B9 of CAP-T14). Mn, Lo and So are not rejected whole:
+# combining accents and CJK names are legitimate.
+_TARGET_BAD_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"})
+_TARGET_FILLERS = frozenset("\u034f\u115f\u1160\u17b4\u17b5\u180e\u2800\u3164\uffa0")
 
 
 def _sorted_values(values: Any) -> list[Any]:
@@ -99,7 +104,8 @@ class EffectDecl(ToolModel):
 
 
 def _valid_target(value: Any) -> bool:
-    return isinstance(value, str) and 1 <= len(value) <= 200 and _TARGET_CONTROL.search(value) is None
+    return (isinstance(value, str) and 1 <= len(value) <= 200
+            and not any(ch in _TARGET_FILLERS or unicodedata.category(ch) in _TARGET_BAD_CATEGORIES for ch in value))
 
 
 class ToolSpec(ToolModel):
@@ -138,9 +144,8 @@ class ToolSpec(ToolModel):
         if ImpactClass.DESTRUCTIVE in self.impacts and ActionKind.DESTRUCTIVE not in kinds:
             raise ValueError("Destructive needs a destructive effect")
         if ImpactClass.DESTRUCTIVE in self.impacts and any(
-                effect.kind == ActionKind.DESTRUCTIVE and effect.target is None and effect.target_from is None
-                for effect in self.effects):
-            raise ValueError("Destructive effects need a target")
+                effect.target is None and effect.target_from is None for effect in self.effects):
+            raise ValueError("Destructive write effects need a target")
         external = {ActionKind.NETWORK, ActionKind.LAUNCH_EXECUTOR, ActionKind.OPEN_APPLICATION}
         if ImpactClass.EXTERNAL in self.impacts and not kinds.intersection(external):
             raise ValueError("External needs an external effect")

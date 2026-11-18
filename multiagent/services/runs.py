@@ -229,7 +229,8 @@ class RunServices:
 
     @service_errors
     def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None,
-                recorded_only: bool = False, permission_request_id: str | None = None) -> dict[str, Any]:
+                recorded_only: bool = False, permission_request_id: str | None = None,
+                person: bool = False) -> dict[str, Any]:
         """Approve the artifact under review and continue or complete the run.
 
         A run paused on a supervised escalation (``waiting_reason`` ``escalation_approval``) has no artifact
@@ -250,12 +251,14 @@ class RunServices:
         A run waiting for a tool approval (``tool_approval``, CAP-T14) is approved only by naming the
         ``permission_request_id`` the person was shown (``get`` returns it as ``tool_approval``); a missing, old or
         other id is ``invalid_state`` with ``code`` ``permission_request_mismatch`` and nothing is approved. A caller
-        nobody authenticated (``recorded_only``) never approves it.
+        nobody authenticated (``recorded_only``), or one that does not pass ``person=True``, never approves it
+        (``PersonRequired``, CAP-T15 B1); only the token route of the GUI passes it.
         """
         runtime = self._find(run_id)
         try:
             return self._tag(runtime, runtime.service.approve(run_id, by=by, channel=channel, recorded_only=recorded_only,
-                                                              permission_request_id=permission_request_id))
+                                                              permission_request_id=permission_request_id,
+                                                              person=person))
         except ToolApprovalMismatch as exc:
             raise ServiceError(INVALID_STATE, str(exc), status=409,
                                details={"reason": exc.code, "run_id": run_id}) from exc

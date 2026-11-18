@@ -81,19 +81,25 @@ class RunService:
                 and run.get("waiting_reason") == WaitingReason.TOOL_APPROVAL.value)
 
     def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None,
-                recorded_only: bool = False, permission_request_id: str | None = None) -> dict[str, Any]:
+                recorded_only: bool = False, permission_request_id: str | None = None,
+                person: bool = False) -> dict[str, Any]:
         """``by`` and ``channel`` say who and through which door (``api`` or ``gui``) the caller declared: they are
         recorded when the approval settles a content review and are not checked (see ``document_review``).
 
         ``recorded_only`` is for a caller nobody authenticated (the local HTTP API, which has no token): it cannot approve
         a spend, so a run held by the budget guard answers ``PersonRequired`` and stays as it was (USO-T04). Every other
-        wait behaves as before. The token route of the GUI and the CLI do not pass it."""
+        wait behaves as before. The token route of the GUI and the CLI do not pass it.
+
+        ``person`` says an authenticated person is behind this call. A tool approval (``tool_approval``) is approved only
+        with ``person=True``; without it the answer is ``PersonRequired``, as with ``recorded_only`` (CAP-T15, B1). Only
+        the token route of the GUI (which the command line goes through) passes it."""
         run = self.store.get_run(run_id)
         if permission_request_id is not None and not self._awaits_tool_approval(run):
             # An id names one tool request; it never approves a wait of another kind (a stale click, CAP-T14 M1).
             raise ToolApprovalMismatch("The run is not waiting on the tool request that id names",
                                        code="permission_request_mismatch")
-        if recorded_only and (self._awaits_budget_cut(run) or self._awaits_tool_approval(run)):
+        if (recorded_only and self._awaits_budget_cut(run)) or (
+                self._awaits_tool_approval(run) and (recorded_only or not person)):
             raise PersonRequired("This held call requires a person: use the GUI (it carries the token) or the "
                                  "command line; this route is not authenticated. Rejecting works here.")
         if self._awaits_escalation(run):

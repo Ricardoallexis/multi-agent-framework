@@ -4,10 +4,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from multiagent.document_actions import Action, ActionKind, authorize
+from multiagent.document_actions import Action, ActionKind, Approval, authorize
 from multiagent.tasks.envelopes import envelope_sha256
 from .contracts import (ActionRef, ImpactClass, PermissionRequest, ToolRequest, ToolSpec,
-                        permission_request_id_for)
+                        _valid_target, permission_request_id_for)
 
 
 class InvalidArguments(ValueError):
@@ -25,7 +25,7 @@ def actions_for(spec: ToolSpec, arguments: dict[str, Any]) -> tuple[Action, ...]
                 if not isinstance(value, dict) or segment not in value:
                     raise InvalidArguments("Effect target missing")
                 value = value[segment]
-            if not isinstance(value, str) or not 1 <= len(value) <= 200 or any(ord(c) < 32 or ord(c) == 127 for c in value):
+            if not _valid_target(value):
                 raise InvalidArguments("Invalid effect target")
             target = value
         actions.append(Action(effect.kind, target))
@@ -66,6 +66,8 @@ def check_call(spec: ToolSpec, request: ToolRequest, *, grants: Iterable[str] | 
     from .approvals import ToolCallApproval
     ordinary = []
     per_call = []
+    if evidence is not None and (isinstance(evidence, (str, bytes, dict, Approval)) or not isinstance(evidence, Iterable)):
+        return "approval_required", permission_request_for(spec, request, actions, "malformed approval evidence")
     try:
         supplied = list(evidence) if evidence is not None else []
     except (TypeError, ValueError):
@@ -80,10 +82,9 @@ def check_call(spec: ToolSpec, request: ToolRequest, *, grants: Iterable[str] | 
         if len(per_call) != 1 or ordinary:
             return "approval_required", permission_request_for(spec, request, actions, "malformed approval evidence")
         grant = per_call[0]
-        if (not grant.valid_for(spec, request)
-                or tuple(ref.to_action() for ref in grant.permission.actions) != actions):
+        decisions = grant._decide(spec, request, actions)      # validates and spends; no Approval comes out
+        if decisions is None:
             return "approval_required", permission_request_for(spec, request, actions, "approval does not match this call")
-        decisions = [authorize(action, (grant.approval,)) for action in actions]
     else:
         # Generic write approvals, including approved contracts, never cover destructive actions.
         decisions = [authorize(action, ordinary if evidence is not None else None) for action in actions]

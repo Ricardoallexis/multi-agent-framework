@@ -576,3 +576,35 @@ def test_failure_event_sequence_and_links():
         assert first[key] == second[key]
     assert second["code"] == "execution_failed" and second["retryable"] is True
     assert "SECRET" not in json.dumps(events)
+
+
+def test_destructive_spec_needs_a_target_on_every_effect():
+    """B5/B9 (M31, M32): the error is raised when the spec is registered, not when it first runs."""
+    write = _spec_data("mock.note_write")
+    base = dict(write)
+    for impacts, effects in ((["destructive", "write"], [{"kind": "write"}, {"kind": "destructive", "target_from": "/target"}]),   # M31
+                             (["destructive", "write"], [{"kind": "write", "target_from": "/target"}, {"kind": "destructive"}]),  # M32
+                             (["destructive"], [{"kind": "destructive"}])):
+        with pytest.raises(ValidationError, match="Destructive write effects need a target"):
+            ToolSpec.model_validate({**base, "impacts": impacts, "effects": effects})
+    assert ToolSpec.model_validate({**base, "impacts": ["destructive", "write"], "effects": [{"kind": "write", "target_from": "/target"},
+                                                        {"kind": "destructive", "target": "fixed.txt"}]})
+
+
+def test_targets_reject_invisible_characters_but_keep_legitimate_names():
+    from multiagent.tools.contracts import ActionRef
+    from multiagent.tools.permissions import InvalidArguments
+
+    bad = ["a\u200bb", "a\u3164b", "a\u202eb", "a\u2028b", "a\u2029b", "a\u0085b", "a\ue000b", "a\ud800b", "a\u0378b",
+           "a\u034fb", "a\u115fb", "a\u1160b", "a\u17b4b", "a\u17b5b", "a\u180eb", "a\u2800b", "a\uffa0b", "a\x00b"]
+    spec = ToolSpec.model_validate({**_spec_data("mock.note_write"), "effects": [{"kind": "write", "target_from": "/target"}]})
+    for target in bad:
+        with pytest.raises(ValidationError):
+            ActionRef(kind=ActionKind.WRITE, target=target)
+        with pytest.raises(ValidationError):
+            EffectDecl(kind="write", target=target)
+        with pytest.raises(InvalidArguments):
+            actions_for(spec, {"target": target})
+    for target in ("cafe\u0301.txt", "caf\u00e9.txt", "\u65e5\u672c\u8a9e.txt", "notes.txt"):
+        assert ActionRef(kind=ActionKind.WRITE, target=target).target == target
+        assert actions_for(spec, {"target": target})[0].target == target
