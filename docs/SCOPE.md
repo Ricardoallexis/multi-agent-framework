@@ -4,7 +4,7 @@ Se lee al empezar junto a REGLAS.md. Manda sobre ROADMAP.md, PROPUESTAS.md, ETAP
 
 ## 0. Dónde se trabaja
 - Carpeta y rama canónica: la copia de integración `multi-agent-framework-pair` (`main` / integración unificada).
-- Último release: M1-B02-F00-alpha (2026-09-27) · Próximo: `1.0.0-rc1`.
+- Último release: `M1-B03-F01` · paquete `1.0.0` (2026-11-18), tras `M1-B03-F01-rc1` (2026-11-17) · Próximo: por definir después de 1.0.
 
 ## 1. Producto en tres líneas (PRD Mínimo)
 - Problema: Orquestar flujos multiagente locales y en nube con validación de contratos, checkpoints e intervención humana auditable.
