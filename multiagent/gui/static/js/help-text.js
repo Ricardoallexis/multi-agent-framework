@@ -469,6 +469,21 @@ export const HELP = {
       "Si no lo sabes, déjalo vacío: el historial dirá «sin modelo indicado»."
     ]
   },
+  "human.prompt_used": {
+    "title": "Prompt usado",
+    "hint": "Opcional: anota el prompt exacto si lo cambiaste antes de usarlo fuera.",
+    "more": ["Si lo dejas vacío se guarda el prompt mostrado para este paso.", "Queda asociado a la respuesta enviada."]
+  },
+  "human.notes": {
+    "title": "Notas",
+    "hint": "Opcional: añade contexto sobre cómo obtuviste la respuesta.",
+    "more": ["Las notas se guardan junto al envío.", "No afectan a la validación del contrato."]
+  },
+  "human.check": {
+    "title": "Validar sin enviar",
+    "hint": "Comprueba el JSON, el contrato y sus campos antes de enviarlo.",
+    "more": ["Muestra los problemas por campo sin guardar la respuesta ni avanzar la ejecución.", "Puedes corregir el texto y volver a validar."]
+  },
   "human.submit": {
     "title": "Enviar respuesta",
     "hint": "Entrega la respuesta pegada para que el framework la valide.",

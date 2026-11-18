@@ -326,7 +326,29 @@ class RunServices:
         Error ``human_submission_invalid`` when the response is rejected.
         """
         runtime = self._find(run_id)
+        self._require_human_wait(runtime, run_id)
         return self._tag(runtime, runtime.service.human_submit(run_id, submission))
+
+    @staticmethod
+    def _require_human_wait(runtime: _Runtime, run_id: str) -> None:
+        run = runtime.store.get_run(run_id)
+        pending = runtime.store.pending_human_step(run_id)
+        if (run["status"] != "waiting_human" or run.get("waiting_reason") not in {"execute_step", "research"}
+                or run.get("cancel_requested") or not pending
+                or run.get("waiting_step") != pending["step_id"]
+                or run.get("waiting_attempt") != pending["attempt"]
+                or runtime.store.latest_step_attempt(run_id, pending["step_id"]) != pending["attempt"]):
+            raise ServiceError(INVALID_STATE, "The run is not waiting for this human step", status=409,
+                               details={"reason": "not_waiting"})
+
+    @service_errors
+    def human_check(self, run_id: str, raw_response: str) -> dict[str, Any]:
+        runtime = self._find(run_id)
+        self._require_human_wait(runtime, run_id)
+        if not callable(getattr(runtime.service.engine, "check_human_step", None)):
+            raise ServiceError(INVALID_STATE, "The backend does not support human checks", status=409,
+                               details={"reason": "unsupported"})
+        return runtime.service.human_check(run_id, raw_response)
 
     @service_errors
     def artifacts(self, run_id: str) -> list[dict[str, Any]]:

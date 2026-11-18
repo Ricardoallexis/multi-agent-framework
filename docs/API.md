@@ -22,7 +22,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | Service | Operations |
 | --- | --- |
 | `services.definitions` | `list_workflows`, `get_workflow`, `list_agents`, `list_bundles`, `validate_bundle` |
-| `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_submit`, `artifacts`, `events`, `usage`, `step_attempts`, `compare_attempts` |
+| `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_check`, `human_submit`, `artifacts`, `events`, `usage`, `step_attempts`, `compare_attempts` |
 | `services.tasks` | `create_group`, `update_group`, `get_group`, `list_groups`, `create_task`, `get_task`, `list_tasks`, `ready_tasks`, `add_dependency`, `remove_dependency`, `transition`, `events` |
 | `services.gates` | `set_task_gate`, `set_group_gate`, `get_gate`, `review`, `run_gate`, `abort_gate`, `results`, `project_commands` |
 | `services.envelopes` | `set_task_context`, `get_envelope`, `put_blob`, `get_artifact`, `submit_result`, `get_result`, `list_results`, `get_cursor`, `read_events`, `ack_events` |
@@ -78,6 +78,8 @@ and bundle-worker shutdown through its application lifespan.
 
 ### Endpoints
 
+See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI flow.
+
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | Version, database schema, provider health, and the effective `dry_run` flag. |
@@ -101,6 +103,8 @@ and bundle-worker shutdown through its application lifespan.
 | `POST` | `/api/v1/runs/{run_id}/cancel` | Cancel or request cancellation; optional `?force=true`. |
 | `GET` | `/api/v1/runs/{run_id}/human-next` | Get the next pending human-guided step. |
 | `POST` | `/api/v1/runs/{run_id}/human-submit` | Submit a human response. |
+| `POST` | `/api/v1/runs/{run_id}/human-check` | Validate a response without submitting or storing it. |
+| `POST` | `/api/v1/runs/{run_id}/research-submit` | Submit external research; defaults to provider `human_web`. |
 | `POST` | `/api/v1/projects/{project}/memory` | Write a memory entry `{kind, title, body, actor, confidence?, source_ref?}`; `kind` is `fact`, `decision` or `convention`. Returns `201` with the entry, its `trust` (only a `user:` actor is trusted) and `source`. |
 | `GET` | `/api/v1/projects/{project}/memory` | List a project's memory entries, oldest first; optional `kind`. |
 | `GET` | `/api/v1/memory/{entry_id}` | Get one memory entry. |

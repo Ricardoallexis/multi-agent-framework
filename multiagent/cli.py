@@ -801,6 +801,8 @@ def cmd_cancel(args) -> None:
 
 def cmd_human_next(args) -> None:
     result = _api_json("GET", f"/api/v1/runs/{args.run_id}/human-next")
+    if args.out:
+        Path(args.out).write_text(result["prompt"], encoding="utf-8")
     if args.prompt_only:
         print(result["prompt"])
     else:
@@ -808,10 +810,16 @@ def cmd_human_next(args) -> None:
 
 
 def cmd_human_submit(args) -> None:
-    raw = Path(args.file).read_text(encoding="utf-8")
+    raw = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
     prompt_used = Path(args.prompt_used_file).read_text(encoding="utf-8") if args.prompt_used_file else ""
     payload = {"raw_response": raw, "provider": args.provider, "model": args.model, "prompt_used": prompt_used, "notes": args.notes}
-    pretty(_api_json("POST", f"/api/v1/runs/{args.run_id}/human-submit", json_body=payload))
+    endpoint = "research-submit" if args.research else "human-submit"
+    pretty(_api_json("POST", f"/api/v1/runs/{args.run_id}/{endpoint}", json_body=payload))
+
+
+def cmd_human_check(args) -> None:
+    raw = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
+    pretty(_api_json("POST", f"/api/v1/runs/{args.run_id}/human-check", json_body={"raw_response": raw}))
 
 
 def cmd_asset_add(args) -> None:
@@ -1416,16 +1424,18 @@ def build_parser() -> argparse.ArgumentParser:
     x = sub.add_parser("cancel"); x.add_argument("run_id"); x.add_argument("--force", action="store_true"); x.set_defaults(func=cmd_cancel)
 
     x = sub.add_parser("human-next", help="Show the next human_guided prompt")
-    x.add_argument("run_id"); x.add_argument("--prompt-only", action="store_true"); x.set_defaults(func=cmd_human_next)
+    x.add_argument("run_id"); x.add_argument("--prompt-only", action="store_true"); x.add_argument("--out"); x.set_defaults(func=cmd_human_next)
+    x = sub.add_parser("human-check", help="Validate a human response without submitting it")
+    x.add_argument("run_id"); x.add_argument("--file", required=True); x.set_defaults(func=cmd_human_check)
     x = sub.add_parser("human-submit", help="Submit a response from an external model or human")
     x.add_argument("run_id"); x.add_argument("--file", required=True); x.add_argument("--provider", default="human")
     x.add_argument("--model", default=""); x.add_argument("--prompt-used-file", default=""); x.add_argument("--notes", default="")
-    x.set_defaults(func=cmd_human_submit)
+    x.set_defaults(func=cmd_human_submit, research=False)
 
     x = sub.add_parser("research-submit", help="Specialized human-submit alias for external research")
     x.add_argument("run_id"); x.add_argument("--file", required=True); x.add_argument("--provider", default="human_web")
     x.add_argument("--model", default=""); x.add_argument("--prompt-used-file", default=""); x.add_argument("--notes", default="")
-    x.set_defaults(func=cmd_human_submit)
+    x.set_defaults(func=cmd_human_submit, research=True)
 
     x = sub.add_parser("dry-run")
     x.add_argument("--project", default="demo"); x.add_argument("--objective", default="Create a demonstration post")

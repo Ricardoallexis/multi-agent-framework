@@ -137,14 +137,14 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 
 ## Human-in-the-loop
 
-**Progress:** `█████░░░░░` 5/11 · 45% <!-- progress -->
+**Progress:** `█████░░░░░` 6/11 · 55% <!-- progress -->
 
 Human control is intended to remain a first-class part of the architecture rather than an exception path.
 
 - [x] Allow a human review after any step and resume from the next step without repeating approved work.
 - [ ] Improve review queues and actionable human-step requests.
   - [x] Surface pending decisions (a task held at a limit, a step paused for escalation, a content review, or a budget cut) as actionable cards in the operator GUI and settle them through the existing approve and reject operations.
-- [ ] Improve the human-guided external model flow (copy the prompt, use any external chat or application, import the response, and validate it against the contract) across the CLI, the API, and the UI, as a feature for human control, interoperability, provider independence, and transparency.
+- [x] Improve the human-guided external model flow (copy the prompt, use any external chat or application, import the response, and validate it against the contract) across the CLI, the API, and the UI, as a feature for human control, interoperability, provider independence, and transparency: a read-only check reports field-level problems before submitting, and the three doors share the same validation and the same error for a stale wait (see [`docs/HUMAN_GUIDED.md`](docs/HUMAN_GUIDED.md)).
 - [ ] Support approval policies per workflow, step, risk level, or project.
   - [x] Configure supervised or automatic escalation per workflow step, a budget that cuts or only warns, and a content-review policy, each pausing for a human when it applies.
 - [ ] Allow humans to replace an agent step with externally produced output while preserving validation and traceability. Reuse the pattern of the external-delivery importer in `tools/seguimiento/importar-paquete-nube.ps1` (manifest, integrity hashes, allowlisted paths, preview, explicit human confirmation, and an auditable receipt) as a design reference only; that tool is specific to this project's workflow and is not part of the runtime. A hash proves integrity, not authorship: a human confirms who produced the output.

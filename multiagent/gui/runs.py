@@ -81,7 +81,12 @@ class SubmitBody(_Body):
     raw_response: str = Field(min_length=1)
     provider: str = Field(default="human", max_length=120)
     model: str = Field(default="", max_length=200)
+    prompt_used: str = Field(default="", max_length=50000)
     notes: str = Field(default="", max_length=4000)
+
+
+class CheckBody(_Body):
+    raw_response: str = Field(min_length=1)
 
 
 # --- view model ----------------------------------------------------------------
@@ -510,5 +515,9 @@ def build_router(services) -> APIRouter:
     def human_submit(run_id: str, body: SubmitBody):
         services.runs.human_submit(run_id, HumanStepSubmission(**body.model_dump()))
         return run_view(services, services.runs.get(run_id))
+
+    @router.post("/runs/{run_id}/human-check")
+    def human_check(run_id: str, body: CheckBody):
+        return services.runs.human_check(run_id, body.raw_response)
 
     return router

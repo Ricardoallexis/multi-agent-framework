@@ -228,15 +228,17 @@ function HumanStep({ token, view, busy, act, setMessage, onStale }) {
   const draftKey = view.id + "|" + pendingKey;
   const [pending, setPending] = useState(null);
   const [loadError, setLoadError] = useState(null);
-  const [draft, setDraft] = useState(() => drafts.get(draftKey) || { response: "", provider: "human", model: "", notes: "" });
+  const [draft, setDraft] = useState(() => drafts.get(draftKey) || { response: "", provider: "human", model: "", prompt_used: "", notes: "" });
   const [invalid, setInvalid] = useState(false);
+  const [check, setCheck] = useState(null);
   const promptBox = useRef(null);
 
   useEffect(() => {
     let current = true;
     setPending(null);
     setLoadError(null);
-    setDraft(drafts.get(draftKey) || { response: "", provider: "human", model: "", notes: "" });
+    setDraft(drafts.get(draftKey) || { response: "", provider: "human", model: "", prompt_used: "", notes: "" });
+    setCheck(null);
     apiGet(runPath(view.id, "human-next"), token).then((result) => {
       if (current) setPending(result);
     }).catch((error) => {
@@ -251,6 +253,7 @@ function HumanStep({ token, view, busy, act, setMessage, onStale }) {
     const next = { ...draft, ...patch };
     drafts.set(draftKey, next);
     setDraft(next);
+    if ("response" in patch) setCheck(null);
   }
 
   async function copyPrompt() {
@@ -277,9 +280,26 @@ function HumanStep({ token, view, busy, act, setMessage, onStale }) {
     }
     setInvalid(false);
     const ok = await act(runPath(view.id, "human-submit"), {
-      raw_response: draft.response, provider: draft.provider.trim() || "human", model: draft.model.trim(), notes: draft.notes.trim(),
+      raw_response: draft.response, provider: draft.provider.trim() || "human", model: draft.model.trim(),
+      prompt_used: draft.prompt_used, notes: draft.notes.trim(),
     }, (v) => v.status === "waiting_human" ? "Respuesta aceptada. Ahora toca revisar el resultado." : "Respuesta aceptada. La ejecución continúa.");
     if (ok) drafts.delete(draftKey);
+  };
+
+  const validate = async () => {
+    if (!draft.response.trim()) {
+      setInvalid(true);
+      setMessage({ kind: "error", text: "Pega la respuesta completa antes de validarla." });
+      return;
+    }
+    setInvalid(false);
+    try {
+      const result = await apiPost(runPath(view.id, "human-check"), token, { raw_response: draft.response });
+      setCheck(result);
+    } catch (error) {
+      setMessage({ kind: "error", text: errorText(error) });
+      if (error.status === 409) onStale();
+    }
   };
 
   return html`<div class="stack">
@@ -306,6 +326,20 @@ function HumanStep({ token, view, busy, act, setMessage, onStale }) {
           <input id="human-model" maxlength="200" autocomplete="off" value=${draft.model} disabled=${busy}
             ...${helpFor("human.model")} onInput=${(event) => update({ model: event.target.value })} /></div>
       </div>
+      <label for="human-prompt-used">Prompt usado <span class="muted">(opcional)</span></label>
+      <${Help} topic="human.prompt_used" />
+      <textarea id="human-prompt-used" rows="3" maxlength="50000" value=${draft.prompt_used} disabled=${busy}
+        ...${helpFor("human.prompt_used")} onInput=${(event) => update({ prompt_used: event.target.value })}></textarea>
+      <label for="human-notes">Notas <span class="muted">(opcional)</span></label>
+      <${Help} topic="human.notes" />
+      <textarea id="human-notes" rows="3" maxlength="4000" value=${draft.notes} disabled=${busy}
+        ...${helpFor("human.notes")} onInput=${(event) => update({ notes: event.target.value })}></textarea>
+      <div class="action-item"><button type="button" class="btn secondary" disabled=${busy}
+        ...${helpFor("human.check")} onClick=${validate}>Validar sin enviar</button>
+        <${Help} topic="human.check" /></div>
+      ${check && html`<div role="status" aria-live="polite">
+        ${check.ok ? "La respuesta cumple el contrato." : html`<ul>${check.problems.map((problem) => html`<li><code>${problem.path}</code>: ${problem.message}</li>`)}</ul>`}
+      </div>`}
       <div class="action-item"><button type="submit" class="btn" disabled=${busy} ...${helpFor("human.submit")}>Enviar respuesta</button>
         <${Help} topic="human.submit" /></div>
     </form>

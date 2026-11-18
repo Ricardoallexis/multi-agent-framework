@@ -117,7 +117,8 @@ class BackendContext:
 class ExecutionBackend(Protocol):
     """What the run service and the worker need from whatever executes runs (see the module docstring).
 
-    ``name`` is the name it is registered under. ``capabilities`` is a subset of ``KNOWN_CAPABILITIES`` that contains
+    ``name`` is the name it is registered under. Backends declaring ``human_steps`` may also implement
+    ``check_human_step(run_id, raw_response)`` for read-only validation. ``capabilities`` is a subset of ``KNOWN_CAPABILITIES`` that contains
     ``REQUIRED_CAPABILITIES``. A backend that declares ``budget_guard`` also has a writable ``budgets_source``
     attribute, and one that declares ``inbox`` a writable ``availability_source`` (the application services set them).
     """

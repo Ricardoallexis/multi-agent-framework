@@ -378,7 +378,7 @@ discovery, local model expansion, and the other planned items remain open. See
 | S13.B1 | ◐ Done: supervised or automatic escalation per workflow step, a cutting or warning budget, and a content-review policy; no risk level or project. | S5.B1 |
 | S13.B2 | *(proposed)* A register of proposals and decisions with state and validity. | — |
 | **S13.C — External output** | | |
-| S13.C1 | Improve the human-guided external model flow across CLI, API, and UI. | — |
+| S13.C1 | ✅ Improve the human-guided external model flow across CLI, API, and UI (`human-check` without writing, `expected_schema` and `request_path` in `human-next`, `prompt_used` in the GUI, `research-submit` in the API, one `invalid_state` with `details.reason=not_waiting` for a stale wait; see `docs/HUMAN_GUIDED.md`). | — |
 | S13.C2 | Replace a step with externally produced output, with manifest, hashes, preview and attached evidence (screenshots, recordings, logs) referenced from the artifact manifest, confirmation, and receipt. | S13.C1 |
 | **S13.D — Audit** | | |
 | S13.D1 | ◐ Done: provenance kinds for user, model, tool, and executor content; not yet an audit trail of outputs. | S5.D2 |

@@ -237,6 +237,11 @@ class RunService:
             "step_id": pending["step_id"],
             "attempt": pending["attempt"],
             "expected_contract": pending["expected_contract"],
+            "expected_schema": self.engine.output_schemas[pending["expected_contract"]].model_json_schema(),
+            "request_path": next((event["payload"].get("prompt_path") for event in reversed(run["events"])
+                                  if event["event_type"] == "human_step_requested"
+                                  and event["payload"].get("step_id") == pending["step_id"]
+                                  and event["payload"].get("attempt") == pending["attempt"]), None),
             "prompt_id": pending["prompt_id"],
             "prompt_version": pending["prompt_version"],
             "prompt_sha256": pending["prompt_sha256"],
@@ -247,3 +252,8 @@ class RunService:
         if self.engine is None:
             raise RuntimeError("RunService has no WorkflowEngine attached")
         return self.engine.submit_human_step(run_id, submission)
+
+    def human_check(self, run_id: str, raw_response: str) -> dict[str, Any]:
+        if self.engine is None:
+            raise RuntimeError("RunService has no WorkflowEngine attached")
+        return self.engine.check_human_step(run_id, raw_response)

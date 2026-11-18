@@ -887,7 +887,7 @@ class WorkflowEngine:
             except Exception:
                 pass
 
-    def submit_human_step(self, run_id: str, submission) -> dict[str, Any]:
+    def _human_step_context(self, run_id: str):
         run = self.store.get_run(run_id)
         if run["status"] != RunStatus.WAITING_HUMAN.value or run.get("waiting_reason") not in {
             WaitingReason.EXECUTE_STEP.value, WaitingReason.RESEARCH.value
@@ -909,6 +909,35 @@ class WorkflowEngine:
         index = run["current_step"]
         step = definition.steps[index]
         output_schema = self.output_schemas[pending["expected_contract"]]
+        return run, pending, index, step, output_schema
+
+    def _validate_human_response(self, run, step, output_schema, raw):
+        parsed_payload = self._extract_json_payload(raw)
+        parsed = output_schema.model_validate(parsed_payload)
+        self._prepare_and_semantic_validate(
+            step_id=step.id,
+            parsed=parsed,
+            requires_web=(bool(run["request"].get("requires_web")) if step.id in {"research", "create"} else False),
+            cited_sources=[],
+            revision_feedback=run.get("revision_feedback", ""),
+        )
+        return parsed
+
+    def check_human_step(self, run_id: str, raw_response: str) -> dict[str, Any]:
+        run, pending, _, step, output_schema = self._human_step_context(run_id)
+        try:
+            self._validate_human_response(run, step, output_schema, raw_response)
+        except ValidationError as exc:
+            problems = [{"path": ".".join(map(str, error["loc"])) or "$", "message": error["msg"]}
+                        for error in exc.errors(include_url=False)]
+        except (HumanSubmissionError, ValueError, TypeError) as exc:
+            problems = [{"path": "$", "message": str(exc)}]
+        else:
+            problems = []
+        return {"ok": not problems, "contract": pending["expected_contract"], "problems": problems}
+
+    def submit_human_step(self, run_id: str, submission) -> dict[str, Any]:
+        run, pending, index, step, output_schema = self._human_step_context(run_id)
         raw = submission.raw_response
         raw_path = self.artifacts.write_human_raw(
             run_id=run_id,
@@ -921,15 +950,7 @@ class WorkflowEngine:
             prompt_used=submission.prompt_used,
         )
         try:
-            parsed_payload = self._extract_json_payload(raw)
-            parsed = output_schema.model_validate(parsed_payload)
-            self._prepare_and_semantic_validate(
-                step_id=step.id,
-                parsed=parsed,
-                requires_web=(bool(run["request"].get("requires_web")) if step.id in {"research", "create"} else False),
-                cited_sources=[],
-                revision_feedback=run.get("revision_feedback", ""),
-            )
+            parsed = self._validate_human_response(run, step, output_schema, raw)
         except (HumanSubmissionError, ValidationError, ValueError, TypeError) as exc:
             self.store.db.log_event(run_id, "human_submission_invalid", {
                 "step_id": step.id,

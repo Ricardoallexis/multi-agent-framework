@@ -305,6 +305,16 @@ def test_the_places_the_user_asked_about_are_covered():
     assert {"open.claude", "open.codex", "open.copilot"} <= set(HELP)
 
 
+def test_human_prompt_notes_and_preflight_have_separate_help():
+    source = read("human-actions.js")
+    for control, topic in (("human-prompt-used", "human.prompt_used"),
+                           ("human-notes", "human.notes"), ("Validar sin enviar", "human.check")):
+        assert control in source
+        assert f'helpFor("{topic}")' in source
+        assert f'<${{Help}} topic="{topic}"' in source
+        assert HELP[topic]["hint"]
+
+
 def test_views_keep_the_old_always_visible_help_paragraphs_out():
     # the long paragraphs moved behind the "?" button; the views keep only short status lines
     assert "Así quedará el prompt de cada paso" not in read("create-run.js")

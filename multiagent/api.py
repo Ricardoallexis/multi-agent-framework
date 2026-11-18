@@ -22,6 +22,14 @@ from .gui import mount_gui
 from .version import __version__
 
 
+class HumanCheckBody(BaseModel):
+    raw_response: str = Field(min_length=1)
+
+
+class ResearchSubmission(HumanStepSubmission):
+    provider: str = Field(default="human_web", max_length=120)
+
+
 def _origin_tuple(value: str) -> tuple[str, str, int] | None:
     """Accept a serialized HTTP origin, never credentials, paths or opaque origins."""
     if not value or any(char.isspace() or ord(char) < 32 for char in value):
@@ -565,6 +573,14 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
 
     @app.post("/api/v1/runs/{run_id}/human-submit")
     def human_submit(run_id: str, submission: HumanStepSubmission):
+        return services.runs.human_submit(run_id, submission)
+
+    @app.post("/api/v1/runs/{run_id}/human-check")
+    def human_check(run_id: str, body: HumanCheckBody):
+        return services.runs.human_check(run_id, body.raw_response)
+
+    @app.post("/api/v1/runs/{run_id}/research-submit")
+    def research_submit(run_id: str, submission: ResearchSubmission):
         return services.runs.human_submit(run_id, submission)
 
     # --- tasks (ORQ-1) --------------------------------------------------------

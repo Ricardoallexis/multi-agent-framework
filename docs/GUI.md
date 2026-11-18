@@ -5,6 +5,8 @@ The local operator GUI at `/gui/` is the supported local interface for 1.0:
 it. The GUI is served by the local API and is an operator view, not a public API
 or a separate orchestration layer.
 
+For copying prompts to an external model, checking responses, and submitting them in the GUI, see [Human-guided execution](HUMAN_GUIDED.md).
+
 ## Start
 
 From an installed project environment, run either command, or use

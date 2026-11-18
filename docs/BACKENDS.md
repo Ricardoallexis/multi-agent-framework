@@ -25,7 +25,7 @@ A backend declares what it really does in `capabilities`. Every backend has `usa
 
 | Capability | Meaning |
 | --- | --- |
-| `human_steps` | Pauses `human_guided` steps until `submit_human_step` validates a submission. |
+| `human_steps` | Pauses `human_guided` steps until `submit_human_step` validates a submission. A backend may also offer read-only `check_human_step(run_id, raw_response)`, returning `ok`, `contract`, and field-level `problems`; callers receive `invalid_state` with `details.reason=unsupported` when it is absent. |
 | `review` | Pauses at checkpoints for approve or reject, and reruns a rejected step with the revision feedback. |
 | `recovery` | Continues a run the worker recovered after an interruption. |
 | `approval_deadlines` | Expires checkpoint approvals after `approval_timeout_seconds`. |

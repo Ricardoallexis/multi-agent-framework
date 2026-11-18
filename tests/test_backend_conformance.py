@@ -136,12 +136,19 @@ def test_cancel_between_steps(system):
 
 def test_human_step_validation_and_resume(system):
     requires(system, "human_steps")
+    assert callable(getattr(system.backend, "check_human_step", None))
     run = create_run(system, "human_step", step_modes={"human": ExecutionMode.HUMAN_GUIDED})
     paused = advance(system, run["id"])
     assert paused["status"] == "waiting_human"
     assert paused["waiting_reason"] == "execute_step"
     assert events(paused, CAPABILITY_EVENTS["human_steps"][0])
     before = (paused["current_step"], len(paused["artifacts"]))
+    raw_before = list(system.settings.runs_dir.rglob("*_HUMAN_RAW*"))
+    bad_check = system.backend.check_human_step(run["id"], "{}")
+    assert bad_check["ok"] is False and bad_check["contract"] == "ContentOutput"
+    assert bad_check["problems"] and any(problem["path"] != "$" for problem in bad_check["problems"])
+    assert system.store.get_run(run["id"])["events"] == paused["events"]
+    assert list(system.settings.runs_dir.rglob("*_HUMAN_RAW*")) == raw_before
     with pytest.raises(HumanSubmissionError):
         system.service.human_submit(run["id"], HumanStepSubmission(raw_response="not json"))
     unchanged = system.store.get_run(run["id"])
@@ -149,6 +156,9 @@ def test_human_step_validation_and_resume(system):
     response = system.adapter.generate_structured(
         spec=None, prompt="", output_schema=OUTPUT_SCHEMAS["ContentOutput"],
     )
+    assert system.backend.check_human_step(run["id"], response.raw_text) == {
+        "ok": True, "contract": "ContentOutput", "problems": [],
+    }
     queued = system.service.human_submit(
         run["id"], HumanStepSubmission(raw_response=response.raw_text, provider="fixture_human"),
     )
