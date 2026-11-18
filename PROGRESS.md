@@ -32,9 +32,9 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | **All roadmap items** | **26%** | **60 of 233** |
 <!-- progress:table:end -->
 
-## Current focus — MVP 1.0 (`M1-B03-F01-rc1`, package `1.0.0rc1`)
+## MVP 1.0 — released in `M1-B03-F01` (package `1.0.0`)
 
-Scope is closed in [`docs/SCOPE.md`](docs/SCOPE.md): only these five capabilities are worked on until 1.0. Status on 2026-11-17, verified end to end through the Python facade (`build_system`, `process_run`, `approve`) in a clean folder, and for capability 4 through the GUI in a browser.
+1.0 delivers the five capabilities in [`docs/SCOPE.md`](docs/SCOPE.md). Status on 2026-11-17, verified end to end through the Python facade (`build_system`, `process_run`, `approve`) in a clean folder, and for capability 4 through the GUI in a browser. On 2026-11-18 a clean clone of the public repository finished `setup_windows.bat` in under a minute, with Ollama installed but stopped, and its first Mock run reached `completed`.
 
 | # | Capability | Status | Evidence |
 | --- | --- | --- | --- |
@@ -70,5 +70,6 @@ Longer term, the roadmap adds **collaborative agent teams**: a domain-neutral co
 | 2026-09-27 | `M1-B02-F00-alpha` — installable package, validation before execution, review after any step, and definition bundles. |
 | 2026-09-26 | Microsoft Agent Framework chosen as a future optional backend; collaborative agent teams and preset sharing added to the roadmap. |
 | 2026-11-17 | `M1-B03-F01-rc1` — first 1.0 release candidate: real three-step Ollama flow, workflow tools with per-call approval, and `/gui/` as the one local UI. |
+| 2026-11-18 | `M1-B03-F01` — 1.0: the MVP scope, with a Windows setup that finishes on a clean machine. |
 
 Legend: ✅ done · 🔄 in progress or next · ⏳ planned

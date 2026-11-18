@@ -1,15 +1,15 @@
 # Multi-Agent Framework
 
-**Current release:** `M1-B03-F01-rc1` <!-- version:release -->
+**Current release:** `M1-B03-F01` <!-- version:release -->
 
-**Python package:** `1.0.0rc1` <!-- version:package -->
+**Python package:** `1.0.0` <!-- version:package -->
 
-**Status:** Alpha / backend-first
+**Status:** 1.0 / backend-first
 
 Multi-Agent Framework is a domain-neutral, configurable runtime for building and operating teams of AI agents, humans, models, and tools. Today it runs declared workflows with specialized agents, local and cloud models, structured contracts, human checkpoints, persistence, and traceability. Over time, users will define their own agents, capabilities, relationships, workflows, and execution policies, and the same core will support everything from deterministic and human-guided execution to progressively more dynamic planning and delegation. The local operator GUI and the Stage 0 run-console prototype are available as
 separate interfaces; see [Operator GUI](docs/GUI.md) and [Stage 0 operation](docs/UI0.md).
 
-> **Alpha notice:** public APIs, workflow contracts, prompts, migrations, and configuration may still change while the project evolves toward a stable release.
+> **Scope of 1.0:** the supported surface is the MVP in [`docs/SCOPE.md`](docs/SCOPE.md): clean start, declared workflows on Mock, Ollama, or cloud models, workflow tools with per-call approval, and the local operator GUI at `/gui/`. Roadmap items beyond it, and the deprecated Stage 0 UI, may still change.
 
 ## What is included
 

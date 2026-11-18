@@ -8,11 +8,11 @@ PLATFORM_GENERATION = 1
 BACKEND_REVISION = 3
 FRONTEND_REVISION = 1
 # "alpha", "beta", "rcN", or "" for a stable release.
-STAGE = "rc1"
+STAGE = ""
 
 # PEP 440 version used by Python packaging tools. Its pre-release must match STAGE
 # (alpha -> aN, beta -> bN, rcN -> rcN, stable -> none).
-__package_version__ = "1.0.0rc1"
+__package_version__ = "1.0.0"
 
 # Human-facing release version used by CLI/API/GitHub releases.
 __version__ = (
