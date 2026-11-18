@@ -45,6 +45,7 @@ multiagent = "multiagent.cli:main"
 packages = [
   "multiagent",
   "multiagent.adapters",
+  "multiagent.backends",
   "multiagent.context",
   "multiagent.db",
   "multiagent.evaluation",
