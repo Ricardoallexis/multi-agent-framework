@@ -16,6 +16,13 @@ checker = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = checker
 spec.loader.exec_module(checker)
 
+
+@pytest.fixture(autouse=True)
+def not_a_tag_build(monkeypatch):
+    # A CI tag build sets these; the synthetic repositories here carry other releases.
+    monkeypatch.delenv("GITHUB_REF_TYPE", raising=False)
+    monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+
 VERSION_PY = '''
 PLATFORM_GENERATION = 1
 BACKEND_REVISION = {backend}
