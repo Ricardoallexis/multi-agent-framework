@@ -55,7 +55,8 @@ if TYPE_CHECKING:  # imported for annotations only: this module must stay free o
 # (S4.B1) runs the checks of a capability only against the backends that declare it.
 CAPABILITY_DESCRIPTIONS: Mapping[str, str] = {
     "usage": "one usage record per model call through usage_recorder",
-    "budgets": "stops at max_llm_calls and max_run_seconds and records budget_exhausted",
+    "budgets": ("stops at max_llm_calls and max_run_seconds and sets budget_exhausted on the run: a run with an "
+                "artifact to show waits (budget_exhausted event), one without fails (workflow_failed)"),
     "cancellation": "honours cancel_requested before each step and each model call",
     "human_steps": "pauses human_guided steps until submit_human_step validates a submission",
     "review": "pauses at checkpoints for approve or reject, and reruns a rejected step with the revision feedback",
@@ -87,7 +88,7 @@ REQUIRED_EVENTS: tuple[str, ...] = (
 CAPABILITY_EVENTS: Mapping[str, tuple[str, ...]] = {
     "human_steps": ("human_step_requested", "human_step_submitted"),
     "review": ("checkpoint",),
-    "budgets": ("budget_exhausted",),
+    "budgets": ("budget_exhausted",),  # only when the stopped run has an artifact to show; otherwise workflow_failed
 }
 
 

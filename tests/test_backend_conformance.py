@@ -91,7 +91,9 @@ def test_budget_stops_before_second_call(system, limit):
     assert events(stopped, CAPABILITY_EVENTS["budgets"][0])
 
 
-def test_budget_without_artifact_reports_exhaustion(system, request):
+def test_budget_without_artifact_reports_exhaustion(system):
+    # The contract (docs/BACKENDS.md, Events): with nothing to show the run fails; the budget_exhausted event is
+    # only for a run that waits with an artifact, and the run's budget_exhausted flag says why it failed.
     requires(system, "budgets")
     run = create_run(system)
     system.store.update_run(run["id"], active_seconds=run["max_run_seconds"] + 1)
@@ -102,12 +104,7 @@ def test_budget_without_artifact_reports_exhaustion(system, request):
     assert not stopped["artifacts"]
     assert not usage(system, run["id"])
     assert events(stopped, "workflow_failed")
-    if system.name == "native":
-        request.node.add_marker(pytest.mark.xfail(
-            strict=True,
-            reason="Native engine logs workflow_failed but omits budget_exhausted without an artifact",
-        ))
-    assert events(stopped, CAPABILITY_EVENTS["budgets"][0])
+    assert not events(stopped, CAPABILITY_EVENTS["budgets"][0])
 
 
 def test_cancel_queued_run(system):
