@@ -581,10 +581,13 @@ class WorkflowEngine:
                 # before a model call (inbox, content review, egress, budget, limits; without the reservation) runs
                 # before the saved result is used, so a call that a guard would stop or pause behaves the same with
                 # the cache. Steps that wait for a person (checkpoint), that need the web or that depend on the
-                # request's own web flag are never cached. A hit completes the step without calling the model; it
+                # request's own web flag are never cached. Redacting egress is also excluded: checking a candidate
+                # would emit a redaction event before falling through to the real call, duplicating the event.
+                # A hit completes the step without calling the model; it
                 # counts as no call and no tokens. Any cache failure falls through to the normal model call.
                 cache_key: str | None = None
                 if (self.step_cache_policy.allows(step.id) and not step.checkpoint_after and not requires_web
+                        and egress_policy.get("action") != "redact"
                         and not request.get("requires_web")):
                     cache_key = self._step_cache_key(
                         step=step, binding=binding, profile_id=profile_id, routing_decision=routing_decision,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping
@@ -9,6 +10,14 @@ from typing import Any, Mapping
 from ..capabilities import invalid_capability_ids
 
 _logger = logging.getLogger(__name__)
+_warned_capability_ids: set[str] = set()
+_warning_lock = threading.Lock()
+
+
+def clear_executor_capability_warning_cache() -> None:
+    """Clear the process-wide warning registry (primarily for isolated tests)."""
+    with _warning_lock:
+        _warned_capability_ids.clear()
 
 
 class SupportState(str, Enum):
@@ -193,8 +202,12 @@ def descriptor_from_declaration(executor_id: str, declaration: Mapping[str, Any]
         enabled=declaration.get("enabled", True) is True, **kwargs))
     # S5.C1: existing declarations may use ids outside the namespaced pattern; warn, never reject.
     for bad in executor_capability_warnings(descriptor):
-        _logger.warning("Executor %s declares capability %r outside the namespaced pattern (e.g. file.read)",
-                        descriptor.executor_id, bad)
+        with _warning_lock:
+            should_warn = bad not in _warned_capability_ids
+            _warned_capability_ids.add(bad)
+        if should_warn:
+            _logger.warning("Executor %s declares capability %r outside the namespaced pattern (e.g. file.read)",
+                            descriptor.executor_id, bad)
     return descriptor
 
 

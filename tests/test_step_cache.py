@@ -275,7 +275,11 @@ def test_a_cache_failure_does_not_break_a_tool_call(tmp_path, monkeypatch):
 # ---------------------------------------------------------------- review corrections (CAP-T13 round 2)
 import dataclasses
 import logging
+import os
 import shutil
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
@@ -453,6 +457,32 @@ def test_egress_block_fails_with_the_cache_exactly_as_without_it(tmp_path):
     assert results[True][2:] == (False, False)
 
 
+def test_redacting_egress_emits_once_per_step_on_a_cache_miss(tmp_path, monkeypatch):
+    from test_generic_runs import BUNDLE
+    cloud = tmp_path / "bundle_cloud"
+    shutil.copytree(BUNDLE, cloud)
+    models = cloud / "catalog" / "models.yaml"
+    models.write_text(models.read_text(encoding="utf-8").replace("tier: local", "tier: cloud"),
+                      encoding="utf-8")
+    system = runtime(tmp_path / "runs", bundle_root=cloud)
+    system.engine.step_cache_policy = ON
+    system.engine.settings.egress_default = "redact"
+    calls = counting(system, monkeypatch)
+    text = "Contact admin.person@example.com about account access."
+
+    def run():
+        created = system.service.create_run(request(inputs={"spec_text": text}, execution_mode="cloud"))
+        return system.engine.process_run(created["id"])["id"]
+
+    first = run()
+    assert events(system, first, EVENT_STORED) == []
+    second = run()
+    assert not events(system, second, EVENT_HIT) and len(calls) == 4
+    redactions = [payload(row)["step_id"] for row in events(system, second, "egress_redacted")]
+    assert redactions.count("extract_requirements") == 1
+    assert redactions.count("assess_risks") <= 1
+
+
 # -- integrity of the entries (each check of the read and of the hit)
 def make_cache(tmp_path):
     system = runtime(tmp_path)
@@ -553,6 +583,54 @@ def test_the_real_catalog_and_set_valued_specs_build_a_key(tmp_path):
     for model_id in real.models:
         assert key(binding=ModelBinding(model_id)) is not None, model_id
     assert key(data_class="restricted") != key() and key(data_class="non_sensitive") == key()
+
+
+def test_set_valued_catalog_spec_hash_is_stable_across_processes():
+    root = str(Path(engine_module.__file__).resolve().parent.parent)
+    script = """
+import dataclasses
+from multiagent.catalog import ModelSpec
+from multiagent.tasks.envelopes import envelope_sha256
+from multiagent.workflow_engine import _json_safe
+
+spec = ModelSpec(id="sample", provider="fake", model="sample", tier="local",
+                 structured_output=True, web=False,
+                 capabilities=frozenset({"alpha", "beta", "gamma", "delta", "epsilon", "zeta"}),
+                 allowed_data_classes=frozenset({"restricted", "non_sensitive", "sensitive"}))
+print(envelope_sha256(_json_safe(dataclasses.asdict(spec))))
+"""
+    digests = []
+    for seed in ("0", "1", "42", "4242"):
+        env = {**os.environ, "PYTHONHASHSEED": seed,
+               "PYTHONPATH": os.pathsep.join(filter(None, (root, os.environ.get("PYTHONPATH", ""))))}
+        digests.append(subprocess.check_output([sys.executable, "-c", script], env=env, text=True).strip())
+    assert len(set(digests)) == 1 and len(digests[0]) == 64
+
+
+def test_escalation_stores_under_the_final_binding_and_effort_key(tmp_path, monkeypatch):
+    from test_bounded_escalation import events as escalation_events
+    from test_bounded_escalation import make, profile, start, state
+
+    system = make(tmp_path, scripts={"t1": ["bad"], "t2": ["ok"]},
+                  eco=profile(max_retries_per_candidate=0), checkpoint=False)
+    system.engine.step_cache_policy = ON
+    original = system.engine._step_cache_key
+    keys = []
+
+    def captured(**kwargs):
+        key = original(**kwargs)
+        keys.append((key, kwargs["binding"].preferred_model, kwargs["effort"]))
+        return key
+
+    monkeypatch.setattr(system.engine, "_step_cache_key", captured)
+    run = state(system, start(system))
+    assert system.lab.calls == ["t1", "t2"]
+    assert escalation_events(run, "model_escalated")
+    assert len(keys) == 2 and keys[0][0] is not None and keys[1][0] is not None
+    assert keys[0][1] == "t1" and keys[1][1] == "t2" and keys[0][0] != keys[1][0]
+    stored = escalation_events(run, EVENT_STORED)
+    assert len(stored) == 1 and stored[0]["key"] == keys[1][0]
+    assert not escalation_events(run, EVENT_HIT)
 
 
 def test_an_observer_guard_that_stops_or_pauses_cancels_the_tool_hit(tmp_path, monkeypatch):

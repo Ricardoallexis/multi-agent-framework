@@ -15,10 +15,14 @@ from multiagent.capabilities import (
 )
 from multiagent.catalog import Catalog, CatalogError
 from multiagent.config import Settings
-from multiagent.routing.executor_capabilities import descriptor_from_declaration, executor_capability_warnings
+from multiagent.routing.executor_capabilities import (
+    clear_executor_capability_warning_cache, descriptor_from_declaration, executor_capability_warnings,
+)
 from multiagent.tasks.envelopes import envelope_sha256
 from multiagent.tools import InvocationKind, ImpactClass, SchemaRef, ToolRegistry, ToolSpec
-from multiagent.tools.selection import SelectionError, parse_selection_config, select_tool
+from multiagent.tools.selection import (
+    SelectionError, load_selection_config, parse_selection_config, select_tool,
+)
 
 GOOD = ["file.read", "web.search", "doc.table_extract", "a.b.c.d", "x1.y_2"]
 BAD = ["text_generation", "File.Read", "file..read", ".file.read", "file.read.", "file-read.x", "file.read ",
@@ -116,16 +120,27 @@ def test_bundled_catalog_still_loads():
 
 
 def test_executor_invalid_capability_only_warns(caplog):
+    clear_executor_capability_warning_cache()
     declaration = {"surface": "app", "capabilities_available": ["text", "file.read"]}
     with caplog.at_level(logging.WARNING, logger="multiagent.routing.executor_capabilities"):
-        descriptor = descriptor_from_declaration("ex1", declaration)
+        for _ in range(3):
+            descriptor = descriptor_from_declaration("ex1", declaration)
     assert descriptor.capabilities_available == {"text", "file.read"}
     assert executor_capability_warnings(descriptor) == ["text"]
-    assert "outside the namespaced pattern" in caplog.text
+    warning_records = [record for record in caplog.records if "outside the namespaced pattern" in record.message]
+    assert len(warning_records) == 1
+    assert "outside the namespaced pattern" in warning_records[0].message
+    clear_executor_capability_warning_cache()
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="multiagent.routing.executor_capabilities"):
+        descriptor = descriptor_from_declaration("ex2", declaration)
+    assert executor_capability_warnings(descriptor) == ["text"]
+    assert len(caplog.records) == 1
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="multiagent.routing.executor_capabilities"):
         descriptor_from_declaration("ex2", {"surface": "app", "capabilities_available": ["file.read"]})
     assert caplog.text == ""
+    clear_executor_capability_warning_cache()
 
 
 # --- selection -------------------------------------------------------------------------------
@@ -146,6 +161,24 @@ def test_config_changes_choice_without_code_change():
     assert select_tool(registry, "file.read", other).spec.tool_id == "fs.alpha"
     # latest version when unpinned
     assert select_tool(registry, "file.read", {"tools": {"file.read": "fs.alpha"}}).spec.version == 3
+
+
+def test_loaded_config_selects_mock_tool():
+    registry = build([("mock.echo", 1), ("mock.other", 1)])
+    config = load_selection_config({"tools": {"file.read": "mock.echo"}})
+    assert select_tool(registry, "file.read", config).spec.tool_id == "mock.echo"
+
+
+@pytest.mark.parametrize("raw", [
+    {"unexpected": True},
+    {"tools": {"file.read": 5}},
+    {"tools": {"text_generation": "mock.echo"}},
+    {"tools": {"file.read": "bad"}},
+    {"tools": {"file.read": {"tool_id": "bad"}}},
+])
+def test_selection_config_loader_fails_closed(raw):
+    with pytest.raises(SelectionError):
+        load_selection_config(raw)
 
 
 def test_choice_is_stable_across_runs_and_registration_order():
@@ -178,5 +211,6 @@ def test_selection_fails_closed(capability, config, code):
 
 
 def test_empty_config_means_default():
+    assert load_selection_config({}).choices == {}
     assert parse_selection_config(None).choices == {}
     assert parse_selection_config({}).choices == {}

@@ -49,11 +49,13 @@ class SelectionConfig:
     choices: Mapping[str, ToolChoice]
 
 
-def parse_selection_config(raw: Mapping[str, Any] | None) -> SelectionConfig:
-    """Validate the configuration shape. ``None`` or ``{}`` means no configuration (default tie-break everywhere)."""
+def load_selection_config(raw: Mapping[str, Any] | None) -> SelectionConfig:
+    """Load a validated selection config from a host-provided mapping without mutating it."""
     if raw is None:
         return SelectionConfig({})
-    if not isinstance(raw, Mapping) or raw.get("version", 1) != 1:
+    if not isinstance(raw, Mapping) or any(not isinstance(key, str) for key in raw):
+        raise SelectionError("invalid_config", "expected a mapping with string keys")
+    if type(raw.get("version", 1)) is not int or raw.get("version", 1) != 1:
         raise SelectionError("invalid_config", "expected a version 1 mapping")
     tools = raw.get("tools", {})
     if set(raw) - {"version", "tools"} or not isinstance(tools, Mapping):
@@ -64,18 +66,29 @@ def parse_selection_config(raw: Mapping[str, Any] | None) -> SelectionConfig:
             raise SelectionError("invalid_config", f"invalid capability id {capability!r}")
         if isinstance(entry, str):
             match = _TOOL_REF.fullmatch(entry)
-            if not match:
+            if not match or not is_valid_capability_id(match["tool_id"]):
                 raise SelectionError("invalid_config", f"invalid tool reference for {capability}")
             version = int(match["version"]) if match["version"] else None
             choices[capability] = ToolChoice(match["tool_id"], version)
-        elif isinstance(entry, Mapping) and set(entry) <= {"tool_id", "version"} and isinstance(entry.get("tool_id"), str):
+        elif isinstance(entry, Mapping):
+            if (any(not isinstance(key, str) for key in entry)
+                    or set(entry) - {"tool_id", "version"}):
+                raise SelectionError("invalid_config", f"invalid entry for {capability}")
+            tool_id = entry.get("tool_id")
+            if not isinstance(tool_id, str) or not is_valid_capability_id(tool_id):
+                raise SelectionError("invalid_config", f"invalid tool id for {capability}")
             version = entry.get("version")
             if version is not None and (type(version) is not int or version < 1):
                 raise SelectionError("invalid_config", f"invalid version for {capability}")
-            choices[capability] = ToolChoice(entry["tool_id"], version)
+            choices[capability] = ToolChoice(tool_id, version)
         else:
             raise SelectionError("invalid_config", f"invalid entry for {capability}")
     return SelectionConfig(choices)
+
+
+def parse_selection_config(raw: Mapping[str, Any] | None) -> SelectionConfig:
+    """Backward-compatible name for :func:`load_selection_config`."""
+    return load_selection_config(raw)
 
 
 def select_tool(registry: ToolRegistry, capability: str,
