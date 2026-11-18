@@ -30,6 +30,24 @@ class ResearchSubmission(HumanStepSubmission):
     provider: str = Field(default="human_web", max_length=120)
 
 
+class ExternalEvidenceBody(BaseModel):
+    name: str
+    content_base64: str
+
+
+class ExternalPreviewBody(BaseModel):
+    output: dict[str, Any]
+    evidence: list[ExternalEvidenceBody] = Field(default_factory=list)
+    actor: str = ""
+    channel: str = "api"
+
+
+class ExternalConfirmBody(BaseModel):
+    preview_id: str
+    actor: str
+    channel: str = "api"
+
+
 def _origin_tuple(value: str) -> tuple[str, str, int] | None:
     """Accept a serialized HTTP origin, never credentials, paths or opaque origins."""
     if not value or any(char.isspace() or ord(char) < 32 for char in value):
@@ -626,6 +644,19 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/runs/{run_id}/research-submit")
     def research_submit(run_id: str, submission: ResearchSubmission):
         return services.runs.human_submit(run_id, submission)
+
+    # --- external step output (HIL2-T01) -------------------------------------
+
+    @app.post("/api/v1/runs/{run_id}/external-output/preview")
+    def external_output_preview(run_id: str, body: ExternalPreviewBody):
+        return services.runs.external_output_preview(
+            run_id, body.output, evidence=[item.model_dump() for item in body.evidence],
+            actor=body.actor, channel=body.channel)
+
+    @app.post("/api/v1/runs/{run_id}/external-output/confirm")
+    def external_output_confirm(run_id: str, body: ExternalConfirmBody):
+        return services.runs.external_output_confirm(
+            run_id, body.preview_id, actor=body.actor, channel=body.channel)
 
     # --- tasks (ORQ-1) --------------------------------------------------------
 

@@ -33,3 +33,14 @@ curl -X POST http://localhost:8000/api/v1/runs/RUN_ID/human-submit -H 'Content-T
 Open `/gui/`, select the waiting run, copy its prompt, and paste the external response. The screen reads `GET /gui/api/runs/{run_id}/human-next`, checks with `POST /gui/api/runs/{run_id}/human-check`, and submits with `POST /gui/api/runs/{run_id}/human-submit`; these routes require the GUI's local token. Enter the provider and optional model. The optional **Prompt used** field records edits to the prompt; when empty, the prompt shown for the step is saved. **Notes** record any context about the response. **Validate without submitting** shows field-level problems and leaves the run untouched. **Submit response** validates and records the answer, then advances the run.
 
 An accepted submission stores the raw response, normalized output, provider, model, `prompt_used`, and `notes` with the human step. An invalid submission records the raw response and a rejection event so it can be diagnosed. A validation-only check writes neither.
+
+## External step output
+
+Use external output when a run waits for a `human_guided` step (`execute_step` or `research`) or at a review checkpoint. Supply a JSON object matching the step contract. Preview validates it and any evidence without changing run events, artifacts, or state. The preview expires after `EXTERNAL_PREVIEW_TTL_SECONDS` (900 by default). Confirmation requires the preview ID and an actor beginning with `user:`. A review confirmation creates a new attempt and leaves it waiting for the normal review decision.
+
+```sh
+multiagent external-output preview RUN_ID --output output.json --evidence screenshot.png
+multiagent external-output confirm RUN_ID PREVIEW_ID --actor user:operator
+```
+
+The API uses `POST /api/v1/runs/{run_id}/external-output/preview` with `{"output": {...}, "evidence": [{"name": "screenshot.png", "content_base64": "..."}], "actor": "user:operator", "channel": "api"}`. Confirm with `POST /api/v1/runs/{run_id}/external-output/confirm` and `{"preview_id": "...", "actor": "user:operator", "channel": "api"}`. Evidence is stored as untrusted data; it is never interpreted or included in a prompt. Allowed types are PNG, JPEG, WebP, MP4, WebM, UTF-8 text, JSON, and JSON Lines. `EXTERNAL_EVIDENCE_MAX_FILE_BYTES` and `EXTERNAL_EVIDENCE_MAX_TOTAL_BYTES` bound uploads. Confirmation adds each evidence file, a SHA-256 manifest, and a receipt to the run's artifacts.

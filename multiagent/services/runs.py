@@ -20,6 +20,11 @@ from __future__ import annotations
 
 import threading
 import json
+import base64
+import binascii
+import os
+import time
+import uuid
 import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -29,7 +34,8 @@ from ..bundles import load_bundle
 from ..contracts import HumanStepSubmission, SocialPostRequest
 from ..db.database import Database
 from ..db.store import Store
-from ..errors import HumanSubmissionError
+from ..errors import HumanSubmissionError, InvalidStateTransition
+from ..external_output import EvidenceRejected, canonical_json, check_evidence, external_step, sha256
 from ..observability.usage import read_usage, summarize_usage
 from ..run_request import FunctionStepRequestError, RunRequest
 from ..run_service import PersonRequired, RunService
@@ -37,7 +43,7 @@ from ..tools.approvals import ToolApprovalMismatch
 from ..tools.contracts import PermissionRequest
 from ..worker import LocalWorker
 from ..workflow_engine import WorkflowEngine
-from .errors import HUMAN_STEP_UNAVAILABLE, INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
+from .errors import HUMAN_STEP_UNAVAILABLE, HUMAN_SUBMISSION_INVALID, INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
 
 if TYPE_CHECKING:
     from . import ApplicationServices
@@ -100,6 +106,7 @@ class RunServices:
         self._services = services
         self._lock = threading.Lock()
         self._bundle_runtimes: dict[str, _Runtime] = {}
+        self._external_now = time.time
 
     @property
     def _system_runtime(self) -> _Runtime:
@@ -376,6 +383,140 @@ class RunServices:
         runtime = self._find(run_id)
         self._require_human_wait(runtime, run_id)
         return self._tag(runtime, runtime.service.human_submit(run_id, submission))
+
+    @service_errors
+    def external_output_preview(self, run_id: str, output: dict[str, Any], *,
+                                evidence: list[dict[str, str]] | None = None,
+                                actor: str = "", channel: str = "api") -> dict[str, Any]:
+        runtime = self._find(run_id)
+        engine = runtime.service.engine
+        if "external_output" not in getattr(engine, "capabilities", {"external_output"}):
+            raise ServiceError(INVALID_STATE, "The backend does not support external output", status=409)
+        try:
+            run, _, _, step, _ = external_step(engine, run_id)
+        except (HumanSubmissionError, InvalidStateTransition) as exc:
+            raise ServiceError(INVALID_STATE, str(exc), status=409) from exc
+        try:
+            normalized = engine.external_output(run_id, output)
+        except HumanSubmissionError as exc:
+            raise ServiceError(HUMAN_SUBMISSION_INVALID, str(exc), status=422,
+                               details={"problems": [{"path": "$", "message": str(exc)}]}) from exc
+        settings = runtime.service.settings
+        files = []
+        total = 0
+        decoded_files = []
+        for item in evidence or []:
+            name = item.get("name", "")
+            encoded = item.get("content_base64", "")
+            if len(encoded) > 4 * ((settings.external_evidence_max_file_bytes + 2) // 3):
+                raise ServiceError("evidence_rejected", "Evidence file exceeds the size limit", status=422,
+                                   details={"reason": "file_size"})
+            try:
+                content = base64.b64decode(encoded, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise ServiceError("evidence_rejected", "Evidence base64 is invalid", status=422,
+                                   details={"reason": "invalid_base64"}) from exc
+            try:
+                kind = check_evidence(name, content, file_limit=settings.external_evidence_max_file_bytes)
+            except EvidenceRejected as exc:
+                raise ServiceError("evidence_rejected", str(exc), status=422,
+                                   details={"reason": str(exc)}) from exc
+            total += len(content)
+            if total > settings.external_evidence_max_total_bytes:
+                raise ServiceError("evidence_rejected", "Evidence total exceeds the size limit", status=422,
+                                   details={"reason": "total_size"})
+            filename = f"{uuid.uuid4().hex}{os.path.splitext(name)[1].lower()}"
+            files.append({"name": name, "file": filename, "kind": kind,
+                          "size": len(content), "sha256": sha256(content)})
+            decoded_files.append((filename, content))
+        preview_id = uuid.uuid4().hex
+        expires_at = self._external_now() + settings.external_preview_ttl_seconds
+        waiting = [run["status"], run["waiting_reason"], run["waiting_step"], run["waiting_attempt"]]
+        stage = settings.data_dir / "staging" / "external" / preview_id
+        stage.mkdir(parents=True, exist_ok=False)
+        for filename, content in decoded_files:
+            (stage / filename).write_bytes(content)
+        preview = {"id": preview_id, "run_id": run_id, "step_id": step.id,
+                   "attempt": run["waiting_attempt"], "waiting": waiting,
+                   "output": normalized, "files": files, "actor": actor, "channel": channel,
+                   "expires_at": expires_at}
+        (stage / "preview.json").write_bytes(canonical_json(preview))
+        return preview
+
+    @service_errors
+    def external_output_confirm(self, run_id: str, preview_id: str, *,
+                                actor: str, channel: str = "api") -> dict[str, Any]:
+        if not actor.startswith("user:") or len(actor) <= 5:
+            raise ServiceError(INVALID_REQUEST, "Confirmation actor must start with user:", status=422)
+        runtime = self._find(run_id)
+        settings = runtime.service.settings
+        if len(preview_id) != 32 or any(c not in "0123456789abcdef" for c in preview_id):
+            raise ServiceError(NOT_FOUND, "External output preview not found", status=404)
+        stage = settings.data_dir / "staging" / "external" / preview_id
+        try:
+            preview = json.loads((stage / "preview.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ServiceError(NOT_FOUND, "External output preview not found", status=404) from exc
+        run = runtime.store.get_run(run_id)
+        waiting = [run["status"], run["waiting_reason"], run["waiting_step"], run["waiting_attempt"]]
+        if (preview["run_id"] != run_id or preview["waiting"] != waiting
+                or self._external_now() >= preview["expires_at"] or (stage / "confirmed").exists()):
+            raise ServiceError(INVALID_STATE, "External output preview is stale", status=409)
+        try:
+            external_step(runtime.service.engine, run_id)
+        except (HumanSubmissionError, InvalidStateTransition) as exc:
+            raise ServiceError(INVALID_STATE, str(exc), status=409) from exc
+        contents = []
+        for item in preview["files"]:
+            content = (stage / item["file"]).read_bytes()
+            if sha256(content) != item["sha256"]:
+                raise ServiceError(INVALID_STATE, "Staged evidence changed", status=409)
+            contents.append(content)
+        try:
+            fd = os.open(stage / "confirmed", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+        except FileExistsError as exc:
+            raise ServiceError(INVALID_STATE, "External output preview was already used", status=409) from exc
+        engine = runtime.service.engine
+        engine.external_output(run_id, preview["output"], commit=True)
+        attempt = run["waiting_attempt"] + (1 if run["waiting_reason"] == "review" else 0)
+        writer = engine.artifacts
+        run_dir = writer.run_dir(run_id)
+        artifact_files = []
+        for item, content in zip(preview["files"], contents):
+            path = run_dir / f"external_{preview_id}_{item['file']}"
+            path.write_bytes(content)
+            relative = str(path.relative_to(settings.data_dir))
+            data = {**item, "path": relative}
+            aid = runtime.store.add_artifact(run_id=run_id, step_id=f"{preview['step_id']}:external:{item['file']}",
+                                             attempt=attempt, kind="external_evidence", path=relative, data=data)
+            artifact_files.append({**data, "artifact_id": aid})
+        output_sha = sha256(canonical_json(preview["output"]))
+        manifest = {"preview_id": preview_id, "step_id": preview["step_id"], "attempt": attempt,
+                    "output_sha256": output_sha, "files": artifact_files}
+        manifest_bytes = canonical_json(manifest)
+        manifest_sha = sha256(manifest_bytes)
+        manifest_path = run_dir / f"external_{preview_id}_manifest.json"
+        manifest_path.write_bytes(manifest_bytes)
+        manifest_id = runtime.store.add_artifact(
+            run_id=run_id, step_id=f"{preview['step_id']}:external:manifest:{preview_id}",
+            attempt=attempt, kind="external_manifest",
+            path=str(manifest_path.relative_to(settings.data_dir)), data=manifest)
+        receipt = {"id": uuid.uuid4().hex, "preview_id": preview_id, "manifest_id": manifest_id,
+                   "manifest_sha256": manifest_sha, "file_sha256": {f["file"]: f["sha256"] for f in artifact_files},
+                   "actor": actor, "channel": channel, "confirmed_at": self._external_now()}
+        receipt_path = run_dir / f"external_{preview_id}_receipt.json"
+        receipt_path.write_bytes(canonical_json(receipt))
+        receipt_id = runtime.store.add_artifact(
+            run_id=run_id, step_id=f"{preview['step_id']}:external:receipt:{preview_id}",
+            attempt=attempt, kind="external_receipt",
+            path=str(receipt_path.relative_to(settings.data_dir)), data=receipt)
+        runtime.store.db.log_event(run_id, "external_output_confirmed", {
+            "preview_id": preview_id, "step_id": preview["step_id"], "attempt": attempt,
+            "manifest_id": manifest_id, "receipt_id": receipt_id,
+            "manifest_sha256": manifest_sha, "output_sha256": output_sha,
+            "file_sha256": receipt["file_sha256"]})
+        return self._tag(runtime, runtime.store.get_run(run_id))
 
     @staticmethod
     def _require_human_wait(runtime: _Runtime, run_id: str) -> None:

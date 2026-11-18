@@ -15,7 +15,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Local and offline AI | `░░░░░░░░░░` 0% | 0 of 9 |
 | Research and knowledge workflows | `█░░░░░░░░░` 14% | 1 of 7 |
 | Content, branding, and production | `░░░░░░░░░░` 0% | 0 of 8 |
-| Human-in-the-loop | `██████░░░░` 64% | 7 of 11 |
+| Human-in-the-loop | `███████░░░` 73% | 8 of 11 |
 | Collaborative agent teams | `████░░░░░░` 38% | 9 of 24 |
 | Planning, delegation, and team orchestration | `███░░░░░░░` 33% | 6 of 18 |
 | Team design from a prompt | `░░░░░░░░░░` 0% | 0 of 9 |
@@ -29,7 +29,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Security and privacy | `████░░░░░░` 40% | 4 of 10 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **30%** | **70 of 234** |
+| **All roadmap items** | **30%** | **71 of 234** |
 <!-- progress:table:end -->
 
 ## MVP 1.0 — released in `M1-B03-F01` (package `1.0.0`)

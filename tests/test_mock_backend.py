@@ -122,7 +122,7 @@ def test_mock_backend_meets_contract(tmp_path):
     assert isinstance(rt.backend, ExecutionBackend)
     assert rt.backend.name == "mock"
     assert rt.backend.capabilities == frozenset({
-        "usage", "budgets", "cancellation", "human_steps", "review", "recovery",
+        "usage", "budgets", "cancellation", "human_steps", "review", "recovery", "external_output",
     })
     assert rt.backend.check_approval_deadlines() == 0
 

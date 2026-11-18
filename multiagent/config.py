@@ -182,6 +182,9 @@ class Settings(BaseSettings):
     data_dir: Optional[Path] = None
     db_path: Optional[Path] = None
     runs_dir: Optional[Path] = None
+    external_preview_ttl_seconds: int = Field(default=900, ge=1)
+    external_evidence_max_file_bytes: int = Field(default=10_000_000, ge=1)
+    external_evidence_max_total_bytes: int = Field(default=25_000_000, ge=1)
     assets_dir: Optional[Path] = None
     # Local, trusted file of named project commands for task gates (ORQ-2);
     # empty means <local_dir>/project_commands.toml. Never read from a task or a request.

@@ -880,6 +880,19 @@ def cmd_human_check(args) -> None:
     pretty(_api_json("POST", f"/api/v1/runs/{args.run_id}/human-check", json_body={"raw_response": raw}))
 
 
+def cmd_external_output(args) -> None:
+    endpoint = f"/api/v1/runs/{args.run_id}/external-output/{args.external_action}"
+    if args.external_action == "preview":
+        output = json.loads(Path(args.output).read_text(encoding="utf-8"))
+        evidence = [{"name": Path(path).name,
+                     "content_base64": base64.b64encode(Path(path).read_bytes()).decode("ascii")}
+                    for path in args.evidence]
+        body = {"output": output, "evidence": evidence, "actor": args.actor, "channel": "cli"}
+    else:
+        body = {"preview_id": args.preview_id, "actor": args.actor, "channel": "cli"}
+    pretty(_api_json("POST", endpoint, json_body=body))
+
+
 def cmd_asset_add(args) -> None:
     system = build_system(get_settings())
     if not args.project_id and not args.project:
@@ -1552,6 +1565,16 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("run_id"); x.add_argument("--file", required=True); x.add_argument("--provider", default="human_web")
     x.add_argument("--model", default=""); x.add_argument("--prompt-used-file", default=""); x.add_argument("--notes", default="")
     x.set_defaults(func=cmd_human_submit, research=True)
+
+    x = sub.add_parser("external-output", help="Preview or confirm an external step output")
+    external_sub = x.add_subparsers(dest="external_action", required=True)
+    y = external_sub.add_parser("preview")
+    y.add_argument("run_id"); y.add_argument("--output", required=True)
+    y.add_argument("--evidence", action="append", default=[]); y.add_argument("--actor", default="user:local")
+    y.set_defaults(func=cmd_external_output)
+    y = external_sub.add_parser("confirm")
+    y.add_argument("run_id"); y.add_argument("preview_id"); y.add_argument("--actor", default="user:local")
+    y.set_defaults(func=cmd_external_output)
 
     x = sub.add_parser("dry-run")
     x.add_argument("--project", default="demo"); x.add_argument("--objective", default="Create a demonstration post")

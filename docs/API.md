@@ -107,6 +107,8 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `POST` | `/api/v1/runs/{run_id}/human-submit` | Submit a human response. |
 | `POST` | `/api/v1/runs/{run_id}/human-check` | Validate a response without submitting or storing it. |
 | `POST` | `/api/v1/runs/{run_id}/research-submit` | Submit external research; defaults to provider `human_web`. |
+| `POST` | `/api/v1/runs/{run_id}/external-output/preview` | Validate an externally produced step output `{output, evidence: [{name, content_base64}], actor, channel}` against the waiting step's contract and stage it, without changing the run. Returns the preview id, step, attempt, normalized output, files with type, size and SHA-256, and `expires_at`. Rejected evidence fails with `evidence_rejected` (422) and its `reason`. |
+| `POST` | `/api/v1/runs/{run_id}/external-output/confirm` | Confirm a preview once `{preview_id, actor, channel}`; `actor` must be `user:`. Completes the waiting step, or adds a new attempt under review, and stores the evidence, a manifest and a receipt as run artifacts. A stale, expired or used preview fails with `invalid_state` (409). See `docs/HUMAN_GUIDED.md`. |
 | `POST` | `/api/v1/projects/{project}/memory` | Write a memory entry `{kind, title, body, actor, confidence?, source_ref?}`; `kind` is `fact`, `decision` or `convention`. Returns `201` with the entry, its `trust` (only a `user:` actor is trusted) and `source`. |
 | `GET` | `/api/v1/projects/{project}/memory` | List a project's memory entries, oldest first; optional `kind`. |
 | `GET` | `/api/v1/memory/{entry_id}` | Get one memory entry. |

@@ -12,7 +12,7 @@ class NativeBackend(WorkflowEngine):
     capabilities = frozenset({
         "usage", "budgets", "cancellation", "human_steps", "review", "recovery",
         "approval_deadlines", "routing", "tools", "step_cache", "context_compaction",
-        "document_barrier", "budget_guard", "inbox",
+        "document_barrier", "budget_guard", "inbox", "external_output",
     })
 
 

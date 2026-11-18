@@ -1001,7 +1001,8 @@ class WorkflowEngine:
             validation={"ok": True, "contract": pending["expected_contract"]},
             notes=submission.notes,
         )
-        model_id = f"human:{submission.provider}:{submission.model or 'unspecified'}"
+        model_id = ("external:output" if submission.provider == "external_output"
+                    else f"human:{submission.provider}:{submission.model or 'unspecified'}")
         self.store.record_step(
             run_id=run_id,
             step_id=step.id,
@@ -1018,7 +1019,7 @@ class WorkflowEngine:
             step_id=step.id,
             agent_id=step.agent,
             attempt=int(pending["attempt"]),
-            provider="human",
+            provider="external" if submission.provider == "external_output" else "human",
             model=submission.model or "",
             model_digest="",
             prompt_id=pending["prompt_id"],
@@ -1053,7 +1054,7 @@ class WorkflowEngine:
             "attempt": pending["attempt"],
             "provider": submission.provider,
             "model": submission.model,
-            "provenance": "human_reported",
+            "provenance": "external_output" if submission.provider == "external_output" else "human_reported",
             "raw_path": str(raw_path.relative_to(self.settings.data_dir)),
         })
         self.store.db.log_event(run_id, "step_completed", {
@@ -1085,6 +1086,10 @@ class WorkflowEngine:
                 waiting_attempt=None,
             )
         return self._finalize_return(run_id)
+
+    def external_output(self, run_id: str, output: dict[str, Any], *, commit: bool = False):
+        from .external_output import external_output
+        return external_output(self, run_id, output, commit=commit)
 
     # ---------- routing with a profile and bounded escalation (ECO-T06) ----------
     def _route_with_profile(self, *, run_id: str, run: dict[str, Any], state: dict[str, Any], step: WorkflowStep,

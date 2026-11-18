@@ -59,6 +59,7 @@ CAPABILITY_DESCRIPTIONS: Mapping[str, str] = {
                 "artifact to show waits (budget_exhausted event), one without fails (workflow_failed)"),
     "cancellation": "honours cancel_requested before each step and each model call",
     "human_steps": "pauses human_guided steps until submit_human_step validates a submission",
+    "external_output": "validates external step output and commits it to a waiting step or new review attempt",
     "review": "pauses at checkpoints for approve or reject, and reruns a rejected step with the revision feedback",
     "recovery": "continues a run the worker recovered after an interruption, from current_step",
     "approval_deadlines": "expires checkpoint approvals after approval_timeout_seconds",
@@ -121,6 +122,8 @@ class ExecutionBackend(Protocol):
     ``check_human_step(run_id, raw_response)`` for read-only validation. ``capabilities`` is a subset of ``KNOWN_CAPABILITIES`` that contains
     ``REQUIRED_CAPABILITIES``. A backend that declares ``budget_guard`` also has a writable ``budgets_source``
     attribute, and one that declares ``inbox`` a writable ``availability_source`` (the application services set them).
+    Backends declaring external_output implement the optional external_output(run_id, output, commit=False)
+    operation: validation returns normalized output without writing; commit records and returns the run.
     """
 
     name: str

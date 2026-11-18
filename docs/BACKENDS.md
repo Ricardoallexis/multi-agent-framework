@@ -19,7 +19,7 @@ The `Store` is the one durable record of a run. Every backend reads and writes i
 | Resume | The person's decision goes through the run service (approve, reject and the held-call decisions) or through `submit_human_step`. A run that goes back to `queued` is picked up again and continues from `current_step`. |
 | Cancel | `cancel` sets `cancel_requested`. The backend checks it before each step and before each model call, and ends the run in `cancelled`. |
 
-The interface has five methods (`preflight`, `process_run`, `submit_human_step`, `review_point`, `check_approval_deadlines`) and three attributes (`name`, `capabilities`, `usage_recorder`).
+The interface has five required methods (`preflight`, `process_run`, `submit_human_step`, `review_point`, `check_approval_deadlines`) and three attributes (`name`, `capabilities`, `usage_recorder`). A backend declaring `external_output` also provides the optional `external_output(run_id, output, commit=False)` operation. Validation returns normalized output without changing the run; commit records the output on a waiting step or a new review attempt.
 
 ## Capabilities
 
@@ -28,6 +28,7 @@ A backend declares what it really does in `capabilities`. Every backend has `usa
 | Capability | Meaning |
 | --- | --- |
 | `human_steps` | Pauses `human_guided` steps until `submit_human_step` validates a submission. A backend may also offer read-only `check_human_step(run_id, raw_response)`, returning `ok`, `contract`, and field-level `problems`; callers receive `invalid_state` with `details.reason=unsupported` when it is absent. |
+| `external_output` | Validates externally produced structured output and records it on a waiting step or a new attempt at a review checkpoint. |
 | `review` | Pauses at checkpoints for approve or reject, and reruns a rejected step with the revision feedback. |
 | `recovery` | Continues a run the worker recovered after an interruption. |
 | `approval_deadlines` | Expires checkpoint approvals after `approval_timeout_seconds`. |
@@ -49,7 +50,7 @@ When enabled, OpenTelemetry attaches at backend construction and observes its st
 
 | Backend | Use | Capabilities |
 | --- | --- | --- |
-| `native` | The workflow engine: real providers, routing, tools and every policy. | All 14. |
-| `mock` | Deterministic runs without providers, routing or tools, for tests and demos. Model steps take `sample_outputs` or a minimal valid example of the step's output schema, and each one records zero tokens. | `usage`, `budgets`, `cancellation`, `human_steps`, `review`, `recovery`. |
+| `native` | The workflow engine: real providers, routing, tools and every policy. | All 15. |
+| `mock` | Deterministic runs without providers, routing or tools, for tests and demos. Model steps take `sample_outputs` or a minimal valid example of the step's output schema, and each one records zero tokens. | `usage`, `budgets`, `cancellation`, `human_steps`, `review`, `recovery`, `external_output`. |
 
 Runs of a registered bundle do not go through the setting: each bundle builds its native engine with `WorkflowEngine.from_bundle`.
