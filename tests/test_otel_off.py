@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from multiagent.bootstrap import build_system
 from multiagent.config import Settings
 from multiagent.contracts import RunStatus, SocialPostRequest
@@ -57,7 +59,8 @@ def test_missing_package_with_the_setting_on_changes_nothing(tmp_path, monkeypat
     assert run_once(system)[1]["status"] == RunStatus.WAITING_HUMAN.value
 
 
-def test_run_with_the_setting_off_imports_no_opentelemetry(tmp_path):
+@pytest.mark.parametrize("backend", ["native", "mock"])
+def test_run_with_the_setting_off_imports_no_opentelemetry(tmp_path, backend):
     code = (
         "import sys\n"
         "from pathlib import Path\n"
@@ -66,7 +69,7 @@ def test_run_with_the_setting_off_imports_no_opentelemetry(tmp_path):
         "from multiagent.contracts import SocialPostRequest\n"
         f"root = Path({str(tmp_path / 'sub')!r})\n"
         "s = Settings(data_dir=root / 'd', db_path=root / 'd' / 'm.db', runs_dir=root / 'd' / 'r',\n"
-        "             assets_dir=root / 'd' / 'a', worker_enabled=False, gemini_api_key='')\n"
+        f"             assets_dir=root / 'd' / 'a', worker_enabled=False, gemini_api_key='', execution_backend={backend!r})\n"
         "system = build_system(s, dry_run=True)\n"
         "system.run_service.create_social_post(SocialPostRequest(project_name='xx', objective='Create a post', topic='KNX'))\n"
         "system.worker.process_once()\n"

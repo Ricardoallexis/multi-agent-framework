@@ -71,7 +71,6 @@ from .routing_policy import (
     ESCALATION_APPROVAL_LEVEL, MODEL_LEVELS, RoutingDecision, RoutingEvidence, RoutingRequest,
     summarize_routing_evidence,
 )
-from .observability.otel import build_telemetry
 from .observability.usage import read_usage, summarize_usage
 from .schema_utils import estimate_tokens_conservative
 from .step_cache import (EVENT_HIT, KIND_MODEL, STEP_CACHE_CODE_VERSION, ZERO_USAGE, StepCache, StepCachePolicy,
@@ -263,12 +262,8 @@ class WorkflowEngine:
         self.approval_timeout_seconds = approval_timeout_seconds
         self.output_schemas = dict(OUTPUT_SCHEMAS if output_schemas is None else output_schemas)
         self.usage_recorder = UsageRecorder(store)
-        # OpenTelemetry (CAP-T21): ``None`` unless ``telemetry_otel_enabled`` is on and the ``otel`` extra is installed.
-        # The spans follow the run events and usage records below; they never change them.
-        self.telemetry = build_telemetry(settings)
-        if self.telemetry is not None:
-            store.db.event_listeners.append(self.telemetry.on_event)
-            self.usage_recorder.observers.append(self.telemetry.on_usage)
+        # The backend registry (or from_bundle) attaches optional telemetry to an executing engine.
+        self.telemetry = None
         self._envelope_store: EnvelopeStore | None = None
         # Step result cache (CAP-T13): off unless a policy with ``enabled=True`` is given; then only the steps it allows.
         self.step_cache_policy: StepCachePolicy = step_cache if step_cache is not None else StepCachePolicy()
@@ -303,12 +298,15 @@ class WorkflowEngine:
                 sample_outputs=bundle.sample_outputs, output_schemas=bundle.output_schemas,
             )
         router = ModelRouter(bundle.catalog, configured_adapters, dry_run=dry_run)
-        return cls(
+        from .backends.telemetry import attach_telemetry
+
+        engine = cls(
             store=store, catalog=bundle.catalog, prompts=bundle.prompts,
             workflows=bundle.workflows, router=router, artifacts=artifacts,
             settings=settings, output_schemas=bundle.output_schemas, document_policy=document_policy,
             approval_timeout_seconds=approval_timeout_seconds, tool_registry=tool_registry,
         )
+        return attach_telemetry(engine, settings)
 
     def preflight(self, workflow_id: str) -> WorkflowDefinition:
         """Load and validate every step before creating or executing a run.
@@ -412,15 +410,7 @@ class WorkflowEngine:
         if run["status"] != RunStatus.QUEUED.value:
             self.check_approval_deadlines(run_id=run_id)
             return self.store.get_run(run_id)
-        if self.telemetry is None:
-            return self._process_queued_run(run_id, run)
-        self.telemetry.begin_run(run_id, str(run.get("workflow_id", "")))
-        final: dict[str, Any] = {}
-        try:
-            final = self._process_queued_run(run_id, run)
-            return final
-        finally:
-            self.telemetry.end_run(run_id, str(final.get("status") or "unknown"))
+        return self._process_queued_run(run_id, run)
 
     def _process_queued_run(self, run_id: str, run: dict[str, Any]) -> dict[str, Any]:
 

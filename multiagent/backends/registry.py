@@ -13,6 +13,7 @@ from typing import Callable
 
 from ..errors import MultiAgentError
 from .base import BackendContext, ExecutionBackend, backend_problems
+from .telemetry import attach_telemetry
 
 BackendFactory = Callable[[BackendContext], ExecutionBackend]
 
@@ -83,4 +84,4 @@ def build_backend(name: str, context: BackendContext) -> ExecutionBackend:
     problems = backend_problems(backend, name=name)
     if problems:
         raise InvalidBackend(f"Execution backend {name!r} does not meet the contract: {'; '.join(problems)}")
-    return backend
+    return attach_telemetry(backend, context.settings, store=context.store)

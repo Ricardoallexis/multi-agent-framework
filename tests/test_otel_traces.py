@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""CAP-T21: OpenTelemetry spans and metrics of the native engine (off by default, optional extra)."""
+"""CAP-T21: OpenTelemetry spans and metrics of execution backends (off by default, optional extra)."""
 
 from __future__ import annotations
 
@@ -9,19 +9,28 @@ import sys
 import types
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
 from cmp_harness import Provider
 from multiagent.adapters.fake import FakeAdapter
+from multiagent.artifacts import ArtifactWriter
+from multiagent.backends import BackendContext, REQUIRED_CAPABILITIES, build_backend, register_backend, unregister_backend
 from multiagent.bootstrap import build_system
+from multiagent.bundles import load_bundle
 from multiagent.config import Settings
 from multiagent.contracts import RunStatus, SocialPostRequest
+from multiagent.db.database import Database
+from multiagent.db.store import Store
 from multiagent.errors import ProviderUnavailable
 from multiagent.observability import otel
 from multiagent.observability.otel import RunTelemetry, build_telemetry
 from multiagent.observability.usage import read_usage
+from multiagent.run_request import RunRequest
+from multiagent.run_service import RunService
+from multiagent.workflow_engine import WorkflowEngine
 from multiagent.workflows import WorkflowCatalog
 
 trace = pytest.importorskip("opentelemetry.trace")
@@ -99,7 +108,7 @@ def settings_for(tmp_path: Path, **extra) -> Settings:
 @pytest.fixture
 def fakes(monkeypatch):
     tracer, meter = FakeTracer(), FakeMeter()
-    monkeypatch.setattr("multiagent.workflow_engine.build_telemetry",
+    monkeypatch.setattr("multiagent.backends.telemetry.build_telemetry",
                         lambda settings: build_telemetry(settings, tracer=tracer, meter=meter))
     return tracer, meter
 
@@ -146,6 +155,119 @@ def test_mock_run_produces_genai_spans_and_metrics(tmp_path, fakes):
     assert {(point[1]["gen_ai.token.type"], point[0]) for point in usage} == {
         ("input", record["tokens_in"]), ("output", record["tokens_out"])}
     assert meter.histograms["gen_ai.client.operation.duration"].points[0][0] == record["duration_ms"] / 1000
+
+
+def test_mock_backend_emits_one_run_step_and_chat_span(tmp_path, fakes):
+    tracer, meter = fakes
+    system = build_system(settings_for(tmp_path, execution_backend="mock", telemetry_otel_enabled=True), dry_run=True)
+    assert system.backend.telemetry is not None
+    assert system.engine.telemetry is None
+    assert len(system.store.db.event_listeners) == 1
+    assert system.engine.usage_recorder.observers == []
+    assert len(system.backend.usage_recorder.observers) == 1
+
+    run_id, state = run_once(system)
+    assert state["status"] == RunStatus.WAITING_HUMAN.value
+    (workflow,) = tracer.named("invoke_workflow")
+    (step,) = tracer.named("invoke_agent")
+    (call,) = tracer.named("chat")
+    assert tracer.named("execute_tool") == []
+    assert all(span.ended for span in tracer.spans)
+    assert workflow.attributes["multiagent.run_id"] == run_id
+    assert workflow.attributes["gen_ai.operation.name"] == "invoke_workflow"
+    assert workflow.attributes["multiagent.run.status"] == "waiting_human"
+    assert step.parent is workflow and call.parent is step
+    assert step.attributes["gen_ai.operation.name"] == "invoke_agent"
+    assert step.attributes["multiagent.step_id"] == step.attributes["gen_ai.agent.id"]
+    assert step.attributes["multiagent.step.outcome"] == "completed"
+    event_types = {event["id"]: event["event_type"] for event in state["events"]}
+    assert event_types[step.attributes["multiagent.start_event_id"]] == "step_started"
+    assert event_types[step.attributes["multiagent.end_event_id"]] == "step_completed"
+    (record,) = read_usage(system.store, run_id)
+    assert call.attributes["gen_ai.operation.name"] == "chat"
+    assert call.attributes["gen_ai.provider.name"] == record["provider"] == "mock"
+    assert call.attributes["gen_ai.request.model"] == record["model"] == "mock"
+    assert call.attributes["gen_ai.usage.input_tokens"] == record["tokens_in"] == 0
+    assert call.attributes["gen_ai.usage.output_tokens"] == record["tokens_out"] == 0
+    assert len(meter.histograms["gen_ai.client.token.usage"].points) == 2
+
+    system.backend.process_run(run_id)
+    assert len(tracer.named("invoke_workflow")) == 1
+
+
+def test_bundle_engine_keeps_traces(tmp_path, fakes):
+    tracer, _ = fakes
+    settings = settings_for(tmp_path, telemetry_otel_enabled=True)
+    settings.ensure_directories()
+    store = Store(Database(settings))
+    store.db.migrate()
+    bundle = load_bundle(Path(__file__).parent / "fixtures/bundles/spec_review", settings)
+    engine = WorkflowEngine.from_bundle(bundle, store=store, settings=settings,
+                                        artifacts=ArtifactWriter(settings), adapters={}, dry_run=True)
+    assert engine.telemetry is not None
+    assert len(store.db.event_listeners) == 1
+    assert len(engine.usage_recorder.observers) == 1
+    service = RunService(settings, store, engine=engine)
+    run = service.create_run(RunRequest(
+        project_name="otel", workflow_id="spec_review",
+        inputs={"spec_text": "Users can reset a password by email; links expire after 30 minutes."},
+    ))
+    state = engine.process_run(run["id"])
+    assert state["status"] == RunStatus.WAITING_HUMAN.value
+    (workflow,) = tracer.named("invoke_workflow")
+    steps = tracer.named("invoke_agent")
+    calls = tracer.named("chat")
+    assert len(steps) == len(calls) == 2
+    assert all(step.parent is workflow for step in steps)
+    assert all(call.parent in steps for call in calls)
+    assert workflow.ended and all(span.ended for span in steps + calls)
+
+
+def test_registered_backend_uses_context_store_for_traces(tmp_path, fakes):
+    tracer, _ = fakes
+    store = SimpleNamespace(
+        db=SimpleNamespace(event_listeners=[]),
+        get_run=lambda run_id: {"id": run_id, "workflow_id": "custom", "status": "queued"},
+    )
+
+    class CustomBackend:
+        name = "custom"
+        capabilities = REQUIRED_CAPABILITIES
+
+        def __init__(self):
+            self.usage_recorder = SimpleNamespace(observers=[])
+
+        def preflight(self, workflow_id):
+            return None
+
+        def process_run(self, run_id):
+            for listener in store.db.event_listeners:
+                listener(run_id, "step_started", {"step_id": "s1", "attempt": 1}, 1)
+                listener(run_id, "step_completed", {"step_id": "s1", "attempt": 1}, 2)
+            return {"id": run_id, "status": "completed"}
+
+        def submit_human_step(self, run_id, submission):
+            return {}
+
+        def review_point(self, run):
+            return None, {}
+
+        def check_approval_deadlines(self, *, run_id=None):
+            return 0
+
+    register_backend("custom", lambda context: CustomBackend())
+    try:
+        context = BackendContext(store=store, settings=settings_for(tmp_path, telemetry_otel_enabled=True),
+                                 workflows=None, prompts=None, catalog=None, artifacts=None)
+        backend = build_backend("custom", context)
+        assert not hasattr(backend, "store")
+        assert len(store.db.event_listeners) == len(backend.usage_recorder.observers) == 1
+        assert backend.process_run("run-1")["status"] == "completed"
+    finally:
+        unregister_backend("custom")
+    (workflow,) = tracer.named("invoke_workflow")
+    (step,) = tracer.named("invoke_agent")
+    assert step.parent is workflow and step.ended and workflow.ended
 
 
 def test_prompts_and_responses_only_with_the_content_setting(tmp_path, fakes):
@@ -340,7 +462,7 @@ def test_a_failing_tracer_never_touches_the_run(tmp_path, monkeypatch):
         def start_span(self, *args, **kwargs):
             raise RuntimeError("exporter down")
 
-    monkeypatch.setattr("multiagent.workflow_engine.build_telemetry",
+    monkeypatch.setattr("multiagent.backends.telemetry.build_telemetry",
                         lambda settings: build_telemetry(settings, tracer=Broken(), meter=FakeMeter()))
     system = build_system(settings_for(tmp_path, telemetry_otel_enabled=True), dry_run=True)
     run_id, state = run_once(system)
@@ -357,7 +479,7 @@ def test_sdk_in_memory_exporter_receives_the_spans(tmp_path, monkeypatch):
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    monkeypatch.setattr("multiagent.workflow_engine.build_telemetry",
+    monkeypatch.setattr("multiagent.backends.telemetry.build_telemetry",
                         lambda settings: build_telemetry(settings, tracer=provider.get_tracer("t"), meter=None))
     system = build_system(settings_for(tmp_path, telemetry_otel_enabled=True), dry_run=True)
     run_once(system)

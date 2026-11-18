@@ -22,6 +22,7 @@ from .registry import (
     register_backend,
     unregister_backend,
 )
+from .telemetry import attach_telemetry
 
 __all__ = [
     "BUILTIN_BACKENDS",
@@ -37,6 +38,7 @@ __all__ = [
     "InvalidBackend",
     "UnknownBackend",
     "available_backends",
+    "attach_telemetry",
     "backend_problems",
     "build_backend",
     "register_backend",

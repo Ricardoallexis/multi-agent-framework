@@ -278,7 +278,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S10.A1 | ◐ Partial. Routing decisions, requested/applied effort, bounded-escalation events, and estimated call cost from token counts and valid catalog price evidence are recorded; retries and token estimates are not yet fully delivered. | — |
 | S10.A2 | ◐ Done: usage records export as JSONL and routing runs as normalized JSONL or CSV; there is no run report. | — |
 | **S10.B — Standards** | | |
-| S10.B1 | ◐ Partial: the native engine emits OpenTelemetry spans (run, step, provider call, tool call) and token and duration metrics with GenAI attributes, optional and off by default; there is no backend interface yet. | S10.A1, S4.A1 |
+| S10.B1 | ◐ Partial: telemetry attaches through the backend interface; native emits run, step, provider call and tool call spans, while Mock emits run, step and zero-token chat spans. Token and duration metrics use GenAI attributes; telemetry is optional and off by default. | S10.A1, S4.A1 |
 | **S10.C — Evaluation** | | |
 | S10.C1 | Structured evaluation datasets for agents, prompts, and workflows. | — |
 | S10.C2 | Regression tracking when prompts, models, workflows, or providers change. | S10.C1 |

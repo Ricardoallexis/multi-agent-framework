@@ -194,10 +194,9 @@ Failed attempts remain visible in `records` and contribute to `failed`.
 
 ## OpenTelemetry traces and metrics
 
-The native engine can also emit OpenTelemetry traces and metrics next to the
-local records. It is off by default and partial: it covers the native engine
-only (there is no backend interface yet, S4.A1) and does not replace the run
-events or the SQLite records.
+Execution backends can also emit OpenTelemetry traces and metrics next to the
+local records. Telemetry attaches when a backend is built. It is off by default
+and does not replace the run events or the SQLite records.
 
 Install the extra and turn it on:
 
@@ -215,13 +214,18 @@ OTEL_SERVICE_NAME=multi-agent-framework
 The development requirements (`requirements-dev.txt`) pin the API and the SDK,
 so the trace tests run in CI; the OTLP exporter is only in the extra.
 
-With the setting off, or without `opentelemetry-api` installed, the engine
+With the setting off, or without `opentelemetry-api` installed, a backend
 builds no telemetry object and imports no OpenTelemetry module. A tracer or
 meter provider of the SDK that the host application already set as global is
 used as it is. Otherwise, with the SDK and the OTLP exporter installed, one
-private pair of providers is built per process and shared by every engine (the
+private pair of providers is built per process and shared by every backend (the
 system's and each bundle's); without them, the global providers are used (a
 no-op unless the host set one).
+
+The native backend emits `invoke_workflow`, `invoke_agent`, `chat` and
+`execute_tool` spans. The Mock backend emits `invoke_workflow` and
+`invoke_agent` spans, plus a `chat` span for each zero-token mock usage record;
+it does not execute tools. Bundle engines use the same telemetry attachment.
 
 | Span | Opened by | `gen_ai.operation.name` |
 | --- | --- | --- |

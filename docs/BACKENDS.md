@@ -38,3 +38,5 @@ A backend declares what it really does in `capabilities`. Every backend has `usa
 ## The registry
 
 `build_backend(name, context)` builds a backend from a `BackendContext` (the store, settings, definitions and artifact writer every backend shares, plus the router, tools and policies for the backends that use them). The built-in backends are declared as `module:function` and imported only when they are built. A host registers its own with `register_backend(name, factory)`. A name nobody registered raises `UnknownBackend` with the list of available names, and an object that does not meet the contract raises `InvalidBackend` with what is missing.
+
+When enabled, OpenTelemetry attaches at backend construction and observes its store events, usage records and queued run passes (see [Telemetry](TELEMETRY.md#opentelemetry-traces-and-metrics)).

@@ -1,9 +1,9 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""OpenTelemetry traces and metrics of the native engine (CAP-T21, roadmap S10.B1, partial).
+"""OpenTelemetry traces and metrics of execution backends (CAP-T21, roadmap S10.B1, partial).
 
 Off by default (``TELEMETRY_OTEL_ENABLED``). Nothing here imports ``opentelemetry`` at module level: with the setting
-off, or without the optional ``otel`` extra, the engine builds no telemetry object and no OpenTelemetry module is
+off, or without the optional ``otel`` extra, a backend builds no telemetry object and no OpenTelemetry module is
 imported. Spans follow the domain events and usage records that already exist, they do not replace them:
 
 * ``invoke_workflow`` span for each ``process_run`` pass of a run (a run that pauses and resumes has one per pass);
@@ -275,7 +275,7 @@ class RunTelemetry:
 
 
 def build_telemetry(settings: Any, *, tracer: Any = None, meter: Any = None) -> RunTelemetry | None:
-    """The engine's telemetry, or ``None`` when the setting is off or the OpenTelemetry API is not installed.
+    """A backend's telemetry, or ``None`` when the setting is off or the OpenTelemetry API is not installed.
 
     ``tracer`` and ``meter`` are the seam for a host (and the tests): they replace the providers built here.
     """
