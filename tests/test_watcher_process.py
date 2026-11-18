@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -314,6 +315,8 @@ def test_cleanup_failure_after_resume_never_makes_another_resumption(world, monk
 
 @pytest.fixture
 def channel(tmp_path):
+    if sys.platform != "win32":                 # Seguimiento.cmd tooling; its .NET calls use Windows separators
+        pytest.skip("the channel watcher is Windows operator tooling")
     pwsh = shutil.which("pwsh")
     if not pwsh:
         pytest.skip("PowerShell 7 is needed for the channel watcher")
