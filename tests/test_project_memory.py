@@ -352,6 +352,16 @@ def test_the_size_cap_leaves_whole_entries_out_and_says_so(tmp_path, chain):
     assert tc.events(state, "project_memory_included")[0]["omitted"] == 5 - len(shown)
 
 
+def test_entries_all_over_the_cap_leave_the_prompt_as_it_was_and_are_recorded(tmp_path, chain):
+    chain["workflow"] = {"max_chars": 300}
+    system = system_with_memory(tmp_path, [entry(1, size=400), entry(2, size=500)])
+    state = run(system)
+    assert not any("Project memory" in prompt for prompt in tc.prompts_of(system))
+    included = tc.events(state, "project_memory_included")
+    assert [item["step_id"] for item in included] == ["a", "b", "c"]
+    assert included[0]["entries"] == [] and included[0]["omitted"] == 2 and included[0]["chars"] == 0
+
+
 def test_an_empty_memory_leaves_the_prompt_as_it_was(tmp_path, chain):
     chain["workflow"] = True
     baseline_system = system_with_memory(tmp_path / "base")

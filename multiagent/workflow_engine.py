@@ -1637,10 +1637,15 @@ class WorkflowEngine:
 
         Entries are chosen under ``setting.max_chars`` (``select_entries``); each is wrapped in the untrusted-data
         envelope with its provenance, and screened by the detector when a document policy is active. Nothing is
-        added when the project has no entry that fits (the prompt is then what it was without the opt-in).
+        added when the project has no entry that fits (the prompt is then what it was without the opt-in); when
+        entries exist but none fits the cap, the event still records how many were left out.
         """
         selection = select_entries(MemoryStore(self.store.db).list(project_id), setting)
         if not selection.entries:
+            if selection.omitted:
+                self.store.db.log_event(run_id, "project_memory_included", {
+                    "step_id": step_id, "attempt": attempt, "project_id": project_id, "entries": [],
+                    "omitted": selection.omitted, "chars": 0, "max_chars": setting.max_chars})
             return ()
         sink = self._quarantine_sink() if self.document_policy is not None else None
         parts: list[ContextPart] = []
