@@ -22,7 +22,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | Service | Operations |
 | --- | --- |
 | `services.definitions` | `list_workflows`, `get_workflow`, `list_agents`, `list_bundles`, `validate_bundle` |
-| `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_submit`, `artifacts`, `events`, `usage` |
+| `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_submit`, `artifacts`, `events`, `usage`, `step_attempts`, `compare_attempts` |
 | `services.tasks` | `create_group`, `update_group`, `get_group`, `list_groups`, `create_task`, `get_task`, `list_tasks`, `ready_tasks`, `add_dependency`, `remove_dependency`, `transition`, `events` |
 | `services.gates` | `set_task_gate`, `set_group_gate`, `get_gate`, `review`, `run_gate`, `abort_gate`, `results`, `project_commands` |
 | `services.envelopes` | `set_task_context`, `get_envelope`, `put_blob`, `get_artifact`, `submit_result`, `get_result`, `list_results`, `get_cursor`, `read_events`, `ack_events` |
@@ -92,6 +92,8 @@ and bundle-worker shutdown through its application lifespan.
 | `GET` | `/api/v1/runs/{run_id}/artifacts` | List the run's artifacts. |
 | `GET` | `/api/v1/runs/{run_id}/events` | List the run's events; optional `after` (integer ≥ 0) returns only events with a greater `seq`. |
 | `GET` | `/api/v1/runs/{run_id}/usage` | List local token-usage records and totals by run, agent, and step; costs are estimates. |
+| `GET` | `/api/v1/runs/{run_id}/steps/{step_id}/attempts` | List completed attempts of one step with producer, revision input, JSON/Markdown output, review status, human notes/prompt, and tokens. |
+| `GET` | `/api/v1/runs/{run_id}/steps/{step_id}/attempts/compare` | Compare two completed attempts (`?a=1&b=2`) field by field, with unified line diffs for long or multi-line strings. |
 | `POST` | `/api/v1/runs/{run_id}/approve` | Approve the current human review. |
 | `POST` | `/api/v1/runs/{run_id}/changes` | Request changes with `{"feedback": "..."}`. |
 | `POST` | `/api/v1/runs/{run_id}/regenerate` | Regenerate the item under review. |
@@ -168,6 +170,26 @@ configured by the server, not supplied by API clients.
 
 See [`TELEMETRY.md`](TELEMETRY.md) for the local-only usage model, CLI
 export, nullable token semantics, and the future OpenTelemetry mapping.
+
+### Step attempts and comparison
+
+Inspect completed attempts of a step or compare two attempts from the CLI with
+the same JSON responses returned by the HTTP API:
+
+```console
+python -m multiagent attempts <run_id> <step_id>
+python -m multiagent attempts <run_id> <step_id> --compare 1 2
+```
+
+Run reports (`GET /api/v1/runs/{run_id}/report`, `multiagent run-report`) also
+include a `reviews` section listing `checkpoint`, `human_approved`,
+`human_revision`, and `human_rejected` events with `step_id`, `attempt`,
+`actor`, and `timestamp`.
+
+**Current storage limits.** Attempts that failed before producing a valid
+output and the full rendered prompt sent to a model attempt are not persisted
+today, so they do not appear in `step_attempts` or `compare_attempts`. Human
+submissions record `prompt_used` and `notes` when provided.
 
 See [`TASKS.md`](TASKS.md) for task groups, dependencies, states, transitions,
 file locks, gates, project commands, task envelopes and results, blobs, event

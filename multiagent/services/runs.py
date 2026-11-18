@@ -361,6 +361,22 @@ class RunServices:
         }
 
     @service_errors
+    def step_attempts(self, run_id: str, step_id: str) -> dict[str, Any]:
+        """Completed attempts of one step with producer, input, output, review and tokens."""
+        from .attempts import build_step_attempts
+
+        runtime = self._find(run_id)
+        return build_step_attempts(runtime, self._services.definitions, run_id, step_id)
+
+    @service_errors
+    def compare_attempts(self, run_id: str, step_id: str, a: int, b: int) -> dict[str, Any]:
+        """Compare two completed attempts ``a`` and ``b`` of one step."""
+        from .attempts import build_attempt_comparison
+
+        runtime = self._find(run_id)
+        return build_attempt_comparison(runtime, self._services.definitions, run_id, step_id, a, b)
+
+    @service_errors
     def report(self, run_id: str, *, format: str = "json", include_raw: bool = False) -> dict[str, Any] | str:
         """Export a run as JSON-ready data or Markdown. Raw payloads require explicit opt-in."""
         from .reports import build_run_report, render_run_report_markdown

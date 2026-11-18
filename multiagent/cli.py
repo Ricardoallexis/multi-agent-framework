@@ -721,6 +721,17 @@ def cmd_run_report(args) -> None:
         pretty(result)
 
 
+def cmd_attempts(args) -> None:
+    run_id = _segment(args.run_id)
+    step_id = _segment(args.step_id)
+    if args.compare is not None:
+        a, b = args.compare
+        pretty(_api_json("GET", f"/api/v1/runs/{run_id}/steps/{step_id}/attempts/compare",
+                         params={"a": a, "b": b}))
+    else:
+        pretty(_api_json("GET", f"/api/v1/runs/{run_id}/steps/{step_id}/attempts"))
+
+
 def _approve_with_token(run_id: str, permission_request_id: str | None = None):
     """Approve a run through the token route of the GUI (``/gui/api``), with the token this user keeps in their profile."""
     from .gui.token import read_token
@@ -1071,6 +1082,11 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("run_id"); x.add_argument("--format", choices=("json", "markdown"), default="json")
     x.add_argument("--include-raw", action="store_true", help="Include complete run and event payloads")
     x.set_defaults(func=cmd_run_report)
+    x = sub.add_parser("attempts", help="List completed attempts of a step, or compare two attempts")
+    x.add_argument("run_id"); x.add_argument("step_id")
+    x.add_argument("--compare", nargs=2, type=int, metavar=("A", "B"),
+                   help="Compare two completed attempts of the step")
+    x.set_defaults(func=cmd_attempts)
     report = sub.add_parser("usage-report", help="Plan usage per app, tokens per app/model/level/role and estimated API cost "
                                                    "(local, read-only)")
     report = report.add_subparsers(dest="usage_report_command", required=True)

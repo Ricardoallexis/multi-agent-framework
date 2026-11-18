@@ -17,6 +17,7 @@ _TOOL_EVENTS = {
     "tool_call_requested", "tool_permission_requested", "tool_call_denied",
     "tool_call_completed", "tool_call_failed",
 }
+_REVIEW_EVENTS = ("checkpoint", "human_approved", "human_revision", "human_rejected")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _BLOB_REF = re.compile(r"blob:sha256:[0-9a-f]{64}\Z")
 
@@ -161,6 +162,15 @@ def _safe_raw_run(run: Mapping[str, Any], *, include_raw: bool) -> dict[str, Any
     return safe_run
 
 
+def _review_actor(payload: Any, *, kind: str) -> str:
+    if isinstance(payload, Mapping):
+        for key in ("by", "actor"):
+            value = payload.get(key)
+            if isinstance(value, str) and 0 < len(value.strip()) <= 200:
+                return value.strip()
+    return "system" if kind == "checkpoint" else "operator"
+
+
 def build_run_report(run: Mapping[str, Any], usage: Mapping[str, Any], *, include_raw: bool = False) -> dict[str, Any]:
     """Summarize one run snapshot and its usage; never load another run."""
     report: dict[str, Any] = {
@@ -169,19 +179,49 @@ def build_run_report(run: Mapping[str, Any], usage: Mapping[str, Any], *, includ
         "created_at": run.get("created_at"), "started_at": run.get("started_at"),
         "updated_at": run.get("updated_at"), "waiting_reason": run.get("waiting_reason"),
         "steps": [], "attempts": [], "routing_decisions": [], "human_waits": [], "errors": [], "tools": [],
+        "reviews": [],
         "usage": {"cost_is_estimate": usage.get("cost_is_estimate", True),
                   "totals": usage.get("totals"), "records": []},
     }
+    open_checkpoint: tuple[str | None, int | None] | None = None
     for event in run.get("events", []):
         if not isinstance(event, Mapping):
             continue
         kind = event.get("event_type")
         if not isinstance(kind, str):
             continue
+        payload = event.get("payload") or {}
+        if kind in _REVIEW_EVENTS:
+            raw_step = payload.get("step_id") if isinstance(payload, Mapping) else None
+            raw_attempt = payload.get("attempt") if isinstance(payload, Mapping) else None
+            step_id = raw_step if isinstance(raw_step, str) else None
+            attempt = raw_attempt if isinstance(raw_attempt, int) and not isinstance(raw_attempt, bool) else None
+            if kind == "checkpoint":
+                open_checkpoint = (step_id, attempt)
+            else:
+                if step_id is None and open_checkpoint is not None:
+                    step_id = open_checkpoint[0]
+                if attempt is None and open_checkpoint is not None:
+                    attempt = open_checkpoint[1]
+                open_checkpoint = None
+            review_row: dict[str, Any] = {
+                "seq": event.get("seq"),
+                "timestamp": event.get("ts"),
+                "event_type": kind,
+                "step_id": step_id,
+                "attempt": attempt,
+                "actor": _review_actor(payload, kind=kind),
+            }
+            if kind == "human_revision" and isinstance(payload, Mapping):
+                mode = payload.get("mode")
+                if mode in ("revise", "regenerate"):
+                    review_row["mode"] = mode
+            if include_raw:
+                review_row["raw_payload"] = payload
+            report["reviews"].append(review_row)
         group = _GROUPS.get(kind)
         if not group:
             continue
-        payload = event.get("payload") or {}
         if kind in _TOOL_EVENTS and (
                 not isinstance(payload, Mapping) or payload.get("schema") != "multiagent.tool_event/1"):
             continue
@@ -217,7 +257,7 @@ def render_run_report_markdown(report: Mapping[str, Any]) -> str:
              f"Workflow: {cell(report.get('workflow_id'))}", ""]
     for key, title in (("steps", "Steps"), ("attempts", "Attempts"),
                        ("routing_decisions", "Routing decisions"), ("human_waits", "Human waits"),
-                       ("errors", "Errors"), ("tools", "Tools")):
+                       ("errors", "Errors"), ("tools", "Tools"), ("reviews", "Reviews")):
         rows = report.get(key, [])
         lines.extend([f"## {title} ({len(rows)})", ""])
         if rows:

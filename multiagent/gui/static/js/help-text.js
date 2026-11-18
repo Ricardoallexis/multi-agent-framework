@@ -309,11 +309,27 @@ export const HELP = {
   },
   "run.results": {
     "title": "Resultados",
-    "hint": "Lo que produjo cada paso, intento por intento.",
+    "hint": "Lo que produjo cada paso, agrupado por paso e intento.",
     "more": [
-      "Cada desplegable es un intento de un paso y dice si está aprobado o sin aprobar.",
-      "El contenido se muestra tal cual lo guardó el framework, en formato JSON.",
-      "Cuando la ejecución espera tu revisión, se abre solo el resultado del paso que revisas."
+      "Cada paso reúne sus intentos completados con quién lo produjo, su revisión y su salida.",
+      "Cuando un paso tiene dos o más intentos, puedes elegir dos y pulsar «Comparar» para ver qué cambió.",
+      "Cuando la ejecución espera tu revisión, se abre el resultado del paso que revisas."
+    ]
+  },
+  "run.compare_select": {
+    "title": "Intentos a comparar",
+    "hint": "Elige qué dos intentos de este paso quieres comparar.",
+    "more": [
+      "El primero es la referencia anterior y el segundo es el intento nuevo.",
+      "Por defecto se eligen los dos últimos intentos completados."
+    ]
+  },
+  "run.compare": {
+    "title": "Comparar intentos",
+    "hint": "Muestra qué campos cambiaron entre los dos intentos elegidos.",
+    "more": [
+      "Compara la salida campo a campo indicando lo añadido, lo quitado y lo cambiado.",
+      "En textos largos o de varias líneas muestra las diferencias línea por línea."
     ]
   },
   "run.inputs": {

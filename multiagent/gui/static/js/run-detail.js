@@ -86,17 +86,183 @@ function History({ view }) {
   </section>`;
 }
 
-function Results({ view }) {
+const REVIEW_LABELS = {
+  pending: "Pendiente de revisión",
+  approved: "Aprobado",
+  changes_requested: "Cambios pedidos",
+  regenerated: "Regenerado",
+  rejected: "Rechazado",
+};
+
+const CHANGE_LABELS = {
+  added: "Añadido",
+  removed: "Eliminado",
+  changed: "Cambiado",
+};
+
+function producerLabel(producer) {
+  if (!producer || !producer.kind) return "—";
+  if (producer.kind === "human") {
+    const model = producer.model ? " · modelo: " + producer.model : "";
+    return "Persona o modelo externo (" + (producer.provider || "human") + model + ")";
+  }
+  const parts = [producer.model, producer.provider].filter(Boolean);
+  return parts.join(" · ") || "Modelo sin identificar";
+}
+
+function tokensLabel(tokens) {
+  if (!tokens) return "—";
+  const parts = [];
+  if (tokens.tokens_in !== null && tokens.tokens_in !== undefined) parts.push("entrada: " + tokens.tokens_in);
+  if (tokens.tokens_out !== null && tokens.tokens_out !== undefined) parts.push("salida: " + tokens.tokens_out);
+  if (tokens.tokens_total !== null && tokens.tokens_total !== undefined) parts.push("total: " + tokens.tokens_total);
+  return parts.length ? parts.join(" · ") : "—";
+}
+
+function groupArtifactsByStep(artifacts) {
+  const groups = new Map();
+  for (const artifact of artifacts || []) {
+    const list = groups.get(artifact.step_id) || [];
+    list.push(artifact);
+    groups.set(artifact.step_id, list);
+  }
+  return Array.from(groups.entries()).map(([stepId, list]) => ({
+    stepId,
+    items: list.slice().sort((a, b) => a.attempt - b.attempt),
+  }));
+}
+
+function StepResults({ runId, stepId, items, waiting, token }) {
+  const [attemptsInfo, setAttemptsInfo] = useState(null);
+  const [leftAttempt, setLeftAttempt] = useState(items.length >= 2 ? String(items[items.length - 2].attempt) : "");
+  const [rightAttempt, setRightAttempt] = useState(items.length >= 1 ? String(items[items.length - 1].attempt) : "");
+  const [comparing, setComparing] = useState(false);
+  const [comparison, setComparison] = useState(null);
+  const [compareError, setCompareError] = useState(null);
+
+  useEffect(() => {
+    if (items.length >= 2) {
+      setLeftAttempt(String(items[items.length - 2].attempt));
+      setRightAttempt(String(items[items.length - 1].attempt));
+    } else if (items.length === 1) {
+      setLeftAttempt(String(items[0].attempt));
+      setRightAttempt(String(items[0].attempt));
+    }
+    setComparison(null);
+    setCompareError(null);
+  }, [runId, stepId, items.length]);
+
+  useEffect(() => {
+    let active = true;
+    if (!token) return undefined;
+    const path = runPath(runId, "steps/" + encodeURIComponent(stepId) + "/attempts");
+    apiGet(path, token)
+      .then((data) => { if (active) setAttemptsInfo(data); })
+      .catch(() => { /* fallback to artifacts already present in view */ });
+    return () => { active = false; };
+  }, [runId, stepId, items.length, token]);
+
+  const byAttempt = new Map();
+  for (const entry of (attemptsInfo && attemptsInfo.attempts) || []) {
+    byAttempt.set(entry.attempt, entry);
+  }
+  const attemptNumbers = items.map((item) => item.attempt);
+  const canCompare = attemptNumbers.length >= 2;
+
+  async function runCompare() {
+    if (!canCompare) return;
+    setComparing(true);
+    setCompareError(null);
+    try {
+      const path = runPath(
+        runId,
+        "steps/" + encodeURIComponent(stepId) + "/attempts/compare?a=" +
+          encodeURIComponent(leftAttempt) + "&b=" + encodeURIComponent(rightAttempt),
+      );
+      const data = await apiGet(path, token);
+      setComparison(data);
+    } catch (failure) {
+      setComparison(null);
+      setCompareError(failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
+    } finally {
+      setComparing(false);
+    }
+  }
+
+  return html`<div class="step-results">
+    <div class="step-results-head">
+      <h5>Paso «${stepId}» <span class="muted">(${items.length} ${items.length === 1 ? "intento" : "intentos"})</span></h5>
+      ${canCompare && html`<div class="compare-controls">
+        <label class="compare-field">Intento A
+          <select aria-label=${"Intento A del paso " + stepId} ...${helpFor("run.compare_select")}
+            value=${leftAttempt} onChange=${(event) => setLeftAttempt(event.target.value)}>
+            ${attemptNumbers.map((num) => html`<option key=${num} value=${String(num)}>${"Intento " + num}</option>`)}
+          </select>
+        </label>
+        <label class="compare-field">Intento B
+          <select aria-label=${"Intento B del paso " + stepId} ...${helpFor("run.compare_select")}
+            value=${rightAttempt} onChange=${(event) => setRightAttempt(event.target.value)}>
+            ${attemptNumbers.map((num) => html`<option key=${num} value=${String(num)}>${"Intento " + num}</option>`)}
+          </select>
+        </label>
+        <${Help} topic="run.compare_select" compact=${true} />
+        <button type="button" class="btn secondary small" disabled=${comparing} ...${helpFor("run.compare")}
+          onClick=${runCompare}>${comparing ? "Comparando…" : "Comparar"}</button>
+        <${Help} topic="run.compare" compact=${true} />
+      </div>`}
+    </div>
+    ${compareError && html`<p class="message error" role="alert">${errorText(compareError)}</p>`}
+    ${comparison && html`<div class="compare-panel" aria-live="polite">
+      <p class="compare-summary"><strong>Comparación: intento ${comparison.a.attempt} → intento ${comparison.b.attempt}</strong></p>
+      ${comparison.changes.length === 0
+        ? html`<p class="muted">Sin diferencias entre el intento ${comparison.a.attempt} y el intento ${comparison.b.attempt}.</p>`
+        : html`<ul class="compare-list">
+          ${comparison.changes.map((item) => html`<li key=${item.path + ":" + item.change} class=${"compare-item compare-" + item.change}>
+            <div class="compare-item-head">
+              <span class="badge">${CHANGE_LABELS[item.change] || item.change}</span>
+              <code>${item.path || "(raíz)"}</code>
+            </div>
+            ${item.diff
+              ? html`<pre class="data">${item.diff}</pre>`
+              : html`<div class="compare-values">
+                ${item.change !== "added" && html`<div><span class="muted">Antes:</span><pre class="data">${fmtJson(item.before)}</pre></div>`}
+                ${item.change !== "removed" && html`<div><span class="muted">Después:</span><pre class="data">${fmtJson(item.after)}</pre></div>`}
+              </div>`}
+          </li>`)}
+        </ul>`}
+    </div>`}
+    ${items.map((artifact, index) => {
+      const detail = byAttempt.get(artifact.attempt);
+      const review = detail && detail.review;
+      const input = detail && detail.input;
+      const human = detail && detail.human;
+      const isOpen = Boolean(waiting && waiting.step_id === artifact.step_id && index === items.length - 1);
+      return html`<details key=${artifact.step_id + ":" + artifact.attempt} open=${isOpen}>
+        <summary>Intento ${artifact.attempt} · ${artifact.approved ? "aprobado" : "sin aprobar"} · ${artifact.kind}${detail && detail.producer ? " · " + producerLabel(detail.producer) : ""}</summary>
+        ${detail && html`<dl class="facts attempt-meta">
+          <dt>Producido por</dt><dd>${producerLabel(detail.producer)}</dd>
+          ${input && input.revision_feedback && html`<dt>Comentario recibido</dt><dd>${input.revision_feedback}${input.has_previous_output ? " (con salida previa)" : ""}</dd>`}
+          ${review && html`<dt>Revisión</dt><dd>${REVIEW_LABELS[review.status] || review.status}${review.actor ? " · " + review.actor : ""}${review.reviewed_at ? " · " + fmtDate(review.reviewed_at) : ""}</dd>`}
+          ${human && human.notes && html`<dt>Notas humanas</dt><dd>${human.notes}</dd>`}
+          ${detail.tokens && html`<dt>Tokens</dt><dd>${tokensLabel(detail.tokens)}</dd>`}
+        </dl>`}
+        ${human && human.prompt_used && html`<details class="attempt-extra"><summary>Prompt utilizado (envío humano)</summary><pre class="prompt">${human.prompt_used}</pre></details>`}
+        <pre class="data">${fmtJson(artifact.data)}</pre>
+        ${detail && detail.markdown && html`<details class="attempt-extra"><summary>Salida en Markdown</summary><pre class="data">${detail.markdown}</pre></details>`}
+      </details>`;
+    })}
+  </div>`;
+}
+
+function Results({ view, token }) {
+  const groups = groupArtifactsByStep(view.artifacts);
   return html`<section class="panel" aria-labelledby="results-title">
     <h4 id="results-title">Resultados</h4>
     <${Help} topic="run.results" />
-    ${view.artifacts.length === 0
+    ${groups.length === 0
       ? html`<p class="muted">Todavía no hay resultados guardados.</p>`
-      : view.artifacts.map((artifact, index) => html`<details key=${artifact.step_id + ":" + artifact.attempt}
-          open=${view.waiting && view.waiting.step_id === artifact.step_id && index === view.artifacts.length - 1}>
-        <summary>Paso «${artifact.step_id}» · intento ${artifact.attempt} · ${artifact.approved ? "aprobado" : "sin aprobar"} · ${artifact.kind}</summary>
-        <pre class="data">${fmtJson(artifact.data)}</pre>
-      </details>`)}
+      : groups.map((group) => html`<${StepResults} key=${group.stepId} runId=${view.id} stepId=${group.stepId}
+        items=${group.items} waiting=${view.waiting} token=${token} />`)}
   </section>`;
 }
 
@@ -187,7 +353,7 @@ export function RunDetail({ token, runId, status, onChanged }) {
     <${Steps} view=${view} />
     <${Counters} view=${view} />
     <${History} view=${view} />
-    <${Results} view=${view} />
+    <${Results} view=${view} token=${token} />
     <section class="panel" aria-labelledby="inputs-title">
       <h4 id="inputs-title">Entradas de la ejecución</h4>
       <${Help} topic="run.inputs" />

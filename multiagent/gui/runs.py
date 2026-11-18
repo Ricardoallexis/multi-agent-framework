@@ -454,6 +454,16 @@ def build_router(services) -> APIRouter:
         evidence). Unreported tokens and unknown costs are ``null``, never 0. ``not_found`` for an unknown run."""
         return services.runs.usage(run_id)
 
+    @router.get("/runs/{run_id}/steps/{step_id}/attempts")
+    def step_attempts(run_id: str, step_id: str):
+        """Completed attempts of one step with producer, input, output, review and tokens."""
+        return services.runs.step_attempts(run_id, step_id)
+
+    @router.get("/runs/{run_id}/steps/{step_id}/attempts/compare")
+    def compare_step_attempts(run_id: str, step_id: str, a: int = Query(..., ge=1), b: int = Query(..., ge=1)):
+        """Compare two completed attempts of one step field by field."""
+        return services.runs.compare_attempts(run_id, step_id, a, b)
+
     @router.get("/runs/{run_id}/human-next")
     def human_next(run_id: str):
         """The pending human-guided step with the exact prompt to copy."""

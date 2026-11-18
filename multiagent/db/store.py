@@ -532,6 +532,21 @@ class Store:
             ).fetchone()
             return (int(row["attempt"]), json.loads(row["output_json"])) if row else None
 
+    def list_step_attempts(self, run_id: str, step_id: str) -> list[dict[str, Any]]:
+        """All persisted ``run_steps`` rows for one step, oldest attempt first."""
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM run_steps WHERE run_id=? AND step_id=? ORDER BY attempt",
+                (run_id, step_id),
+            ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["input"] = json.loads(item.pop("input_json") or "{}")
+            item["output"] = json.loads(item.pop("output_json") or "{}")
+            items.append(item)
+        return items
+
     def add_artifact(self, *, run_id: str, step_id: str, attempt: int, kind: str, path: str, data: dict[str, Any]) -> str:
         with self.db.connect() as conn:
             existing = conn.execute(

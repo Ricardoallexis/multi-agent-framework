@@ -137,7 +137,7 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 
 ## Human-in-the-loop
 
-**Progress:** `███░░░░░░░` 3/11 · 27% <!-- progress -->
+**Progress:** `████░░░░░░` 4/11 · 36% <!-- progress -->
 
 Human control is intended to remain a first-class part of the architecture rather than an exception path.
 
@@ -148,7 +148,7 @@ Human control is intended to remain a first-class part of the architecture rathe
 - [ ] Support approval policies per workflow, step, risk level, or project.
   - [x] Configure supervised or automatic escalation per workflow step, a budget that cuts or only warns, and a content-review policy, each pausing for a human when it applies.
 - [ ] Allow humans to replace an agent step with externally produced output while preserving validation and traceability. Reuse the pattern of the external-delivery importer in `tools/seguimiento/importar-paquete-nube.ps1` (manifest, integrity hashes, allowlisted paths, preview, explicit human confirmation, and an auditable receipt) as a design reference only; that tool is specific to this project's workflow and is not part of the runtime. A hash proves integrity, not authorship: a human confirms who produced the output.
-- [ ] Add clearer revision history and comparisons between attempts.
+- [x] Add clearer revision history and comparisons between attempts: the completed attempts of a step with who produced each one, the feedback it received, its output and its review, and a field-by-field comparison of two attempts in the API, CLI and GUI (see [`docs/API.md`](docs/API.md)).
 - [ ] Add comments, reviewer notes, and structured feedback that can be passed safely into subsequent attempts.
 - [ ] Improve audit trails showing what was produced by a model, a deterministic tool, or a human.
 - [ ] *(proposed)* A register of proposals and decisions with their state and validity.

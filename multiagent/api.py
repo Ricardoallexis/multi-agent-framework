@@ -518,6 +518,16 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         result = services.runs.report(run_id, format=format, include_raw=include_raw)
         return PlainTextResponse(result, media_type="text/markdown") if format == "markdown" else result
 
+    @app.get("/api/v1/runs/{run_id}/steps/{step_id}/attempts")
+    def step_attempts(run_id: str, step_id: str):
+        """Completed attempts of one step with producer, input, output, review and tokens."""
+        return services.runs.step_attempts(run_id, step_id)
+
+    @app.get("/api/v1/runs/{run_id}/steps/{step_id}/attempts/compare")
+    def compare_step_attempts(run_id: str, step_id: str, a: int = Query(..., ge=1), b: int = Query(..., ge=1)):
+        """Compare two completed attempts of one step field by field."""
+        return services.runs.compare_attempts(run_id, step_id, a, b)
+
     @app.get("/api/v1/usage/costs")
     def usage_costs(since: str | None = None, until: str | None = None, limit: int = 100):
         """Estimated cost of the framework's provider calls per run, model, day and month, each with its price evidence.

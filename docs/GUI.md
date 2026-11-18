@@ -214,6 +214,8 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/map?project=<id>&only=active\|all` | Project, task and linked-session map. |
 | `GET /gui/api/usage/plans`, `/usage/tokens`, `/usage/costs` | Plan measurements, token totals and estimated costs for Uso. |
 | `GET /gui/api/runs/{id}/usage` | Token and cost details for the right panel. |
+| `GET /gui/api/runs/{id}/steps/{step_id}/attempts` | Completed attempts of one step (producer, input, output, review, tokens). |
+| `GET /gui/api/runs/{id}/steps/{step_id}/attempts/compare?a=1&b=2` | Field-by-field and unified line diff between two completed attempts. |
 | `POST /gui/api/runs/preview` | Validate and preview a workflow without creating a run. |
 | `POST /gui/api/runs` | Create the confirmed framework run. |
 
@@ -226,7 +228,13 @@ required flag and type (`text`, `long_text` or `choice`); the form shows the
 description and example, and uses a selector for choices. Workflows without
 declared inputs continue to derive them from prompt placeholders. The GUI
 previews the rendered prompt before creating the run.
-Run details show skipped steps, counters, and human-action history. Available
+Run details show skipped steps, counters, and human-action history. Results are
+grouped by step with each completed attempt's producer, review status, tokens,
+and output; when a step has two or more completed attempts, **Comparar** lets
+the operator pick two attempts and inspect field-by-field differences (with
+unified line diffs for multi-line or long text fields). Attempts that failed
+before producing an output and the full prompt sent to a model attempt are not
+stored today, so they are not shown. Available
 human actions include approve, request changes, reject, regenerate, cancel,
 and submit a human-produced result.
 
