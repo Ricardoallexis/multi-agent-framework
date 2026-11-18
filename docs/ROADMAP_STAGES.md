@@ -166,7 +166,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | --- | --- | --- |
 | **S6.A — Definitions** | | |
 | S6.A1 | ✅ Team definition schema: roles (purpose, rules, skills, contracts, capabilities, permissions), members, assignments, relationships (`multiagent/teams/`, an optional `team.yaml` in a bundle). | S5.C1 |
-| S6.A2 | Validation with the bundle rules and least-privilege permissions. | S6.A1 |
+| S6.A2 | ✅ Validation with the bundle rules and least-privilege permissions (`multiagent/teams/validation.py`, in `validate_bundle`, `POST /api/v1/bundles/{name}/validate` and `multiagent bundle validate`). | S6.A1 |
 | S6.A3 | Human approval before a team is created or changed. | S6.A2 |
 | **S6.B — Views** | | |
 | S6.B1 | Render the organization chart (for example Mermaid) from relationships. | S6.A1 |

@@ -14,8 +14,7 @@ roles:
       - ReviewReport
     capabilities:
       - doc.review
-    permissions:
-      - read
+    permissions: []
 
   - id: analyst
     purpose: Extracts key points, findings and checklist evidence from input documents.
@@ -29,8 +28,7 @@ roles:
     capabilities:
       - doc.read
       - research.synthesize
-    permissions:
-      - read
+    permissions: []
 
   - id: writer
     purpose: Drafts clear summaries and option comparisons for the target audience.
@@ -43,9 +41,7 @@ roles:
       - Recommendation
     capabilities:
       - doc.write
-    permissions:
-      - read
-      - write
+    permissions: []
 
   - id: reviewer
     purpose: Verifies deliverables against quality criteria before human approval.
@@ -56,8 +52,7 @@ roles:
       - ReviewReport
     capabilities:
       - doc.review
-    permissions:
-      - read
+    permissions: []
 
 members:
   - id: human_lead

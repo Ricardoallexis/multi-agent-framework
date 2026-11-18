@@ -89,7 +89,7 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `GET` | `/api/v1/workflows/{workflow_id}` | Get and validate one workflow; optional `?bundle=<name>`. |
 | `GET` | `/api/v1/agents` | List agents; optional `?bundle=<name>`. |
 | `GET` | `/api/v1/bundles` | List bundles registered by the server. |
-| `POST` | `/api/v1/bundles/{name}/validate` | Validate a registered bundle. |
+| `POST` | `/api/v1/bundles/{name}/validate` | Validate a registered bundle. With a `team.yaml`, the team is checked against the bundle's workflows too: errors return `422` with `details.team` (each finding with `code`, `location`, `message` and `severity`), and warnings alone return `200` with `warnings`. |
 | `POST` | `/api/v1/runs` | Queue a run; optional `?bundle=<name>`. Returns `202 Accepted`. |
 | `GET` | `/api/v1/runs` | List runs; optional `limit` (1–500), `status`, and `project` query parameters. |
 | `GET` | `/api/v1/runs/{run_id}` | Get a run with its events and artifacts. |

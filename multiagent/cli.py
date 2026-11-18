@@ -94,7 +94,7 @@ def _detail(response: httpx.Response) -> str:
 _DEFAULT_TIMEOUT = object()
 
 
-def _api_json(method: str, path: str, *, json_body=None, params=None, timeout=_DEFAULT_TIMEOUT, content=None):
+def _api_response(method: str, path: str, *, json_body=None, params=None, timeout=_DEFAULT_TIMEOUT, content=None):
     # ``timeout=None`` waits without limit (a task gate may run long project commands).
     # ``content`` sends raw bytes instead of JSON (a blob).
     options = {} if timeout is _DEFAULT_TIMEOUT else {"timeout": timeout}
@@ -107,6 +107,11 @@ def _api_json(method: str, path: str, *, json_body=None, params=None, timeout=_D
         raise RuntimeError("Backend unavailable at 127.0.0.1:8000. Start .\\run_backend.bat") from exc
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Backend communication error: {exc}") from exc
+    return response
+
+
+def _api_json(method: str, path: str, *, json_body=None, params=None, timeout=_DEFAULT_TIMEOUT, content=None):
+    response = _api_response(method, path, json_body=json_body, params=params, timeout=timeout, content=content)
     if response.status_code >= 400:
         raise RuntimeError(f"HTTP {response.status_code}: {_detail(response)}")
     return response.json()
@@ -164,7 +169,34 @@ def cmd_agents(args) -> None:
 
 def cmd_bundle_validate(args) -> None:
     name = quote(args.name, safe="")
-    pretty(_api_json("POST", f"/api/v1/bundles/{name}/validate"))
+    response = _api_response("POST", f"/api/v1/bundles/{name}/validate")
+    if response.status_code == 422:
+        body = response.json()
+        detail = body.get("detail", body) if isinstance(body, dict) else {}
+        details = detail.get("details", {}) if isinstance(detail, dict) else {}
+        findings = []
+        for workflow in details.get("workflows", []):
+            workflow_id = workflow.get("workflow_id", "<unknown>")
+            for issue in workflow.get("issues", []):
+                location = issue.get("location", "<unknown>")
+                if not location.startswith("workflows/"):
+                    location = f"workflows/{workflow_id}:{location}"
+                findings.append((issue.get("severity", "error"), location, issue.get("code", ""), issue.get("message", "")))
+        for issue in details.get("team", []):
+            findings.append((issue.get("severity", "error"), issue.get("location", "<unknown>"),
+                             issue.get("code", ""), issue.get("message", "")))
+        for issue in details.get("issues", []):
+            findings.append((issue.get("severity", "error"), issue.get("location", "<unknown>"),
+                             issue.get("code", ""), issue.get("message", "")))
+        if findings:
+            for severity, location, code, message in findings:
+                print(f"[{severity}] {location} [{code}]: {message}", file=sys.stderr)
+        else:
+            print(f"HTTP 422: {_detail(response)}", file=sys.stderr)
+        raise SystemExit(1)
+    if response.status_code >= 400:
+        raise RuntimeError(f"HTTP {response.status_code}: {_detail(response)}")
+    pretty(response.json())
 
 
 def cmd_artifacts(args) -> None:

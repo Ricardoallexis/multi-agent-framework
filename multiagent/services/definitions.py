@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..bundles import DefinitionBundle, load_bundle
 from ..prompts import PromptManager
+from ..teams import validate_team_workflows
 from ..workflow_validation import WorkflowDefinitionError, require_safe_workflow_id
 from ..workflows import WorkflowCatalog, WorkflowDefinition
 from . import workflow_inputs
@@ -175,16 +176,47 @@ class DefinitionServices:
         loaded = self._bundle(name)
         workflow_ids = self._workflow_ids(name)
         problems = []
+        definitions = []
         for workflow_id in workflow_ids:
             try:
-                loaded.load_workflow(workflow_id)
+                definitions.append(loaded.load_workflow(workflow_id))
             except WorkflowDefinitionError as exc:
                 problems.append(exc.to_payload())
-        if problems:
-            count = sum(len(problem["issues"]) for problem in problems)
+        if loaded.team is None:
+            if problems:
+                count = sum(len(problem["issues"]) for problem in problems)
+                raise ServiceError(
+                    INVALID_DEFINITION,
+                    f"Invalid bundle '{name}': {count} problem{'' if count == 1 else 's'}",
+                    status=422, details={"bundle": name, "workflows": problems},
+                )
+            return {"bundle": name, "valid": True, "workflows": workflow_ids}
+
+        system = self._services.system
+        engine = getattr(system, "engine", None)
+        team_issues = validate_team_workflows(
+            loaded.team,
+            definitions,
+            output_schemas=loaded.output_schemas,
+            skills_dir=loaded.prompts.skills_dir,
+            tool_registry=getattr(system, "tool_registry", None),
+            tool_selection=getattr(engine, "tool_selection", None),
+        )
+        for problem in problems:
+            for issue in problem["issues"]:
+                issue["severity"] = "error"
+        team_payload = [issue.to_dict() for issue in team_issues]
+        workflow_error_count = sum(len(problem["issues"]) for problem in problems)
+        team_error_count = sum(issue.severity == "error" for issue in team_issues)
+        if workflow_error_count or team_error_count:
+            count = workflow_error_count + team_error_count
             raise ServiceError(
                 INVALID_DEFINITION,
                 f"Invalid bundle '{name}': {count} problem{'' if count == 1 else 's'}",
-                status=422, details={"bundle": name, "workflows": problems},
+                status=422, details={"bundle": name, "workflows": problems, "team": team_payload},
             )
-        return {"bundle": name, "valid": True, "workflows": workflow_ids}
+        result: dict[str, Any] = {"bundle": name, "valid": True, "workflows": workflow_ids}
+        warnings = [issue.to_dict() for issue in team_issues if issue.severity == "warning"]
+        if warnings:
+            result["warnings"] = warnings
+        return result

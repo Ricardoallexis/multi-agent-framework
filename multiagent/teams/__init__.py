@@ -17,6 +17,7 @@ from .schema import (
     parse_team_document,
     validate_team,
 )
+from .validation import TeamValidationIssue, validate_team_workflows
 
 __all__ = [
     "Assignment",
@@ -28,7 +29,9 @@ __all__ = [
     "Team",
     "TeamDefinitionError",
     "TeamIssue",
+    "TeamValidationIssue",
     "load_team",
     "parse_team_document",
     "validate_team",
+    "validate_team_workflows",
 ]
