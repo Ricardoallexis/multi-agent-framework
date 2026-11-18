@@ -20,8 +20,10 @@ Rules of this server (decided by the orchestrator, not configurable from the cli
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -67,13 +69,184 @@ class _Policy:
         settings = services.settings
         roots = [getattr(settings, "data_dir", None), getattr(settings, "local_dir", None), Path.home()]
         self.roots = sorted({str(root) for root in roots if root}, key=len, reverse=True)
+        self._root_patterns = [p for p in (_path_pattern(root) for root in self.roots) if p is not None]
 
     def clean(self, text: str) -> str:
-        """Local folders of the operator replaced by markers (errors may carry paths)."""
-        for root in self.roots:
-            for variant in {root, root.replace("\\", "/")}:
-                text = text.replace(variant, "<local>")
-        return text
+        """Local folders of the operator and any user-profile folder replaced by markers (errors may carry paths).
+
+        Separators match as runs of ``/`` or ``\\`` (so the doubled backslashes of a ``repr`` match) and the comparison
+        ignores case, so the user name does not survive in another spelling of the path."""
+        for pattern in self._root_patterns:
+            text = pattern.sub("<local>", text)
+        return _PROFILE_PATH.sub("<local>", text)
+
+
+_SEP = r"[\\/]++"   # possessive: a long run of separators is matched once, never re-scanned from each position
+
+
+def _path_pattern(root: str) -> re.Pattern[str] | None:
+    """The operator's folder in any separator spelling, or ``None`` if it is too short to be a safe pattern (``/``)."""
+    parts = [re.escape(part) for part in re.split(r"[\\/]+", root) if part]
+    if len(root) < 4 or not parts:
+        return None   # a HOME of ``/`` would turn every slash into a marker and eat the tail of a secret
+    return re.compile(("(?<![\\\\/])" + _SEP if root[:1] in ("/", "\\") else "") + _SEP.join(parts), re.I)
+
+
+# User-profile folders in any spelling: ``C:\Users\name``, ``/c/Users/name`` (Git Bash), ``/mnt/c/Users/name`` (WSL),
+# ``/cygdrive/c/Users/name``, ``/home/name`` and ``/Users/name``. The lookbehind and the possessive separators keep the
+# search linear in the length of the text.
+_PROFILE_PATH = re.compile(
+    r"(?:[A-Za-z]:" + _SEP + r"Users" + _SEP
+    + r"|(?<![\w.\\/])" + _SEP + r"(?:(?:mnt|cygdrive)" + _SEP + r")?[A-Za-z]" + _SEP + r"Users" + _SEP
+    + r"|(?<![\w.\\/])" + _SEP + r"(?:home|Users)" + _SEP + r")"
+    r"(?:\.[\\/]++)*+[^\\/\s'\"<>|:*?]++", re.I)
+
+# A key that names a secret, in JSON (double quotes) or in the ``repr`` of a dict (single quotes): canonical JSON has a
+# quote between key and colon, which the shared ``key=value`` pattern does not match. Linear: an escaped quote never
+# starts a key and the body is possessive.
+_KEY_DQ = re.compile(r'(?<!\\)"((?:[^"\\]|\\.)*+)"\s*:\s*')
+_KEY_SQ = re.compile(r"""(?<!\\)'((?:[^'"\\]|\\.)*+)'\s*:\s*""")   # no ``"`` inside: it never crosses a JSON string
+_ID_SEGMENTS = {"id", "ids", "uuid", "sha", "sha1", "sha256", "hash", "digest", "checksum", "commit"}
+_HEX_VALUE = re.compile(r"[\"']?([0-9a-fA-F]{32}(?:[0-9a-fA-F]{8})?)(?![A-Za-z0-9])")
+_HEX_ONLY = re.compile(r"[0-9a-fA-F]{32}(?:[0-9a-fA-F]{8})?")
+_SENSITIVE_SEGMENTS = {"password", "passwd", "secret", "authorization", "apikey", "token"}
+_SENSITIVE_PAIRS = {("api", "key"), ("private", "key"), ("access", "key")}
+_SENSITIVE_WHOLE = {"password", "passwords", "passwd", "pwd", "secret", "secrets", "credential", "credentials",
+                    "auth", "cookie"}
+_NOT_A_SECRET_AFTER_TOKEN = {"count", "counts", "usage", "limit", "budget", "estimate"}
+
+
+def _key_parts(raw: str, quote: str = '"') -> tuple[str, list[str]]:
+    """The decoded key (NFKC, no control or format characters) and its lower-cased segments, split on ``_ - .``,
+    spaces and camelCase."""
+    if quote == '"' and "\\" in raw:
+        try:
+            raw = json.loads('"' + raw + '"')
+        except ValueError:
+            pass
+    key = "".join(c for c in unicodedata.normalize("NFKC", raw) if unicodedata.category(c) not in ("Cf", "Cc"))
+    segments = [part for part in re.split(r"[_\-.\s]+", re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key).lower()) if part]
+    return key, segments
+
+
+def _is_sensitive(key: str, segments: list[str]) -> bool:
+    """Whole segments, so ``access_token`` and ``apiKey`` are secrets but ``max_tokens``, ``token_count``, ``cache_key``
+    or ``idempotency_key`` are not. The whole key is also compared with a list (``passWord``, ``pwd``)."""
+    if "".join(segments) in _SENSITIVE_WHOLE or "".join(key.lower().split()) in _SENSITIVE_WHOLE:
+        return True
+    for index, part in enumerate(segments):
+        if part == "token":
+            if not (index + 1 < len(segments) and segments[index + 1] in _NOT_A_SECRET_AFTER_TOKEN):
+                return True
+        elif part in _SENSITIVE_SEGMENTS:
+            return True
+    return any(pair in _SENSITIVE_PAIRS for pair in zip(segments, segments[1:]))
+
+
+_JSON = json.JSONDecoder()
+# A hex run of 32 or more characters is exempt only when it has the exact length of a framework id (uuid4().hex, 32) or
+# of a sha256 (64); any other length is screened (the shared screen exempts every hex run of 32 or more).
+_HEX_RUN = re.compile(r"(?<![A-Za-z0-9])[0-9a-fA-F]{32,}+(?![A-Za-z0-9])")
+
+
+_PY_BARE = re.compile(r"[^\s,}\])]++")
+
+
+def _python_value(text: str, start: int) -> tuple[object, int]:
+    """End of a value written as a Python ``repr`` (``'x'``, ``True``, ``{'a': 'b'}``). Linear scan; ``None`` for null."""
+    if start >= len(text):
+        return None, start
+    first = text[start]
+    if first not in "{[('\"":
+        m = _PY_BARE.match(text, start)
+        return (None if m is None or m.group() == "None" else m.group()), (m.end() if m else start)
+    depth, quote, i = 0, "", start
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == "\\":
+                i += 1
+            elif c == quote:
+                quote = ""
+                if depth == 0:
+                    return True, i + 1
+        elif c in "'\"":
+            quote = c
+        elif c in "{[(":
+            depth += 1
+        elif c in "}])":
+            depth -= 1
+            if depth <= 0:
+                return True, i + 1
+        i += 1
+    return True, len(text)   # unterminated: everything that follows is the value
+
+
+def _sensitive_values(text: str) -> list[tuple[int, int, str]]:
+    """Spans of every value under a secret-named key (see ``_scan_keys``)."""
+    return _scan_keys(text)[0]
+
+
+def _scan_keys(text: str) -> tuple[list[tuple[int, int, str]], set[str]]:
+    """Two independent linear passes, one for keys in double quotes (JSON) and one for single quotes (the ``repr`` of a
+    dict): a single pass would let an apostrophe in a value start a "key" that swallows a real JSON key.
+
+    Returns the spans of every value under a secret-named key (any non-null scalar, even ``""``, ``0`` or ``False``, and
+    all of an object or list) and the hex ids found as values of id-named keys (``run_id``, ``sha1``, ``commit``...)
+    that are not inside a secret value. The secret check always comes first. JSON written inside a string is a limit."""
+    spans: list[tuple[int, int, str]] = []
+    found: list[tuple[int, str]] = []
+    for pattern, quote in ((_KEY_DQ, '"'), (_KEY_SQ, "'")):
+        covered = 0
+        for m in pattern.finditer(text):
+            if m.start() < covered:
+                continue   # inside a value already taken: keeps the scan linear on nested secret keys
+            key, segments = _key_parts(m.group(1), quote)
+            if _is_sensitive(key, segments):
+                try:
+                    value, end = _JSON.raw_decode(text, m.end())
+                except (ValueError, RecursionError):   # not JSON, or nested too deep for the decoder
+                    value, end = _python_value(text, m.end())   # the ``repr`` of a dict: single quotes, True, nested
+                if value is not None and end > m.end():
+                    spans.append((m.end(), end, "secret_key"))
+                    covered = end
+            elif segments and segments[-1] in _ID_SEGMENTS:
+                found.extend(_hex_ids(text, m.end()))
+    spans.sort()
+    inside_secret: set[str] = set()
+    for start, end, _ in spans:
+        inside_secret.update(m.group().lower() for m in _HEX_RUN.finditer(text, start, end))
+    # a hex that also sits inside a secret value is never a known id: it would let ``redact`` leak the secret copy
+    ids = {value for _, value in found if value not in inside_secret}
+    return spans, ids
+
+
+def _hex_ids(text: str, start: int) -> list[tuple[int, str]]:
+    """Hex values (32 to 64) given as the value, or inside a list value, of an id-named key."""
+    m = _HEX_VALUE.match(text, start)
+    if m:
+        return [(m.start(1), m.group(1).lower())]
+    if text[start:start + 1] == "[":
+        try:
+            value, _ = _JSON.raw_decode(text, start)
+        except (ValueError, RecursionError):
+            return []
+        return [(start, item.lower()) for item in value if isinstance(item, str) and _HEX_ONLY.fullmatch(item)]
+    return []
+
+
+def _screen(text: str, policy: _Policy) -> list[tuple[int, int, str]]:
+    """Shared egress findings with entropy on for every policy (the output goes to an external model), exempting only
+    what the shared screen exempts by exact shape (sha256, canonical UUID, ``blob:sha256:``), plus the values of
+    secret-named keys and every hex run that is not a sha256. A hex of 32 or 40 characters (``uuid4().hex``, sha1) passes
+    only as the value of an id-named key or when it repeats such a value of the same text. The filter covers accidental
+    leaks, not deliberate exfiltration."""
+    matches = egress_guard.findings(text, include_entropy=True)
+    secret_spans, known_ids = _scan_keys(text)
+    matches.extend(secret_spans)
+    matches.extend((m.start(), m.end(), "long_token") for m in _HEX_RUN.finditer(text)
+                   if len(m.group()) != 64 and m.group().lower() not in known_ids)
+    return sorted(matches)
 
 
 def _sensitive(run: dict[str, Any]) -> bool:
@@ -99,8 +272,9 @@ def _wrap_capped(text: str, *, ref: str, label: str, limit: int) -> tuple[str, b
 def _untrusted(text: str, *, ref: str, label: str, limit: int, policy: _Policy) -> dict[str, Any]:
     """``text`` as untrusted data, filtered by the operator's egress policy and capped after wrapping."""
     withheld = None
+    text = policy.clean(text)
     if policy.egress != "off":
-        matches = egress_guard.findings(text)
+        matches = _screen(text, policy)
         if matches and policy.egress == "redact":
             text = egress_guard.redact(text, matches)
         elif matches:
@@ -127,7 +301,7 @@ def _run_summary(run: dict[str, Any], policy: _Policy) -> dict[str, Any]:
         if _sensitive(run) and not policy.allow_sensitive_output:
             summary["error"] = {"withheld": SENSITIVE_CODE}
         else:
-            summary["error"] = _untrusted(policy.clean(str(error)), ref=f"run:{run.get('id')}:error",
+            summary["error"] = _untrusted(str(error), ref=f"run:{run.get('id')}:error",
                                           label="run error", limit=MAX_ERROR_CHARS, policy=policy)
     return summary
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import subprocess
 import sys
@@ -400,3 +401,295 @@ def test_the_core_does_not_import_mcp_and_works_without_the_extra():
     done = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env={**os.environ, "PYTHONPATH": str(ROOT)},
                           capture_output=True, text=True, timeout=120)
     assert done.returncode == 0 and done.stdout.strip() == "ok", done.stderr
+
+
+GENERIC_TOKEN = "Zq8Lm3Xv9Rt2Kp7Wn4Yb6Hc1Jd5Fg0Ts"   # synthetic, no provider prefix, mixed case and digits
+SHA256 = hashlib.sha256(b"synthetic-sample").hexdigest()   # random-looking, as a real digest
+RUN_ID = "9f3b7c2ae1d4486fb0a5c8e7d2146a3b"   # same shape as uuid4().hex, the framework run id
+
+
+def read_artifact_text(services, monkeypatch, policy, data):
+    run = plain_run(services)
+    patch_get(services, monkeypatch, artifacts=[artifact(data)])
+    monkeypatch.setattr(services.settings, "egress_default", policy)
+    out = call(mcp_server.build_server(services), "read_run_artifacts", {"run_id": run["id"]}).structured_content
+    return out["artifacts"][0]
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+def test_a_generic_token_does_not_reach_the_client_with_any_policy(services, monkeypatch, policy):
+    item = read_artifact_text(services, monkeypatch, policy, {"note": f"value {GENERIC_TOKEN} here"})
+    assert GENERIC_TOKEN not in item["content"]
+    if policy == "redact":
+        assert "REDACTED" in item["content"] and "withheld" not in item
+    else:
+        assert item["withheld"] == "egress_policy"
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+def test_framework_hashes_and_ids_still_pass_every_policy(services, monkeypatch, policy):
+    data = {"sha": SHA256, "blob": f"blob:sha256:{SHA256}", "call": "tr_" + SHA256[:24],
+            "uuid": "123e4567-e89b-12d3-a456-426614174000", "run_id": RUN_ID}
+    item = read_artifact_text(services, monkeypatch, policy, data)
+    assert "withheld" not in item and SHA256 in item["content"] and "REDACTED" not in item["content"]
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+@pytest.mark.parametrize("key", ["password", "Password", "api_key", "API-KEY", "client_secret", "access_token",
+                                 "Authorization", "db_PASSWD"])
+def test_secret_named_json_keys_never_reach_the_client(services, monkeypatch, policy, key):
+    item = read_artifact_text(services, monkeypatch, policy, {"outer": {key: "x-plain-1"}, "ok": "fine"})
+    assert "x-plain-1" not in item["content"]
+    if policy == "redact":
+        assert "REDACTED" in item["content"] and "withheld" not in item and "fine" in item["content"]
+    else:
+        assert item["withheld"] == "egress_policy"
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+@pytest.mark.parametrize("data, leak", [({"password": 12345}, "12345"), ({"token": {"v": "x-plain-1"}}, "x-plain-1"),
+                                        ({"secret": ["x-plain-1", 987]}, "x-plain-1"), ({"api_key": True}, "true")])
+def test_any_non_null_value_under_a_secret_key_is_screened(services, monkeypatch, policy, data, leak):
+    item = read_artifact_text(services, monkeypatch, policy, data)
+    assert leak not in item["content"].split(chr(10), 1)[1]
+    assert ("REDACTED" in item["content"]) if policy == "redact" else item["withheld"] == "egress_policy"
+
+
+def test_a_null_value_under_a_secret_key_is_not_flagged(services, monkeypatch):
+    assert "withheld" not in read_artifact_text(services, monkeypatch, "block", {"token": None, "ok": 1})
+
+
+@pytest.mark.parametrize("path", [
+    r"C:\Users\SomeUser\x", "c:/users/someuser/x", r"C:\Users\SOMEUSER\x", r"c:\USERS\someUser\a\b",
+    "/home/SomeUser/x", "/Users/someuser/x", "/HOME/someuser/x"])
+def test_user_profile_paths_lose_the_user_name_in_every_spelling(services, monkeypatch, path):
+    run = plain_run(services)
+    error = repr(FileNotFoundError(2, "No such file", path)) + " / " + str(FileNotFoundError(2, "x", path))
+    patch_get(services, monkeypatch, error=error)
+    server = mcp_server.build_server(services)
+    status = call(server, "get_run_status", {"run_id": run["id"]}).structured_content
+    assert "someuser" not in status["error"]["content"].lower() and "<local>" in status["error"]["content"]
+
+
+def test_operator_roots_are_cleaned_with_doubled_slashes_and_mixed_case(services):
+    from types import SimpleNamespace
+    fake = SimpleNamespace(settings=SimpleNamespace(egress_default="off", data_dir=r"D:\Synthetic\Data Dir",
+                                                    local_dir=None))
+    policy = mcp_server._Policy(fake, False)
+    for text in (r"D:\Synthetic\Data Dir\runs", "d:/synthetic/data dir/runs", r"D:\Synthetic\Data Dir\runs"):
+        assert "ynthetic" not in policy.clean(f"boom '{text}'") and "<local>" in policy.clean(text)
+
+
+def test_tool_errors_with_a_profile_path_carry_no_user_name(services):
+    from multiagent.services import ServiceError
+    policy = mcp_server._Policy(services, False)
+    err = mcp_server._fail(ServiceError("x", r"cannot open 'C:\Users\SomeUser\f'"), policy)
+    assert "someuser" not in str(err).lower()
+
+
+def test_the_total_budget_counts_the_final_wrapped_length_not_the_source_length(services, monkeypatch):
+    run = plain_run(services)
+    # 3000 chars is under every cap but grows when wrapped: charging the source length would let the sum pass 100000
+    patch_get(services, monkeypatch, artifacts=[artifact({"t": "x" * 3_000}, id=f"a{i}") for i in range(60)])
+    out = call(mcp_server.build_server(services), "read_run_artifacts", {"run_id": run["id"]}).structured_content
+    contents = [item["content"] for item in out["artifacts"]]
+    assert len(contents) > 10 and all(len(c) > 3_000 for c in contents[:-1])
+    assert sum(len(c) for c in contents) <= mcp_server.MAX_TOTAL_CHARS
+    assert out["truncated"] is True
+
+
+def test_a_relative_bundle_path_is_rejected_even_when_it_points_to_a_real_bundle(monkeypatch, capsys):
+    monkeypatch.chdir(ROOT)
+    relative = BUNDLE.relative_to(ROOT).as_posix()
+    assert (Path(relative) / "workflows").is_dir() and not Path(relative).is_absolute()
+    monkeypatch.setattr(mcp_server.ApplicationServices, "create",
+                        staticmethod(lambda *a, **k: pytest.fail("services were built")))
+    with pytest.raises(SystemExit):
+        mcp_server.main(["--bundle", f"team={relative}"])
+    assert "must be absolute" in capsys.readouterr().err
+
+
+def test_usage_style_keys_are_not_mistaken_for_secrets_with_block(services, monkeypatch):
+    data = {"usage": {"input_tokens": 120, "output_tokens": 45, "max_tokens": 4096, "tokens": 7, "cache_key": "k1",
+                      "idempotency_key": "abc", "totalTokens": 3}, "note": "ok"}
+    item = read_artifact_text(services, monkeypatch, "block", data)
+    assert "withheld" not in item and "input_tokens" in item["content"] and "cache_key" in item["content"]
+
+
+@pytest.mark.parametrize("key", ["access_token", "apiKey", "client_secret", "Authorization", "auth", "Cookie",
+                                 "private-key", "access.key", "accessToken", "refresh_token"])
+@pytest.mark.parametrize("policy", ["redact", "block"])
+def test_secret_keys_are_recognised_by_segments(services, monkeypatch, policy, key):
+    item = read_artifact_text(services, monkeypatch, policy, {key: "x-plain-1"})
+    assert "x-plain-1" not in item["content"]
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+def test_run_prefixed_base64_and_hex_of_other_lengths_are_not_exempt(services, monkeypatch, policy):
+    for value in ("run_" + GENERIC_TOKEN, SHA256[:40] + SHA256[:8], SHA256 + SHA256[:6]):
+        item = read_artifact_text(services, monkeypatch, policy, {"id": value})
+        assert value not in item["content"], value
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+@pytest.mark.parametrize("value", ["", 0, False])
+def test_empty_zero_and_false_under_a_secret_key_are_screened(services, monkeypatch, policy, value):
+    item = read_artifact_text(services, monkeypatch, policy, {"password": value, "ok": "fine"})
+    assert ("REDACTED" in item["content"]) if policy == "redact" else item.get("withheld") == "egress_policy"
+
+
+@pytest.mark.parametrize("policy", ["redact", "block"])
+@pytest.mark.parametrize("key", ["passWord", "passwords", "pwd", "Credentials", "password\n", "pass\u200bword"])
+def test_more_spellings_of_secret_keys(services, monkeypatch, policy, key):
+    item = read_artifact_text(services, monkeypatch, policy, {key: "x-plain-1"})
+    assert "x-plain-1" not in item["content"]
+
+
+def test_single_quoted_keys_of_a_python_repr_are_screened(services, monkeypatch):
+    item = read_artifact_text(services, monkeypatch, "block", {"err": repr({"password": "x-plain-1"})})
+    assert "x-plain-1" not in item["content"]
+
+
+def test_token_followed_by_a_counter_word_is_not_a_secret(services, monkeypatch):
+    data = {"token_count": 5, "tokenUsage": 1, "token_limit": 9, "token_budget": 3, "token_estimate": 2}
+    assert "withheld" not in read_artifact_text(services, monkeypatch, "block", data)
+
+
+@pytest.mark.parametrize("path", ["/c/Users/SomeUser/x", "/mnt/c/Users/someuser/x", "/MNT/C/USERS/SOMEUSER/x",
+                                  "/cygdrive/c/Users/SomeUser/x"])
+def test_msys_wsl_and_cygwin_profile_paths_are_cleaned(services, monkeypatch, path):
+    item = read_artifact_text(services, monkeypatch, "off", {"where": path, "r": repr(FileNotFoundError(2, "x", path))})
+    assert "someuser" not in item["content"].lower() and "<local>" in item["content"]
+    run = plain_run(services)
+    patch_get(services, monkeypatch, error=f"failed at {path}")
+    status = call(mcp_server.build_server(services), "get_run_status", {"run_id": run["id"]}).structured_content
+    assert "someuser" not in status["error"]["content"].lower()
+
+
+def test_artifacts_lose_user_paths_too(services, monkeypatch):
+    item = read_artifact_text(services, monkeypatch, "off", {"a": r"C:\Users\SomeUser\x", "b": "/home/SomeUser/x"})
+    assert "someuser" not in item["content"].lower()
+
+
+def test_a_degenerate_home_is_not_used_as_a_path_pattern():
+    assert mcp_server._path_pattern("/") is None and mcp_server._path_pattern("C:") is None
+    assert mcp_server._path_pattern("/ab") is None and mcp_server._path_pattern("/srv/data") is not None
+
+
+@pytest.mark.parametrize("text", ["/" * 200_000, "\\" * 200_000, '"' * 100_000, "'" * 100_000, '\\"' * 100_000,
+                                  "/home/" * 30_000, '{"password":' * 20_000],
+                         ids=["slashes", "backslashes", "dquotes", "squotes", "escaped", "homes", "nested"])
+def test_hostile_text_is_processed_in_linear_time(services, monkeypatch, text):
+    import time
+    policy = mcp_server._Policy(services, False)
+    start = time.perf_counter()
+    cleaned = policy.clean(text)
+    mcp_server._sensitive_values(cleaned)
+    assert time.perf_counter() - start < 1.0
+    run = plain_run(services)
+    patch_get(services, monkeypatch, artifacts=[artifact({"t": text})], error=text)
+    monkeypatch.setattr(services.settings, "egress_default", "block")
+    start = time.perf_counter()
+    server = mcp_server.build_server(services)
+    call(server, "read_run_artifacts", {"run_id": run["id"]})
+    call(server, "get_run_status", {"run_id": run["id"]})
+    assert time.perf_counter() - start < 5.0
+
+
+SWALLOW = ('{"a":"the users\' list","password":"x-plain-1","z":"the users\': data","b":"it\'s","api_key":"x-plain-2",'
+           '"c":{"d":"students\': 3"}}')
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+def test_an_apostrophe_in_a_value_cannot_swallow_a_json_key(services, monkeypatch, policy):
+    import json
+    item = read_artifact_text(services, monkeypatch, policy, json.loads(SWALLOW))
+    assert "x-plain-1" not in item["content"] and "x-plain-2" not in item["content"]
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+def test_a_full_width_secret_key_is_recognised(services, monkeypatch, policy):
+    item = read_artifact_text(services, monkeypatch, policy, {"ｐａｓｓｗｏｒｄ": "x-plain-1"})
+    assert "x-plain-1" not in item["content"]
+
+
+HEX32 = "9f3b7c2ae1d4486fb0a5c8e7d2146a3b"
+HEX40 = "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+def test_a_loose_hex_of_32_or_40_is_screened(services, monkeypatch, policy):
+    for value in (HEX32, HEX40):
+        item = read_artifact_text(services, monkeypatch, policy, {"note": f"see {value} for details"})
+        assert value not in item["content"], value
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+@pytest.mark.parametrize("data", [{"run_id": HEX32}, {"commit": HEX40}, {"x": {"artifactIds": [HEX32]}},
+                                  {"run_id": HEX32, "note": f"error in {HEX32}"}])
+def test_a_hex_under_an_id_key_or_repeating_one_passes(services, monkeypatch, policy, data):
+    item = read_artifact_text(services, monkeypatch, policy, data)
+    assert "withheld" not in item and "REDACTED" not in item["content"]
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+def test_a_hex_under_a_secret_key_is_screened_and_does_not_become_a_known_id(services, monkeypatch, policy):
+    item = read_artifact_text(services, monkeypatch, policy,
+                              {"api_key": HEX32, "note": f"copy {HEX32}", "token": {"run_id": HEX40}})
+    assert HEX32 not in item["content"] and HEX40 not in item["content"]
+
+
+@pytest.mark.parametrize("text", ['{"run_id":"' + HEX32 + '",' * 40_000, '"id":"' + HEX32 + '" ' * 30_000,
+                                  "'x': " * 40_000], ids=["ids", "repeated", "squote"])
+def test_id_scanning_is_linear(text):
+    import time
+    start = time.perf_counter()
+    mcp_server._screen(text, None)
+    assert time.perf_counter() - start < 2.0
+
+
+def read_error_text(services, monkeypatch, policy, text):
+    run = plain_run(services)
+    patch_get(services, monkeypatch, error=text)
+    monkeypatch.setattr(services.settings, "egress_default", policy)
+    status = call(mcp_server.build_server(services), "get_run_status", {"run_id": run["id"]}).structured_content
+    return status["error"]
+
+
+# Keys in the order a raw error text keeps them: the secret sits between an apostrophe and a later ``':``.
+ORDERED = ('{"a": "the users\' list", "password": "x-plain-1", "z": "the users\': data", "b": "it\'s", '
+           '"api_key": "x-plain-2", "c": {"d": "students\': 3"}}')
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+def test_the_apostrophe_case_is_tested_in_the_order_that_triggers_it(services, monkeypatch, policy):
+    assert ORDERED.index("users'") < ORDERED.index("password") < ORDERED.index("users':")
+    for text in (ORDERED, SWALLOW):
+        error = read_error_text(services, monkeypatch, policy, text)
+        assert "x-plain-1" not in error["content"] and "x-plain-2" not in error["content"]
+
+
+def test_the_single_and_double_quote_passes_are_independent(services, monkeypatch):
+    text = "failed {'password': 'x-plain-1'} then {\"token\": \"x-plain-2\"}"
+    error = read_error_text(services, monkeypatch, "redact", text)
+    assert "x-plain-1" not in error["content"] and "x-plain-2" not in error["content"]
+
+
+@pytest.mark.parametrize("policy", ["redact", "block", "escalate"])
+@pytest.mark.parametrize("data", [{"api_key_id": HEX32}, {"secret_id": HEX32}, {"token_id": HEX40},
+                                  {"id_card": HEX32}, {"hash_note": HEX40}])
+def test_a_secret_named_key_or_a_non_final_id_segment_never_exempts_a_hex(services, monkeypatch, policy, data):
+    item = read_artifact_text(services, monkeypatch, policy, data)
+    assert HEX32 not in item["content"] and HEX40 not in item["content"]
+
+
+@pytest.mark.parametrize("text", [
+    '{"api_key": "%s", "meta": {"run_id": "%s"}}' % (HEX32, HEX32),
+    '{"api_key": "%s", "x": "\'run_id\': %s"}' % (HEX32, HEX32),
+    '{"password": "\'run_id\': %s", "note": "copy %s"}' % (HEX32, HEX32),
+    "{'password': {\"run_id\": \"%s\"}} copy %s" % (HEX32, HEX32),
+    '{"a":"it\'s","note":"key %s","z":"run_id\': %s"}' % (HEX32, HEX32)])
+def test_a_secret_copied_under_an_id_key_does_not_become_a_known_id(services, monkeypatch, text):
+    for policy in ("redact", "block", "escalate"):
+        error = read_error_text(services, monkeypatch, policy, text)
+        assert HEX32 not in error["content"], (policy, text)
