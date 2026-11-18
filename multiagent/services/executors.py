@@ -208,7 +208,7 @@ from ..context.estimate import LEVEL_THRESHOLD
 from ..db.envelope_store import HARD_MAX_BLOB_BYTES
 from ..document_actions import Action, ActionKind, Approval
 from ..errors import MultiAgentError
-from ..executors import codex as _codex, copilot as _copilot, launch_safety, process
+from ..executors import antigravity as _antigravity, codex as _codex, copilot as _copilot, launch_safety, process
 from ..executors.contract import ExecutorApplicationAdapter, ExecutorLaunchRequest, FailureKind, OpenTarget, Permission
 from ..executors.limits import utc_iso
 from ..executors.privacy import decide_privacy, resolve_model_privacy
@@ -370,6 +370,19 @@ def _supports(evidence: CapabilityEvidence, value: str | None) -> bool:
 def _target_view(target: OpenTarget) -> dict[str, Any]:
     value = list(target.value) if not isinstance(target.value, str) else target.value
     return {"kind": target.kind, "value": value, "needs_confirmation": bool(target.needs_confirmation)}
+
+
+def _launch_blocker(adapter: Any) -> str | None:
+    """The reason code an adapter gives for refusing a launch right now (``launch_blocker``, GEM-T03), or None."""
+    check = getattr(adapter, "launch_blocker", None)
+    if not callable(check):
+        return None
+    try:
+        reason = check()
+    except Exception:  # noqa: BLE001 - a check that breaks proves nothing: refuse
+        _logger.warning("the launch check of an executor failed", exc_info=True)
+        return "launch_check_failed"
+    return reason if isinstance(reason, str) and reason else None
 
 
 def _check_support(evidence: CapabilityEvidence, value: str | None, what: str, executor_id: str) -> None:
@@ -641,10 +654,11 @@ class ExecutorServices:
         return self._registry if self._registry is not None else self._services.assignment.registry
 
     def build_adapters(self) -> list:
-        """The adapters that ship with the framework, with this service's session guard (see ``default_adapters``)."""
+        """The adapters that ship with the framework, with this service's session guard and settings (see
+        ``default_adapters``)."""
         from ..executors.defaults import default_adapters
 
-        return default_adapters(session_guard=self.session_guard)
+        return default_adapters(session_guard=self.session_guard, settings=getattr(self._services, "settings", None))
 
     # -------- effects (BDI-T04) --------
     @property
@@ -762,8 +776,8 @@ class ExecutorServices:
         """Read only allowlisted session metadata; reader failures must not affect a running executor."""
         if not session_id:
             return None
-        source = {"claude_cli": "claude", "codex_cli": "codex", "copilot_cli": "copilot"}.get(
-            getattr(adapter, "adapter_id", ""))
+        source = {"claude_cli": "claude", "codex_cli": "codex", "copilot_cli": "copilot",
+                  "antigravity_cli": "antigravity"}.get(getattr(adapter, "adapter_id", ""))
         if source is None:
             return None
         try:
@@ -939,8 +953,10 @@ class ExecutorServices:
         if descriptor is None:
             raise _missing("Executor", executor_id)
         if descriptor.enabled is not True:
-            raise _conflict("executor_disabled", f"{executor_id} is disabled; the operator enables it in the catalog",
-                            executor_id=executor_id)
+            blocker = _launch_blocker(registry.resolve(executor_id))     # GEM-T03: agy also needs its notice accepted
+            extra = {"code": blocker} if blocker == _antigravity.NOTICE_NOT_ACCEPTED else {}
+            raise _conflict("executor_disabled", f"{executor_id} is disabled; the operator enables it in the catalog"
+                            + (" and accepts its third-party notice" if extra else ""), executor_id=executor_id, **extra)
         adapter = registry.resolve(executor_id)
         if adapter is None or not isinstance(adapter, ExecutorApplicationAdapter):
             raise _conflict("executor_without_adapter", f"{executor_id} has no executor adapter registered",
@@ -1377,6 +1393,8 @@ class ExecutorServices:
                             live_session[0] = _codex.parse_stream(activity._stdout_probe).session_id
                         elif plan.adapter.adapter_id == "copilot_cli":
                             live_session[0] = _copilot._scan(activity._stdout_probe).session_id
+                        elif plan.adapter.adapter_id == _antigravity.ADAPTER_ID:
+                            live_session[0] = _antigravity.session_id_of(activity._stdout_probe)
                     except BaseException:
                         _logger.debug("live session id probe unavailable", exc_info=True)
                 observed = self._observe_process(
@@ -1591,6 +1609,10 @@ class ExecutorServices:
 
     def _preflight(self, plan: _Plan, request: ExecutorLaunchRequest, resume_session: str | None) -> None:
         """Build the command and find the program before the task changes: a refusal here leaves the task as it was."""
+        blocker = _launch_blocker(plan.adapter)      # GEM-T03: agy's kill switch, notice and one-run-at-a-time lock
+        if blocker is not None:
+            raise _conflict("executor_unavailable", f"{plan.executor_id} cannot be launched now ({blocker})",
+                            executor_id=plan.executor_id, code=blocker)
         try:
             if resume_session:
                 argv = plan.adapter.build_resume_command(request, resume_session)

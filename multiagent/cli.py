@@ -1253,7 +1253,7 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--type", action="append", help="For events: keep only this event type; repeatable")
     x.add_argument("--mine", action="store_true", help="For events: only tasks assigned to the consumer")
     x.add_argument("--limit", type=int, default=100); x.set_defaults(func=cmd_cursor)
-    executors = sub.add_parser("executors", help="Run a task in an executor application (Codex, Claude, Copilot), "
+    executors = sub.add_parser("executors", help="Run a task in an executor application (Codex, Claude, Copilot, agy), "
                                "resume or open its session, or show the executors").add_subparsers(dest="executors_command", required=True)
     x = executors.add_parser("run", help="Launch a ready task in a new session and submit its result (the gate decides)")
     x.add_argument("task_id"); x.add_argument("--executor", help="Executor id, e.g. codex_cli; without it --profile-id chooses")

@@ -230,6 +230,18 @@ class Settings(BaseSettings):
     executor_workdir_root: Optional[Path] = None
     executor_timeout_seconds: int = Field(default=1800, ge=1, le=86400)
     executor_quota_pause_minutes: int = Field(default=300, ge=1, le=10080)
+    # GEM-T03 Antigravity (agy) executor: supervised and off by default. It is enabled only when its catalog
+    # declaration says ``enabled: true`` AND ``antigravity_notice_accepted`` holds the id of the third-party notice the
+    # person accepted (``agy-third-party-notice/1``, see docs/EXECUTORS.md). While the file ``antigravity_kill_switch``
+    # exists (empty means <data_dir>/antigravity-off) nothing is launched and a running agy is stopped.
+    # ``antigravity_lock_file`` (empty means <data_dir>/antigravity-run.lock) keeps one agy run at a time across the
+    # processes of the installation. ``antigravity_add_dirs`` are absolute folders passed as ``--add-dir`` to write runs
+    # (the virtual environment and the Python installation, so tests can run in agy's sandbox): a JSON list or items
+    # separated by ``;``.
+    antigravity_notice_accepted: str = ""
+    antigravity_kill_switch: Optional[Path] = None
+    antigravity_lock_file: Optional[Path] = None
+    antigravity_add_dirs: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     # AVA-T01/T02 availability policy (``services.availability.policy_from_settings`` reads these and enforces the same
     # limits). Off by default: ``run_task`` then waits for the whole attempt. On, an attempt is launched in the background
@@ -293,6 +305,19 @@ class Settings(BaseSettings):
     @classmethod
     def _split_gui_lists(cls, value: Any) -> Any:
         return _as_list(value)
+
+    @field_validator("antigravity_add_dirs", mode="before")
+    @classmethod
+    def _split_add_dirs(cls, value: Any) -> Any:
+        return _as_list(value)
+
+    @field_validator("antigravity_add_dirs")
+    @classmethod
+    def _validate_add_dirs(cls, values: list[str]) -> list[str]:
+        folders = [str(Path(v).expanduser()) for v in values if isinstance(v, str) and v.strip()]
+        if len(folders) != len(values) or not all(Path(folder).is_absolute() for folder in folders):
+            raise ValueError("antigravity_add_dirs must contain absolute folder paths")
+        return list(dict.fromkeys(folders))
 
     @field_validator("usage_budgets", mode="before")
     @classmethod
@@ -417,7 +442,8 @@ class Settings(BaseSettings):
             normalized.append(host)
         return list(dict.fromkeys(normalized))
 
-    @field_validator("assets_dir", "integration_marker", mode="before")
+    @field_validator("assets_dir", "integration_marker", "antigravity_kill_switch", "antigravity_lock_file",
+                     mode="before")
     @classmethod
     def _empty_path_is_unset(cls, value):
         # An empty variable (``INTEGRATION_MARKER=``) means "not set", not ``Path("")``, which is the current folder.
@@ -437,6 +463,10 @@ class Settings(BaseSettings):
         self.integration_marker = Path(self.integration_marker
                                        or self.data_dir / "watchers" / "integration.lock").expanduser().resolve()
         self.gui_token_file = Path(self.gui_token_file or Path.home() / ".multiagent" / "gui-token").expanduser().resolve()
+        self.antigravity_kill_switch = Path(self.antigravity_kill_switch
+                                            or self.data_dir / "antigravity-off").expanduser().resolve()
+        self.antigravity_lock_file = Path(self.antigravity_lock_file
+                                          or self.data_dir / "antigravity-run.lock").expanduser().resolve()
         return self
 
     @property

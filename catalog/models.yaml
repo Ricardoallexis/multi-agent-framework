@@ -374,6 +374,38 @@ executor_routing:
       open_in_app: {status: supported, source: "P-384 #385/#387/#389/#390", provenance: operator_test, scope: copilot_cli, observed_at: "2026-10-10", values: ["target:ghapp://sessions/<id>", "confirmation:required", "live:on_reopen"]}
       quota_signal: {status: unknown}
       terms: {status: unknown}
+    # GEM-T03 Antigravity CLI (agy), supervised. Declared DISABLED, and enabling it here is not enough: the adapter is
+    # enabled only once the person also accepted the third-party notice (setting antigravity_notice_accepted, see
+    # docs/EXECUTORS.md). Kill switch: the file <data_dir>/antigravity-off (setting antigravity_kill_switch) stops every
+    # launch. One run at a time; no launch under 15% left in `agy -p /usage`, a pause under 10%.
+    # Evidence: GEM-T01 (2026-11-18, agy 1.5.10, operator_test, synthetic tasks only) and the usage contract GEM-T02 v3.
+    # The effort is part of the model id, so effort_support is unsupported (a separate effort is refused). Continuing a
+    # conversation (--conversation) was not tried, so resume is unknown and the adapter refuses it (a held task is
+    # relaunched from its checkpoint). agy has no app that opens a CLI conversation.
+    antigravity_cli:
+      surface: antigravity_cli
+      version: "1"
+      mode: manual
+      enabled: false
+      adapter_id: antigravity_cli
+      capabilities_available: null
+      roles_available: null
+      permissions_available: null
+      permissions_required: null
+      permissions_consumed: null
+      permission_ceiling: null
+      allowed_data_classes: null
+      execution_modes: null
+      model_support: {status: supported, source: "GEM-T01 2026-11-18 (agy models list); GEM-T02 v3 section 4", provenance: operator_test, scope: antigravity_cli, observed_at: "2026-11-18", values: ["gemini-4-hydrogen-low", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-high", "gemini-4-hydrogen-xhigh", "gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high", "gemini-pro-orchestrator-g1-pro", "gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-high", "claude-opus-5-5-low", "claude-opus-5-5-medium", "claude-opus-5-5-high", "claude-sonnet-5-5-low", "claude-sonnet-5-5-medium", "claude-sonnet-5-5-high", "gpt-oss-120b-medium"]}
+      effort_support: {status: unsupported, source: "GEM-T01 2026-11-18 (the effort is part of the model id)", provenance: operator_test, scope: antigravity_cli, observed_at: "2026-11-18"}
+      noninteractive_launch: {status: supported, source: "GEM-T01 2026-11-18; GEM-T02 v3 section 2", provenance: operator_test, scope: antigravity_cli, observed_at: "2026-11-18", values: ["agy -p --output-format stream-json --mode plan|auto"]}
+      structured_output: {status: supported, source: "GEM-T01 2026-11-18", provenance: operator_test, scope: antigravity_cli, observed_at: "2026-11-18", values: ["--output-format stream-json"]}
+      session_store: {status: supported, source: "GEM-T01 2026-11-18 (metadata only; brain/ is never read)", provenance: operator_test, scope: antigravity_cli, observed_at: "2026-11-18", values: ["~/.gemini/antigravity-cli/conversation_summaries.db"]}
+      resume: {status: unknown}
+      blocks_when_open: {status: unknown}
+      open_in_app: {status: unknown}
+      quota_signal: {status: supported, source: "GEM-T01 2026-11-18 (agy -p /usage spends no model)", provenance: operator_test, scope: antigravity_cli, observed_at: "2026-11-18", values: ["agy -p /usage --output-format text"]}
+      terms: {status: unknown}
     claude_app:
       surface: claude_app
       version: "1"

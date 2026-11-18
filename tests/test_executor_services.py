@@ -24,6 +24,7 @@ from multiagent import cli
 from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.executors import process
+from multiagent.executors.antigravity import AntigravityAdapter
 from multiagent.executors.claude import ClaudeAdapter
 from multiagent.executors.codex import CodexExecutorAdapter
 from multiagent.executors.contract import ExecutorLaunchRequest
@@ -130,7 +131,7 @@ def never_a_real_cli(monkeypatch):
     real = process.find_executable
 
     def guard(name, **kwargs):
-        if name in ("claude", "codex", "copilot"):
+        if name in ("claude", "codex", "copilot", "agy"):
             raise AssertionError(f"the bare name {name!r} was looked up: a test would start the real program")
         return real(name, **kwargs)
 
@@ -657,14 +658,16 @@ def test_the_service_only_uses_the_lifecycle_and_submit_result(world):
 def test_the_bundled_catalog_wires_the_adapters_and_keeps_every_cli_executor_disabled(tmp_path):
     services = make_services(tmp_path / "local")
     registry = services.assignment.registry
-    expected = {"codex_cli": CodexExecutorAdapter, "claude_cli": ClaudeAdapter, "copilot_cli": CopilotAdapter}
-    assert [type(adapter) for adapter in default_adapters()] == [CodexExecutorAdapter, ClaudeAdapter, CopilotAdapter]
-    for executor_id in CLI_EXECUTORS:
+    expected = {"codex_cli": CodexExecutorAdapter, "claude_cli": ClaudeAdapter, "copilot_cli": CopilotAdapter,
+                "antigravity_cli": AntigravityAdapter}
+    assert [type(adapter) for adapter in default_adapters()] == [CodexExecutorAdapter, ClaudeAdapter, CopilotAdapter,
+                                                                 AntigravityAdapter]
+    for executor_id in expected:
         descriptor = registry.get(executor_id)
         assert descriptor.enabled is False and descriptor.adapter_id == executor_id
         assert isinstance(registry.resolve(executor_id), expected[executor_id])
     status = services.executors.status()["executors"]
-    assert [e["executor_id"] for e in status] == list(CLI_EXECUTORS)
+    assert [e["executor_id"] for e in status] == sorted([*CLI_EXECUTORS, "antigravity_cli"])
     assert all(e["enabled"] is False and e["available"] is False for e in status)
     services.tasks.create_group("ORQ", "G", actor="user", authorized=True)
     services.tasks.create_task("ORQ", "T1", "Task", actor="user")

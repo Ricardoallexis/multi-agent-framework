@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """AXI-T07: pinned versions of the executor applications (contract ``AXI-T01-contrato.md`` sections 9 to 11).
 
-An executor application (Claude, Codex, Copilot, Hermes) is only as trustworthy as the version a person looked at. The
-**pin manifest** (``catalog/executor-pins.yaml``) records, per executor, the version and the SHA-256 digest that were
-accepted by a person, and (Hermes only, which ships no binary) its release tag and commit. This module reads that
-manifest, compares it with the evidence of what is installed and says ``matched`` or ``drift``. It is evidence for the
-autonomy policy, not a policy: a match enables nothing and grants no autonomy, and a drift only ever blocks.
+An executor application (Claude, Codex, Copilot, Antigravity, Hermes) is only as trustworthy as the version a person
+looked at. The **pin manifest** (``catalog/executor-pins.yaml``) records, per executor, the version and the SHA-256
+digest that were accepted by a person, and (Hermes only, which ships no binary) its release tag and commit. This module
+reads that manifest, compares it with the evidence of what is installed and says ``matched`` or ``drift``. It is
+evidence for the autonomy policy, not a policy: a match enables nothing and grants no autonomy, and a drift only ever
+blocks.
 
 What it never does:
 
@@ -61,7 +62,7 @@ _logger = logging.getLogger(__name__)
 
 MANIFEST_VERSION = 1
 HERMES_ID = "hermes_cli"          # the working id until AXI-T06 fixes the adapter's; T06 must assert it matches
-EXECUTOR_IDS = ("claude_cli", "codex_cli", "copilot_cli", HERMES_ID)     # a closed list: nothing else is pinned
+EXECUTOR_IDS = ("claude_cli", "codex_cli", "copilot_cli", "antigravity_cli", HERMES_ID)   # closed: nothing else is pinned
 WINDOW = timedelta(days=7)        # to accept a candidate, counted from its first observation (half-open: see window_state)
 MAX_FILE_BYTES = 64 * 1024
 ARTIFACT_KINDS = ("package", "launcher", "source_archive")

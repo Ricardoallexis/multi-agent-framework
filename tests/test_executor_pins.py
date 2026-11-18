@@ -101,9 +101,10 @@ def issues_of(data) -> list[str]:
 
 # =========================================================================== the manifest
 
-def test_pin_manifest_accepts_the_four_executor_records():
+def test_pin_manifest_accepts_the_five_executor_records():
     manifest = pins.parse_manifest(manifest_data())
-    assert [record.executor_id for record in manifest.records] == ["claude_cli", "codex_cli", "copilot_cli", "hermes_cli"]
+    assert [record.executor_id for record in manifest.records] == [
+        "claude_cli", "codex_cli", "copilot_cli", "antigravity_cli", "hermes_cli"]
     for record in manifest.records:
         assert record.pin.evidence.version == "0.test" and record.pin.evidence.sha256 == SHA_A
         assert record.pin.accepted_by == "user" and record.pin.accepted_at.tzinfo is not None and record.candidate is None
@@ -296,7 +297,7 @@ def test_evaluate_goes_through_the_closed_list_in_order_and_can_be_limited():
     checks = pins.evaluate(manifest, observed, NOW)
     assert [(c.executor_id, c.status) for c in checks] == [
         ("claude_cli", pins.MATCHED), ("codex_cli", pins.DRIFT), ("copilot_cli", pins.MISSING_EVIDENCE),
-        (HERMES, pins.MATCHED)]
+        ("antigravity_cli", pins.MATCHED), (HERMES, pins.MATCHED)]
     assert [c.executor_id for c in pins.evaluate(manifest, observed, NOW, ("codex_cli",))] == ["codex_cli"]
 
 
@@ -431,7 +432,7 @@ def test_the_observed_registry_is_validated_like_the_manifest(tmp_path):
     assert [str(i) for i in caught.value.issues] == [
         "claude_cli: path: is not a known field here",
         "claude_cli: sha256: must be quoted text: 64 lowercase hexadecimal characters",
-        "other_cli: is not a pinned executor (known: claude_cli, codex_cli, copilot_cli, hermes_cli)"]
+        "other_cli: is not a pinned executor (known: claude_cli, codex_cli, copilot_cli, antigravity_cli, hermes_cli)"]
 
 
 # =========================================================================== the service
@@ -672,16 +673,16 @@ def test_checker_passes_with_a_temporary_test_catalog(tmp_path, capsys):
         executor_id: observed_evidence(executor_id).view(pins.evidence_fields(executor_id))
         for executor_id in pins.EXECUTOR_IDS}})
     code, out = run_checker(capsys, "--manifest", str(manifest), "--observed", str(observed), *NOW_ARG)
-    assert code == 0 and "Executor pins OK." in out and out.count("matches its pin") == 4
+    assert code == 0 and "Executor pins OK." in out and out.count("matches its pin") == len(pins.EXECUTOR_IDS) == 5
     code, out = run_checker(capsys, "--manifest", str(manifest), "--require-pins", *NOW_ARG)
     assert code == 0 and "pinned (accepted by user)" in out
 
 
 def test_checker_passes_on_the_shipped_manifest_until_pins_are_required(capsys):
     code, out = run_checker(capsys, *NOW_ARG)
-    assert code == 0 and out.count("no pin has been accepted yet") == 4
+    assert code == 0 and out.count("no pin has been accepted yet") == 5
     code, out = run_checker(capsys, "--require-pins", *NOW_ARG)
-    assert code == 1 and out.count("ERROR: ") == 4
+    assert code == 1 and out.count("ERROR: ") == 5
 
 
 def test_checker_rejects_missing_pin_and_malformed_hash(tmp_path, capsys):
