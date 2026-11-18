@@ -1,6 +1,7 @@
 """Persistent run behavior required of each registered execution backend."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import json
 
 import pytest
@@ -8,8 +9,19 @@ import pytest
 from multiagent.backends import CAPABILITY_EVENTS, REQUIRED_EVENTS
 from multiagent.contracts import ExecutionMode, HumanStepSubmission, OUTPUT_SCHEMAS
 from multiagent.errors import HumanSubmissionError
+from multiagent.worker import LocalWorker
 
-from backends.conformance import advance, backend_system, create_run, events, steps, usage  # tests/ is on sys.path, as for session_fixtures
+from backends.conformance import (  # tests/ is on sys.path, as for session_fixtures
+    advance,
+    backend_system,
+    create_run,
+    events,
+    open_peer,
+    steps,
+    stop_workers,
+    usage,
+    wait_until,
+)
 
 
 @pytest.fixture(params=["native", "mock"])
@@ -234,3 +246,234 @@ def test_recover_running_run_from_cursor(system):
         ("first", 1), ("second", 1),
     ]
     assert len([s for s in steps(system, run["id"]) if s["step_id"] == "first"]) == 1
+
+
+def test_two_workers_execute_queued_runs_once(system):
+    run_ids = [create_run(system)["id"] for _ in range(4)]
+    peer = open_peer(system)
+    system.gate.hold_all()
+    worker_a = LocalWorker(
+        system.store, system.backend, poll_seconds=0.03, concurrency=1, shutdown_wait_seconds=10,
+    )
+    worker_b = LocalWorker(
+        peer.store, peer.backend, poll_seconds=0.03, concurrency=1, shutdown_wait_seconds=10,
+    )
+    try:
+        worker_a.start()
+        worker_b.start()
+        held = system.gate.wait_count(2)
+        assert len(set(held)) == 2
+        assert {system.store.get_run(rid)["worker_id"] for rid in held} == {
+            worker_a.worker_id, worker_b.worker_id,
+        }
+        remaining = [rid for rid in run_ids if rid not in held]
+        assert all(system.store.get_run(rid)["status"] == "queued" for rid in remaining)
+
+        system.gate.release_all()
+        wait_until(
+            lambda: all(system.store.get_run(rid)["status"] == "completed" for rid in run_ids),
+            message="Not all queued runs completed across two workers",
+        )
+    finally:
+        stop_workers(system, worker_a, worker_b)
+
+    for rid in run_ids:
+        final = system.store.get_run(rid)
+        assert final["status"] == "completed"
+        assert len(events(final, "run_started")) == 1
+        assert len(events(final, "workflow_completed")) == 1
+        assert [(e["payload"]["step_id"], e["payload"]["attempt"]) for e in events(final, "step_started")] == [
+            ("first", 1), ("second", 1),
+        ]
+        assert [(s["step_id"], s["status"]) for s in steps(system, rid)] == [
+            ("first", "completed"), ("second", "completed"),
+        ]
+
+
+def test_expired_lease_recovered_while_live_run_survives(system):
+    requires(system, "recovery")
+    now_real = datetime.now(timezone.utc)
+    t_start = now_real - timedelta(seconds=15)
+    t_renew = now_real - timedelta(seconds=10)
+    dead_hb = now_real - timedelta(seconds=65)
+    lease_seconds = 60
+    clock_a = [t_start]
+
+    dead = create_run(system)
+    system.store.update_run(
+        dead["id"], status="running", worker_id="crashed-worker", heartbeat_at=dead_hb.isoformat(),
+    )
+    live = create_run(system)
+    system.gate.hold(live["id"])
+
+    worker_a = LocalWorker(
+        system.store, system.backend, poll_seconds=0.03, concurrency=1,
+        lease_seconds=lease_seconds, shutdown_wait_seconds=10,
+        clock=lambda: clock_a[0].isoformat(),
+    )
+    peer = open_peer(system)
+    worker_b = LocalWorker(
+        peer.store, peer.backend, poll_seconds=0.03, concurrency=1,
+        lease_seconds=lease_seconds, shutdown_wait_seconds=10,
+        clock=lambda: now_real.isoformat(),
+    )
+    try:
+        worker_a.start()
+        system.gate.wait_entered(live["id"])
+        clock_a[0] = t_renew
+        wait_until(
+            lambda: system.store.get_run(live["id"])["heartbeat_at"] == t_renew.isoformat(),
+            message="Live worker did not renew lease",
+        )
+        assert system.store.get_run(dead["id"])["status"] == "running"
+
+        worker_b.start()
+        wait_until(
+            lambda: peer.store.get_run(dead["id"])["status"] == "completed",
+            message="Expired run was not recovered and completed by peer worker",
+        )
+        live_mid = peer.store.get_run(live["id"])
+        assert live_mid["status"] == "running"
+        assert live_mid["worker_id"] == worker_a.worker_id
+        assert not events(live_mid, "run_interrupted")
+
+        system.gate.release(live["id"])
+        wait_until(
+            lambda: system.store.get_run(live["id"])["status"] == "completed",
+            message="Live run did not complete after release",
+        )
+    finally:
+        stop_workers(system, worker_a, worker_b)
+
+    dead_final = system.store.get_run(dead["id"])
+    assert dead_final["status"] == "completed"
+    assert len(events(dead_final, "run_interrupted")) == 1
+    assert events(dead_final, "run_interrupted")[0]["payload"]["previous_worker_id"] == "crashed-worker"
+    assert len(events(dead_final, "run_recovered")) == 1
+    assert len(events(dead_final, "run_started")) == 1
+    assert [(s["step_id"], s["status"]) for s in steps(system, dead["id"])] == [
+        ("first", "completed"), ("second", "completed"),
+    ]
+
+    live_final = system.store.get_run(live["id"])
+    assert live_final["status"] == "completed"
+    assert not events(live_final, "run_interrupted")
+    assert not events(live_final, "run_recovered")
+    assert len(events(live_final, "run_started")) == 1
+    assert [(s["step_id"], s["status"]) for s in steps(system, live["id"])] == [
+        ("first", "completed"), ("second", "completed"),
+    ]
+
+
+def test_max_active_per_project_serializes_same_project_and_allows_other_project(system):
+    alpha_1 = create_run(system, project_name="Alpha")
+    alpha_2 = create_run(system, project_name="Alpha")
+    beta = create_run(system, project_name="Beta")
+    alpha_ids = {alpha_1["id"], alpha_2["id"]}
+    system.gate.hold(alpha_1["id"], alpha_2["id"], beta["id"])
+
+    peer = open_peer(system)
+    worker_a = LocalWorker(
+        system.store, system.backend, poll_seconds=0.03, concurrency=2,
+        max_active_per_project=1, shutdown_wait_seconds=10,
+    )
+    worker_b = LocalWorker(
+        peer.store, peer.backend, poll_seconds=0.03, concurrency=2,
+        max_active_per_project=1, shutdown_wait_seconds=10,
+    )
+    try:
+        worker_a.start()
+        worker_b.start()
+        system.gate.wait_entered(beta["id"])
+        entered = system.gate.wait_count(2)
+        active_alphas = [rid for rid in entered if rid in alpha_ids]
+        assert len(active_alphas) == 1
+        alpha_first = active_alphas[0]
+        alpha_second = next(rid for rid in alpha_ids if rid != alpha_first)
+
+        assert system.store.get_run(beta["id"])["status"] == "running"
+        assert system.store.get_run(alpha_first)["status"] == "running"
+        waiting = system.store.get_run(alpha_second)
+        assert waiting["status"] == "queued"
+        assert waiting["worker_id"] in ("", None)
+        assert not events(waiting, "run_started")
+
+        system.gate.release(alpha_first)
+        wait_until(
+            lambda: system.store.get_run(alpha_first)["status"] == "completed",
+            message="First Alpha run did not complete",
+        )
+        system.gate.wait_entered(alpha_second)
+        assert system.store.get_run(beta["id"])["status"] == "running"
+
+        system.gate.release(beta["id"], alpha_second)
+        wait_until(
+            lambda: all(
+                system.store.get_run(rid)["status"] == "completed"
+                for rid in (alpha_1["id"], alpha_2["id"], beta["id"])
+            ),
+            message="Not all project runs completed",
+        )
+    finally:
+        stop_workers(system, worker_a, worker_b)
+
+    recorded = system.gate.recorded_events()
+    idx_first_done = next(
+        i for i, (rid, kind, _) in enumerate(recorded)
+        if rid == alpha_first and kind == "workflow_completed"
+    )
+    idx_second_start = next(
+        i for i, (rid, kind, _) in enumerate(recorded)
+        if rid == alpha_second and kind == "run_started"
+    )
+    idx_beta_start = next(
+        i for i, (rid, kind, _) in enumerate(recorded)
+        if rid == beta["id"] and kind == "run_started"
+    )
+    assert idx_beta_start < idx_first_done < idx_second_start
+    for rid in (alpha_1["id"], alpha_2["id"], beta["id"]):
+        final = system.store.get_run(rid)
+        assert final["status"] == "completed"
+        assert len(events(final, "run_started")) == 1
+
+
+def test_cancel_one_run_while_another_runs_concurrently(system):
+    requires(system, "cancellation")
+    to_cancel = create_run(system)
+    to_complete = create_run(system)
+    system.gate.hold(to_cancel["id"], to_complete["id"])
+
+    worker = LocalWorker(
+        system.store, system.backend, poll_seconds=0.03, concurrency=2, shutdown_wait_seconds=10,
+    )
+    try:
+        worker.start()
+        system.gate.wait_entered(to_cancel["id"])
+        system.gate.wait_entered(to_complete["id"])
+        assert system.store.get_run(to_cancel["id"])["status"] == "running"
+        assert system.store.get_run(to_complete["id"])["status"] == "running"
+
+        system.service.cancel(to_cancel["id"])
+        system.gate.release(to_cancel["id"], to_complete["id"])
+        wait_until(
+            lambda: (
+                system.store.get_run(to_cancel["id"])["status"] == "cancelled"
+                and system.store.get_run(to_complete["id"])["status"] == "completed"
+            ),
+            message="Concurrent cancel and completion did not settle",
+        )
+    finally:
+        stop_workers(system, worker)
+
+    cancelled = system.store.get_run(to_cancel["id"])
+    assert cancelled["status"] == "cancelled"
+    assert len(events(cancelled, "workflow_cancelled")) == 1
+    assert [e["payload"]["step_id"] for e in events(cancelled, "step_started")] == ["first"]
+    assert not any(a["step_id"] == "second" for a in cancelled["artifacts"])
+
+    completed = system.store.get_run(to_complete["id"])
+    assert completed["status"] == "completed"
+    assert len(events(completed, "workflow_completed")) == 1
+    assert [(s["step_id"], s["status"]) for s in steps(system, to_complete["id"])] == [
+        ("first", "completed"), ("second", "completed"),
+    ]
