@@ -1,0 +1,116 @@
+schema_version: 1
+id: general_team
+description: Example team definition for the general bundle combining bundle agents and a human lead.
+
+roles:
+  - id: lead
+    purpose: Coordinates reviews and approves final deliverables.
+    rules:
+      - Approve outputs only after quality review passes.
+    skills: []
+    contracts:
+      - DocumentSummary
+      - Recommendation
+      - ReviewReport
+    capabilities:
+      - doc.review
+    permissions:
+      - read
+
+  - id: analyst
+    purpose: Extracts key points, findings and checklist evidence from input documents.
+    rules:
+      - Ground every point in the provided source text.
+    skills: []
+    contracts:
+      - KeyPoints
+      - ResearchFindings
+      - ChecklistResult
+    capabilities:
+      - doc.read
+      - research.synthesize
+    permissions:
+      - read
+
+  - id: writer
+    purpose: Drafts clear summaries and option comparisons for the target audience.
+    rules:
+      - Keep recommendations traceable to analyst findings.
+    skills: []
+    contracts:
+      - DocumentSummary
+      - OptionsComparison
+      - Recommendation
+    capabilities:
+      - doc.write
+    permissions:
+      - read
+      - write
+
+  - id: reviewer
+    purpose: Verifies deliverables against quality criteria before human approval.
+    rules:
+      - Flag blocking issues explicitly before sign-off.
+    skills: []
+    contracts:
+      - ReviewReport
+    capabilities:
+      - doc.review
+    permissions:
+      - read
+
+members:
+  - id: human_lead
+    kind: person
+    name: Human Coordinator
+
+  - id: doc_analyst_agent
+    kind: agent
+    agent: document_analyst
+
+  - id: research_agent
+    kind: agent
+    agent: research_analyst
+
+  - id: writer_agent
+    kind: agent
+    agent: summary_writer
+
+  - id: advisor_agent
+    kind: agent
+    agent: decision_advisor
+
+  - id: reviewer_agent
+    kind: agent
+    agent: quality_reviewer
+
+assignments:
+  - role: lead
+    member: human_lead
+  - role: analyst
+    member: doc_analyst_agent
+  - role: analyst
+    member: research_agent
+  - role: writer
+    member: writer_agent
+  - role: writer
+    member: advisor_agent
+  - role: reviewer
+    member: reviewer_agent
+
+relationships:
+  - type: reports_to
+    from: analyst
+    to: lead
+  - type: reports_to
+    from: writer
+    to: lead
+  - type: reports_to
+    from: reviewer
+    to: lead
+  - type: reviews
+    from: reviewer
+    to: writer
+  - type: delegates_to
+    from: lead
+    to: analyst

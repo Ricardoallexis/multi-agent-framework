@@ -22,7 +22,7 @@ This plan breaks the [roadmap](../ROADMAP.md) into stages, sub-stages, and tasks
 | S3 | Local usage telemetry | Core | S1 | ✅ |
 | S4 | Execution backend abstraction | Core + Extension | S1 | ◐ |
 | S5 | Tool and capability contracts | Core | S1 | ◐ |
-| S6 | Team definitions and team design | Core | S5.C | ☐ |
+| S6 | Team definitions and team design | Core | S5.C | ◐ |
 | S7 | Collaborative team primitives | Core | S6.A | ◐ |
 | S8 | Planning and delegation | Core | S4.A, S5.C, S6.A | ◐ |
 | S9 | Interoperability | Extension | S1 (S9.A), S5.A | ◐ |
@@ -155,7 +155,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 **Acceptance:** a workflow step calls an approved tool through the contract; a destructive action waits for human approval; capabilities select a tool without code changes.
 **Example:** a "read file" tool is granted to one role only, and a write needs approval.
 
-## S6 · Team definitions and team design ☐
+## S6 · Team definitions and team design ◐
 
 - **Class:** Core (definitions and runtime) + Extension (generator workflow).
 - **Objective:** teams, roles, members, assignments, and relationships as validated data, with an optional generator from a prompt.
@@ -165,7 +165,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S6.A — Definitions** | | |
-| S6.A1 | Team definition schema: roles (purpose, rules, skills, contracts, capabilities, permissions), members, assignments, relationships. | S5.C1 |
+| S6.A1 | ✅ Team definition schema: roles (purpose, rules, skills, contracts, capabilities, permissions), members, assignments, relationships (`multiagent/teams/`, an optional `team.yaml` in a bundle). | S5.C1 |
 | S6.A2 | Validation with the bundle rules and least-privilege permissions. | S6.A1 |
 | S6.A3 | Human approval before a team is created or changed. | S6.A2 |
 | **S6.B — Views** | | |

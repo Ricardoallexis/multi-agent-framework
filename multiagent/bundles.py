@@ -8,6 +8,7 @@ Layout (every part except ``workflows/`` is optional and falls back to the bundl
         prompts/<role>/<name>.v<N>.md
         skills/<skill>.md
         contracts.py      OUTPUT_SCHEMAS = {name: pydantic model}; optional SAMPLE_OUTPUTS = {name: dict}
+        team.yaml         optional team definition (S6.A1)
 
 Bundle contracts are added to the bundled ``OUTPUT_SCHEMAS``; they may not redefine one.
 ``contracts.py`` is imported, which runs its code: load only bundles you trust, such as the
@@ -34,6 +35,7 @@ from .catalog import Catalog
 from .config import Settings
 from .contracts import OUTPUT_SCHEMAS
 from .prompts import PromptManager
+from .teams import Team, TeamDefinitionError, load_team
 from .workflow_validation import WorkflowDefinitionError, WorkflowIssue, validate_workflow_definition
 from .workflows import WorkflowCatalog, WorkflowDefinition
 
@@ -47,6 +49,7 @@ class DefinitionBundle:
     prompts: PromptManager
     output_schemas: Mapping[str, type[BaseModel]]
     sample_outputs: Mapping[str, dict[str, Any]] = field(default_factory=dict)
+    team: Team | None = None
 
     def load_workflow(self, workflow_id: str) -> WorkflowDefinition:
         """Load a workflow of this bundle and validate it against the bundle's own resources."""
@@ -71,15 +74,37 @@ def load_bundle(root: Path | str, settings: Settings) -> DefinitionBundle:
         return root / sub if (root / sub).is_dir() else None
 
     contracts, samples = _load_contracts(root, name)
+    catalog = Catalog(settings, catalog_dir=part("catalog"))
+    team = _load_team(root, name, catalog)
     return DefinitionBundle(
         root=root,
         settings=settings,
         workflows=WorkflowCatalog(settings, workflows_dir=root / "workflows"),
-        catalog=Catalog(settings, catalog_dir=part("catalog")),
+        catalog=catalog,
         prompts=PromptManager(settings, prompts_dir=part("prompts"), skills_dir=part("skills")),
         output_schemas={**OUTPUT_SCHEMAS, **contracts},
         sample_outputs=samples,
+        team=team,
     )
+
+
+def _load_team(root: Path, name: str, catalog: Catalog) -> Team | None:
+    path = root / "team.yaml"
+    if not path.is_file():
+        return None
+    try:
+        return load_team(path, agents=catalog.agents)
+    except TeamDefinitionError as exc:
+        raise WorkflowDefinitionError(
+            name,
+            [WorkflowIssue(issue.code, _team_issue_location(issue.location), issue.message) for issue in exc.issues],
+        ) from exc
+
+
+def _team_issue_location(location: str) -> str:
+    if location in ("<document>", "<root>"):
+        return "team.yaml"
+    return f"team.yaml:{location}"
 
 
 def _load_contracts(root: Path, name: str) -> tuple[dict[str, type[BaseModel]], dict[str, dict[str, Any]]]:
