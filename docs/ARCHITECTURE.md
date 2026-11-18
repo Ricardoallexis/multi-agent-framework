@@ -73,7 +73,7 @@ Isolates provider-specific behavior. Workflows depend on capabilities and struct
 
 ### `workflows/`
 
-Contains declarative definitions for agent order, prompts, contracts, preferred models, fallbacks, conditions, and checkpoints.
+Contains declarative definitions for agent order, prompts, contracts, preferred models, fallbacks, conditions, and checkpoints. A step may instead name a registered deterministic function that calls no provider; see [Function steps](FUNCTION_STEPS.md).
 
 ### `prompts/` and `skills/`
 

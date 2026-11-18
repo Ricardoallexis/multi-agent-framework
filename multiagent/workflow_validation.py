@@ -49,6 +49,7 @@ resume on the current definition, and raises the same error with:
 from __future__ import annotations
 
 import difflib
+import math
 import os
 import re
 from collections.abc import Hashable, Iterable, Mapping
@@ -59,6 +60,8 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from .context.project_memory import setting_issue
+from .capabilities import is_valid_capability_id
+from .functions import get_function
 from .routing_policy import EFFORT_LEVELS, STEP_KINDS
 from .workflows import INPUT_TYPES, SUPPORTED_CONDITIONS, WorkflowDefinition, WorkflowInput, WorkflowStep
 
@@ -77,10 +80,10 @@ ROOT_FIELDS = ("id", "description", "max_iterations", "inputs", "steps", "projec
 REQUIRED_ROOT_FIELDS = ("id", "steps")
 STEP_FIELDS = tuple(field.name for field in fields(WorkflowStep))
 # Fields with a default (``kind``, ``effort``, ``description``) may be omitted from a document.
-REQUIRED_STEP_FIELDS = tuple(
-    field.name for field in fields(WorkflowStep)
-    if field.default is MISSING and field.default_factory is MISSING
-)
+REQUIRED_STEP_FIELDS = ("id", "contract")
+MODEL_REQUIRED_STEP_FIELDS = ("id", "agent", "prompt_id", "prompt_version", "skills", "contract",
+                              "preferred_model", "fallback_model", "requires_web", "when", "checkpoint_after")
+FUNCTION_STEP_FIELDS = frozenset(("id", "function", "arguments", "contract", "description", "when", "checkpoint_after"))
 INPUT_FIELDS = tuple(field.name for field in fields(WorkflowInput))
 REQUIRED_INPUT_FIELDS = tuple(
     field.name for field in fields(WorkflowInput)
@@ -252,15 +255,30 @@ def parse_workflow_document(document: bytes | str, *, workflow_id: str, source: 
                     issues.append(WorkflowIssue("invalid_type", location, f"Expected a step mapping; got {_kind(step)}"))
                     continue
                 issues += _field_set_issues(
-                    step, required=REQUIRED_STEP_FIELDS, allowed=STEP_FIELDS, prefix=f"{location}.",
+                    step, required=REQUIRED_STEP_FIELDS if "function" in step else MODEL_REQUIRED_STEP_FIELDS,
+                    allowed=STEP_FIELDS, prefix=f"{location}.",
                     step_id=_step_label(step.get("id")),
                 )
+                if "function" in step:
+                    if step["function"] is None:
+                        issues.append(WorkflowIssue("invalid_value", f"{location}.function",
+                                                    "Function id must not be null", _step_label(step.get("id"))))
+                    for field in step.keys() - FUNCTION_STEP_FIELDS:
+                        if field in STEP_FIELDS:
+                            issues.append(WorkflowIssue("invalid_value", f"{location}.{field}",
+                                                        "Function steps cannot declare model or tool fields",
+                                                        _step_label(step.get("id"))))
+                elif "arguments" in step:
+                    issues.append(WorkflowIssue("invalid_value", f"{location}.arguments",
+                                                "Arguments require a function step", _step_label(step.get("id"))))
     # Unknown fields do not prevent building the definition, so value problems are
     # still reported alongside them; missing fields and malformed steps do.
     raw_inputs, input_issues = _raw_inputs(raw.get("inputs"))
     issues += input_issues
     constructible = "id" in raw and isinstance(steps, list) and bool(steps) and all(
-        isinstance(step, dict) and all(name in step for name in REQUIRED_STEP_FIELDS) for step in steps
+        isinstance(step, dict) and all(name in step for name in
+                                       (REQUIRED_STEP_FIELDS if "function" in step else MODEL_REQUIRED_STEP_FIELDS))
+        for step in steps
     ) and raw_inputs is not None
     if not constructible:
         fail(issues)
@@ -268,7 +286,12 @@ def parse_workflow_document(document: bytes | str, *, workflow_id: str, source: 
     definition = WorkflowDefinition(
         id=raw["id"],
         max_iterations=raw.get("max_iterations", DEFAULT_MAX_ITERATIONS),
-        steps=[WorkflowStep(**{name: step[name] for name in STEP_FIELDS if name in step}) for step in steps],
+        steps=[WorkflowStep(**{
+            **({name: None for name in MODEL_REQUIRED_STEP_FIELDS if name not in ("id", "contract")}
+               if "function" in step else {}),
+            **{name: step[name] for name in STEP_FIELDS if name in step},
+            **({"checkpoint_after": step.get("checkpoint_after", False)} if "function" in step else {}),
+        }) for step in steps],
         description=raw.get("description"),
         project_memory=raw.get("project_memory"),
         inputs=[
@@ -363,6 +386,25 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
         else:
             seen[step.id] = index
 
+        if step.function is not None:
+            _check_name(add, "contract", step.contract)
+            if not is_valid_capability_id(step.function):
+                add("invalid_value", "function", f"Function id {step.function!r} must match the capability id pattern")
+            if step.arguments is not None and not _literal_arguments(step.arguments):
+                add("invalid_value", "arguments", "Expected a mapping of JSON-like literal arguments")
+            for field in ("agent", "prompt_id", "prompt_version", "skills", "preferred_model", "fallback_model",
+                          "requires_web", "tools", "egress", "effort", "project_memory"):
+                if getattr(step, field) is not None:
+                    add("invalid_value", field, "Function steps cannot declare model or tool fields")
+            if step.when is not None and step.when not in SUPPORTED_CONDITIONS:
+                add("unsupported_condition", "when", f"Unsupported condition {step.when!r}")
+            if not isinstance(step.checkpoint_after, bool):
+                add("invalid_type", "checkpoint_after", f"Expected true or false; got {_kind(step.checkpoint_after)}")
+            _check_text(add, "description", step.description)
+            continue
+        if step.arguments is not None:
+            add("invalid_value", "arguments", "Arguments require a function step")
+
         _check_text(add, "description", step.description)
         for field in ("agent", "contract", "preferred_model"):
             _check_name(add, field, getattr(step, field))
@@ -452,14 +494,19 @@ def _reference_issues(definition: WorkflowDefinition, *, catalog: Catalog, promp
         def add(code: str, field: str, message: str) -> None:
             issues.append(WorkflowIssue(code, f"{location}.{field}", message, step.id))
 
+        if step.contract not in output_schemas:
+            add("unknown_contract", "contract",
+                f"Unknown output contract {step.contract!r}; known contracts: {_names(output_schemas)}")
+
+        if step.function is not None:
+            if get_function(step.function) is None:
+                add("unknown_function", "function", f"Unknown registered function {step.function!r}")
+            continue
+
         if step.agent not in catalog.agents:
             add("unknown_agent", "agent", f"Unknown agent {step.agent!r}; configured agents: {_names(catalog.agents)}")
         elif isinstance(catalog.agents[step.agent], dict) and catalog.agents[step.agent].get("active") is False:
             add("inactive_agent", "agent", f"Agent {step.agent!r} is marked inactive in the catalog")
-
-        if step.contract not in output_schemas:
-            add("unknown_contract", "contract",
-                f"Unknown output contract {step.contract!r}; known contracts: {_names(output_schemas)}")
 
         for field in ("preferred_model", "fallback_model"):
             model_id = getattr(step, field)
@@ -591,6 +638,24 @@ def _input_issues(inputs: Any) -> list[WorkflowIssue]:
 
 def _step_label(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _literal_arguments(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+
+    def literal(item: Any) -> bool:
+        if item is None or isinstance(item, (str, bool, int)):
+            return True
+        if isinstance(item, float):
+            return math.isfinite(item)
+        if isinstance(item, list):
+            return all(literal(child) for child in item)
+        if isinstance(item, dict):
+            return all(isinstance(key, str) and literal(child) for key, child in item.items())
+        return False
+
+    return literal(value)
 
 
 def _is_int(value: Any) -> bool:

@@ -1,0 +1,17 @@
+id: function_steps
+steps:
+  - id: first
+    agent: fixture_writer
+    prompt_id: fixture/write
+    prompt_version: 1
+    skills: []
+    contract: ContentOutput
+    preferred_model: fixture_model
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+  - id: collect
+    function: core.merge_outputs
+    arguments: {}
+    contract: CollectedOutputs

@@ -136,6 +136,7 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
       ${routing && routingSteps.length === 0 && html`<p class="muted small">El servidor no devolvió pasos de routing; se muestran los prompts disponibles.</p>`}
       ${routingSteps.map((step) => html`<div key=${step.step_id} class="ns-routing-step">
         <span class="ns-card-name">${step.step_id}</span>
+        ${step.status === "function" ? html`<p class="hint">Función ${step.function}; se ejecuta sin modelo.</p>` : html`
         <div class="ns-chips" role="group" aria-label=${"Ajustes del paso " + step.step_id}>
           ${[["mode", "Modo", step.mode_options || []], ["profile_id", "Perfil", step.profile_options || []],
              ["level", "Nivel", step.level_options || []]].map(([field, label, options]) => html`
@@ -171,7 +172,8 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
             </select>
           </label>
         </div>
-        ${step.status !== "selected" && step.status !== "catalog_default" && html`<p class="hint">El router informó: ${(step.reason_codes || []).join(", ") || step.status}.</p>`}
+        `}
+        ${step.status !== "function" && step.status !== "selected" && step.status !== "catalog_default" && html`<p class="hint">El router informó: ${(step.reason_codes || []).join(", ") || step.status}.</p>`}
       </div>`)}
     </section>
     <div class="two">

@@ -19,7 +19,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ..contracts import ExecutionMode, HumanStepSubmission, RevisionComment
-from ..run_request import RunRequest, RoutingPreference
+from ..run_request import FunctionStepRequestError, RunRequest, RoutingPreference
 from ..routing_preferences import preference_request, validate_run_preferences
 from ..routing_policy import EFFORT_LEVELS, RoutingRequest
 from ..services.errors import HUMAN_STEP_UNAVAILABLE, INVALID_REQUEST, ServiceError, translate
@@ -57,6 +57,7 @@ class InterpretBody(_Body):
 class CreateBody(PreviewBody):
     project_name: str = Field(min_length=2, max_length=120)
     idempotency_key: str = Field(default="", max_length=120)
+    step_modes: dict[str, ExecutionMode] = Field(default_factory=dict)
 
 
 class ChangesBody(_Body):
@@ -163,6 +164,8 @@ def _steps(run: dict[str, Any], definition: dict[str, Any] | None, events: list[
             skipped[step_id] = {"condition": payload.get("condition")}
         elif kind == "step_started":
             attempts[step_id] = attempts.get(step_id, 0) + 1
+            if payload.get("function"):
+                executor[step_id] = {"kind": "function", "function": payload["function"]}
         elif kind == "step_completed":
             completed[step_id] = completed.get(step_id, 0) + 1
             executor.setdefault(step_id, {})["completed"] = True
@@ -175,12 +178,12 @@ def _steps(run: dict[str, Any], definition: dict[str, Any] | None, events: list[
     reason, current = run.get("waiting_reason") or "", int(run.get("current_step") or 0)
     request = run.get("request") or {}
     if definition is not None:
-        listing = [(index, step["id"], step.get("agent"), step.get("when"), step.get("contract"))
+        listing = [(index, step["id"], step.get("agent"), step.get("function"), step.get("when"), step.get("contract"))
                    for index, step in enumerate(definition["steps"])]
     else:
-        listing = [(index, step_id, None, None, None) for index, step_id in enumerate(order)]
+        listing = [(index, step_id, None, None, None, None) for index, step_id in enumerate(order)]
     steps = []
-    for index, step_id, agent, when, contract in listing:
+    for index, step_id, agent, function, when, contract in listing:
         try:
             enabled = condition_is_true(when, request)
         except ValueError:
@@ -205,10 +208,11 @@ def _steps(run: dict[str, Any], definition: dict[str, Any] | None, events: list[
             state = "pending"
         info = executor.get(step_id) or {}
         steps.append({
-            "id": step_id, "index": index, "agent": agent, "contract": contract, "state": state,
+            "id": step_id, "index": index, **({"function": function} if function else {"agent": agent}),
+            "contract": contract, "state": state,
             "skip": skip if state in {"skipped", "will_skip"} or (skip and state == "not_run") else None,
             "attempts": max(attempts.get(step_id, 0), completed.get(step_id, 0)),
-            "executor": {key: info[key] for key in ("kind", "provider", "model") if key in info} or None,
+            "executor": {key: info[key] for key in ("kind", "provider", "model", "function") if key in info} or None,
         })
     return steps
 
@@ -293,6 +297,9 @@ def _routing_preview(services, workflow_id: str, bundle: str | None, inputs: dic
     """Read the configured model route for confirmation; no profile setting is changed or executed."""
     preferences = preferences or {}
     definition = services.definitions.get_workflow(workflow_id, bundle=bundle)
+    for step in definition.get("steps", []):
+        if step.get("function") and step["id"] in preferences:
+            raise translate(FunctionStepRequestError(step["id"]))
     engine = services.system.engine if bundle is None else None
     if preferences:
         if engine is None:
@@ -315,6 +322,14 @@ def _routing_preview(services, workflow_id: str, bundle: str | None, inputs: dic
             enabled = condition_is_true(step.get("when"), inputs)
         except (TypeError, ValueError):
             enabled = True
+        if step.get("function"):
+            steps.append({"step_id": step["id"], "function": step["function"],
+                          "step_kind": step.get("kind") or "work", "skipped": not enabled,
+                          "profile_id": None, "mode": None, "level": None, "model": None, "effort": None,
+                          "status": "function" if enabled else "will_skip", "model_options": [],
+                          "effort_options": [], "profile_options": [], "mode_options": [],
+                          "level_options": [], "budget_scope": None})
+            continue
         if not enabled:
             steps.append({"step_id": step["id"], "step_kind": step.get("kind") or "work", "skipped": True,
                           "profile_id": None, "mode": None, "level": None, "model": None, "effort": None,
@@ -444,7 +459,7 @@ def build_router(services) -> APIRouter:
             request = RunRequest(
                 workflow_id=body.workflow_id, project_name=body.project_name.strip(), inputs=body.inputs,
                 execution_mode=body.execution_mode, idempotency_key=body.idempotency_key, sensitive=body.sensitive,
-                routing_preferences=body.routing_preferences)
+                routing_preferences=body.routing_preferences, step_modes=body.step_modes)
         except ValidationError as exc:
             raise translate(exc) from exc
         return run_view(services, services.runs.create(request, bundle=body.bundle))

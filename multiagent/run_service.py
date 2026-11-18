@@ -7,7 +7,7 @@ from .contracts import HumanStepSubmission, RunStatus, SocialPostRequest, Waitin
 from .db.store import Store
 from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition
 from .tools.approvals import ToolApprovalMismatch
-from .run_request import RunRequest
+from .run_request import RunRequest, validate_function_step_options
 from .routing_preferences import validate_run_preferences
 
 
@@ -37,6 +37,8 @@ class RunService:
         # Loading/validation errors propagate with their original type and issues.
         # No project or run is persisted until the entire definition is valid.
         definition = self.engine.preflight(self.store.workflow_id_for(request))
+        if isinstance(request, RunRequest):
+            validate_function_step_options(request, definition)
         if getattr(request, "routing_preferences", None):
             validate_run_preferences(self.engine, request, definition)
         return self.store.create_run(request, self.settings.max_llm_calls, self.settings.max_run_seconds)

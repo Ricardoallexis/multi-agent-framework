@@ -38,6 +38,7 @@ from ..errors import (
     InvalidStateTransition,
     ValidationFailed,
 )
+from ..functions import FunctionStepError, execute_function_step
 from ..observability.usage import TokenUsageRecord, UsageRecorder
 from ..workflow_validation import (
     WorkflowDefinitionError,
@@ -357,10 +358,11 @@ class MockBackend:
 
             while index < len(definition.steps):
                 self._check_cancel(run_id)
-                self._check_active_budget(run_id, base_active, started_mono)
                 self.store.heartbeat(run_id)
 
                 step = definition.steps[index]
+                if step.function is None:
+                    self._check_active_budget(run_id, base_active, started_mono)
                 if not condition_is_true(step.when, request):
                     self.store.db.log_event(run_id, "step_skipped", {"step_id": step.id, "condition": step.when})
                     index += 1
@@ -372,6 +374,24 @@ class MockBackend:
                     raise BudgetExceeded(f"Maximum revision count reached for step={step.id}")
 
                 fresh = self.store.get_run(run_id)
+                if step.function is not None:
+                    execute_function_step(
+                        store=self.store, artifacts=self.artifacts, settings=self.settings,
+                        output_schemas=self.output_schemas, run_id=run_id, index=index,
+                        step=step, attempt=attempt, request=request,
+                        prior_step_ids=[item.id for item in definition.steps[:index]],
+                    )
+                    self.store.update_run(run_id, revision_feedback="")
+                    if step.checkpoint_after:
+                        self.store.update_run(
+                            run_id, status=RunStatus.WAITING_HUMAN.value, current_step=index,
+                            waiting_reason=WaitingReason.REVIEW.value, waiting_step=step.id, waiting_attempt=attempt,
+                        )
+                        self.store.db.log_event(run_id, "checkpoint", {"step_id": step.id, "attempt": attempt})
+                        return self._finalize_return(run_id)
+                    index += 1
+                    self.store.update_run(run_id, current_step=index)
+                    continue
                 execution_mode = self._step_execution_mode(fresh, step)
                 if execution_mode != ExecutionMode.HUMAN_GUIDED and int(fresh["llm_calls"]) >= int(fresh["max_llm_calls"]):
                     raise BudgetExceeded("max_llm_calls reached")
@@ -484,6 +504,11 @@ class MockBackend:
             else:
                 self.store.update_run(run_id, status=RunStatus.FAILED.value, error=str(exc), budget_exhausted=1)
                 self.store.db.log_event(run_id, "workflow_failed", {"error": str(exc), "type": type(exc).__name__})
+            return self._finalize_return(run_id)
+        except FunctionStepError as exc:
+            self.store.fail_active_run(run_id, exc, issues=[{
+                "code": exc.code, "location": "function", "step_id": step.id, "message": str(exc),
+            }])
             return self._finalize_return(run_id)
         except Exception as exc:
             self.store.fail_active_run(run_id, exc)

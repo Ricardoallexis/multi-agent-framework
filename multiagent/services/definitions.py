@@ -57,6 +57,16 @@ class DefinitionServices:
             return self._bundle(bundle).load_workflow(workflow_id)
         return self._services.system.engine.preflight(workflow_id)
 
+    @staticmethod
+    def _public_definition(definition: WorkflowDefinition, bundle: str | None) -> dict[str, Any]:
+        result = {"bundle": bundle, **dataclasses.asdict(definition)}
+        for step in result["steps"]:
+            if step.get("function") is not None:
+                for key in ("agent", "prompt_id", "prompt_version", "skills", "preferred_model",
+                            "fallback_model", "requires_web"):
+                    step.pop(key, None)
+        return result
+
     @service_errors
     def list_workflows(self, *, bundle: str | None = None) -> list[dict[str, Any]]:
         """Workflow ids available for runs, sorted by id.
@@ -81,7 +91,7 @@ class DefinitionServices:
         if bundle is not None:
             self._services.bundle_path(bundle)  # unknown bundle: not_found before any loading
         definition = self._load(workflow_id, bundle)
-        return {"bundle": bundle, **dataclasses.asdict(definition)}
+        return self._public_definition(definition, bundle)
 
     # --- reading helpers for interfaces that show or fill a workflow (no validation, no model) ---
 
@@ -112,7 +122,7 @@ class DefinitionServices:
         ``invalid_definition`` (the document cannot be parsed).
         """
         definition, _ = self._read_parts(workflow_id, bundle)
-        return {"bundle": bundle, **dataclasses.asdict(definition)}
+        return self._public_definition(definition, bundle)
 
     @service_errors
     def workflow_inputs(self, workflow_id: str, *, bundle: str | None = None) -> dict[str, Any]:

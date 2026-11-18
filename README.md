@@ -192,7 +192,9 @@ below with those required by its workflow:
 Generic runs use `--input` for domain data instead of social-post options such
 as `--objective` and `--topic`. HTTP errors appear in the CLI with their code,
 message, and available details. See [Python and HTTP API](docs/API.md) for the
-facade, bundle registration contract, endpoints, and error format.
+facade, bundle registration contract, endpoints, and error format, and
+[Function steps](docs/FUNCTION_STEPS.md) for workflow steps that run a
+registered function instead of a model.
 
 A complete, copyable example is [the software development team bundle](examples/teams/software_development/README.md): seven roles, two human reviews, and sample outputs that run in Mock mode.
 

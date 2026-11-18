@@ -7,6 +7,7 @@ from dataclasses import replace
 from .catalog import MODEL_LEVELS, validate_routing_profile
 from .contracts import ExecutionMode
 from .routing_policy import RoutingRequest
+from .run_request import FunctionStepRequestError, validate_function_step_options
 
 
 def resolve_profile(catalog, workflow_id, step_id, kind, preference):
@@ -40,6 +41,8 @@ def resolve_profile(catalog, workflow_id, step_id, kind, preference):
 
 
 def preference_request(engine, workflow_id, step, inputs, execution_mode, sensitive, preference):
+    if step.function is not None:
+        raise FunctionStepRequestError(step.id)
     profile_id, profile = resolve_profile(engine.catalog, workflow_id, step.id, step.kind, preference)
     requires_web = (str(inputs.get("requires_web", "")).strip().casefold() in {"true", "1", "yes", "sí", "si"}
                     if step.requires_web == "from_request" else step.requires_web is True)
@@ -59,6 +62,7 @@ def preference_request(engine, workflow_id, step, inputs, execution_mode, sensit
 
 
 def validate_run_preferences(engine, request, definition):
+    validate_function_step_options(request, definition)
     preferences = getattr(request, "routing_preferences", {})
     by_id = {step.id: step for step in definition.steps}
     for step_id, choice in preferences.items():

@@ -1,0 +1,33 @@
+id: collect_summary
+description: Summarize a document, then collect the validated output without another model call.
+inputs:
+  - name: document_text
+    label: Document
+    description: The document to summarize and collect.
+    example: "The team will meet every Wednesday at ten and publish notes on the same day."
+    required: true
+    type: long_text
+  - name: focus
+    label: Focus
+    description: The points to emphasize in the summary.
+    example: "Decisions and deadlines"
+    required: false
+    type: text
+steps:
+  - id: summarize
+    description: Extract the key points from the document.
+    agent: document_analyst
+    prompt_id: general/extract_key_points
+    prompt_version: 1
+    skills: []
+    contract: KeyPoints
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false
+  - id: collect
+    description: Collect the validated key points without another model call.
+    function: core.merge_outputs
+    arguments: {}
+    contract: CollectedOutputs

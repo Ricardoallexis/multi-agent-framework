@@ -31,7 +31,7 @@ from ..db.database import Database
 from ..db.store import Store
 from ..errors import HumanSubmissionError
 from ..observability.usage import read_usage, summarize_usage
-from ..run_request import RunRequest
+from ..run_request import FunctionStepRequestError, RunRequest
 from ..run_service import PersonRequired, RunService
 from ..tools.approvals import ToolApprovalMismatch
 from ..tools.contracts import PermissionRequest
@@ -238,6 +238,8 @@ class RunServices:
         try:
             return self._tag(runtime, runtime.service.create_run(request))
         except ValueError as exc:
+            if isinstance(exc, FunctionStepRequestError):
+                raise
             if getattr(request, "routing_preferences", None):
                 raise ServiceError(INVALID_REQUEST, str(exc), status=422) from exc
             raise

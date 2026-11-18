@@ -9,6 +9,23 @@ from pydantic import Field, field_validator, field_serializer
 from .contracts import ExecutionMode, StrictModel
 
 
+class FunctionStepRequestError(ValueError):
+    """A run cannot route or change the execution mode of a function step."""
+
+    code = "function_step_option_invalid"
+
+    def __init__(self, step_id: str):
+        self.step_id = step_id
+        super().__init__(f"Step {step_id}: function steps do not accept routing preferences or execution modes")
+
+
+def validate_function_step_options(request, definition) -> None:
+    """Reject provider options for deterministic steps before a run is stored."""
+    for step in definition.steps:
+        if step.function is not None and (step.id in request.step_modes or step.id in request.routing_preferences):
+            raise FunctionStepRequestError(step.id)
+
+
 class RoutingPreference(StrictModel):
     """Run-scoped ECO choices; policy and budgets remain authoritative."""
     mode: Literal["supervised", "automatic", "single"] | None = None

@@ -154,6 +154,8 @@ def _producer_for(
             "submitted_at": submission.get("created_at"),
         }
     model_id = str(row.get("model_id") or "")
+    if row.get("function"):
+        return {"kind": "function", "function": row["function"]}
     if model_id.startswith("human:"):
         rest = model_id[len("human:"):]
         provider, _, model = rest.partition(":")
@@ -216,6 +218,12 @@ def build_step_attempts(runtime, definitions, run_id: str, step_id: str) -> dict
         if record.get("step_id") == step_id:
             usage_by_attempt.setdefault(int(record["attempt"]), []).append(record)
     reviews, selected_models = _step_events_index(run.get("events") or [], step_id)
+    functions_by_attempt = {
+        event["payload"]["attempt"]: event["payload"]["function"]
+        for event in run.get("events") or []
+        if event.get("event_type") == "step_started" and isinstance(event.get("payload"), Mapping)
+        and event["payload"].get("step_id") == step_id and event["payload"].get("function")
+    }
     data_dir = runtime.service.settings.data_dir
 
     attempts: list[dict[str, Any]] = []
@@ -242,7 +250,8 @@ def build_step_attempts(runtime, definitions, run_id: str, step_id: str) -> dict
         attempts.append({
             "attempt": attempt,
             "status": str(row.get("status") or ""),
-            "producer": _producer_for(row, submission, usage_records, selected_models.get(attempt)),
+            "producer": _producer_for({**row, "function": functions_by_attempt.get(attempt)}, submission,
+                                      usage_records, selected_models.get(attempt)),
             "input": {
                 "revision_feedback": str(input_data.get("revision_feedback") or ""),
                 "has_previous_output": bool(input_data.get("previous_output")),

@@ -2,6 +2,8 @@
 
 An execution backend is whatever turns a queued run into executed steps. The run service and the local worker talk to it only through the `ExecutionBackend` interface in `multiagent/backends/`, so the same workflow definitions, contracts, runs and human steps work with any backend that meets the contract below.
 
+Function steps call no provider and execute identically in every backend.
+
 Status (roadmap [S4](ROADMAP_STAGES.md#s4--execution-backend-abstraction-)): the interface, its contract and the registry (S4.A1), the native engine behind the interface (S4.A2), the mock backend (S4.A3) and the conformance suite (S4.B1), which runs against both in CI (S4.B2), are done. An optional Microsoft Agent Framework backend (S4.C) and several workers (S4.D) are planned.
 
 ## The contract

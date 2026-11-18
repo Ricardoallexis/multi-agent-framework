@@ -137,6 +137,8 @@ def derive_inputs(definition: WorkflowDefinition, prompts: PromptManager) -> dic
     skipped = {step.id: not condition_is_true(step.when, request) for step in definition.steps}
     found: dict[str, dict[str, Any]] = {}
     for step in definition.steps:
+        if step.function is not None:
+            continue
         template = _template(prompts, step.prompt_id, step.prompt_version, step.id)
         for name in placeholders(template):
             if is_runtime_name(name):
@@ -156,7 +158,8 @@ def derive_inputs(definition: WorkflowDefinition, prompts: PromptManager) -> dic
         "source": SOURCE_DECLARED if any(item["source"] == ITEM_DECLARED for item in inputs) else SOURCE,
         "description": definition.description,
         "inputs": inputs,
-        "steps": [{"id": step.id, "agent": step.agent, "description": step.description, "when": step.when,
+        "steps": [{"id": step.id, **({"function": step.function} if step.function is not None
+                                  else {"agent": step.agent}), "description": step.description, "when": step.when,
                    "skipped_by_default": skipped[step.id]} for step in definition.steps],
         "warnings": [issue.to_dict() for issue in unused_input_warnings(definition, set(found))],
     }
@@ -181,6 +184,11 @@ def preview(definition: WorkflowDefinition, prompts: PromptManager, spec: Mappin
     steps = []
     for index, step in enumerate(definition.steps):
         skipped = not condition_is_true(step.when, request)
+        if step.function is not None:
+            steps.append({"id": step.id, "function": step.function, "contract": step.contract,
+                          "skipped": skipped, "skip": {"condition": step.when} if skipped else None,
+                          "text": None, "needs_previous_outputs": False})
+            continue
         entry: dict[str, Any] = {
             "id": step.id, "agent": step.agent, "prompt_id": step.prompt_id,
             "prompt_version": step.prompt_version, "contract": step.contract,

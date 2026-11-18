@@ -72,6 +72,7 @@ export function PreviewPanel({ preview, error, loading }) {
       ${preview.empty_optional_inputs.length > 0 && html`<p class="muted">Quedan vacíos en el prompt (opcionales): ${preview.empty_optional_inputs.join(", ")}.</p>`}
       ${preview.steps.map((step, index) => step.skipped
         ? html`<p key=${step.id} class="skipped-step">Paso «${step.id}»: se saltará ${skipReason(step.skip)}.</p>`
+        : step.function ? html`<p key=${step.id} class="muted">Paso «${step.id}» · función ${step.function} · contrato ${step.contract}. Se ejecuta sin prompt ni modelo.</p>`
         : html`<details key=${step.id} open=${index === firstRunnable}>
             <summary>Paso «${step.id}» · ${step.prompt_id} v${step.prompt_version} · contrato ${step.contract}</summary>
             ${step.needs_previous_outputs && html`<p class="muted">Este paso usa resultados de pasos anteriores: aparecen vacíos hasta que esos pasos se ejecuten.</p>`}

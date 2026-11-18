@@ -84,6 +84,10 @@ class ReviewReport(StrictModel):
     suggestions: list[str]
 
 
+class CollectedOutputs(StrictModel):
+    steps: dict[str, dict[str, object]]
+
+
 OUTPUT_SCHEMAS = {
     "KeyPoints": KeyPoints,
     "DocumentSummary": DocumentSummary,
@@ -92,9 +96,11 @@ OUTPUT_SCHEMAS = {
     "Recommendation": Recommendation,
     "ChecklistResult": ChecklistResult,
     "ReviewReport": ReviewReport,
+    "CollectedOutputs": CollectedOutputs,
 }
 
 SAMPLE_OUTPUTS = {
+    "CollectedOutputs": {"steps": {}},
     "KeyPoints": {
         "key_points": [
             {"id": "P1", "point": "La reunión semanal pasa de los lunes a los miércoles.",

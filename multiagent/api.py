@@ -504,6 +504,10 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def get_workflow(workflow_id: str, bundle: str | None = None):
         return services.definitions.get_workflow(workflow_id, bundle=bundle)
 
+    @app.get("/api/v1/workflows/{workflow_id}/inputs")
+    def workflow_inputs(workflow_id: str, bundle: str | None = None):
+        return services.definitions.workflow_inputs(workflow_id, bundle=bundle)
+
     @app.get("/api/v1/agents")
     def list_agents(bundle: str | None = None):
         return services.definitions.list_agents(bundle=bundle)

@@ -11,6 +11,7 @@ Layout (every part except ``workflows/`` is optional and falls back to the bundl
         team.yaml         optional team definition (S6.A1)
 
 Bundle contracts are added to the bundled ``OUTPUT_SCHEMAS``; they may not redefine one.
+Function steps may name only functions already registered by the core or trusted host; unknown ids fail workflow validation.
 ``contracts.py`` is imported, which runs its code: load only bundles you trust, such as the
 repository fixtures or your own private definitions.
 

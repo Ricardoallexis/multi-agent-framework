@@ -36,6 +36,11 @@ GENERAL = ROOT / "examples" / "bundles" / "general"
 TEAM = ROOT / "examples" / "teams" / "software_development"
 
 WORKFLOWS = {
+    "collect_summary": {
+        "steps": ["summarize", "collect"],
+        "reviewed_after": [],
+        "inputs": {"document_text": "The meeting moves to Wednesday at ten.", "focus": "Decisions"},
+    },
     "summarize_document": {
         "steps": ["extract_key_points", "write_summary"],
         "reviewed_after": ["write_summary"],
@@ -291,10 +296,13 @@ def test_the_example_has_the_bundle_layout():
         document = read_yaml(GENERAL / "workflows" / f"{workflow_id}.yaml")
         assert document["id"] == workflow_id
         assert [step["id"] for step in document["steps"]] == WORKFLOWS[workflow_id]["steps"]
-        assert [step["id"] for step in document["steps"] if step["checkpoint_after"]] == WORKFLOWS[workflow_id]["reviewed_after"]
+        assert [step["id"] for step in document["steps"] if step.get("checkpoint_after")] == WORKFLOWS[workflow_id]["reviewed_after"]
         assert 2 <= len(document["steps"]) <= 4  # fits the default model-call budget of 4
         for step in document["steps"]:
-            assert (GENERAL / "prompts" / f"{step['prompt_id']}.v{step['prompt_version']}.md").is_file()
+            if step.get("function"):
+                assert "agent" not in step and "prompt_id" not in step
+            else:
+                assert (GENERAL / "prompts" / f"{step['prompt_id']}.v{step['prompt_version']}.md").is_file()
 
 
 @pytest.mark.parametrize("workflow_id", sorted(WORKFLOWS))
@@ -324,6 +332,8 @@ def test_declared_inputs_are_exactly_the_placeholders_of_the_prompts(workflow_id
     document = read_yaml(GENERAL / "workflows" / f"{workflow_id}.yaml")
     used = set()
     for step in document["steps"]:
+        if step.get("function"):
+            continue
         template = (GENERAL / "prompts" / f"{step['prompt_id']}.v{step['prompt_version']}.md").read_text(encoding="utf-8")
         used |= {name for name in prompt_placeholders(template) if is_input_name(name)}
     assert {item["name"] for item in document["inputs"]} == used
@@ -366,7 +376,7 @@ def test_bundle_loads_and_validates(bundle_dir, tmp_path):
     for workflow_id, expected in WORKFLOWS.items():
         definition = bundle.load_workflow(workflow_id)  # agents, prompts, contracts and models all resolve
         assert [step.id for step in definition.steps] == expected["steps"]
-        assert {step.agent for step in definition.steps} <= set(bundle.catalog.agents)
+        assert {step.agent for step in definition.steps if step.agent is not None} <= set(bundle.catalog.agents)
         assert {step.contract for step in definition.steps} <= set(bundle.sample_outputs)
 
 
@@ -393,8 +403,11 @@ def test_each_workflow_runs_end_to_end_in_mock_mode(bundle_dir, tmp_path, workfl
 
         assert worker.process_once()
         waiting = services.runs.get(run["id"])
-        assert (waiting["status"], waiting["waiting_step"]) == ("waiting_human", expected["reviewed_after"][-1])
-        done = services.runs.approve(run["id"])
+        if expected["reviewed_after"]:
+            assert (waiting["status"], waiting["waiting_step"]) == ("waiting_human", expected["reviewed_after"][-1])
+            done = services.runs.approve(run["id"])
+        else:
+            done = waiting
 
         assert (done["status"], done["bundle"]) == ("completed", "general")
         events = [event["event_type"] for event in services.runs.events(run["id"])]

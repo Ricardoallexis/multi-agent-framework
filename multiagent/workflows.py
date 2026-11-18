@@ -35,14 +35,14 @@ class WorkflowInput:
 @dataclass(frozen=True)
 class WorkflowStep:
     id: str
-    agent: str
-    prompt_id: str
-    prompt_version: int
-    skills: list[str]
+    agent: str | None
+    prompt_id: str | None
+    prompt_version: int | None
+    skills: list[str] | None
     contract: str
-    preferred_model: str
+    preferred_model: str | None
     fallback_model: str | None
-    requires_web: bool | str
+    requires_web: bool | str | None
     when: str | None
     checkpoint_after: bool
     # Optional fields: a document that omits them behaves exactly as before.
@@ -61,6 +61,9 @@ class WorkflowStep:
     # Project memory in this step's context (S12.A1): ``True``/``False`` or ``{max_chars, kinds}``; ``None``
     # inherits the workflow's value, whose default is off. See ``context.project_memory``.
     project_memory: bool | dict[str, Any] | None = None
+    # Deterministic step, mutually exclusive with all provider and tool fields.
+    function: str | None = None
+    arguments: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

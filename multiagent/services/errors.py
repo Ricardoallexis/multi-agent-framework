@@ -23,6 +23,7 @@ from ..errors import (
 )
 from ..project_templates.errors import TemplateError, TemplateNotFound
 from ..workflow_validation import WorkflowDefinitionError
+from ..run_request import FunctionStepRequestError
 
 # Stable error codes. Interfaces may rely on them; add new ones, never rename.
 NOT_FOUND = "not_found"                          # 404: run, workflow, agent or bundle does not exist
@@ -88,6 +89,8 @@ def translate(exc: BaseException) -> ServiceError | None:
         return ServiceError(exc.code, str(exc), status=exc.status, details={"errors": list(exc.errors)})
     if isinstance(exc, TemplateNotFound):
         return ServiceError(exc.code, str(exc), status=exc.status, details={"template": exc.name})
+    if isinstance(exc, FunctionStepRequestError):
+        return ServiceError(exc.code, str(exc), status=422, details={"step_id": exc.step_id})
     if isinstance(exc, ValueError):
         # Checked last: WorkflowDefinitionError and ValidationError are ValueErrors too.
         return ServiceError(INVALID_OPERATION, str(exc), status=409)

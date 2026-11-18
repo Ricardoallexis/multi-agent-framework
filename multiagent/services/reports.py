@@ -22,8 +22,8 @@ _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _BLOB_REF = re.compile(r"blob:sha256:[0-9a-f]{64}\Z")
 
 _EVENT_FIELDS = {
-    "step_started": ("step_id", "attempt", "agent_id", "execution_mode"),
-    "step_completed": ("step_id", "attempt"),
+    "step_started": ("step_id", "attempt", "agent_id", "execution_mode", "function"),
+    "step_completed": ("step_id", "attempt", "function"),
     "step_skipped": ("step_id",),
     "model_attempt": ("step_id", "attempt", "model", "attempted_model", "requested_model",
                       "effective_model", "observed_model", "provider", "retry", "ordinal",
@@ -231,6 +231,8 @@ def build_run_report(run: Mapping[str, Any], usage: Mapping[str, Any], *, includ
         row = {"seq": event.get("seq"), "timestamp": event.get("ts"), "event_type": kind,
                **(_safe_tool_fields(payload, _EVENT_FIELDS[kind]) if kind in _TOOL_EVENTS
                   else _safe_fields(payload, _EVENT_FIELDS[kind]))}
+        if kind == "step_started" and isinstance(payload, Mapping) and payload.get("function"):
+            row.pop("agent_id", None)
         if include_raw:
             if kind in _TOOL_EVENTS:
                 row.update(_tool_raw_extras(payload))

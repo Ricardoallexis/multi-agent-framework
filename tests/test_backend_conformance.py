@@ -67,6 +67,16 @@ def test_usage_for_each_model_call(system):
     ]
 
 
+def test_function_step_conformance(system):
+    run = create_run(system, "function_steps")
+    final = advance(system, run["id"])
+    assert final["status"] == "completed"
+    assert final["llm_calls"] == 1
+    assert len(usage(system, run["id"])) == 1
+    assert final["artifacts"][1]["data"]["steps"]["first"] == final["artifacts"][0]["data"]
+    assert events(final, "step_completed")[-1]["payload"]["function"] == "core.merge_outputs"
+
+
 @pytest.mark.parametrize("limit", ["calls", "time"])
 def test_budget_stops_before_second_call(system, limit):
     requires(system, "budgets")
