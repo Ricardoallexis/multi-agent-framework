@@ -1,13 +1,13 @@
 """Fail-closed tool permission checks independent of document barrier settings."""
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Iterable
 from typing import Any
 
 from multiagent.document_actions import Action, ActionKind, authorize
 from multiagent.tasks.envelopes import envelope_sha256
-from .contracts import ActionRef, ImpactClass, PermissionRequest, ToolRequest, ToolSpec
+from .contracts import (ActionRef, ImpactClass, PermissionRequest, ToolRequest, ToolSpec,
+                        permission_request_id_for)
 
 
 class InvalidArguments(ValueError):
@@ -38,8 +38,9 @@ def required_permissions(spec: ToolSpec) -> frozenset[str]:
 
 def permission_request_for(spec: ToolSpec, request: ToolRequest, actions: tuple[Action, ...], reason: str) -> PermissionRequest:
     refs = tuple(ActionRef.from_action(action) for action in actions)
-    source = f"{request.request_id}|{spec.tool_id}|{spec.version}|{envelope_sha256([r.model_dump(mode='json') for r in refs])}"
-    identifier = "tpr_" + hashlib.sha256(source.encode()).hexdigest()[:32]
+    from .contracts import spec_sha256
+    identifier = permission_request_id_for(request.request_id, spec.tool_id, spec.version, refs,
+                                           envelope_sha256(request.arguments), spec_sha256(spec))
     destinations = ", ".join(a.target for a in actions if a.target)
     summary = (spec.title + (": " + destinations if destinations else ""))[:300]
     from .contracts import spec_sha256

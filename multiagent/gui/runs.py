@@ -23,6 +23,7 @@ from ..run_request import RunRequest, RoutingPreference
 from ..routing_preferences import preference_request, validate_run_preferences
 from ..routing_policy import EFFORT_LEVELS, RoutingRequest
 from ..services.errors import HUMAN_STEP_UNAVAILABLE, INVALID_REQUEST, ServiceError, translate
+from ..services.runs import pending_tool_approval
 from ..services.workflow_inputs import missing_required
 from ..workflows import condition_is_true
 
@@ -59,6 +60,11 @@ class ChangesBody(_Body):
 
 class RejectBody(_Body):
     feedback: str = Field(default="", max_length=4000)
+
+
+class ApproveBody(_Body):
+    """Optional body of the approve route: a run waiting for a tool approval needs the id of the request shown."""
+    permission_request_id: str | None = Field(default=None, max_length=100)
 
 
 class CancelBody(_Body):
@@ -231,6 +237,7 @@ def run_view(services, run: dict[str, Any]) -> dict[str, Any]:
         "cancel_requested": bool(run.get("cancel_requested")),
         "waiting": ({"reason": run.get("waiting_reason") or "", "step_id": run.get("waiting_step") or "",
                      "attempt": run.get("waiting_attempt")} if run["status"] == "waiting_human" else None),
+        "tool_approval": pending_tool_approval(run),
         "revision_feedback": run.get("revision_feedback") or "",
         "inputs": _inputs_of(request),
         "definition_available": definition is not None,
@@ -443,8 +450,9 @@ def build_router(services) -> APIRouter:
         return services.runs.human_next(run_id)
 
     @router.post("/runs/{run_id}/approve")
-    def approve(run_id: str):
-        services.runs.approve(run_id, channel="gui")
+    def approve(run_id: str, body: ApproveBody | None = None):
+        services.runs.approve(run_id, channel="gui",
+                              permission_request_id=body.permission_request_id if body else None)
         return run_view(services, services.runs.get(run_id))
 
     @router.post("/runs/{run_id}/changes")

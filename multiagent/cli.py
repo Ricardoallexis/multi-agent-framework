@@ -705,7 +705,7 @@ def cmd_run_report(args) -> None:
         pretty(result)
 
 
-def _approve_with_token(run_id: str):
+def _approve_with_token(run_id: str, permission_request_id: str | None = None):
     """Approve a run through the token route of the GUI (``/gui/api``), with the token this user keeps in their profile."""
     from .gui.token import read_token
 
@@ -715,20 +715,37 @@ def _approve_with_token(run_id: str):
         raise RuntimeError(f"person_required: this approval needs the GUI token and none was found at {settings.gui_token_file}; "
                            "start `multiagent gui` once or approve it in the GUI")
     with api_client() as client:
-        response = client.post(f"/gui/api/runs/{run_id}/approve", json={}, headers={"Authorization": f"Bearer {token}"})
+        body = {"permission_request_id": permission_request_id} if permission_request_id else {}
+        response = client.post(f"/gui/api/runs/{run_id}/approve", json=body, headers={"Authorization": f"Bearer {token}"})
     if response.status_code >= 400:
-        raise RuntimeError(f"HTTP {response.status_code}: {_detail(response)}")
+        # Whatever the server answered, the token never goes into the message.
+        raise RuntimeError(f"HTTP {response.status_code}: {_detail(response)}".replace(token, "[token]"))
     return response.json()
 
 
 def cmd_approve(args) -> None:
+    permission_id = getattr(args, "permission_request", None)
+    if permission_id:
+        # Naming a tool request goes straight to the route with the token, never through the unauthenticated one.
+        pretty(_approve_with_token(args.run_id, permission_id))
+        return
     try:
         pretty(_api_json("POST", f"/api/v1/runs/{args.run_id}/approve"))
     except RuntimeError as exc:
         if "person_required" not in str(exc):
             raise
-        # A budget cut spends money (USO-T04): /api/v1 has no token and refuses it, so the person at this terminal goes
-        # through the route that has one.
+        # A budget cut spends money (USO-T04) and a tool call acts on the world (CAP-T14): /api/v1 has no token and refuses
+        # them, so the person at this terminal goes through the route that has one.
+        run = _api_json("GET", f"/api/v1/runs/{args.run_id}")
+        if run.get("waiting_reason") == "tool_approval" and run.get("status") == "waiting_human" and not permission_id:
+            # Show the request and approve nothing: the person approves by repeating the id they read here.
+            pending = run.get("tool_approval")
+            # ASCII-only output: what the request carries is shown escaped, never as raw Unicode controls.
+            print(json.dumps({"approved": False, "reason": "permission_request_required", "tool_approval": pending,
+                              "next": ("repeat with --permission-request " + pending["permission_request_id"]) if pending
+                                      else "no readable pending request: reject the run"},
+                             ensure_ascii=True, indent=2, default=str))
+            raise SystemExit(2)
         pretty(_approve_with_token(args.run_id))
 
 
@@ -1371,7 +1388,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)
-    x = sub.add_parser("approve"); x.add_argument("run_id"); x.set_defaults(func=cmd_approve)
+    x = sub.add_parser("approve"); x.add_argument("run_id")
+    x.add_argument("--permission-request", dest="permission_request", default=None,
+                   help="id of the pending tool request you were shown (needed to approve a tool call)")
+    x.set_defaults(func=cmd_approve)
     x = sub.add_parser("changes"); x.add_argument("run_id"); x.add_argument("feedback"); x.set_defaults(func=cmd_changes)
     x = sub.add_parser("reject"); x.add_argument("run_id"); x.add_argument("--feedback", default=""); x.set_defaults(func=cmd_reject)
     x = sub.add_parser("regenerate"); x.add_argument("run_id"); x.set_defaults(func=cmd_regenerate)

@@ -19,6 +19,7 @@ per-id methods find the run in whichever store holds it.
 from __future__ import annotations
 
 import threading
+import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -31,6 +32,8 @@ from ..errors import HumanSubmissionError
 from ..observability.usage import read_usage, summarize_usage
 from ..run_request import RunRequest
 from ..run_service import PersonRequired, RunService
+from ..tools.approvals import ToolApprovalMismatch
+from ..tools.contracts import PermissionRequest
 from ..worker import LocalWorker
 from ..workflow_engine import WorkflowEngine
 from .errors import HUMAN_STEP_UNAVAILABLE, INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
@@ -45,6 +48,50 @@ class _Runtime:
     store: Store
     service: RunService
     worker: LocalWorker | None = None
+
+
+_SHOWN_ACTIONS = 20
+
+
+def _visible(text: Any) -> str:
+    """Text for a person who decides on it: C0/C1 controls, bidi marks and other format, separator and private-use
+    characters (categories Cc, Cf, Zl, Zp, Co) are removed, so a destination cannot disguise itself (CAP-T14 B2)."""
+    return "".join(ch for ch in str(text) if unicodedata.category(ch) not in ("Cc", "Cf", "Zl", "Zp", "Co"))
+
+
+def pending_tool_approval(run: dict[str, Any]) -> dict[str, Any] | None:
+    """The permission request a run waits on (``waiting_reason`` ``tool_approval``), from its persisted events.
+
+    Same reading as ``Store.finish_tool_approval``: the last ``tool_approval_requested`` of the waiting step and attempt
+    that no later approval or rejection settled. Only summary, actions, destinations and ids come out: never raw
+    arguments (the request holds none) nor model text."""
+    if run.get("status") != "waiting_human" or run.get("waiting_reason") != "tool_approval":
+        return None
+    pending = None
+    for event in run.get("events") or []:
+        kind = event.get("event_type")
+        if kind == "tool_approval_requested":
+            try:
+                candidate = PermissionRequest.model_validate(event.get("payload"))
+            except Exception:
+                pending = None
+                continue
+            pending = candidate if (candidate.context.run_id == run["id"] and candidate.context.step_id == run.get("waiting_step")
+                                    and candidate.context.attempt == run.get("waiting_attempt")) else None
+        elif kind in ("tool_approval_approved", "tool_approval_rejected"):
+            pending = None
+    if pending is None:
+        return None
+    omitted = max(0, len(pending.actions) - _SHOWN_ACTIONS)
+    return {"permission_request_id": pending.permission_request_id, "tool_id": pending.tool_id,
+            "tool_version": pending.tool_version, "step_id": pending.context.step_id,
+            "attempt": pending.context.attempt, "summary": _visible(pending.summary)[:300],
+            "impacts": sorted(impact.value for impact in pending.impacts),
+            "actions": [{"kind": ref.kind.value, "target": _visible(ref.target) if ref.target is not None else None}
+                        for ref in pending.actions[:_SHOWN_ACTIONS]],
+            "actions_total": len(pending.actions),
+            "actions_omitted": f"+{omitted} más (total {len(pending.actions)})" if omitted else "",
+            "arguments_sha256": pending.arguments_sha256}
 
 
 class RunServices:
@@ -158,9 +205,16 @@ class RunServices:
 
     @service_errors
     def get(self, run_id: str) -> dict[str, Any]:
-        """Run with its events and artifacts."""
+        """Run with its events and artifacts.
+
+        A run waiting for a tool approval also carries ``tool_approval``: the pending permission request as the persisted
+        event states it, with bounded fields only (never the call's arguments, only their hash). Absent otherwise."""
         runtime = self._find(run_id)
-        return self._tag(runtime, runtime.service.get(run_id))
+        run = self._tag(runtime, runtime.service.get(run_id))
+        pending = pending_tool_approval(run)
+        if pending is not None:
+            run["tool_approval"] = pending
+        return run
 
     @service_errors
     def list(self, *, limit: int = 20, status: str = "", project: str = "") -> list[dict[str, Any]]:
@@ -175,7 +229,7 @@ class RunServices:
 
     @service_errors
     def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None,
-                recorded_only: bool = False) -> dict[str, Any]:
+                recorded_only: bool = False, permission_request_id: str | None = None) -> dict[str, Any]:
         """Approve the artifact under review and continue or complete the run.
 
         A run paused on a supervised escalation (``waiting_reason`` ``escalation_approval``) has no artifact
@@ -192,10 +246,19 @@ class RunServices:
         budget cut, because that spends money. The error is ``invalid_state`` with ``details.reason`` ``person_required``
         and the run stays waiting; the token route of the GUI and the command line approve it. Rejecting needs no such
         flag: a refusal spends nothing.
+
+        A run waiting for a tool approval (``tool_approval``, CAP-T14) is approved only by naming the
+        ``permission_request_id`` the person was shown (``get`` returns it as ``tool_approval``); a missing, old or
+        other id is ``invalid_state`` with ``code`` ``permission_request_mismatch`` and nothing is approved. A caller
+        nobody authenticated (``recorded_only``) never approves it.
         """
         runtime = self._find(run_id)
         try:
-            return self._tag(runtime, runtime.service.approve(run_id, by=by, channel=channel, recorded_only=recorded_only))
+            return self._tag(runtime, runtime.service.approve(run_id, by=by, channel=channel, recorded_only=recorded_only,
+                                                              permission_request_id=permission_request_id))
+        except ToolApprovalMismatch as exc:
+            raise ServiceError(INVALID_STATE, str(exc), status=409,
+                               details={"reason": exc.code, "run_id": run_id}) from exc
         except PersonRequired as exc:
             raise ServiceError(INVALID_STATE, str(exc), status=409,
                                details={"reason": "person_required", "run_id": run_id}) from exc

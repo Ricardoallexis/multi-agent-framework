@@ -6,6 +6,7 @@ from .config import Settings
 from .contracts import HumanStepSubmission, RunStatus, SocialPostRequest, WaitingReason
 from .db.store import Store
 from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition
+from .tools.approvals import ToolApprovalMismatch
 from .run_request import RunRequest
 from .routing_preferences import validate_run_preferences
 
@@ -88,6 +89,10 @@ class RunService:
         a spend, so a run held by the budget guard answers ``PersonRequired`` and stays as it was (USO-T04). Every other
         wait behaves as before. The token route of the GUI and the CLI do not pass it."""
         run = self.store.get_run(run_id)
+        if permission_request_id is not None and not self._awaits_tool_approval(run):
+            # An id names one tool request; it never approves a wait of another kind (a stale click, CAP-T14 M1).
+            raise ToolApprovalMismatch("The run is not waiting on the tool request that id names",
+                                       code="permission_request_mismatch")
         if recorded_only and (self._awaits_budget_cut(run) or self._awaits_tool_approval(run)):
             raise PersonRequired("This held call requires a person: use the GUI (it carries the token) or the "
                                  "command line; this route is not authenticated. Rejecting works here.")

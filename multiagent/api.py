@@ -553,7 +553,8 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
 
     @app.post("/api/v1/runs/{run_id}/approve")
     def approve(run_id: str):
-        # No token here: this route never approves a budget cut (it spends money; ``person_required``). The GUI route does.
+        # No token here: this route never approves a budget cut (it spends money) nor a tool call (``person_required``).
+        # The GUI route does; it takes the permission_request_id it showed.
         return services.runs.approve(run_id, recorded_only=True)
 
     @app.post("/api/v1/runs/{run_id}/changes")

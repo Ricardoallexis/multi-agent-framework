@@ -226,6 +226,16 @@ class ActionRef(ToolModel):
         return Action(self.kind, self.target)
 
 
+def permission_request_id_for(request_id: str, tool_id: str, version: int, actions: "tuple[ActionRef, ...]",
+                              arguments_sha256: str, spec_sha256: str) -> str:
+    """Stable id of one pending call: it binds the arguments hash too (CAP-T14, B11), so a new request with the same
+    request_id and destinations but other arguments has another id and an approval of the old one is refused. The spec
+    hash is bound too: another spec (for example another title, which is part of the summary shown) is another id."""
+    actions_sha = envelope_sha256([ref.model_dump(mode="json") for ref in actions])
+    source = f"{request_id}|{tool_id}|{version}|{actions_sha}|{arguments_sha256}|{spec_sha256}"
+    return "tpr_" + hashlib.sha256(source.encode()).hexdigest()[:32]
+
+
 class PermissionRequest(ToolModel):
     schema_: Literal["multiagent.tool_permission_request/1"] = Field(default="multiagent.tool_permission_request/1", alias="schema")
     permission_request_id: str

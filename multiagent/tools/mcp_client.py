@@ -6,6 +6,11 @@ Rules (decided by the orchestrator, not configurable from the server side):
   Nothing a model, a tool or a document says can add a server.
 * The subprocess gets the SDK's minimal default environment plus what the operator declares. Starting, listing
   and every call have a time limit, and the process is closed on ``close()``.
+* The operator's command must resolve to a real executable: a relative name is resolved once, when the config is
+  built, and the absolute path is what runs. ``.cmd`` and ``.bat`` scripts are refused (they go through cmd.exe and its
+  quoting rules). A bare name is searched in PATH only (absolute entries, in order), never in the current directory.
+* A call that times out terminates the session and the server process (orderly first, forced as a last resort) and
+  marks the client for ``reconnect()``: no hung tool stays alive.
 * The client offers no capabilities: no sampling, no roots, no elicitation. The server cannot ask for our models or
   our files.
 * Tools are registered with ``registry.scoped(alias)``, ``declared_by="adapter"`` and ``invocation=remote``. The
@@ -23,6 +28,7 @@ import importlib
 import logging
 import os
 import re
+import shutil
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -48,6 +54,9 @@ _ALIAS = re.compile(r"[a-z][a-z0-9_]{0,39}\Z")
 _CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff\U000e0000-\U000e007f]+")
 _PROP = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}\Z")
 MAX_SCHEMA_DEPTH = 8
+_SHELL_SCRIPTS = (".cmd", ".bat")
+_WINDOWS_EXECUTABLES = (".exe", ".com")
+CLOSE_GRACE_S = 10.0   # the SDK's own shutdown (stdin, 2 s, terminate, 2 s, kill) must finish before a native cancel
 MAX_PROPERTIES = 64
 MAX_ENUM = 50
 _LEVELS = {"read": 0, "write": 1, "destructive": 2}
@@ -95,6 +104,7 @@ class McpServerConfig:
             raise ValueError("MCP arguments must be strings")
         if not all(isinstance(k, str) and isinstance(v, str) and k and "=" not in k for k, v in self.env.items()):
             raise ValueError("MCP environment must map strings to strings")
+        object.__setattr__(self, "command", _resolve_command(self.command))
         object.__setattr__(self, "env", MappingProxyType(dict(self.env)))
         object.__setattr__(self, "impact_overrides", MappingProxyType(dict(self.impact_overrides)))
         object.__setattr__(self, "descriptions", MappingProxyType(dict(self.descriptions)))
@@ -133,6 +143,56 @@ class McpServerConfig:
 class McpRegistration:
     registered: tuple[str, ...]
     rejected: tuple[tuple[str, str], ...]   # (sanitized server name, stable reason)
+
+
+def _resolve_command(command: str) -> str:
+    """Absolute path of a real executable, or ``ValueError``. Done once, when the operator's config is built."""
+    if os.path.splitext(command)[1].lower() in _SHELL_SCRIPTS:
+        raise ValueError("MCP command must be a real executable, not a .cmd or .bat script")
+    if os.path.dirname(command):
+        found = shutil.which(command)
+    else:   # a bare name comes from PATH only: absolute, non-empty entries, in order, never the current directory
+        found = None
+        for entry in os.environ.get("PATH", "").split(os.pathsep):
+            if entry and os.path.isabs(entry):
+                found = shutil.which(os.path.join(entry, command))
+                if found:
+                    break
+    if not found:
+        raise ValueError("MCP command not found")
+    path = os.path.abspath(found)
+    suffix = os.path.splitext(path)[1].lower()
+    if suffix in _SHELL_SCRIPTS or (os.name == "nt" and suffix not in _WINDOWS_EXECUTABLES):
+        raise ValueError("MCP command must resolve to a real executable, not a script")
+    return path
+
+
+class _QuietSdkLogs(logging.Filter):
+    """The SDK logs server-controlled text (bad lines, bad notifications, unknown ids) in messages and tracebacks.
+    Only records whose arguments are all integers pass (so the 'abandoned server process <pid>' warning survives),
+    and they lose any traceback. Records of other code on a shared logger name are left alone."""
+
+    def __init__(self, root: str | None) -> None:
+        super().__init__()
+        self.root = os.path.normcase(root) if root else None
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if self.root is not None and not os.path.normcase(record.pathname).startswith(self.root):
+            return True
+        args = record.args
+        if not (isinstance(args, tuple) and args and all(isinstance(a, int) and not isinstance(a, bool) for a in args)):
+            return False
+        record.exc_info = record.exc_text = None
+        return True
+
+
+def _quiet_sdk_logs(mcp: Any = None) -> None:
+    root = os.path.dirname(getattr(mcp, "__file__", "") or "") or None
+    for name in ("mcp.client.stdio", "client", "mcp.shared.dispatcher", "mcp.shared.jsonrpc_dispatcher",
+                 "mcp.shared.direct_dispatcher"):
+        logger = logging.getLogger(name)
+        if not any(isinstance(f, _QuietSdkLogs) for f in logger.filters):
+            logger.addFilter(_QuietSdkLogs(root))
 
 
 def _load_sdk() -> Any:
@@ -223,6 +283,11 @@ class McpClient:
         self._broken = False
         self._errlog: Any = None
 
+    @property
+    def needs_reconnect(self) -> bool:
+        """True after a timeout or a server failure: the session is gone, ``reconnect()`` starts a new one."""
+        return self._broken
+
     # -- lifecycle -----------------------------------------------------------------------------------------
 
     def __enter__(self) -> "McpClient":
@@ -236,6 +301,7 @@ class McpClient:
         if self._thread is not None:
             raise McpClientError("mcp_already_started")
         mcp, params_cls, stdio_client = _load_sdk()
+        _quiet_sdk_logs(mcp)
         params = params_cls(command=self.config.command, args=list(self.config.args),
                             env=dict(self.config.env), cwd=self.config.cwd)
         self._errlog = open(os.devnull, "w")
@@ -243,7 +309,7 @@ class McpClient:
                                         name=f"mcp-{self.config.alias}", daemon=True)
         self._thread.start()
         if not self._ready.wait(self.config.startup_timeout_s):
-            self._abort()
+            self._shutdown()   # _main times out on its own; the forced cancel is the last resort
             raise McpClientError("mcp_startup_timeout")
         if self._failure or self._session is None:
             self._failure = self._failure or "mcp_start_failed"
@@ -287,30 +353,38 @@ class McpClient:
             self._session = None
             self._ready.set()
 
-    def _abort(self) -> None:
-        loop, task = self._loop, self._task
-        if loop is not None and task is not None:
-            try:
-                loop.call_soon_threadsafe(task.cancel)
-            except RuntimeError:
-                pass
-        if self._thread is not None:
-            self._thread.join(5)
+    def _shutdown(self, grace: float = CLOSE_GRACE_S) -> None:
+        """Orderly first (the SDK closes stdin, then terminates, then kills the server and its tree); a native cancel
+        only if the thread is still alive after the grace period, because it can defeat the SDK's shielded cleanup."""
+        loop, stop, thread = self._loop, self._stop, self._thread
+        if thread is not None:
+            if loop is not None and stop is not None and thread.is_alive():
+                try:
+                    loop.call_soon_threadsafe(stop.set)
+                except RuntimeError:
+                    pass
+            thread.join(grace)
+            if thread.is_alive():
+                task = self._task
+                if loop is not None and task is not None:
+                    try:
+                        loop.call_soon_threadsafe(task.cancel)
+                    except RuntimeError:
+                        pass
+                thread.join(5)
         self._cleanup()
 
     def close(self) -> None:
-        loop, stop = self._loop, self._stop
-        if loop is not None and stop is not None and self._thread is not None and self._thread.is_alive():
-            try:
-                loop.call_soon_threadsafe(stop.set)
-            except RuntimeError:
-                pass
-            self._thread.join(5)
-            if self._thread.is_alive():
-                self._abort()
-        elif self._thread is not None and self._thread.is_alive():
-            self._abort()
-        self._cleanup()
+        self._shutdown()
+
+    def reconnect(self) -> None:
+        """Close whatever is left of the session and start a new one. Registered tools keep working."""
+        self._shutdown()
+        self._loop = self._thread = self._task = self._stop = self._session = None
+        self._ready = threading.Event()
+        self._failure = None
+        self._broken = False
+        self.start()
 
     def _cleanup(self) -> None:
         self._session = None
@@ -342,7 +416,9 @@ class McpClient:
                     return future.result(0.1)
                 except TimeoutError:   # only the 0.1 s poll: the call's own timeout is raised as McpClientError
                     pass
-                except McpClientError:
+                except McpClientError as exc:
+                    if exc.code == "mcp_timeout":
+                        self._terminate()
                     raise
                 except _sdk_error() as exc:
                     if getattr(exc, "code", None) != importlib.import_module("mcp_types").CONNECTION_CLOSED:
@@ -355,10 +431,17 @@ class McpClient:
                 if should_cancel():
                     raise McpClientError("mcp_cancelled")
                 if time.monotonic() > deadline:
+                    self._terminate()
                     raise McpClientError("mcp_timeout")
         finally:
             if not future.done():
                 future.cancel()
+
+    def _terminate(self) -> None:
+        """A call timed out: the tool may still be running in the server, so the session and the server process end
+        now and the client is marked for reconnect."""
+        self._broken = True
+        self._shutdown()
 
     def list_tools(self) -> list[Any]:
         types = importlib.import_module("mcp.types")   # the SDK is present: start() already loaded it
@@ -403,6 +486,12 @@ class McpClient:
         """List the server's tools and register them as ``<alias>.<name>``. A bad tool is rejected and logged."""
         cfg = self.config
         scoped = registry.scoped(cfg.alias)
+        # Another client's executor behind this alias in THIS registry: nothing is registered (the registry is
+        # idempotent, so a repeat would otherwise report as registered a tool that runs someone else's executor).
+        if any(getattr(registry.lookup(spec.tool_id).executor, "mcp_client", None) is not self
+               for spec in registry.list(namespace=cfg.alias)):
+            log.warning("mcp %s: alias already used by another client in this registry", cfg.alias)
+            return McpRegistration((), (("*", "namespace_conflict"),))
         listed = self.list_tools() if tools is None else list(tools)
         registered: list[str] = []
         rejected: list[tuple[str, str]] = []
@@ -493,4 +582,5 @@ class McpClient:
         def run(arguments: Mapping[str, Any], context: ToolCallContext, *,
                 should_cancel: Callable[[], bool]) -> dict[str, Any]:
             return self.call_tool(server_name, arguments, should_cancel=should_cancel)
+        run.mcp_client = self   # type: ignore[attr-defined]   # who owns this alias in a registry
         return run
