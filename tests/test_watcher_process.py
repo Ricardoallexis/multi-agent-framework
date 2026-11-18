@@ -326,7 +326,8 @@ function Enter-ChannelLock($owner, $seconds) {
 }
 function Exit-ChannelLock {
   $script:handle.Dispose()
-  Remove-Item -LiteralPath $script:lockFile
+  # Not Remove-Item: outside Windows a name that starts with '.' is hidden, and Remove-Item refuses hidden files.
+  [IO.File]::Delete($script:lockFile)
 }
 ''', encoding="utf-8")
     cards = tmp_path / "tareas/AAA"
