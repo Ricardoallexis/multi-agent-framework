@@ -16,6 +16,8 @@ What each app gives (USO-T01):
   with the percent and reset of the 5 hour and weekly windows).
 * Copilot: ``session-store.db`` table ``assistant_usage_events`` (tokens and AI credits per call) and
   ``session.error`` ``quota_exceeded`` events; the monthly reset is a documented rule, not on disk.
+* Antigravity (agy): nothing on disk; the limits come from the text of ``agy -p /usage --output-format text``
+  (``parse_agy_usage``, a pure parser: this module never starts agy).
 
 Never opened, because they hold credentials or tokens: ``~/.codex/auth.json``, ``~/.claude.json``, the
 keyring and Copilot's ``data.db`` (``accounts`` and ``settings``). Databases are opened ``mode=ro`` with a
@@ -573,3 +575,88 @@ def read_copilot_limit_hit(copilot_home: Path, since: datetime) -> tuple[LimitHi
             if latest is None or at >= latest.at:
                 latest = LimitHit("copilot", at, MONTHLY, None, RESET_NONE, "quota_exceeded")
     return latest, []
+
+
+# --------------------------------------------------------------------------- Antigravity (agy)
+
+AGY_WINDOW_MINUTES = {FIVE_HOUR: 300, WEEKLY: 10080, MODEL_WEEKLY: 10080}
+_AGY_LINE = re.compile(
+    r"^(?P<head>.+?)\s+(?P<kind>Weekly|Five Hour) Limit(?P<rem> Remaining)?\s+"
+    r"(?P<percent>\d+(?:\.\d+)?)\s*%\s+(?P<reset>\S+)$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class AgyLimit:
+    """One line of ``agy /usage``: what is left of a window of a model group (or of one model) and its reset."""
+
+    name: str                  # the group ("Gemini Models") or, for ``model_weekly``, the model
+    window: str                # five_hour | weekly | model_weekly
+    remaining_percent: float   # 0..100
+    resets_at: datetime | None
+
+    @property
+    def used_percent(self) -> float:
+        return round(100.0 - self.remaining_percent, 6)
+
+    def to_rate_window(self) -> RateWindow:
+        return RateWindow(self.window, self.used_percent, self.resets_at, AGY_WINDOW_MINUTES.get(self.window),
+                          RESET_APP_EPOCH if self.resets_at else RESET_NONE)
+
+
+def _agy_fields(line: str) -> tuple[str, str, str, str] | None:
+    """``(name, label, percent, reset)`` of one line: split on tabs, else on the words (tabs lost in transit)."""
+    parts = [part.strip() for part in line.split("\t")]
+    if len(parts) == 4 and parts[2].endswith("%"):
+        return parts[0], parts[1], parts[2][:-1].strip(), parts[3]
+    match = _AGY_LINE.match(line.strip())
+    if not match:
+        return None
+    words = match["head"].split()
+    head = match["head"]
+    if not match["rem"] and len(words) % 2 == 0 and words[:len(words) // 2] == words[len(words) // 2:]:
+        head = " ".join(words[:len(words) // 2])  # "<model> <model> Weekly Limit": the model once
+    return head, f"{match['kind']} Limit{match['rem'] or ''}", match["percent"], match["reset"]
+
+
+def parse_agy_usage(text: str) -> tuple[list[AgyLimit], list[str]]:
+    """The limits in the text of ``agy -p /usage --output-format text``; pure (no process, no clock, no file).
+
+    Lines are ``<group> TAB <Weekly|Five Hour> Limit Remaining TAB <N>% TAB <ISO-8601>`` or
+    ``<model> TAB <model> Weekly Limit TAB <N>% TAB <ISO-8601>``. Anything else is skipped and counted in one
+    warning; a percent outside 0..100 drops the line; an unreadable reset time keeps the line without it.
+    """
+    limits: list[AgyLimit] = []
+    warnings: list[str] = []
+    skipped = 0
+    for raw in (text or "").splitlines():
+        if not raw.strip():
+            continue
+        fields = _agy_fields(raw)
+        label = fields[1].lower() if fields else ""
+        if fields is None or not ("weekly limit" in label or "five hour limit" in label):
+            skipped += 1
+            continue
+        name, _, percent, reset = fields
+        try:
+            remaining = float(percent)
+        except ValueError:
+            skipped += 1
+            continue
+        if not 0.0 <= remaining <= 100.0:
+            warnings.append("usage_percent_out_of_range: a line was dropped")
+            continue
+        if "five hour" in label:
+            window = FIVE_HOUR
+        elif "remaining" in label:
+            window = WEEKLY
+        else:
+            window = MODEL_WEEKLY
+        at = parse_instant(reset)
+        if at is None:
+            warnings.append("usage_reset_unreadable: a limit has no reset time")
+        limits.append(AgyLimit(name, window, remaining, at))
+    if skipped:
+        warnings.append(f"usage_lines_skipped: {skipped}")
+    if not limits:
+        warnings.append("usage_no_limits_found")
+    return limits, list(dict.fromkeys(warnings))

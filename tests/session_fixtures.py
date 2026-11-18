@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +16,8 @@ CLAUDE_ID = "11111111-1111-4111-8111-111111111111"
 CLAUDE_OTHER = "11111111-1111-4111-8111-bbbbbbbbbbbb"
 CODEX_ID = "22222222-2222-4222-8222-222222222222"
 COPILOT_ID = "33333333-3333-4333-8333-333333333333"
+AGY_ID = "44444444-4444-4444-8444-444444444444"
+AGY_CHILD = "44444444-4444-4444-8444-555555555555"
 
 
 @dataclass
@@ -112,6 +115,45 @@ def write_copilot(stores: Stores, session_id: str = COPILOT_ID, cwd: Path | None
         {"type": "user.message", "timestamp": "2026-10-03T09:00:01Z", "data": {"content": "copilot prompt"}},
         {"type": "assistant.message", "timestamp": "2026-10-03T09:00:02Z", "data": {"content": "copilot answer"}},
     ])
+
+
+def write_antigravity(home: Path, rows: list[dict] | None = None, *, files: bool = True) -> Path:
+    """A synthetic agy folder: ``conversation_summaries.db`` with the real column names, one ``conversations/<id>.db``
+    per row and a ``brain/<id>`` folder. The text in the rows is invented; nothing here comes from a real store."""
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "conversations").mkdir(exist_ok=True)
+    rows = rows if rows is not None else [agy_row(AGY_ID, "agy synthetic title", "file:///d:/proj/app")]
+    conn = sqlite3.connect(home / "conversation_summaries.db")
+    conn.execute(
+        "CREATE TABLE conversation_summaries (conversation_id text PRIMARY KEY, title text NOT NULL DEFAULT '', "
+        "preview text NOT NULL DEFAULT '', step_count integer NOT NULL DEFAULT 0, last_modified_time datetime NOT NULL, "
+        "workspace_uris text NOT NULL, status text NOT NULL DEFAULT '', source text NOT NULL DEFAULT '', "
+        "agent_name text NOT NULL DEFAULT '', parent_conversation_id text NOT NULL DEFAULT '', "
+        "nesting_depth integer NOT NULL DEFAULT 0, killed numeric NOT NULL DEFAULT 0, "
+        "not_fully_idle numeric NOT NULL DEFAULT 0, raw_summary blob)")
+    for row in rows:
+        conn.execute(
+            "INSERT INTO conversation_summaries (conversation_id, title, preview, step_count, last_modified_time, "
+            "workspace_uris, status, agent_name, parent_conversation_id, killed, not_fully_idle, raw_summary) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (row["id"], row["title"], "PREVIEW-SECRET", 3, row["modified"], json.dumps([row["workspace"]]),
+             row["status"], row.get("agent", ""), row.get("parent", ""), row.get("killed", 0), row.get("busy", 0),
+             b"RAW-SECRET"))
+        if files:
+            inner = sqlite3.connect(home / "conversations" / f"{row['id']}.db")
+            inner.execute("CREATE TABLE steps (idx integer PRIMARY KEY, step_payload blob)")
+            inner.execute("INSERT INTO steps VALUES (0, ?)", (b"STEP-SECRET",))
+            inner.commit()
+            inner.close()
+        (home / "brain" / row["id"]).mkdir(parents=True, exist_ok=True)
+    conn.commit()
+    conn.close()
+    return home
+
+
+def agy_row(cid: str, title: str, workspace: str, *, modified: str = "2026-11-17 22:11:05.1234567+01:00",
+            status: str = "CASCADE_RUN_STATUS_IDLE", **extra) -> dict:
+    return {"id": cid, "title": title, "workspace": workspace, "modified": modified, "status": status, **extra}
 
 
 def add_framework_run(services: ApplicationServices, name: str = "demo", *, events: int = 2, model: str = "") -> str:

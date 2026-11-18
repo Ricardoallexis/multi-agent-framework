@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Read-only readers for Claude, Codex and Copilot sessions (GUI-T03); no web, CLI or framework DB."""
+"""Read-only readers for Claude, Codex, Copilot and Antigravity sessions (GUI-T03); no web, CLI or framework DB."""
 from .children import ChildAgent, ChildStatus
 from .config import SessionsConfig
 from .models import (

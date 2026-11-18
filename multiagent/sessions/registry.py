@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from ._common import MetaIndex, normalize_ts, within_root
+from .antigravity import AntigravityReader
 from .children import MAX_CHILDREN, ChildAgent, LevelOf, no_level, sort_children
 from .claude import ClaudeReader
 from .codex import CodexReader
@@ -30,8 +31,10 @@ from .models import (
 
 MAX_PAGE = 1000
 SCAN_TTL_SECONDS = 2.0  # how long the per-source listing is reused before the folders are walked again
-_READERS = {"claude": ClaudeReader, "codex": CodexReader, "copilot": CopilotReader}
-_ROOTS = {"claude": ("claude_home", "claude_desktop_dir"), "codex": ("codex_home",), "copilot": ("copilot_home",)}
+_READERS = {"claude": ClaudeReader, "codex": CodexReader, "copilot": CopilotReader,
+            "antigravity": AntigravityReader}
+_ROOTS = {"claude": ("claude_home", "claude_desktop_dir"), "codex": ("codex_home",), "copilot": ("copilot_home",),
+          "antigravity": ("antigravity_home",)}
 
 
 @dataclass(frozen=True)
@@ -186,11 +189,12 @@ class SessionRegistry:
         result: dict[str, object] = {
             "last_output_at": data.get("last_output_at"),
             "source": {"claude": "claude_transcript", "codex": "codex_rollout_mtime",
-                       "copilot": "copilot_events_mtime"}[source],
+                       "copilot": "copilot_events_mtime", "antigravity": "antigravity_conversation_mtime"}[source],
         }
         if source in ("claude", "codex", "copilot"):
             result["open_tests"] = bool(data.get("open_tests"))
         return result
+
     def read_items(self, session_id: str, after: str | None = None, limit: int = 200) -> ItemsPage:
         decode_cursor(after, 1)  # validate before touching any file
         self.get_session(session_id)  # existence + allowed folders

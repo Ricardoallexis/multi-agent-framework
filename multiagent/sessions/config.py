@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_SOURCES = ("claude", "codex", "copilot")
+DEFAULT_SOURCES = ("claude", "codex", "copilot")  # "antigravity" is opt-in: pass it in ``sources``
 
 
 def _default_claude_desktop_dir() -> Path | None:
@@ -35,12 +35,14 @@ class SessionsConfig:
     codex_home: Path | None = None
     copilot_home: Path | None = None
     claude_desktop_dir: Path | None = None
+    antigravity_home: Path | None = None  # ~/.gemini/antigravity-cli (agy)
 
     @classmethod
     def defaults(cls, allowed_roots: tuple[str, ...] | list[str] = (),
                  sources: tuple[str, ...] | list[str] = DEFAULT_SOURCES, **paths: Path | None) -> SessionsConfig:
         home = Path.home()
         values = {"claude_home": home / ".claude", "codex_home": home / ".codex",
-                  "copilot_home": home / ".copilot", "claude_desktop_dir": _default_claude_desktop_dir()}
+                  "copilot_home": home / ".copilot", "antigravity_home": home / ".gemini" / "antigravity-cli",
+                  "claude_desktop_dir": _default_claude_desktop_dir()}
         values.update({k: (Path(v) if v is not None else None) for k, v in paths.items() if k in values})
         return cls(allowed_roots=tuple(str(r) for r in allowed_roots), sources=tuple(sources), **values)

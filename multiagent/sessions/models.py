@@ -13,6 +13,7 @@ class Source(str, Enum):
     CLAUDE = "claude"
     CODEX = "codex"
     COPILOT = "copilot"
+    ANTIGRAVITY = "antigravity"
     FRAMEWORK = "framework"
 
 

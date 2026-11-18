@@ -4,6 +4,10 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ## [Unreleased]
 
+### Added
+
+- Read-only reader of Antigravity (agy) sessions in `multiagent/sessions/antigravity.py`: it lists conversations from `conversation_summaries.db` (id, title, last change, working folder, run status, parent) without reading any message, and a pure parser of the text of `agy -p /usage` (`parse_agy_usage`) that returns the remaining percent and reset of each limit. The reader is opt-in (`sources=("antigravity",)`) until the settings and the viewer list it.
+
 ### Removed
 
 - Remove the Stage 0 run-console prototype, its route, CLI command, package, and guide.

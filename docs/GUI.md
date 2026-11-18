@@ -378,7 +378,9 @@ reasoning is never shown, and all session content is rendered as plain text.
 Only sessions whose working folder is under a configured
 `GUI_SESSION_ROOTS` path are listed.
 
-Copilot desktop-only data is not read. Framework-run status is reduced to
+Copilot desktop-only data is not read. The Antigravity (agy) reader, when its source is enabled, lists conversations
+from `~/.gemini/antigravity-cli/conversation_summaries.db` (metadata only: no models, no tokens, no messages).
+Framework-run status is reduced to
 active or idle. Long sessions do not have a "jump to end" control. The session
 viewer is read-only; the separate Runs view is where the GUI creates and
 manages framework runs.
