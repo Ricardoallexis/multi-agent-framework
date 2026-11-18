@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_SOURCES = ("claude", "codex", "copilot")  # "antigravity" is opt-in: pass it in ``sources``
+DEFAULT_SOURCES = ("claude", "codex", "copilot", "antigravity")
 
 
 def _default_claude_desktop_dir() -> Path | None:

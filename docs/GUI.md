@@ -339,10 +339,11 @@ a JSON list or as values separated by `;`.
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `GUI_SESSION_ROOTS` | `[]` | Allowed working-folder roots for listing sessions; empty means none are listed. |
-| `GUI_SESSION_SOURCES` | `["claude", "codex", "copilot", "framework"]` | Session sources to read. |
+| `GUI_SESSION_SOURCES` | `["claude", "codex", "copilot", "antigravity", "framework"]` | Session sources to read. |
 | `GUI_CLAUDE_HOME` | unset | Override Claude's session store location. |
 | `GUI_CODEX_HOME` | unset | Override Codex's session store location. |
 | `GUI_COPILOT_HOME` | unset | Override Copilot's session store location. |
+| `GUI_ANTIGRAVITY_HOME` | unset (`~/.gemini/antigravity-cli`) | Override Antigravity's (agy) session store location. |
 | `GUI_CLAUDE_DESKTOP_DIR` | unset | Override Claude Desktop's session directory. |
 | `GUI_ALLOW_LAUNCH` | `true` | Allow the GUI to launch Claude Desktop sessions. |
 | `GUI_TOKEN_FILE` | `~/.multiagent/gui-token` | GUI access-token file. |
@@ -378,7 +379,7 @@ reasoning is never shown, and all session content is rendered as plain text.
 Only sessions whose working folder is under a configured
 `GUI_SESSION_ROOTS` path are listed.
 
-Copilot desktop-only data is not read. The Antigravity (agy) reader, when its source is enabled, lists conversations
+Copilot desktop-only data is not read. The Antigravity (agy) reader lists conversations
 from `~/.gemini/antigravity-cli/conversation_summaries.db` (metadata only: no models, no tokens, no messages).
 Framework-run status is reduced to
 active or idle. Long sessions do not have a "jump to end" control. The session

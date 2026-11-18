@@ -11,7 +11,7 @@ from typing import Annotated, Any, Optional, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-SESSION_SOURCES = ("claude", "codex", "copilot", "framework")  # sources of the GUI session viewer
+SESSION_SOURCES = ("claude", "codex", "copilot", "antigravity", "framework")  # sources of the GUI session viewer
 BUDGET_SCOPES = ("month", "project", "run")   # USO-T03: what a budget limits
 BUDGET_MODES = ("warn", "cut")                # USO-T03: only report (default) or let USO-T04 cut the call
 DEFAULT_BUDGET_ALERTS = (80.0, 95.0)          # percent of a budget that raises an alert
@@ -197,12 +197,13 @@ class Settings(BaseSettings):
     gui_stream_max_seconds: float = Field(default=0.0, ge=0)
     # Session viewer (GUI-T02 contract, section 6). Only sessions whose working folder is inside one of
     # ``gui_session_roots`` are shown; empty (the default) shows none. Environment values: a JSON list or
-    # items separated by ``;``. The four ``gui_*_home``/``_dir`` settings override where each store lives.
+    # items separated by ``;``. The five ``gui_*_home``/``_dir`` settings override where each store lives.
     gui_session_roots: Annotated[list[str], NoDecode] = Field(default_factory=list)
     gui_session_sources: Annotated[list[str], NoDecode] = Field(default_factory=lambda: list(SESSION_SOURCES))
     gui_claude_home: Optional[Path] = None
     gui_codex_home: Optional[Path] = None
     gui_copilot_home: Optional[Path] = None
+    gui_antigravity_home: Optional[Path] = None  # default ~/.gemini/antigravity-cli
     gui_claude_desktop_dir: Optional[Path] = None
     # USO-T02 usage service. Both are the operator's own manual input (the apps leave neither on disk): the
     # monthly AI credit cap of their Copilot plan, and a JSON file a Claude ``statusLine`` script saved (its

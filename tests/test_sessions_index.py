@@ -737,7 +737,7 @@ def test_counts_route_requires_token_and_counts_each_reader(tmp_path):
         assert response.status_code == 200
         payload = response.json()
         assert set(payload) == {"counts", "hint"} and payload["hint"] is None
-        assert set(payload["counts"]) == {"claude", "codex", "copilot", "framework"}
+        assert set(payload["counts"]) == {"claude", "codex", "copilot", "antigravity", "framework"}
         for source in ("claude", "codex", "copilot"):
             assert payload["counts"][source]["total"] == 1
             assert set(payload["counts"][source]) == {"total", "active", "idle", "archived", "unknown"}

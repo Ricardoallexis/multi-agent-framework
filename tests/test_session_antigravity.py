@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from session_fixtures import AGY_CHILD, AGY_ID, agy_row, write_antigravity
+from session_fixtures import AGY_CHILD, AGY_ID, agy_gen_blob, agy_row, pb_field, write_antigravity
 
 from multiagent.sessions import (
     InvalidSessionId,
@@ -22,7 +22,7 @@ from multiagent.sessions import (
     Status,
     Surface,
 )
-from multiagent.sessions.antigravity import NO_CONTENT, workspace_path
+from multiagent.sessions.antigravity import NO_CONTENT, TOKENS_UNKNOWN, decode_gen_usage, workspace_path
 from multiagent.sessions.usage_sources import (
     FIVE_HOUR,
     MODEL_WEEKLY,
@@ -32,7 +32,7 @@ from multiagent.sessions.usage_sources import (
     parse_agy_usage,
 )
 
-SECRETS = ("PREVIEW-SECRET", "RAW-SECRET", "STEP-SECRET")
+SECRETS = ("PREVIEW-SECRET", "RAW-SECRET", "STEP-SECRET", "GEN-SECRET")
 
 
 def registry(tmp_path: Path, home: Path | None, roots=None, sources=("antigravity",)) -> SessionRegistry:
@@ -222,12 +222,11 @@ def test_activity_reports_only_a_time(tmp_path, work):
     assert data["source"] == "antigravity_conversation_mtime" and data["last_output_at"]
 
 
-def test_defaults_point_at_the_gemini_folder_and_the_source_is_opt_in(monkeypatch, tmp_path):
+def test_defaults_point_at_the_gemini_folder_and_the_source_is_on(monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     cfg = SessionsConfig.defaults()
     assert cfg.antigravity_home == tmp_path / ".gemini" / "antigravity-cli"
-    assert "antigravity" not in cfg.sources  # opt-in until the settings and the viewer list it
-    assert "antigravity" in SessionsConfig.defaults(sources=("antigravity",)).sources
+    assert "antigravity" in cfg.sources
     assert SessionsConfig.defaults(antigravity_home=tmp_path / "x").antigravity_home == tmp_path / "x"
 
 
@@ -242,6 +241,64 @@ def test_defaults_point_at_the_gemini_folder_and_the_source_is_opt_in(monkeypatc
 def test_workspace_path(uris, expected):
     got = workspace_path(uris)
     assert (got.replace("\\", "/") if got else got) == expected
+
+
+# ---------------- tokens (gen_metadata) ----------------
+def tokens_of(tmp_path, gens, **extra):
+    work = tmp_path / "work" / "proj"
+    work.mkdir(parents=True, exist_ok=True)
+    row = agy_row(AGY_ID, "t", work.as_uri(), **extra)
+    if gens is not None:
+        row["gens"] = gens
+    home = write_antigravity(tmp_path / "agy", [row])
+    return listing(registry(tmp_path, home)).sessions[0]
+
+
+def test_tokens_are_the_sum_of_the_generation_rows(tmp_path):
+    s = tokens_of(tmp_path, [agy_gen_blob(9295, 669, 0, 619), agy_gen_blob(2167, 73, 8599, 24)])
+    assert (s.tokens.input, s.tokens.output, s.tokens.cache_read, s.tokens.cache_write, s.tokens.total) == (
+        11462, 742, 8599, None, 20803)
+    assert TOKENS_UNKNOWN not in s.warnings
+    assert "GEN-SECRET" not in json.dumps(s.to_dict())
+
+
+def test_tokens_are_unknown_without_the_table(tmp_path):
+    s = tokens_of(tmp_path, None)
+    assert s.tokens is None and TOKENS_UNKNOWN in s.warnings
+
+
+def test_tokens_are_unknown_with_a_corrupt_or_unexpected_blob(tmp_path):
+    bad_blobs = (bytes.fromhex("ffffff"), b"", agy_gen_blob(1, 2)[:-3], pb_field(1, pb_field(5, b"x")),
+                 pb_field(1, pb_field(4, pb_field(2, 5))))
+    for number, bad in enumerate(bad_blobs):
+        s = tokens_of(tmp_path / str(number), [agy_gen_blob(10, 20), bad])
+        assert s.tokens is None and TOKENS_UNKNOWN in s.warnings
+
+
+def test_tokens_are_unknown_with_no_rows_or_a_missing_conversation_file(tmp_path):
+    assert tokens_of(tmp_path, []).tokens is None
+    home = tmp_path / "agy"
+    (home / "conversations" / f"{AGY_ID}.db").unlink()
+    assert listing(registry(tmp_path, home)).sessions[0].tokens is None
+
+
+def test_decode_gen_usage_shapes():
+    assert decode_gen_usage(agy_gen_blob(5, 6, 7, 8)) == {"input": 5, "output": 6, "cache_read": 7, "thinking": 8}
+    assert decode_gen_usage(agy_gen_blob(5, 6)) == {"input": 5, "output": 6, "cache_read": 0, "thinking": 0}
+    for bad in (None, "text", 5, b"", bytes.fromhex("08"), bytes.fromhex("0a05") + b"ab", bytes.fromhex("1b"),
+                b"x" * 5 + bytes(1)):
+        assert decode_gen_usage(bad) is None
+    assert decode_gen_usage(bytes(5 * 1024 * 1024)) is None
+
+
+def test_tokens_of_children_come_from_their_own_conversation(tmp_path):
+    work = tmp_path / "work" / "proj"
+    work.mkdir(parents=True)
+    home = write_antigravity(tmp_path / "agy", [
+        {**agy_row(AGY_ID, "p", work.as_uri()), "gens": [agy_gen_blob(1, 1)]},
+        {**agy_row(AGY_CHILD, "c", work.as_uri(), parent=AGY_ID), "gens": [agy_gen_blob(100, 20, 50)]}])
+    child = registry(tmp_path, home).list_children(f"antigravity:{AGY_ID}")[0][0]
+    assert (child.tokens.input, child.tokens.output, child.tokens.cache_read, child.tokens.total) == (100, 20, 50, 170)
 
 
 # ---------------- /usage parser ----------------
@@ -293,3 +350,8 @@ def test_parse_usage_bad_values():
 def test_parse_usage_without_limits(text):
     limits, warnings = parse_agy_usage(text)
     assert limits == [] and "usage_no_limits_found" in warnings
+
+
+def test_the_cache_may_exceed_the_input(tmp_path):
+    s = tokens_of(tmp_path, [agy_gen_blob(139402, 5000, 1349498, 900)])
+    assert (s.tokens.input, s.tokens.cache_read, s.tokens.output, s.tokens.total) == (139402, 1349498, 5000, 1493900)

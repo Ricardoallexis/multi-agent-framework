@@ -666,19 +666,15 @@ $script:WorkerApps = @(
     # GEM-T04 (REGLAS 33): Antigravity (agy). Reference agy:<conversation_id> (UUID). Its activity file is conversations\<id>.db (SQLite: only its
     # modification time is used, never its content); without it, the json that the orchestrator saves from the run in
     # orquestacion\herramientas\agy-<n>.json (only its conversation_id is read; its modification time is the end of the run). The model is not
-    # in either source, so ReadModel is $null and the worker keeps its registered name (Antigravity-Flash, -Opus, ...), which already carries it.
+    # in either source; GEM-T06: the model is the init.model of the ndjson run output (Get-AgyRun); without it the worker keeps its registered name.
     [pscustomobject]@{ Key = 'agy'; Application = 'Antigravity'; RefPattern = 'agy:[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'; RefId = { param($reference) ($reference -split ':', 2)[1].ToLowerInvariant() }; BarePattern = $null
-        NamePattern = '(?i)\b(?:antigravity|agy)\b'; ShowAppPrefix = $false; TailBytes = 4096
+        NamePattern = '(?i)\b(?:antigravity|agy)\b'; ShowAppPrefix = $true; TailBytes = 4096
         FindFile = { param($ref)
             $path = Join-Path $script:agyRoot "conversations\$($ref.Id).db"
             if (Test-Path -LiteralPath $path -PathType Leaf) { return Get-Item -LiteralPath $path }
-            $dir = Join-Path $channel 'orquestacion\herramientas'
-            if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return }
-            foreach ($file in @(Get-ChildItem -LiteralPath $dir -File -Filter 'agy-*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)) {
-                try { $head = [IO.File]::ReadAllText($file.FullName) } catch { continue }
-                if ($head -match '"conversation_id"\s*:\s*"(?<id>[0-9A-Fa-f-]{36})"' -and $Matches['id'].ToLowerInvariant() -eq $ref.Id) { return $file }
-            } }
-        ReadModel = $null
+            $run = Get-AgyRun $ref.Id
+            if ($run) { return $run.Files | Select-Object -First 1 } }
+        ReadModel = { param($file, $ref) if ($ref) { $run = Get-AgyRun $ref.Id; if ($run) { [string]$run.Model } else { '' } } else { '' } }
         PendingTest = { param($records, $last) $null } }
 )
 # Any application's reference, for the "[ref: ...]" tail of a delegation row.
@@ -905,7 +901,7 @@ function Get-WorkerModel($ref) {
     $app = Get-WorkerApp $ref.Kind
     $file = if ($app -and $app.ReadModel) { Find-WorkerFile $ref } else { $null }
     if ($file) {
-        try { $model = [string](& $app.ReadModel $file) } catch { $model = '' }
+        try { $model = [string](& $app.ReadModel $file $ref) } catch { $model = '' }
     }
     $script:WorkerModelCache[$key] = $model
     $model
@@ -922,6 +918,102 @@ function Get-WorkerDisplayName([string]$worker, [string]$reference) {
     if ($worker -match [regex]::Escape($app)) { return $worker }
     "$app · $worker"
 }
+# GEM-T06: the outputs of the agy runs that the orchestrator saves in <channel>\orquestacion\herramientas: agy-<n>.json ({conversation_id, usage{...}})
+# and agy-<n>.ndjson (event "init": init.model; event "result": result.conversation_id and result.usage). Only the conversation id, the model name and
+# the token counts are read, never the response. One run per output name (agy-01c.json and agy-01c.ndjson are the same run; the ndjson wins).
+# Returns, per conversation id: Files, Model, Runs, Counted and the summed Total / Input (not cached) / Cached / Output.
+$script:AgyRuns = $null
+function Get-AgyRun([string]$id) {
+    if ($null -eq $script:AgyRuns) {
+        $script:AgyRuns = @{}
+        $dir = Join-Path $channel 'orquestacion\herramientas'
+        $byName = @{}
+        if (Test-Path -LiteralPath $dir -PathType Container) {
+            foreach ($file in @(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^agy-.+\.(json|ndjson)$' } | Sort-Object Name)) {
+                $one = $null
+                try {
+                    if ($file.Extension -eq '.ndjson') {
+                        $conversation = ''; $model = ''; $usage = $null
+                        foreach ($line in [IO.File]::ReadLines($file.FullName)) {
+                            if ($line -notmatch '"event"\s*:\s*"(init|result)"') { continue }
+                            try { $rec = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+                            if ($rec.event -eq 'init') {
+                                if ($rec.init) { $model = Get-StringField $rec.init @('model') }
+                                if (-not $conversation) { $conversation = Get-StringField $rec @('conversation_id') }
+                            } elseif ($rec.event -eq 'result' -and $rec.result) {
+                                $conversation = Get-StringField $rec.result @('conversation_id'); $usage = $rec.result.usage
+                            }
+                        }
+                        $one = [pscustomobject]@{ Id = $conversation; Model = $model; Usage = $usage; File = $file }
+                    } else {
+                        $rec = [IO.File]::ReadAllText($file.FullName) | ConvertFrom-Json -ErrorAction Stop
+                        $one = [pscustomobject]@{ Id = (Get-StringField $rec @('conversation_id')); Model = ''; Usage = $rec.usage; File = $file }
+                    }
+                } catch { $one = $null }
+                if ($one -and $one.Id -match '^[0-9A-Fa-f-]{36}$') { $byName[$file.BaseName] = $one }   # .ndjson sorts after .json: it replaces it
+            }
+        }
+        foreach ($one in $byName.Values) {
+            $key = $one.Id.ToLowerInvariant()
+            if (-not $script:AgyRuns.ContainsKey($key)) { $script:AgyRuns[$key] = [pscustomobject]@{ Files = @(); Model = ''; Runs = 0; Total = [long]0; Input = [long]0; Cached = [long]0; Output = [long]0; Counted = 0 } }
+            $run = $script:AgyRuns[$key]
+            $run.Files += $one.File
+            $run.Runs++
+            if ($one.Model) { $run.Model = $one.Model }
+            $number = { param($name) $p = $one.Usage.PSObject.Properties[$name]; if ($p -and "$($p.Value)" -match '^\d+$') { [long]$p.Value } else { $null } }
+            if ($one.Usage -and $null -ne (& $number 'total_tokens')) {
+                $in = & $number 'input_tokens'; $cache = & $number 'cache_read_tokens'; $out = & $number 'output_tokens'
+                $run.Counted++
+                $run.Total += [long]$in + [long]$cache + [long]$out   # agy's own total_tokens leaves the cache out
+                $run.Cached += [long]$cache
+                $run.Input += [long]$in   # agy's input_tokens excludes the cache reads: entrada + cacheados + salida = total
+                $run.Output += [long]$out
+            }
+        }
+    }
+    $key = $id.ToLowerInvariant()
+    if ($script:AgyRuns.ContainsKey($key)) { $script:AgyRuns[$key] } else { $null }
+}
+# Token entry (same shape as Get-TokenEntries) of the agy runs of a worker's delegations: $entries are delegation entries (Reference). $null when no
+# agy reference has a measured run.
+function Get-AgyWorkerToken([object[]]$entries, [string]$worker, [string]$orchestrator) {
+    $ids = @($entries | ForEach-Object { $reference = Get-EntryReference $_; if ($reference -match '^agy:(.+)$') { $Matches[1].ToLowerInvariant() } } | Select-Object -Unique)
+    $runs = @($ids | ForEach-Object { Get-AgyRun $_ } | Where-Object { $_ -and $_.Counted })
+    if (-not $runs.Count) { return $null }
+    [pscustomobject]@{ Kind = 'worker'; Agent = $worker; Orchestrator = $orchestrator; Total = [long](($runs | Measure-Object Total -Sum).Sum); Input = [long](($runs | Measure-Object Input -Sum).Sum)
+        Cached = [long](($runs | Measure-Object Cached -Sum).Sum); Output = [long](($runs | Measure-Object Output -Sum).Sum); Source = 'medido en la corrida' }
+}
+# The token entry of a worker: its entry of the card's Tokens field (tokens-tarea.ps1), else, for agy, its measured runs.
+function Find-WorkerToken([object[]]$fieldEntries, $entry, [object[]]$allEntries = @()) {
+    $token = @($fieldEntries | Where-Object { $_.Kind -eq 'worker' -and $_.Agent -ieq $entry.Worker }) | Select-Object -First 1
+    if ($token) { return $token }
+    $mine = @(@($allEntries) + @($entry) | Where-Object { $_ -and $_.Worker -ieq $entry.Worker })
+    Get-AgyWorkerToken $mine $entry.Worker $entry.Orchestrator
+}
+# GEM-T06: the agy workers of a task whose runs have measured tokens but no entry in the card's Tokens field (the field is written by tokens-tarea.ps1):
+# one token entry per worker (Kind worker, Source 'medido en la corrida').
+function Get-AgyTaskTokenEntries([object[]]$delegations, [string]$fieldTokens) {
+    $known = @(Get-TokenEntries $fieldTokens | Where-Object { $_.Kind -ne 'total' } | ForEach-Object Agent)
+    foreach ($worker in @($delegations | Where-Object { (Get-EntryReference $_) -like 'agy:*' } | ForEach-Object { $_.Worker } | Select-Object -Unique)) {
+        if ($known -icontains $worker) { continue }
+        $mine = @($delegations | Where-Object { $_.Worker -ieq $worker })
+        Get-AgyWorkerToken $mine $worker ([string]$mine[0].Orchestrator)
+    }
+}
+# Cell of the Tokens column of a task: the card's field, plus the agy workers measured from their runs when the field does not have them.
+function Get-TaskTokensHtml([string]$fieldTokens, [object[]]$delegations) {
+    $html = Get-TokensHtml $fieldTokens
+    $extra = @(Get-AgyTaskTokenEntries $delegations $fieldTokens)
+    if (-not $extra.Count) { return $html }
+    $lines = foreach ($token in $extra) {
+        $detail = "Entrada $($token.Input) · cacheados $($token.Cached) · salida $($token.Output) · $($token.Source)"
+        "<div class=""token-worker"" style=""margin-left:1em"" title=""$(Encode $detail)"">&#8627; $(Encode $token.Agent) <span class=""meta"">(delegado por $(Encode $token.Orchestrator))</span>: <strong>$(Format-TokenCount $token.Total)</strong> <span class=""meta"">$(Encode $token.Source)</span></div>"
+    }
+    $fieldHasTotal = @(Get-TokenEntries $fieldTokens | Where-Object { $_.Kind -eq 'total' }).Count -gt 0
+    $total = if ($fieldHasTotal) { '' } else { "<div class=""token-total""><strong>Total de la tarea: $(Format-TokenCount ([long](($extra | Measure-Object Total -Sum).Sum)))</strong> <span class=""meta"">solo corridas de agy</span></div>" }
+    $base = if ($fieldTokens -and @(Get-TokenEntries $fieldTokens).Count) { $html } else { '' }
+    $base + $total + ($lines -join '')
+}
 # Caches live for one page generation only (the watcher regenerates inside the same process).
 function Reset-WorkerCaches {
     $script:SubagentFileCache = @{}
@@ -929,6 +1021,7 @@ function Reset-WorkerCaches {
     $script:WorkerModelCache = @{}
     $script:ExecutionLines = $null
     $script:ActivityBoard = $null   # SEG-T18
+    $script:AgyRuns = $null        # GEM-T06
     $script:WaitBoard = $null       # SEG-T19
 }
 $script:TestCommandPattern = 'pytest|probar\.ps1|integrar-sin-ventanas\.ps1'
@@ -1151,6 +1244,7 @@ function Get-WorkerListHtml($delegation, [string]$tokens) {
             "<li><strong>$(Encode (Get-WorkTag $item))</strong> · $(Encode $span)$piece$result</li>"
         }
         $token = $tokenEntries | Where-Object { $_.Agent -ieq $detail.Worker } | Select-Object -First 1
+        if (-not $token -and $detail) { $token = Get-AgyWorkerToken $items $detail.Worker $delegation.Orchestrator }
         $tokenLine = if ($token) { "<div>$(Get-WorkerTokenText $token)</div>" } else { '' }
         "<div class=""meta""><details class=""seg-worker""><summary>$(Encode $label)$chips</summary><ul class=""seg-worker-items"">$($lines -join '')</ul>$tokenLine</details></div>"
     }
@@ -1170,7 +1264,7 @@ function Get-ForeignWorkers($board, [object[]]$registered) {
             $orchestrator = if ($entry.Orchestrator) { [string]$entry.Orchestrator } else { [string]$task.Agent }
             if ((Get-AgentApplication $orchestrator $registered) -ieq $app.Application) { continue }
             $activity = Get-WorkerActivity $entry
-            $token = @(Get-TokenEntries $task.Tokens | Where-Object { $_.Kind -eq 'worker' -and $_.Agent -ieq $entry.Worker }) | Select-Object -First 1
+            $token = Find-WorkerToken @(Get-TokenEntries $task.Tokens) $entry @($task.AllDelegations)
             [pscustomobject]@{ Application = $app.Application; Task = $task; Entry = $entry; Orchestrator = $orchestrator
                 Activity = $activity; Stopped = ($activity -eq 'Probablemente detenido'); Token = $token }
         }
@@ -1777,7 +1871,9 @@ function Get-AgentBoardData {
             }
 
             $historyText = Get-TaskSection $text 'Historial'
-            $task | Add-Member -NotePropertyName ActiveDelegations -NotePropertyValue @((Get-CardDelegations $historyText $state).Active)
+            $boardDelegations = Get-CardDelegations $historyText $state
+            $task | Add-Member -NotePropertyName ActiveDelegations -NotePropertyValue @($boardDelegations.Active)
+            $task | Add-Member -NotePropertyName AllDelegations -NotePropertyValue @($boardDelegations.All)
             $badHistory = $false
             $historyLineNumber = 0
             foreach ($line in ($historyText -split "`r?`n")) {
@@ -2094,6 +2190,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $record | Add-Member -NotePropertyName FileDate -NotePropertyValue $file.LastWriteTime
             $cardDelegations = Get-CardDelegations $history $state
             $record | Add-Member -NotePropertyName ActiveDelegations -NotePropertyValue @($cardDelegations.Active)
+            $record | Add-Member -NotePropertyName AllDelegations -NotePropertyValue @($cardDelegations.All)
             $record | Add-Member -NotePropertyName Delegation -NotePropertyValue (Get-DelegationSummary $record.Id $cardDelegations $record.Agent)
             $taskRecords.Add($record)
         }
@@ -2201,7 +2298,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $rowHtml = "<tr><td><a href=""$($record.Href)"">$(Encode $record.Title)</a>$lastActivityHtml$($record.LeftHtml)</td>" +
             "<td>$stateCell</td>" +
             "<td>$(Inline $record.Agent)</td><td>$(Inline $record.Preferred)</td>" +
-            "<td>$dependencyHtml</td><td>$integrationHtml</td><td>$(Inline $record.Patch)</td><td>$(Encode $record.Workers)$delegationHtml</td><td>$(Get-TokensHtml $record.Tokens)</td></tr>"
+            "<td>$dependencyHtml</td><td>$integrationHtml</td><td>$(Inline $record.Patch)</td><td>$(Encode $record.Workers)$delegationHtml</td><td>$(Get-TaskTokensHtml $record.Tokens @($record.AllDelegations))</td></tr>"
             $taskRows.Add([pscustomobject]@{ Id = $record.Code; State = $record.State; Patch = $record.Patch; WaitingFor = @($record.WaitingFor); Integrating = [bool]$record.Integrating; Html = $rowHtml; Date = if ($record.LastRow) { $record.LastRow.Date } else { $null } })
         }
         # SEG-T05: tasks inside a stage follow their code (T01, T02, ...); each row still shows its own last activity.
@@ -2685,6 +2782,8 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
     }
     # Tokens this agent used on board tasks (field "Tokens" of the cards; measured or reported).
     $tokenEntries = @($agentBoard.Tasks | ForEach-Object { Get-TokenEntries $_.Tokens } | Where-Object { $_.Kind -ne 'total' -and $_.Agent -ieq $name })
+    # GEM-T06: agy workers named like this agent whose runs have tokens that the card's field does not list.
+    $tokenEntries += @($agentBoard.Tasks | ForEach-Object { Get-AgyTaskTokenEntries @($_.AllDelegations) $_.Tokens } | Where-Object { $_.Agent -ieq $name })
     $counted = @($tokenEntries | Where-Object { $null -ne $_.Total })
     $tokensHtml = if ($counted.Count) {
         $sum = ($counted | Measure-Object -Property Total -Sum).Sum

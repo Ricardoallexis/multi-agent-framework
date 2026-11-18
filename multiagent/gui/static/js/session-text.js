@@ -7,6 +7,7 @@ export const SOURCES = [
   { id: "claude", label: "Claude" },
   { id: "codex", label: "Codex" },
   { id: "copilot", label: "Copilot" },
+  { id: "antigravity", label: "Antigravity" },
   { id: "framework", label: "Framework" },
 ];
 

@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Session viewer services (GUI-T04): one read-only, unified list of work sessions.
 
-Wraps ``multiagent.sessions`` (Claude, Codex and Copilot readers, GUI-T03) and maps the framework's own
+Wraps ``multiagent.sessions`` (Claude, Codex, Copilot and Antigravity readers, GUI-T03) and maps the framework's own
 runs to the same ``SessionSummary``/``SessionItem`` model with ``source = "framework"``, so every
 interface (the token-protected ``/gui/api/sessions`` routes, ``multiagent sessions`` and Python) sees
 the same data. Nothing is written or stored: the readers open the apps' files read-only.
 
 Configuration comes from ``Settings``: ``gui_session_roots`` (folders whose sessions may be shown;
 empty shows nothing and the list says how to configure it), ``gui_session_sources`` and the four store
-overrides ``gui_claude_home``, ``gui_codex_home``, ``gui_copilot_home`` and ``gui_claude_desktop_dir``.
+overrides ``gui_claude_home``, ``gui_codex_home``, ``gui_copilot_home``, ``gui_antigravity_home`` and ``gui_claude_desktop_dir``.
 
 Cursors are opaque to callers. File sessions use the reader's ``"0:<offset>"``; a framework run uses
 the id of its last ``run_events`` row (the same number the GUI event stream sends as ``id:``), so a
@@ -74,7 +74,7 @@ ROOTS_HINT = ("configure_roots: set gui_session_roots (environment GUI_SESSION_R
               "separated by ';') to the folders whose sessions may be shown")
 
 _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-_EXTERNAL_ID = re.compile(rf"(?P<source>claude|codex|copilot):(?P<native>{_UUID})(?P<agent>:agent-[A-Za-z0-9_-]{{1,64}})?")
+_EXTERNAL_ID = re.compile(rf"(?P<source>claude|codex|copilot|antigravity):(?P<native>{_UUID})(?P<agent>:agent-[A-Za-z0-9_-]{{1,64}})?")
 _FRAMEWORK_ID = re.compile(r"framework:(?P<native>[A-Za-z0-9_-]{1,64})")
 _INT_CURSOR = re.compile(r"[0-9]{1,15}")
 _RUN_STATUS = {
@@ -184,7 +184,7 @@ class SessionServices:
     def _get_registry(self) -> SessionRegistry:
         s = self._settings()
         overrides = {name: getattr(s, f"gui_{name}") for name in
-                     ("claude_home", "codex_home", "copilot_home", "claude_desktop_dir")
+                     ("claude_home", "codex_home", "copilot_home", "antigravity_home", "claude_desktop_dir")
                      if getattr(s, f"gui_{name}") is not None}
         external = tuple(x for x in self._sources() if x != "framework")
         key = (self._roots(), external, tuple(sorted((k, str(v)) for k, v in overrides.items())))
@@ -325,7 +325,7 @@ class SessionServices:
                       limit: int = DEFAULT_LIST_LIMIT, after: str | None = None) -> dict[str, Any]:
         """One page of sessions, newest first: ``{sessions, next_cursor, warnings, hint}``.
 
-        Filters: ``source`` (claude, codex, copilot, framework), ``surface`` (desktop, cli, framework,
+        Filters: ``source`` (claude, codex, copilot, antigravity, framework), ``surface`` (desktop, cli, framework,
         unknown), ``cwd`` (only sessions whose folder is under it), ``since``/``until`` (ISO-8601,
         compared with ``updated_at``) and ``text`` (part of the title). With no ``gui_session_roots``
         the page is empty and ``hint`` says how to configure them (``None`` otherwise).

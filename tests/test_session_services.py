@@ -321,7 +321,7 @@ def test_poll_items_reads_only_what_was_appended(services, stores):
 # -------- configuration --------
 def test_settings_default_to_no_roots_and_all_sources():
     settings = Settings(_env_file=None)
-    assert settings.gui_session_roots == [] and settings.gui_session_sources == ["claude", "codex", "copilot", "framework"]
+    assert settings.gui_session_roots == [] and settings.gui_session_sources == ["claude", "codex", "copilot", "antigravity", "framework"]
     assert settings.gui_claude_home is None and settings.gui_codex_home is None
     assert settings.gui_copilot_home is None and settings.gui_claude_desktop_dir is None
 

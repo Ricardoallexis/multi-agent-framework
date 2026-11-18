@@ -117,6 +117,34 @@ def write_copilot(stores: Stores, session_id: str = COPILOT_ID, cwd: Path | None
     ])
 
 
+def _pb_varint(value: int) -> bytes:
+    out = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        out.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(out)
+
+
+def pb_field(number: int, value) -> bytes:
+    """One protobuf field: an int is a varint, bytes are length-delimited (a synthetic encoder for the tests)."""
+    if isinstance(value, int):
+        return _pb_varint(number << 3) + _pb_varint(value)
+    return _pb_varint(number << 3 | 2) + _pb_varint(len(value)) + value
+
+
+def agy_gen_blob(input_tokens: int, output_tokens: int, cache: int = 0, thinking: int = 0) -> bytes:
+    """A ``gen_metadata.data`` blob: field 1 -> message with a text field, a fixed32 and field 4 -> the usage varints."""
+    usage = pb_field(2, input_tokens) + pb_field(3, output_tokens) + pb_field(7, b"GEN-SECRET")
+    if cache:
+        usage += pb_field(5, cache)
+    if thinking:
+        usage += pb_field(9, thinking)
+    inner = pb_field(1, b"GEN-SECRET") + bytes([0x35, 1, 2, 3, 4]) + pb_field(4, usage)
+    return pb_field(2, b"GEN-SECRET") + pb_field(1, inner)
+
+
 def write_antigravity(home: Path, rows: list[dict] | None = None, *, files: bool = True) -> Path:
     """A synthetic agy folder: ``conversation_summaries.db`` with the real column names, one ``conversations/<id>.db``
     per row and a ``brain/<id>`` folder. The text in the rows is invented; nothing here comes from a real store."""
@@ -143,6 +171,10 @@ def write_antigravity(home: Path, rows: list[dict] | None = None, *, files: bool
             inner = sqlite3.connect(home / "conversations" / f"{row['id']}.db")
             inner.execute("CREATE TABLE steps (idx integer PRIMARY KEY, step_payload blob)")
             inner.execute("INSERT INTO steps VALUES (0, ?)", (b"STEP-SECRET",))
+            if "gens" in row:  # blobs (bytes) of the generations; omit the key for a conversation without the table
+                inner.execute("CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0)")
+                for i, blob in enumerate(row["gens"]):
+                    inner.execute("INSERT INTO gen_metadata VALUES (?, ?, ?)", (i, blob, len(blob)))
             inner.commit()
             inner.close()
         (home / "brain" / row["id"]).mkdir(parents=True, exist_ok=True)

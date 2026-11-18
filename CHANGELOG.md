@@ -6,7 +6,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Added
 
-- Read-only reader of Antigravity (agy) sessions in `multiagent/sessions/antigravity.py`: it lists conversations from `conversation_summaries.db` (id, title, last change, working folder, run status, parent) without reading any message, and a pure parser of the text of `agy -p /usage` (`parse_agy_usage`) that returns the remaining percent and reset of each limit. The reader is opt-in (`sources=("antigravity",)`) until the settings and the viewer list it.
+- Read-only reader of Antigravity (agy) sessions in `multiagent/sessions/antigravity.py`: it lists conversations from `conversation_summaries.db` (id, title, last change, working folder, run status, parent) without reading any message, and a pure parser of the text of `agy -p /usage` (`parse_agy_usage`) that returns the remaining percent and reset of each limit. The source is listed by `multiagent sessions` and the session API (`GUI_SESSION_SOURCES`, root `GUI_ANTIGRAVITY_HOME`), and `multiagent usage-report plans` includes an `antigravity` app (five-hour and weekly windows per model group and per model, from `agy -p /usage`, which spends no model).
 
 ### Removed
 

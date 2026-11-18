@@ -10,7 +10,9 @@ same answer from Python, the token-protected ``/gui/api/usage/*`` routes, ``/api
   disk or documents it** (USO-T01). Codex: the percent and reset of its 5 hour and weekly windows. Claude:
   the reset instant after a limit was hit, and the percent only if the operator saved a ``statusLine``
   snapshot (``usage_claude_statusline_file``). Copilot: AI credits used this month, the monthly reset (a
-  documented rule) and a percent only if the operator set ``usage_copilot_monthly_credits``. Everything
+  documented rule) and a percent only if the operator set ``usage_copilot_monthly_credits``. Antigravity (agy):
+  the five hour and weekly windows per model group and per model, from ``agy -p /usage`` (no model is spent;
+  run without a shell, with a time limit, cached for a minute). Everything
   else is listed in ``not_available`` and is never estimated or shown as 0.
 * ``tokens(since, until, apps, group_by)``: tokens per app, model, level (catalog) and role, measured inside
   an exact time window. ``role`` is ``primary`` (a top-level session or a workflow step), ``delegated`` (a
@@ -54,6 +56,10 @@ from __future__ import annotations
 import json
 import logging
 import math
+import shutil
+import subprocess
+import tempfile
+import time
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -76,7 +82,7 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
-APPS = ("claude", "codex", "copilot", "framework")
+APPS = ("claude", "codex", "copilot", "antigravity", "framework")
 GROUP_DIMENSIONS = ("app", "model", "level", "role", "day", "month")
 DEFAULT_GROUP_BY = ("app", "model", "level", "role")
 DEFAULT_TOKEN_DAYS = 7
@@ -104,15 +110,43 @@ MEASUREMENT = {
     "claude": "per_message",       # one record per assistant message, deduplicated by message id
     "codex": "counter_growth",     # growth of the session's cumulative counters inside the window
     "copilot": "per_call",         # one row per call in the usage database
+    "antigravity": "not_recorded",  # agy keeps no token counts on disk (they are in protobuf blobs)
     "framework": "per_call",       # one telemetry row per provider call
 }
 CONVENTIONS = {
     "claude": "total = input + output + cache_read + cache_write (input excludes the cache)",
     "codex": "total = the reported total_tokens (its input already counts the cached part)",
     "copilot": "total = input + output (cache and reasoning are reported apart)",
+    "antigravity": "no tokens: agy leaves none on disk (per-run tokens are the channel's)",
     "framework": "total = input + output (input already counts the cached part; cache_read is shown apart)",
 }
 RESET_CONFIDENCE = {sources.RESET_APP_EPOCH: "high", sources.RESET_RULE: "medium", sources.RESET_NONE: "none"}
+AGY_USAGE_ARGS = ("-p", "/usage", "--output-format", "text", "--print-timeout", "30s")  # /usage spends no model (GEM-T01)
+AGY_TIMEOUT_SECONDS = 40.0
+AGY_CACHE_SECONDS = 60.0   # plans() is polled; /usage is a network call, so the answer is reused this long
+AgyRunner = Callable[[Sequence[str], float], tuple[int, str]]
+
+
+def run_agy_usage(argv: Sequence[str], timeout: float) -> tuple[int, str]:
+    """Run ``argv`` without a shell and never wait past ``timeout``; ``(exit code, stdout)`` (``(1, reason)`` on failure).
+
+    Output goes to temporary files, not pipes, so a child that outlives its parent cannot hold the call.
+    """
+    try:
+        with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+            process = subprocess.Popen(list(argv), stdin=subprocess.DEVNULL, stdout=out, stderr=err, shell=False)
+            try:
+                code = process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                return 1, f"timed out after {timeout:g} s"
+            out.seek(0)
+            return code, out.read().decode("utf-8", errors="replace")
+    except OSError as exc:
+        return 1, type(exc).__name__
+
+
 # What an app does not leave on disk, from USO-T01 (section 4); shown instead of a number.
 NOT_AVAILABLE_ALWAYS = ("model_limits",)
 
@@ -261,6 +295,9 @@ class UsageServices:
         self._services = services
         # A test sets ``clock`` to move time; every window and "now" below reads it.
         self.clock: Callable[[], datetime] = clock or (lambda: datetime.now(timezone.utc))
+        # Runs ``agy -p /usage``; a test replaces it with a fake so no real agy is ever started.
+        self.agy_runner: AgyRunner = run_agy_usage
+        self._agy_cache: tuple[float, dict[str, Any]] | None = None
         self._announced: set[str] = set()   # budget alerts already written as events (a cache: the events are the truth)
 
     # --- the engine (USO-T04) -------------------------------------------------------
@@ -392,7 +429,8 @@ class UsageServices:
         settings, home = self._services.settings, Path.home()
         return SessionsConfig(claude_home=settings.gui_claude_home or home / ".claude",
                               codex_home=settings.gui_codex_home or home / ".codex",
-                              copilot_home=settings.gui_copilot_home or home / ".copilot")
+                              copilot_home=settings.gui_copilot_home or home / ".copilot",
+                              antigravity_home=settings.gui_antigravity_home or home / ".gemini" / "antigravity-cli")
 
     def _stores(self) -> list[tuple[str | None, Any]]:
         """``(bundle, store)`` of the system and of every bundle that has runs."""
@@ -424,7 +462,8 @@ class UsageServices:
         now = self._now()
         config, enabled = self._config(), self._enabled()
         apps = []
-        for app, build in (("claude", self._plan_claude), ("codex", self._plan_codex), ("copilot", self._plan_copilot)):
+        for app, build in (("claude", self._plan_claude), ("codex", self._plan_codex), ("copilot", self._plan_copilot),
+                           ("antigravity", self._plan_antigravity)):
             apps.append(build(config, now) if app in enabled else {"app": app, "status": "disabled"})
         return {"generated_at": _iso(now), "apps": apps}
 
@@ -540,6 +579,46 @@ class UsageServices:
             entry["credits"] = None  # the database could not be read: no consumption figure, not even a 0
         return entry
 
+    def _plan_antigravity(self, config: SessionsConfig, now: datetime) -> dict[str, Any]:
+        """Antigravity: the limits ``agy -p /usage`` prints (percent left and reset, per model group and per model).
+
+        The command spends no model. Any failure (agy missing, a timeout, odd output) is a note, never an error.
+        """
+        if self._services.settings.mock_mode:
+            return self._entry("antigravity", None, [], ["plan_name"],
+                               ["source_unavailable: mock mode does not start agy"], data=False)
+        cached = self._agy_cache
+        if cached is not None and time.monotonic() - cached[0] < AGY_CACHE_SECONDS:
+            entry = dict(cached[1])
+        else:
+            entry = self._read_agy_usage(now)
+            self._agy_cache = (time.monotonic(), entry)
+        return dict(entry)
+
+    def _read_agy_usage(self, now: datetime) -> dict[str, Any]:
+        missing = ["plan_name", "credits_balance"]  # the per-model limits are in the windows
+        exe = shutil.which("agy")
+        if exe is None:
+            return self._entry("antigravity", None, [], missing, ["source_unavailable: agy not found in PATH"], data=False)
+        try:
+            code, text = self.agy_runner([exe, *AGY_USAGE_ARGS], AGY_TIMEOUT_SECONDS)
+        except Exception as exc:  # a runner must never break the report
+            return self._entry("antigravity", None, [], missing,
+                               [f"source_unavailable: agy /usage failed ({type(exc).__name__})"], data=False)
+        if code != 0:
+            return self._entry("antigravity", None, [], missing,
+                               [f"source_unavailable: agy /usage failed (exit {code})"], data=False)
+        limits, notes = sources.parse_agy_usage(text)
+        windows = []
+        for limit in limits:
+            view = self._window_view(limit.to_rate_window(), now)
+            view["group"] = limit.name
+            windows.append(view)
+        if any(w["state"] == "window_reset" for w in windows):
+            notes.append("window_reset_since_observation")
+        observed = PlanObservation("antigravity", "agy_usage_command", now, windows=tuple(l.to_rate_window() for l in limits))
+        return self._entry("antigravity", observed if windows else None, windows, missing, notes, data=bool(windows))
+
     # --- tokens ---------------------------------------------------------------------
 
     @service_errors
@@ -605,6 +684,8 @@ class UsageServices:
             home, reader = config.codex_home, sources.read_codex_tokens
         elif app == "copilot":
             home, reader = config.copilot_home, sources.read_copilot_tokens
+        elif app == "antigravity":
+            return [], ["tokens_not_recorded: agy keeps no token counts on disk"], {}
         else:
             records = self._telemetry(start, end)
             events = [TokenEvent(app="framework", at=r["at"], model=r["model"] or None, role=sources.ROLE_PRIMARY,

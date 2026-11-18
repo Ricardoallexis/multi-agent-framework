@@ -454,7 +454,7 @@ def test_filters_and_sources_disabled(env):
 
 def test_missing_stores_are_reported_not_fatal(env):
     page = reg(env).list_sessions()
-    assert page.sessions == [] and sum("source_unavailable" in w for w in page.warnings) == 3
+    assert page.sessions == [] and sum("source_unavailable" in w for w in page.warnings) == 4
 
 
 def test_timestamp_normalization():

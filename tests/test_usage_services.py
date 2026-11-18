@@ -223,7 +223,7 @@ def test_apps_the_viewer_does_not_show_are_disabled(tmp_path):
     built = build(tmp_path, gui_session_sources=["codex", "framework"])
     try:
         plans = built.usage.plans()
-        assert [(a["app"], a["status"]) for a in plans["apps"]] == [("claude", "disabled"), ("codex", "ok"), ("copilot", "disabled")]
+        assert [(a["app"], a["status"]) for a in plans["apps"]] == [("claude", "disabled"), ("codex", "ok"), ("copilot", "disabled"), ("antigravity", "disabled")]
         tokens = built.usage.tokens()
         assert set(tokens["apps"]) == {"codex", "framework"}               # a disabled app is left out unless it is asked for
         assert {row["app"] for row in tokens["rows"]} == {"codex", "framework"}
