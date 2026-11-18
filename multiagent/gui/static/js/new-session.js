@@ -5,14 +5,15 @@
 // only thing that creates a run (the same POST /gui/api/runs the form uses). «Ver como formulario» opens the existing
 // form (create-run.js) with the answers already in place. What happens next is decided by new-session-model.js (pure);
 // this file reads the workflows, draws the conversation and calls the API. Every message is rendered as text.
-// Free text is matched against workflow names and descriptions; no model reads it.
+// Free text goes to POST /gui/api/new-session/interpret (a model on the server proposes a workflow and inputs, GUI2-T17);
+// without a valid proposal the words are compared with names and descriptions, and the chat says which one it used.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost } from "./api.js";
 import { CreateRun, PreviewPanel } from "./create-run.js";
 import { Help, helpFor } from "./help.js";
 import { modeHelpEntry } from "./help-text.js";
 import {
-  STARTERS, answerRows, cardDescription, createConversation, currentQuestion, formSeed, inputsPath, loadCatalog, originLabel, parseCommand,
+  SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, answerRows, cardDescription, createConversation, currentQuestion, formSeed, inputsPath, loadCatalog, originLabel, parseCommand,
   pickRuns, progress, reduce, runBody, suggestedEntries,
 } from "./new-session-model.js";
 import { navigate, routeHref } from "./route.js";
@@ -44,7 +45,7 @@ function Starters({ disabled, onPick }) {
   </div>`;
 }
 
-function Cards({ items, disabled, canShowAll, onPick, onShowAll }) {
+function Cards({ items, source, disabled, canShowAll, onPick, onShowAll }) {
   return html`<div class="ns-suggest">
     <div class="ns-cards" role="group" aria-label="Workflows">
       ${items.map(({ entry, matched }) => html`<button key=${entry.bundle + "|" + entry.id} type="button" class="ns-card" disabled=${disabled}
@@ -52,6 +53,8 @@ function Cards({ items, disabled, canShowAll, onPick, onShowAll }) {
         <span class="ns-card-name">${entry.id}</span>
         <span class="ns-card-desc">${cardDescription(entry)}</span>
         <span class="ns-card-meta">Origen: ${originLabel(entry)}</span>
+        ${source === SOURCE_MODEL && html`<span class="ns-card-meta">Propuesto por: un modelo</span>`}
+        ${source === SOURCE_KEYWORDS && html`<span class="ns-card-meta">Propuesto por: comparación de palabras</span>`}
         ${matched.length > 0 && html`<span class="ns-card-meta">Coincide con: ${matched.join(", ")}</span>`}
       </button>`)}
     </div>
@@ -315,8 +318,18 @@ export function NewSession({ token, mock }) {
         }
       } finally { setBusy(false); }
     }
+    let interpretation = null;
+    if (!asking && !command && !["confirm", "launched"].includes(store.current.phase) && entries.length > 0) {
+      setBusy(true);
+      try {
+        interpretation = await apiPost("/gui/api/new-session/interpret", token, { text: trimmed });
+      } catch (_) {
+        interpretation = { source: SOURCE_KEYWORDS, reason: "model_error", proposal: null };     // the words are compared instead
+      } finally { setBusy(false); }
+    }
+    if (!alive.current) return;
     const before = store.current.messages.length;
-    const next = dispatch({ type: "send", text: trimmed, catalog: entries }, { keepDraft: true });
+    const next = dispatch({ type: "send", text: trimmed, catalog: entries, interpretation }, { keepDraft: true });
     if (next.messages.length !== before) setDraft(prefillOf(next));      // accepted; an answer that is not accepted stays in the box
   }
 
@@ -429,7 +442,7 @@ export function NewSession({ token, mock }) {
       <button type="button" class="btn secondary" ...${helpFor("chat.retry")} onClick=${() => { startCatalog(); if (composer.current) composer.current.focus(); }}>Reintentar</button>
       <${Help} topic="chat.retry" compact=${true} /></div>`}
     <${Messages} messages=${conv.messages} />
-    ${conv.phase === "choose" && suggestions.length > 0 && html`<${Cards} items=${suggestions} disabled=${busy}
+    ${conv.phase === "choose" && suggestions.length > 0 && html`<${Cards} items=${suggestions} source=${conv.source} disabled=${busy}
       canShowAll=${!conv.showAll && catalog.entries.length > suggestions.length} onPick=${pick} onShowAll=${showAll} />`}
     ${conv.phase === "continue" && html`<${RunsList} runs=${runs} />`}
     ${question && html`<${QuestionCard} question=${question} n=${n} total=${total} disabled=${busy} onChoose=${(choice) => submit(choice)} />`}

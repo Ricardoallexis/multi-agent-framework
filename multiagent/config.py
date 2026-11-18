@@ -219,6 +219,10 @@ class Settings(BaseSettings):
     # GUI-T06: may the viewer launch ``claude --desktop --resume <id>`` in a new console (Windows)? False
     # makes the screen show the command to copy instead; the endpoint then answers 403 and starts nothing.
     gui_allow_launch: bool = True
+    # GUI2-T17: a model reads the free text of «Nueva sesión» and proposes a workflow and its inputs. Off: the chat
+    # matches words only. ``gui_new_session_model`` is the catalog model used (Mock mode always answers from a fixture).
+    gui_new_session_interpret: bool = True
+    gui_new_session_model: str = "local_default"
 
     # ORQ-T51 executor applications. ``executor_workdir_root`` holds the work folders the framework creates for tasks
     # (empty means <local_dir>/executor_runs); a launch is stopped after ``executor_timeout_seconds``; a quota stop

@@ -10,7 +10,11 @@
 //   ask       one question at a time, one per workflow input, and the project name last
 //   confirm   the summary card; only its «Lanzar» button creates a run
 //   launched  the run was created
-// Matching is deterministic: it compares the text with workflow names and descriptions. Nothing here calls a model.
+// Free text is read by a model on the server (GUI2-T17, POST /gui/api/new-session/interpret): new-session.js sends it and
+// hands the answer to the reducer as `interpretation`. This file only validates what it is given: a proposal for a workflow
+// that is in the catalog is shown as a card with its inputs prefilled; anything else (no model, an error, an invalid or
+// empty answer) falls back to the deterministic matching of names and descriptions, and the chat says which one it used.
+// Nothing here calls a model or the network, and nothing runs before «Lanzar».
 
 export const COMMANDS = ["workflow", "continuar", "ayuda"];
 export const MAX_SUGGESTIONS = 4;
@@ -22,6 +26,8 @@ export const STARTERS = [
   { id: "continuar", label: "Continuar una ejecución" },
   { id: "ayuda", label: "Ayuda" },
 ];
+export const SOURCE_MODEL = "model";
+export const SOURCE_KEYWORDS = "keywords";
 export const RESUMABLE = ["waiting_human", "interrupted", "paused", "running", "queued"];   // in the order they are listed
 
 // --- text matching ----------------------------------------------------------------------------------------------
@@ -169,7 +175,8 @@ export function validateAnswer(question, raw) {
 export function createConversation() {
   return {
     phase: "welcome", messages: [], nextId: 1,
-    suggestions: [], source: "", showAll: false,          // choose: [{ key, matched }], who proposed them, full list or not
+    suggestions: [], source: "", showAll: false,          // choose: [{ key, matched }], who proposed them ("model", "keywords", ""), full list or not
+    proposal: null,                                       // the model's proposal that is on screen: { key, inputs, project }
     workflow: null, questions: [], inputNames: [], answers: {}, index: 0, error: "",
   };
 }
@@ -178,7 +185,7 @@ function say(state, role, text) {
   return { ...state, messages: [...state.messages, { id: state.nextId, role, text }], nextId: state.nextId + 1 };
 }
 
-const clearWorkflow = (state) => ({ ...state, workflow: null, questions: [], inputNames: [], answers: {}, index: 0, error: "" });
+const clearWorkflow = (state) => ({ ...state, proposal: null, workflow: null, questions: [], inputNames: [], answers: {}, index: 0, error: "" });
 
 export const currentQuestion = (state) => (state.phase === "ask" ? state.questions[state.index] || null : null);
 export const progress = (state) => ({ n: state.index + 1, total: state.questions.length });
@@ -200,21 +207,56 @@ function helpMessage(state) {
     (question.required ? "." : " o pulsa «Omitir».");
 }
 
-// Proposes workflows for a text by comparing it with their names and descriptions.
-function suggest(state, text, catalog) {
+// Why the model was not used, for the line that tells the operator the words were compared instead.
+const FALLBACK_REASONS = {
+  disabled: "la interpretación con modelo está desactivada",
+  no_workflows: "no hay workflows que ofrecerle al modelo",
+  model_error: "el modelo no respondió",
+  refused: "la política de salida del framework no dejó enviar el texto",
+  invalid_output: "el modelo devolvió una respuesta que no encaja con los workflows",
+  no_match: "el modelo no encontró un workflow que encaje",
+};
+export const fallbackReason = (reason) => FALLBACK_REASONS[reason] || "no se pudo usar el modelo";
+
+// The proposal of the server when it is usable here: its workflow is in the catalog. Inputs are kept as text; the ones the
+// workflow does not ask are ignored when the workflow is picked.
+function usableProposal(interpretation, catalog) {
+  if (!interpretation || interpretation.source !== SOURCE_MODEL || !interpretation.proposal) return null;
+  const proposal = interpretation.proposal;
+  const entry = (catalog || []).find((item) => item.id === proposal.workflow_id && (item.bundle || null) === (proposal.bundle || null));
+  if (!entry) return null;
+  const inputs = {};
+  for (const [name, value] of Object.entries(proposal.inputs || {})) if (typeof value === "string" && value.trim()) inputs[name] = value.trim();
+  return { entry, key: entryKey(entry), inputs, project: String(proposal.project_name || "").trim(), explanation: String(proposal.explanation || "").trim() };
+}
+
+// Proposes workflows for a text: the model's choice when there is a valid one, otherwise by comparing the text with their
+// names and descriptions.
+function suggest(state, text, catalog, interpretation) {
   const all = sortCatalog(catalog || []);
   if (all.length === 0) {
-    return { ...say(state, "assistant", "No hay workflows disponibles en este servidor. Puedes probar «Ver como formulario»."), phase: "choose", suggestions: [], source: "", showAll: true };
+    return { ...say(state, "assistant", "No hay workflows disponibles en este servidor. Puedes probar «Ver como formulario»."), phase: "choose", suggestions: [], source: "", proposal: null, showAll: true };
   }
+  const proposed = usableProposal(interpretation, all);
+  if (proposed) {
+    const filled = Object.keys(proposed.inputs).length;
+    const note = (proposed.explanation ? " " + proposed.explanation : "") +
+      (filled ? " Rellené " + filled + (filled === 1 ? " entrada" : " entradas") + " con lo que escribiste; las revisarás antes de lanzar." : "");
+    return { ...say(state, "assistant", "Interpretado con un modelo: propongo «" + proposed.entry.id + "»." + note + " Elígelo para continuar; nada se ejecuta hasta que pulses «Lanzar»."),
+      phase: "choose", suggestions: [{ key: proposed.key, matched: [] }], source: SOURCE_MODEL, showAll: false,
+      proposal: { key: proposed.key, inputs: proposed.inputs, project: proposed.project } };
+  }
+  const why = !interpretation ? "" : " (" + fallbackReason(interpretation.source === SOURCE_KEYWORDS ? interpretation.reason : "invalid_output") + ")";
   const found = matchWorkflows(text, all, { limit: MAX_SUGGESTIONS });
-  const source = "keywords";
+  const source = SOURCE_KEYWORDS;
+  const how = interpretation ? "Comparé las palabras con los nombres y descripciones" + why + ". " : "";
   if (found.length === 0) {
-    return { ...say(state, "assistant", "No encontré un workflow que encaje con eso. Estos son todos los disponibles: elige uno o prueba con otras palabras."),
-      phase: "choose", suggestions: everyone(all), source: "", showAll: true };
+    return { ...say(state, "assistant", how + "No encontré un workflow que encaje con eso. Estos son todos los disponibles: elige uno o prueba con otras palabras."),
+      phase: "choose", suggestions: everyone(all), source: "", proposal: null, showAll: true };
   }
-  return { ...say(state, "assistant", "Creo que " + (found.length === 1 ? "este workflow encaja" : "estos workflows encajan") +
+  return { ...say(state, "assistant", how + "Creo que " + (found.length === 1 ? "este workflow encaja" : "estos workflows encajan") +
     " con lo que escribiste. Elige uno o sigue describiendo lo que necesitas."),
-  phase: "choose", suggestions: found.map((item) => ({ key: entryKey(item.entry), matched: item.matched })), source, showAll: false };
+  phase: "choose", suggestions: found.map((item) => ({ key: entryKey(item.entry), matched: item.matched })), source, proposal: null, showAll: false };
 }
 
 function listAll(state, catalog) {
@@ -230,14 +272,16 @@ function onCommand(state, action) {
   if (action.name === "ayuda") return say(echoed, "assistant", helpMessage(state));
   const fresh = clearWorkflow(echoed);
   if (action.name === "continuar") return { ...say(fresh, "assistant", "Estas son las ejecuciones que puedes retomar."), phase: "continue", suggestions: [], source: "" };
-  return action.rest ? suggest(fresh, action.rest, action.catalog) : listAll(fresh, action.catalog);
+  return action.rest ? suggest(fresh, action.rest, action.catalog, action.interpretation) : listAll(fresh, action.catalog);
 }
 
 function advance(state, value, echo) {
   const question = state.questions[state.index];
   let next = say({ ...state, answers: { ...state.answers, [question.key]: value }, error: "" }, "user", echo);
-  if (state.index + 1 < state.questions.length) {
-    next = { ...next, index: state.index + 1 };
+  let following = state.index + 1;
+  while (following < state.questions.length && next.answers[state.questions[following].key]) following += 1;
+  if (following < state.questions.length) {
+    next = { ...next, index: following };
     return say(next, "assistant", questionLine(next));
   }
   return say({ ...next, phase: "confirm" }, "assistant", "Revisa el resumen y lánzalo cuando quieras. Nada se ejecuta hasta que pulses «Lanzar».");
@@ -269,21 +313,41 @@ function onEdit(state) {
   return say(say(back, "assistant", "Repasemos tus respuestas. Cada una aparece en la caja: pulsa Intro para conservarla o escribe otra."), "assistant", questionLine(back));
 }
 
+// The answers a model proposal gives for this workflow: only inputs it asks, each one checked like an answer typed by hand.
+function prefilledAnswers(state, workflow, questions) {
+  if (!state.proposal || state.proposal.key !== entryKey(workflow)) return {};
+  const answers = {};
+  for (const question of questions) {
+    const raw = question.source === "project" ? state.proposal.project : state.proposal.inputs[question.name];
+    if (!raw) continue;
+    const checked = validateAnswer(question, raw);
+    if (!checked.error && checked.value) answers[question.key] = checked.value;
+  }
+  return answers;
+}
+
 function onPick(state, action) {
   const spec = action.spec || { inputs: [] };
   const workflow = action.workflow;
-  const next = say(say(state, "user", "Elijo «" + workflow.id + "»"), "assistant", "Perfecto. Te pregunto lo necesario, una cosa a la vez.");
+  const questions = buildQuestions(spec);
+  const answers = prefilledAnswers(state, workflow, questions);
+  const prefilled = Object.keys(answers).length;
+  const next = say(say(state, "user", "Elijo «" + workflow.id + "»"), "assistant",
+    prefilled ? "Perfecto. Usé la propuesta del modelo para " + prefilled + (prefilled === 1 ? " respuesta" : " respuestas") + "; compruébalas." : "Perfecto. Te pregunto lo necesario, una cosa a la vez.");
+  const first = questions.findIndex((question) => question.required && !answers[question.key]);
   const started = {
-    ...next, phase: "ask", index: 0, error: "", answers: {},
+    ...next, phase: first === -1 && prefilled ? "confirm" : "ask", index: first === -1 ? 0 : first, error: "", answers,
     workflow: { id: workflow.id, bundle: workflow.bundle || null, description: spec.description || workflow.description || "" },
-    questions: buildQuestions(spec), inputNames: (spec.inputs || []).map((item) => item.name),
+    questions, inputNames: (spec.inputs || []).map((item) => item.name),
   };
+  if (started.phase === "confirm") return say(started, "assistant", "Revisa el resumen y lánzalo cuando quieras. Nada se ejecuta hasta que pulses «Lanzar».");
   return say(started, "assistant", questionLine(started));
 }
 
 // Every change of the conversation goes through here. Actions:
 //   reset                               back to the greeting
-//   send   { text, catalog }            what the user typed: a command, an answer or free text, depending on the phase
+//   send   { text, catalog, interpretation? } what the user typed: a command, an answer or free text, depending on the phase;
+//                                       interpretation is the answer of the server's model (see above)
 //   command{ name, rest, echo, catalog }a starter chip (echo is the chip label)
 //   pick   { workflow, spec }           a workflow card was chosen and its inputs were read
 //   show_all { catalog }                the full list of workflows
@@ -304,13 +368,13 @@ export function reduce(state, action) {
         return say(say(state, "user", text), "assistant",
           "Para seguir usa los botones del resumen: «Lanzar», «Editar» o «Ver como formulario». Escribe /workflow para empezar con otro workflow.");
       }
-      return suggest(clearWorkflow(say(state, "user", text)), text, action.catalog);
+      return suggest(clearWorkflow(say(state, "user", text)), text, action.catalog, action.interpretation);
     }
     case "command": return onCommand(state, action);
     case "pick": return onPick(state, action);
     case "show_all": {
       const shown = say(state, "assistant", "Estos son todos los workflows disponibles.");
-      return { ...shown, phase: "choose", source: "", suggestions: everyone(action.catalog), showAll: true };
+      return { ...shown, phase: "choose", source: "", proposal: null, suggestions: everyone(action.catalog), showAll: true };
     }
     case "skip": return onSkip(state);
     case "back": return onBack(state);

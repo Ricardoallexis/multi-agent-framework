@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import re
+import unicodedata
 from copy import deepcopy
 from typing import Any, Mapping
 from pydantic import BaseModel
@@ -7,10 +10,39 @@ from pydantic import BaseModel
 from .base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
 from ..catalog import ModelSpec
 from ..contracts import (
-    BrandField, BrandProfilePayload, ContentOutput, GroundingStatus,
+    BrandField, BrandProfilePayload, ContentOutput, GroundingStatus, NewSessionProposal,
     ResearchOutput, StrategyOutput, VisualBriefOutput,
 )
 from ..routing_policy import EFFORT_LEVELS
+
+
+def _words(text: str) -> set[str]:
+    return {word for word in re.findall(r"[^\W_]{3,}", unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower())}
+
+
+def _new_session_fixture(prompt: str) -> dict[str, Any]:
+    """Deterministic stand-in for the «Nueva sesión» interpreter (GUI2-T17): the catalog entry that shares the most
+    words with the quoted request (ties: first id), with the request as its first required text input. No match,
+    no workflow. It reads only the catalog line and the quoted lines (``| ``) of the prompt."""
+    catalog: list[dict[str, Any]] = []
+    quoted: list[str] = []
+    for line in prompt.splitlines():
+        if line.startswith("CATALOG_JSON: "):
+            catalog = json.loads(line[len("CATALOG_JSON: "):])
+        elif line.startswith("| "):
+            quoted.append(line[2:])
+    request = " ".join(quoted).strip()
+    wanted = _words(request)
+    best, best_score = None, 0
+    for entry in sorted(catalog, key=lambda item: (item["id"], item.get("bundle") or "")):
+        score = len(wanted & _words(entry["id"].replace("_", " ") + " " + entry.get("description", "")))
+        if score > best_score:
+            best, best_score = entry, score
+    if best is None:
+        return {"reason": "Simulated: no workflow shares words with the request."}
+    target = next((item for item in best["inputs"] if item["required"] and not item["choices"]), None)
+    return {"workflow_id": best["id"], "bundle": best.get("bundle"), "inputs": {target["name"]: request[:500]} if target else {},
+            "project_name": "", "reason": f"Simulated: {best_score} shared word(s) with the request."}
 
 
 class FakeAdapter(LLMAdapter):
@@ -93,6 +125,8 @@ class FakeAdapter(LLMAdapter):
                 core={"purpose": BrandField(value="Turn technology into practical solutions", source="human_confirmed")},
                 voice={"tone": BrandField(value="Professional and approachable", source="ai_proposed")},
             )
+        elif output_schema is NewSessionProposal:
+            parsed = NewSessionProposal.model_validate(_new_session_fixture(prompt))
         else:
             raise ValueError(f"FakeAdapter has no fixture for {output_schema.__name__}")
         return LLMResponse(parsed=parsed, raw_text=parsed.model_dump_json(), provider=self.provider, model="fixture", tokens_in=10, tokens_out=20, latency_ms=1,

@@ -40,6 +40,7 @@ from .executors import ExecutorServices
 from .gates import GateServices
 from .inbox import InboxServices
 from .memory import MemoryServices
+from .new_session import NewSessionServices
 from .projects import ProjectServices
 from .reports import build_run_report, render_run_report_markdown
 from .runs import RunServices
@@ -60,6 +61,7 @@ __all__ = [
     "GateServices",
     "InboxServices",
     "MemoryServices",
+    "NewSessionServices",
     "ProjectServices",
     "build_run_report",
     "render_run_report_markdown",
@@ -77,7 +79,7 @@ _BUNDLE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,119}$")
 
 class ApplicationServices:
     """Facade over one ``System``: ``definitions``, ``runs``, ``tasks``, ``gates``, ``envelopes``, ``assignment``,
-    ``executors``, ``sessions``, ``projects``, ``activities``, ``usage``, ``inbox`` and ``memory``."""
+    ``executors``, ``sessions``, ``projects``, ``activities``, ``usage``, ``inbox``, ``memory`` and ``new_session``."""
 
     def __init__(self, system: System, *, bundles: Mapping[str, str | Path] | None = None):
         self.system = system
@@ -100,6 +102,7 @@ class ApplicationServices:
         self.usage = UsageServices(self)
         self.inbox = InboxServices(self)
         self.memory = MemoryServices(self)
+        self.new_session = NewSessionServices(self)
         # The engine of the system reads the availability policy from the inbox, the same place that accepts the messages.
         engine = getattr(system, "engine", None)
         if engine is not None:

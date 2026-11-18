@@ -135,8 +135,17 @@ a skip link, visible focus and 44 px touch targets; the palette follows
 quieres hacer?" and three starters (Trabajar en un workflow, Continuar una
 ejecución, Ayuda), also available as the commands `/workflow`, `/continuar` and
 `/ayuda` in the writing box. Free text proposes workflows as cards (name,
-description, origin) by comparing the words with the names and descriptions of
-the workflows: deterministic, no model is called. After choosing a
+description, origin). A model reads the text (GUI2-T17): the server sends it,
+with the declared workflows and their inputs, to the configured provider
+(`GUI_NEW_SESSION_MODEL`, default `local_default`; Mock answers from a fixture,
+so the result is deterministic) and checks the answer against those workflows
+and inputs. A valid proposal shows one card marked "Propuesto por: un modelo",
+and choosing it prefills the inputs it filled; the summary still waits for
+**Lanzar**. The text enters the prompt as untrusted data, and the egress policy
+of the framework (`EGRESS_DEFAULT`) applies to the outgoing prompt. With no
+model, an error, a refused prompt, `GUI_NEW_SESSION_INTERPRET=false` or an
+answer that does not fit, the chat compares the words with the names and
+descriptions of the workflows instead, as before, and says so. After choosing a
 workflow the chat asks its inputs one at a time ("Pregunta N de M", with the
 label, description and example; the project name comes last, and the optional
 extra-context inputs are left to the form). A summary card shows the answers and
@@ -150,7 +159,9 @@ where the preview exposes choices; `POST /gui/api/runs/preview` validates these
 preferences without creating or executing a run. The chat launches framework
 workflows, not Claude, Codex or Copilot executor tasks. "Ver como formulario"
 opens the create-run form with the same workflow and answers. The conversation
-model is pure (`js/new-session-model.js`) and is tested with Node.
+model is pure (`js/new-session-model.js`) and is tested with Node. The proposal comes from
+`POST /gui/api/new-session/interpret` (`{"text"}`; it answers `source` `model` with a
+`proposal`, or `source` `keywords` with a `reason`) and creates nothing.
 
 **Sesiones** is the default view. It combines a read-only, filterable and
 paginated list of Claude Code, Claude Desktop, Codex, GitHub Copilot, and
@@ -346,6 +357,8 @@ a JSON list or as values separated by `;`.
 | `GUI_ANTIGRAVITY_HOME` | unset (`~/.gemini/antigravity-cli`) | Override Antigravity's (agy) session store location. |
 | `GUI_CLAUDE_DESKTOP_DIR` | unset | Override Claude Desktop's session directory. |
 | `GUI_ALLOW_LAUNCH` | `true` | Allow the GUI to launch Claude Desktop sessions. |
+| `GUI_NEW_SESSION_INTERPRET` | `true` | Let a model read the free text of Nueva sesión and propose a workflow and inputs; `false` always compares words. |
+| `GUI_NEW_SESSION_MODEL` | `local_default` | Catalog model that reads that text (a local model sends nothing out). |
 | `GUI_TOKEN_FILE` | `~/.multiagent/gui-token` | GUI access-token file. |
 | `GUI_TOKEN_OUTSIDE_HOME` | `false` | Allow the token file outside the user's home folder. |
 | `GUI_HEARTBEAT_SECONDS` | `20.0` | SSE heartbeat interval. |

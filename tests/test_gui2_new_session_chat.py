@@ -91,7 +91,7 @@ def test_the_chat_replaces_the_form_at_new_and_the_form_stays_available():
     main = source("main.js")
     assert 'import { NewSession } from "./new-session.js"' in main
     assert re.search(r"\$\{creating && html`<\$\{NewSession\} token=\$\{token\} mock=\$\{mock\} />`\}", main)
-    assert "interpret" not in main                                     # no model reads the free text
+    assert "interpret" not in main                                     # the shell does not call the interpreter: new-session.js does
     assert "<${Runs}" in main and "startCreating" not in main + source("runs.js")
     chat = source("new-session.js")
     assert 'import { CreateRun, PreviewPanel } from "./create-run.js"' in chat
@@ -110,8 +110,8 @@ def test_the_model_is_pure_and_matching_is_deterministic_with_no_dead_hooks():
     for forbidden in ("fetch(", "apiPost", "apiGet", "document.", "window.", "localStorage"):
         assert forbidden not in model, forbidden
     chat = source("new-session.js")
-    for text in (model, chat):                                         # MVP 1.0: no unwired model-interpretation hook
-        assert "hinted" not in text and "NOT wired" not in text and "interpret" not in text
+    for text in (model, chat):                                         # no unwired hook (GUI2-T17 wired the interpretation: test_gui2_new_session_model.py)
+        assert "hinted" not in text and "NOT wired" not in text
 
 
 def test_messages_are_rendered_as_text_and_the_log_is_announced():
@@ -126,8 +126,8 @@ def test_messages_are_rendered_as_text_and_the_log_is_announced():
 
 def test_only_the_launch_button_of_the_summary_creates_a_run():
     chat = source("new-session.js")
-    posts = re.findall(r'apiPost\("(/gui/api/[a-z/]+)"', chat)
-    assert sorted(posts) == ["/gui/api/runs", "/gui/api/runs/preview"]
+    posts = re.findall(r'apiPost\("(/gui/api/[a-z/-]+)"', chat)
+    assert sorted(posts) == ["/gui/api/new-session/interpret", "/gui/api/runs", "/gui/api/runs/preview"]     # the first one only proposes
     start = chat.index("async function launch()")
     end = chat.index("function openForm()")
     body = chat[start:end]

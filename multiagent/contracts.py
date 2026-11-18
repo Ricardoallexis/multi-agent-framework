@@ -335,3 +335,14 @@ OUTPUT_SCHEMAS: dict[str, type[StrictModel]] = {
     "VisualBothOutput": VisualBothOutput,
     "BrandProfilePayload": BrandProfilePayload,
 }
+
+
+class NewSessionProposal(StrictModel):
+    """What a model proposes for the free text of «Nueva sesión» (GUI2-T17). The service validates it against the
+    declared workflows and their inputs; nothing here starts a run."""
+
+    workflow_id: str = Field(default="", max_length=120)
+    bundle: str | None = Field(default=None, max_length=120)
+    inputs: dict[str, str] = Field(default_factory=dict)
+    project_name: str = Field(default="", max_length=120)
+    reason: str = Field(default="", max_length=400)

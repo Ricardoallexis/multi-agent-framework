@@ -49,6 +49,10 @@ class PreviewBody(_Body):
     routing_preferences: dict[str, RoutingPreference] = Field(default_factory=dict)
 
 
+class InterpretBody(_Body):
+    text: str = Field(min_length=1, max_length=2000)
+
+
 class CreateBody(PreviewBody):
     project_name: str = Field(min_length=2, max_length=120)
     idempotency_key: str = Field(default="", max_length=120)
@@ -392,6 +396,14 @@ def build_router(services) -> APIRouter:
         Declared inputs carry label, description, example, type and choices; placeholders nobody
         declared are derived and carry the prompt line where they appear (item ``source``)."""
         return services.definitions.workflow_inputs(workflow_id, bundle=bundle)
+
+    @router.post("/new-session/interpret")
+    def interpret_new_session(body: InterpretBody):
+        """GUI2-T17: a model reads the free text of «Nueva sesión» and proposes a workflow and its inputs.
+
+        ``{"source": "model", "proposal": {...}}`` or ``{"source": "keywords", "reason": ..., "proposal": null}``
+        (the client then matches words itself). Nothing is created: the operator confirms in the chat."""
+        return services.new_session.interpret(body.text)
 
     @router.post("/runs/preview")
     def preview(body: PreviewBody):
