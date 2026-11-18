@@ -137,19 +137,19 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S5.A — Contracts** | | |
-| S5.A1 | Generic tool request, result, error, and permission-request contracts, separate from model adapters. | — |
-| S5.A2 | Tool registry and adapter mapping into those contracts. | S5.A1 |
+| S5.A1 | ✅ Generic tool request, result, error, and permission-request contracts, separate from model adapters (`multiagent/tools/contracts.py`). | — |
+| S5.A2 | ◐ Done: an in-memory tool registry with structural validation (`multiagent/tools/registry.py`) and a provider-neutral mapping surface with a deterministic Mock mapper (`multiagent/tools/mapping.py`); no model-provider adapter maps its own tool calls yet. | S5.A1 |
 | **S5.B — Permissions** | | |
-| S5.B1 | ◐ Done: Effects are classed as write, network, launching an executor, or opening an application, and each needs approval evidence. | S5.A1 |
-| S5.B2 | ◐ Done: Run-level approvals (escalation, content review, budget cut) use the existing approve and reject operations; tool actions are not covered yet. | S5.B1 |
+| S5.B1 | ✅ Tool actions are classed read, write, destructive, or external and checked fail-closed (`ImpactClass` in `multiagent/tools/contracts.py`, `multiagent/tools/permissions.py`); effects such as launching an executor or opening an application need approval evidence. | S5.A1 |
+| S5.B2 | ✅ Run-level approvals (escalation, content review, budget cut) and each write or destructive tool call use the existing approve and reject operations: the run waits in `tool_approval` until a person approves that one call by its `permission_request_id`, from the CLI or the GUI (`multiagent/tools/approvals.py`). | S5.B1 |
 | **S5.C — Capabilities** | | |
-| S5.C1 | ◐ Done: Models and executor descriptors declare flat capabilities; names are not namespaced and tools have none. | S5.A1 |
-| S5.C2 | ◐ Done: Models and executor surfaces are selected by declared capabilities with deterministic rules; agents are not. | S5.C1 |
+| S5.C1 | ✅ Namespaced capability ids (for example `file.read`) shared by agents, tools, models, and executor descriptors (`multiagent/capabilities.py`). | S5.A1 |
+| S5.C2 | ◐ Done: tools are selected by capability from configuration (`multiagent/tools/selection.py`, a step's `tools:` entry), and models and executor surfaces by declared capabilities with deterministic rules; agents are not. | S5.C1 |
 | **S5.D — Execution** | | |
 | S5.D1 | Deterministic function steps in workflows. | S5.A2, S4.A2 |
-| S5.D2 | ◐ Done: Executor launches, attempts, and routing evidence are recorded as team events; there are no generic tool calls yet. | S5.A2 |
+| S5.D2 | ✅ Tool calls and their outputs are recorded as run events with a safe projection, and run reports have a tools section (`multiagent/tools/trace.py`); executor launches, attempts, and routing evidence are team events. | S5.A2 |
 | **S5.E — Guardrails** | | |
-| S5.E1 | Guardrail on outgoing content: a deterministic check of secrets and personal data before each cloud call, with a per-step policy (allow, redact, block, escalate to a human) and events; opt-in. | S5.B2 |
+| S5.E1 | ✅ Guardrail on outgoing content: a deterministic check of secrets and personal data before each cloud call, with a per-step policy (`egress:` on the step, default `EGRESS_DEFAULT=off`: redact, block, or escalate to a human) and events (`multiagent/egress_guard.py`); local models are skipped unless the policy says `include_local`. | S5.B2 |
 
 **Parallel:** S5.B, S5.C, and S5.D2 after S5.A; S5.E1 after S5.B.
 **Acceptance:** a workflow step calls an approved tool through the contract; a destructive action waits for human approval; capabilities select a tool without code changes.
@@ -252,12 +252,12 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S9.A — MCP server** | | |
-| S9.A1 | Expose the application services as an MCP server: workflows, runs, pending human steps, artifacts. | — |
+| S9.A1 | ◐ Done: a local stdio MCP server over the application services lists workflows, reads run status, pending human steps, and artifacts, and creates a run only when the operator starts it with that permission (`multiagent/interop/mcp_server.py`, extra `mcp`); it does not list agents or answer a human step. | — |
 | **S9.B — Channels** | | |
 | S9.B1 | Shared-folder channel: file requests and responses with correlation, atomic writes, timeouts, deduplication, permissions, and an audit trail. | S5.A1 |
 | S9.B2 | ◐ Done: an application opens after explicit confirmation, and a task runs in it through its command line; no prompt clipboard flow. | S9.B1 |
 | **S9.C — Clients** | | |
-| S9.C1 | MCP client behind the tool abstraction, through the official SDK or the optional backend. | S5.A2 |
+| S9.C1 | ◐ Done: an MCP client through the official SDK registers the tools of operator-configured stdio servers in the tool registry, with impact only the operator can lower (`multiagent/tools/mcp_client.py`); it is a Python API, not yet configurable from settings, a bundle, or the CLI. | S5.A2 |
 | S9.C2 | A2A adapter when a concrete need appears. | S5.A2 |
 | **S9.D — Applications** | | |
 | S9.D1 | ◐ Done: launching and opening an application are separate effects with separate approvals. | S5.B2 |
@@ -277,11 +277,11 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | --- | --- | --- |
 | **S10.A — Telemetry** | | |
 | S10.A1 | ◐ Partial. Routing decisions, requested/applied effort, bounded-escalation events, and estimated call cost from token counts and valid catalog price evidence are recorded; retries and token estimates are not yet fully delivered. | — |
-| S10.A2 | ◐ Done: usage records export as JSONL and routing runs as normalized JSONL or CSV; there is no run report. | — |
+| S10.A2 | ✅ Exportable run reports in JSON or Markdown (`multiagent run-report`, `GET /api/v1/runs/{run_id}/report`, `multiagent/services/reports.py`); usage records export as JSONL and routing runs as normalized JSONL or CSV. | — |
 | **S10.B — Standards** | | |
 | S10.B1 | ◐ Partial: telemetry attaches through the backend interface; native emits run, step, provider call and tool call spans, while Mock emits run, step and zero-token chat spans. Token and duration metrics use GenAI attributes; telemetry is optional and off by default. | S10.A1, S4.A1 |
 | **S10.C — Evaluation** | | |
-| S10.C1 | Structured evaluation datasets for agents, prompts, and workflows. | — |
+| S10.C1 | ◐ Done: evaluation sets of workflow cases with deterministic checks, run in Mock mode (`multiagent/evaluation/`, `tests/evals/example.yaml`); they are a Python API only, with no CLI or HTTP surface, and do not cover agents or prompts on their own. | — |
 | S10.C2 | Regression tracking when prompts, models, workflows, or providers change. | S10.C1 |
 | S10.C3 | ◐ Done: an offline tool compares paired runs of two routes; it is not a local-versus-cloud benchmark. | S10.C1, S11.B1 |
 | **S10.D — Diagnostics** | | |
@@ -292,8 +292,9 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 
 **Delivered in part:** provider-call cost estimates are recorded with their price
 basis, with unknown values kept separate from zero. Routing and bounded
-escalation events provide decision evidence. Exportable reports, complete
-retry/token-estimate telemetry, and evaluation datasets remain planned. The
+escalation events provide decision evidence. Runs export a report, and
+evaluation sets exist as a Python API; complete retry/token-estimate
+telemetry and evaluation from the CLI or HTTP remain planned. The
 optional OpenTelemetry traces and metrics attach to each execution backend
 (S4.A1): native and Mock.
 
@@ -385,7 +386,7 @@ discovery, local model expansion, and the other planned items remain open. See
 
 **External executors (S13.C):** whoever produces the external output (a person, a cloud agent, a vendor's always-on agent) is outside the framework, which only validates the artifact. Document and mitigate:
 - **Data leakage:** the delivered prompt may carry project context, personal data, or secrets; apply per-step context propagation (S12.B1) and sanitization (S17.3) before handing it over, and never credentials (S17.1).
-- **Outgoing provider calls:** the planned S5.E1 guardrail checks prompts for secrets and personal data before cloud calls; incoming untrusted-content screening does not provide this protection.
+- **Outgoing provider calls:** the S5.E1 guardrail checks prompts for secrets and personal data before cloud calls when a step or `EGRESS_DEFAULT` turns it on; incoming untrusted-content screening does not provide this protection.
 - **Provenance:** the pasted result does not prove who produced it or with which model; the receipt records `executor: external` with a self-declared label and the hashes of the delivered prompt and the result, without authenticating.
 - **Instructions in the result:** the result is data; it is validated against the contract and nothing inside it is ever executed.
 - **Side actions of the executor:** an executor with connected apps may act outside the framework while "running" the step (send mail, open pull requests); governing that is the user's responsibility on the external platform.
@@ -469,7 +470,7 @@ advanced visualization items below remain planned.
 | --- | --- | --- |
 | S17.1 | ◐ Done: opt-in profiles keep sensitive data classes off cloud models; no secret manager beyond `.env`. | — |
 | S17.2 | Dependency, secret, and static-analysis checks in CI. | — |
-| S17.3 | ◐ Done: untrusted content quoting, detection, quarantine and review; telemetry stays local. Outgoing prompt screening remains planned in S5.E1. | — |
+| S17.3 | ◐ Done: untrusted content quoting, detection, quarantine and review; telemetry stays local. Outgoing prompt screening is S5.E1 (opt-in). | — |
 | S17.4 | ◐ Done: CI builds and installs the wheel in a clean environment on Ubuntu; no containers. | — |
 | S17.5 | ◐ Done: API reference and three runnable examples; no framework-equivalence page. | S4.C1 for the equivalences |
 | S17.6 | ◐ Done: numbered database migrations with upgrade tests; configuration, prompts, and workflows are not covered. | — |

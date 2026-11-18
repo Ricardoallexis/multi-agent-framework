@@ -327,12 +327,14 @@ It depends on OpenTelemetry events, MCP tool access, and planning with concurren
 
 ## Tools, interoperability, and external applications
 
-**Progress:** `░░░░░░░░░░` 0/13 · 0% <!-- progress -->
+**Progress:** `██░░░░░░░░` 2/13 · 15% <!-- progress -->
+
+**Implemented in part:** versioned tool contracts, a tool registry, namespaced capabilities with configuration-based tool selection, a local stdio MCP server, and an MCP client that registers operator-configured servers' tools exist (see S5 and S9 in [the stage roadmap](docs/ROADMAP_STAGES.md)). Model-provider adapters do not map their own tool calls yet, agents are not selected by capability, the MCP server does not answer human steps, and the MCP client is not configurable outside Python, so those items stay open.
 
 The core works with generic concepts (tool, capability, provider, channel, permission, external application, request, result, and artifact); anything specific to a model, protocol, or application lives in adapters, plugins, bridges, or providers.
 
 - [ ] Define generic tool contracts (tool request, result, error, and permission request) separate from model-provider adapters; adapters translate into them.
-- [ ] Classify tool actions by impact (read, write, destructive, and external side effect) and route approvals through the existing human-in-the-loop mechanism.
+- [x] Classify tool actions by impact (read, write, destructive, and external side effect) and route approvals through the existing human-in-the-loop mechanism.
 - [ ] Select tools and agents by namespaced capabilities (for example `file.read`, `image.edit`, or `planning.decompose`), starting with deterministic, configuration-based selection.
 - [ ] Allow agents to call approved deterministic tools and external services through controlled contracts.
 - [ ] Expose the framework as an MCP server through the same application services as the API (list agents and workflows, create and inspect runs, handle pending human steps, and read artifacts) without exposing internals.
@@ -343,11 +345,11 @@ The core works with generic concepts (tool, capability, provider, channel, permi
 - [ ] Build integrations with external applications (design, CAD/BIM, 3D, media, office, and development tools) as independent adapters or plugins, preferring official APIs or SDKs, then MCP, CLI or IPC, official plugin systems, shared files, and UI automation last.
 - [ ] Consume and expose remote agents through A2A, behind an adapter, when a concrete need appears.
 - [ ] Support project-specific integrations without coupling them to the core framework.
-- [ ] Record tool calls and outputs in the same traceability model used for agents and human steps.
+- [x] Record tool calls and outputs in the same traceability model used for agents and human steps.
 
 ## Observability, quality, and evaluation
 
-**Progress:** `█░░░░░░░░░` 1/8 · 12% <!-- progress -->
+**Progress:** `██░░░░░░░░` 2/8 · 25% <!-- progress -->
 
 - [x] Record provider-reported token usage per run, agent, step, and attempt, including elapsed duration and failed attempts.
 - [ ] Add retry counts, routing-decision telemetry, and token estimates.
@@ -356,17 +358,17 @@ The core works with generic concepts (tool, capability, provider, channel, permi
 - [ ] Compare local and cloud model performance on the same contracts and tasks.
 - [ ] Track regressions when prompts, models, workflows, or providers change.
 - [ ] Add richer diagnostics for model availability, context limits, GPU resources, and dependency health.
-- [ ] Provide exportable run reports for debugging and audit purposes.
+- [x] Provide exportable run reports for debugging and audit purposes.
 
 ## Security and privacy
 
-**Progress:** `███░░░░░░░` 3/10 · 30% <!-- progress -->
+**Progress:** `████░░░░░░` 4/10 · 40% <!-- progress -->
 
 - [ ] Continue enforcing the separation between public source code and private runtime data.
 - [ ] Improve secret-management options beyond local `.env` files.
 - [ ] Add configurable policies for sensitive workloads and local-only execution.
   - [x] Keep sensitive runs off cloud candidates unless a profile and an explicit, verified grant allow the data class (opt-in profiles).
-- [ ] *(proposed)* Guardrail on outgoing content: before every call to a cloud provider, a deterministic check finds secrets and personal data in the prompt and applies the step's policy (allow, redact, block, or escalate to a human), with events. It is opt-in and builds on the existing chain of checks that runs before each model call.
+- [x] Guardrail on outgoing content: before every call to a cloud provider, a deterministic check finds secrets and personal data in the prompt and applies the step's policy (allow, redact, block, or escalate to a human), with events. It is opt-in and builds on the existing chain of checks that runs before each model call.
 - [ ] Review uploaded assets, external tool inputs, and generated artifacts for safe handling boundaries.
   - [x] Quote untrusted content as data, detect instruction-like and hidden text, quarantine or hold it for review, and never let it authorize an effect.
 - [ ] Add dependency, secret, and static-analysis checks to CI where appropriate.

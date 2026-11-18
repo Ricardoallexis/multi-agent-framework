@@ -24,12 +24,12 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Frontend / UI | `███░░░░░░░` 30% | 7 of 23 |
 | Advanced operator interface | `░░░░░░░░░░` 0% | 0 of 15 |
 | Memory, context, and project knowledge | `██░░░░░░░░` 25% | 2 of 8 |
-| Tools, interoperability, and external applications | `░░░░░░░░░░` 0% | 0 of 13 |
-| Observability, quality, and evaluation | `█░░░░░░░░░` 12% | 1 of 8 |
-| Security and privacy | `███░░░░░░░` 30% | 3 of 10 |
+| Tools, interoperability, and external applications | `██░░░░░░░░` 15% | 2 of 13 |
+| Observability, quality, and evaluation | `██░░░░░░░░` 25% | 2 of 8 |
+| Security and privacy | `████░░░░░░` 40% | 4 of 10 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **27%** | **63 of 233** |
+| **All roadmap items** | **29%** | **67 of 233** |
 <!-- progress:table:end -->
 
 ## MVP 1.0 — released in `M1-B03-F01` (package `1.0.0`)
@@ -54,9 +54,9 @@ The first four features below were released in `M1-B02-F00-alpha`. Application s
 | Validation before execution | ✅ Done | Catch a broken workflow (bad YAML, duplicate steps, unknown agents, contracts, models, prompts, or skills) **before** any model call, with every problem reported at once and a stable code for each. An invalid workflow never leaves a half-started run. |
 | Review after any step | ✅ Done | Ask for a human review at any step, approve the exact attempt you saw, and continue from the next step without repeating approved work. Edits to a workflow while a run waits are detected before continuing. |
 | Workflows outside the core | ✅ Done | Keep a complete team (workflows, agents, prompts, and contracts) in its own folder, even outside this repository, validate it, and run it with a generic request from Python, the HTTP API, or the CLI. The first example reviews a software specification. |
-| Application services and HTTP parity | ✅ Done | One public Python layer used by the CLI and the HTTP API, and ready for a UI and an MCP server. It runs generic and bundle workflows, gives clear errors with stable codes, and has a Mock mode that needs no API keys. |
+| Application services and HTTP parity | ✅ Done | One public Python layer used by the CLI, the HTTP API, the GUI, and a local MCP server. It runs generic and bundle workflows, gives clear errors with stable codes, and has a Mock mode that needs no API keys. |
 | Minimal operator UI | ✅ Done | Start runs, follow their state, answer human steps (including pasting an external model's response), and inspect results without the command line, using the mock backend. |
-| Execution backend abstraction | ⏳ Planned | Run the same workflow with the built-in engine, a mock, or an optional [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) backend (graphs, MCP, OpenTelemetry) without making the core depend on it. |
+| Execution backend abstraction | 🔄 In progress | Run the same workflow with the built-in engine or a mock behind one backend interface (`EXECUTION_BACKEND`), checked by one conformance suite in CI. An optional [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) backend (graphs, MCP, OpenTelemetry) is still planned and the core will not depend on it. |
 
 Later candidates, chosen by need: deterministic Python steps, a generic human bridge, provenance, context policies, correlated events with OpenTelemetry, and layered configuration.
 
