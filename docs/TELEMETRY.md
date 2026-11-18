@@ -192,25 +192,60 @@ looks like this:
 The actual response also contains the full per-agent, per-step, and per-model totals.
 Failed attempts remain visible in `records` and contribute to `failed`.
 
-## OpenTelemetry GenAI mapping
+## OpenTelemetry traces and metrics
 
-The current implementation stores local SQLite records rather than emitting
-OpenTelemetry spans. If a future exporter is added, these fields map naturally
-to the OpenTelemetry GenAI semantic conventions:
+The native engine can also emit OpenTelemetry traces and metrics next to the
+local records. It is off by default and partial: it covers the native engine
+only (there is no backend interface yet, S4.A1) and does not replace the run
+events or the SQLite records.
 
-| Local field | Future span/event attribute |
+Install the extra and turn it on:
+
+```bash
+pip install '.[otel]'
+```
+
+```dotenv
+TELEMETRY_OTEL_ENABLED=true
+# Standard OTLP variables configure the exporter:
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+OTEL_SERVICE_NAME=multi-agent-framework
+```
+
+With the setting off, or without `opentelemetry-api` installed, the engine
+builds no telemetry object and imports no OpenTelemetry module. If a host
+application already configured a global tracer or meter provider and the SDK
+or the OTLP exporter is not installed, that provider is used.
+
+| Span | Opened by | `gen_ai.operation.name` |
+| --- | --- | --- |
+| `invoke_workflow <workflow>` | each `process_run` pass of a run | `invoke_workflow` |
+| `invoke_agent <step>` | `step_started`, closed by `step_completed` | `invoke_agent` |
+| `chat <model>` | each provider call, from its usage record | `chat` |
+| `execute_tool <tool>` | `tool_call_requested`, closed by its outcome event; an early denial or failure has only its outcome event | `execute_tool` |
+
+| Local field | Span attribute |
 | --- | --- |
-| `run_id` | workflow or trace correlation ID |
-| `step_id`, `attempt` | operation name and attempt attribute |
-| `agent_id` | agent identifier |
-| `provider`, `model` | system/provider and request model |
-| `tokens_in`, `tokens_out` | input and output token usage |
+| `provider` | `gen_ai.provider.name` |
+| `model` | `gen_ai.request.model`, `gen_ai.response.model` |
+| `agent_id` | `gen_ai.agent.id` |
+| `tokens_in`, `tokens_out` | `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` (absent when not reported) |
+| `cache_read_tokens` | `gen_ai.usage.cache_read.input_tokens` |
 | `duration_ms` | span duration |
-| `success`, `error_type` | status and error attributes |
+| `success`, `error_type` | span status and `error.type` |
+| `run_id`, `step_id`, `attempt` | `multiagent.run_id`, `multiagent.step_id`, `multiagent.attempt` |
 
-This is a mapping guide, not an active exporter. Any exporter must preserve
-the local-only default, avoid prompt or response capture, and follow the
-version of the OpenTelemetry GenAI conventions adopted by the project.
+Step and tool spans also carry `multiagent.start_event_id` and
+`multiagent.end_event_id`, the ids of the `run_events` rows that opened and
+closed them, so a trace can be joined to the domain events. Two histograms are
+recorded: `gen_ai.client.token.usage` (tokens, split by `gen_ai.token.type`)
+and `gen_ai.client.operation.duration` (seconds).
+
+Prompts and responses are never attached to spans. `TELEMETRY_OTEL_CAPTURE_CONTENT=true`
+adds `gen_ai.input.messages` and `gen_ai.output.messages` to the `chat` span of a
+successful call, truncated to 32,000 characters each; it is off by default and
+should stay off for sensitive runs. The GenAI conventions are still evolving, so
+attribute names may follow later versions.
 
 ## Dashboard guidance
 

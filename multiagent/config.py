@@ -276,6 +276,10 @@ class Settings(BaseSettings):
     max_llm_calls: int = Field(default=4, ge=1, le=50)
     max_run_seconds: int = Field(default=300, ge=30)
     approval_timeout_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    # OpenTelemetry traces and metrics of the native engine (CAP-T21; needs the ``otel`` extra). Off: nothing is imported
+    # or exported. Prompts and responses stay out of the spans unless ``telemetry_otel_capture_content`` is on.
+    telemetry_otel_enabled: bool = False
+    telemetry_otel_capture_content: bool = False
     egress_default: Literal["off", "redact", "block", "escalate"] = "off"
     worker_poll_seconds: float = Field(default=0.75, gt=0.05)
     worker_enabled: bool = True

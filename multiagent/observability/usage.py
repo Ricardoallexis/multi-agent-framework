@@ -74,6 +74,8 @@ class UsageRecorder:
         # Called with the record after it is stored (USO-T04: ``UsageServices.attach`` announces the budget alerts that
         # call reached). Best effort: whatever it raises is logged and never touches the call or its telemetry.
         self.after_record: Callable[[TokenUsageRecord], None] | None = None
+        # Read-only listeners of every stored record (CAP-T21: the OpenTelemetry span of the call). Same guarantee.
+        self.observers: list[Callable[[TokenUsageRecord], None]] = []
 
     def record(self, record: TokenUsageRecord) -> bool:
         try:
@@ -88,6 +90,11 @@ class UsageRecorder:
             except Exception:
                 pass
             return False
+        for observer in tuple(self.observers):
+            try:
+                observer(record)
+            except Exception:
+                _logger.warning("A usage observer failed; the telemetry was stored", exc_info=True)
         if self.after_record is not None:
             try:
                 self.after_record(record)

@@ -4,7 +4,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from ..config import Settings
 
@@ -20,6 +20,9 @@ class Database:
         self.settings = settings
         self.path = settings.db_path
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Called with (run_id, event_type, payload, event_id) after a run event is stored (CAP-T21: the OpenTelemetry
+        # spans follow the domain events). Best effort: whatever a listener raises never reaches the writer.
+        self.event_listeners: list[Callable[[str, str, dict[str, Any], int | None], None]] = []
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -82,10 +85,18 @@ class Database:
             except sqlite3.OperationalError:
                 return 0
 
-    def log_event(self, run_id: str, event_type: str, payload: dict[str, Any] | None = None) -> None:
+    def log_event(self, run_id: str, event_type: str, payload: dict[str, Any] | None = None) -> int | None:
+        data = payload or {}
         with self.connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
-                (run_id, utcnow(), event_type, json.dumps(payload or {}, ensure_ascii=False)),
+                (run_id, utcnow(), event_type, json.dumps(data, ensure_ascii=False)),
             )
+            event_id = cursor.lastrowid
             conn.commit()
+        for listener in tuple(self.event_listeners):
+            try:
+                listener(run_id, event_type, data, event_id)
+            except Exception:
+                pass
+        return event_id
