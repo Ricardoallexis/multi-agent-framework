@@ -766,6 +766,26 @@ def cmd_decision(args) -> None:
         pretty(_api_json("POST", f"/api/v1/decisions/{_segment(args.decision_id)}/{command}", json_body=body))
 
 
+def cmd_team(args) -> None:
+    command = args.team_command
+    if command == "propose":
+        body = {"actor": args.actor, "draft": args.draft, "channel": "cli"}
+        pretty(_api_json("POST", f"/api/v1/teams/{_segment(args.bundle)}/versions", json_body=body))
+    elif command == "list":
+        params = {"status": args.status} if args.status else None
+        pretty(_api_json("GET", f"/api/v1/teams/{_segment(args.bundle)}/versions", params=params))
+    elif command == "show":
+        pretty(_api_json("GET", f"/api/v1/teams/versions/{_segment(args.version_id)}"))
+    elif command == "approved":
+        pretty(_api_json("GET", f"/api/v1/teams/{_segment(args.bundle)}/approved"))
+    elif command == "submit":
+        pretty(_api_json("POST", f"/api/v1/teams/versions/{_segment(args.version_id)}/submit",
+                         json_body={"actor": args.actor, "channel": "cli"}))
+    else:
+        body = {"actor": args.actor, "note": args.note or "", "channel": "cli"}
+        pretty(_api_json("POST", f"/api/v1/teams/versions/{_segment(args.version_id)}/{command}", json_body=body))
+
+
 def cmd_task_session(args) -> None:
     task = _segment(args.task_id)
     if args.session_command == "link":
@@ -1625,6 +1645,26 @@ def build_parser() -> argparse.ArgumentParser:
             x.add_argument("--replacement-id"); x.add_argument("--title"); x.add_argument("--text")
             x.add_argument("--valid-until")
         x.set_defaults(func=cmd_decision)
+
+    # Versioned teams and human approvals (S6.A3 / EQP-T03).
+    team = sub.add_parser("team", help="Propose, inspect and approve team versions").add_subparsers(
+        dest="team_command", required=True)
+    x = team.add_parser("propose", help="Propose a new version of a bundle's team.yaml")
+    x.add_argument("bundle"); x.add_argument("--draft", action="store_true")
+    x.add_argument("--actor", default="user:local"); x.set_defaults(func=cmd_team)
+    x = team.add_parser("submit", help="Submit a draft team version for approval")
+    x.add_argument("version_id"); x.add_argument("--actor", default="user:local"); x.set_defaults(func=cmd_team)
+    for action in ("approve", "reject"):
+        x = team.add_parser(action, help=f"{action.title()} a proposed team version (user: actor only)")
+        x.add_argument("version_id"); x.add_argument("--note", default="")
+        x.add_argument("--actor", default="user:local"); x.set_defaults(func=cmd_team)
+    x = team.add_parser("show", help="Show one team version with its diff")
+    x.add_argument("version_id"); x.set_defaults(func=cmd_team)
+    x = team.add_parser("list", help="List team versions for a bundle")
+    x.add_argument("bundle"); x.add_argument("--status", choices=["draft", "proposed", "approved", "rejected"])
+    x.set_defaults(func=cmd_team)
+    x = team.add_parser("approved", help="Show the currently approved team version for a bundle")
+    x.add_argument("bundle"); x.set_defaults(func=cmd_team)
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)

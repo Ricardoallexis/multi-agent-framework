@@ -24,6 +24,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.definitions` | `list_workflows`, `get_workflow`, `list_agents`, `list_bundles`, `validate_bundle` |
 | `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_check`, `human_submit`, `artifacts`, `events`, `usage`, `step_attempts`, `compare_attempts` |
 | `services.tasks` | `create_group`, `update_group`, `get_group`, `list_groups`, `create_task`, `get_task`, `list_tasks`, `ready_tasks`, `add_dependency`, `remove_dependency`, `transition`, `events` |
+| `services.teams` | `propose`, `submit`, `approve`, `reject`, `get`, `list`, `approved`, `diff`: versions of a bundle's `team.yaml` with human approval (`user:` actors only) and a structural diff against the approved version; see the `/api/v1/teams` routes. |
 | `services.gates` | `set_task_gate`, `set_group_gate`, `get_gate`, `review`, `run_gate`, `abort_gate`, `results`, `project_commands` |
 | `services.envelopes` | `set_task_context`, `get_envelope`, `put_blob`, `get_artifact`, `submit_result`, `get_result`, `list_results`, `get_cursor`, `read_events`, `ack_events` |
 | `services.executors` | `run_task`, `resume_task`, `open_target`, `status` (and `record_app_open`, `session_guard`): run an ORQ task in Codex, Claude or Copilot, continue or open its session |
@@ -119,6 +120,13 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `POST` | `/api/v1/decisions/{id}/accept` | Accept a proposal with `{actor, outcome?, valid_from?, valid_until?}`. `actor` must be a `user:` actor. |
 | `POST` | `/api/v1/decisions/{id}/reject` | Reject a proposal with `{actor, outcome?}`. `actor` must be a `user:` actor. |
 | `POST` | `/api/v1/decisions/{id}/supersede` | Replace an accepted decision with `{actor, replacement_id?}` or `{actor, title, body}`; optional `outcome` and `valid_until`. The replacement becomes accepted and the old decision links to it. |
+| `POST` | `/api/v1/teams/{bundle}/versions` | Propose the bundle's `team.yaml` with `{actor, draft?}`. Validates it like `validate_bundle` (`invalid_definition` 422 with the findings); a team equal to the approved version is `invalid_request` (`no_changes`). Returns `201` with the version and its diff. |
+| `GET` | `/api/v1/teams/{bundle}/versions` | List the bundle's team versions; optional `status`. |
+| `GET` | `/api/v1/teams/versions/{id}` | Get one version with its diff against the approved version. |
+| `POST` | `/api/v1/teams/versions/{id}/submit` | Move a draft to `proposed` with `{actor}`. |
+| `POST` | `/api/v1/teams/versions/{id}/approve` | Approve a proposed version with `{actor, note?}`. `actor` must be a `user:` actor; another state is `invalid_state` (409). |
+| `POST` | `/api/v1/teams/versions/{id}/reject` | Reject a proposed version with `{actor, note?}`, under the same rules. |
+| `GET` | `/api/v1/teams/{bundle}/approved` | The current approved version, or `null`. |
 | `POST` | `/api/v1/evaluations/run` | Run an evaluation set (the YAML document as JSON). Mock by default, on a temporary database; `"live": true` runs a workflow set on this server's worker and returns `409 eval_live_worker_unavailable` when it is not running. Every report is saved in the system database (the cases of a Mock run still use a temporary one) and `meta.evaluation_run_id` names it; an optional `actor` is stored with it. See [Evaluation sets](EVALUATION.md). |
 | `GET` | `/api/v1/evaluations/runs` | List saved evaluation runs, newest first; optional `set_name` and `limit` (1 to 1000, default 100). |
 | `GET` | `/api/v1/evaluations/runs/{run_id}` | One saved evaluation run with its fingerprint and report. |

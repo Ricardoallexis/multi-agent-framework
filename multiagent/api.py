@@ -443,6 +443,23 @@ class DecisionSupersede(_Body):
     valid_until: str | None = None
 
 
+class TeamPropose(_Body):
+    actor: str
+    draft: bool = False
+    channel: str = "api"
+
+
+class TeamSubmit(_Body):
+    actor: str
+    channel: str = "api"
+
+
+class TeamDecision(_Body):
+    actor: str
+    note: str | None = ""
+    channel: str = "api"
+
+
 class ActivityClose(_Body):
     summary: str
     actor: str
@@ -987,6 +1004,36 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/decisions/{decision_id}/supersede")
     def supersede_decision(decision_id: str, body: DecisionSupersede):
         return services.decisions.supersede(decision_id, **body.model_dump())
+
+    # --- teams (EQP-T03) ------------------------------------------------------
+
+    @app.post("/api/v1/teams/{bundle}/versions", status_code=201)
+    def propose_team_version(bundle: str, body: TeamPropose):
+        return services.teams.propose(bundle, actor=body.actor, channel=body.channel, draft=body.draft)
+
+    @app.get("/api/v1/teams/{bundle}/versions")
+    def list_team_versions(bundle: str, status: str | None = None):
+        return services.teams.list(bundle, status=status)
+
+    @app.get("/api/v1/teams/versions/{version_id}")
+    def get_team_version(version_id: str):
+        return services.teams.get(version_id)
+
+    @app.post("/api/v1/teams/versions/{version_id}/submit")
+    def submit_team_version(version_id: str, body: TeamSubmit):
+        return services.teams.submit(version_id, body.actor, channel=body.channel)
+
+    @app.post("/api/v1/teams/versions/{version_id}/approve")
+    def approve_team_version(version_id: str, body: TeamDecision):
+        return services.teams.approve(version_id, actor=body.actor, channel=body.channel, note=body.note or "")
+
+    @app.post("/api/v1/teams/versions/{version_id}/reject")
+    def reject_team_version(version_id: str, body: TeamDecision):
+        return services.teams.reject(version_id, actor=body.actor, channel=body.channel, note=body.note or "")
+
+    @app.get("/api/v1/teams/{bundle}/approved")
+    def get_approved_team(bundle: str):
+        return services.teams.approved(bundle)
 
     @app.post("/api/v1/tasks/{task_id}/sessions")
     def link_task_session(task_id: str, body: TaskSessionLink):

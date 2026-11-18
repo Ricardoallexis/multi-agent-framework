@@ -243,13 +243,28 @@ class RunServices:
             raise ServiceError(NOT_FOUND, f"Task not found: {task_id}", status=404, details={"task": task_id})
         runtime = self._system_runtime if bundle is None else self._bundle_runtime(bundle)
         try:
-            return self._tag(runtime, runtime.service.create_run(request))
+            run = runtime.service.create_run(request)
         except ValueError as exc:
             if isinstance(exc, FunctionStepRequestError):
                 raise
             if getattr(request, "routing_preferences", None):
                 raise ServiceError(INVALID_REQUEST, str(exc), status=422) from exc
             raise
+        if bundle is not None:
+            events = run.get("events") or ()
+            if len(events) == 1 and events[0].get("event_type") == "workflow_started":
+                approved_team = self._services.teams.approved(bundle)
+                if approved_team is not None:
+                    runtime.store.db.log_event(run["id"], "team_version_bound", {
+                        "id": approved_team["id"],
+                        "version_id": approved_team["id"],
+                        "bundle": bundle,
+                        "team_id": approved_team["team_id"],
+                        "version": approved_team["version"],
+                        "sha256": approved_team["sha256"],
+                    })
+                    run = runtime.store.get_run(run["id"])
+        return self._tag(runtime, run)
 
     @service_errors
     def get(self, run_id: str) -> dict[str, Any]:

@@ -48,6 +48,7 @@ from .reports import build_run_report, render_run_report_markdown
 from .runs import RunServices
 from .sessions import SessionServices
 from .tasks import TaskServices
+from .teams import TeamServices
 from .usage import UsageServices
 
 if TYPE_CHECKING:
@@ -73,6 +74,7 @@ __all__ = [
     "ServiceError",
     "SessionServices",
     "TaskServices",
+    "TeamServices",
     "UsageServices",
     "service_errors",
     "translate",
@@ -108,6 +110,7 @@ class ApplicationServices:
         self.inbox = InboxServices(self)
         self.memory = MemoryServices(self)
         self.decisions = DecisionServices(self)
+        self.teams = TeamServices(self)
         self.new_session = NewSessionServices(self)
         # The engine of the system reads the availability policy from the inbox, the same place that accepts the messages.
         engine = getattr(system, "engine", None)
