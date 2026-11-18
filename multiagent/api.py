@@ -516,6 +516,17 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def validate_bundle(name: str):
         return services.definitions.validate_bundle(name)
 
+    # --- evaluation sets (EVA-T01) ------------------------------------------
+
+    @app.post("/api/v1/evaluations/run")
+    def run_evaluation(body: dict[str, Any]):
+        payload = dict(body)
+        live = payload.pop("live", False)
+        if not isinstance(live, bool):
+            raise ServiceError(INVALID_REQUEST, "Invalid evaluation set", status=422,
+                               details={"errors": [{"loc": ["live"], "msg": "Expected a boolean"}]})
+        return services.evaluation.run(payload, live=live)
+
     # --- runs -------------------------------------------------------------------
 
     @app.post("/api/v1/runs", status_code=202)

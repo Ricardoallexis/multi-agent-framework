@@ -25,11 +25,11 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Advanced operator interface | `░░░░░░░░░░` 0% | 0 of 15 |
 | Memory, context, and project knowledge | `██░░░░░░░░` 25% | 2 of 8 |
 | Tools, interoperability, and external applications | `██░░░░░░░░` 15% | 2 of 13 |
-| Observability, quality, and evaluation | `██░░░░░░░░` 25% | 2 of 8 |
+| Observability, quality, and evaluation | `████░░░░░░` 38% | 3 of 8 |
 | Security and privacy | `████░░░░░░` 40% | 4 of 10 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **29%** | **69 of 234** |
+| **All roadmap items** | **30%** | **70 of 234** |
 <!-- progress:table:end -->
 
 ## MVP 1.0 — released in `M1-B03-F01` (package `1.0.0`)

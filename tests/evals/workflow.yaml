@@ -1,0 +1,14 @@
+name: workflow-example
+version: "1"
+target: {kind: workflow, id: social_post}
+cases:
+  - id: post
+    inputs:
+      topic: Community gardens
+      platform: LinkedIn
+      audience: Neighbors
+      instructions: Write clearly.
+      objective: Invite participation.
+    checks:
+      - {type: contract_valid}
+      - {type: equals, field: title, expected: Test post}

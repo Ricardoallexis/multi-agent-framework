@@ -1,0 +1,9 @@
+name: prompt-example
+version: "1"
+target: {kind: prompt, id: creator/social_post, version: 2}
+cases:
+  - id: create
+    inputs: {topic: Community gardens, platform: LinkedIn, audience: Neighbors}
+    checks:
+      - {type: contract_valid}
+      - {type: equals, field: title, expected: Test post}

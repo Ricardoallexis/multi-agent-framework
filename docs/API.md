@@ -29,6 +29,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.executors` | `run_task`, `resume_task`, `open_target`, `status` (and `record_app_open`, `session_guard`): run an ORQ task in Codex, Claude or Copilot, continue or open its session |
 | `services.memory` | `create`, `list`, `get`, `delete`: facts, decisions and conventions of a project, each with its author as provenance and a computed trust level. Entries live in the system database; a bundle run reads the memory of the project with the same name there. A workflow or step receives them, quoted as data, only when it sets `project_memory`. |
 | `services.decisions` | `propose`, `get`, `list`, `accept`, `reject`, `supersede`: durable proposals with a human decision, effective expiry and active filtering. Successful run reviews create records automatically. |
+| `services.evaluation` | `run(set, live=False)`: run an evaluation set of workflow, agent or prompt cases and return its report; see [Evaluation sets](EVALUATION.md). |
 
 For example, create a built-in social-post run:
 
@@ -116,6 +117,7 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `POST` | `/api/v1/decisions/{id}/accept` | Accept a proposal with `{actor, outcome?, valid_from?, valid_until?}`. `actor` must be a `user:` actor. |
 | `POST` | `/api/v1/decisions/{id}/reject` | Reject a proposal with `{actor, outcome?}`. `actor` must be a `user:` actor. |
 | `POST` | `/api/v1/decisions/{id}/supersede` | Replace an accepted decision with `{actor, replacement_id?}` or `{actor, title, body}`; optional `outcome` and `valid_until`. The replacement becomes accepted and the old decision links to it. |
+| `POST` | `/api/v1/evaluations/run` | Run an evaluation set (the YAML document as JSON). Mock by default, on a temporary database; `"live": true` runs a workflow set on this server's worker and returns `409 eval_live_worker_unavailable` when it is not running. See [Evaluation sets](EVALUATION.md). |
 | `GET` | `/api/v1/task-groups` | List task groups with task counts per status. |
 | `POST` | `/api/v1/task-groups` | Create a task group with `{"id", "title", "actor", "authorized"?, "default_requires"?}`. Returns `201 Created`. |
 | `GET` | `/api/v1/task-groups/{group_id}` | Get a task group with task counts per status. |

@@ -101,7 +101,8 @@ def test_example_report_is_reproducible_and_has_expected_failure(services):
     assert first.cases[0].passed and first.cases[1].passed
     assert not first.cases[2].passed
     assert [check.passed for check in first.cases[2].checks] == [True, True, False]
-    assert first.meta["run_ids"] != second.meta["run_ids"]
+    assert "run_ids" not in first.meta
+    assert "run_ids" not in second.meta
 
 
 def test_runner_requires_mock_mode(services):

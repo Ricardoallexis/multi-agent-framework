@@ -308,6 +308,7 @@ class Settings(BaseSettings):
     # A live run renews its lease until it ends or shutdown stops waiting for it.
     worker_lease_seconds: float = Field(default=30, gt=0, allow_inf_nan=False)
     worker_shutdown_wait_seconds: float = Field(default=30, ge=0, allow_inf_nan=False)
+    eval_live_timeout_seconds: float = Field(default=900, gt=0, allow_inf_nan=False)
     mock_mode: bool = False
 
     @field_validator("gui_session_roots", "gui_session_sources", mode="before")

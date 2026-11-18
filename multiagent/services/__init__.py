@@ -36,6 +36,7 @@ from .assignment import AssignmentServices
 from .definitions import DefinitionServices
 from .decisions import DecisionServices
 from .envelopes import EnvelopeServices
+from .evaluation import EvaluationServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
 from .executors import ExecutorServices
 from .gates import GateServices
@@ -59,6 +60,7 @@ __all__ = [
     "DefinitionServices",
     "DecisionServices",
     "EnvelopeServices",
+    "EvaluationServices",
     "ExecutorServices",
     "GateServices",
     "InboxServices",
@@ -95,6 +97,7 @@ class ApplicationServices:
         self.tasks = TaskServices(self)
         self.gates = GateServices(self)
         self.envelopes = EnvelopeServices(self)
+        self.evaluation = EvaluationServices(self)
         # The executor service goes first: its adapters (with its session guard) are what the assignment registry loads.
         self.executors = ExecutorServices(self)
         self.assignment = AssignmentServices(self, adapters=self.executors.build_adapters)

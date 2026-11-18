@@ -1,7 +1,7 @@
 """Evaluation set and report models."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
@@ -51,9 +51,25 @@ class EvalCase(StrictModel):
     """One workflow input set and its assertions."""
 
     id: str = Field(min_length=1)
-    workflow: str = Field(min_length=1)
+    workflow: str | None = Field(default=None, min_length=1)
     inputs: dict[str, str] = Field(default_factory=dict)
     checks: list[CheckSpec] = Field(default_factory=list)
+
+
+class EvalTarget(StrictModel):
+    """Definition evaluated by this set."""
+
+    kind: Literal["workflow", "agent", "prompt"]
+    id: str = Field(min_length=1)
+    version: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def prompt_needs_version(self) -> EvalTarget:
+        if self.kind == "prompt" and self.version is None:
+            raise ValueError("Prompt target requires version")
+        if self.kind != "prompt" and self.version is not None:
+            raise ValueError("Only prompt targets have a version")
+        return self
 
 
 class EvalSet(StrictModel):
@@ -61,6 +77,7 @@ class EvalSet(StrictModel):
 
     name: str = Field(min_length=1)
     version: str = Field(min_length=1)
+    target: EvalTarget | None = None
     cases: list[EvalCase] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -68,6 +85,11 @@ class EvalSet(StrictModel):
         ids = [case.id for case in self.cases]
         if len(ids) != len(set(ids)):
             raise ValueError("Evaluation case ids must be unique")
+        if self.target is None and any(case.workflow is None for case in self.cases):
+            raise ValueError("Cases without a target require workflow")
+        if self.target is not None and self.target.kind == "workflow":
+            if any(case.workflow not in (None, self.target.id) for case in self.cases):
+                raise ValueError("Case workflow must match target.id")
         return self
 
 

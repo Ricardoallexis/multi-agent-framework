@@ -34,6 +34,40 @@ def pretty(value) -> None:
     print(json.dumps(value, ensure_ascii=False, indent=2, default=str))
 
 
+def cmd_eval_run(args) -> None:
+    """Run a YAML evaluation set through the shared application service."""
+    import yaml
+    from .services import ApplicationServices, ServiceError
+    from .services.errors import INVALID_REQUEST
+
+    try:
+        payload = yaml.safe_load(Path(args.file).read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        error = ServiceError(INVALID_REQUEST, "Invalid evaluation set", status=422,
+                             details={"errors": [{"loc": [], "msg": str(exc)}]})
+        print(json.dumps(error.to_payload(), ensure_ascii=False), file=sys.stderr)
+        raise SystemExit(1) from exc
+    if args.live:
+        report = _api_json("POST", "/api/v1/evaluations/run", json_body={**payload, "live": True}, timeout=None)
+    else:
+        services = ApplicationServices.create(get_settings())
+        try:
+            try:
+                report = services.evaluation.run(payload)
+            except ServiceError as exc:
+                print(json.dumps(exc.to_payload(), ensure_ascii=False), file=sys.stderr)
+                raise SystemExit(1) from exc
+        finally:
+            services.runs.close()
+    if args.format == "json":
+        pretty(report)
+    else:
+        print(f"# Evaluation: {report['name']} ({report['version']})\n\nScore: {report['score']:.4f}")
+        for case in report["cases"]:
+            print(f"- {case['id']}: {'PASS' if case['passed'] else 'FAIL'} ({case['score']:.4f})")
+        print(f"\nFingerprint: `{json.dumps(report['meta']['fingerprint'], ensure_ascii=False, sort_keys=True)}`")
+
+
 def api_client() -> httpx.Client:
     s = get_settings()
     return httpx.Client(base_url=s.api_base_url, timeout=30)
@@ -1087,6 +1121,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=__version__)
     p.add_argument("--debug", action="store_true", help="Show the full traceback when an error occurs")
     sub = p.add_subparsers(dest="command", required=True)
+
+    evaluation = sub.add_parser("eval", help="Run evaluation sets").add_subparsers(dest="eval_command", required=True)
+    x = evaluation.add_parser("run"); x.add_argument("file")
+    x.add_argument("--format", choices=("json", "markdown"), default="json")
+    x.add_argument("--live", action="store_true"); x.set_defaults(func=cmd_eval_run)
 
     x = sub.add_parser("init"); x.set_defaults(func=cmd_init)
     x = sub.add_parser("doctor"); x.add_argument("--deep", action="store_true"); x.set_defaults(func=cmd_doctor)
