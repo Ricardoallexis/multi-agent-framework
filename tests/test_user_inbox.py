@@ -694,7 +694,8 @@ def test_the_inbox_is_read_only_by_the_worker_thread(tmp_path, monkeypatch):
     finally:
         release.set()
         worker.stop()
-    assert readers == ["multiagent-worker"] and main_thread not in readers
+    # The worker runs each run in its own thread (S4.D1), named after the run.
+    assert len(readers) == 1 and readers[0] == f"multiagent-run-{run_id[:8]}" and main_thread not in readers
     assert system.store.get_run(run_id)["status"] == RunStatus.CANCELLED.value
 
 
