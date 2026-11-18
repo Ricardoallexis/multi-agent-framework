@@ -2,7 +2,7 @@
 
 An execution backend is whatever turns a queued run into executed steps. The run service and the local worker talk to it only through the `ExecutionBackend` interface in `multiagent/backends/`, so the same workflow definitions, contracts, runs and human steps work with any backend that meets the contract below.
 
-Status (roadmap [S4](ROADMAP_STAGES.md#s4--execution-backend-abstraction-)): the interface, its contract and the registry exist (S4.A1). The native engine behind the interface (S4.A2), a mock backend (S4.A3) and a conformance suite (S4.B1) are in progress. An optional Microsoft Agent Framework backend (S4.C) and several workers (S4.D) are planned.
+Status (roadmap [S4](ROADMAP_STAGES.md#s4--execution-backend-abstraction-)): the interface, its contract and the registry (S4.A1), the native engine behind the interface (S4.A2), the mock backend (S4.A3) and the conformance suite (S4.B1), which runs against both in CI (S4.B2), are done. An optional Microsoft Agent Framework backend (S4.C) and several workers (S4.D) are planned.
 
 ## The contract
 
@@ -40,3 +40,14 @@ A backend declares what it really does in `capabilities`. Every backend has `usa
 `build_backend(name, context)` builds a backend from a `BackendContext` (the store, settings, definitions and artifact writer every backend shares, plus the router, tools and policies for the backends that use them). The built-in backends are declared as `module:function` and imported only when they are built. A host registers its own with `register_backend(name, factory)`. A name nobody registered raises `UnknownBackend` with the list of available names, and an object that does not meet the contract raises `InvalidBackend` with what is missing.
 
 When enabled, OpenTelemetry attaches at backend construction and observes its store events, usage records and queued run passes (see [Telemetry](TELEMETRY.md#opentelemetry-traces-and-metrics)).
+
+## Choosing a backend
+
+`EXECUTION_BACKEND` (the `execution_backend` setting, `native` by default) names the backend that `build_system` builds and gives to the run service and the local worker. `multiagent doctor` shows the active backend and the available ones. With a backend other than `native`, `System.engine` is still a native engine, kept only for the reads that use it (workflow metadata, the router of Nueva sesión); it runs nothing and has no telemetry.
+
+| Backend | Use | Capabilities |
+| --- | --- | --- |
+| `native` | The workflow engine: real providers, routing, tools and every policy. | All 14. |
+| `mock` | Deterministic runs without providers, routing or tools, for tests and demos. Model steps take `sample_outputs` or a minimal valid example of the step's output schema, and each one records zero tokens. | `usage`, `budgets`, `cancellation`, `human_steps`, `review`, `recovery`. |
+
+Runs of a registered bundle do not go through the setting: each bundle builds its native engine with `WorkflowEngine.from_bundle`.

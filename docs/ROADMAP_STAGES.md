@@ -20,7 +20,7 @@ This plan breaks the [roadmap](../ROADMAP.md) into stages, sub-stages, and tasks
 | S1 | Application services and HTTP parity | Core | S0 | ✅ |
 | S2 | Operator UI, UI stage 0 | Extension | S1 | ✅ |
 | S3 | Local usage telemetry | Core | S1 | ✅ |
-| S4 | Execution backend abstraction | Core + Extension | S1 | ☐ |
+| S4 | Execution backend abstraction | Core + Extension | S1 | ◐ |
 | S5 | Tool and capability contracts | Core | S1 | ◐ |
 | S6 | Team definitions and team design | Core | S5.C | ☐ |
 | S7 | Collaborative team primitives | Core | S6.A | ◐ |
@@ -99,7 +99,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 
 ---
 
-## S4 · Execution backend abstraction ☐
+## S4 · Execution backend abstraction ◐
 
 - **Class:** Core (interface, native and mock backends) + Extension (Microsoft Agent Framework backend).
 - **Objective:** run the same workflow definitions on interchangeable backends.
@@ -109,12 +109,12 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S4.A — Interface** | | |
-| S4.A1 | Define the backend interface: execute a step, report events and usage, pause for a human, resume, cancel. | — |
-| S4.A2 | Refactor the native engine behind the interface without behavior changes. | S4.A1 |
-| S4.A3 | Make Mock a backend on the same interface. | S4.A1 |
+| S4.A1 | ✅ Define the backend interface: execute a step, report events and usage, pause for a human, resume, cancel (`multiagent/backends/`, [`BACKENDS.md`](BACKENDS.md)). | — |
+| S4.A2 | ✅ Refactor the native engine behind the interface without behavior changes (`EXECUTION_BACKEND=native`, the default). | S4.A1 |
+| S4.A3 | ✅ Make Mock a backend on the same interface (`EXECUTION_BACKEND=mock`). | S4.A1 |
 | **S4.B — Conformance** | | |
-| S4.B1 | A backend conformance test suite (events, checkpoints, review, budgets, cancellation, usage). | S4.A1 |
-| S4.B2 | Run the suite against the native and Mock backends in CI. | S4.A2, S4.A3, S4.B1 |
+| S4.B1 | ✅ A backend conformance test suite (events, checkpoints, review, budgets, cancellation, usage): `tests/test_backend_conformance.py`. | S4.A1 |
+| S4.B2 | ✅ Run the suite against the native and Mock backends in CI. | S4.A2, S4.A3, S4.B1 |
 | **S4.C — Optional backend** | | |
 | S4.C1 | Microsoft Agent Framework backend as an optional extra; the core never imports it. | S4.B2 |
 | S4.C2 | Compile workflow definitions to its graph workflows (branching, retries, reusable fragments) instead of building a separate graph engine. | S4.C1 |
@@ -123,6 +123,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S4.D2 | A resource-aware scheduler (CPU, RAM, GPU/VRAM, provider limits) that works with any backend. | S4.D1 |
 
 **Parallel:** S4.A2 and S4.A3; S4.C and S4.D after S4.B2.
+**Delivered in part:** the interface, the native and Mock backends and the conformance suite (S4.A and S4.B). Runs of a registered bundle still build the native engine directly. The optional Microsoft Agent Framework backend (S4.C) and concurrency (S4.D) remain planned.
 **Acceptance:** every existing workflow runs unchanged on the native backend; the conformance suite passes for native and Mock; the optional backend installs as an extra and passes the same suite.
 **Example:** `multiagent run --backend native` and, with the extra installed, `--backend maf` produce the same run record.
 
@@ -293,8 +294,8 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 basis, with unknown values kept separate from zero. Routing and bounded
 escalation events provide decision evidence. Exportable reports, complete
 retry/token-estimate telemetry, and evaluation datasets remain planned. The
-native engine now emits optional OpenTelemetry traces and metrics; a backend
-interface (S4.A1) remains planned.
+optional OpenTelemetry traces and metrics attach to each execution backend
+(S4.A1): native and Mock.
 
 ## S11 · Model routing and local AI ◐
 

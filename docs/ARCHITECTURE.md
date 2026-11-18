@@ -13,7 +13,9 @@ main.py / CLI / Python callers
       -> definitions (workflows, agents, bundles)
       -> tasks -> TaskStore + pure dependency graph (multiagent/tasks/)
       -> runs -> RunService (one per bundle runtime)
-          -> WorkflowEngine
+          -> ExecutionBackend (multiagent/backends/, chosen by EXECUTION_BACKEND)
+            - mock (no providers)
+            - native = WorkflowEngine
               -> ModelRouter
                   -> adapters/
                      - Ollama
@@ -42,9 +44,13 @@ Provides development and operational commands for diagnostics, runs, Human-in-th
 
 The pure dependency graph of tasks: cycle detection, `blocked` and `ready` status, blockers, released dependents, and parallel layers. It has no database or service imports, so the rules can be tested and reused on their own.
 
+### `multiagent/backends/`
+
+The seam between the run service and whatever executes a run: the `ExecutionBackend` interface, its contract (events and usage only through the `Store`, declared capabilities) and a registry by name. `build_system` builds the backend named by `EXECUTION_BACKEND`: `native` (the default, the workflow engine below) or `mock`, which keeps the same durable state but calls no provider. Optional OpenTelemetry attaches when a backend is built. One conformance suite runs against both. Runs of a registered bundle build the native engine directly (`WorkflowEngine.from_bundle`). See [`BACKENDS.md`](BACKENDS.md).
+
 ### `multiagent/workflow_engine.py`
 
-Executes workflow steps, builds context, applies routing, validates contracts, persists artifacts, and pauses execution at human checkpoints.
+The native backend. Executes workflow steps, builds context, applies routing, validates contracts, persists artifacts, and pauses execution at human checkpoints.
 
 A step may declare `tools:` that run before its model call, through `ToolInvoker` and the tool registry that `build_system` creates (`System.tool_registry`, with the built-in synthetic `mock.*` tools; a host may register its own or MCP tools before running). Each entry names a tool (`tool: mock.echo`, optional `version`) or a capability resolved by `select_tool` (`capability: text.upper`), with literal `arguments`; a string argument written `${name}` takes the run input `name`. Every call leaves `tool_call_*` events in the run log, and its result reaches the prompt as untrusted data. A call with a write or destructive effect pauses the run in `waiting_human` / `tool_approval`; approving it with the shown `permission_request_id` (GUI, CLI, or `RunService.approve(..., permission_request_id=..., person=True)`) queues the run and the call runs once; rejecting it fails the run.
 
