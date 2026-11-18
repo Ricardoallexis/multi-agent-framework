@@ -70,6 +70,14 @@ class MemoryServices:
             raise _missing("Project", name)
         return project_id
 
+    def entries_for_project_name(self, project_name: str) -> list[dict[str, Any]]:
+        """Raw memory rows for a bundle run, matched by name in the system database."""
+        with self.store.db.connect() as conn:
+            project = conn.execute("SELECT id FROM projects WHERE name=?", (project_name,)).fetchone()
+            if project is None:
+                return []
+            return self.store.list(project["id"], conn=conn)
+
     @service_errors
     def create(self, project: str, *, kind: str, title: str, body: str, actor: str, confidence: str | None = None,
                source_ref: str = "") -> dict[str, Any]:

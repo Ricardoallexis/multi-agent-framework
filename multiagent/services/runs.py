@@ -147,6 +147,7 @@ class RunServices:
             usage = getattr(self._services, "usage", None)
             if usage is not None:
                 usage.attach(engine)                               # the same budget guard and alerts as the system engine (USO-T04)
+            engine.memory_source = self._services.memory.entries_for_project_name
             runtime = _Runtime(name, store, RunService(settings, store, engine=engine),
                                LocalWorker(store, engine, settings.worker_poll_seconds))
             if settings.worker_enabled:

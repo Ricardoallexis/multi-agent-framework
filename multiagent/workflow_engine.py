@@ -279,6 +279,8 @@ class WorkflowEngine:
         # The usage service the budget guard reads (USO-T04, ``UsageServices.attach``): it answers ``notify_budgets``. ``None`` (a
         # bare engine) with a budget configured counts as "cannot read the budgets": in cut mode no call is made.
         self.budgets_source = None
+        # Bundle runtimes attach a reader for the system database; a bare engine reads its own store.
+        self.memory_source = None
 
     @classmethod
     def from_bundle(cls, bundle: DefinitionBundle, *, store: Store,
@@ -1643,7 +1645,15 @@ class WorkflowEngine:
         added when the project has no entry that fits (the prompt is then what it was without the opt-in); when
         entries exist but none fits the cap, the event still records how many were left out.
         """
-        selection = select_entries(MemoryStore(self.store.db).list(project_id), setting)
+        if self.memory_source is None:
+            entries = MemoryStore(self.store.db).list(project_id)
+        else:
+            with self.store.db.connect() as conn:
+                project = conn.execute("SELECT name FROM projects WHERE id=?", (project_id,)).fetchone()
+            if project is None:
+                raise KeyError(f"Project not found: {project_id}")
+            entries = self.memory_source(project["name"])
+        selection = select_entries(entries, setting)
         if not selection.entries:
             if selection.omitted:
                 self.store.db.log_event(run_id, "project_memory_included", {

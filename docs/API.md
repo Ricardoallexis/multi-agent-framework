@@ -27,7 +27,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.gates` | `set_task_gate`, `set_group_gate`, `get_gate`, `review`, `run_gate`, `abort_gate`, `results`, `project_commands` |
 | `services.envelopes` | `set_task_context`, `get_envelope`, `put_blob`, `get_artifact`, `submit_result`, `get_result`, `list_results`, `get_cursor`, `read_events`, `ack_events` |
 | `services.executors` | `run_task`, `resume_task`, `open_target`, `status` (and `record_app_open`, `session_guard`): run an ORQ task in Codex, Claude or Copilot, continue or open its session |
-| `services.memory` | `create`, `list`, `get`, `delete`: facts, decisions and conventions of a project, each with its author as provenance and a computed trust level. Entries live in the system database (bundle runs read their own isolated database, which stays empty). A workflow or step receives them, quoted as data, only when it sets `project_memory`. |
+| `services.memory` | `create`, `list`, `get`, `delete`: facts, decisions and conventions of a project, each with its author as provenance and a computed trust level. Entries live in the system database; a bundle run reads the memory of the project with the same name there. A workflow or step receives them, quoted as data, only when it sets `project_memory`. |
 
 For example, create a built-in social-post run:
 

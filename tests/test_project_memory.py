@@ -29,6 +29,7 @@ from multiagent.context import project_memory as pm
 from multiagent.db.database import Database
 from multiagent.db.memory_store import MemoryStore
 from multiagent.document_trust import ENVELOPE_OPEN, resolve_policy
+from multiagent.run_request import RunRequest
 from multiagent.services import ApplicationServices, ServiceError
 from multiagent.workflow_validation import WorkflowDefinitionError, parse_workflow_document
 
@@ -386,3 +387,70 @@ def test_with_the_document_barrier_on_the_memory_is_screened_and_quoted_once(tmp
     quarantined = [event for event in state["events"] if event["event_type"] == "document_quarantined"
                    and event["payload"].get("part_kind") == "project_memory"]
     assert quarantined
+
+
+# --- bundle service runtime ---------------------------------------------------------------------------
+
+@pytest.fixture
+def bundle_services(tmp_path):
+    source = Path(__file__).parent / "fixtures" / "bundles" / "spec_review"
+    bundle = tmp_path / "spec_review"
+    shutil.copytree(source, bundle)
+    workflow = bundle / "workflows" / "spec_review.yaml"
+    document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    document["project_memory"] = True
+    workflow.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    settings = Settings(_env_file=None, local_dir=tmp_path / "local", worker_enabled=False,
+                        gemini_api_key="", openai_api_key="", openai_enabled=False)
+    services = ApplicationServices.create(settings, bundles={"team": bundle}, dry_run=True)
+    yield services
+    services.runs.close()
+
+
+def bundle_prompt(services, monkeypatch, project_name):
+    runtime = services.runs._bundle_runtime("team")
+    adapter = runtime.worker.engine.router.adapters["fake"]
+    original = adapter.generate_structured
+    prompts = []
+
+    def capture(**kwargs):
+        prompts.append(kwargs["prompt"])
+        return original(**kwargs)
+
+    monkeypatch.setattr(adapter, "generate_structured", capture)
+    request = RunRequest(project_name=project_name, workflow_id="spec_review",
+                         inputs={"spec_text": "Users can reset a password by email."})
+    run = services.runs.create(request, bundle="team")
+    assert runtime.worker.process_once()
+    return prompts[0], services.runs.get(run["id"])
+
+
+def test_bundle_step_reads_system_memory_by_project_name(bundle_services, monkeypatch):
+    services = bundle_services
+    services.system.store.get_or_create_project("Shared review")
+    services.system.store.get_or_create_project("Other review")
+    entry = services.memory.create("Shared review", kind="decision", title="Tone", body="Keep language plain.",
+                                   actor="user:ana", source_ref="run:example")
+    later = services.memory.create("Shared review", kind="fact", title="Audience", body="Readers are new users.",
+                                   actor="user:ana")
+    other = services.memory.create("Other review", kind="fact", title="Private", body="Other project only.",
+                                   actor="user:ana")
+    assert [row["id"] for row in services.memory.entries_for_project_name("Shared review")] == [entry["id"], later["id"]]
+
+    prompt, state = bundle_prompt(services, monkeypatch, "Shared review")
+
+    assert "## Project memory" in prompt and "| Keep language plain." in prompt
+    assert ENVELOPE_OPEN in prompt and "kind=project_memory" in prompt
+    assert f"ref=memory:{entry['id']}" in prompt and "derived_from=user" in prompt
+    assert other["id"] not in prompt and "Other project only." not in prompt
+    included = tc.events(state, "project_memory_included")
+    assert included and included[0]["entries"] == [later["id"], entry["id"]]
+    assert included[0]["project_id"] == state["project_id"]
+
+
+def test_bundle_only_project_has_no_system_memory(bundle_services, monkeypatch):
+    prompt, state = bundle_prompt(bundle_services, monkeypatch, "Bundle only")
+
+    assert state["status"] == "waiting_human"
+    assert "## Project memory" not in prompt
+    assert not tc.events(state, "project_memory_included")
