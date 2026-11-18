@@ -44,3 +44,5 @@ multiagent external-output confirm RUN_ID PREVIEW_ID --actor user:operator
 ```
 
 The API uses `POST /api/v1/runs/{run_id}/external-output/preview` with `{"output": {...}, "evidence": [{"name": "screenshot.png", "content_base64": "..."}], "actor": "user:operator", "channel": "api"}`. Confirm with `POST /api/v1/runs/{run_id}/external-output/confirm` and `{"preview_id": "...", "actor": "user:operator", "channel": "api"}`. Evidence is stored as untrusted data; it is never interpreted or included in a prompt. Allowed types are PNG, JPEG, WebP, MP4, WebM, UTF-8 text, JSON, and JSON Lines. `EXTERNAL_EVIDENCE_MAX_FILE_BYTES` and `EXTERNAL_EVIDENCE_MAX_TOTAL_BYTES` bound uploads. Confirmation adds each evidence file, a SHA-256 manifest, and a receipt to the run's artifacts.
+
+The GUI has the same flow in the run detail («Salida externa»): preview, confirm, and receipt (see [GUI](GUI.md)).

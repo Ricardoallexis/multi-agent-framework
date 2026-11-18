@@ -38,6 +38,7 @@ VIEW_FILES += ["ui/tabs.js", "work-map.js"]
 # The right-panel sections «Cambios», «Tokens» and «Fuentes» (GUI2-T05).
 VIEW_FILES += ["panel-parts.js", "panel-changes.js", "panel-tokens.js", "panel-sources.js"]
 CONTROL_TAGS = {"input", "select", "textarea", "button", "summary"}
+VIEW_FILES += ["external-output.js"]   # HIL2-T02: «Salida externa» of the run detail
 VIEW_FILES += ["new-session.js"]       # the guided chat of «Nueva sesión» (GUI2-T03); new-session-model.js draws nothing
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
@@ -70,7 +71,7 @@ SECTION_TOPICS = {
     "sessions-title": "sessions.list", "items-title": "session.items",
     "roots-title": "sessions.roots", "preview-title": "preview.panel", "counters-title": "run.counters",
     "steps-title": "run.steps", "history-title": "run.history", "results-title": "run.results",
-    "inputs-title": "run.inputs", "human-actions-title": "human.section",
+    "inputs-title": "run.inputs", "human-actions-title": "human.section", "external-output-title": "external.section",
     "panel-changes-title": "panel.changes", "panel-subagents-title": "subagents.panel",
     "panel-tokens-title": "panel.tokens", "panel-sources-title": "panel.sources",
     "agent-tree-title": "agent_tree.view", "at-log-title": "agent_tree.log", "usage-title": "usage.section",

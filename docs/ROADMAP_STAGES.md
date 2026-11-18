@@ -380,7 +380,7 @@ discovery, local model expansion, and the other planned items remain open. See
 | S13.B2 | ✅ A register of proposals and decisions with state and validity (migration `016_decisions.sql`, `services.decisions`, `/api/v1/decisions`, `multiagent decision`); run reviews are recorded automatically. | — |
 | **S13.C — External output** | | |
 | S13.C1 | ✅ Improve the human-guided external model flow across CLI, API, and UI (`human-check` without writing, `expected_schema` and `request_path` in `human-next`, `prompt_used` in the GUI, `research-submit` in the API, one `invalid_state` with `details.reason=not_waiting` for a stale wait; see `docs/HUMAN_GUIDED.md`). | — |
-| S13.C2 | ✅ Replace a step with externally produced output, with manifest, hashes, preview and attached evidence (screenshots, recordings, logs) referenced from the artifact manifest, confirmation, and receipt (`external-output preview` and `confirm` in Python, HTTP and the CLI, native and mock; see `docs/HUMAN_GUIDED.md`). | S13.C1 |
+| S13.C2 | ✅ Replace a step with externally produced output, with manifest, hashes, preview and attached evidence (screenshots, recordings, logs) referenced from the artifact manifest, confirmation, and receipt (`external-output preview` and `confirm` in Python, HTTP, the CLI and the GUI, native and mock; see `docs/HUMAN_GUIDED.md`). | S13.C1 |
 | **S13.D — Audit** | | |
 | S13.D1 | ◐ Done: provenance kinds for user, model, tool, and executor content; not yet an audit trail of outputs. | S5.D2 |
 

@@ -31,6 +31,7 @@ EVENTS_SHOWN = 200
 TEXT_LIMIT = 2000
 TERMINAL = frozenset({"completed", "failed", "cancelled", "rejected"})
 REVIEW_REASONS = frozenset({"review", "approval_pending", "budget_exhausted", ""})
+EXTERNAL_ACTOR = "user:operator"   # who the token holder is for external output (same as project_api.REVIEWER)
 HUMAN_STEP_REASONS = frozenset({"execute_step", "research"})
 LIST_FIELDS = ("id", "workflow_id", "project_name", "status", "bundle", "waiting_reason", "waiting_step",
                "llm_calls", "max_llm_calls", "created_at", "updated_at", "error")
@@ -88,6 +89,20 @@ class SubmitBody(_Body):
 
 class CheckBody(_Body):
     raw_response: str = Field(min_length=1)
+
+
+class EvidenceBody(_Body):
+    name: str = Field(min_length=1, max_length=255)
+    content_base64: str
+
+
+class ExternalPreviewBody(_Body):
+    output: dict[str, Any]
+    evidence: list[EvidenceBody] = Field(default_factory=list, max_length=20)
+
+
+class ExternalConfirmBody(_Body):
+    preview_id: str = Field(min_length=1, max_length=64)
 
 
 # --- view model ----------------------------------------------------------------
@@ -534,5 +549,24 @@ def build_router(services) -> APIRouter:
     @router.post("/runs/{run_id}/human-check")
     def human_check(run_id: str, body: CheckBody):
         return services.runs.human_check(run_id, body.raw_response)
+
+    # HIL2-T02: external output. The actor and the channel are fixed here, never read from the page.
+    @router.post("/runs/{run_id}/external-output/preview")
+    def external_output_preview(run_id: str, body: ExternalPreviewBody):
+        """Validate the output and the evidence; the run does not change."""
+        return services.runs.external_output_preview(
+            run_id, body.output, evidence=[item.model_dump() for item in body.evidence],
+            actor=EXTERNAL_ACTOR, channel="gui")
+
+    @router.post("/runs/{run_id}/external-output/confirm")
+    def external_output_confirm(run_id: str, body: ExternalConfirmBody):
+        """Confirm a preview: the run view, plus the receipt read from the run's artifacts."""
+        services.runs.external_output_confirm(run_id, body.preview_id, actor=EXTERNAL_ACTOR, channel="gui")
+        run = services.runs.get(run_id)
+        view = run_view(services, run)
+        view["receipt"] = next((a["data"] for a in reversed(run.get("artifacts", []))
+                                if a["kind"] == "external_receipt"
+                                and (a["data"] or {}).get("preview_id") == body.preview_id), None)
+        return view
 
     return router

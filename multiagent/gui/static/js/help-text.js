@@ -479,6 +479,31 @@ export const HELP = {
     "hint": "Opcional: añade contexto sobre cómo obtuviste la respuesta.",
     "more": ["Las notas se guardan junto al envío.", "No afectan a la validación del contrato."]
   },
+  "external.section": {
+    "title": "Salida externa",
+    "hint": "Entrega una salida hecha fuera del framework, con sus evidencias.",
+    "more": ["Primero ves una vista previa que no cambia nada; después la confirmas.", "Al confirmar se guarda un recibo con los hashes de todo lo entregado."]
+  },
+  "external.output": {
+    "title": "Salida en JSON",
+    "hint": "El objeto JSON que cumple el contrato del paso que espera.",
+    "more": ["Pégalo completo; la vista previa lo valida contra el contrato.", "Si hay un error, lo que escribiste se queda en pantalla para corregirlo."]
+  },
+  "external.evidence": {
+    "title": "Evidencias",
+    "hint": "Archivos opcionales que respaldan la salida.",
+    "more": ["Se admiten imágenes, vídeos cortos, texto y JSON, dentro de los límites de tamaño.", "La página solo muestra su nombre, tipo, tamaño y hash; nunca su contenido."]
+  },
+  "external.preview": {
+    "title": "Vista previa",
+    "hint": "Valida la salida y las evidencias sin cambiar la ejecución.",
+    "more": ["Muestra la salida normalizada, cada archivo con su hash y cuándo caduca la vista previa.", "Si caduca, prepara otra."]
+  },
+  "external.confirm": {
+    "title": "Confirmar salida externa",
+    "hint": "Entrega la salida mostrada en la vista previa.",
+    "more": ["Pide una confirmación antes de guardar nada.", "Después muestra el recibo con quién, por qué canal y cuándo."]
+  },
   "human.check": {
     "title": "Validar sin enviar",
     "hint": "Comprueba el JSON, el contrato y sus campos antes de enviarlo.",

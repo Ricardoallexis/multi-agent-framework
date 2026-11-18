@@ -1,11 +1,12 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// Human actions of one run: review decisions, cancellation and the copy-and-paste step.
+// Human actions of one run: review decisions, cancellation, the copy-and-paste step and external output.
 // The server decides what is possible; every action answers with the updated run.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost, runPath } from "./api.js";
 import { Help, helpFor } from "./help.js";
 import { errorText } from "./text.js";
+import { ExternalOutput } from "./external-output.js";
 
 // Pasted answers survive a rejection or a re-render; memory only, keyed by run, step and attempt.
 const drafts = new Map();
@@ -16,7 +17,7 @@ function Message({ message }) {
   return html`<p class=${"message " + message.kind} role=${role}>${message.text}</p>`;
 }
 
-function Confirm({ title, children, confirmLabel, keepLabel, danger, busy, onConfirm, onKeep }) {
+export function Confirm({ title, children, confirmLabel, keepLabel, danger, busy, onConfirm, onKeep }) {
   const confirmButton = useRef(null);
   useEffect(() => { if (confirmButton.current) confirmButton.current.focus(); }, []);
   return html`<div class="confirm" role="group" aria-label=${title}>
@@ -219,6 +220,8 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
     <h4 id="human-actions-title">Acciones humanas</h4>
     <${Help} topic="human.section" />
     ${body}
+    ${waiting && ["review", "execute_step", "research"].includes(waiting.reason) && !view.cancel_requested && html`<${ExternalOutput}
+      key=${view.id} token=${token} view=${view} onUpdate=${onUpdate} onStale=${onStale} />`}
     <${Message} message=${message} />
   </section>`;
 }

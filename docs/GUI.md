@@ -244,6 +244,20 @@ instead of free text. Each comment has a part of the output (General, a
 top-level field, or a typed path), a change type, required text, and an
 optional quote. Comments appear in the attempt review and action history.
 
+**Salida externa** (HIL2-T02) appears in the run detail while a run waits for a
+human step or a review. Paste the JSON output, optionally pick evidence files
+(the page reads them and sends them as base64), and press **Vista previa**: it
+shows the normalized output, each file with its type, size and SHA-256, and when
+the preview expires; the run does not change. **Confirmar** asks once more and
+then shows the receipt (id, SHA-256 of the manifest and of each file, who, channel
+and time). The routes are `POST /gui/api/runs/{id}/external-output/preview` and
+`POST /gui/api/runs/{id}/external-output/confirm`; they call the same services as
+the API, and the server fixes the actor (`user:operator`) and the channel (`gui`):
+a body that carries an `actor` is rejected. Confirm returns the run view plus a
+`receipt` field. An error shows its code and reason (`details.reason` or
+`details.problems`) and keeps what was typed; an expired or used preview says so
+and lets the operator prepare another. The page never shows evidence content.
+
 Contextual help is available throughout the GUI: controls have a short hint
 and a «?» disclosure with a concise explanation. The disclosures are
 accessible by keyboard and can be closed with Esc.
