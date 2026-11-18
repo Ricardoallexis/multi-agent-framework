@@ -5,7 +5,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -315,8 +314,6 @@ def test_cleanup_failure_after_resume_never_makes_another_resumption(world, monk
 
 @pytest.fixture
 def channel(tmp_path):
-    if sys.platform != "win32":                 # Seguimiento.cmd tooling; its .NET calls use Windows separators
-        pytest.skip("the channel watcher is Windows operator tooling")
     pwsh = shutil.which("pwsh")
     if not pwsh:
         pytest.skip("PowerShell 7 is needed for the channel watcher")
@@ -374,6 +371,11 @@ def test_channel_integration_round_blocks_even_when_condition_holds(channel):
     answer = invoke_channel(channel, channel.watch)
     assert answer.returncode == 2, answer.stderr
     assert not (channel.root / "orquestacion/esperas/listas").exists()
+    # The block must come from the round file itself (not from any other error, such as a wrongly built path).
+    log = next((channel.root / "orquestacion/esperas").glob("*.log")).read_text(encoding="utf-8-sig")
+    assert "integration_active" in log and "no se ejecut" in log
+    closed = list((channel.root / "orquestacion/esperas/terminadas").glob("*.json"))
+    assert len(closed) == 1 and json.loads(closed[0].read_text(encoding="utf-8-sig"))["estado"] == "vencida"
 
 
 def test_channel_sweeper_needs_stale_heartbeat_and_missing_process(channel):

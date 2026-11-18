@@ -4,14 +4,14 @@
 #   commit (git rev that must exist in -Repo), proceso (PID that must have exited), estado (-Valor 'ETAPA-Tnn=estado').
 # Several pairs: -Tipo 'a,b' -Valor 'x;;y' (or arrays); all must hold. The only action is the fixed verb 'avisar':
 # write a ready marker for an agent to consume. It never executes a supplied script or starts an application.
-# -Tarea (ETAPA-Tnn) and -Agente say what waits and who is reactivated; the state is kept in orquestacion\esperas\activas\<id>.json
+# -Tarea (ETAPA-Tnn) and -Agente say what waits and who is reactivated; the state is kept in orquestacion/esperas/activas/<id>.json
 # (moved to ...\terminadas when done) so Seguimiento and the GUI can show «En espera de activación». Every check and the outcome go to -Registro. Gives up after -MaximoHoras without running the action.
 #
 # SEG-T19: every check also writes an honest progress estimate, per condition and overall, with no AI model:
 #   avance (0-100, or null when it cannot be estimated), estimado (ISO time the wait should end, or null) and base (Spanish text saying how
 #   it was estimated; a percentage never goes without it).
 #   - hora is exact (-Confianza carries the confidence of the time when it comes from a usage-limit reset: then the base says so instead of «exacta»).
-#   - reporte (an integration round) has two phases. Until the round has started (patches applied, parches\ronda.txt, and the «Aplico sin commit» line
+#   - reporte (an integration round) has two phases. Until the round has started (patches applied, parches/ronda.txt, and the «Aplico sin commit» line
 #     in RESUMEN.md) there is NO percentage. Then it is approximate: the median of the last 5 rounds read in RESUMEN.md, shown with the habitual band
 #     (quartiles), capped at 95 %; past the median the time is dropped; past the 90th percentile the percentage stays frozen and the base says
 #     «tarda más de lo habitual».
@@ -46,7 +46,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $channel = $PSScriptRoot
 $scriptStart = Get-Date
-$stateDir = Join-Path $channel 'orquestacion\esperas\activas'
+$stateDir = Join-Path $channel 'orquestacion' 'esperas' 'activas'
+# A path typed by a caller may use '\' (Windows habit); on Linux/macOS .NET would take it as part of a file name, so it becomes '/'.
+function ConvertTo-NativePath([string]$p) { if ([IO.Path]::DirectorySeparatorChar -eq '/') { $p.Replace('\', '/') } else { $p } }
 function Write-AtomicState([string]$path, [string]$json) {
     $temp = $path + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
     try {
@@ -91,7 +93,7 @@ if (-not $Probar -and ($Tarea -notmatch '^[A-Z][A-Z0-9]*-T[0-9]{2}$' -or $Agente
 }
 function Get-TaskWait {
     $stage, $number = $Tarea -split '-'
-    $cards = @(Get-ChildItem -LiteralPath (Join-Path $channel "tareas\$stage") -Filter "$number-*.md" -ErrorAction SilentlyContinue)
+    $cards = @(Get-ChildItem -LiteralPath (Join-Path $channel 'tareas' $stage) -Filter "$number-*.md" -ErrorAction SilentlyContinue)
     if ($cards.Count -ne 1) { throw 'No hay una ficha única para la espera.' }
     $text = [IO.File]::ReadAllText($cards[0].FullName)
     $status = [regex]::Match($text, '(?m)^\| Estado \| ([^|]+) \|').Groups[1].Value.Trim()
@@ -105,10 +107,11 @@ function Get-TaskWait {
 }
 $originalWait = if ($Probar) { '' } else { Get-TaskWait }
 if (-not $Probar) {
-    if (-not $Registro) { $Registro = Join-Path $channel ("orquestacion\esperas\" + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log') }
-    $logRoot = [IO.Path]::GetFullPath((Join-Path $channel 'orquestacion\esperas')).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
-    $Registro = [IO.Path]::GetFullPath($Registro)
-    if (-not $Registro.StartsWith($logRoot, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetExtension($Registro) -ne '.log') {
+    if (-not $Registro) { $Registro = Join-Path $channel 'orquestacion' 'esperas' ((Get-Date -Format 'yyyyMMdd-HHmmss') + '.log') }
+    $logRoot = [IO.Path]::GetFullPath((Join-Path $channel 'orquestacion' 'esperas')).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+    $Registro = [IO.Path]::GetFullPath((ConvertTo-NativePath $Registro))
+    $pathCase = if ([IO.Path]::DirectorySeparatorChar -eq '\') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if (-not $Registro.StartsWith($logRoot, $pathCase) -or [IO.Path]::GetExtension($Registro) -ne '.log') {
         throw 'Registro debe ser un archivo .log dentro de orquestacion/esperas.'
     }
     New-Item -ItemType Directory -Force -Path (Split-Path $Registro) | Out-Null
@@ -125,7 +128,7 @@ if (-not $Probar) { New-Item -ItemType Directory -Force -Path $stateDir | Out-Nu
 $stateFile = Join-Path $stateDir "$waitId.json"
 $lease = $null
 if (-not $Probar) {
-    if (Test-Path -LiteralPath (Join-Path $channel "orquestacion\esperas\terminadas\$waitId.json")) { throw 'Esta retención ya terminó; no se reinicia automáticamente.' }
+    if (Test-Path -LiteralPath (Join-Path $channel 'orquestacion' 'esperas' 'terminadas' "$waitId.json")) { throw 'Esta retención ya terminó; no se reinicia automáticamente.' }
     $lease = [IO.File]::Open(($stateFile + '.lease'), [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
 }
 $started = $Inicio
@@ -200,8 +203,8 @@ function Get-ConditionProgress([int]$index, [string]$t, [string]$v, [bool]$met, 
             return & $make $pct $when.ToString('s') $base
         }
         'reporte' {
-            # Phase 1: no percentage until there is evidence that the integration started (a round open in parches\ronda.txt and in RESUMEN.md).
-            $roundFile = Join-Path $channel 'parches\ronda.txt'
+            # Phase 1: no percentage until there is evidence that the integration started (a round open in parches/ronda.txt and in RESUMEN.md).
+            $roundFile = Join-Path $channel 'parches' 'ronda.txt'
             $inRound = (Test-Path -LiteralPath $roundFile -PathType Leaf) -and @(Get-Content -LiteralPath $roundFile -Encoding utf8 | Where-Object { $_.Trim() }).Count -gt 0
             if (-not $inRound) { return & $make $null $null 'sin estimación (la integración aún no empezó: no hay ronda en curso)' }
             $history = Get-RoundHistory
@@ -264,7 +267,7 @@ function Save-State([string]$status, [datetime]$next, [bool[]]$met, [string]$pro
 }
 function Close-State([string]$status, [bool[]]$met) {
     Save-State $status (Get-Date) $met
-    $doneDir = Join-Path $channel 'orquestacion\esperas\terminadas'
+    $doneDir = Join-Path $channel 'orquestacion' 'esperas' 'terminadas'
     New-Item -ItemType Directory -Force -Path $doneDir | Out-Null
     Move-Item -LiteralPath $stateFile -Destination (Join-Path $doneDir "$waitId.json") -Force
     # Keep the lease file as a tombstone: a second process cannot reset this hold.
@@ -273,9 +276,9 @@ function Close-State([string]$status, [bool[]]$met) {
 function Test-One([string]$t, [string]$v) {
     switch ($t) {
         'hora' { return (Get-Date) -ge (Get-HoraTarget $v) }
-        'archivo' { return [bool](Get-ChildItem -Path $v -ErrorAction SilentlyContinue | Select-Object -First 1) }
+        'archivo' { return [bool](Get-ChildItem -Path (ConvertTo-NativePath $v) -ErrorAction SilentlyContinue | Select-Object -First 1) }
         'reporte' {
-            $dir = Join-Path $channel 'pruebas\integracion'
+            $dir = Join-Path $channel 'pruebas' 'integracion'
             $new = Get-ChildItem $dir -Filter '*_integracion.md' -File | Where-Object { $_.LastWriteTime -gt $Desde }
             foreach ($f in $new) { if (Select-String -LiteralPath $f.FullName -Pattern 'Resultado global:\s*\*\*OK\*\*' -Quiet) { return $true } }
             return $false
@@ -285,7 +288,7 @@ function Test-One([string]$t, [string]$v) {
         'proceso' { return -not (Get-Process -Id ([int]$v) -ErrorAction SilentlyContinue) }
         'estado' {
             if ($v -notmatch '^([A-Z][A-Z0-9]*)-(T\d+)=(.+)$') { throw "estado espera 'ETAPA-Tnn=estado': $v" }
-            $card = Get-ChildItem (Join-Path $channel "tareas\$($Matches[1])") -Filter "$($Matches[2])-*.md" | Select-Object -First 1
+            $card = Get-ChildItem (Join-Path $channel 'tareas' $Matches[1]) -Filter "$($Matches[2])-*.md" | Select-Object -First 1
             if (-not $card) { return $false }
             return [bool](Select-String -LiteralPath $card.FullName -Pattern ('^\| Estado \| ' + [regex]::Escape($Matches[3]) + ' \|') -Quiet)
         }
@@ -312,7 +315,7 @@ while ((Get-Date) -lt $deadline) {
             . (Join-Path $channel 'bloqueo.ps1')
             Enter-ChannelLock 'vigilante avisar' 1
             try {
-                $round = Join-Path $channel 'parches\ronda.txt'
+                $round = Join-Path $channel 'parches' 'ronda.txt'
                 if ((Test-Path -LiteralPath $round) -and [IO.File]::ReadAllText($round).Trim()) { throw 'integration_active' }
                 $met = Test-All  # observations from before the lock are not authority to act
                 if ((Get-Date) -ge $deadline) { Close-State 'vencida' $met; exit 2 }
@@ -326,7 +329,7 @@ while ((Get-Date) -lt $deadline) {
                     Log 'la retención cambió; no se avisa'
                     exit 3
                 }
-                $readyDir = Join-Path $channel 'orquestacion\esperas\listas'
+                $readyDir = Join-Path $channel 'orquestacion' 'esperas' 'listas'
                 New-Item -ItemType Directory -Force -Path $readyDir | Out-Null
                 $ready = @{ tarea=$Tarea; agente=$Agente; retencion=$Retencion; accion='avisar'; desde=(Get-Date -Format s) }
                 if ((Get-Date) -ge $deadline) { Close-State 'vencida' $met; exit 2 }
@@ -345,9 +348,9 @@ while ((Get-Date) -lt $deadline) {
         }
         Save-State 'vigilando' ((Get-Date).AddSeconds($IntervaloSegundos)) $met
     } catch {
-        if (Test-Path -LiteralPath (Join-Path $channel "orquestacion\esperas\terminadas\$waitId.json")) {
+        if (Test-Path -LiteralPath (Join-Path $channel 'orquestacion' 'esperas' 'terminadas' "$waitId.json")) {
             Log 'error después del cierre; no se repite el aviso'
-            $closedFile = Join-Path $channel "orquestacion\esperas\terminadas\$waitId.json"
+            $closedFile = Join-Path $channel 'orquestacion' 'esperas' 'terminadas' "$waitId.json"
             try {
                 $closed = [IO.File]::ReadAllText($closedFile) | ConvertFrom-Json
                 $closed.estado = 'atencion'
