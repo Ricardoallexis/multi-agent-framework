@@ -18,7 +18,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from ..contracts import ExecutionMode, HumanStepSubmission
+from ..contracts import ExecutionMode, HumanStepSubmission, RevisionComment
 from ..run_request import RunRequest, RoutingPreference
 from ..routing_preferences import preference_request, validate_run_preferences
 from ..routing_policy import EFFORT_LEVELS, RoutingRequest
@@ -60,7 +60,8 @@ class CreateBody(PreviewBody):
 
 
 class ChangesBody(_Body):
-    feedback: str = Field(max_length=4000)
+    feedback: str = Field(default="", max_length=4000)
+    comments: list[RevisionComment] = Field(default_factory=list, max_length=20)
 
 
 class RejectBody(_Body):
@@ -122,6 +123,10 @@ def _history(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             regenerated = payload.get("mode") == "regenerate"
             entry.update(kind="regenerated" if regenerated else "changes_requested",
                          feedback="" if regenerated else _clean(payload.get("feedback") or ""))
+            if "comments" in payload:
+                entry["comments"] = _clean(payload["comments"])
+            if "channel" in payload:
+                entry["channel"] = payload["channel"]
         elif kind == "human_rejected":
             entry.update(kind="rejected", feedback=_clean(payload.get("feedback") or ""))
         elif kind == "cancel_requested":
@@ -480,10 +485,10 @@ def build_router(services) -> APIRouter:
 
     @router.post("/runs/{run_id}/changes")
     def changes(run_id: str, body: ChangesBody):
-        if not body.feedback.strip():
-            raise ServiceError(INVALID_REQUEST, "Feedback is required to request changes", status=422,
+        if not body.feedback.strip() and not body.comments:
+            raise ServiceError(INVALID_REQUEST, "Feedback or comments are required to request changes", status=422,
                                details={"field": "feedback"})
-        services.runs.request_changes(run_id, body.feedback)
+        services.runs.request_changes(run_id, body.feedback, comments=body.comments, channel="gui")
         return run_view(services, services.runs.get(run_id))
 
     @router.post("/runs/{run_id}/reject")

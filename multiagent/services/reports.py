@@ -216,6 +216,9 @@ def build_run_report(run: Mapping[str, Any], usage: Mapping[str, Any], *, includ
                 mode = payload.get("mode")
                 if mode in ("revise", "regenerate"):
                     review_row["mode"] = mode
+                review_row["channel"] = payload.get("channel")
+                comments = payload.get("comments")
+                review_row["comment_count"] = len(comments) if isinstance(comments, list) else 0
             if include_raw:
                 review_row["raw_payload"] = payload
             report["reviews"].append(review_row)

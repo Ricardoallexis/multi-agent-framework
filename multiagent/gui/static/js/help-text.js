@@ -389,11 +389,17 @@ export const HELP = {
     "title": "Pedir cambios",
     "hint": "Repite el paso con tus comentarios sobre qué corregir.",
     "more": [
-      "Escribe qué debe cambiar: el texto es obligatorio y se entrega al modelo junto con el prompt del paso.",
+      "Escribe una indicación general, añade comentarios sobre partes concretas, o ambas cosas.",
       "Sirve cuando el resultado va bien encaminado pero hay que corregir algo concreto.",
       "Cuenta como otra llamada al modelo y desaparece si se agotó el presupuesto."
     ]
   },
+  "human.comment_add": { "title": "Añadir comentario", "hint": "Añade una indicación sobre una parte de la salida.", "more": ["Puedes añadir hasta veinte comentarios.", "Cada uno puede señalar una parte distinta."] },
+  "human.comment_target": { "title": "Parte de la salida", "hint": "Elige General o escribe una ruta como items[2].title.", "more": ["Las claves visibles aparecen en la lista.", "También puedes escribir una ruta más precisa."] },
+  "human.comment_kind": { "title": "Tipo de cambio", "hint": "Indica si hay que corregir, añadir, quitar o reescribir.", "more": ["Elige el tipo que mejor describa tu petición.", "Otro sirve para cambios distintos."] },
+  "human.comment_text": { "title": "Texto del comentario", "hint": "Explica el cambio que quieres.", "more": ["Este texto es obligatorio en cada comentario.", "Se enviará al siguiente intento."] },
+  "human.comment_quote": { "title": "Cita de la salida", "hint": "Opcional: copia un fragmento del resultado al que te refieres.", "more": ["La cita ayuda a identificar el fragmento.", "Se entrega como dato no confiable."] },
+  "human.comment_remove": { "title": "Quitar comentario", "hint": "Quita esta fila antes de enviar la petición.", "more": ["Solo se elimina del formulario actual.", "Los demás comentarios permanecen."] },
   "human.reject": {
     "title": "Rechazar ejecución",
     "hint": "Termina la ejecución como rechazada; no se puede deshacer.",

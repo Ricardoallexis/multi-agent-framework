@@ -591,7 +591,9 @@ class Store:
 
     def finish_review(self, run: dict[str, Any], artifact: dict[str, Any], *,
                       approve: bool, current_step: int, completed: bool = False,
-                      feedback: str = "", regenerate: bool = False) -> None:
+                       feedback: str = "", regenerate: bool = False,
+                       revision_feedback: str | None = None, comments: list[dict[str, Any]] | None = None,
+                       by: str | None = None, channel: str | None = None) -> None:
         """Commit the artifact decision, cursor and events together.
 
         Compare the persisted wait again inside the transaction. This rejects an
@@ -633,12 +635,15 @@ class Store:
                 """UPDATE runs SET status=?,current_step=?,revision_feedback=?,
                    waiting_reason='',waiting_step='',waiting_attempt=NULL,updated_at=?
                    WHERE id=?""",
-                (status, current_step, feedback, utcnow(), run_id),
+                (status, current_step, feedback if revision_feedback is None else revision_feedback, utcnow(), run_id),
             )
             payload = {"step_id": artifact["step_id"], "attempt": artifact["attempt"],
                        "artifact_id": artifact["id"]}
             if not approve:
                 payload.update(mode="regenerate" if regenerate else "revise", feedback=feedback)
+                if comments is not None:
+                    payload["comments"] = comments
+                payload.update(by=by, channel=channel)
             conn.execute(
                 "INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
                 (run_id, utcnow(), "human_approved" if approve else "human_revision",

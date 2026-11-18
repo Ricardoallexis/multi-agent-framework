@@ -94,6 +94,14 @@ const REVIEW_LABELS = {
   rejected: "Rechazado",
 };
 
+const COMMENT_KIND_LABELS = {
+  fix: "Corregir",
+  add: "Añadir",
+  remove: "Quitar",
+  rewrite: "Reescribir",
+  other: "Otro",
+};
+
 const CHANGE_LABELS = {
   added: "Añadido",
   removed: "Eliminado",
@@ -243,6 +251,8 @@ function StepResults({ runId, stepId, items, waiting, token }) {
           <dt>Producido por</dt><dd>${producerLabel(detail.producer)}</dd>
           ${input && input.revision_feedback && html`<dt>Comentario recibido</dt><dd>${input.revision_feedback}${input.has_previous_output ? " (con salida previa)" : ""}</dd>`}
           ${review && html`<dt>Revisión</dt><dd>${REVIEW_LABELS[review.status] || review.status}${review.actor ? " · " + review.actor : ""}${review.reviewed_at ? " · " + fmtDate(review.reviewed_at) : ""}</dd>`}
+          ${review && review.channel && html`<dt>Canal</dt><dd>${review.channel}</dd>`}
+          ${review && review.comments && review.comments.length > 0 && html`<dt>Comentarios</dt><dd><ol>${review.comments.map((comment, index) => html`<li key=${index}><strong>${comment.target === "general" ? "General" : comment.target} · ${COMMENT_KIND_LABELS[comment.kind] || comment.kind}</strong>: ${comment.text}${comment.quote && html`<blockquote>${comment.quote}</blockquote>`}</li>`)}</ol></dd>`}
           ${human && human.notes && html`<dt>Notas humanas</dt><dd>${human.notes}</dd>`}
           ${detail.tokens && html`<dt>Tokens</dt><dd>${tokensLabel(detail.tokens)}</dd>`}
         </dl>`}

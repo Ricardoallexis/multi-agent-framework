@@ -777,7 +777,14 @@ def cmd_approve(args) -> None:
 
 
 def cmd_changes(args) -> None:
-    pretty(_api_json("POST", f"/api/v1/runs/{args.run_id}/changes", json_body={"feedback": args.feedback}))
+    comments = []
+    if args.comments_json:
+        source = sys.stdin.read() if args.comments_json == "-" else Path(args.comments_json).read_text(encoding="utf-8")
+        comments = json.loads(source)
+        if not isinstance(comments, list):
+            raise ValueError("--comments-json must contain a JSON list")
+    pretty(_api_json("POST", f"/api/v1/runs/{args.run_id}/changes",
+                     json_body={"feedback": args.feedback or "", "comments": comments}))
 
 
 def cmd_reject(args) -> None:
@@ -1403,7 +1410,7 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--permission-request", dest="permission_request", default=None,
                    help="id of the pending tool request you were shown (needed to approve a tool call)")
     x.set_defaults(func=cmd_approve)
-    x = sub.add_parser("changes"); x.add_argument("run_id"); x.add_argument("feedback"); x.set_defaults(func=cmd_changes)
+    x = sub.add_parser("changes"); x.add_argument("run_id"); x.add_argument("feedback", nargs="?"); x.add_argument("--comments-json"); x.set_defaults(func=cmd_changes)
     x = sub.add_parser("reject"); x.add_argument("run_id"); x.add_argument("--feedback", default=""); x.set_defaults(func=cmd_reject)
     x = sub.add_parser("regenerate"); x.add_argument("run_id"); x.set_defaults(func=cmd_regenerate)
     x = sub.add_parser("cancel"); x.add_argument("run_id"); x.add_argument("--force", action="store_true"); x.set_defaults(func=cmd_cancel)

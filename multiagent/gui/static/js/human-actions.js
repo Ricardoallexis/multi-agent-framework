@@ -35,6 +35,7 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
   const [message, setMessage] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [feedback, setFeedback] = useState("");
+  const [comments, setComments] = useState([]);
   const [feedbackInvalid, setFeedbackInvalid] = useState(false);
   const [reason, setReason] = useState("");
 
@@ -42,7 +43,11 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
   const stateKey = [view.id, view.status, view.waiting && view.waiting.reason, view.waiting && view.waiting.step_id,
     view.waiting && view.waiting.attempt, view.cancel_requested].join("|");
   useEffect(() => { setConfirm(null); setFeedbackInvalid(false); }, [stateKey]);
-  useEffect(() => { setMessage(null); setFeedback(""); setReason(""); }, [view.id]);
+  useEffect(() => { setMessage(null); setFeedback(""); setComments([]); setReason(""); }, [view.id]);
+
+  function updateComment(index, patch) {
+    setComments(comments.map((item, i) => i === index ? { ...item, ...patch } : item));
+  }
 
   async function act(path, body, okText) {
     if (busy) return false;
@@ -119,15 +124,48 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
       </div>`}
       ${!exhausted && html`<form class="stack" noValidate onSubmit=${(event) => {
         event.preventDefault();
-        if (!feedback.trim()) { setFeedbackInvalid(true); setMessage({ kind: "error", text: "Escribe qué debe cambiar antes de enviar la petición." }); return; }
+        if (!feedback.trim() && !comments.length) { setFeedbackInvalid(true); setMessage({ kind: "error", text: "Escribe una indicación o añade un comentario antes de enviar." }); return; }
+        if (comments.some((comment) => !comment.text.trim() || !comment.target.trim())) { setMessage({ kind: "error", text: "Completa la parte y el texto de cada comentario." }); return; }
         setFeedbackInvalid(false);
-        act(runPath(id, "changes"), { feedback: feedback.trim() }, () => "Se pidieron cambios; el paso se repetirá con tus comentarios.")
-          .then((ok) => { if (ok) setFeedback(""); });
+        act(runPath(id, "changes"), { feedback: feedback.trim(), comments: comments.map(({ target, kind, text, quote }) => ({ target: target.trim(), kind, text: text.trim(), quote: quote || null })) },
+          () => "Se pidieron cambios; el paso se repetirá con tus comentarios.")
+          .then((ok) => { if (ok) { setFeedback(""); setComments([]); } });
       }}>
-        <label for="changes-feedback">Pedir cambios <span class="req">(obligatorio para enviar)</span></label>
+        <label for="changes-feedback">Pedir cambios <span class="muted">(texto libre o comentarios)</span></label>
         <${Help} topic="human.changes" />
         <textarea id="changes-feedback" rows="3" maxlength="4000" value=${feedback} aria-invalid=${feedbackInvalid ? "true" : null}
           disabled=${busy} ...${helpFor("human.changes")} onInput=${(event) => setFeedback(event.target.value)}></textarea>
+        ${comments.map((comment, index) => {
+          const output = view.artifacts && view.artifacts.length ? view.artifacts[view.artifacts.length - 1].data : null;
+          const keys = output && typeof output === "object" && !Array.isArray(output) ? Object.keys(output) : [];
+          const choices = ["general", ...keys];
+          return html`<fieldset key=${index} class="stack"><legend>Comentario ${index + 1}</legend>
+            <label>Parte</label><${Help} topic="human.comment_target" />
+            <select aria-label=${"Parte del comentario " + (index + 1)} value=${choices.includes(comment.target) ? comment.target : "_manual"} disabled=${busy} ...${helpFor("human.comment_target")}
+              onChange=${(event) => updateComment(index, { target: event.target.value === "_manual" ? "" : event.target.value })}>
+              <option value="general">General</option>${keys.map((key) => html`<option value=${key}>${key}</option>`)}<option value="_manual">Escribir ruta…</option>
+            </select>
+            ${!choices.includes(comment.target) && html`<input aria-label="Ruta de la parte" maxlength="200" value=${comment.target} disabled=${busy}
+              ...${helpFor("human.comment_target")} onInput=${(event) => updateComment(index, { target: event.target.value })} />`}
+            <label>Tipo</label><${Help} topic="human.comment_kind" />
+            <select aria-label=${"Tipo del comentario " + (index + 1)} value=${comment.kind} disabled=${busy} ...${helpFor("human.comment_kind")}
+              onChange=${(event) => updateComment(index, { kind: event.target.value })}>
+              <option value="fix">Corregir</option><option value="add">Añadir</option><option value="remove">Quitar</option>
+              <option value="rewrite">Reescribir</option><option value="other">Otro</option>
+            </select>
+            <label>Texto</label><${Help} topic="human.comment_text" />
+            <textarea aria-label=${"Texto del comentario " + (index + 1)} rows="2" maxlength="2000" value=${comment.text} disabled=${busy} ...${helpFor("human.comment_text")}
+              onInput=${(event) => updateComment(index, { text: event.target.value })}></textarea>
+            <label>Cita de la salida (opcional)</label><${Help} topic="human.comment_quote" />
+            <textarea aria-label=${"Cita del comentario " + (index + 1)} rows="2" maxlength="2000" value=${comment.quote} disabled=${busy} ...${helpFor("human.comment_quote")}
+              onInput=${(event) => updateComment(index, { quote: event.target.value })}></textarea>
+            <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("human.comment_remove")}
+              onClick=${() => setComments(comments.filter((_, i) => i !== index))}>Quitar comentario</button><${Help} topic="human.comment_remove" />
+          </fieldset>`;
+        })}
+        <div class="action-item"><button type="button" class="btn secondary" disabled=${busy || comments.length >= 20}
+          ...${helpFor("human.comment_add")} onClick=${() => setComments([...comments, { target: "general", kind: "fix", text: "", quote: "" }])}>Añadir comentario</button>
+          <${Help} topic="human.comment_add" /></div>
         <div class="actions"><button type="submit" class="btn secondary" disabled=${busy} ...${helpFor("human.changes")}>Pedir cambios</button></div>
       </form>`}
       <div class="action-list">

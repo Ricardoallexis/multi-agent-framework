@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .bootstrap import build_system
-from .contracts import HumanReviewRequest, HumanStepSubmission, SocialPostRequest
+from .contracts import FeedbackRequest, HumanReviewRequest, HumanStepSubmission, SocialPostRequest
 from .run_request import RunRequest
 from .services import ApplicationServices, ServiceError
 from .services.availability import FOREGROUND_RUNNING
@@ -545,10 +545,10 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
 
     @app.post("/api/v1/runs/{run_id}/changes")
     def changes(run_id: str, review: HumanReviewRequest):
-        return services.runs.request_changes(run_id, review.feedback)
+        return services.runs.request_changes(run_id, review.feedback, comments=review.comments, channel="api")
 
     @app.post("/api/v1/runs/{run_id}/reject")
-    def reject(run_id: str, review: HumanReviewRequest):
+    def reject(run_id: str, review: FeedbackRequest):
         return services.runs.reject(run_id, review.feedback)
 
     @app.post("/api/v1/runs/{run_id}/regenerate")

@@ -136,8 +136,32 @@ class SocialPostRequest(StrictModel):
         return self
 
 
-class HumanReviewRequest(StrictModel):
+class RevisionComment(StrictModel):
+    target: str = Field(min_length=1, max_length=200, pattern=r"^(?:[^.\[\]]+|\[[0-9]+\])(?:\.[^.\[\]]+|\[[0-9]+\])*$")
+    kind: Literal["fix", "add", "remove", "rewrite", "other"]
+    text: str = Field(min_length=1, max_length=2000)
+    quote: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("target")
+    @classmethod
+    def no_controls_in_target(cls, value: str) -> str:
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("Target must not contain control characters")
+        return value
+
+
+class FeedbackRequest(StrictModel):
     feedback: str = Field(default="", max_length=4000)
+
+
+class HumanReviewRequest(FeedbackRequest):
+    comments: list[RevisionComment] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def require_feedback_or_comments(self):
+        if not self.feedback.strip() and not self.comments:
+            raise ValueError("Feedback or comments are required")
+        return self
 
 
 class HumanStepSubmission(StrictModel):

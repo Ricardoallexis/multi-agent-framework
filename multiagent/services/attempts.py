@@ -130,6 +130,11 @@ def _step_events_index(
                     "actor": actor,
                     "feedback": feedback,
                 }
+                if kind == "human_revision":
+                    if "comments" in payload:
+                        reviews[target_attempt]["comments"] = payload["comments"]
+                    if "channel" in payload:
+                        reviews[target_attempt]["channel"] = payload["channel"]
 
     return reviews, selected
 

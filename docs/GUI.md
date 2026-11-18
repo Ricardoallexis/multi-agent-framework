@@ -237,6 +237,10 @@ before producing an output and the full prompt sent to a model attempt are not
 stored today, so they are not shown. Available
 human actions include approve, request changes, reject, regenerate, cancel,
 and submit a human-produced result.
+Under «Pedir cambios», the operator can add up to 20 comments alongside or
+instead of free text. Each comment has a part of the output (General, a
+top-level field, or a typed path), a change type, required text, and an
+optional quote. Comments appear in the attempt review and action history.
 
 Contextual help is available throughout the GUI: controls have a short hint
 and a «?» disclosure with a concise explanation. The disclosures are

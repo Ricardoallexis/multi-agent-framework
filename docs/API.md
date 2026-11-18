@@ -95,7 +95,7 @@ and bundle-worker shutdown through its application lifespan.
 | `GET` | `/api/v1/runs/{run_id}/steps/{step_id}/attempts` | List completed attempts of one step with producer, revision input, JSON/Markdown output, review status, human notes/prompt, and tokens. |
 | `GET` | `/api/v1/runs/{run_id}/steps/{step_id}/attempts/compare` | Compare two completed attempts (`?a=1&b=2`) field by field, with unified line diffs for long or multi-line strings. |
 | `POST` | `/api/v1/runs/{run_id}/approve` | Approve the current human review. |
-| `POST` | `/api/v1/runs/{run_id}/changes` | Request changes with `{"feedback": "..."}`. |
+| `POST` | `/api/v1/runs/{run_id}/changes` | Request changes with free text, structured comments, or both (see below). |
 | `POST` | `/api/v1/runs/{run_id}/regenerate` | Regenerate the item under review. |
 | `POST` | `/api/v1/runs/{run_id}/reject` | Reject the run with `{"feedback": "..."}`. |
 | `POST` | `/api/v1/runs/{run_id}/cancel` | Cancel or request cancellation; optional `?force=true`. |
@@ -185,6 +185,22 @@ Run reports (`GET /api/v1/runs/{run_id}/report`, `multiagent run-report`) also
 include a `reviews` section listing `checkpoint`, `human_approved`,
 `human_revision`, and `human_rejected` events with `step_id`, `attempt`,
 `actor`, and `timestamp`.
+For `human_revision`, the event also records the original `feedback`, structured
+`comments`, `by`, and `channel` (`api` for this unauthenticated route, including
+the CLI; `gui` for the GUI route). The report exposes `channel` and
+`comment_count`; comment text appears only with `include_raw`.
+
+To request changes, send `{"feedback": "Clarify the conclusion", "comments":
+[{"target": "items[2].title", "kind": "rewrite", "text": "Use a shorter title",
+"quote": "Old title"}]}`. `feedback` is optional when at least one comment is
+present. Up to 20 comments are allowed. Each target is `general` or a field
+path; a path absent from the output is retained as entered. Kinds are `fix`,
+`add`, `remove`, `rewrite`, and `other`. The next attempt receives the free text
+first, followed by numbered comments. Quoted model output is enclosed in a
+`trust=untrusted` provenance envelope; the person's comment text remains
+literal. Without comments, the next attempt receives the original feedback
+unchanged. The CLI accepts `multiagent changes RUN_ID [FEEDBACK]
+[--comments-json FILE]`; `--comments-json -` reads a JSON list from stdin.
 
 **Current storage limits.** Attempts that failed before producing a valid
 output and the full rendered prompt sent to a model attempt are not persisted

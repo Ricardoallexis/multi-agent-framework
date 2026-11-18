@@ -373,7 +373,7 @@ discovery, local model expansion, and the other planned items remain open. See
 | **S13.A — Review** | | |
 | S13.A1 | ◐ Done: pending decisions appear as cards in the GUI and settle through approve and reject. | — |
 | S13.A2 | ✅ Revision history and comparisons between attempts (`step_attempts`, `compare_attempts`, `multiagent attempts`, «Comparar» in the GUI run detail). Failed attempts without output and the full prompt sent to a model are not stored yet. | — |
-| S13.A3 | Comments and structured feedback passed safely into later attempts. | S13.A2 |
+| S13.A3 | ✅ Comments and structured feedback passed safely into later attempts (`comments` on a change request, with quotes of the output wrapped as untrusted data; who and which channel are recorded). | S13.A2 |
 | **S13.B — Policy** | | |
 | S13.B1 | ◐ Done: supervised or automatic escalation per workflow step, a cutting or warning budget, and a content-review policy; no risk level or project. | S5.B1 |
 | S13.B2 | *(proposed)* A register of proposals and decisions with state and validity. | — |

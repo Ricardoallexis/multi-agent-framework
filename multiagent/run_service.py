@@ -143,7 +143,8 @@ class RunService:
         )
         return self.store.get_run(run_id)
 
-    def changes(self, run_id: str, feedback: str, *, regenerate: bool = False) -> dict[str, Any]:
+    def changes(self, run_id: str, feedback: str, *, comments=(), regenerate: bool = False,
+                by: str | None = None, channel: str | None = None) -> dict[str, Any]:
         run = self.store.get_run(run_id)
         if run["status"] != RunStatus.WAITING_HUMAN.value or run.get("waiting_reason") not in {
             WaitingReason.REVIEW.value, WaitingReason.APPROVAL_PENDING.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
@@ -151,14 +152,20 @@ class RunService:
             raise InvalidStateTransition("Revisions can only be requested in WAITING_HUMAN/review")
         if run.get("budget_exhausted") or run.get("waiting_reason") == WaitingReason.BUDGET_EXHAUSTED.value:
             raise BudgetExceeded("The budget is exhausted; only the existing artifact can be approved or rejected")
-        if not feedback.strip() and not regenerate:
+        if not feedback.strip() and not comments and not regenerate:
             raise ValueError("Feedback is required for revise")
         if self.engine is None:
             raise RuntimeError("RunService has no WorkflowEngine attached")
         _, artifact = self.engine.review_point(run)
+        from .revision_comments import render_revision_feedback
+        feedback = "" if regenerate else feedback.strip()
+        rendered = render_revision_feedback(feedback, comments, step_id=artifact["step_id"],
+                                            attempt=artifact["attempt"])
         self.store.finish_review(
             run, artifact, approve=False, current_step=run["current_step"],
-            feedback="" if regenerate else feedback.strip(), regenerate=regenerate,
+            feedback=feedback, revision_feedback=rendered,
+            comments=[comment.model_dump() for comment in comments], by=by, channel=channel,
+            regenerate=regenerate,
         )
         return self.store.get_run(run_id)
 

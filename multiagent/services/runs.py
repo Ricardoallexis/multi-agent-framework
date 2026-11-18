@@ -269,10 +269,18 @@ class RunServices:
                                details={"reason": "person_required", "run_id": run_id}) from exc
 
     @service_errors
-    def request_changes(self, run_id: str, feedback: str) -> dict[str, Any]:
+    def request_changes(self, run_id: str, feedback: str, *, comments=None,
+                        by: str | None = None, channel: str | None = None) -> dict[str, Any]:
         """Send the reviewed step back with feedback."""
         runtime = self._find(run_id)
-        return self._tag(runtime, runtime.service.changes(run_id, feedback))
+        try:
+            return self._tag(runtime, runtime.service.changes(run_id, feedback, comments=comments or (),
+                                                             by=by, channel=channel))
+        except ValueError as exc:
+            from ..revision_comments import RevisionFeedbackTooLong
+            if isinstance(exc, RevisionFeedbackTooLong):
+                raise ServiceError(INVALID_REQUEST, str(exc), status=422) from exc
+            raise
 
     @service_errors
     def regenerate(self, run_id: str) -> dict[str, Any]:
