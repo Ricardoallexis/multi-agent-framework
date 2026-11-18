@@ -13,7 +13,9 @@ from typing import TYPE_CHECKING, Any
 from ..db.database import utcnow
 from ..db.team_store import TeamStore
 from ..external_output import canonical_json, sha256
-from .errors import service_errors
+from ..teams.org_chart import build_org_chart, render_mermaid
+from ..teams.schema import TeamDefinitionError
+from .errors import INVALID_DEFINITION, ServiceError, service_errors
 from .memory import MAX_BODY_CHARS, _CONTROL
 from .projects import actor_kind
 from .tasks import _conflict, _invalid, _missing, _text
@@ -387,3 +389,88 @@ class TeamServices:
                 current_approved = self.store.latest_approved(row["bundle"], conn=conn)
                 base_row = self._default_base_row(conn, row, current_approved)
         return self._diff_against_row(base_row, row)
+
+    @service_errors
+    def org_chart(self, bundle: str, *, version_id: str | None = None) -> dict[str, Any]:
+        """Return the organization chart model and Mermaid diagram for a bundle's team."""
+        root = self._services.bundle_path(bundle)
+        pending_version_id: str | None = None
+        selected_version_id: str | None = None
+        selected_version: int | None = None
+        pending_arg: Any = None
+
+        if version_id is not None:
+            version_id = self._id(version_id)
+            row = self.store.get(version_id)
+            if row is None or row["bundle"] != bundle:
+                raise _missing("Team version", version_id)
+            source = "version"
+            selected_version_id = row["id"]
+            selected_version = row["version"]
+            team_input: Any = json.loads(row["team_json"])
+            if row["status"] != "approved":
+                pending_arg = True
+        else:
+            with self.store.db.connect() as conn:
+                approved_row = self.store.latest_approved(bundle, conn=conn)
+                if approved_row is not None:
+                    source = "approved"
+                    selected_version_id = approved_row["id"]
+                    selected_version = approved_row["version"]
+                    team_input = json.loads(approved_row["team_json"])
+                    later_proposed = [
+                        item for item in self.store.list(bundle, status="proposed", conn=conn)
+                        if item["version"] > approved_row["version"]
+                    ]
+                    if later_proposed:
+                        pending_row = later_proposed[-1]
+                        pending_version_id = pending_row["id"]
+                        pending_arg = json.loads(pending_row["team_json"])
+                else:
+                    proposed_rows = self.store.list(bundle, status="proposed", conn=conn)
+                    if proposed_rows:
+                        row = proposed_rows[-1]
+                        source = "proposed"
+                        selected_version_id = row["id"]
+                        selected_version = row["version"]
+                        team_input = json.loads(row["team_json"])
+                        pending_arg = True
+                    else:
+                        draft_rows = self.store.list(bundle, status="draft", conn=conn)
+                        if draft_rows:
+                            row = draft_rows[-1]
+                            source = "draft"
+                            selected_version_id = row["id"]
+                            selected_version = row["version"]
+                            team_input = json.loads(row["team_json"])
+                            pending_arg = True
+                        else:
+                            if not (root / "team.yaml").is_file():
+                                raise _missing("Team", bundle)
+                            self._services.definitions.validate_bundle(bundle)
+                            loaded = self._services.definitions._bundle(bundle)
+                            assert loaded.team is not None
+                            source = "team.yaml"
+                            team_input = loaded.team
+                            pending_arg = True
+
+        try:
+            chart = build_org_chart(team_input, pending=pending_arg)
+        except TeamDefinitionError as exc:
+            payload = exc.to_payload()
+            raise ServiceError(INVALID_DEFINITION, payload["error"], status=422, details=payload) from exc
+
+        return {
+            "bundle": bundle,
+            "team_id": chart["team_id"],
+            "source": source,
+            "version_id": selected_version_id,
+            "version": selected_version,
+            "pending_version_id": pending_version_id,
+            "root": chart["root"],
+            "roots": chart["roots"],
+            "forest": chart["forest"],
+            "positions": chart["positions"],
+            "links": chart["links"],
+            "mermaid": render_mermaid(chart),
+        }

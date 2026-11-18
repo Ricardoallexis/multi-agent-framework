@@ -778,6 +778,13 @@ def cmd_team(args) -> None:
         pretty(_api_json("GET", f"/api/v1/teams/versions/{_segment(args.version_id)}"))
     elif command == "approved":
         pretty(_api_json("GET", f"/api/v1/teams/{_segment(args.bundle)}/approved"))
+    elif command == "org-chart":
+        params = {"version_id": args.version} if args.version is not None else None
+        chart = _api_json("GET", f"/api/v1/teams/{_segment(args.bundle)}/org-chart", params=params)
+        if args.mermaid:
+            print(chart["mermaid"])
+        else:
+            pretty(chart)
     elif command == "submit":
         pretty(_api_json("POST", f"/api/v1/teams/versions/{_segment(args.version_id)}/submit",
                          json_body={"actor": args.actor, "channel": "cli"}))
@@ -1665,6 +1672,10 @@ def build_parser() -> argparse.ArgumentParser:
     x.set_defaults(func=cmd_team)
     x = team.add_parser("approved", help="Show the currently approved team version for a bundle")
     x.add_argument("bundle"); x.set_defaults(func=cmd_team)
+    # Team organization chart (S6.B1, S6.B2 / EQP-T04).
+    x = team.add_parser("org-chart", help="Show the team organization chart in JSON or Mermaid")
+    x.add_argument("bundle"); x.add_argument("--version", default=None)
+    x.add_argument("--mermaid", action="store_true"); x.set_defaults(func=cmd_team)
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)

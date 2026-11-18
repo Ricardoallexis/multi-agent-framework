@@ -1035,6 +1035,12 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def get_approved_team(bundle: str):
         return services.teams.approved(bundle)
 
+    # --- team org chart (EQP-T04) ---------------------------------------------
+
+    @app.get("/api/v1/teams/{bundle}/org-chart")
+    def get_team_org_chart(bundle: str, version_id: str | None = None):
+        return services.teams.org_chart(bundle, version_id=version_id)
+
     @app.post("/api/v1/tasks/{task_id}/sessions")
     def link_task_session(task_id: str, body: TaskSessionLink):
         return services.projects.link_session(task_id, body.session_id, actor=body.actor)
