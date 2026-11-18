@@ -118,7 +118,8 @@ function Invoke-PlanReport {
         [void]$process.Start()
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(5000)) { $process.Kill($true); return $null }
+        # The report asks agy for /usage (about 6 s in all); the result is cached for 5 minutes (Get-PlanReport).
+        if (-not $process.WaitForExit(20000)) { $process.Kill($true); return $null }
         if ($process.ExitCode -ne 0) { return $null }
         $stdout.GetAwaiter().GetResult() | ConvertFrom-Json -AsHashtable -ErrorAction Stop
     } catch { $null } finally { $process.Dispose() }

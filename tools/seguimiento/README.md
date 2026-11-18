@@ -30,7 +30,7 @@ Hay UNA tabla de aplicaciones, `$script:WorkerApps` en `ver-seguimiento.ps1`. Ag
 
 Antigravity (`agy`, GEM-T04): su referencia es `agy:<conversation_id>` (UUID) y sus trabajadores se llaman `Antigravity-<familia>`. Su actividad sale de la hora de modificación de `conversations\<id>.db` bajo `-AgyRoot` (por omisión `~\.gemini\antigravity-cli`) o, si no está, del json que el orquestador guarda en `orquestacion\herramientas\agy-<n>.json` (sólo se lee su `conversation_id`). El modelo no consta en esas fuentes: el trabajador conserva su nombre registrado, que ya lo lleva. Falta el lector de sesiones de GEM-T04 (multiagent/sessions/).
 
-Métricas de Antigravity (GEM-T06): el uso del plan sale del informe de `multiagent usage-report plans` (app `antigravity`, «sin dato» si falta). Los tokens salen del campo Tokens de la ficha (`tokens-tarea.ps1`) y, si no trae al trabajador, de las salidas de sus corridas en `orquestacionherramientasgy-*.json` / `agy-*.ndjson`, enlazadas por `agy:<conversation_id>` (entrada = input menos cacheados; una corrida por nombre de salida). El modelo observado es el `init.model` del ndjson.
+Métricas de Antigravity (GEM-T06): el uso del plan sale del informe de `multiagent usage-report plans` (app `antigravity`, «sin dato» si falta). Los tokens salen del campo Tokens de la ficha (`tokens-tarea.ps1`) y, si no trae al trabajador, de las salidas de sus corridas en `orquestacion\herramientas\agy-*.json` / `agy-*.ndjson`, enlazadas por `agy:<conversation_id>` (el `input_tokens` de agy no cuenta la caché: total = entrada + cacheados + salida; una corrida por nombre de salida). El modelo observado es el `init.model` del ndjson.
 
 ## Etapas y tareas congeladas
 
