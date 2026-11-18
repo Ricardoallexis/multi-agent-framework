@@ -30,11 +30,13 @@ class Stores:
     codex: Path
     copilot: Path
     desktop: Path
+    antigravity: Path  # not created: a test that needs an agy store writes one with write_antigravity
 
 
 def make_stores(tmp: Path) -> Stores:
     stores = Stores(tmp=tmp, roots=tmp / "work", work=tmp / "work" / "proj", other=tmp / "elsewhere",
-                    claude=tmp / "claude", codex=tmp / "codex", copilot=tmp / "copilot", desktop=tmp / "desktop")
+                    claude=tmp / "claude", codex=tmp / "codex", copilot=tmp / "copilot", desktop=tmp / "desktop",
+                    antigravity=tmp / "antigravity")
     for folder in (stores.work, stores.other):
         folder.mkdir(parents=True, exist_ok=True)
     return stores
@@ -48,7 +50,7 @@ def settings_for(stores: Stores, local: Path | None = None, **overrides) -> Sett
         gui_token_file=stores.tmp / "gui-token", gui_heartbeat_seconds=0.05, gui_poll_seconds=0.02,
         gui_stream_max_seconds=0.4, gui_session_roots=[str(stores.roots)],
         gui_claude_home=stores.claude, gui_codex_home=stores.codex, gui_copilot_home=stores.copilot,
-        gui_claude_desktop_dir=stores.desktop,
+        gui_antigravity_home=stores.antigravity, gui_claude_desktop_dir=stores.desktop,
     )
     options.update(overrides)
     return Settings(**options)

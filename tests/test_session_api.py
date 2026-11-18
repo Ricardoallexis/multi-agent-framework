@@ -26,6 +26,7 @@ from session_fixtures import (
     make_services,
     make_stores,
     write_claude,
+    write_antigravity,
     write_codex,
     write_copilot,
 )
@@ -41,6 +42,7 @@ def build(tmp_path, **settings):
     write_claude(stores)
     write_codex(stores)
     write_copilot(stores)
+    write_antigravity(stores.antigravity, rows=[])  # present and empty, so the list has no "store not found" warning
     token = ensure_token(services.settings.gui_token_file)
     return stores, services, token
 
