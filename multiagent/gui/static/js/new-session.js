@@ -319,10 +319,11 @@ export function NewSession({ token, mock }) {
       } finally { setBusy(false); }
     }
     let interpretation = null;
-    if (!asking && !command && !["confirm", "launched"].includes(store.current.phase) && entries.length > 0) {
+    if (!asking && (!command || (command.name === "workflow" && command.rest)) &&
+        !["confirm", "launched"].includes(store.current.phase) && entries.length > 0) {
       setBusy(true);
       try {
-        interpretation = await apiPost("/gui/api/new-session/interpret", token, { text: trimmed });
+        interpretation = await apiPost("/gui/api/new-session/interpret", token, { text: command ? command.rest : trimmed });
       } catch (_) {
         interpretation = { source: SOURCE_KEYWORDS, reason: "model_error", proposal: null };     // the words are compared instead
       } finally { setBusy(false); }

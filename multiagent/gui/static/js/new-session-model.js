@@ -177,7 +177,7 @@ export function createConversation() {
     phase: "welcome", messages: [], nextId: 1,
     suggestions: [], source: "", showAll: false,          // choose: [{ key, matched }], who proposed them ("model", "keywords", ""), full list or not
     proposal: null,                                       // the model's proposal that is on screen: { key, inputs, project }
-    workflow: null, questions: [], inputNames: [], answers: {}, index: 0, error: "",
+    workflow: null, questions: [], inputNames: [], answers: {}, pendingPrefill: [], index: 0, error: "",
   };
 }
 
@@ -185,7 +185,7 @@ function say(state, role, text) {
   return { ...state, messages: [...state.messages, { id: state.nextId, role, text }], nextId: state.nextId + 1 };
 }
 
-const clearWorkflow = (state) => ({ ...state, proposal: null, workflow: null, questions: [], inputNames: [], answers: {}, index: 0, error: "" });
+const clearWorkflow = (state) => ({ ...state, proposal: null, workflow: null, questions: [], inputNames: [], answers: {}, pendingPrefill: [], index: 0, error: "" });
 
 export const currentQuestion = (state) => (state.phase === "ask" ? state.questions[state.index] || null : null);
 export const progress = (state) => ({ n: state.index + 1, total: state.questions.length });
@@ -277,9 +277,10 @@ function onCommand(state, action) {
 
 function advance(state, value, echo) {
   const question = state.questions[state.index];
-  let next = say({ ...state, answers: { ...state.answers, [question.key]: value }, error: "" }, "user", echo);
+  let next = say({ ...state, answers: { ...state.answers, [question.key]: value },
+    pendingPrefill: state.pendingPrefill.filter((key) => key !== question.key), error: "" }, "user", echo);
   let following = state.index + 1;
-  while (following < state.questions.length && next.answers[state.questions[following].key]) following += 1;
+  while (following < state.questions.length && next.pendingPrefill.includes(state.questions[following].key)) following += 1;
   if (following < state.questions.length) {
     next = { ...next, index: following };
     return say(next, "assistant", questionLine(next));
@@ -303,13 +304,13 @@ function onSkip(state) {
 
 function onBack(state) {
   if (state.phase !== "ask" || state.index === 0) return state;
-  const back = { ...state, index: state.index - 1, error: "" };
+  const back = { ...state, index: state.index - 1, pendingPrefill: [], error: "" };
   return say(back, "assistant", "Volvemos a la " + questionLine(back).replace(/^P/, "p") + ". Tu respuesta anterior está en la caja.");
 }
 
 function onEdit(state) {
   if (state.phase !== "confirm") return state;
-  const back = { ...state, phase: "ask", index: 0, error: "" };
+  const back = { ...state, phase: "ask", index: 0, pendingPrefill: [], error: "" };
   return say(say(back, "assistant", "Repasemos tus respuestas. Cada una aparece en la caja: pulsa Intro para conservarla o escribe otra."), "assistant", questionLine(back));
 }
 
@@ -337,6 +338,7 @@ function onPick(state, action) {
   const first = questions.findIndex((question) => question.required && !answers[question.key]);
   const started = {
     ...next, phase: first === -1 && prefilled ? "confirm" : "ask", index: first === -1 ? 0 : first, error: "", answers,
+    pendingPrefill: Object.keys(answers),
     workflow: { id: workflow.id, bundle: workflow.bundle || null, description: spec.description || workflow.description || "" },
     questions, inputNames: (spec.inputs || []).map((item) => item.name),
   };

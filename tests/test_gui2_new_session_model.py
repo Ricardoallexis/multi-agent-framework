@@ -70,6 +70,11 @@ def test_mock_with_nothing_in_common_asks_for_the_word_matching(services):
     assert services.new_session.interpret("zzzz qqqq") == {"source": "keywords", "reason": "no_match", "proposal": None}
 
 
+@pytest.mark.parametrize("text", ["quiero trabajar para una workflow con the and for", "quiero algo para mañana"])
+def test_mock_ignores_filler_words_when_looking_for_a_workflow(services, text):
+    assert services.new_session.interpret(text) == {"source": "keywords", "reason": "no_match", "proposal": None}
+
+
 def test_the_setting_turns_the_model_off(tmp_path):
     off = make(tmp_path, gui_new_session_interpret=False)
     try:
@@ -250,6 +255,61 @@ def test_a_partial_proposal_does_not_ask_again_for_later_prefilled_answers():
 
 
 @needs_node
+def test_edit_visits_each_answer_even_when_the_model_prefilled_them_all():
+    out = run_node("""
+      const spec = { inputs: [
+        { name: "first", required: true, type: "text" },
+        { name: "second", required: true, type: "text" },
+      ] };
+      const model = { source: "model", proposal: { workflow_id: "spec_review", bundle: "team",
+        inputs: { first: "one", second: "two" }, project_name: "My project" } };
+      let s = m.reduce(m.createConversation(), { type: "send", text: "review", catalog: DATA.catalog, interpretation: model });
+      s = m.reduce(s, { type: "pick", workflow: DATA.catalog[1], spec });
+      const initial = s.phase;
+      s = m.reduce(s, { type: "edit" });
+      const visited = [];
+      while (s.phase === "ask") {
+        visited.push({ index: s.index, key: m.currentQuestion(s).key });
+        s = m.reduce(s, { type: "send", text: s.answers[m.currentQuestion(s).key] });
+      }
+      console.log(JSON.stringify({ initial, visited, final: s.phase }));
+    """, {"catalog": CATALOG})
+    assert out == {"initial": "confirm", "visited": [
+        {"index": 0, "key": "first"}, {"index": 1, "key": "second"}, {"index": 2, "key": "@project"}], "final": "confirm"}
+
+
+@needs_node
+def test_back_twice_in_a_manual_flow_does_not_skip_already_answered_questions():
+    out = run_node("""
+      const spec = { inputs: [
+        { name: "first", required: true, type: "text" },
+        { name: "second", required: true, type: "text" },
+        { name: "third", required: true, type: "text" },
+      ] };
+      let s = m.reduce(m.createConversation(), { type: "pick", workflow: DATA.catalog[1], spec });
+      for (const answer of ["one", "two", "three"]) s = m.reduce(s, { type: "send", text: answer });
+      s = m.reduce(s, { type: "back" });
+      s = m.reduce(s, { type: "back" });
+      const backed = s.index;
+      s = m.reduce(s, { type: "send", text: "changed" });
+      console.log(JSON.stringify({ backed, next: s.index, question: m.currentQuestion(s).key, answers: s.answers }));
+    """, {"catalog": CATALOG})
+    assert out == {"backed": 1, "next": 2, "question": "third",
+                   "answers": {"first": "one", "second": "changed", "third": "three"}}
+
+
+@needs_node
+def test_workflow_command_uses_the_supplied_interpretation():
+    out = run_node("""
+      const model = { source: "model", proposal: { workflow_id: "spec_review", bundle: "team", inputs: { spec_text: "review me" } } };
+      const s = m.reduce(m.createConversation(), { type: "send", text: "/workflow review me", catalog: DATA.catalog, interpretation: model });
+      console.log(JSON.stringify({ source: s.source, suggestions: s.suggestions, proposal: s.proposal }));
+    """, {"catalog": CATALOG})
+    assert out["source"] == "model" and out["suggestions"] == [{"key": "team|spec_review", "matched": []}]
+    assert out["proposal"]["inputs"] == {"spec_text": "review me"}
+
+
+@needs_node
 @pytest.mark.parametrize("interpretation,words", [
     ({"source": "keywords", "reason": "disabled", "proposal": None}, "desactivada"),
     ({"source": "keywords", "reason": "model_error", "proposal": None}, "no respondió"),
@@ -293,5 +353,7 @@ def test_listing_workflows_clears_the_old_proposal_even_for_the_same_workflow():
 def test_the_screen_asks_the_server_and_never_launches_from_the_answer():
     text = source("new-session.js")
     assert '"/gui/api/new-session/interpret"' in text and "SOURCE_KEYWORDS" in text and "Propuesto por" in text
+    assert '(!command || (command.name === "workflow" && command.rest))' in text
+    assert '{ text: command ? command.rest : trimmed }' in text
     assert text.count('apiPost("/gui/api/runs"') == 1                          # the only launch is «Lanzar»
     assert "fetch(" not in source("new-session-model.js")

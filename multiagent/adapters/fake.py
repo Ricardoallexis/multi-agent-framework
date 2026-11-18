@@ -16,8 +16,14 @@ from ..contracts import (
 from ..routing_policy import EFFORT_LEVELS
 
 
+_STOPWORDS = set(("de del la las el los un una unos unas y o u e en a al ante con para por que se lo le les me mi mis tu tus "
+                  "su sus es son ser fue sobre como mas muy ya hay quiero quiere necesito necesitas quisiera hacer haz trabajar trabajo workflow "
+                  "workflows flujo flujos the of and or to for in on with an is are my want need make do it this that").split())
+
+
 def _words(text: str) -> set[str]:
-    return {word for word in re.findall(r"[^\W_]{3,}", unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower())}
+    return {word for word in re.findall(r"[^\W_]{3,}", unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower())
+            if word not in _STOPWORDS}
 
 
 def _new_session_fixture(prompt: str) -> dict[str, Any]:
