@@ -5,6 +5,7 @@ import os
 import platform
 import shutil
 import subprocess
+import tempfile
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -15,16 +16,33 @@ from .config import Settings
 from .contracts import GroundingStatus, ResearchOutput
 
 
+# The interpreter range in pyproject.toml (requires-python = ">=3.12,<3.15"); keep both in step.
+SUPPORTED_PYTHON = ((3, 12), (3, 15))
+
+
 class _DoctorStructuredProbe(BaseModel):
     status: Literal["ok"]
     message: str
 
 
 def _cmd(args: list[str], timeout: int = 8) -> tuple[int, str]:
+    """Run a diagnostic command and never wait past ``timeout``.
+
+    Output goes to temporary files, not pipes: a command that leaves a long-lived process behind (``ollama ps``
+    can start the Ollama app on Windows) would keep a pipe open, and reading it would block forever."""
     try:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
-                           encoding="utf-8", errors="replace")
-        return p.returncode, (p.stdout or p.stderr).strip()
+        with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+            process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=out, stderr=err)
+            try:
+                code = process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                return 1, f"timed out after {timeout} s"
+            out.seek(0)
+            err.seek(0)
+            text = out.read().decode("utf-8", errors="replace") or err.read().decode("utf-8", errors="replace")
+            return code, text.strip()
     except Exception as exc:
         return 1, str(exc)
 
@@ -67,7 +85,7 @@ def run_doctor(settings: Settings, *, deep: bool = False) -> tuple[bool, dict[st
     report: dict[str, Any] = {"system": {}, "python": {}, "database": {}, "gpu": {}, "ollama": {}, "cloud": {}, "paths": {}, "recommendations": []}
     report["system"] = {"platform": platform.platform(), "machine": platform.machine(), "release_version": __version__}
     version = tuple(os.sys.version_info[:2])
-    report["python"] = {"version": platform.python_version(), "supported": version in {(3, 12), (3, 13)},
+    report["python"] = {"version": platform.python_version(), "supported": SUPPORTED_PYTHON[0] <= version < SUPPORTED_PYTHON[1],
                         "executable": os.sys.executable, "venv": os.sys.prefix != getattr(os.sys, "base_prefix", os.sys.prefix)}
     for package in ["pydantic", "pydantic-settings", "fastapi", "uvicorn", "httpx", "PyYAML", "google-genai", "openai"]:
         try:
@@ -80,9 +98,10 @@ def run_doctor(settings: Settings, *, deep: bool = False) -> tuple[bool, dict[st
                           "writable": os.access(settings.db_path.parent, os.W_OK)}
     report["gpu"] = _gpu_report()
     report["ollama"] = system.adapters["ollama"].health()
-    code, out = _cmd(["ollama", "ps"])
-    if code == 0:
-        report["ollama"]["ps"] = out
+    if report["ollama"].get("available"):   # when stopped, the Ollama CLI on Windows starts the app instead
+        code, out = _cmd(["ollama", "ps"])
+        if code == 0:
+            report["ollama"]["ps"] = out
     installed = set(report["ollama"].get("installed_models") or [])
     report["ollama"].update({
         "expected_model": settings.ollama_model,

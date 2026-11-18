@@ -4,6 +4,11 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ## [Unreleased]
 
+### Fixed
+
+- `multiagent doctor`, the last step of `setup_windows.bat`, no longer hangs when Ollama is installed but stopped: it runs `ollama ps` only when the Ollama server answers (otherwise the CLI starts the Ollama app on Windows), and its diagnostic commands stop at their timeout even when they leave a process holding their output.
+- `multiagent doctor` accepts every Python version that `pyproject.toml` declares (3.12 to 3.14); it reported Python 3.14 as unsupported, which failed the setup.
+
 ## [M1-B03-F01-rc1] - 2026-11-17
 
 Python package: `1.0.0rc1`.
