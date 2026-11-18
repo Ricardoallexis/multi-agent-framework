@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from .backends import available_backends
 from .bootstrap import build_system
 from .version import __version__
 from .config import Settings
@@ -94,6 +95,7 @@ def run_doctor(settings: Settings, *, deep: bool = False) -> tuple[bool, dict[st
             report["python"][package] = "missing"
 
     system = build_system(settings)
+    report["backend"] = {"active": system.backend.name, "available": available_backends()}
     report["database"] = {"path": str(settings.db_path), "schema_version": system.db.schema_version(),
                           "writable": os.access(settings.db_path.parent, os.W_OK)}
     report["gpu"] = _gpu_report()

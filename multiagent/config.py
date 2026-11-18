@@ -297,6 +297,8 @@ class Settings(BaseSettings):
     telemetry_otel_enabled: bool = False
     telemetry_otel_capture_content: bool = False
     egress_default: Literal["off", "redact", "block", "escalate"] = "off"
+    # Execution backend used by the run service and local worker.
+    execution_backend: str = "native"
     worker_poll_seconds: float = Field(default=0.75, gt=0.05)
     worker_enabled: bool = True
     mock_mode: bool = False

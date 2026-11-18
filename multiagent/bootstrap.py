@@ -8,6 +8,8 @@ from .adapters.ollama import OllamaAdapter
 from .adapters.openai_cloud import OpenAIAdapter
 from .artifacts import ArtifactWriter
 from .asset_service import AssetService
+from .backends import BackendContext, ExecutionBackend, build_backend
+from .backends.native import NativeBackend
 from .brand_service import BrandService
 from .catalog import Catalog
 from .config import Settings, get_settings
@@ -33,6 +35,7 @@ class System:
     brand_service: BrandService
     asset_service: AssetService
     engine: WorkflowEngine
+    backend: ExecutionBackend
     worker: LocalWorker
     adapters: dict
     # Tools workflow steps may declare (built-in synthetic tools; a host may register MCP or its own before use).
@@ -59,15 +62,24 @@ def build_system(settings: Settings | None = None, *, dry_run: bool = False, ada
     router = ModelRouter(catalog, adapters, dry_run=dry_run or settings.mock_mode)
     tool_registry = ToolRegistry()
     register_mock_tools(tool_registry)
-    engine = WorkflowEngine(
-        store=store, catalog=catalog, prompts=prompts, workflows=WorkflowCatalog(settings),
-        router=router, artifacts=ArtifactWriter(settings), settings=settings,
+    workflows = WorkflowCatalog(settings)
+    artifacts = ArtifactWriter(settings)
+    context = BackendContext(
+        store=store, catalog=catalog, prompts=prompts, workflows=workflows,
+        router=router, artifacts=artifacts, settings=settings,
         approval_timeout_seconds=settings.approval_timeout_seconds,
         tool_registry=tool_registry,
     )
-    run_service = RunService(settings, store, engine=engine)
+    backend = build_backend(settings.execution_backend, context)
+    engine = backend if isinstance(backend, NativeBackend) else WorkflowEngine(
+        store=store, catalog=catalog, prompts=prompts, workflows=workflows,
+        router=router, artifacts=artifacts, settings=settings,
+        approval_timeout_seconds=settings.approval_timeout_seconds,
+        tool_registry=tool_registry,
+    )
+    run_service = RunService(settings, store, engine=backend)
     brand_service = BrandService(store, catalog, prompts, router)
     asset_service = AssetService(settings, store)
-    worker = LocalWorker(store, engine, settings.worker_poll_seconds)
-    return System(settings, db, store, catalog, run_service, brand_service, asset_service, engine, worker, adapters,
+    worker = LocalWorker(store, backend, settings.worker_poll_seconds)
+    return System(settings, db, store, catalog, run_service, brand_service, asset_service, engine, backend, worker, adapters,
                   tool_registry)

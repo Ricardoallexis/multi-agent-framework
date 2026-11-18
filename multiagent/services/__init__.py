@@ -108,6 +108,9 @@ class ApplicationServices:
         if engine is not None:
             engine.availability_source = self.inbox.policy
             self.usage.attach(engine)      # USO-T04: the budget guard and the alerts after each recorded call
+        backend = getattr(system, "backend", None)
+        if backend is not None and backend is not engine and "inbox" in backend.capabilities:
+            backend.availability_source = self.inbox.policy
 
     @classmethod
     def create(cls, settings: Settings | None = None, *,
