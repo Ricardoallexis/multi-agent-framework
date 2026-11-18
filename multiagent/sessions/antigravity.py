@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from ._common import MetaIndex, clean_cwd, is_recent, mtime_ts, normalize_ts, open_ro, select_rows, table_columns, table_names
+from ._common import MetaIndex, clean_cwd, is_recent, mtime_ts, normalize_ts, open_ro, select_rows, table_columns, table_names, within_root
 from .children import MAX_NAME_CHARS, ChildAgent, LevelOf, derive_status
 from .config import SessionsConfig
 from .models import ItemsPage, SessionNotFound, SessionSummary, Source, Status, Surface, TokenUsage, is_uuid
@@ -102,7 +102,7 @@ def _fields(buf: bytes):
 def decode_gen_usage(blob: object) -> dict[str, int] | None:
     """``{input, output, cache_read, thinking}`` (missing ones 0) of one ``gen_metadata.data`` blob, else ``None``.
 
-    ``None`` for anything that is not the known shape (not bytes, too large, malformed, path or fields absent): the
+    ``None`` for anything that is not the known shape (not bytes, too large, malformed, path or input absent): the
     caller then reports the tokens as unknown instead of a number that may be wrong.
     """
     if not isinstance(blob, (bytes, bytearray, memoryview)) or len(blob) > MAX_BLOB_BYTES:
@@ -121,7 +121,7 @@ def decode_gen_usage(blob: object) -> dict[str, int] | None:
                 seen.add(number)
     except (ValueError, TypeError):
         return None
-    return out if 2 in seen and 3 in seen else None
+    return out if 2 in seen else None
 
 
 def read_gen_tokens(db: Path) -> TokenUsage | None:
@@ -149,11 +149,25 @@ def read_gen_tokens(db: Path) -> TokenUsage | None:
                       total=total["input"] + total["cache_read"] + total["output"])
 
 
-def workspace_path(uris: object) -> str | None:
+def _in_git_checkout(path: str) -> bool:
+    current = Path(path)
+    for folder in (current, *current.parents):
+        try:
+            if (folder / ".git").exists():  # a checkout has .git (a folder, or a file in a worktree)
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def workspace_path(uris: object, allowed_roots: tuple[str, ...] = ()) -> str | None:
     """The working folder among the ``file:///`` workspaces agy stores (a JSON list), as a local path.
 
-    agy keeps the launch folder and every ``--add-dir`` folder in that list, sorted by name rather than by launch, so
-    the first workspace that is a Git checkout wins; without one, the first workspace (``None`` if there is none)."""
+    agy keeps the launch folder and every ``--add-dir`` folder in that list, sorted by name rather than by launch.
+    When ``allowed_roots`` is given, paths inside those roots are preferred over external ones; within each group,
+    the first path inside a Git checkout (``.git`` on the folder or an ancestor) wins, then the first workspace
+    (``None`` if there is none).
+    """
     try:
         values = json.loads(uris) if isinstance(uris, str) else uris
     except ValueError:
@@ -175,10 +189,19 @@ def workspace_path(uris: object) -> str | None:
         cleaned = clean_cwd(path)
         if cleaned:
             paths.append(cleaned)
+    if not paths:
+        return None
+    if allowed_roots:
+        allowed = [path for path in paths if within_root(path, allowed_roots)]
+        for path in allowed:
+            if _in_git_checkout(path):
+                return path
+        if allowed:
+            return allowed[0]
     for path in paths:
-        if os.path.exists(os.path.join(path, ".git")):  # a checkout has .git (a folder, or a file in a worktree)
+        if _in_git_checkout(path):
             return path
-    return paths[0] if paths else None
+    return paths[0]
 
 
 def _truthy(value: object) -> bool:
@@ -277,7 +300,7 @@ class AntigravityReader:
         return SessionSummary(
             id=f"antigravity:{native}", source=Source.ANTIGRAVITY, surface=Surface.CLI, native_id=native,
             title=title.strip()[:MAX_TITLE_CHARS] if isinstance(title, str) and title.strip() else None,
-            cwd=workspace_path(row.get("workspace_uris")), created_at=self._created(file), updated_at=updated,
+            cwd=workspace_path(row.get("workspace_uris"), self.config.allowed_roots), created_at=self._created(file), updated_at=updated,
             models=[], status=Status.ACTIVE if _running(row) and is_recent(updated) else Status.IDLE,
             parent_id=f"antigravity:{parent}" if is_uuid(parent) else None, child_count=children.get(native, 0),
             tokens=tokens, open_in_app=None, reader=READER, warnings=warnings)
@@ -315,7 +338,7 @@ class AntigravityReader:
         if not is_uuid(native_id):
             raise SessionNotFound(native_id)
         native = native_id.lower()
-        _, rows, files, _ = self._load()
+        _, rows, files, warns = self._load()
         if native not in rows and native not in files:
             raise SessionNotFound(native_id)
         out: list[ChildAgent] = []
@@ -332,4 +355,4 @@ class AntigravityReader:
                                      failed=_truthy(row.get("killed"))),
                 started_at=self._created(files.get(cid)), last_activity_at=last, tokens=self._tokens(files.get(cid)),
                 link_id=f"antigravity:{cid}"))
-        return out, []
+        return out, warns

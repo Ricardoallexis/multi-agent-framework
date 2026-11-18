@@ -297,7 +297,7 @@ class UsageServices:
         self.clock: Callable[[], datetime] = clock or (lambda: datetime.now(timezone.utc))
         # Runs ``agy -p /usage``; a test replaces it with a fake so no real agy is ever started.
         self.agy_runner: AgyRunner = run_agy_usage
-        self._agy_cache: tuple[float, dict[str, Any]] | None = None
+        self._agy_cache: tuple[float, datetime | None, tuple[sources.AgyLimit, ...], tuple[str, ...]] | None = None
         self._announced: set[str] = set()   # budget alerts already written as events (a cache: the events are the truth)
 
     # --- the engine (USO-T04) -------------------------------------------------------
@@ -579,45 +579,49 @@ class UsageServices:
             entry["credits"] = None  # the database could not be read: no consumption figure, not even a 0
         return entry
 
+    _AGY_MISSING = ("plan_name", "credits_balance")  # the per-model limits are in the windows
+
     def _plan_antigravity(self, config: SessionsConfig, now: datetime) -> dict[str, Any]:
         """Antigravity: the limits ``agy -p /usage`` prints (percent left and reset, per model group and per model).
 
         The command spends no model. Any failure (agy missing, a timeout, odd output) is a note, never an error.
         """
         if self._services.settings.mock_mode:
-            return self._entry("antigravity", None, [], ["plan_name"],
+            return self._entry("antigravity", None, [], list(self._AGY_MISSING),
                                ["source_unavailable: mock mode does not start agy"], data=False)
         cached = self._agy_cache
         if cached is not None and time.monotonic() - cached[0] < AGY_CACHE_SECONDS:
-            entry = dict(cached[1])
+            _, observed_at, limits, raw_notes = cached
         else:
-            entry = self._read_agy_usage(now)
-            self._agy_cache = (time.monotonic(), entry)
-        return dict(entry)
-
-    def _read_agy_usage(self, now: datetime) -> dict[str, Any]:
-        missing = ["plan_name", "credits_balance"]  # the per-model limits are in the windows
-        exe = shutil.which("agy")
-        if exe is None:
-            return self._entry("antigravity", None, [], missing, ["source_unavailable: agy not found in PATH"], data=False)
-        try:
-            code, text = self.agy_runner([exe, *AGY_USAGE_ARGS], AGY_TIMEOUT_SECONDS)
-        except Exception as exc:  # a runner must never break the report
-            return self._entry("antigravity", None, [], missing,
-                               [f"source_unavailable: agy /usage failed ({type(exc).__name__})"], data=False)
-        if code != 0:
-            return self._entry("antigravity", None, [], missing,
-                               [f"source_unavailable: agy /usage failed (exit {code})"], data=False)
-        limits, notes = sources.parse_agy_usage(text)
+            observed_at, limits, raw_notes = self._read_agy_usage(now)
+            self._agy_cache = (time.monotonic(), observed_at, limits, raw_notes)
         windows = []
         for limit in limits:
             view = self._window_view(limit.to_rate_window(), now)
             view["group"] = limit.name
             windows.append(view)
+        notes = list(raw_notes)
         if any(w["state"] == "window_reset" for w in windows):
             notes.append("window_reset_since_observation")
-        observed = PlanObservation("antigravity", "agy_usage_command", now, windows=tuple(l.to_rate_window() for l in limits))
-        return self._entry("antigravity", observed if windows else None, windows, missing, notes, data=bool(windows))
+        observed = (
+            PlanObservation("antigravity", "agy_usage_command", observed_at,
+                            windows=tuple(limit.to_rate_window() for limit in limits))
+            if observed_at is not None and windows else None
+        )
+        return self._entry("antigravity", observed, windows, list(self._AGY_MISSING), notes, data=bool(windows))
+
+    def _read_agy_usage(self, now: datetime) -> tuple[datetime | None, tuple[sources.AgyLimit, ...], tuple[str, ...]]:
+        exe = shutil.which("agy")
+        if exe is None:
+            return None, (), ("source_unavailable: agy not found in PATH",)
+        try:
+            code, text = self.agy_runner([exe, *AGY_USAGE_ARGS], AGY_TIMEOUT_SECONDS)
+        except Exception as exc:  # a runner must never break the report
+            return None, (), (f"source_unavailable: agy /usage failed ({type(exc).__name__})",)
+        if code != 0:
+            return None, (), (f"source_unavailable: agy /usage failed (exit {code})",)
+        limits, notes = sources.parse_agy_usage(text)
+        return now, tuple(limits), tuple(notes)
 
     # --- tokens ---------------------------------------------------------------------
 

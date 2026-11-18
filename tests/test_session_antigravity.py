@@ -255,6 +255,35 @@ def test_workspace_path_prefers_the_git_checkout_over_added_folders(tmp_path):
     assert Path(workspace_path(uris)) == added                               # no checkout: the first one
 
 
+def test_workspace_path_finds_git_in_parent_folder_over_added_dir(tmp_path):
+    powershell = tmp_path / "a-program-files" / "PowerShell" / "7"
+    powershell.mkdir(parents=True)
+    repo = tmp_path / "z-repo"
+    (repo / ".git").mkdir(parents=True)
+    sub = repo / ".local" / "canal"
+    sub.mkdir(parents=True)
+    uris = json.dumps([powershell.as_uri(), sub.as_uri()])
+    assert Path(workspace_path(uris)) == sub
+
+
+def test_workspace_path_and_registry_prefer_allowed_root_for_deleted_worktree(tmp_path):
+    powershell = tmp_path / "a-program-files" / "PowerShell" / "7"
+    powershell.mkdir(parents=True)
+    allowed_root = tmp_path / "work"
+    allowed_root.mkdir()
+    deleted_wt = allowed_root / "wt-removed"
+    uris = json.dumps([powershell.as_uri(), deleted_wt.as_uri()])
+    assert Path(workspace_path(uris, (str(allowed_root),))) == deleted_wt
+    home = write_antigravity(tmp_path / "agy", [agy_row(AGY_ID, "removed worktree", deleted_wt.as_uri())])
+    conn = sqlite3.connect(home / "conversation_summaries.db")
+    conn.execute("UPDATE conversation_summaries SET workspace_uris = ? WHERE conversation_id = ?", (uris, AGY_ID))
+    conn.commit()
+    conn.close()
+    page = listing(registry(tmp_path, home, roots=(str(allowed_root),)))
+    assert [s.native_id for s in page.sessions] == [AGY_ID]
+    assert Path(page.sessions[0].cwd) == deleted_wt
+
+
 # ---------------- tokens (gen_metadata) ----------------
 def tokens_of(tmp_path, gens, **extra):
     work = tmp_path / "work" / "proj"
@@ -281,10 +310,17 @@ def test_tokens_are_unknown_without_the_table(tmp_path):
 
 def test_tokens_are_unknown_with_a_corrupt_or_unexpected_blob(tmp_path):
     bad_blobs = (bytes.fromhex("ffffff"), b"", agy_gen_blob(1, 2)[:-3], pb_field(1, pb_field(5, b"x")),
-                 pb_field(1, pb_field(4, pb_field(2, 5))))
+                 pb_field(1, pb_field(4, pb_field(3, 5))))
     for number, bad in enumerate(bad_blobs):
         s = tokens_of(tmp_path / str(number), [agy_gen_blob(10, 20), bad])
         assert s.tokens is None and TOKENS_UNKNOWN in s.warnings
+
+
+def test_tokens_sum_when_a_row_omits_output_field(tmp_path):
+    no_output_blob = pb_field(1, pb_field(4, pb_field(2, 50) + pb_field(5, 10)))
+    s = tokens_of(tmp_path, [agy_gen_blob(100, 20, 30), no_output_blob])
+    assert (s.tokens.input, s.tokens.output, s.tokens.cache_read, s.tokens.total) == (150, 20, 40, 210)
+    assert TOKENS_UNKNOWN not in s.warnings
 
 
 def test_tokens_are_unknown_with_no_rows_or_a_missing_conversation_file(tmp_path):
@@ -297,10 +333,22 @@ def test_tokens_are_unknown_with_no_rows_or_a_missing_conversation_file(tmp_path
 def test_decode_gen_usage_shapes():
     assert decode_gen_usage(agy_gen_blob(5, 6, 7, 8)) == {"input": 5, "output": 6, "cache_read": 7, "thinking": 8}
     assert decode_gen_usage(agy_gen_blob(5, 6)) == {"input": 5, "output": 6, "cache_read": 0, "thinking": 0}
+    assert decode_gen_usage(pb_field(1, pb_field(4, pb_field(2, 5)))) == {
+        "input": 5, "output": 0, "cache_read": 0, "thinking": 0}
+    assert decode_gen_usage(pb_field(1, pb_field(4, pb_field(3, 5)))) is None
     for bad in (None, "text", 5, b"", bytes.fromhex("08"), bytes.fromhex("0a05") + b"ab", bytes.fromhex("1b"),
                 b"x" * 5 + bytes(1)):
         assert decode_gen_usage(bad) is None
     assert decode_gen_usage(bytes(5 * 1024 * 1024)) is None
+
+
+def test_list_children_preserves_load_warnings(tmp_path, work):
+    home = write_antigravity(tmp_path / "agy", [agy_row(AGY_ID, "t", work.as_uri())])
+    (home / "conversation_summaries.db").unlink()
+    reader = registry(tmp_path, home)._readers["antigravity"]
+    children, warnings = reader.list_children(AGY_ID, datetime.now(UTC), lambda _: None)
+    assert children == []
+    assert any(w.startswith("summaries_unavailable") for w in warnings)
 
 
 def test_tokens_of_children_come_from_their_own_conversation(tmp_path):

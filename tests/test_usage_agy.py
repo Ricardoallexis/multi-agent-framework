@@ -3,6 +3,8 @@
 """``usage-report plans`` for Antigravity: a fake runner stands in for ``agy -p /usage``; agy is never started."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from session_fixtures import make_services, make_stores
 from usage_fixtures import NOW
@@ -70,6 +72,36 @@ def test_the_answer_is_reused_for_a_minute(agy):
     assert len(calls) == 2
 
 
+def test_cached_windows_recompute_reset_and_do_not_share_lists(agy):
+    services, calls, _, monkeypatch = agy
+    clock = {"now": NOW, "mono": 100.0}
+    services.usage.clock = lambda: clock["now"]
+    monkeypatch.setattr(usage_module.time, "monotonic", lambda: clock["mono"])
+
+    first = entry(services)
+    by_first = {(w["group"], w["window"]): w for w in first["windows"]}
+    assert by_first[("Gemini Models", "five_hour")]["state"] == "current"
+    assert first["notes"] == []
+
+    first["windows"].clear()
+    first["notes"].append("mutated")
+    first["not_available"].append("mutated")
+
+    clock["mono"] = 130.0
+    clock["now"] = datetime(2026, 10, 11, 15, 30, tzinfo=UTC)
+    second = entry(services)
+    assert len(calls) == 1
+    assert len(second["windows"]) == 5
+    by_second = {(w["group"], w["window"]): w for w in second["windows"]}
+    assert by_second[("Gemini Models", "five_hour")]["state"] == "window_reset"
+    assert by_second[("Gemini Models", "five_hour")]["used_percent"] is None
+    assert by_second[("Claude and GPT models", "five_hour")]["state"] == "current"
+    assert "window_reset_since_observation" in second["notes"]
+    assert "mutated" not in second["notes"]
+    assert second["not_available"] == ["plan_name", "credits_balance"]
+    assert second["source"] == {"kind": "agy_usage_command", "observed_at": "2026-10-11T12:00:00Z"}
+
+
 def test_agy_missing_from_path_is_a_note_not_an_error(agy):
     services, calls, _, monkeypatch = agy
     monkeypatch.setattr(usage_module.shutil, "which", lambda name: None)
@@ -94,6 +126,7 @@ def test_mock_mode_never_starts_agy(tmp_path):
     services.usage.agy_runner = lambda argv, timeout: pytest.fail("agy must not be started in mock mode")
     result = next(e for e in services.usage.plans()["apps"] if e["app"] == "antigravity")
     assert result["status"] == "not_available"
+    assert result["not_available"] == ["plan_name", "credits_balance"]
     services.runs.close()
 
 
