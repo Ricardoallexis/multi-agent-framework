@@ -2,6 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
+. (Join-Path $PSScriptRoot '..\Write-PlanCache.ps1')
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('seg-t08-' + [guid]::NewGuid().ToString('N'))
 $repo = Join-Path $temp 'repo'
 $channel = Join-Path $temp 'channel'
@@ -35,7 +36,7 @@ try {
     Write-Card 'T02' ("Claude-Opus: total 1000000 = entrada 10 + cacheados 900000 + salida 99990 (medido); $w1; $w2; Total de la tarea: 1258000")
     Write-Card 'T03' "Codex: total 2000 = entrada 1000 + cacheados 500 + salida 500 (medido); $arrow gpt-6-luna (delegado por Codex): sin datos; $arrow gpt-6-luna (delegado por Codex, sin datos); Total de la tarea: 2000"
 
-    & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir | Out-Null
+    Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir | Out-Null
     $html = [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
     $arrowHtml = '&#8627;'
 

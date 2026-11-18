@@ -1,3 +1,4 @@
+param([switch]$EmitFixture)
 $ErrorActionPreference = 'Stop'
 $source = Join-Path $PSScriptRoot '../../ver-seguimiento.ps1'
 $ast = [Management.Automation.Language.Parser]::ParseFile((Resolve-Path $source), [ref]$null, [ref]$null)
@@ -42,8 +43,13 @@ try {
     Assert ($script:calls -eq 2 -and $retained.apps.Count -eq 2) 'failure retains cache and backs off'
     # Export only synthetic rendered markup for the browser layout check.
     $css = [regex]::Match([IO.File]::ReadAllText((Resolve-Path $source)), '<style>([\s\S]*?)</style>').Groups[1].Value
-    "<style>$css</style><div class='agent-grid'><section class='panel agent-card'>$codex$copilot$claude</section></div>" | Set-Content (Join-Path $PSScriptRoot 'fixture.tmp.html')
+    $markup = "<style>$css</style><div class='agent-grid'><section class='panel agent-card'>$codex$copilot$claude</section></div>"
+    $markup | Set-Content (Join-Path $PSScriptRoot 'fixture.tmp.html')
+    if ($EmitFixture) { 'FIXTURE_BASE64:' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($markup)) }
     'PASS: synthetic plans, missing/malformed/expired data, quota, cache and failure backoff'
-} finally { Remove-Item -LiteralPath $channel -Recurse -Force }
+} finally {
+    Remove-Item -LiteralPath (Join-Path $PSScriptRoot 'fixture.tmp.html') -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $channel -Recurse -Force
+}
 
 

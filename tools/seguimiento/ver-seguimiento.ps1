@@ -34,10 +34,21 @@ param(
     [ValidateRange(1, 10080)][int]$StoppedMinutes = 60,
     # FLU-T06: a card «en curso» without «Espera» whose newest Historial row is older than this many hours reads «sin actividad».
     [ValidateRange(1, 720)][int]$SinActividadHoras = 6,
-    [Nullable[datetime]]$NowOverride = $null
+    [Nullable[datetime]]$NowOverride = $null,
+    [string]$RestartParameters = ''  # internal: preserve bound parameters across pwsh -File, including string[]
 )
 
 $ErrorActionPreference = 'Stop'
+if ($RestartParameters) {
+    $restored = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($RestartParameters)) | ConvertFrom-Json -AsHashtable
+    foreach ($name in $restored.Keys) {
+        $value = $restored[$name]
+        if ($name -eq 'SubagentRoots') { $value = [string[]]@($value) }
+        if ($name -eq 'NowOverride' -and $null -ne $value) { $value = [datetime]$value }
+        Set-Variable -Name $name -Value $value
+        $PSBoundParameters[$name] = $value
+    }
+}
 $script:apiBaseUrl = $ApiBaseUrl.TrimEnd('/')
 $script:apiTimeoutSeconds = $ApiTimeoutSeconds
 $script:subagentRoots = @($SubagentRoots)
@@ -928,6 +939,13 @@ function Get-WorkerDisplayName([string]$worker, [string]$reference) {
 # the token counts are read, never the response. One run per output name (agy-01c.json and agy-01c.ndjson are the same run; the ndjson wins).
 # Returns, per conversation id: Files, Model, Runs, Counted and the summed Total / Input (not cached) / Cached / Output.
 $script:AgyRuns = $null
+function Read-SharedAgyText([string]$path) {
+    $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+    try {
+        $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8)
+        try { $reader.ReadToEnd() } finally { $reader.Dispose() }
+    } finally { $stream.Dispose() }
+}
 function Get-AgyRun([string]$id) {
     if ($null -eq $script:AgyRuns) {
         $script:AgyRuns = @{}
@@ -939,7 +957,7 @@ function Get-AgyRun([string]$id) {
                 try {
                     if ($file.Extension -eq '.ndjson') {
                         $conversation = ''; $model = ''; $usage = $null
-                        foreach ($line in [IO.File]::ReadLines($file.FullName)) {
+                        foreach ($line in ((Read-SharedAgyText $file.FullName) -split '\r?\n')) {
                             if ($line -notmatch '"event"\s*:\s*"(init|result)"') { continue }
                             try { $rec = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
                             if ($rec.event -eq 'init') {
@@ -951,7 +969,7 @@ function Get-AgyRun([string]$id) {
                         }
                         $one = [pscustomobject]@{ Id = $conversation; Model = $model; Usage = $usage; File = $file }
                     } else {
-                        $rec = [IO.File]::ReadAllText($file.FullName) | ConvertFrom-Json -ErrorAction Stop
+                        $rec = Read-SharedAgyText $file.FullName | ConvertFrom-Json -ErrorAction Stop
                         $one = [pscustomobject]@{ Id = (Get-StringField $rec @('conversation_id')); Model = ''; Usage = $rec.usage; File = $file }
                     }
                 } catch { $one = $null }
@@ -991,14 +1009,14 @@ function Get-AgyWorkerToken([object[]]$entries, [string]$worker, [string]$orches
 # The token entry of a worker: its entry of the card's Tokens field (tokens-tarea.ps1), else, for agy, its measured runs.
 function Find-WorkerToken([object[]]$fieldEntries, $entry, [object[]]$allEntries = @()) {
     $token = @($fieldEntries | Where-Object { $_.Kind -eq 'worker' -and $_.Agent -ieq $entry.Worker }) | Select-Object -First 1
-    if ($token) { return $token }
+    if ($token -and $null -ne $token.Total) { return $token }
     $mine = @(@($allEntries) + @($entry) | Where-Object { $_ -and $_.Worker -ieq $entry.Worker })
     Get-AgyWorkerToken $mine $entry.Worker $entry.Orchestrator
 }
 # GEM-T06: the agy workers of a task whose runs have measured tokens but no entry in the card's Tokens field (the field is written by tokens-tarea.ps1):
 # one token entry per worker (Kind worker, Source 'medido en la corrida').
 function Get-AgyTaskTokenEntries([object[]]$delegations, [string]$fieldTokens) {
-    $known = @(Get-TokenEntries $fieldTokens | Where-Object { $_.Kind -ne 'total' } | ForEach-Object Agent)
+    $known = @(Get-TokenEntries $fieldTokens | Where-Object { $_.Kind -ne 'total' -and $null -ne $_.Total } | ForEach-Object Agent)
     foreach ($worker in @($delegations | Where-Object { (Get-EntryReference $_) -like 'agy:*' } | ForEach-Object { $_.Worker } | Select-Object -Unique)) {
         if ($known -icontains $worker) { continue }
         $mine = @($delegations | Where-Object { $_.Worker -ieq $worker })
@@ -1014,9 +1032,12 @@ function Get-TaskTokensHtml([string]$fieldTokens, [object[]]$delegations) {
         $detail = "Entrada $($token.Input) · cacheados $($token.Cached) · salida $($token.Output) · $($token.Source)"
         "<div class=""token-worker"" style=""margin-left:1em"" title=""$(Encode $detail)"">&#8627; $(Encode $token.Agent) <span class=""meta"">(delegado por $(Encode $token.Orchestrator))</span>: <strong>$(Format-TokenCount $token.Total)</strong> <span class=""meta"">$(Encode $token.Source)</span></div>"
     }
-    $fieldHasTotal = @(Get-TokenEntries $fieldTokens | Where-Object { $_.Kind -eq 'total' }).Count -gt 0
-    $total = if ($fieldHasTotal) { '' } else { "<div class=""token-total""><strong>Total de la tarea: $(Format-TokenCount ([long](($extra | Measure-Object Total -Sum).Sum)))</strong> <span class=""meta"">solo corridas de agy</span></div>" }
+    $fieldEntries = @(Get-TokenEntries $fieldTokens)
+    $fieldTotal = @($fieldEntries | Where-Object { $_.Kind -eq 'total' } | Select-Object -First 1)
+    $baseTotal = if ($fieldTotal.Count) { [long]$fieldTotal[0].Total } else { [long](($fieldEntries | Where-Object { $null -ne $_.Total } | Measure-Object Total -Sum).Sum) }
+    $total = "<div class=""token-total""><strong>Total de la tarea: $(Format-TokenCount ($baseTotal + [long](($extra | Measure-Object Total -Sum).Sum)))</strong></div>"
     $base = if ($fieldTokens -and @(Get-TokenEntries $fieldTokens).Count) { $html } else { '' }
+    $base = $base -replace '<div class="token-total"><strong>Total de la tarea: .*?</strong></div>', ''
     $base + $total + ($lines -join '')
 }
 # Caches live for one page generation only (the watcher regenerates inside the same process).
@@ -2032,6 +2053,12 @@ function Format-TodoGroup([string]$heading, [object[]]$items) {
     }
     "<h3>$(Encode $heading) <span class=""meta"">($($items.Count))</span></h3><ul>$($lis -join '')</ul>"
 }
+function Update-RowWatchFlags([string]$rowState, $espera) {
+    if ($rowState -eq 'en curso') {
+        $script:EnCursoWatch = $true
+        if ($null -eq $espera) { $script:SinActividadWatch = $true }
+    }
+}
 function Build-Page {
 Reset-WorkerCaches   # SEG-T15: transcripts, models and execution lines are read again on every generation
 $script:EsperaEntries = $null   # FLU-T06: LOG.md (decisión / respuesta entries) is read again too
@@ -2288,14 +2315,13 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 $stateCell = if ($record.WaitingFor.Count) { $stateCell + (Get-WaitCellHtml $taskWaits) }
                     else { (Get-WaitCellHtml $taskWaits) + "<div class=""meta"">Estado en la ficha: $(Encode $record.State)</div>" }
             }
-            if ($record.State -eq 'en curso') { $script:EnCursoWatch = $true }   # see Get-Stamp
+            Update-RowWatchFlags $rowState $record.Espera   # see Get-Stamp
             # FLU-T06: the card's own «Espera» row (a badge; the Estado does not change) or, for a card en curso without one, «sin actividad».
-            if ($null -ne $record.Espera -and $record.State -notin 'terminada', 'integrada') {
+            if ($null -ne $record.Espera -and $rowState -notin 'terminada', 'integrada', 'congelada') {
                 $resolution = Find-EsperaResolution $record.Espera $record.Id
                 $stateCell += Get-EsperaBadgeHtml $record.Espera $resolution $record.EsperaAsker
                 $esperaItems.Add([pscustomobject]@{ Id = $record.Id; Title = $record.Title; Href = $record.Href; Espera = $record.Espera; Resolution = $resolution; Asker = $record.EsperaAsker })
-            } elseif ($record.State -eq 'en curso' -and $null -eq $record.Espera) {
-                $script:SinActividadWatch = $true
+            } elseif ($rowState -eq 'en curso' -and $null -eq $record.Espera) {
                 if (Test-SinActividad $record ([bool]$taskWaits.Count)) { $stateCell += Get-SinActividadHtml $record }
             }
             $lastActivityHtml =if ($record.LastRow) { "<div class=""meta"">Última actividad $(Encode (Format-ActivityDate $record.LastRow.Date))</div>" } else { '<div class="meta">Sin historial fechado</div>' }
@@ -3474,6 +3500,26 @@ if (-not $mutex.WaitOne(0)) {
 }   # a watcher is already running for an open window
 if ($untilClosed -and -not $Reanudar) { Start-Sleep -Seconds 5 }   # let the window start
 $last = Get-Stamp
+function Test-ScriptUpdated([string]$path, [datetime]$originalStamp) {
+    $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+    return $null -ne $item -and $item.LastWriteTimeUtc -ne $originalStamp
+}
+function Get-RestartArguments([string]$path, [System.Collections.IDictionary]$bound, [bool]$keepWindow) {
+    $saved = @{}
+    foreach ($name in $bound.Keys) {
+        if ($name -notin 'ChannelPath', 'RepoPath', 'NoAbrir', 'Vigilar', 'Reanudar', 'RestartParameters') {
+            $value = $bound[$name]
+            # a [switch] serializes as {"IsPresent": …}, which a switch variable refuses on restore: send the plain bool
+            $saved[$name] = if ($value -is [System.Management.Automation.SwitchParameter]) { $value.IsPresent } else { $value }
+        }
+    }
+    $json = ConvertTo-Json -InputObject $saved -Depth 8 -Compress
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
+    $argv = @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$path`"",
+        '-ChannelPath', "`"$($bound['ChannelPath'])`"", '-RepoPath', "`"$($bound['RepoPath'])`"", '-RestartParameters', $encoded)
+    $argv += if ($keepWindow) { @('-Reanudar') } else { @('-NoAbrir', '-Vigilar') }
+    return $argv
+}
 $selfPath = $PSCommandPath
 $selfStamp = (Get-Item -LiteralPath $selfPath).LastWriteTimeUtc
 $restart = $false
@@ -3481,7 +3527,7 @@ $tick = 0
 try {
     while (-not $untilClosed -or (Test-ViewerOpen)) {
         # An updated tracker (a new version of this script) takes over: checked every 5 s.
-        if ((++$tick % 20) -eq 0 -and (Get-Item -LiteralPath $selfPath -ErrorAction SilentlyContinue).LastWriteTimeUtc -ne $selfStamp) { $restart = $true; break }
+        if ((++$tick % 20) -eq 0 -and (Test-ScriptUpdated $selfPath $selfStamp)) { $restart = $true; break }
         Invoke-FlowListenerRequest
         $stamp = Get-Stamp
         if ($stamp -ne $last) {
@@ -3497,8 +3543,6 @@ try {
 if ($restart) {
     # Hand the open window (or the windowless watch) to a fresh watcher that runs the new version of this script.
     Start-Sleep -Seconds 2   # let the update finish writing
-    $again = @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$selfPath`"",
-        '-ChannelPath', "`"$ChannelPath`"", '-RepoPath', "`"$RepoPath`"")
-    $again += if ($untilClosed) { @('-Reanudar') } else { @('-NoAbrir', '-Vigilar') }
+    $again = Get-RestartArguments $selfPath $PSBoundParameters $untilClosed
     Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $again -WindowStyle Hidden
 }

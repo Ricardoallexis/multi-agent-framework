@@ -6,6 +6,7 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
+. (Join-Path $PSScriptRoot '..\Write-PlanCache.ps1')
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('gem-t04-' + [guid]::NewGuid().ToString('N'))
 $repo = Join-Path $temp 'repo'
 $channel = Join-Path $temp 'channel'
@@ -45,7 +46,7 @@ function Deleg([string]$orchestrator, [string]$time, [string]$worker, [string]$r
     "| 2026-11-18 $time | $orchestrator | delegada | $worker ($level): $piece$tail |"
 }
 function Run-Viewer {
-    & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot -CopilotRoot $copilotRoot -CodexRoot $codexRoot -AgyRoot $agyRoot -NowOverride $now | Out-Null
+    Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot -CopilotRoot $copilotRoot -CodexRoot $codexRoot -AgyRoot $agyRoot -NowOverride $now | Out-Null
     $html = [System.Net.WebUtility]::HtmlDecode([IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html')))
     $agents = $html.Substring($html.IndexOf('<div class="tab" id="agentes">'))
     $agents.Substring(0, $agents.IndexOf('cloud-assignment-group'))

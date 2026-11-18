@@ -2,6 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
+. (Join-Path $PSScriptRoot '..\Write-PlanCache.ps1')
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('seg-t07-' + [guid]::NewGuid().ToString('N'))
 $repo = Join-Path $temp 'repo'
 
@@ -23,7 +24,7 @@ function Write-Card([string]$channel, [string]$stage, [string]$code, [string]$st
     Set-Content (Join-Path $channel "tareas\$stage\$code-x.md") $lines -Encoding utf8
 }
 function Get-Resumen([string]$channel) {
-    & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir | Out-Null
+    Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir | Out-Null
     $html = [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
     $start = $html.IndexOf('Qué tienes que hacer ahora</h2>')
     Assert-True ($start -ge 0) 'todo section present'

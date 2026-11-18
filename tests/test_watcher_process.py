@@ -419,6 +419,20 @@ def test_channel_rejects_empty_conditions(channel):
     assert answer.returncode != 0
 
 
+def test_channel_file_condition_accepts_literal_brackets(channel):
+    marker = channel.root / 'folder[x]' / 'ready.txt'
+    marker.parent.mkdir()
+    marker.touch()
+    args = list(channel.watch)
+    args[args.index('hora')] = 'archivo'
+    args[args.index('2000-01-01T00:00:00')] = str(marker)
+    args.append('-Probar')
+    answer = invoke_channel(channel, args)
+    assert answer.returncode == 0, answer.stderr
+    state = json.loads(answer.stdout)
+    assert state['estado'] == 'cumplida' and state['condiciones'][0]['cumplida'] is True
+
+
 def test_channel_rechecks_conditions_inside_lock(channel):
     marker = channel.root / "condition.ready"
     marker.touch()

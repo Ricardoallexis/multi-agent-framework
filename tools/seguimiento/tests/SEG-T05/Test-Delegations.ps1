@@ -2,6 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
+. (Join-Path $PSScriptRoot '..\Write-PlanCache.ps1')
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('seg-t05-' + [guid]::NewGuid().ToString('N'))
 $repo = Join-Path $temp 'repo'
 $channel = Join-Path $temp 'channel'
@@ -43,7 +44,7 @@ try {
     Set-Content (Join-Path $channel 'orquestacion\RUT\ejecuciones.jsonl') @(
         '{"reason":"x","requested_effort":"medium","requested_model":"gpt-6-luna","worker":"/root/rut_policy","status":"reviewed_complete","task":"SEG-T07"}') -Encoding utf8
 
-    & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir | Out-Null
+    Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir | Out-Null
     $html = [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
 
     # Agents tab: one card per application.

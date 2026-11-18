@@ -2,6 +2,7 @@ param([ValidateSet('success','empty','schema','schema-count','offline','timeout'
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
+. (Join-Path $PSScriptRoot '..\Write-PlanCache.ps1')
 $fixture = $PSScriptRoot
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('orq-t40-' + [guid]::NewGuid().ToString('N'))
 $channel = Join-Path $temp 'channel'
@@ -44,7 +45,7 @@ try {
         $base = "http://127.0.0.1:$closedPort"
     }
     $timeout = if ($Scenario -eq 'timeout') { 1 } else { 5 }
-    & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -LeerApi -ApiBaseUrl $base -ApiTimeoutSeconds $timeout | Out-Null
+    Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -LeerApi -ApiBaseUrl $base -ApiTimeoutSeconds $timeout | Out-Null
     $html = Get-Content (Join-Path $channel 'SEGUIMIENTO.html') -Raw
     switch ($Scenario) {
         'success' {
@@ -64,7 +65,7 @@ try {
         Set-Content (Join-Path $defaultChannel 'RESUMEN.md') '# Local' -Encoding utf8
         Set-Content (Join-Path $defaultChannel 'ROADMAP_VISTA.md') '# Roadmap' -Encoding utf8
         Set-Content (Join-Path $defaultChannel 'pruebas\integracion\LECTURAS.md') '' -Encoding utf8
-        & $viewer -ChannelPath $defaultChannel -RepoPath $repo -NoAbrir | Out-Null
+        Set-ViewerPlanCache $defaultChannel $now; & $viewer -ChannelPath $defaultChannel -RepoPath $repo -NoAbrir | Out-Null
         $defaultHtml = Get-Content (Join-Path $defaultChannel 'SEGUIMIENTO.html') -Raw
         if ($defaultHtml -match 'data-tab="api"') { throw 'Default Markdown mode unexpectedly enabled API tab.' }
     }

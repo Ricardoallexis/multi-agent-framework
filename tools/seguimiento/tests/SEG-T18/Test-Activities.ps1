@@ -7,6 +7,7 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
+. (Join-Path $PSScriptRoot '..\Write-PlanCache.ps1')
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('seg-t18-' + [guid]::NewGuid().ToString('N'))
 $repo = Join-Path $temp 'repo'
 $channel = Join-Path $temp 'channel'
@@ -93,7 +94,7 @@ function Deleg([string]$orchestrator, [string]$time, [string]$worker, [string]$r
     "| 2026-10-11 $time | $orchestrator | delegada | $worker (T2, esfuerzo medio): $piece [ref: $ref] |"
 }
 function Run-Viewer {
-    & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot -CopilotRoot $copilotRoot -CodexRoot $codexRoot -NowOverride $now | Out-Null
+    Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot -CopilotRoot $copilotRoot -CodexRoot $codexRoot -NowOverride $now | Out-Null
     [System.Net.WebUtility]::HtmlDecode([IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html')))
 }
 function Get-AgentsTab([string]$html) {
@@ -296,7 +297,7 @@ try {
     $script:strictError = $null
     & {
         Set-StrictMode -Version Latest
-        try { & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot -CopilotRoot $copilotRoot -CodexRoot $codexRoot -NowOverride $now | Out-Null }
+        try { Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot -CopilotRoot $copilotRoot -CodexRoot $codexRoot -NowOverride $now | Out-Null }
         catch { $script:strictError = $_.Exception.Message + ' @ ' + (($_.ScriptStackTrace -split "`n") | Select-Object -First 2) -join ' < ' }
     }
     Assert-True (-not $script:strictError) "viewer runs under StrictMode with activity rows: $script:strictError"

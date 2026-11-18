@@ -2,6 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
+. (Join-Path $PSScriptRoot '..\Write-PlanCache.ps1')
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('seg-t04-' + [guid]::NewGuid().ToString('N'))
 $repo = Join-Path $temp 'repo'
 $channel = Join-Path $temp 'channel'
@@ -81,7 +82,7 @@ try {
     Write-Task 'GGG' 'T03' 'disponible' '' @('| 2026-06-02 08:15 | Claude-Opus | liberada | x |')
     Write-Task 'GGG' 'T04' 'disponible' '' @()
 
-    & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir | Out-Null
+    Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir | Out-Null
     $html = [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
 
     # 1. Completed stages (Resumen list): newest closure first, then card date, then unknown is not listed there.

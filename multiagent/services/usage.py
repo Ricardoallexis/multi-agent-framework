@@ -121,8 +121,8 @@ CONVENTIONS = {
     "framework": "total = input + output (input already counts the cached part; cache_read is shown apart)",
 }
 RESET_CONFIDENCE = {sources.RESET_APP_EPOCH: "high", sources.RESET_RULE: "medium", sources.RESET_NONE: "none"}
-AGY_USAGE_ARGS = ("-p", "/usage", "--output-format", "text", "--print-timeout", "30s")  # /usage spends no model (GEM-T01)
-AGY_TIMEOUT_SECONDS = 40.0
+AGY_USAGE_ARGS = ("-p", "/usage", "--output-format", "text", "--print-timeout", "12s")  # /usage spends no model (GEM-T01)
+AGY_TIMEOUT_SECONDS = 15.0
 AGY_CACHE_SECONDS = 60.0   # plans() is polled; /usage is a network call, so the answer is reused this long
 AgyRunner = Callable[[Sequence[str], float], tuple[int, str]]
 

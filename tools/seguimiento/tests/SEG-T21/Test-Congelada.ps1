@@ -4,14 +4,26 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
+. (Join-Path $PSScriptRoot '..\Write-PlanCache.ps1')
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('seg-t21-' + [guid]::NewGuid().ToString('N'))
 $repo = Join-Path $temp 'repo'
 $channel = Join-Path $temp 'channel'
 $now = [datetime]'2026-11-18T12:00:00'
 
 function Assert-True([bool]$condition, [string]$message) { if (-not $condition) { throw "FAIL: $message" } }
-function Write-Card([string]$stage, [string]$code, [string]$state, [string]$title) {
-    $lines = @("# $stage-$code · $title", '', '| Campo | Valor |', '|---|---|', "| Estado | $state |", '| Agente | Claude-Opus |', '| Preferente | Cualquiera |', '| Depende de | - |', '| Parche | ninguno |', '| Commit | - |', '| Espera | - |',
+$ast = [Management.Automation.Language.Parser]::ParseFile($viewer, [ref]$null, [ref]$null)
+$flagFunction = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Update-RowWatchFlags' }, $true)
+Invoke-Expression $flagFunction.Extent.Text
+$script:EnCursoWatch = $false; $script:SinActividadWatch = $false
+Update-RowWatchFlags 'congelada' $null
+Assert-True (-not $script:EnCursoWatch -and -not $script:SinActividadWatch) 'a frozen row does not schedule work or inactivity refresh'
+Update-RowWatchFlags 'en curso' $null
+Assert-True ($script:EnCursoWatch -and $script:SinActividadWatch) 'an active row still schedules both refreshes'
+$script:EnCursoWatch = $false; $script:SinActividadWatch = $false
+Update-RowWatchFlags 'en curso' 'synthetic wait'
+Assert-True ($script:EnCursoWatch -and -not $script:SinActividadWatch) 'an active row with Espera does not schedule inactivity refresh'
+function Write-Card([string]$stage, [string]$code, [string]$state, [string]$title, [string]$espera = '-') {
+    $lines = @("# $stage-$code · $title", '', '| Campo | Valor |', '|---|---|', "| Estado | $state |", '| Agente | Claude-Opus |', '| Preferente | Cualquiera |', '| Depende de | - |', '| Parche | ninguno |', '| Commit | - |', "| Espera | $espera |",
         '', '## Qué falta', '', 'Nada', '', '## Historial', '', '| Fecha | Agente | Acción | Detalle |', '|---|---|---|---|', '| 2026-11-18 10:00 | Claude-Opus | creada | x |')
     Set-Content (Join-Path $channel "tareas\$stage\$code-x.md") $lines -Encoding utf8
 }
@@ -19,6 +31,7 @@ function Write-Stage([string]$stage, [string]$state, [string]$tasks) {
     Set-Content (Join-Path $channel "tareas\$stage\ETAPA.md") @("# $stage · Etapa de prueba $stage", '', '| Campo | Valor |', '|---|---|', '| Autorizada | sí |', "| Estado | $state |", '', '## Fases de tareas', '', '| Fase | Tareas | Descripción |', '|---|---|---|', "| Fase 1 | $tasks | x |", '', '## Historial de decisiones', '', '- 2026-11-18 · Claude-Opus · prueba') -Encoding utf8
 }
 function Run-Viewer {
+    Set-ViewerPlanCache $channel $now
     $out = & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -NowOverride $now 3>&1 4>&1 5>&1 6>&1
     $warnings = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] } | ForEach-Object { $_.Message })
     $html = [System.Net.WebUtility]::HtmlDecode([IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html')))
@@ -43,7 +56,7 @@ try {
     Write-Card 'AAA' 'T01' 'congelada' 'Tarea congelada uno'
     Write-Card 'AAA' 'T02' 'disponible' 'Tarea disponible dos'
     Write-Stage 'BBB' 'congelada' 'T01'
-    Write-Card 'BBB' 'T01' 'disponible' 'Tarea de etapa congelada'
+    Write-Card 'BBB' 'T01' 'en curso' 'Tarea de etapa congelada' '¿Decisión sintética pendiente?'
     Write-Stage 'CCC' 'abierta' 'T01'
     Write-Card 'CCC' 'T01' 'congelada' 'Unica congelada'
 
@@ -74,7 +87,8 @@ try {
     Assert-True ($html.IndexOf('AAA · Etapa de prueba AAA') -lt $frozenAt) 'active stages come before the frozen section'
     $bbb = [regex]::Match($html.Substring($bbbAt - 200), '(?s)<details class="panel board seg-stage".*?</details>').Value
     Assert-True ($bbb -match '<span class="state s-congelada">Congelada</span>' -and $bbb -notmatch '<details[^>]* open>' -and $bbb -cnotmatch 'Lista|Disponible' -and $bbb -match 'etapa congelada') 'BBB reads Congelada, collapsed, with its closure line'
-    Assert-True ($bbb -match 'Etapa congelada · estado en la ficha: disponible') 'the tasks of a frozen stage read congelada and keep their card state as a note'
+    Assert-True ($bbb -match 'Etapa congelada · estado en la ficha: en curso') 'the tasks of a frozen stage read congelada and keep their card state as a note'
+    Assert-True ($bbb -notmatch 'Decisión sintética pendiente' -and $html -notmatch 'espera-sin-actividad') 'a frozen stage creates neither a task Espera badge nor an inactivity alert'
     Assert-True ($bbb -notmatch '<span class="state s-disponible">' -and $bbb -notmatch 'cierre no verificado') 'BBB is not available and not an unverified closure'
     Assert-True ($html -match 'trabaja en AAA' -and $html -notmatch 'trabaja en BBB') 'the available task of the active stage is a to-do item, the one of the frozen stage is not'
     Assert-True ($html -notmatch '<span class="gate">BBB</span>') 'the frozen stage makes no active summary card'

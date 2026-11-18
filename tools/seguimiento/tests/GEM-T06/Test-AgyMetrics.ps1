@@ -44,7 +44,8 @@ function Get-WorkerBlock([string]$card, [string]$piece) {
 }
 function Get-PlanBlock([string]$card) { [regex]::Match($card, '(?s)<div class="plan-usage">.*?</div>').Value }
 
-$ag = @{ flash = 'd4444444-0000-4000-8000-000000000001'; sonnet = 'd4444444-0000-4000-8000-000000000002'; json = 'd4444444-0000-4000-8000-000000000003' }
+$ag = @{ flash = 'd4444444-0000-4000-8000-000000000001'; sonnet = 'd4444444-0000-4000-8000-000000000002'; json = 'd4444444-0000-4000-8000-000000000003'; missing = 'd4444444-0000-4000-8000-000000000004'; mixed = 'd4444444-0000-4000-8000-000000000005' }
+$locks = @()
 
 try {
     New-Item -ItemType Directory -Force $repo, (Join-Path $agyRoot 'conversations'), $tools, (Join-Path $channel 'contexto'), (Join-Path $channel 'tareas\AAA'), (Join-Path $channel 'orquestacion\AAA'), (Join-Path $channel 'parches\pendientes'), (Join-Path $channel 'pruebas\integracion') | Out-Null
@@ -52,7 +53,8 @@ try {
     Set-Content (Join-Path $channel 'ROADMAP_VISTA.md') '# Roadmap' -Encoding utf8
     Set-Content (Join-Path $channel 'AGENTES.md') @('| Agente | Modelo | Aplicación | Estado | Último | Cursor | Sesión |', '|---|---|---|---|---|---|---|',
         '| Claude-Opus | Opus | Claude | ACTIVO | x | c | s1 |', '| Codex | gpt | Codex | ACTIVO | x | c | s2 |',
-        '| Antigravity-Flash | gemini-3.8-flash | Antigravity | ACTIVO | x | c | s3 |', '| Antigravity-Sonnet | claude-sonnet-5-5 | Antigravity | ACTIVO | x | c | s4 |') -Encoding utf8
+        '| Antigravity-Flash | gemini-3.8-flash | Antigravity | ACTIVO | x | c | s3 |', '| Antigravity-Sonnet | claude-sonnet-5-5 | Antigravity | ACTIVO | x | c | s4 |',
+        '| Antigravity-Null | synthetic | Antigravity | ACTIVO | x | c | s5 |') -Encoding utf8
     git -C $repo init -q | Out-Null
     Set-Content (Join-Path $channel 'tareas\AAA\ETAPA.md') @('# AAA · Etapa de prueba', '', '| Campo | Valor |', '|---|---|', '| Autorizada | sí |', '| Estado | abierta |', '', '## Historial de decisiones', '', '- 2026-11-18 · Claude-Opus · Se abre la etapa') -Encoding utf8
 
@@ -73,6 +75,11 @@ try {
     Set-Content (Join-Path $tools 'agy-10.json') (Json @{ conversation_id = $ag.flash; status = 'SUCCESS'; response = 'SECRET-CONTENT'; usage = @{ input_tokens = 11475; output_tokens = 766; thinking_tokens = 661; cache_read_tokens = 8592; total_tokens = 12241 } }) -Encoding utf8
     Set-Content (Join-Path $tools 'agy-11.json') (Json @{ conversation_id = $ag.json; status = 'SUCCESS'; response = 'SECRET-CONTENT'; usage = @{ input_tokens = 2000; output_tokens = 500; thinking_tokens = 0; cache_read_tokens = 1000; total_tokens = 2500 } }) -Encoding utf8
     Set-Content (Join-Path $tools 'agy-12.json') (Json @{ conversation_id = $ag.sonnet; status = 'SUCCESS'; response = 'SECRET-CONTENT'; usage = @{ input_tokens = 9; output_tokens = 9; cache_read_tokens = 0; total_tokens = 18 } }) -Encoding utf8
+    Set-Content (Join-Path $tools 'agy-13.json') (Json @{ conversation_id = $ag.missing; usage = @{ input_tokens = 30; output_tokens = 10; cache_read_tokens = 5; total_tokens = 40 } }) -Encoding utf8
+    Set-Content (Join-Path $tools 'agy-14.ndjson') @((Json @{ event = 'init'; conversation_id = $ag.mixed; init = @{ model = 'synthetic' } }), (Json @{ event = 'result'; result = @{ conversation_id = $ag.mixed; usage = @{ input_tokens = 20; output_tokens = 10; cache_read_tokens = 0; total_tokens = 30 } } })) -Encoding utf8
+    foreach ($name in @('agy-10.ndjson', 'agy-13.json', 'agy-14.ndjson')) {
+        $locks += [IO.File]::Open((Join-Path $tools $name), [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+    }
     # activity: the conversation file of the first run was written 3 minutes ago
     $db = Join-Path $agyRoot "conversations\$($ag.flash).db"
     [IO.File]::WriteAllBytes($db, [Text.Encoding]::UTF8.GetBytes('SQLite format 3 SECRET-CONTENT'))
@@ -82,6 +89,8 @@ try {
     Write-Card 'T01' 'en curso' 'Claude-Opus' @((Deleg 'Claude-Opus' '11:00' 'Antigravity-Flash' "agy:$($ag.flash)" 'pieza uno'))
     Write-Card 'T02' 'en curso' 'Claude-Opus' @((Deleg 'Claude-Opus' '11:10' 'Antigravity-Sonnet' "agy:$($ag.sonnet)" 'pieza dos')) 'Claude-Opus: total 5 = entrada 1 + cacheados 3 + salida 1 (medido); ↳ Antigravity-Sonnet (delegado por Claude-Opus, exacto por ventana): total 500 = entrada 100 + cacheados 300 + salida 100; Total de la tarea: 505'
     Write-Card 'T03' 'en curso' 'Claude-Opus' @((Deleg 'Claude-Opus' '11:20' 'Antigravity-Argon' "agy:$($ag.json)" 'pieza tres'))
+    Write-Card 'T04' 'en curso' 'Claude-Opus' @((Deleg 'Claude-Opus' '11:25' 'Antigravity-Null' "agy:$($ag.missing)" 'pieza cuatro')) '↳ Antigravity-Null (delegado por Claude-Opus, sin datos): sin datos; Total de la tarea: 5'
+    Write-Card 'T05' 'en curso' 'Claude-Opus' @((Deleg 'Claude-Opus' '11:30' 'Antigravity-Mixed' "agy:$($ag.mixed)" 'pieza cinco')) 'Claude-Opus: total 5 = entrada 3 + cacheados 1 + salida 1 (medido); Total de la tarea: 5'
 
     $run = Run-Viewer
     $agy = Get-AppCard $run.Agents 'Antigravity'
@@ -119,6 +128,12 @@ try {
     Assert-True ($w2 -match 'Tokens: 500 · entrada 100 · salida 100 · exacto por ventana') "T02 worker tokens from the card field, got: $($w2 -replace '<[^>]+>', ' ')"
     $row2 = [regex]::Match($run.Html, '(?s)<tr><td><a [^>]*>AAA-T02.*?</tr>').Value
     Assert-True ($row2 -match 'Total de la tarea: 505' -and $row2 -notmatch 'medido en la corrida') 'T02 task total from the field, no duplicate from the run'
+    $row4 = [regex]::Match($run.Html, '(?s)<tr><td><a [^>]*>AAA-T04.*?</tr>').Value
+    Assert-True ($row4 -match 'Total de la tarea: 50' -and $row4 -match 'Antigravity-Null.*<strong>45</strong>') 'a no-data card entry does not hide a locked agy json run'
+    $w4 = Get-WorkerBlock $agy 'pieza cuatro'
+    Assert-True ($w4 -match 'Tokens: 45 · entrada 30 · salida 10 · medido en la corrida') 'worker card falls back from no-data field to measured run'
+    $row5 = [regex]::Match($run.Html, '(?s)<tr><td><a [^>]*>AAA-T05.*?</tr>').Value
+    Assert-True ($row5 -match 'Total de la tarea: 35' -and $row5 -match 'Antigravity-Mixed.*<strong>30</strong>') 'task total includes the extra locked agy ndjson run'
     # json-only run: tokens, no model (the registered name stays)
     $w3 = Get-WorkerBlock $agy 'pieza tres'
     Assert-True ($w3 -match '<strong>Antigravity-Argon \(T2\)</strong>' -and $w3 -match 'Tokens: 4 k · entrada 2 k · salida 500 · medido en la corrida') 'T03 json-only run: tokens and registered name'
@@ -135,6 +150,7 @@ catch {
     $failed = $true
 }
 finally {
+    foreach ($lock in $locks) { $lock.Dispose() }
     if ($env:SEG_KEEP) { Write-Host $temp } elseif ($temp -and (Test-Path -LiteralPath $temp)) { & (Join-Path $PSScriptRoot 'Remove-Temp.ps1') $temp }
 }
 if ($failed) { exit 1 }

@@ -2,6 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
+. (Join-Path $PSScriptRoot '..\Write-PlanCache.ps1')
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('seg-t09-' + [guid]::NewGuid().ToString('N'))
 $repo = Join-Path $temp 'repo'
 $channel = Join-Path $temp 'channel'
@@ -46,7 +47,7 @@ try {
     Write-Stage 'ZZZ' 'cerrada' @('', '## Fases de tareas', '', '| Fase | Tareas | Descripción |', '|---|---|---|', '| Fase Z | T01 | Todo |') @('- 2026-02-10 18:45 · Claude-Sonnet · Etapa cerrada por el usuario')
     Write-Card 'ZZZ' 'T01' 'integrada' 'Claude-Opus' '2026-02-09 08:00'
 
-    & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir | Out-Null
+    Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir | Out-Null
     $html = [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
 
     # Initial open/closed state.

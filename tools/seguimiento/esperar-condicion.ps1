@@ -83,6 +83,7 @@ if ($Barrido) {
 $Tipo = @($Tipo | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $Valor = @($Valor | ForEach-Object { $_ -split ';;' } | Where-Object { $_ -ne '' })
 foreach ($x in $Tipo) { if ($x -notin 'hora', 'archivo', 'reporte', 'entrada', 'commit', 'proceso', 'estado') { throw "Tipo desconocido: $x" } }
+$Repo = ConvertTo-NativePath $Repo
 if ($Tipo.Count -ne $Valor.Count) { throw 'Cada -Tipo necesita su -Valor.' }
 if (-not $Tipo.Count) { throw 'Se necesita al menos una condición.' }
 if ('commit' -in $Tipo -and (-not $Repo -or -not (Test-Path -LiteralPath $Repo -PathType Container))) {
@@ -276,7 +277,12 @@ function Close-State([string]$status, [bool[]]$met) {
 function Test-One([string]$t, [string]$v) {
     switch ($t) {
         'hora' { return (Get-Date) -ge (Get-HoraTarget $v) }
-        'archivo' { return [bool](Get-ChildItem -Path (ConvertTo-NativePath $v) -ErrorAction SilentlyContinue | Select-Object -First 1) }
+        'archivo' {
+            $native = ConvertTo-NativePath $v
+            if (Test-Path -LiteralPath $native) { return $true }
+            if ($native -notmatch '[*?]') { return $false }
+            return [bool](Get-ChildItem -Path $native -ErrorAction SilentlyContinue | Select-Object -First 1)
+        }
         'reporte' {
             $dir = Join-Path $channel 'pruebas' 'integracion'
             $new = Get-ChildItem -LiteralPath $dir -Filter '*_integracion.md' -File | Where-Object { $_.LastWriteTime -gt $Desde }

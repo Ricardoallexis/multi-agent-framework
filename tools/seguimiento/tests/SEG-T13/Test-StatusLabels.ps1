@@ -3,6 +3,7 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
+. (Join-Path $PSScriptRoot '..\Write-PlanCache.ps1')
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('seg-t13-' + [guid]::NewGuid().ToString('N'))
 $repo = Join-Path $temp 'repo'
 $channel = Join-Path $temp 'channel'
@@ -32,7 +33,7 @@ function New-Task([string]$stage, [string]$code, [string]$state, [string]$patch 
     Set-Content (Join-Path $channel "tareas\$stage\$code-x.md") $lines -Encoding utf8
 }
 function Invoke-Viewer {
-    & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot | Out-Null
+    Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot | Out-Null
     [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
 }
 function Set-Time([string]$path, [string]$time) { (Get-Item -LiteralPath $path).LastWriteTime = [datetime]$time }

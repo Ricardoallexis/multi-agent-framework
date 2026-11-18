@@ -16,6 +16,7 @@ venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+tools/seguimiento/tests/FLU-T09/fixture.tmp.html
 *.egg-info/
 build/
 dist/

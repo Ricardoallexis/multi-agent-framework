@@ -58,8 +58,8 @@ def test_plans_include_antigravity_with_windows_percent_and_reset(agy):
     # one command, no shell, a time limit, only /usage
     assert len(calls) == 1
     argv, timeout = calls[0]
-    assert argv == ["C:/bin/agy.exe", "-p", "/usage", "--output-format", "text", "--print-timeout", "30s"]
-    assert 0 < timeout <= 60
+    assert argv == ["C:/bin/agy.exe", "-p", "/usage", "--output-format", "text", "--print-timeout", "12s"]
+    assert timeout == 15.0
 
 
 def test_the_answer_is_reused_for_a_minute(agy):

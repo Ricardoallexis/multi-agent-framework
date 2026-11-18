@@ -4,6 +4,7 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
+. (Join-Path $PSScriptRoot '..\Write-PlanCache.ps1')
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('seg-t14-' + [guid]::NewGuid().ToString('N'))
 $repo = Join-Path $temp 'repo'
 $repoRoot = $repo
@@ -33,7 +34,7 @@ function New-ClosedStage([string]$name, [string[]]$closureRows) {
 function New-Report([string]$stem) { Set-Content (Join-Path $integrationDir "${stem}_integracion.md") '# Pruebas integracion' -Encoding utf8 }
 function Set-Reads([string[]]$rows) { Set-Content $readsPath (@('| Reporte | Resultado | Pruebas |', '|---|---|---|') + $rows) -Encoding utf8 }
 function Invoke-Viewer {
-    & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot | Out-Null
+    Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot | Out-Null
     [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
 }
 # The text of "Última prueba de integración", decoded, and the class of its state badge.
