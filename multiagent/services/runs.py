@@ -19,6 +19,7 @@ per-id methods find the run in whichever store holds it.
 from __future__ import annotations
 
 import threading
+import json
 import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -183,6 +184,36 @@ class RunServices:
                 if runtime.worker is not None:
                     runtime.worker.stop()
 
+    def _record_decision(self, runtime: _Runtime, before: dict[str, Any], action: str,
+                         *, by: str | None = None) -> None:
+        """Best effort audit after a successful run review; never undo the review."""
+        try:
+            from .projects import actor_kind
+            from .memory import MAX_BODY_CHARS
+
+            step = before.get("waiting_step") or "run"
+            attempt = before.get("waiting_attempt")
+            reason = before.get("waiting_reason") or "review"
+            artifact = next((item for item in reversed(before.get("artifacts", []))
+                             if item.get("step_id") == step and (attempt is None or item.get("attempt") == attempt)), None)
+            proposed = json.dumps(artifact.get("data"), ensure_ascii=False, default=str) if artifact else (
+                f"Run {before['id']} waits for {reason} at step {step}.")
+            title = f"Review {step} attempt {attempt or 1}"[:120]
+            actor = by if actor_kind(by) == "user" else "user"
+            outcome = ("changes_requested" if action == "request_changes" else
+                       f"{reason}:{action}" if reason not in {"review", "approval_pending", ""} else action)
+            self._services.decisions.record_review(
+                title=title, body=proposed[:MAX_BODY_CHARS], proposed_by="agent:workflow", decided_by=actor,
+                accepted=action == "approve", outcome=outcome, run_id=before["id"],
+                step_id=step if step != "run" else None, attempt=attempt or None,
+                project=before.get("project_name"), task_id=before.get("request", {}).get("task_id"))
+        except Exception as exc:
+            try:
+                runtime.store.db.log_event(before["id"], "decision_record_failed",
+                                           {"action": action, "error": type(exc).__name__})
+            except Exception:
+                pass
+
     # --- operations ---------------------------------------------------------
 
     @service_errors
@@ -257,10 +288,13 @@ class RunServices:
         (``PersonRequired``, CAP-T15 B1); only the token route of the GUI passes it.
         """
         runtime = self._find(run_id)
+        before = runtime.store.get_run(run_id)
         try:
-            return self._tag(runtime, runtime.service.approve(run_id, by=by, channel=channel, recorded_only=recorded_only,
-                                                              permission_request_id=permission_request_id,
-                                                              person=person))
+            result = self._tag(runtime, runtime.service.approve(run_id, by=by, channel=channel, recorded_only=recorded_only,
+                                                                 permission_request_id=permission_request_id,
+                                                                 person=person))
+            self._record_decision(runtime, before, "approve", by=by)
+            return result
         except ToolApprovalMismatch as exc:
             raise ServiceError(INVALID_STATE, str(exc), status=409,
                                details={"reason": exc.code, "run_id": run_id}) from exc
@@ -273,9 +307,12 @@ class RunServices:
                         by: str | None = None, channel: str | None = None) -> dict[str, Any]:
         """Send the reviewed step back with feedback."""
         runtime = self._find(run_id)
+        before = runtime.store.get_run(run_id)
         try:
-            return self._tag(runtime, runtime.service.changes(run_id, feedback, comments=comments or (),
-                                                             by=by, channel=channel))
+            result = self._tag(runtime, runtime.service.changes(run_id, feedback, comments=comments or (),
+                                                                by=by, channel=channel))
+            self._record_decision(runtime, before, "request_changes", by=by)
+            return result
         except ValueError as exc:
             from ..revision_comments import RevisionFeedbackTooLong
             if isinstance(exc, RevisionFeedbackTooLong):
@@ -298,7 +335,10 @@ class RunServices:
         as in ``approve``). Rejecting a run held by the budget guard fails it (status ``failed``): the call is never made.
         """
         runtime = self._find(run_id)
-        return self._tag(runtime, runtime.service.reject(run_id, feedback, by=by, channel=channel))
+        before = runtime.store.get_run(run_id)
+        result = self._tag(runtime, runtime.service.reject(run_id, feedback, by=by, channel=channel))
+        self._record_decision(runtime, before, "reject", by=by)
+        return result
 
     @service_errors
     def cancel(self, run_id: str, *, force: bool = False) -> dict[str, Any]:

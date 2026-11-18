@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 from .activities import ActivityServices
 from .assignment import AssignmentServices
 from .definitions import DefinitionServices
+from .decisions import DecisionServices
 from .envelopes import EnvelopeServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
 from .executors import ExecutorServices
@@ -56,6 +57,7 @@ __all__ = [
     "ActivityServices",
     "ApplicationServices",
     "DefinitionServices",
+    "DecisionServices",
     "EnvelopeServices",
     "ExecutorServices",
     "GateServices",
@@ -102,6 +104,7 @@ class ApplicationServices:
         self.usage = UsageServices(self)
         self.inbox = InboxServices(self)
         self.memory = MemoryServices(self)
+        self.decisions = DecisionServices(self)
         self.new_session = NewSessionServices(self)
         # The engine of the system reads the availability policy from the inbox, the same place that accepts the messages.
         engine = getattr(system, "engine", None)

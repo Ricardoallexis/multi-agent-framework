@@ -635,6 +635,29 @@ def cmd_memory(args) -> None:
         pretty(_api_json("DELETE", f"/api/v1/memory/{_segment(args.entry_id)}", params={"actor": args.actor}))
 
 
+def cmd_decision(args) -> None:
+    command = args.decision_command
+    if command == "propose":
+        body = {"title": args.title, "body": args.text, "actor": args.actor}
+        for name in ("valid_until", "run_id", "step_id", "attempt", "task_id", "team_id", "project"):
+            if getattr(args, name) is not None:
+                body[name] = getattr(args, name)
+        pretty(_api_json("POST", "/api/v1/decisions", json_body=body))
+    elif command == "list":
+        params = {name: getattr(args, name) for name in ("project", "run_id") if getattr(args, name) is not None}
+        if args.active:
+            params["active"] = "true"
+        pretty(_api_json("GET", "/api/v1/decisions", params=params or None))
+    elif command == "show":
+        pretty(_api_json("GET", f"/api/v1/decisions/{_segment(args.decision_id)}"))
+    else:
+        body = {"actor": args.actor}
+        for name in ("outcome", "valid_from", "valid_until", "replacement_id", "title", "text"):
+            if hasattr(args, name) and getattr(args, name) is not None:
+                body["body" if name == "text" else name] = getattr(args, name)
+        pretty(_api_json("POST", f"/api/v1/decisions/{_segment(args.decision_id)}/{command}", json_body=body))
+
+
 def cmd_task_session(args) -> None:
     task = _segment(args.task_id)
     if args.session_command == "link":
@@ -1411,6 +1434,29 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("entry_id"); x.set_defaults(func=cmd_memory)
     x = memory.add_parser("delete", help="Delete an entry (only a user:... actor may)")
     x.add_argument("entry_id"); x.add_argument("--actor", required=True); x.set_defaults(func=cmd_memory)
+
+    # Proposals and decisions (S13.B2).
+    decision = sub.add_parser("decision", help="Propose, list and resolve decisions").add_subparsers(
+        dest="decision_command", required=True)
+    x = decision.add_parser("propose", help="Propose a decision")
+    x.add_argument("--title", required=True); x.add_argument("--text", required=True); x.add_argument("--actor", required=True)
+    for name in ("valid_until", "run_id", "step_id", "task_id", "team_id", "project"):
+        x.add_argument("--" + name.replace("_", "-"))
+    x.add_argument("--attempt", type=int); x.set_defaults(func=cmd_decision)
+    x = decision.add_parser("list", help="List decisions, optionally only those currently in force")
+    x.add_argument("--active", action="store_true"); x.add_argument("--project"); x.add_argument("--run-id")
+    x.set_defaults(func=cmd_decision)
+    x = decision.add_parser("show", help="Show a decision")
+    x.add_argument("decision_id"); x.set_defaults(func=cmd_decision)
+    for action in ("accept", "reject", "supersede"):
+        x = decision.add_parser(action, help=f"{action.title()} a decision (user actor only)")
+        x.add_argument("decision_id"); x.add_argument("--actor", required=True); x.add_argument("--outcome")
+        if action == "accept":
+            x.add_argument("--valid-from"); x.add_argument("--valid-until")
+        if action == "supersede":
+            x.add_argument("--replacement-id"); x.add_argument("--title"); x.add_argument("--text")
+            x.add_argument("--valid-until")
+        x.set_defaults(func=cmd_decision)
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)

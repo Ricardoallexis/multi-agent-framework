@@ -137,7 +137,7 @@ Reducing dependence on paid cloud inference is a core direction of the project.
 
 ## Human-in-the-loop
 
-**Progress:** `█████░░░░░` 6/11 · 55% <!-- progress -->
+**Progress:** `██████░░░░` 7/11 · 64% <!-- progress -->
 
 Human control is intended to remain a first-class part of the architecture rather than an exception path.
 
@@ -151,7 +151,7 @@ Human control is intended to remain a first-class part of the architecture rathe
 - [x] Add clearer revision history and comparisons between attempts: the completed attempts of a step with who produced each one, the feedback it received, its output and its review, and a field-by-field comparison of two attempts in the API, CLI and GUI (see [`docs/API.md`](docs/API.md)).
 - [x] Add comments, reviewer notes, and structured feedback that can be passed safely into subsequent attempts: a change request carries comments on a part of the output, with a kind, a text and an optional quote that reaches the next attempt as untrusted data (see [`docs/API.md`](docs/API.md)).
 - [ ] Improve audit trails showing what was produced by a model, a deterministic tool, or a human.
-- [ ] *(proposed)* A register of proposals and decisions with their state and validity.
+- [x] A register of proposals and decisions with their state and validity.
 
 ## Collaborative agent teams
 

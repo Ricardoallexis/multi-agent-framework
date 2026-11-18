@@ -396,6 +396,35 @@ class MemoryCreate(_Body):
     source_ref: str = ""
 
 
+class DecisionPropose(_Body):
+    title: str
+    body: str
+    actor: str
+    valid_until: str | None = None
+    run_id: str | None = None
+    step_id: str | None = None
+    attempt: int | None = None
+    task_id: str | None = None
+    team_id: str | None = None
+    project: str | None = None
+
+
+class DecisionResolution(_Body):
+    actor: str
+    outcome: str | None = None
+    valid_from: str | None = None
+    valid_until: str | None = None
+
+
+class DecisionSupersede(_Body):
+    actor: str
+    replacement_id: str | None = None
+    title: str | None = None
+    body: str | None = None
+    outcome: str | None = None
+    valid_until: str | None = None
+
+
 class ActivityClose(_Body):
     summary: str
     actor: str
@@ -863,6 +892,32 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def delete_memory(entry_id: str, actor: str = Query(...)):
         """Only a ``user:`` actor may delete an entry."""
         return services.memory.delete(entry_id, actor=actor)
+
+    # --- decision register (S13.B2) -----------------------------------------------
+
+    @app.post("/api/v1/decisions", status_code=201)
+    def propose_decision(body: DecisionPropose):
+        return services.decisions.propose(**body.model_dump())
+
+    @app.get("/api/v1/decisions")
+    def list_decisions(active: bool = False, project: str | None = None, run_id: str | None = None):
+        return services.decisions.list(active=active, project=project, run_id=run_id)
+
+    @app.get("/api/v1/decisions/{decision_id}")
+    def get_decision(decision_id: str):
+        return services.decisions.get(decision_id)
+
+    @app.post("/api/v1/decisions/{decision_id}/accept")
+    def accept_decision(decision_id: str, body: DecisionResolution):
+        return services.decisions.accept(decision_id, **body.model_dump())
+
+    @app.post("/api/v1/decisions/{decision_id}/reject")
+    def reject_decision(decision_id: str, body: DecisionResolution):
+        return services.decisions.reject(decision_id, actor=body.actor, outcome=body.outcome)
+
+    @app.post("/api/v1/decisions/{decision_id}/supersede")
+    def supersede_decision(decision_id: str, body: DecisionSupersede):
+        return services.decisions.supersede(decision_id, **body.model_dump())
 
     @app.post("/api/v1/tasks/{task_id}/sessions")
     def link_task_session(task_id: str, body: TaskSessionLink):

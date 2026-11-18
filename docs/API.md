@@ -28,6 +28,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.envelopes` | `set_task_context`, `get_envelope`, `put_blob`, `get_artifact`, `submit_result`, `get_result`, `list_results`, `get_cursor`, `read_events`, `ack_events` |
 | `services.executors` | `run_task`, `resume_task`, `open_target`, `status` (and `record_app_open`, `session_guard`): run an ORQ task in Codex, Claude or Copilot, continue or open its session |
 | `services.memory` | `create`, `list`, `get`, `delete`: facts, decisions and conventions of a project, each with its author as provenance and a computed trust level. Entries live in the system database; a bundle run reads the memory of the project with the same name there. A workflow or step receives them, quoted as data, only when it sets `project_memory`. |
+| `services.decisions` | `propose`, `get`, `list`, `accept`, `reject`, `supersede`: durable proposals with a human decision, effective expiry and active filtering. Successful run reviews create records automatically. |
 
 For example, create a built-in social-post run:
 
@@ -109,6 +110,12 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `GET` | `/api/v1/projects/{project}/memory` | List a project's memory entries, oldest first; optional `kind`. |
 | `GET` | `/api/v1/memory/{entry_id}` | Get one memory entry. |
 | `DELETE` | `/api/v1/memory/{entry_id}` | Delete an entry; `?actor=` must be a `user:` actor (`409` otherwise). |
+| `POST` | `/api/v1/decisions` | Propose `{title, body, actor, valid_until?, run_id?, step_id?, attempt?, task_id?, team_id?, project?}`. Returns `201`. |
+| `GET` | `/api/v1/decisions` | List decisions; optional `active=true`, `project` and `run_id`. Expired decisions have effective status `expired`; only accepted decisions inside their validity period are active. |
+| `GET` | `/api/v1/decisions/{id}` | Get one proposal or decision. |
+| `POST` | `/api/v1/decisions/{id}/accept` | Accept a proposal with `{actor, outcome?, valid_from?, valid_until?}`. `actor` must be a `user:` actor. |
+| `POST` | `/api/v1/decisions/{id}/reject` | Reject a proposal with `{actor, outcome?}`. `actor` must be a `user:` actor. |
+| `POST` | `/api/v1/decisions/{id}/supersede` | Replace an accepted decision with `{actor, replacement_id?}` or `{actor, title, body}`; optional `outcome` and `valid_until`. The replacement becomes accepted and the old decision links to it. |
 | `GET` | `/api/v1/task-groups` | List task groups with task counts per status. |
 | `POST` | `/api/v1/task-groups` | Create a task group with `{"id", "title", "actor", "authorized"?, "default_requires"?}`. Returns `201 Created`. |
 | `GET` | `/api/v1/task-groups/{group_id}` | Get a task group with task counts per status. |

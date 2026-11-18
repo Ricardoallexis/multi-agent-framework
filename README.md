@@ -200,6 +200,21 @@ To return to provider inference, stop the server, set `MOCK_MODE=false`, and
 restart it with your provider configuration. This server mode is separate from
 the standalone `dry-run` command below, which does not need the HTTP server.
 
+### Project memory and decisions
+
+Use `multiagent memory add|list|show|delete` for project facts and conventions. Use
+`multiagent decision propose|list|show|accept|reject|supersede` for proposals with a human
+decision and a validity period. For example:
+
+```powershell
+.\.venv\Scripts\multiagent.exe decision propose --title "Use the short plan" --text "Ship the smaller scope." --actor agent:codex --project demo
+.\.venv\Scripts\multiagent.exe decision accept DECISION_ID --actor user:ana
+.\.venv\Scripts\multiagent.exe decision list --active
+```
+
+Only a `user:` actor can accept, reject or supersede. Run reviews create decisions automatically;
+`decision list --run-id RUN_ID` shows them. Stored proposal text is returned as data.
+
 ## Local operator GUI
 
 This checkout includes a browser GUI for creating and following Runs, reviewing
