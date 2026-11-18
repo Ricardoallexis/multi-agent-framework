@@ -68,6 +68,47 @@ def cmd_eval_run(args) -> None:
         print(f"\nFingerprint: `{json.dumps(report['meta']['fingerprint'], ensure_ascii=False, sort_keys=True)}`")
 
 
+def _eval_store_call(call) -> dict:
+    """Run a saved-evaluation query on the system database of this process; failures exit with code 1."""
+    from .services import ApplicationServices, ServiceError
+
+    services = ApplicationServices.create(get_settings())
+    try:
+        try:
+            return call(services.evaluation)
+        except ServiceError as exc:
+            print(json.dumps(exc.to_payload(), ensure_ascii=False), file=sys.stderr)
+            raise SystemExit(1) from exc
+    finally:
+        services.runs.close()
+
+
+def cmd_eval_runs(args) -> None:
+    pretty(_eval_store_call(lambda service: service.list_runs(set_name=args.set)))
+
+
+def cmd_eval_show(args) -> None:
+    pretty(_eval_store_call(lambda service: service.get_run(args.id)))
+
+
+def cmd_eval_baseline_set(args) -> None:
+    def call(service):
+        set_name = args.set or service.get_run(args.id)["set_name"]
+        return service.set_baseline(set_name, args.id, args.actor)
+    pretty(_eval_store_call(call))
+
+
+def cmd_eval_baseline_show(args) -> None:
+    pretty(_eval_store_call(lambda service: service.get_baseline(args.name)))
+
+
+def cmd_eval_compare(args) -> None:
+    """Print the comparison; exit 3 on a regression, 0 without one (1 on errors) so CI can tell them apart."""
+    result = _eval_store_call(lambda service: service.compare(args.candidate, args.base, args.threshold))
+    pretty(result)
+    raise SystemExit(3 if result["regression"] else 0)
+
+
 def api_client() -> httpx.Client:
     s = get_settings()
     return httpx.Client(base_url=s.api_base_url, timeout=30)
@@ -1171,6 +1212,18 @@ def build_parser() -> argparse.ArgumentParser:
     x = evaluation.add_parser("run"); x.add_argument("file")
     x.add_argument("--format", choices=("json", "markdown"), default="json")
     x.add_argument("--live", action="store_true"); x.set_defaults(func=cmd_eval_run)
+    x = evaluation.add_parser("runs", help="List saved evaluation runs")
+    x.add_argument("--set", metavar="NAME"); x.set_defaults(func=cmd_eval_runs)
+    x = evaluation.add_parser("show", help="Show one saved evaluation run"); x.add_argument("id"); x.set_defaults(func=cmd_eval_show)
+    baseline = evaluation.add_parser("baseline", help="Set or show the baseline of a set").add_subparsers(
+        dest="baseline_command", required=True)
+    x = baseline.add_parser("set"); x.add_argument("id")
+    x.add_argument("--set", metavar="NAME", help="Set name; defaults to the set of the run")
+    x.add_argument("--actor"); x.set_defaults(func=cmd_eval_baseline_set)
+    x = baseline.add_parser("show"); x.add_argument("name"); x.set_defaults(func=cmd_eval_baseline_show)
+    x = evaluation.add_parser("compare", help="Compare a run with its baseline; exit 3 on a regression")
+    x.add_argument("candidate"); x.add_argument("--base", metavar="ID")
+    x.add_argument("--threshold", type=float); x.set_defaults(func=cmd_eval_compare)
 
     x = sub.add_parser("init"); x.set_defaults(func=cmd_init)
     x = sub.add_parser("doctor"); x.add_argument("--deep", action="store_true"); x.set_defaults(func=cmd_doctor)

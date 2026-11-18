@@ -544,10 +544,33 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def run_evaluation(body: dict[str, Any]):
         payload = dict(body)
         live = payload.pop("live", False)
+        actor = payload.pop("actor", None)
         if not isinstance(live, bool):
             raise ServiceError(INVALID_REQUEST, "Invalid evaluation set", status=422,
                                details={"errors": [{"loc": ["live"], "msg": "Expected a boolean"}]})
-        return services.evaluation.run(payload, live=live)
+        return services.evaluation.run(payload, live=live, actor=actor)
+
+    # --- evaluation runs, baselines and comparison (EVA-T02) ----------------
+
+    @app.get("/api/v1/evaluations/runs")
+    def list_evaluation_runs(set_name: str | None = None, limit: int = 100):
+        return services.evaluation.list_runs(set_name=set_name, limit=limit)
+
+    @app.get("/api/v1/evaluations/runs/{run_id}")
+    def get_evaluation_run(run_id: str):
+        return services.evaluation.get_run(run_id)
+
+    @app.put("/api/v1/evaluations/baselines/{set_name}")
+    def set_evaluation_baseline(set_name: str, body: dict[str, Any]):
+        return services.evaluation.set_baseline(set_name, body.get("run_id"), body.get("actor"))
+
+    @app.get("/api/v1/evaluations/baselines/{set_name}")
+    def get_evaluation_baseline(set_name: str):
+        return services.evaluation.get_baseline(set_name)
+
+    @app.post("/api/v1/evaluations/compare")
+    def compare_evaluations(body: dict[str, Any]):
+        return services.evaluation.compare(body.get("candidate_id"), body.get("base_id"), body.get("threshold"))
 
     # --- runs -------------------------------------------------------------------
 

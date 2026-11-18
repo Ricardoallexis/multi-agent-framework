@@ -119,7 +119,12 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `POST` | `/api/v1/decisions/{id}/accept` | Accept a proposal with `{actor, outcome?, valid_from?, valid_until?}`. `actor` must be a `user:` actor. |
 | `POST` | `/api/v1/decisions/{id}/reject` | Reject a proposal with `{actor, outcome?}`. `actor` must be a `user:` actor. |
 | `POST` | `/api/v1/decisions/{id}/supersede` | Replace an accepted decision with `{actor, replacement_id?}` or `{actor, title, body}`; optional `outcome` and `valid_until`. The replacement becomes accepted and the old decision links to it. |
-| `POST` | `/api/v1/evaluations/run` | Run an evaluation set (the YAML document as JSON). Mock by default, on a temporary database; `"live": true` runs a workflow set on this server's worker and returns `409 eval_live_worker_unavailable` when it is not running. See [Evaluation sets](EVALUATION.md). |
+| `POST` | `/api/v1/evaluations/run` | Run an evaluation set (the YAML document as JSON). Mock by default, on a temporary database; `"live": true` runs a workflow set on this server's worker and returns `409 eval_live_worker_unavailable` when it is not running. Every report is saved in the system database (the cases of a Mock run still use a temporary one) and `meta.evaluation_run_id` names it; an optional `actor` is stored with it. See [Evaluation sets](EVALUATION.md). |
+| `GET` | `/api/v1/evaluations/runs` | List saved evaluation runs, newest first; optional `set_name` and `limit` (1 to 1000, default 100). |
+| `GET` | `/api/v1/evaluations/runs/{run_id}` | One saved evaluation run with its fingerprint and report. |
+| `PUT` | `/api/v1/evaluations/baselines/{set_name}` | Set the baseline of a set `{run_id, actor?}`; setting it again replaces it. A run of another set fails with `409 evaluation_set_mismatch`. |
+| `GET` | `/api/v1/evaluations/baselines/{set_name}` | The baseline of a set (`404 not_found` when there is none). |
+| `POST` | `/api/v1/evaluations/compare` | Compare `{candidate_id, base_id?, threshold?}` (the base defaults to the baseline): each case is `regressed`, `improved`, `changed` or `unchanged`, with the cases found in only one run apart and what changed in the fingerprint. A regression answers `200` with `regression: true`. |
 | `GET` | `/api/v1/task-groups` | List task groups with task counts per status. |
 | `POST` | `/api/v1/task-groups` | Create a task group with `{"id", "title", "actor", "authorized"?, "default_requires"?}`. Returns `201 Created`. |
 | `GET` | `/api/v1/task-groups/{group_id}` | Get a task group with task counts per status. |

@@ -282,7 +282,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S10.B1 | ◐ Partial: telemetry attaches through the backend interface; native emits run, step, provider call and tool call spans, while Mock emits run, step and zero-token chat spans. Token and duration metrics use GenAI attributes; telemetry is optional and off by default. | S10.A1, S4.A1 |
 | **S10.C — Evaluation** | | |
 | S10.C1 | ✅ Evaluation sets of workflow, agent or versioned-prompt cases with deterministic checks (`multiagent/evaluation/`, `services.evaluation`, `multiagent eval run`, `POST /api/v1/evaluations/run`, `docs/EVALUATION.md`). Mock runs on a temporary database; a live workflow set runs on the server's worker with a timeout. | — |
-| S10.C2 | Regression tracking when prompts, models, workflows, or providers change. | S10.C1 |
+| S10.C2 | ✅ Regression tracking when prompts, models, workflows, or providers change (saved evaluation runs, a baseline per set and `compare` in Python, HTTP and `multiagent eval compare`, which exits 3 on a regression; see `docs/EVALUATION.md`). | S10.C1 |
 | S10.C3 | ◐ Done: an offline tool compares paired runs of two routes; it is not a local-versus-cloud benchmark. | S10.C1, S11.B1 |
 | **S10.D — Diagnostics** | | |
 | S10.D1 | ◐ Done: an installation report covers agent applications and requirements, the doctor reports GPU and provider health, and executor versions are checked against pins. | — |

@@ -71,7 +71,10 @@ def test_python_cli_http_share_report(services, monkeypatch, capsys):
     with TestClient(create_app(services=services), base_url="http://localhost") as client:
         response = client.post("/api/v1/evaluations/run", json=eval_set.model_dump(mode="json"))
     assert response.status_code == 200
-    assert python == cli == response.json()
+    http = response.json()
+    ids = {report["meta"].pop("evaluation_run_id") for report in (python, cli, http)}
+    assert len(ids) == 3  # each execution is saved under its own id
+    assert python == cli == http
 
 
 def test_invalid_set_has_same_error_in_python_cli_http(services, monkeypatch, capsys, tmp_path):

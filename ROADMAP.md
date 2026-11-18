@@ -350,14 +350,14 @@ The core works with generic concepts (tool, capability, provider, channel, permi
 
 ## Observability, quality, and evaluation
 
-**Progress:** `████░░░░░░` 3/8 · 38% <!-- progress -->
+**Progress:** `█████░░░░░` 4/8 · 50% <!-- progress -->
 
 - [x] Record provider-reported token usage per run, agent, step, and attempt, including elapsed duration and failed attempts.
 - [ ] Add retry counts, routing-decision telemetry, and token estimates.
 - [ ] Emit OpenTelemetry traces and metrics (GenAI semantic conventions) alongside the framework's own domain events.
 - [x] Add structured evaluation datasets for agents, prompts, and workflows.
 - [ ] Compare local and cloud model performance on the same contracts and tasks.
-- [ ] Track regressions when prompts, models, workflows, or providers change.
+- [x] Track regressions when prompts, models, workflows, or providers change: every evaluation run is saved with its fingerprint, a set can have a baseline, and a comparison reports regressed, improved, changed and unchanged cases and what changed (prompt or agent, workflow, models, or the set itself); `multiagent eval compare` exits 3 on a regression so CI can stop on it (see [`docs/EVALUATION.md`](docs/EVALUATION.md)).
 - [ ] Add richer diagnostics for model availability, context limits, GPU resources, and dependency health.
 - [x] Provide exportable run reports for debugging and audit purposes.
 
