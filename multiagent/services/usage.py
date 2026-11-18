@@ -82,6 +82,9 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+# Telemetry for the GUI's interpretation call has no workflow run behind it.
+NEW_SESSION_USAGE_ID = "gui:new-session"
+
 APPS = ("claude", "codex", "copilot", "antigravity", "framework")
 GROUP_DIMENSIONS = ("app", "model", "level", "role", "day", "month")
 DEFAULT_GROUP_BY = ("app", "model", "level", "role")
@@ -327,7 +330,7 @@ class UsageServices:
         except Exception:
             _logger.warning("The reservation of a recorded call could not be ended; it expires by itself", exc_info=True)
         try:
-            self.notify_budgets(run_id=record.run_id)
+            self.notify_budgets(run_id=None if record.run_id == NEW_SESSION_USAGE_ID else record.run_id)
         except Exception:
             _logger.warning("Budget alerts could not be announced after a recorded call", exc_info=True)
 
@@ -395,8 +398,10 @@ class UsageServices:
             return
         store = self._services.tasks.store
         with store.transaction() as conn:
-            for cause, payload in reversed(self._outstanding(conn, run_id=run_id, expired=True)):
-                if payload.get("step_id") == step_id and payload.get("attempt") == attempt:
+            scope_id = None if run_id == NEW_SESSION_USAGE_ID else run_id
+            for cause, payload in reversed(self._outstanding(conn, run_id=scope_id, expired=True)):
+                if (payload.get("run_id") == scope_id and payload.get("step_id") == step_id
+                        and payload.get("attempt") == attempt):
                     store.append_event(conn, SETTLED_EVENT, actor=BUDGET_ACTOR, cause=cause, ref=f"run:{run_id}",
                                        payload={"run_id": run_id, "reason": "recorded"})
                     return
@@ -786,7 +791,8 @@ class UsageServices:
                 found.setdefault(key(record), []).append(record)
             return found
 
-        runs = grouped(lambda r: (r["bundle"], r["run_id"]))
+        runs = grouped(lambda r: (r["bundle"], r["run_id"]) if r["run_id"] != NEW_SESSION_USAGE_ID else None)
+        runs.pop(None, None)
         by_run = [self._cost_group(group, run_id=run_id, bundle=bundle, first_at=_iso(group[0]["at"]),
                                    last_at=_iso(group[-1]["at"]))
                   for (bundle, run_id), group in sorted(runs.items(), key=lambda item: item[1][0]["at"], reverse=True)]
@@ -908,6 +914,8 @@ class UsageServices:
                      "project_id": run["project_id"], "records": records}], False
         last: dict[tuple[str | None, str], datetime] = {}
         for record in in_month:   # oldest first, so the last write is the most recent activity
+            if record["run_id"] == NEW_SESSION_USAGE_ID:
+                continue
             last[(record["bundle"], record["run_id"])] = record["at"]
         newest = sorted(last, key=lambda key: last[key], reverse=True)[:MAX_RUN_LIMIT]
         grouped: dict[tuple[str | None, str], dict[str, Any]] = {

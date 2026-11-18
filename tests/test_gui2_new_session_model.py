@@ -21,6 +21,9 @@ from multiagent.contracts import NewSessionProposal
 from multiagent.errors import ProviderUnavailable
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
+from multiagent.observability.usage import read_usage
+from multiagent.observability.cost import CostEstimate
+from multiagent.services.usage import NEW_SESSION_USAGE_ID
 from test_gui2_new_session_chat import BUNDLE, needs_node, run_node, source
 
 
@@ -131,6 +134,109 @@ def test_a_model_error_falls_back(tmp_path):
         made.runs.close()
 
 
+def test_cloud_requires_confirmation_even_with_egress_off(tmp_path):
+    adapter = Scripted(answer={"workflow_id": ""})
+    made = make(tmp_path, adapter, gui_new_session_model="cloud_fast", egress_default="off")
+    try:
+        declined = made.new_session.interpret("social post")
+        assert declined == {"source": "keywords", "reason": "cloud_confirmation_required", "proposal": None,
+                            "model": "cloud_fast", "tier": "cloud"}
+        assert adapter.prompts == []
+        assert made.new_session.interpret("social post", confirm_cloud=True)["reason"] == "no_match"
+        assert len(adapter.prompts) == 1
+    finally:
+        made.runs.close()
+
+
+def test_local_model_does_not_ask_for_confirmation(tmp_path):
+    adapter = Scripted(answer={"workflow_id": ""})
+    made = make(tmp_path, adapter)
+    try:
+        assert made.new_session.interpret("social post")["reason"] == "no_match"
+        assert len(adapter.prompts) == 1
+    finally:
+        made.runs.close()
+
+
+def test_unknown_model_is_treated_as_cloud(tmp_path):
+    adapter = Scripted(answer={"workflow_id": ""})
+    made = make(tmp_path, adapter, gui_new_session_model="missing_model")
+    try:
+        answer = made.new_session.interpret("social post")
+        assert answer["reason"] == "cloud_confirmation_required" and answer["tier"] == "cloud"
+        assert answer["model"] == "missing_model" and adapter.prompts == []
+    finally:
+        made.runs.close()
+
+
+@pytest.mark.parametrize("error,success", [(None, True), (ProviderUnavailable("offline"), False)])
+def test_provider_attempts_record_new_session_usage(tmp_path, error, success):
+    adapter = Scripted(answer={"workflow_id": ""}, error=error)
+    made = make(tmp_path, adapter)
+    try:
+        made.new_session.interpret("social post")
+        rows = read_usage(made.system.engine.store, NEW_SESSION_USAGE_ID)
+        assert len(rows) == 1 and rows[0]["success"] is success
+        assert rows[0]["provider"] == "fake" and rows[0]["model"] == "fixture"
+        assert rows[0]["step_id"].startswith(NEW_SESSION_USAGE_ID + ":")
+        if success:
+            assert rows[0]["tokens_in"] is not None
+        else:
+            assert rows[0]["error_type"] == "ProviderUnavailable"
+        report = made.usage.costs()
+        assert report["totals"]["records"] == 1
+        assert report["by_run"] == [] and report["runs"] == 0
+    finally:
+        made.runs.close()
+
+
+@pytest.mark.parametrize("mode,called,reason", [("cut", False, "budget_cut"), ("warn", True, "no_match")])
+def test_new_session_budget_modes(tmp_path, monkeypatch, mode, called, reason):
+    adapter = Scripted(answer={"workflow_id": ""})
+    made = make(tmp_path, adapter, usage_budgets=[{"id": "gui", "scope": "month", "amount": 0.01, "mode": mode}])
+    seen = []
+    original = made.usage._budget_run
+    monkeypatch.setattr(made.usage, "_budget_run", lambda run_id: (seen.append(run_id), original(run_id))[1])
+    try:
+        assert made.new_session.interpret("social post")["reason"] == reason
+        assert bool(adapter.prompts) is called
+        assert seen and all(run_id is None for run_id in seen)
+    finally:
+        made.runs.close()
+
+
+def test_new_session_reservation_settles_when_usage_is_recorded(tmp_path, monkeypatch):
+    adapter = Scripted(answer={"workflow_id": ""})
+    made = make(tmp_path, adapter, usage_budgets=[{"id": "gui", "scope": "month", "amount": 0.001, "mode": "cut"}])
+    from multiagent.observability import cost as cost_module
+    from multiagent.services import new_session as new_session_module
+    made.system.catalog.models["fixture"] = made.system.catalog.model("local_default")
+    estimate = lambda *args, **kwargs: CostEstimate(
+        amount=0.001, currency="USD", basis={"output": {"amount": 0}, "input": {"amount": 0.001, "denominator": 1},
+                                                "tokens_in": 1, "tokens_out": 1})
+    monkeypatch.setattr(cost_module, "estimate_call_cost", estimate)
+    monkeypatch.setattr(new_session_module, "estimate_call_cost", estimate)
+    try:
+        assert made.new_session.interpret("social post")["reason"] == "no_match"
+        with made.tasks.store.db.connect() as conn:
+            events = [row["type"] for row in conn.execute(
+                "SELECT type FROM team_events WHERE type IN ('budget.reserved', 'budget.settled', 'budget.threshold') ORDER BY seq")]
+            assert made.usage._outstanding(conn, expired=True) == []
+        assert events[:2] == ["budget.reserved", "budget.settled"]
+        assert events[2:] and all(event == "budget.threshold" for event in events[2:])
+    finally:
+        made.runs.close()
+
+
+def test_endpoint_cloud_confirmation(env):
+    env.services.settings.gui_new_session_model = "cloud_fast"
+    url = "/gui/api/new-session/interpret"
+    answer = env.client.post(url, headers=env.auth, json={"text": "social post"})
+    assert answer.status_code == 200 and answer.json()["reason"] == "cloud_confirmation_required"
+    answer = env.client.post(url, headers=env.auth, json={"text": "social post", "confirm_cloud": True})
+    assert answer.status_code == 200 and answer.json()["reason"] != "cloud_confirmation_required"
+
+
 # --- what reaches the provider ---------------------------------------------------------------------------------------------
 
 def test_the_text_enters_the_prompt_as_untrusted_data(tmp_path):
@@ -151,14 +257,14 @@ def test_the_egress_policy_redacts_or_blocks(tmp_path):
     redacting = Scripted(answer={"workflow_id": ""})
     made = make(tmp_path, redacting, egress_default="redact", gui_new_session_model="cloud_fast")   # a local model is not outbound
     try:
-        made.new_session.interpret(secret)
+        made.new_session.interpret(secret, confirm_cloud=True)
         assert "ana@example.com" not in redacting.prompts[0] and "[REDACTED:email:1]" in redacting.prompts[0]
     finally:
         made.runs.close()
     blocking = Scripted(answer={"workflow_id": "social_post"})
     made = make(tmp_path / "b", blocking, egress_default="block", gui_new_session_model="cloud_fast")
     try:
-        assert made.new_session.interpret(secret) == {"source": "keywords", "reason": "refused", "proposal": None}
+        assert made.new_session.interpret(secret, confirm_cloud=True) == {"source": "keywords", "reason": "refused", "proposal": None}
         assert blocking.prompts == []                                           # nothing left the process
     finally:
         made.runs.close()
@@ -354,6 +460,7 @@ def test_the_screen_asks_the_server_and_never_launches_from_the_answer():
     text = source("new-session.js")
     assert '"/gui/api/new-session/interpret"' in text and "SOURCE_KEYWORDS" in text and "Propuesto por" in text
     assert '(!command || (command.name === "workflow" && command.rest))' in text
-    assert '{ text: command ? command.rest : trimmed }' in text
+    assert 'askModel(command ? command.rest : trimmed)' in text
+    assert "askModel(requestText, true)" in text and "No enviar" in text
     assert text.count('apiPost("/gui/api/runs"') == 1                          # the only launch is «Lanzar»
     assert "fetch(" not in source("new-session-model.js")

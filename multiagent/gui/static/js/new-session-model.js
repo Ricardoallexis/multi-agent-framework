@@ -213,6 +213,8 @@ const FALLBACK_REASONS = {
   no_workflows: "no hay workflows que ofrecerle al modelo",
   model_error: "el modelo no respondió",
   refused: "la política de salida del framework no dejó enviar el texto",
+  cloud_confirmation_required: "no se confirmó el envío a la nube",
+  budget_cut: "se alcanzó un tope de presupuesto",
   invalid_output: "el modelo devolvió una respuesta que no encaja con los workflows",
   no_match: "el modelo no encontró un workflow que encaje",
 };

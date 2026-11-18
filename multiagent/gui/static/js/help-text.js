@@ -969,7 +969,8 @@ export const HELP = {
     "hint": "Aquí empiezas un trabajo: escribes lo que necesitas o eliges una opción.",
     "more": [
       "El chat propone workflows, te pregunta las entradas una a una y al final muestra un resumen.",
-      "Las propuestas salen de comparar tu texto con los nombres y las descripciones de los workflows, sin usar ningún modelo.",
+      "Un modelo puede interpretar tu texto y proponer un workflow; si es de nube, el chat pide confirmación antes de enviarlo.",
+      "Si no lo envías, el chat compara las palabras con los nombres y descripciones de los workflows.",
       "La ejecución solo se crea cuando pulsas «Lanzar»."
     ]
   },
@@ -997,6 +998,15 @@ export const HELP = {
     "more": [
       "Hace lo mismo que pulsar Intro dentro de la caja.",
       "En una pregunta opcional, enviar la caja vacía equivale a omitirla."
+    ]
+  },
+  "chat.cloud_confirm": {
+    "title": "Enviar a la nube",
+    "hint": "Permite enviar este texto al modelo de nube indicado para proponer un workflow.",
+    "more": [
+      "El texto y el catálogo de workflows se envían al modelo que aparece en la pregunta.",
+      "Si eliges «No enviar», el chat compara las palabras sin llamar al modelo.",
+      "Cada llamada cuenta en el uso y respeta los topes de presupuesto."
     ]
   },
   "chat.skip": {

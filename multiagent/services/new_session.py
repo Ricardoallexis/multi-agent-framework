@@ -18,14 +18,19 @@ leaves. Nothing is started: the answer is a proposal that the operator confirms 
 from __future__ import annotations
 
 import json
+import hashlib
 import re
+import uuid
 from typing import Any
 
+from ..budget_cut import policy_from_settings
 from ..call_guards import SCOPE_RUN_STEP, CallContext, GuardEnvironment, Pause, Stop, build_call_guards
 from ..contracts import ModelTier, NewSessionProposal, TaskRequirements
 from ..document_trust import FIXED_CLAUSE, Provenance, wrap_untrusted
 from ..model_router import ModelBinding
+from ..observability import TokenUsageRecord, estimate_call_cost
 from .errors import INVALID_REQUEST, ServiceError, service_errors
+from .usage import NEW_SESSION_USAGE_ID
 
 SOURCE_MODEL = "model"
 SOURCE_KEYWORDS = "keywords"
@@ -95,34 +100,71 @@ class NewSessionServices:
 
     # --- the call, with the framework's guards ----------------------------------------------------------------
 
+    def _model_tier(self) -> ModelTier:
+        system = self._services.system
+        model_id = self._services.settings.gui_new_session_model
+        try:
+            return ModelTier(system.catalog.model(model_id).tier)
+        except KeyError:
+            return ModelTier.CLOUD
+
     def _ask(self, prompt: str) -> NewSessionProposal:
         settings = self._services.settings
         system = self._services.system
         router = system.engine.router
         model_id = settings.gui_new_session_model
-        try:
-            tier = ModelTier(system.catalog.model(model_id).tier)
-        except KeyError:        # an unknown model: Mock still answers (from its fixture), a real provider will not
-            tier = ModelTier.CLOUD
+        tier = self._model_tier()
+        step_id = f"{NEW_SESSION_USAGE_ID}:{uuid.uuid4().hex}"
+        outgoing = [prompt]
         chain = build_call_guards(GuardEnvironment(
-            scope=SCOPE_RUN_STEP, catalog=system.catalog, egress={"action": settings.egress_default}, emit=lambda *_: None))
+            scope=SCOPE_RUN_STEP, catalog=system.catalog, egress={"action": settings.egress_default},
+            budgets=policy_from_settings(settings, self._services.usage), emit=lambda *_: None))
 
         def before_call(call: CallContext) -> None:     # the router passes the outgoing text and takes back a redaction
-            verdict = chain.check(call.with_fields(step_kind="work", data_class="non_sensitive"),
+            def replace(value: str) -> None:
+                outgoing[0] = value
+                if call.replace_outgoing is not None:
+                    call.replace_outgoing(value)
+
+            verdict = chain.check(call.with_fields(step_id=step_id, step_kind="work", data_class="non_sensitive",
+                                                   replace_outgoing=replace),
                                  {"llm_calls": 0, "max_llm_calls": 1})     # one call, no run behind it
             if isinstance(verdict, (Stop, Pause)):
+                if isinstance(verdict, Pause) and verdict.guard == "budget":
+                    raise _BudgetCut(verdict.message)
                 raise _Refused(getattr(verdict, "message", None) or "the egress policy refused the prompt")
+
+        def record_attempt(event: dict[str, Any]) -> None:
+            if not event.get("provider_invoked"):
+                return
+            attempted = str(event.get("attempted_model") or event.get("model") or "")
+            try:
+                spec = system.catalog.models.get(attempted)
+                cost = estimate_call_cost(spec, tokens_in=event.get("tokens_in"), tokens_out=event.get("tokens_out")) if spec else None
+            except Exception:
+                cost = None
+            system.engine.usage_recorder.record(TokenUsageRecord(
+                run_id=NEW_SESSION_USAGE_ID, step_id=step_id, agent_id=NEW_SESSION_USAGE_ID, attempt=1,
+                provider=str(event.get("provider") or ""),
+                model=str(event.get("observed_model") or event.get("effective_model") or event.get("model") or ""),
+                model_digest=str(event.get("model_digest") or ""), prompt_id=NEW_SESSION_USAGE_ID,
+                prompt_version=1, prompt_sha256=hashlib.sha256(outgoing[0].encode("utf-8")).hexdigest(),
+                brand_version=None, tokens_in=event.get("tokens_in"), tokens_out=event.get("tokens_out"),
+                num_ctx=event.get("num_ctx"), duration_ms=event.get("duration_ms"),
+                estimated_cost_usd=cost.estimated_cost_usd if cost else None,
+                cost_basis=cost.basis if cost else None, success=event.get("status") == "success",
+                error_type=str(event.get("error_type") or "")))
 
         response, _ = router.execute(
             binding=ModelBinding(preferred_model=model_id, fallback_model=None),
             requirements=TaskRequirements(requires_web=False, output_schema=NewSessionProposal.__name__, tier=tier),
-            prompt=prompt, output_schema=NewSessionProposal, before_call=before_call)
+            prompt=prompt, output_schema=NewSessionProposal, before_call=before_call, on_attempt=record_attempt)
         return response.parsed
 
     # --- the public call -------------------------------------------------------------------------------------
 
     @service_errors
-    def interpret(self, text: str) -> dict[str, Any]:
+    def interpret(self, text: str, *, confirm_cloud: bool = False) -> dict[str, Any]:
         """Propose a workflow and inputs for ``text``.
 
         Returns ``{"source": "model" | "keywords", "reason": str, "proposal": {...} | None}``. ``proposal`` is
@@ -140,8 +182,14 @@ class NewSessionServices:
         catalog = self._catalog()
         if not catalog:
             return _fallback("no_workflows")
+        tier = self._model_tier()
+        if tier != ModelTier.LOCAL and not confirm_cloud:
+            return {**_fallback("cloud_confirmation_required"),
+                    "model": self._services.settings.gui_new_session_model, "tier": tier.value}
         try:
             proposed = self._ask(self.build_prompt(clean, catalog))
+        except _BudgetCut:
+            return _fallback("budget_cut")
         except _Refused:
             return _fallback("refused")
         except Exception as exc:  # noqa: BLE001 - no model, a provider error or a bad answer all end in the word matching
@@ -155,6 +203,10 @@ class NewSessionServices:
 
 class _Refused(Exception):
     """The egress policy did not let the prompt out."""
+
+
+class _BudgetCut(Exception):
+    """A configured cut budget held the call."""
 
 
 def _fallback(reason: str) -> dict[str, Any]:

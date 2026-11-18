@@ -141,7 +141,12 @@ with the declared workflows and their inputs, to the configured provider
 so the result is deterministic) and checks the answer against those workflows
 and inputs. A valid proposal shows one card marked "Propuesto por: un modelo",
 and choosing it prefills the inputs it filled; the summary still waits for
-**Lanzar**. The text enters the prompt as untrusted data, and the egress policy
+**Lanzar**. A cloud model asks for explicit confirmation before any text is sent
+to it, regardless of `EGRESS_DEFAULT`. Declining uses word matching without a
+model call. Each interpretation call records provider usage and estimated cost,
+including failed calls. Configured budget alerts apply to these calls; a cut
+limit prevents the call and leaves word matching available. The text enters the
+prompt as untrusted data, and the egress policy
 of the framework (`EGRESS_DEFAULT`) applies to the outgoing prompt. With no
 model, an error, a refused prompt, `GUI_NEW_SESSION_INTERPRET=false` or an
 answer that does not fit, the chat compares the words with the names and

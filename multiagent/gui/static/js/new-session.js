@@ -212,6 +212,7 @@ export function NewSession({ token, mock }) {
   const [catalog, setCatalog] = useState({ entries: [], loading: true, error: null });
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingCloud, setPendingCloud] = useState(null);
   const [runs, setRuns] = useState(null);
   const [mode, setMode] = useState("auto");
   const [sensitive, setSensitive] = useState(false);
@@ -299,12 +300,13 @@ export function NewSession({ token, mock }) {
   }, [conv.phase, conv.workflow, conv.answers, mode, sensitive, routingOverrides, token]);
 
   const settledCatalog = async () => (catalogRun.current ? catalogRun.current : { entries: catalog.entries, error: catalog.error });
+  const askModel = (text, confirm_cloud = false) => apiPost("/gui/api/new-session/interpret", token, { text, confirm_cloud });
 
   // What the user sent: a command, an answer or free text. The text stays in the box when the answer is not accepted.
   async function submit(text) {
     const trimmed = String(text).trim();
     const asking = store.current.phase === "ask";
-    if (busy || (!asking && !trimmed)) return;
+    if (busy || pendingCloud || (!asking && !trimmed)) return;
     const command = parseCommand(trimmed);
     let entries = catalog.entries;
     if (!asking && (!command || command.name === "workflow")) {
@@ -323,15 +325,37 @@ export function NewSession({ token, mock }) {
         !["confirm", "launched"].includes(store.current.phase) && entries.length > 0) {
       setBusy(true);
       try {
-        interpretation = await apiPost("/gui/api/new-session/interpret", token, { text: command ? command.rest : trimmed });
+        interpretation = await askModel(command ? command.rest : trimmed);
       } catch (_) {
         interpretation = { source: SOURCE_KEYWORDS, reason: "model_error", proposal: null };     // the words are compared instead
       } finally { setBusy(false); }
+      if (interpretation && interpretation.reason === "cloud_confirmation_required") {
+        setPendingCloud({ text: trimmed, requestText: command ? command.rest : trimmed, entries, interpretation });
+        return;
+      }
     }
     if (!alive.current) return;
     const before = store.current.messages.length;
     const next = dispatch({ type: "send", text: trimmed, catalog: entries, interpretation }, { keepDraft: true });
     if (next.messages.length !== before) setDraft(prefillOf(next));      // accepted; an answer that is not accepted stays in the box
+  }
+
+  async function answerCloud(send) {
+    if (!pendingCloud || busy) return;
+    const { text, requestText, entries, interpretation: declined } = pendingCloud;
+    setPendingCloud(null);
+    let interpretation = declined;
+    if (send) {
+      setBusy(true);
+      try {
+        interpretation = await askModel(requestText, true);
+      } catch (_) {
+        interpretation = { source: SOURCE_KEYWORDS, reason: "model_error", proposal: null };
+      } finally { setBusy(false); }
+    }
+    if (!alive.current) return;
+    const next = dispatch({ type: "send", text, catalog: entries, interpretation }, { keepDraft: true });
+    setDraft(prefillOf(next));
   }
 
   async function chooseStarter(starter) {
@@ -398,6 +422,7 @@ export function NewSession({ token, mock }) {
 
   function restart() {
     store.current = createConversation();
+    setPendingCloud(null);
     setRoutingOverrides({});
     setConv(store.current);
     setLaunchError(null);
@@ -443,6 +468,15 @@ export function NewSession({ token, mock }) {
       <button type="button" class="btn secondary" ...${helpFor("chat.retry")} onClick=${() => { startCatalog(); if (composer.current) composer.current.focus(); }}>Reintentar</button>
       <${Help} topic="chat.retry" compact=${true} /></div>`}
     <${Messages} messages=${conv.messages} />
+    ${pendingCloud && html`<div class="ns-msg ns-bot" role="group" aria-label="Confirmación de envío a la nube">
+      <p>¿Enviar este texto a ${pendingCloud.interpretation.model} (nube)?</p>
+      <div class="actions">
+        <button type="button" class="btn" disabled=${busy} ...${helpFor("chat.cloud_confirm")}
+          onClick=${() => answerCloud(true)}>Enviar</button>
+        <button type="button" class="btn secondary" disabled=${busy} onClick=${() => answerCloud(false)}>No enviar</button>
+        <${Help} topic="chat.cloud_confirm" compact=${true} />
+      </div>
+    </div>`}
     ${conv.phase === "choose" && suggestions.length > 0 && html`<${Cards} items=${suggestions} source=${conv.source} disabled=${busy}
       canShowAll=${!conv.showAll && catalog.entries.length > suggestions.length} onPick=${pick} onShowAll=${showAll} />`}
     ${conv.phase === "continue" && html`<${RunsList} runs=${runs} />`}
@@ -456,7 +490,7 @@ export function NewSession({ token, mock }) {
     <form class="ns-composer" onSubmit=${(event) => { event.preventDefault(); submit(draft); }} aria-busy=${busy ? "true" : "false"}>
       <div class="ns-composer-head"><label for="ns-composer-input">${label}</label><${Help} topic="chat.composer" compact=${true} /></div>
       <textarea id="ns-composer-input" ref=${composer} rows=${rows} value=${draft} placeholder=${placeholder}
-        disabled=${busy || conv.phase === "launched"} aria-invalid=${conv.error ? "true" : null}
+        disabled=${busy || pendingCloud || conv.phase === "launched"} aria-invalid=${conv.error ? "true" : null}
         ...${helpFor("chat.composer", { also: [describedBy, conv.error ? "ns-composer-error" : ""].filter(Boolean).join(" ") })}
         onInput=${typing} onKeyDown=${keyDown}></textarea>
       ${conv.error && html`<p id="ns-composer-error" class="field-error" role="alert">${conv.error}</p>`}
