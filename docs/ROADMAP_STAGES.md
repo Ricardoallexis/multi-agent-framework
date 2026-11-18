@@ -292,8 +292,9 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 **Delivered in part:** provider-call cost estimates are recorded with their price
 basis, with unknown values kept separate from zero. Routing and bounded
 escalation events provide decision evidence. Exportable reports, complete
-retry/token-estimate telemetry, OpenTelemetry, and evaluation datasets remain
-planned.
+retry/token-estimate telemetry, and evaluation datasets remain planned. The
+native engine now emits optional OpenTelemetry traces and metrics; a backend
+interface (S4.A1) remains planned.
 
 ## S11 · Model routing and local AI ◐
 

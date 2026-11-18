@@ -5,17 +5,24 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import yaml
 
+from cmp_harness import Provider
 from multiagent.adapters.fake import FakeAdapter
 from multiagent.bootstrap import build_system
 from multiagent.config import Settings
 from multiagent.contracts import RunStatus, SocialPostRequest
 from multiagent.errors import ProviderUnavailable
+from multiagent.observability import otel
 from multiagent.observability.otel import RunTelemetry, build_telemetry
 from multiagent.observability.usage import read_usage
+from multiagent.workflows import WorkflowCatalog
 
 trace = pytest.importorskip("opentelemetry.trace")
 
@@ -152,6 +159,23 @@ def test_prompts_and_responses_only_with_the_content_setting(tmp_path, fakes):
     assert json.loads(call.attributes["gen_ai.output.messages"])[0]["role"] == "assistant"
 
 
+def test_redacted_egress_is_the_only_prompt_exported(tmp_path, fakes):
+    tracer, _ = fakes
+    provider = Provider("ollama")
+    system = build_system(settings_for(tmp_path, telemetry_otel_enabled=True,
+                                       telemetry_otel_capture_content=True, egress_default="redact"),
+                          adapter_overrides={"ollama": provider})
+    system.catalog.models["local_default"] = replace(system.catalog.models["local_default"], tier="cloud")
+    run = system.run_service.create_social_post(SocialPostRequest(
+        project_name="otel", objective="Write a post", topic="ana@example.com"))
+    assert system.worker.process_once()
+    (call,) = tracer.named("chat")
+    exported = call.attributes["gen_ai.input.messages"]
+    assert "ana@example.com" not in provider.prompts[0]
+    assert "ana@example.com" not in exported
+    assert "[REDACTED:email:1]" in provider.prompts[0] and "[REDACTED:email:1]" in exported
+
+
 class Unavailable(FakeAdapter):
     provider = "ollama"
 
@@ -182,7 +206,6 @@ def test_tool_events_become_execute_tool_spans():
     telemetry = RunTelemetry(tracer, None, set_span_in_context=trace.set_span_in_context,
                            error_status=lambda text: trace.Status(trace.StatusCode.ERROR, text))
     telemetry.begin_run("r1", "wf")
-    telemetry.on_event("r1", "step_started", {"step_id": "s1", "attempt": 1}, 1)
     base = {"request_id": "q1", "tool_id": "mock.echo", "tool_version": 1, "step_id": "s1", "attempt": 1}
     telemetry.on_event("r1", "tool_call_requested", base, 2)
     telemetry.on_event("r1", "tool_call_completed", {**base, "duration_ms": 5}, 3)
@@ -190,10 +213,14 @@ def test_tool_events_become_execute_tool_spans():
     telemetry.on_event("r1", "tool_call_failed", {**base, "request_id": "q2", "code": "timeout"}, 5)
     telemetry.on_event("r1", "tool_call_requested", {**base, "request_id": "q3"}, 6)
     telemetry.on_event("r1", "tool_call_denied", {**base, "request_id": "q4", "code": "unknown_tool"}, 7)
+    telemetry.on_event("r1", "step_started", {"step_id": "s1", "attempt": 1}, 8)
+    telemetry.on_event("r1", "step_completed", {"step_id": "s1", "attempt": 1}, 9)
     telemetry.end_run("r1", "failed")
 
     first, second, dangling, denied = tracer.named("execute_tool")
     assert first.parent is tracer.named("invoke_agent")[0]
+    assert len(tracer.named("invoke_agent")) == 1
+    assert first.parent.attributes["multiagent.start_event_id"] == 8
     assert first.attributes["gen_ai.operation.name"] == "execute_tool"
     assert first.attributes["gen_ai.tool.name"] == "mock.echo"
     assert (first.attributes["multiagent.start_event_id"], first.attributes["multiagent.end_event_id"]) == (2, 3)
@@ -211,14 +238,101 @@ def test_tool_waiting_for_approval_is_not_an_error_span():
     telemetry = RunTelemetry(tracer, None, set_span_in_context=trace.set_span_in_context,
                              error_status=lambda text: trace.Status(trace.StatusCode.ERROR, text))
     telemetry.begin_run("r1", "wf")
-    telemetry.on_event("r1", "step_started", {"step_id": "s1", "attempt": 1}, 1)
     telemetry.on_event("r1", "tool_call_requested",
-                       {"request_id": "q1", "tool_id": "mock.write", "step_id": "s1", "attempt": 1}, 2)
+                       {"request_id": "q1", "tool_id": "mock.write", "step_id": "s1", "attempt": 1}, 1)
     telemetry.end_run("r1", "waiting_human")
     (tool,) = tracer.named("execute_tool")
     assert tool.ended and tool.status is None
     assert tool.attributes["multiagent.tool.outcome"] == "waiting_human"
     assert "error.type" not in tool.attributes
+    (step,) = tracer.named("invoke_agent")
+    assert tool.parent is step and step.ended and step.attributes["multiagent.step.outcome"] == "waiting_human"
+
+
+def test_real_workflow_tool_span_has_one_step_parent(tmp_path, fakes):
+    tracer, _ = fakes
+    settings = settings_for(tmp_path, telemetry_otel_enabled=True)
+    system = build_system(settings, dry_run=True)
+    folder = tmp_path / "workflows"
+    folder.mkdir()
+    document = yaml.safe_load((Path(settings.workflows_dir) / "social_post_full.yaml").read_text(encoding="utf-8"))
+    next(step for step in document["steps"] if step["id"] == "strategy")["tools"] = [
+        {"tool": "mock.echo", "arguments": {"text": "${topic}"}}]
+    (folder / "social_post_full.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    system.engine.workflows = WorkflowCatalog(settings, workflows_dir=folder)
+    run = system.run_service.create_social_post(SocialPostRequest(
+        project_name="otel", objective="Create a post", topic="KNX", pipeline_mode="full"))
+    assert system.engine.process_run(run["id"])
+    events = system.store.get_run(run["id"])["events"]
+    tool_event = next(e for e in events if e["event_type"] == "tool_call_requested")
+    step_event = next(e for e in events if e["event_type"] == "step_started" and e["payload"]["step_id"] == "strategy")
+    assert tool_event["id"] < step_event["id"]
+    (tool,) = tracer.named("execute_tool")
+    strategy = [span for span in tracer.named("invoke_agent") if span.attributes["multiagent.step_id"] == "strategy"]
+    assert len(strategy) == 1 and tool.parent is strategy[0]
+    assert strategy[0].attributes["multiagent.start_event_id"] == step_event["id"]
+
+
+def test_sdk_providers_reuse_host_or_one_private_pair(tmp_path, monkeypatch):
+    from opentelemetry import metrics
+
+    created = {"trace": 0, "meter": 0}
+
+    class SDKTraceProvider:
+        def __init__(self, **kwargs):
+            created["trace"] += 1
+            self.tracer = FakeTracer()
+
+        def add_span_processor(self, processor):
+            pass
+
+        def get_tracer(self, name):
+            return self.tracer
+
+    class SDKMeterProvider:
+        def __init__(self, **kwargs):
+            created["meter"] += 1
+            self.meter = FakeMeter()
+
+        def get_meter(self, name):
+            return self.meter
+
+    def module(name, **members):
+        result = types.ModuleType(name)
+        result.__dict__.update(members)
+        result.__path__ = []
+        monkeypatch.setitem(sys.modules, name, result)
+
+    module("opentelemetry.sdk")
+    module("opentelemetry.sdk.trace", TracerProvider=SDKTraceProvider)
+    module("opentelemetry.sdk.metrics", MeterProvider=SDKMeterProvider)
+    module("opentelemetry.sdk.resources", Resource=types.SimpleNamespace(create=lambda attrs: attrs))
+    module("opentelemetry.sdk.trace.export", BatchSpanProcessor=lambda exporter: exporter)
+    module("opentelemetry.sdk.metrics.export", PeriodicExportingMetricReader=lambda exporter: exporter)
+    module("opentelemetry.exporter")
+    module("opentelemetry.exporter.otlp")
+    module("opentelemetry.exporter.otlp.proto")
+    module("opentelemetry.exporter.otlp.proto.http")
+    module("opentelemetry.exporter.otlp.proto.http.trace_exporter", OTLPSpanExporter=lambda: object())
+    module("opentelemetry.exporter.otlp.proto.http.metric_exporter", OTLPMetricExporter=lambda: object())
+    monkeypatch.setattr(otel, "_private_providers", (None, None))
+    monkeypatch.setattr(trace, "get_tracer_provider", lambda: object())
+    monkeypatch.setattr(metrics, "get_meter_provider", lambda: object())
+    settings = settings_for(tmp_path, telemetry_otel_enabled=True)
+    assert build_telemetry(settings) is not None
+    assert build_telemetry(settings) is not None
+    assert created == {"trace": 1, "meter": 1}
+    private = otel._private_providers
+    assert otel._sdk_providers() == private
+
+    host = SDKTraceProvider(), SDKMeterProvider()
+    monkeypatch.setattr(trace, "get_tracer_provider", lambda: host[0])
+    monkeypatch.setattr(metrics, "get_meter_provider", lambda: host[1])
+    assert otel._sdk_providers() == host
+    telemetry = build_telemetry(settings)
+    assert telemetry is not None and telemetry._tracer is host[0].tracer
+    assert "gen_ai.client.token.usage" in host[1].meter.histograms
+    assert created == {"trace": 2, "meter": 2}
 
 
 def test_a_failing_tracer_never_touches_the_run(tmp_path, monkeypatch):

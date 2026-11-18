@@ -213,14 +213,17 @@ OTEL_SERVICE_NAME=multi-agent-framework
 ```
 
 With the setting off, or without `opentelemetry-api` installed, the engine
-builds no telemetry object and imports no OpenTelemetry module. If a host
-application already configured a global tracer or meter provider and the SDK
-or the OTLP exporter is not installed, that provider is used.
+builds no telemetry object and imports no OpenTelemetry module. A tracer or
+meter provider of the SDK that the host application already set as global is
+used as it is. Otherwise, with the SDK and the OTLP exporter installed, one
+private pair of providers is built per process and shared by every engine (the
+system's and each bundle's); without them, the global providers are used (a
+no-op unless the host set one).
 
 | Span | Opened by | `gen_ai.operation.name` |
 | --- | --- | --- |
 | `invoke_workflow <workflow>` | each `process_run` pass of a run | `invoke_workflow` |
-| `invoke_agent <step>` | `step_started`, closed by `step_completed` | `invoke_agent` |
+| `invoke_agent <step>` | the step's first tool event or `step_started`, closed by `step_completed` | `invoke_agent` |
 | `chat <model>` | each provider call, from its usage record | `chat` |
 | `execute_tool <tool>` | `tool_call_requested`, closed by its outcome event; an early denial or failure has only its outcome event | `execute_tool` |
 
@@ -243,7 +246,8 @@ and `gen_ai.client.operation.duration` (seconds).
 
 Prompts and responses are never attached to spans. `TELEMETRY_OTEL_CAPTURE_CONTENT=true`
 adds `gen_ai.input.messages` and `gen_ai.output.messages` to the `chat` span of a
-successful call, truncated to 32,000 characters each; it is off by default and
+successful call, truncated to 32,000 characters each. The prompt is the one sent
+to the provider, after the egress policy redacted it. It is off by default and
 should stay off for sensitive runs. The GenAI conventions are still evolving, so
 attribute names may follow later versions.
 

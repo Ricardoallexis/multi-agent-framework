@@ -655,14 +655,27 @@ class WorkflowEngine:
                         self.store.update_run(run_id, current_step=index)
                         continue
 
+                last_outgoing_prompt = final_prompt
+
                 def consume_llm_call(call: CallContext, *, skip: tuple[str, ...] = ()) -> None:
                     """``before_call`` of the router for this step. ``skip`` names guards to leave out (the
                     summarizer's own calls pass ``("context",)``, so they are not measured for compaction but
                     still count in the limits and budgets)."""
+                    nonlocal last_outgoing_prompt
+                    last_outgoing_prompt = call.outgoing_text if call.outgoing_text is not None else final_prompt
+                    original_replace = call.replace_outgoing
+
+                    def remember_outgoing(value: str) -> None:
+                        nonlocal last_outgoing_prompt
+                        if original_replace is not None:
+                            original_replace(value)
+                        last_outgoing_prompt = value
+
                     call = call.with_fields(
                         scope=SCOPE_RUN_STEP, run_id=run_id, step_id=step.id, step_kind=step.kind, attempt=attempt,
                         profile_id=profile_id,
                         data_class="sensitive" if request.get("sensitive") else "non_sensitive",
+                        replace_outgoing=remember_outgoing if original_replace is not None else None,
                     )
                     verdict = call_guards.check(call, self.store.get_run(run_id), skip=skip)
                     self._enforce_call_verdict(verdict, call=call, run_id=run_id, index=index, step=step,
@@ -779,7 +792,7 @@ class WorkflowEngine:
                 self.store.increment_successful_llm_calls(run_id)
                 data = response.parsed.model_dump(mode="json")
                 if self.telemetry is not None:
-                    self.telemetry.hold_content(run_id, step.id, attempt, final_prompt, response.raw_text)
+                    self.telemetry.hold_content(run_id, step.id, attempt, last_outgoing_prompt, response.raw_text)
                 self._persist_completed_step(
                     run_id=run_id,
                     index=index,

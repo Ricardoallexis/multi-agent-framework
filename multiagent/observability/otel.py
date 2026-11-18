@@ -7,7 +7,7 @@ off, or without the optional ``otel`` extra, the engine builds no telemetry obje
 imported. Spans follow the domain events and usage records that already exist, they do not replace them:
 
 * ``invoke_workflow`` span for each ``process_run`` pass of a run (a run that pauses and resumes has one per pass);
-* ``invoke_agent`` span for each workflow step attempt, opened by ``step_started``, closed by ``step_completed``;
+* ``invoke_agent`` span for each workflow step attempt, opened by its first tool event or ``step_started``, closed by ``step_completed``;
 * ``chat`` span for each provider call, built from its ``TokenUsageRecord`` (the same numbers the local store keeps);
 * ``execute_tool`` span for each ``tool_call_*`` sequence of ``ToolInvoker``.
 
@@ -40,6 +40,8 @@ OP_TOOL = "execute_tool"
 _TOOL_START = "tool_call_requested"
 _TOOL_END = {"tool_call_completed": None, "tool_call_failed": "failed", "tool_call_denied": "denied"}
 _MAX_CONTENT_CHARS = 32_000
+_provider_lock = threading.Lock()
+_private_providers: tuple[Any, Any] = (None, None)
 
 
 class RunTelemetry:
@@ -136,15 +138,43 @@ class RunTelemetry:
                 self._tool_ended(run_id, state, event_type, payload, event_id)
 
     def _step_started(self, run_id: str, state: dict[str, Any], payload: Mapping[str, Any], event_id: int | None) -> None:
-        if state["step"] is not None:
-            self._end(state["step"]["span"], attributes={"multiagent.step.outcome": "superseded"})
         step_id = str(payload.get("step_id", ""))
+        attempt = payload.get("attempt")
+        step = state["step"]
+        if step is not None and step["step_id"] == step_id and step["attempt"] == attempt and not step["started"]:
+            step["started"] = True
+            for key, value in {
+                "multiagent.execution_mode": payload.get("execution_mode"),
+                "multiagent.prompt_id": payload.get("prompt_id"),
+                "multiagent.start_event_id": event_id,
+            }.items():
+                if value is not None:
+                    step["span"].set_attribute(key, value)
+            return
+        if step is not None:
+            self._end(step["span"], attributes={"multiagent.step.outcome": "superseded"})
+        self._open_step(run_id, state, step_id, attempt, event_id, payload, started=True)
+
+    def _open_step(self, run_id: str, state: dict[str, Any], step_id: str, attempt: Any,
+                   event_id: int | None, payload: Mapping[str, Any], *, started: bool) -> None:
         span = self._start(f"{OP_AGENT} {step_id}", state["span"], {
             "gen_ai.operation.name": OP_AGENT, "gen_ai.agent.id": step_id, "multiagent.run_id": run_id,
-            "multiagent.step_id": step_id, "multiagent.attempt": payload.get("attempt"),
+            "multiagent.step_id": step_id, "multiagent.attempt": attempt,
             "multiagent.execution_mode": payload.get("execution_mode"),
             "multiagent.prompt_id": payload.get("prompt_id"), "multiagent.start_event_id": event_id})
-        state["step"] = {"span": span, "step_id": step_id}
+        state["step"] = {"span": span, "step_id": step_id, "attempt": attempt, "started": started}
+
+    def _tool_parent(self, run_id: str, state: dict[str, Any], payload: Mapping[str, Any],
+                     event_id: int | None) -> Any:
+        step_id, attempt = payload.get("step_id"), payload.get("attempt")
+        if step_id is not None and attempt is not None:
+            step = state["step"]
+            if step is None or step["step_id"] != str(step_id) or step["attempt"] != attempt:
+                if step is not None:
+                    self._end(step["span"], attributes={"multiagent.step.outcome": "superseded"})
+                self._open_step(run_id, state, str(step_id), attempt, event_id, payload, started=False)
+            return state["step"]["span"]
+        return state["step"]["span"] if state["step"] is not None else state["span"]
 
     def _step_closed(self, state: dict[str, Any], payload: Mapping[str, Any], event_id: int | None) -> None:
         step = state["step"]
@@ -158,7 +188,7 @@ class RunTelemetry:
         if not request_id or request_id in state["tools"]:
             return
         tool_id = str(payload.get("tool_id", ""))
-        parent = state["step"]["span"] if state["step"] is not None else state["span"]
+        parent = self._tool_parent(run_id, state, payload, event_id)
         state["tools"][request_id] = self._start(f"{OP_TOOL} {tool_id}", parent, {
             "gen_ai.operation.name": OP_TOOL, "gen_ai.tool.name": tool_id, "gen_ai.tool.type": "function",
             "gen_ai.tool.call.id": request_id, "multiagent.run_id": run_id,
@@ -175,7 +205,7 @@ class RunTelemetry:
             if not request_id:
                 return
             tool_id = str(payload.get("tool_id", ""))
-            parent = state["step"]["span"] if state["step"] is not None else state["span"]
+            parent = self._tool_parent(run_id, state, payload, event_id)
             span = self._start(f"{OP_TOOL} {tool_id}", parent, {
                 "gen_ai.operation.name": OP_TOOL, "gen_ai.tool.name": tool_id, "gen_ai.tool.type": "function",
                 "gen_ai.tool.call.id": request_id, "multiagent.run_id": run_id,
@@ -273,24 +303,37 @@ def build_telemetry(settings: Any, *, tracer: Any = None, meter: Any = None) -> 
 
 
 def _sdk_providers() -> tuple[Any, Any]:
-    """Private SDK providers with OTLP exporters (configured by the standard ``OTEL_*`` variables), or ``(None, None)``.
-
-    ``(None, None)`` when the SDK or the OTLP exporter is missing: the global providers of the host are then used
-    (a no-op without one). The global providers are never replaced here.
-    """
+    """Use host SDK providers, or share private OTLP providers across engine instances."""
     try:
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry import metrics, trace
         from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-        from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
     except ImportError:
         return None, None
-    resource = Resource.create({"service.name": os.environ.get("OTEL_SERVICE_NAME") or DEFAULT_SERVICE_NAME})
-    provider = TracerProvider(resource=resource)
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-    meter_provider = MeterProvider(resource=resource,
-                                   metric_readers=[PeriodicExportingMetricReader(OTLPMetricExporter())])
-    return provider, meter_provider
+    global _private_providers
+    with _provider_lock:
+        host_trace = trace.get_tracer_provider()
+        host_meter = metrics.get_meter_provider()
+        provider = host_trace if isinstance(host_trace, TracerProvider) else _private_providers[0]
+        meter_provider = host_meter if isinstance(host_meter, MeterProvider) else _private_providers[1]
+        if provider is None or meter_provider is None:
+            try:
+                from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+                from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+                from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+                from opentelemetry.sdk.resources import Resource
+                from opentelemetry.sdk.trace.export import BatchSpanProcessor
+            except ImportError:
+                return provider, meter_provider
+            resource = Resource.create({"service.name": os.environ.get("OTEL_SERVICE_NAME") or DEFAULT_SERVICE_NAME})
+            private_trace, private_meter = _private_providers
+            if provider is None:
+                private_trace = TracerProvider(resource=resource)
+                private_trace.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+                provider = private_trace
+            if meter_provider is None:
+                private_meter = MeterProvider(resource=resource,
+                                              metric_readers=[PeriodicExportingMetricReader(OTLPMetricExporter())])
+                meter_provider = private_meter
+            _private_providers = private_trace, private_meter
+        return provider, meter_provider
