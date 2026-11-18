@@ -4,7 +4,7 @@ An execution backend is whatever turns a queued run into executed steps. The run
 
 Function steps call no provider and execute identically in every backend.
 
-Status (roadmap [S4](ROADMAP_STAGES.md#s4--execution-backend-abstraction-)): the interface, its contract and the registry (S4.A1), the native engine behind the interface (S4.A2), the mock backend (S4.A3) and the conformance suite (S4.B1), which runs against both in CI (S4.B2), are done. An optional Microsoft Agent Framework backend (S4.C) and several workers (S4.D) are planned.
+Status (roadmap [S4](ROADMAP_STAGES.md#s4--execution-backend-abstraction-)): the interface, its contract and the registry (S4.A1), the native engine behind the interface (S4.A2), the mock backend (S4.A3), the conformance suite (S4.B1), which runs against both in CI (S4.B2), and several workers with controlled concurrency (S4.D1) are done. An optional Microsoft Agent Framework backend (S4.C) and a resource-aware scheduler (S4.D2) are planned.
 
 ## The contract
 
@@ -54,3 +54,21 @@ When enabled, OpenTelemetry attaches at backend construction and observes its st
 | `mock` | Deterministic runs without providers, routing or tools, for tests and demos. Model steps take `sample_outputs` or a minimal valid example of the step's output schema, and each one records zero tokens. | `usage`, `budgets`, `cancellation`, `human_steps`, `review`, `recovery`, `external_output`. |
 
 Runs of a registered bundle do not go through the setting: each bundle builds its native engine with `WorkflowEngine.from_bundle`.
+
+## Several workers
+
+Several local worker processes can share one SQLite database. Each claims a queued run atomically in a transaction and holds the claim with a lease (`worker_id` and `heartbeat_at`), renewed while the run executes. The claim transaction also checks the active-run limits, so the total and per-project limits apply across workers sharing that database. With leases being renewed, a run is not claimed by two workers at once.
+
+The worker renews its active leases before recovering expired leases and claiming more work. A running run is recovered only after its lease expires: it emits `run_interrupted` and is requeued with `run_recovered`, unless cancellation was requested, in which case it becomes `cancelled`. A queued run with a stale claim and no heartbeat loses that claim. When stopping, a worker waits up to `WORKER_SHUTDOWN_WAIT_SECONDS` for its runs; if they do not finish, it leaves their leases for another worker to recover after expiry.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `WORKER_CONCURRENCY` | `1` | Maximum runs executed at once by one worker process. |
+| `WORKER_MAX_ACTIVE_TOTAL` | unset (unlimited) | Maximum active runs across worker processes sharing the database. |
+| `WORKER_MAX_ACTIVE_PER_PROJECT` | unset (unlimited) | Maximum active runs per project across worker processes sharing the database. |
+| `WORKER_LEASE_SECONDS` | `30` | Lease duration before an unrenewed claim can be recovered. |
+| `WORKER_SHUTDOWN_WAIT_SECONDS` | `30` | How long a stopping worker waits for its active runs. |
+
+`multiagent worker [--concurrency N]` runs a worker against the configured database. The option overrides `WORKER_CONCURRENCY` for that process; `N` must be from 1 to 256.
+
+This coordination does not cover workers using different databases, external queues, or resource-aware scheduling (S4.D2).

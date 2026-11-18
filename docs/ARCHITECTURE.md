@@ -48,6 +48,10 @@ The pure dependency graph of tasks: cycle detection, `blocked` and `ready` statu
 
 The seam between the run service and whatever executes a run: the `ExecutionBackend` interface, its contract (events and usage only through the `Store`, declared capabilities) and a registry by name. `build_system` builds the backend named by `EXECUTION_BACKEND`: `native` (the default, the workflow engine below) or `mock`, which keeps the same durable state but calls no provider. Optional OpenTelemetry attaches when a backend is built. One conformance suite runs against both. Runs of a registered bundle build the native engine directly (`WorkflowEngine.from_bundle`). See [`BACKENDS.md`](BACKENDS.md).
 
+### `multiagent/worker.py`
+
+The local worker has one dispatcher and up to `WORKER_CONCURRENCY` run threads. Worker processes that use the same SQLite database coordinate through atomic claims and renewable leases; total and per-project active-run limits are checked in the claim transaction. The dispatcher renews active leases before recovering expired ones, so it does not requeue its own live runs. When a worker stops, it waits up to `WORKER_SHUTDOWN_WAIT_SECONDS` for active runs and leaves unfinished leases for recovery after they expire. This does not coordinate workers on different databases or external queues. See [Several workers](BACKENDS.md#several-workers) for settings and recovery behavior.
+
 ### `multiagent/workflow_engine.py`
 
 The native backend. Executes workflow steps, builds context, applies routing, validates contracts, persists artifacts, and pauses execution at human checkpoints.
