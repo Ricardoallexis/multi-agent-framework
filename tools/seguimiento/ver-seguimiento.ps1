@@ -11,12 +11,15 @@
 #   ver-seguimiento.ps1              regenerate, open the window, watch until it is closed
 #   ver-seguimiento.ps1 -NoAbrir     regenerate only
 #   ver-seguimiento.ps1 -NoAbrir -Vigilar   regenerate on changes without a window (until stopped)
+# While a card is en curso the page is also regenerated once a minute (workers report progress outside the cards), and a
+# watcher whose script is updated hands its window to a new watcher running the new version (-Reanudar).
 
 param(
     [Parameter(Mandatory)][string]$ChannelPath,
     [Parameter(Mandatory)][string]$RepoPath,
     [switch]$NoAbrir,
     [switch]$Vigilar,
+    [switch]$Reanudar,   # internal: watch the window that is already open, without opening another (after an update)
     [switch]$LeerApi,
     [string]$ApiBaseUrl = 'http://127.0.0.1:8000',
     [ValidateRange(1, 120)][int]$ApiTimeoutSeconds = 5,
@@ -2033,6 +2036,7 @@ function Build-Page {
 Reset-WorkerCaches   # SEG-T15: transcripts, models and execution lines are read again on every generation
 $script:EsperaEntries = $null   # FLU-T06: LOG.md (decisión / respuesta entries) is read again too
 $script:SinActividadWatch = $false
+$script:EnCursoWatch = $false
 $waitBoard = Get-WaitBoard   # SEG-T19: the watchers (esperas de activación) are read again too
 $agentBoard = Get-AgentBoardData
 $apiBoardHtml = if ($LeerApi) { Get-ApiBoardHtml } else { '' }
@@ -2284,6 +2288,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 $stateCell = if ($record.WaitingFor.Count) { $stateCell + (Get-WaitCellHtml $taskWaits) }
                     else { (Get-WaitCellHtml $taskWaits) + "<div class=""meta"">Estado en la ficha: $(Encode $record.State)</div>" }
             }
+            if ($record.State -eq 'en curso') { $script:EnCursoWatch = $true }   # see Get-Stamp
             # FLU-T06: the card's own «Espera» row (a badge; the Estado does not change) or, for a card en curso without one, «sin actividad».
             if ($null -ne $record.Espera -and $record.State -notin 'terminada', 'integrada') {
                 $resolution = Find-EsperaResolution $record.Espera $record.Id
@@ -3271,6 +3276,9 @@ function Get-Stamp {
     if ($liveWaitFiles.Count) { $stamp += "-esperas:$([long][Math]::Floor([datetime]::UtcNow.Ticks / [timespan]::TicksPerMinute))" }
     # FLU-T06: «sin actividad» depends on the clock, not on a file: while a card en curso has no Espera, regenerate every 15 minutes.
     if ($script:SinActividadWatch) { $stamp += "-ahora:$([long][Math]::Floor([datetime]::UtcNow.Ticks / (15 * [timespan]::TicksPerMinute)))" }
+    # Workers write their progress to their own transcripts and run outputs (not to the cards), and plan usage moves with the clock:
+    # while a card is en curso the page is regenerated once a minute.
+    if ($script:EnCursoWatch) { $stamp += "-en-curso:$([long][Math]::Floor([datetime]::UtcNow.Ticks / [timespan]::TicksPerMinute))" }
     $stamp
 }
 
@@ -3446,7 +3454,7 @@ Build-Page
 Write-Host "Visualizador generado: $output"
 
 $edge = if (-not $NoAbrir) { Get-EdgePath }
-if (-not $NoAbrir) {
+if (-not $NoAbrir -and -not $Reanudar) {
     if ($edge) {
         Start-Process $edge -ArgumentList "--user-data-dir=`"$profileDir`"", '--no-first-run', "--app=$(([uri]$output).AbsoluteUri)"
     } else {
@@ -3464,10 +3472,16 @@ if (-not $mutex.WaitOne(0)) {
     if ($flowListener) { $flowListener.Stop(); $flowListener = $null }
     return
 }   # a watcher is already running for an open window
-if ($untilClosed) { Start-Sleep -Seconds 5 }   # let the window start
+if ($untilClosed -and -not $Reanudar) { Start-Sleep -Seconds 5 }   # let the window start
 $last = Get-Stamp
+$selfPath = $PSCommandPath
+$selfStamp = (Get-Item -LiteralPath $selfPath).LastWriteTimeUtc
+$restart = $false
+$tick = 0
 try {
     while (-not $untilClosed -or (Test-ViewerOpen)) {
+        # An updated tracker (a new version of this script) takes over: checked every 5 s.
+        if ((++$tick % 20) -eq 0 -and (Get-Item -LiteralPath $selfPath -ErrorAction SilentlyContinue).LastWriteTimeUtc -ne $selfStamp) { $restart = $true; break }
         Invoke-FlowListenerRequest
         $stamp = Get-Stamp
         if ($stamp -ne $last) {
@@ -3479,4 +3493,12 @@ try {
     if ($flowListener) { $flowListener.Stop(); $flowListener = $null }
     $mutex.ReleaseMutex()
     $mutex.Dispose()
+}
+if ($restart) {
+    # Hand the open window (or the windowless watch) to a fresh watcher that runs the new version of this script.
+    Start-Sleep -Seconds 2   # let the update finish writing
+    $again = @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$selfPath`"",
+        '-ChannelPath', "`"$ChannelPath`"", '-RepoPath', "`"$RepoPath`"")
+    $again += if ($untilClosed) { @('-Reanudar') } else { @('-NoAbrir', '-Vigilar') }
+    Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $again -WindowStyle Hidden
 }
