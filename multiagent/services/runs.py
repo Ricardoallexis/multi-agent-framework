@@ -139,6 +139,7 @@ class RunServices:
                 bundle, store=store, artifacts=ArtifactWriter(settings), settings=settings,
                 adapters=system.adapters, dry_run=system.engine.router.dry_run,
                 document_policy=system.engine.document_policy,
+                tool_registry=getattr(system, "tool_registry", None),
             )
             inbox = getattr(self._services, "inbox", None)
             if inbox is not None:

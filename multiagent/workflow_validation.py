@@ -405,6 +405,24 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
                     add("invalid_value", "egress.action", "Unknown egress action")
                 if not isinstance(policy.get("include_local", False), bool):
                     add("invalid_type", "egress.include_local", "Expected true or false")
+        if step.tools is not None:
+            if not isinstance(step.tools, list):
+                add("invalid_type", "tools", f"Expected a list of tool calls; got {_kind(step.tools)}")
+            else:
+                for position, entry in enumerate(step.tools):
+                    where = f"tools[{position}]"
+                    if not isinstance(entry, dict) or set(entry) - {"tool", "capability", "version", "arguments"}:
+                        add("invalid_value", where, "Expected {tool | capability, version?, arguments?}")
+                        continue
+                    if ("tool" in entry) == ("capability" in entry):
+                        add("invalid_value", where, "Name exactly one of 'tool' or 'capability'")
+                    elif not isinstance(entry.get("tool", entry.get("capability")), str):
+                        add("invalid_type", where, "The tool or capability id must be a string")
+                    version = entry.get("version")
+                    if version is not None and (not _is_int(version) or version < 1 or "tool" not in entry):
+                        add("invalid_value", f"{where}.version", "A version is a positive integer next to 'tool'")
+                    if not isinstance(entry.get("arguments", {}), dict):
+                        add("invalid_type", f"{where}.arguments", "Expected a mapping of arguments")
         # ``effort`` null (or omitted) leaves the provider default. In YAML, ``none`` is the
         # string "none" (no reasoning); ``off``/``no`` parse as booleans and are rejected.
         if step.effort is not None:

@@ -53,6 +53,11 @@ class WorkflowStep:
     # Short sentence for people: what the step does.
     description: str | None = None
     egress: dict[str, Any] | None = None
+    # Tools the step calls before its model call (CAP-T02/T19 wiring). Each entry names a registered tool
+    # (``tool: <id>``, optional ``version``) or a capability resolved by ``select_tool`` (``capability: <id>``),
+    # plus literal ``arguments``; a string argument written ``${name}`` takes the run input ``name``. Results
+    # reach the prompt as untrusted data. A call that needs a person pauses the run in ``tool_approval``.
+    tools: list[dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)

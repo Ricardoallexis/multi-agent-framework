@@ -566,10 +566,10 @@ def test_unknown_window_block_stops_the_run_before_the_provider(tmp_path):
 
 
 def test_the_bundled_local_model_is_measured_against_its_num_ctx(tmp_path, tokens):
-    # No window is set by the test: local_default's window is the 4096-token num_ctx the catalog derives.
+    # No window is set by the test: local_default's window is the 8192-token num_ctx the catalog derives.
     system = make_system(tmp_path)
-    assert system.catalog.context_window("local_default")["tokens"] == 4096
-    assign_context_profile(system, warning_at=0.2, threshold=0.25)     # the prompt is ~26 % of 4096
+    assert system.catalog.context_window("local_default")["tokens"] == 8192
+    assign_context_profile(system, warning_at=0.08, threshold=0.1)     # the prompt is ~13 % of 8192
     run = get(system, start(system))
     (warning,) = events(run, "context_warning")
     assert warning["level"] == "threshold" and warning["context_window"]["provenance"] == "runtime_setting"

@@ -46,6 +46,17 @@ The pure dependency graph of tasks: cycle detection, `blocked` and `ready` statu
 
 Executes workflow steps, builds context, applies routing, validates contracts, persists artifacts, and pauses execution at human checkpoints.
 
+A step may declare `tools:` that run before its model call, through `ToolInvoker` and the tool registry that `build_system` creates (`System.tool_registry`, with the built-in synthetic `mock.*` tools; a host may register its own or MCP tools before running). Each entry names a tool (`tool: mock.echo`, optional `version`) or a capability resolved by `select_tool` (`capability: text.upper`), with literal `arguments`; a string argument written `${name}` takes the run input `name`. Every call leaves `tool_call_*` events in the run log, and its result reaches the prompt as untrusted data. A call with a write or destructive effect pauses the run in `waiting_human` / `tool_approval`; approving it with the shown `permission_request_id` (GUI, CLI, or `RunService.approve(..., permission_request_id=..., person=True)`) queues the run and the call runs once; rejecting it fails the run.
+
+```yaml
+steps:
+  - id: create
+    # ...
+    tools:
+      - tool: mock.note_write
+        arguments: {target: notes/post.txt, text: "${topic}"}
+```
+
 ### `multiagent/model_router.py`
 
 Selects the preferred model and optional fallback according to workflow bindings and execution mode.

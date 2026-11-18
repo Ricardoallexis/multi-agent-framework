@@ -58,7 +58,7 @@ def load(tmp_path: Path, models: dict, **overrides) -> Catalog:
 def test_bundled_local_models_take_the_window_from_num_ctx(tmp_path, model_id):
     catalog = Catalog(settings(tmp_path))
     found = catalog.context_window(model_id)
-    assert found["tokens"] == catalog.model(model_id).num_ctx == 4096
+    assert found["tokens"] == catalog.model(model_id).num_ctx == 8192
     assert found["provenance"] == "runtime_setting"
     assert "num_ctx" in found["source"]
     assert found["checked_at"] is None  # read from the live setting, so it has no separate date

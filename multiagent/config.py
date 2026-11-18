@@ -257,7 +257,7 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:8b"
-    ollama_num_ctx: int = Field(default=4096, ge=1024)
+    ollama_num_ctx: int = Field(default=8192, ge=1024)
     ollama_keep_alive: str = "15m"
     ollama_timeout_seconds: float = 120.0
     cloud_timeout_seconds: float = 120.0

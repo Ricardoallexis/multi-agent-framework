@@ -35,7 +35,7 @@ Project setup creates `.local/.env` from `.env.example`. The default Ollama conf
 ```dotenv
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=qwen3:8b
-OLLAMA_NUM_CTX=4096
+OLLAMA_NUM_CTX=8192
 OLLAMA_KEEP_ALIVE=15m
 OLLAMA_TIMEOUT_SECONDS=120
 OLLAMA_CONTEXT_SOFT_LIMIT=0.75

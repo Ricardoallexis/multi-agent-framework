@@ -8,8 +8,8 @@ operator view, not a public API or a separate orchestration layer.
 ## Start
 
 From an installed project environment, run either command, or use
-`GUI.cmd` from the private channel folder
-`C:\Users\ricar\Desktop\multi-agent-framework-pair\.local\canal-pareja`:
+`GUI.cmd` from the private channel folder `.local\canal-pareja` of your
+working copy, when you have one:
 
 ```console
 multiagent gui [--port N] [--real] [--no-browser] [--bundle NAME=FOLDER]...

@@ -32,7 +32,19 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | **All roadmap items** | **26%** | **60 of 233** |
 <!-- progress:table:end -->
 
-## Current stage — runtime foundations
+## Current focus — MVP 1.0 (`1.0.0-rc1`)
+
+Scope is closed in [`docs/SCOPE.md`](docs/SCOPE.md): only these five capabilities are worked on until 1.0. Status on 2026-11-17, verified end to end through the Python facade (`build_system`, `process_run`, `approve`) in a clean folder.
+
+| # | Capability | Status | Evidence |
+| --- | --- | --- | --- |
+| 1 | Clean start on `main` | ✅ Done | `main` carries the integration branch; migrations 001–013 apply on an empty database. |
+| 2 | Real 3-step flow on Ollama | ✅ Done | Default `num_ctx` is 8192 (catalog and `OLLAMA_NUM_CTX`); `social_post_full` with `qwen3:8b` reaches review and `completed` 10 of 10 times (about 35 s each). |
+| 3 | Tools wired into the engine | ✅ Done | A step declares `tools:`; the engine calls them through `ToolInvoker` (`select_tool` for capabilities); a write tool pauses in `tool_approval` and runs once after approval, in Mock and with Ollama. |
+| 4 | One local UI | 🔄 Next | Consolidate `/gui/`, close `GUI2-T07` with the minimal scope, and hide or wire dead buttons. |
+| 5 | Docs in sync | ✅ Done | No personal paths in `docs/`; this page reflects the integrated state. |
+
+## Previous stage — runtime foundations
 
 The first four features below were released in `M1-B02-F00-alpha`. Application services and HTTP parity are done in the repository and will ship in the next release (see `[Unreleased]` in the changelog). Goal: make the existing runtime reliable and general before adding larger capabilities, so new agents, teams, and backends can be added without rewriting the core.
 

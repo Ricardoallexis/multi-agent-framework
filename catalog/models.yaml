@@ -30,7 +30,7 @@ models:
     tier: local
     structured_output: true
     web: false
-    num_ctx: 4096
+    num_ctx: 8192
     keep_alive: 15m
     thinking: false
     input_cost_per_million: 0.0
@@ -61,7 +61,7 @@ models:
     tier: local
     structured_output: true
     web: false
-    num_ctx: 4096
+    num_ctx: 8192
     keep_alive: 15m
     thinking: true
     input_cost_per_million: 0.0

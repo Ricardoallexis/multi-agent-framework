@@ -70,6 +70,12 @@ from .schema_utils import estimate_tokens_conservative
 from .step_cache import (EVENT_HIT, KIND_MODEL, STEP_CACHE_CODE_VERSION, ZERO_USAGE, StepCache, StepCachePolicy,
                          model_step_key)
 from .tasks.envelopes import blob_ref, envelope_sha256
+from .tools.contracts import ToolCallContext, ToolErrorCode, ToolOrigin, ToolRequest, request_id_for
+from .tools.invoker import ToolInvoker
+from .tools.permissions import InvalidArguments, check_call, required_permissions
+from .tools.registry import ToolLookupError, ToolRegistry
+from .tools.selection import SelectionConfig, SelectionError, load_selection_config, select_tool
+from .tools.trust import render_result_for_prompt
 from .workflows import WorkflowCatalog, WorkflowDefinition, WorkflowStep, condition_is_true
 from .workflow_validation import (
     WorkflowDefinitionError, validate_resume_point, validate_workflow_definition,
@@ -228,8 +234,14 @@ class WorkflowEngine:
                  output_schemas: Mapping[str, type[BaseModel]] | None = None,
                  document_policy: str | DetectionPolicy | None = DEFAULT_DOCUMENT_POLICY,
                  approval_timeout_seconds: float | None = None,
-                 step_cache: StepCachePolicy | None = None):
+                 step_cache: StepCachePolicy | None = None,
+                 tool_registry: ToolRegistry | None = None,
+                 tool_selection: Mapping[str, Any] | SelectionConfig | None = None):
         self.store = store
+        # Tools a step may declare (``WorkflowStep.tools``). ``None``: a step that declares tools fails before any call.
+        self.tool_registry = tool_registry
+        self.tool_selection: SelectionConfig = (tool_selection if isinstance(tool_selection, SelectionConfig)
+                                                else load_selection_config(tool_selection))
         self.catalog = catalog
         self.prompts = prompts
         self.workflows = workflows
@@ -265,7 +277,8 @@ class WorkflowEngine:
                     artifacts: ArtifactWriter, settings, adapters: Mapping[str, Any],
                     dry_run: bool = False,
                     document_policy: str | DetectionPolicy | None = DEFAULT_DOCUMENT_POLICY,
-                    approval_timeout_seconds: float | None = None) -> WorkflowEngine:
+                    approval_timeout_seconds: float | None = None,
+                    tool_registry: ToolRegistry | None = None) -> WorkflowEngine:
         """Wire a trusted definition bundle into a runtime without changing defaults.
 
         Callers keep ownership of adapter lifetimes and the worker. Each engine
@@ -281,7 +294,7 @@ class WorkflowEngine:
             store=store, catalog=bundle.catalog, prompts=bundle.prompts,
             workflows=bundle.workflows, router=router, artifacts=artifacts,
             settings=settings, output_schemas=bundle.output_schemas, document_policy=document_policy,
-            approval_timeout_seconds=approval_timeout_seconds,
+            approval_timeout_seconds=approval_timeout_seconds, tool_registry=tool_registry,
         )
 
     def preflight(self, workflow_id: str) -> WorkflowDefinition:
@@ -446,6 +459,10 @@ class WorkflowEngine:
                 )
                 context = step_context.variables()                  # fills the template: untrusted parts quoted
                 recorded_context = step_context.original.variables()  # what the step is recorded with: plain values
+                # Tools the step declares run before its model call; a call that needs a person pauses here.
+                tool_sections = self._run_step_tools(run_id=run_id, step=step, attempt=attempt, request=request)
+                if tool_sections is None:
+                    return self._finalize_return(run_id)
                 prompt = self.prompts.render(step.prompt_id, step.prompt_version, **context)
                 skill_text = "\n\n".join(self.prompts.skill_text(skill) for skill in step.skills)
                 # Stable prefix first (skills, output schema), then the variable part (the rendered step prompt with its
@@ -453,7 +470,7 @@ class WorkflowEngine:
                 # untrusted content is always followed by trusted text. Providers cache the leading bytes.
                 final_prompt = self.prompts.assemble(
                     self.prompts.stable_prefix(skill_text, self._output_schema_block(output_schema)),
-                    prompt.text, step_context.sections(), OUTPUT_CONTRACT_REMINDER)
+                    prompt.text, [*step_context.sections(), *tool_sections], OUTPUT_CONTRACT_REMINDER)
                 prompt_sha256 = hashlib.sha256(final_prompt.encode("utf-8")).hexdigest()
                 estimated_input = estimate_tokens_conservative(final_prompt)
 
@@ -1352,6 +1369,81 @@ class WorkflowEngine:
                 waiting_attempt=attempt,
             )
             raise CallPaused(verdict, call)
+
+    @staticmethod
+    def _tool_arguments(arguments: Mapping[str, Any], request: Mapping[str, Any]) -> dict[str, Any]:
+        """Literal arguments of a declared tool call; a string written exactly ``${name}`` takes the run input."""
+        def fill(value: Any) -> Any:
+            if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
+                name = value[2:-1]
+                found = request.get(name)
+                if found is None:
+                    found = (request.get("inputs") or {}).get(name) if isinstance(request.get("inputs"), Mapping) else None
+                if not isinstance(found, str):
+                    raise ValidationFailed(f"Tool argument {value!r} names no text input of the run")
+                return found
+            if isinstance(value, Mapping):
+                return {key: fill(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [fill(item) for item in value]
+            return value
+        return fill(dict(arguments))
+
+    def _run_step_tools(self, *, run_id: str, step: WorkflowStep, attempt: int,
+                        request: Mapping[str, Any]) -> list[str] | None:
+        """Invoke the tools ``step`` declares through ``ToolInvoker`` (CAP-T02/T19/T12 wiring).
+
+        Returns the prompt sections (each result quoted as untrusted data), or ``None`` when a call needs a person:
+        the run is then ``waiting_human`` / ``tool_approval`` with the persisted permission request. Approving it
+        (``RunService.approve(..., permission_request_id=..., person=True)``) queues the run; the same step and attempt
+        run again, the store releases the one-use grant and the call goes through. Every call leaves its
+        ``tool_call_*`` events in the run log. The workflow declaration is the grant of the tool's own permissions;
+        impact rules (write, destructive) still require the per-call human approval.
+        """
+        if not step.tools:
+            return []
+        if self.tool_registry is None:
+            raise ValidationFailed(f"Step {step.id!r} declares tools but no tool registry is configured")
+        invoker = ToolInvoker(self.tool_registry,
+                              event_sink=lambda kind, payload: self.store.db.log_event(run_id, kind, dict(payload)))
+        data_class = "sensitive" if request.get("sensitive") else "non_sensitive"
+        sections: list[str] = []
+        for ordinal, entry in enumerate(step.tools):
+            self._check_cancel(run_id)
+            try:
+                if "capability" in entry:
+                    registered = select_tool(self.tool_registry, entry["capability"], self.tool_selection)
+                else:
+                    registered = self.tool_registry.lookup(entry["tool"], entry.get("version"))
+            except (SelectionError, ToolLookupError) as exc:
+                raise ValidationFailed(f"Step {step.id!r} tool {ordinal}: {getattr(exc, 'code', exc)}") from exc
+            spec = registered.spec
+            context = ToolCallContext(scope="run_step", run_id=run_id, step_id=step.id, attempt=attempt,
+                                      ordinal=ordinal, data_class=data_class)
+            tool_request = ToolRequest(request_id=request_id_for(context, ordinal), tool_id=spec.tool_id,
+                                       tool_version=spec.version,
+                                       arguments=self._tool_arguments(entry.get("arguments") or {}, request),
+                                       context=context, origin=ToolOrigin(kind="workflow_step", ref=f"step:{step.id}"))
+            grants = required_permissions(spec)
+            evidence = None
+            try:
+                code, permission = check_call(spec, tool_request, grants=grants)
+            except InvalidArguments:
+                code, permission = None, None          # the invoker reports invalid arguments with its own events
+            if code == ToolErrorCode.APPROVAL_REQUIRED.value and permission is not None:
+                grant = self.store.take_tool_approval(permission)
+                if grant is not None:
+                    evidence = [grant]
+            result = invoker.invoke(tool_request, grants=grants, evidence=evidence)
+            if (not result.ok and result.error is not None and result.error.code == ToolErrorCode.APPROVAL_REQUIRED
+                    and result.permission_request is not None):
+                self.store.hold_tool_approval(result.permission_request)
+                return None
+            if not result.ok:
+                code_value = result.error.code.value if result.error is not None else "unknown"
+                raise ValidationFailed(f"Tool {spec.tool_id} failed in step {step.id!r}: {code_value}")
+            sections.append(f"## Tool result: {spec.tool_id}\n" + render_result_for_prompt(result))
+        return sections
 
     def _pause_for_human(self, *, run_id: str, index: int, step: WorkflowStep, attempt: int,
                          context: dict[str, str], final_prompt: str, prompt_sha256: str,
