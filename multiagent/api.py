@@ -379,6 +379,15 @@ class ActivityStart(_Body):
     objective: str = ""
 
 
+class MemoryCreate(_Body):
+    kind: str
+    title: str
+    body: str
+    actor: str
+    confidence: str | None = None
+    source_ref: str = ""
+
+
 class ActivityClose(_Body):
     summary: str
     actor: str
@@ -807,6 +816,27 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/activities/{task_id}/close")
     def close_activity(task_id: str, body: ActivityClose):
         return services.activities.close(task_id, body.summary, actor=body.actor)
+
+    # --- project memory (S12.A1) ---------------------------------------------------
+
+    @app.post("/api/v1/projects/{project_id}/memory", status_code=201)
+    def create_memory(project_id: str, body: MemoryCreate):
+        """Write a memory entry (a fact, decision or convention) with its author as provenance."""
+        return services.memory.create(project_id, kind=body.kind, title=body.title, body=body.body, actor=body.actor,
+                                      confidence=body.confidence, source_ref=body.source_ref)
+
+    @app.get("/api/v1/projects/{project_id}/memory")
+    def list_memory(project_id: str, kind: str | None = None):
+        return services.memory.list(project_id, kind=kind)
+
+    @app.get("/api/v1/memory/{entry_id}")
+    def get_memory(entry_id: str):
+        return services.memory.get(entry_id)
+
+    @app.delete("/api/v1/memory/{entry_id}")
+    def delete_memory(entry_id: str, actor: str = Query(...)):
+        """Only a ``user:`` actor may delete an entry."""
+        return services.memory.delete(entry_id, actor=actor)
 
     @app.post("/api/v1/tasks/{task_id}/sessions")
     def link_task_session(task_id: str, body: TaskSessionLink):

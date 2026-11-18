@@ -58,6 +58,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from .context.project_memory import setting_issue
 from .routing_policy import EFFORT_LEVELS, STEP_KINDS
 from .workflows import INPUT_TYPES, SUPPORTED_CONDITIONS, WorkflowDefinition, WorkflowInput, WorkflowStep
 
@@ -72,7 +73,7 @@ IDENTIFIER = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*")
 RESOURCE_REFERENCE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*(?:/[A-Za-z0-9_][A-Za-z0-9_-]*)*")
 
 DEFAULT_MAX_ITERATIONS = 2
-ROOT_FIELDS = ("id", "description", "max_iterations", "inputs", "steps")
+ROOT_FIELDS = ("id", "description", "max_iterations", "inputs", "steps", "project_memory")
 REQUIRED_ROOT_FIELDS = ("id", "steps")
 STEP_FIELDS = tuple(field.name for field in fields(WorkflowStep))
 # Fields with a default (``kind``, ``effort``, ``description``) may be omitted from a document.
@@ -269,6 +270,7 @@ def parse_workflow_document(document: bytes | str, *, workflow_id: str, source: 
         max_iterations=raw.get("max_iterations", DEFAULT_MAX_ITERATIONS),
         steps=[WorkflowStep(**{name: step[name] for name in STEP_FIELDS if name in step}) for step in steps],
         description=raw.get("description"),
+        project_memory=raw.get("project_memory"),
         inputs=[
             WorkflowInput(**{
                 name: ([] if name == "choices" and entry[name] is None else entry[name])
@@ -332,6 +334,9 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
     _check_text(lambda code, field, message: issues.append(WorkflowIssue(code, field, message)),
                 "description", definition.description)
     issues += _input_issues(definition.inputs)
+    memory_issue = setting_issue(getattr(definition, "project_memory", None))
+    if memory_issue:
+        issues.append(WorkflowIssue("invalid_value", "project_memory", memory_issue))
 
     steps = definition.steps
     if not isinstance(steps, list) or not steps:
@@ -405,6 +410,9 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
                     add("invalid_value", "egress.action", "Unknown egress action")
                 if not isinstance(policy.get("include_local", False), bool):
                     add("invalid_type", "egress.include_local", "Expected true or false")
+        memory_issue = setting_issue(getattr(step, "project_memory", None))
+        if memory_issue:
+            add("invalid_value", "project_memory", memory_issue)
         if step.tools is not None:
             if not isinstance(step.tools, list):
                 add("invalid_type", "tools", f"Expected a list of tool calls; got {_kind(step.tools)}")

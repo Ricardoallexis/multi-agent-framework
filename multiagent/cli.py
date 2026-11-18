@@ -619,6 +619,22 @@ def cmd_activity(args) -> None:
         pretty(_api_json("GET", f"/api/v1/projects/{_segment(args.project_id)}/activities", params=params or None))
 
 
+def cmd_memory(args) -> None:
+    if args.memory_command == "add":
+        body = {"kind": args.kind, "title": args.title, "body": args.text, "actor": args.actor}
+        for name in ("confidence", "source_ref"):
+            if getattr(args, name) is not None:
+                body[name] = getattr(args, name)
+        pretty(_api_json("POST", f"/api/v1/projects/{_segment(args.project_id)}/memory", json_body=body))
+    elif args.memory_command == "list":
+        pretty(_api_json("GET", f"/api/v1/projects/{_segment(args.project_id)}/memory",
+                         params={"kind": args.kind} if args.kind else None))
+    elif args.memory_command == "show":
+        pretty(_api_json("GET", f"/api/v1/memory/{_segment(args.entry_id)}"))
+    else:  # delete
+        pretty(_api_json("DELETE", f"/api/v1/memory/{_segment(args.entry_id)}", params={"actor": args.actor}))
+
+
 def cmd_task_session(args) -> None:
     task = _segment(args.task_id)
     if args.session_command == "link":
@@ -1347,6 +1363,23 @@ def build_parser() -> argparse.ArgumentParser:
     x = activity.add_parser("list", help="The activities of a project, optionally of one label or changed since a day")
     x.add_argument("project_id"); x.add_argument("--status", help="todo, ready, doing, done, failed or cancelled")
     x.add_argument("--since", help="A day AAAA-MM-DD or an ISO date and time"); x.set_defaults(func=cmd_activity)
+
+    # Project memory: facts, decisions and conventions of a project, with who wrote them (S12.A1).
+    memory = sub.add_parser("memory", help="Add, list, show or delete the memory entries of a project").add_subparsers(
+        dest="memory_command", required=True)
+    x = memory.add_parser("add", help="Write an entry; its trust comes from --actor (only user:... is trusted)")
+    x.add_argument("project_id"); x.add_argument("--kind", required=True, choices=["fact", "decision", "convention"])
+    x.add_argument("--title", required=True); x.add_argument("--text", required=True); x.add_argument("--actor", required=True)
+    x.add_argument("--confidence", choices=["low", "medium", "high"], help="Default medium; high needs a user actor")
+    x.add_argument("--source-ref", dest="source_ref", help="The run, task or document it came from")
+    x.set_defaults(func=cmd_memory)
+    x = memory.add_parser("list", help="The entries of a project, oldest first")
+    x.add_argument("project_id"); x.add_argument("--kind", choices=["fact", "decision", "convention"])
+    x.set_defaults(func=cmd_memory)
+    x = memory.add_parser("show", help="One entry with its provenance")
+    x.add_argument("entry_id"); x.set_defaults(func=cmd_memory)
+    x = memory.add_parser("delete", help="Delete an entry (only a user:... actor may)")
+    x.add_argument("entry_id"); x.add_argument("--actor", required=True); x.set_defaults(func=cmd_memory)
 
     x = sub.add_parser("status"); x.add_argument("run_id"); x.set_defaults(func=cmd_status)
     x = sub.add_parser("runs"); x.add_argument("--limit", type=int, default=20); x.add_argument("--status", default=""); x.add_argument("--project", default=""); x.set_defaults(func=cmd_runs)

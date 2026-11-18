@@ -73,6 +73,7 @@ KIND_STEP_OUTPUT = "step_output"
 KIND_PREVIOUS_OUTPUT = "previous_output"
 KIND_REVISION_FEEDBACK = "revision_feedback"
 KIND_CONTEXT_SUMMARY = "context_summary"
+KIND_PROJECT_MEMORY = "project_memory"   # S12.A1: an entry of the project memory, already quoted as data
 PLACEMENT_VARIABLE = "variable"   # fills a ``{name}`` of the prompt template
 PLACEMENT_SECTION = "section"     # appended to the prompt after the template and the active skills
 

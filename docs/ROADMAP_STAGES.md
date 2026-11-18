@@ -349,7 +349,7 @@ discovery, local model expansion, and the other planned items remain open. See
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S12.A — Scope** | | |
-| S12.A1 | Project-scoped memory and structured project context. | — |
+| S12.A1 | ◐ Done: project memory entries (facts, decisions, conventions) with author provenance, computed trust and confidence, stored in SQLite (migration 014) and managed by CLI and API (`multiagent memory`, `/api/v1/projects/{project}/memory`); a workflow or step that sets `project_memory` receives them quoted as data under a size cap, off by default. No structured project context beyond these entries, no embeddings or search (S12.C1). | — |
 | S12.A2 | ◐ Done: provenance and trust levels for content, summaries verified when read, task packages invalidated by a fingerprint. | S12.A1 |
 | **S12.B — Propagation** | | |
 | S12.B1 | ◐ Done: older step outputs are replaced by a validated summary when a context profile is enabled; the five policies per step are not offered. | S12.A1 |

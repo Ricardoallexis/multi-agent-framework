@@ -58,6 +58,9 @@ class WorkflowStep:
     # plus literal ``arguments``; a string argument written ``${name}`` takes the run input ``name``. Results
     # reach the prompt as untrusted data. A call that needs a person pauses the run in ``tool_approval``.
     tools: list[dict[str, Any]] | None = None
+    # Project memory in this step's context (S12.A1): ``True``/``False`` or ``{max_chars, kinds}``; ``None``
+    # inherits the workflow's value, whose default is off. See ``context.project_memory``.
+    project_memory: bool | dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,8 @@ class WorkflowDefinition:
     description: str | None = None
     # Optional declared inputs; see WorkflowInput.
     inputs: list[WorkflowInput] = field(default_factory=list)
+    # Optional, off by default: give every step the project's memory entries (a step may override it).
+    project_memory: bool | dict[str, Any] | None = None
 
 
 class WorkflowCatalog:

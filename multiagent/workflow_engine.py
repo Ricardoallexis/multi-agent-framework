@@ -21,6 +21,10 @@ from .call_guards import (
     SCOPE_RUN_STEP, STOP_USER_CANCEL, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
 )
 from .catalog import Catalog, CatalogError, ModelSpec, validate_routing_profile
+from .context.project_memory import (
+    SECTION_HEADING as MEMORY_HEADING, MemorySetting, entry_provenance, entry_text, omitted_note, render_entry,
+    resolve_setting, select_entries,
+)
 from .context.estimate import ContextSettings, compaction_pending, context_settings_for
 from .context.summary import (
     CONTEXT_AGENT_ID, SummaryAccess, SummaryPolicy, SummarySchemaError, content_text, render_summary_for_prompt,
@@ -28,6 +32,7 @@ from .context.summary import (
 )
 from .context.workflow import (
     EVENT_CONTEXT_COMPACTED, EVENT_CONTEXT_COMPACTION_SKIPPED, KIND_CONTEXT_SUMMARY, KIND_INPUT, KIND_PREVIOUS_OUTPUT,
+    KIND_PROJECT_MEMORY, PLACEMENT_SECTION,
     KIND_REVISION_FEEDBACK, KIND_STEP_OUTPUT, ORIGINAL_MEDIA_TYPE, REASON_INTERNAL_ERROR, SUMMARY_MEDIA_TYPE,
     CompactionPlan, CompactionState, ContextPart, OutputRecord, StepContext, build_context_parts,
     check_pinned_in_context, compacted_event, minimum_summary_tokens, next_state, output_text, plan_compaction,
@@ -48,6 +53,7 @@ from .contracts import (
     WaitingReason,
 )
 from .db.envelope_store import EnvelopeStore
+from .db.memory_store import MemoryStore
 from .db.store import Store
 from .document_trust import (
     ACTION_PASS, ACTION_PAUSE, ACTION_QUARANTINE, EVENT_QUARANTINED, EVENT_REVIEW_REQUESTED, BlobSink,
@@ -456,6 +462,7 @@ class WorkflowEngine:
                     brand_version=fresh.get("brand_version"),
                     prior_step_ids=[item.id for item in definition.steps[:index]],
                     compaction=compaction, attempt=attempt,
+                    project_memory=self._project_memory_for(definition, step, run),
                 )
                 context = step_context.variables()                  # fills the template: untrusted parts quoted
                 recorded_context = step_context.original.variables()  # what the step is recorded with: plain values
@@ -1559,7 +1566,8 @@ class WorkflowEngine:
     # ---------- the context of a step: one assembly point (CMP-T04; the seam BDI-T02 works on) ----------
     def _context_for_step(self, run_id: str, step_id: str, request: dict[str, Any], revision_feedback: str,
                           *, brand_version: int | None, prior_step_ids: list[str] | None = None,
-                          compaction: CompactionState | None = None, attempt: int | None = None) -> StepContext:
+                          compaction: CompactionState | None = None, attempt: int | None = None,
+                          project_memory: tuple[str, MemorySetting] | None = None) -> StepContext:
         """The context of one step as ordered parts (``StepContext``), the ONE place it is assembled.
 
         ``_context_parts`` gathers the parts; ``StepContext.variables()`` fills the prompt template and
@@ -1586,17 +1594,60 @@ class WorkflowEngine:
         parts = self._context_parts(
             run_id, step_id, request, revision_feedback, brand_version=brand_version,
             prior_step_ids=prior_step_ids, compaction=compaction)
+        if attempt is None and (project_memory is not None or self.document_policy is not None):
+            attempt = self.store.latest_step_attempt(run_id, step_id) + 1
+        if project_memory is not None:          # opt-in (S12.A1): the memory is data, quoted whatever the policy is
+            parts = (*parts, *self._project_memory_parts(run_id, step_id, attempt, *project_memory))
         if self.document_policy is None:        # no policy profile active: the barrier is off, nothing changes
             return _ScreenedContext(parts, original=StepContext(parts))
-        if attempt is None:
-            attempt = self.store.latest_step_attempt(run_id, step_id) + 1
         return _ScreenedContext(self._untrusted_parts_screened(run_id, step_id, attempt, parts, compaction),
                                 original=StepContext(parts))
 
     @staticmethod
+    def _project_memory_for(definition: WorkflowDefinition, step: WorkflowStep,
+                            run: dict[str, Any]) -> tuple[str, MemorySetting] | None:
+        """``(project_id, setting)`` when the workflow or the step opted in to the project memory, else ``None``."""
+        setting = resolve_setting(getattr(definition, "project_memory", None), getattr(step, "project_memory", None))
+        project_id = run.get("project_id")
+        return (str(project_id), setting) if setting is not None and project_id else None
+
+    def _project_memory_parts(self, run_id: str, step_id: str, attempt: int | None, project_id: str,
+                              setting: MemorySetting) -> tuple[ContextPart, ...]:
+        """The project memory as context sections: ``## Project memory`` (ours) and each entry quoted as data.
+
+        Entries are chosen under ``setting.max_chars`` (``select_entries``); each is wrapped in the untrusted-data
+        envelope with its provenance, and screened by the detector when a document policy is active. Nothing is
+        added when the project has no entry that fits (the prompt is then what it was without the opt-in).
+        """
+        selection = select_entries(MemoryStore(self.store.db).list(project_id), setting)
+        if not selection.entries:
+            return ()
+        sink = self._quarantine_sink() if self.document_policy is not None else None
+        parts: list[ContextPart] = []
+        for entry in selection.entries:
+            text = entry_text(entry)
+            name = f"project_memory_{entry['id']}"
+            if sink is not None:
+                original = ContextPart(name, text, KIND_PROJECT_MEMORY, PLACEMENT_SECTION, ref=f"memory:{entry['id']}",
+                                       sha256=entry["sha256"])
+                text, screenings = _screen_text(text, entry_provenance(entry), policy=self.document_policy, store=sink)
+                if screenings:
+                    self._record_screening(run_id, step_id, int(attempt or 1), original, screenings)
+            parts.append(ContextPart(name, render_entry(entry, text), KIND_PROJECT_MEMORY, PLACEMENT_SECTION,
+                                     ref=f"memory:{entry['id']}", sha256=entry["sha256"]))
+        parts[0] = replace(parts[0], value=f"{MEMORY_HEADING}\n{parts[0].value}")
+        if selection.omitted:
+            parts[-1] = replace(parts[-1], value=f"{parts[-1].value}\n{omitted_note(selection.omitted)}")
+        self.store.db.log_event(run_id, "project_memory_included", {
+            "step_id": step_id, "attempt": attempt, "project_id": project_id,
+            "entries": [entry["id"] for entry in selection.entries], "omitted": selection.omitted,
+            "chars": selection.chars, "max_chars": setting.max_chars})
+        return tuple(parts)
+
+    @staticmethod
     def _part_provenance(part: ContextPart, compaction: CompactionState | None) -> Provenance | None:
         """Where a context part comes from, or ``None`` when it is the user's own (then it is not touched)."""
-        if part.kind in (KIND_INPUT, KIND_REVISION_FEEDBACK):
+        if part.kind in (KIND_INPUT, KIND_REVISION_FEEDBACK, KIND_PROJECT_MEMORY):   # memory arrives quoted already
             return None
         try:
             if part.kind in (KIND_STEP_OUTPUT, KIND_PREVIOUS_OUTPUT):

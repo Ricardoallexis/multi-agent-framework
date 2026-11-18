@@ -27,6 +27,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.gates` | `set_task_gate`, `set_group_gate`, `get_gate`, `review`, `run_gate`, `abort_gate`, `results`, `project_commands` |
 | `services.envelopes` | `set_task_context`, `get_envelope`, `put_blob`, `get_artifact`, `submit_result`, `get_result`, `list_results`, `get_cursor`, `read_events`, `ack_events` |
 | `services.executors` | `run_task`, `resume_task`, `open_target`, `status` (and `record_app_open`, `session_guard`): run an ORQ task in Codex, Claude or Copilot, continue or open its session |
+| `services.memory` | `create`, `list`, `get`, `delete`: facts, decisions and conventions of a project, each with its author as provenance and a computed trust level. Entries live in the system database (bundle runs read their own isolated database, which stays empty). A workflow or step receives them, quoted as data, only when it sets `project_memory`. |
 
 For example, create a built-in social-post run:
 
@@ -98,6 +99,10 @@ and bundle-worker shutdown through its application lifespan.
 | `POST` | `/api/v1/runs/{run_id}/cancel` | Cancel or request cancellation; optional `?force=true`. |
 | `GET` | `/api/v1/runs/{run_id}/human-next` | Get the next pending human-guided step. |
 | `POST` | `/api/v1/runs/{run_id}/human-submit` | Submit a human response. |
+| `POST` | `/api/v1/projects/{project}/memory` | Write a memory entry `{kind, title, body, actor, confidence?, source_ref?}`; `kind` is `fact`, `decision` or `convention`. Returns `201` with the entry, its `trust` (only a `user:` actor is trusted) and `source`. |
+| `GET` | `/api/v1/projects/{project}/memory` | List a project's memory entries, oldest first; optional `kind`. |
+| `GET` | `/api/v1/memory/{entry_id}` | Get one memory entry. |
+| `DELETE` | `/api/v1/memory/{entry_id}` | Delete an entry; `?actor=` must be a `user:` actor (`409` otherwise). |
 | `GET` | `/api/v1/task-groups` | List task groups with task counts per status. |
 | `POST` | `/api/v1/task-groups` | Create a task group with `{"id", "title", "actor", "authorized"?, "default_requires"?}`. Returns `201 Created`. |
 | `GET` | `/api/v1/task-groups/{group_id}` | Get a task group with task counts per status. |
