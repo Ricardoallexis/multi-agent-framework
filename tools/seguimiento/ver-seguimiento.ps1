@@ -179,6 +179,7 @@ function Format-PlanUsage([string]$application, $report) {
                 }
                 $quota = if (-not $expired -and ($window.last_hit_at -or $window.state -eq 'limit_reached')) { "<strong>sin cuota hasta $(Encode $resetText)</strong> · " } else { '' }
                 $label = if ($window.label) { $window.label } else { $window.window }
+                if ($window.group) { $label = "$($window.group) · $label" }   # agy reports each model group's windows
                 "<li><strong>$(Encode $label)</strong>: $used · ${quota}reinicio: $(Encode $resetText)$(if ($expired) { ' · ventana vencida' })<br>Ritmo: $(Encode $pace)</li>"
             } catch { '<li>Ventana: sin dato</li>' }
         }

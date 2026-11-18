@@ -60,7 +60,7 @@ try {
     $window = { param($name, $label, $percent, $hours) @{ window = $name; label = $label; used_percent = $percent; resets_at = (Utc $now.AddHours($hours)); elapsed_percent = 40 } }
     $report = @{ apps = @(
         @{ app = 'codex'; plan = 'ChatGPT Plus'; windows = @((& $window 'five_hour' '5 h' 20 2)); source = @{ kind = 'codex rate limits'; observed_at = (Utc $now.AddMinutes(-3)) } },
-        @{ app = 'antigravity'; plan = 'Google AI Pro'; windows = @((& $window 'five_hour' '5 h' 12.5 3), (& $window 'weekly' 'Semana' 50 90)); source = @{ kind = 'agy /usage'; observed_at = (Utc $now.AddMinutes(-5)) } }) }
+        @{ app = 'antigravity'; plan = 'Google AI Pro'; windows = @((& $window 'five_hour' '5 h' 12.5 3), (& $window 'weekly' 'Semana' 50 90), ((& $window 'weekly' 'Semana' 7 90) + @{ group = 'Claude and GPT Models' })); source = @{ kind = 'agy /usage'; observed_at = (Utc $now.AddMinutes(-5)) } }) }
     Set-Content (Join-Path $channel 'contexto\usage-plans-cache.json') (Json @{ attempted_at = (Utc $now.AddSeconds(-30)); report = $report }) -Encoding utf8
 
     # --- 2./3. runs: ndjson with init.model and result.usage (+ the same run as json: counted once), json only, and a run without usage ---
@@ -91,6 +91,7 @@ try {
     $plan = Get-PlanBlock $agy
     Assert-True ($plan -match 'Uso del plan · Google AI Pro') 'plan name in the Antigravity card'
     Assert-True ($plan -match '5 h</strong>: 12,5 % usado' -and $plan -match 'Semana</strong>: 50 % usado') 'plan windows with used percent'
+    Assert-True ($plan -match 'Claude and GPT Models · Semana</strong>: 7 % usado') 'a window of another agy model group carries the group name'
     Assert-True ($plan -match 'reinicio: \d\d/\d\d \d\d:\d\d' -and $plan -match 'Ritmo: ') 'reset and pace like the other apps'
     Assert-True ($plan -match 'Fuente: agy /usage · Frescura: hace 5 min') 'source and freshness'
     $codexPlan = Get-PlanBlock $codex
