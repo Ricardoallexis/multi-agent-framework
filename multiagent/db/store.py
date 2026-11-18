@@ -387,6 +387,61 @@ class Store:
             ).fetchone()
         return self.get_run(row["id"]) if row else None
 
+    def claim_queued_run(self, worker_id: str, *, lease_seconds: float,
+                         max_active_total: int | None = None,
+                         max_active_per_project: int | None = None,
+                         now: str | None = None) -> dict[str, Any] | None:
+        """Claim a queued run and check shared limits under one SQLite write lock."""
+        now = now or utcnow()
+        cutoff = (datetime.fromisoformat(now) - timedelta(seconds=lease_seconds)).isoformat()
+        with self.db.tx() as conn:
+            active = "status=? OR (status=? AND worker_id IS NOT NULL AND worker_id!='')"
+            params = (RunStatus.RUNNING.value, RunStatus.QUEUED.value)
+            if max_active_total is not None:
+                count = conn.execute(f"SELECT COUNT(*) FROM runs WHERE ({active}) AND heartbeat_at>=?",
+                                     (*params, cutoff)).fetchone()[0]
+                if count >= max_active_total:
+                    return None
+            rows = conn.execute(
+                "SELECT id,project_id FROM runs WHERE status=? AND cancel_requested=0 "
+                "AND (worker_id IS NULL OR worker_id='') ORDER BY created_at,id",
+                (RunStatus.QUEUED.value,),
+            ).fetchall()
+            for row in rows:
+                if max_active_per_project is not None:
+                    count = conn.execute(
+                        f"SELECT COUNT(*) FROM runs WHERE ({active}) AND heartbeat_at>=? AND project_id=?",
+                        (*params, cutoff, row["project_id"]),
+                    ).fetchone()[0]
+                    if count >= max_active_per_project:
+                        continue
+                changed = conn.execute(
+                    "UPDATE runs SET worker_id=?,started_at=?,heartbeat_at=?,updated_at=? "
+                    "WHERE id=? AND status=? AND cancel_requested=0 AND (worker_id IS NULL OR worker_id='')",
+                    (worker_id, now, now, now, row["id"], RunStatus.QUEUED.value),
+                ).rowcount
+                if changed:
+                    return dict(conn.execute("SELECT * FROM runs WHERE id=?", (row["id"],)).fetchone())
+        return None
+
+    def renew_lease(self, run_id: str, worker_id: str, *, now: str | None = None) -> bool:
+        with self.db.connect() as conn:
+            changed = conn.execute(
+                "UPDATE runs SET heartbeat_at=? WHERE id=? AND worker_id=? AND status IN (?,?)",
+                (now or utcnow(), run_id, worker_id, RunStatus.QUEUED.value, RunStatus.RUNNING.value),
+            ).rowcount
+            conn.commit()
+        return bool(changed)
+
+    def release_claim(self, run_id: str, worker_id: str) -> None:
+        """Clear ownership once the engine has left the running state."""
+        with self.db.connect() as conn:
+            conn.execute(
+                "UPDATE runs SET worker_id='',heartbeat_at='' WHERE id=? AND worker_id=? AND status!=?",
+                (run_id, worker_id, RunStatus.RUNNING.value),
+            )
+            conn.commit()
+
     def update_run(self, run_id: str, **fields: Any) -> None:
         if not fields:
             return
@@ -436,36 +491,54 @@ class Store:
     def heartbeat(self, run_id: str) -> None:
         self.update_run(run_id, heartbeat_at=utcnow())
 
-    def recover_running_runs(self, worker_id: str) -> list[str]:
+    def recover_running_runs(self, worker_id: str, *, lease_seconds: float = 30,
+                             now: str | None = None) -> list[str]:
         recovered: list[str] = []
-        with self.db.connect() as conn:
+        notices: list[tuple[str, str, dict[str, Any], int | None]] = []
+        now = now or utcnow()
+        cutoff = (datetime.fromisoformat(now) - timedelta(seconds=lease_seconds)).isoformat()
+        with self.db.tx() as conn:
+            # A process may die after claiming and before entering the engine.
+            conn.execute(
+                "UPDATE runs SET worker_id='',started_at='',heartbeat_at='',updated_at=? "
+                "WHERE status=? AND worker_id IS NOT NULL AND worker_id!='' "
+                "AND (heartbeat_at IS NULL OR heartbeat_at='' OR heartbeat_at<?)",
+                (now, RunStatus.QUEUED.value, cutoff),
+            )
             rows = conn.execute(
-                "SELECT id,cancel_requested,worker_id FROM runs WHERE status=?",
-                (RunStatus.RUNNING.value,),
+                "SELECT id,cancel_requested,worker_id FROM runs WHERE status=? "
+                "AND (heartbeat_at IS NULL OR heartbeat_at='' OR heartbeat_at<?)",
+                (RunStatus.RUNNING.value, cutoff),
             ).fetchall()
-        for row in rows:
-            run_id = row["id"]
-            self.db.log_event(run_id, "run_interrupted", {"reason": "backend_restart", "previous_worker_id": row["worker_id"] or ""})
-            if row["cancel_requested"]:
-                self.update_run(
-                    run_id,
-                    status=RunStatus.CANCELLED.value,
-                    waiting_reason="",
-                    waiting_step="",
-                    waiting_attempt=None,
-                    worker_id="",
-                )
-                self.db.log_event(run_id, "workflow_cancelled", {"reason": "recovered_cancel_request"})
-            else:
-                self.update_run(
-                    run_id,
-                    status=RunStatus.QUEUED.value,
-                    worker_id="",
-                    started_at="",
-                    heartbeat_at="",
-                )
-                self.db.log_event(run_id, "run_recovered", {"action": "requeued"})
-                recovered.append(run_id)
+            for row in rows:
+                run_id = row["id"]
+                interrupted = {"reason": "backend_restart", "previous_worker_id": row["worker_id"] or ""}
+                cursor = conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                                      (run_id, now, "run_interrupted", json.dumps(interrupted)))
+                notices.append((run_id, "run_interrupted", interrupted, cursor.lastrowid))
+                if row["cancel_requested"]:
+                    conn.execute(
+                        "UPDATE runs SET status=?,waiting_reason='',waiting_step='',waiting_attempt=NULL,"
+                        "worker_id='',heartbeat_at='',updated_at=? WHERE id=?",
+                        (RunStatus.CANCELLED.value, now, run_id),
+                    )
+                    event_type, payload = "workflow_cancelled", {"reason": "recovered_cancel_request"}
+                else:
+                    conn.execute(
+                        "UPDATE runs SET status=?,worker_id='',started_at='',heartbeat_at='',updated_at=? WHERE id=?",
+                        (RunStatus.QUEUED.value, now, run_id),
+                    )
+                    event_type, payload = "run_recovered", {"action": "requeued"}
+                    recovered.append(run_id)
+                cursor = conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                                      (run_id, now, event_type, json.dumps(payload)))
+                notices.append((run_id, event_type, payload, cursor.lastrowid))
+        for notice in notices:
+            for listener in tuple(self.db.event_listeners):
+                try:
+                    listener(*notice)
+                except Exception:
+                    pass
         return recovered
 
     def latest_step_attempt(self, run_id: str, step_id: str) -> int:

@@ -80,6 +80,12 @@ def build_system(settings: Settings | None = None, *, dry_run: bool = False, ada
     run_service = RunService(settings, store, engine=backend)
     brand_service = BrandService(store, catalog, prompts, router)
     asset_service = AssetService(settings, store)
-    worker = LocalWorker(store, backend, settings.worker_poll_seconds)
+    worker = LocalWorker(
+        store, backend, settings.worker_poll_seconds, concurrency=settings.worker_concurrency,
+        max_active_total=settings.worker_max_active_total,
+        max_active_per_project=settings.worker_max_active_per_project,
+        lease_seconds=settings.worker_lease_seconds,
+        shutdown_wait_seconds=settings.worker_shutdown_wait_seconds,
+    )
     return System(settings, db, store, catalog, run_service, brand_service, asset_service, engine, backend, worker, adapters,
                   tool_registry)

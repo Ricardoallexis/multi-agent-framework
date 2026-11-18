@@ -5,6 +5,7 @@ import base64
 import json
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from urllib.parse import quote
 
@@ -947,6 +948,32 @@ def cmd_dry_run(args) -> None:
         pretty(_run_dry_run(args, settings))
 
 
+def _worker_concurrency(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid concurrency: {value!r}") from None
+    if not 1 <= number <= 256:
+        raise argparse.ArgumentTypeError("concurrency must be between 1 and 256")
+    return number
+
+
+def cmd_worker(args) -> None:
+    """Run only the durable queue worker against the configured database."""
+    settings = get_settings()
+    if args.concurrency is not None:
+        settings = settings.model_copy(update={"worker_concurrency": args.concurrency})
+    system = build_system(settings)
+    system.worker.start()
+    try:
+        while True:
+            threading.Event().wait(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        system.worker.stop()
+
+
 def _parse_ui_bundles(values: list[str] | None) -> dict[str, Path]:
     bundles: dict[str, Path] = {}
     for value in values or []:
@@ -1063,6 +1090,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     x = sub.add_parser("init"); x.set_defaults(func=cmd_init)
     x = sub.add_parser("doctor"); x.add_argument("--deep", action="store_true"); x.set_defaults(func=cmd_doctor)
+    x = sub.add_parser("worker", help="Run the configured database worker until Ctrl+C")
+    x.add_argument("--concurrency", type=_worker_concurrency, metavar="N",
+                   help="Maximum runs in this process, 1 to 256 (default: WORKER_CONCURRENCY)")
+    x.set_defaults(func=cmd_worker)
     try:
         from .setup.cli import add_parser as add_setup_parser
     except Exception:

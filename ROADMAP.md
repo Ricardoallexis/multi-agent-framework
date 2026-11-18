@@ -55,7 +55,7 @@ The first public baseline is backend-first and provides the foundation for the r
 
 ## Orchestration and agent runtime
 
-**Progress:** `████░░░░░░` 5/13 · 38% <!-- progress -->
+**Progress:** `████░░░░░░` 6/14 · 43% <!-- progress -->
 
 - [ ] Expand the workflow engine so new agents and workflows can be added with minimal changes to the core runtime.
   - [x] Load definition bundles (workflows, agents, prompts, and contracts) from outside the package, validate them, and run them through a generic request from Python, the HTTP API, and the CLI.
@@ -67,7 +67,8 @@ The first public baseline is backend-first and provides the foundation for the r
 - [x] Add stronger validation for workflow definitions before execution.
 - [ ] Improve cancellation, pause/resume, recovery, idempotency, and long-running execution behavior.
   - [x] Hold a task that reached a usage limit until the limit resets, or until a declared condition holds (dependency, integration window, or approval), then resume the same session; every hold and resumption is recorded as an event.
-- [ ] Support multiple workers and controlled concurrency, bounded by a resource-aware scheduler (CPU, RAM, GPU/VRAM, and provider limits) that works with any backend.
+- [x] Support multiple workers and controlled concurrency.
+- [ ] Bound them with a resource-aware scheduler (CPU, RAM, GPU/VRAM, and provider limits) that works with any backend.
 - [ ] Formalize compatibility rules for workflows, contracts, prompts, migrations, and provider adapters.
 - [ ] Provide a clearer plugin/extension model for custom agents, tools, skills, providers, and workflows.
 

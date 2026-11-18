@@ -150,7 +150,13 @@ class RunServices:
                 usage.attach(engine)                               # the same budget guard and alerts as the system engine (USO-T04)
             engine.memory_source = self._services.memory.entries_for_project_name
             runtime = _Runtime(name, store, RunService(settings, store, engine=engine),
-                               LocalWorker(store, engine, settings.worker_poll_seconds))
+                               LocalWorker(
+                                   store, engine, settings.worker_poll_seconds, concurrency=settings.worker_concurrency,
+                                   max_active_total=settings.worker_max_active_total,
+                                   max_active_per_project=settings.worker_max_active_per_project,
+                                   lease_seconds=settings.worker_lease_seconds,
+                                   shutdown_wait_seconds=settings.worker_shutdown_wait_seconds,
+                               ))
             if settings.worker_enabled:
                 runtime.worker.start()
             self._bundle_runtimes[name] = runtime

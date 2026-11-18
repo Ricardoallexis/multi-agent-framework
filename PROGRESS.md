@@ -10,7 +10,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Area | Progress | Items |
 | --- | --- | --- |
 | First public baseline — `M1-B01-F00-alpha` | `██████████` 100% | 15 of 15 |
-| Orchestration and agent runtime | `████░░░░░░` 38% | 5 of 13 |
+| Orchestration and agent runtime | `████░░░░░░` 43% | 6 of 14 |
 | Intelligent model routing | `████░░░░░░` 36% | 5 of 14 |
 | Local and offline AI | `░░░░░░░░░░` 0% | 0 of 9 |
 | Research and knowledge workflows | `█░░░░░░░░░` 14% | 1 of 7 |
@@ -29,7 +29,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Security and privacy | `████░░░░░░` 40% | 4 of 10 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **29%** | **68 of 233** |
+| **All roadmap items** | **29%** | **69 of 234** |
 <!-- progress:table:end -->
 
 ## MVP 1.0 — released in `M1-B03-F01` (package `1.0.0`)

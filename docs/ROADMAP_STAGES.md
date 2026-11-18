@@ -119,11 +119,11 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S4.C1 | Microsoft Agent Framework backend as an optional extra; the core never imports it. | S4.B2 |
 | S4.C2 | Compile workflow definitions to its graph workflows (branching, retries, reusable fragments) instead of building a separate graph engine. | S4.C1 |
 | **S4.D — Scheduling** | | |
-| S4.D1 | Several workers with controlled concurrency. | S4.A2 |
+| S4.D1 | ✅ Several workers with controlled concurrency: an atomic claim of queued runs with a lease, limits per process, in total and per project, recovery of expired leases only, and `multiagent worker --concurrency N`. | S4.A2 |
 | S4.D2 | A resource-aware scheduler (CPU, RAM, GPU/VRAM, provider limits) that works with any backend. | S4.D1 |
 
 **Parallel:** S4.A2 and S4.A3; S4.C and S4.D after S4.B2.
-**Delivered in part:** the interface, the native and Mock backends and the conformance suite (S4.A and S4.B). Runs of a registered bundle still build the native engine directly. The optional Microsoft Agent Framework backend (S4.C) and concurrency (S4.D) remain planned.
+**Delivered in part:** the interface, the native and Mock backends and the conformance suite (S4.A and S4.B). Runs of a registered bundle still build the native engine directly. Several workers with controlled concurrency (S4.D1) are done. The optional Microsoft Agent Framework backend (S4.C) and the resource-aware scheduler (S4.D2) remain planned.
 **Acceptance:** every existing workflow runs unchanged on the native backend; the conformance suite passes for native and Mock; the optional backend installs as an extra and passes the same suite.
 **Example:** `multiagent run --backend native` and, with the extra installed, `--backend maf` produce the same run record.
 
