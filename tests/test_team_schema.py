@@ -304,7 +304,7 @@ def test_example_bundle_with_team_validates(settings: Settings):
     result = services.definitions.validate_bundle("general")
     assert result["bundle"] == "general"
     assert result["valid"] is True
-    assert sorted(result["workflows"]) == ["research_options", "review_checklist", "summarize_document"]
+    assert sorted(result["workflows"]) == sorted(path.stem for path in (GENERAL_BUNDLE / "workflows").glob("*.yaml"))
 
 
 def test_bundle_without_team_is_unchanged(settings: Settings):
