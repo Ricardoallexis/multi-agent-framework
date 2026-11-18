@@ -25,6 +25,8 @@ param(
     # SEG-T15: roots of the local Copilot (session-state\<id>\events.jsonl) and Codex (sessions\**\rollout-*-<id>.jsonl) data.
     [string]$CopilotRoot = (Join-Path $HOME '.copilot'),
     [string]$CodexRoot = (Join-Path $HOME '.codex'),
+    # GEM-T04: root of the local Antigravity CLI data (conversations\<conversation_id>.db).
+    [string]$AgyRoot = (Join-Path $HOME '.gemini\antigravity-cli'),
     [ValidateRange(1, 1440)][int]$ActiveMinutes = 15,
     [ValidateRange(1, 10080)][int]$StoppedMinutes = 60,
     # FLU-T06: a card «en curso» without «Espera» whose newest Historial row is older than this many hours reads «sin actividad».
@@ -38,6 +40,7 @@ $script:apiTimeoutSeconds = $ApiTimeoutSeconds
 $script:subagentRoots = @($SubagentRoots)
 $script:copilotRoot = $CopilotRoot
 $script:codexRoot = $CodexRoot
+$script:agyRoot = $AgyRoot
 $script:activeMinutes = $ActiveMinutes
 $script:stoppedMinutes = $StoppedMinutes
 $script:sinActividadHoras = $SinActividadHoras
@@ -457,6 +460,8 @@ function Get-StageClosure([string]$stageName, [string]$stageText, [object[]]$tas
         if ($state -in @('abierta', 'abierto', 'activa', 'activo', 'en curso', 'open', 'active')) {
             return [pscustomobject]@{ Status = 'active'; Reason = ''; Commit = ''; Report = ''; Stage = $stageName }
         }
+        # SEG-T21: a frozen stage (ALCANCE.md) is neither active nor closed nor unknown.
+        if ($state -eq 'congelada') { return [pscustomobject]@{ Status = 'frozen'; Reason = ''; Commit = ''; Report = ''; Stage = $stageName } }
         return [pscustomobject]@{ Status = 'unknown'; Reason = 'El estado de cierre no está definido o no es reconocible.'; Commit = ''; Report = ''; Stage = $stageName }
     }
 
@@ -576,6 +581,10 @@ function Get-StatusLabel([string]$kind, [object[]]$rows, [string]$closure = '', 
     if ($closure -eq 'cerrada') { return & $make (Get-SharedLabelText 'stage' 'closed' "$kind cerrada") 's-integrada' }
     if ($closure -eq 'sin verificar') { return & $make 'cierre no verificado' 's-unknown' }
     if (-not $rows.Count) { return $null }
+    # SEG-T21: frozen tasks (estado congelada) are set apart: they are neither pending nor available and do not count toward the label.
+    $frozen = @($rows | Where-Object { $_.State -eq 'congelada' })
+    if ($frozen.Count -eq $rows.Count) { return & $make 'Congelada' 's-congelada' }
+    if ($frozen.Count) { $rows = @($rows | Where-Object { $_.State -ne 'congelada' }) }
     # Settled = integrated, or finished with no patch to integrate (analysis deliverables).
     $settled = @($rows | Where-Object { $_.State -eq 'integrada' -or ($_.State -eq 'terminada' -and -not (Test-TaskPatchRequired $_.Patch)) }).Count
     $done = @($rows | Where-Object { $_.State -in 'terminada', 'integrada' }).Count
@@ -654,6 +663,23 @@ $script:WorkerApps = @(
             } }
         ReadModel = { param($file) Read-TranscriptModel $file.FullName { param($rec) if ($rec.type -eq 'turn_context') { Get-StringField $rec.payload @('model') } } @('*"type":"turn_context"*') { param($rec) Get-StringField $rec.payload @('model') } }
         PendingTest = { param($records, $last) Get-CodexPendingTest $records $last } }
+    # GEM-T04 (REGLAS 33): Antigravity (agy). Reference agy:<conversation_id> (UUID). Its activity file is conversations\<id>.db (SQLite: only its
+    # modification time is used, never its content); without it, the json that the orchestrator saves from the run in
+    # orquestacion\herramientas\agy-<n>.json (only its conversation_id is read; its modification time is the end of the run). The model is not
+    # in either source, so ReadModel is $null and the worker keeps its registered name (Antigravity-Flash, -Opus, ...), which already carries it.
+    [pscustomobject]@{ Key = 'agy'; Application = 'Antigravity'; RefPattern = 'agy:[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'; RefId = { param($reference) ($reference -split ':', 2)[1].ToLowerInvariant() }; BarePattern = $null
+        NamePattern = '(?i)\b(?:antigravity|agy)\b'; ShowAppPrefix = $false; TailBytes = 4096
+        FindFile = { param($ref)
+            $path = Join-Path $script:agyRoot "conversations\$($ref.Id).db"
+            if (Test-Path -LiteralPath $path -PathType Leaf) { return Get-Item -LiteralPath $path }
+            $dir = Join-Path $channel 'orquestacion\herramientas'
+            if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return }
+            foreach ($file in @(Get-ChildItem -LiteralPath $dir -File -Filter 'agy-*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)) {
+                try { $head = [IO.File]::ReadAllText($file.FullName) } catch { continue }
+                if ($head -match '"conversation_id"\s*:\s*"(?<id>[0-9A-Fa-f-]{36})"' -and $Matches['id'].ToLowerInvariant() -eq $ref.Id) { return $file }
+            } }
+        ReadModel = $null
+        PendingTest = { param($records, $last) $null } }
 )
 # Any application's reference, for the "[ref: ...]" tail of a delegation row.
 $script:WorkerRefPattern = '(?:' + (($script:WorkerApps | ForEach-Object { $_.RefPattern }) -join '|') + ')'
@@ -1719,7 +1745,7 @@ function Get-AgentBoardData {
                 continue
             }
             $state = (Get-Field $text 'Estado').Trim().ToLowerInvariant()
-            if ($state -notin @('disponible', 'en curso', 'pendiente', 'liberada', 'terminada', 'requiere cambios', 'integrada', 'reabierta')) {
+            if ($state -notin @('disponible', 'en curso', 'pendiente', 'liberada', 'terminada', 'requiere cambios', 'integrada', 'reabierta', 'congelada')) {
                 $issues++
                 Write-Warning "La ficha de tarea $($file.Name) no tiene un estado válido; se omitió."
                 continue
@@ -1958,6 +1984,7 @@ $integrationNoticeHtml = if ($integrationRound.Active) {
 } else { '' }
 
 $boards = ''
+$frozenBoards = ''   # SEG-T21: stages in estado congelada, shown apart
 $archiveBoardEntries = [System.Collections.Generic.List[object]]::new()
 $publicEntries = [System.Collections.Generic.List[object]]::new()
 $uncertainEntries = [System.Collections.Generic.List[object]]::new()
@@ -1997,7 +2024,9 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         $authorized = Get-Field $stageText 'Autorizada'
         $releaseMode = (Get-Field $stageText 'Liberar dependientes').Trim().ToLowerInvariant()
         if ($releaseMode -notin 'probada', 'integrada', 'terminada') { $releaseMode = 'probada' }
-        $done = 0; $total = 0
+        # SEG-T21: a stage in estado congelada: its tasks read congelada, whatever their card says.
+        $stageIsFrozen = -not $stageReadFailed -and (Get-Field $stageText 'Estado').Trim().ToLowerInvariant() -eq 'congelada'
+        $done = 0; $total = 0; $frozenTasks = 0
         $taskReadFailed = $stageReadFailed
         try {
             $taskFiles = @(Get-ChildItem -LiteralPath $stage.FullName -Filter 'T*.md' -File -ErrorAction Stop | Sort-Object Name)
@@ -2049,7 +2078,8 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 Href = ([uri]$file.FullName).AbsoluteUri
                 Missing = ''
             }
-            $total++
+            # SEG-T21: a frozen task is set apart: it is not part of the stage total.
+            if ($state -eq 'congelada') { $frozenTasks++ } else { $total++ }
             if ($state -in 'terminada', 'integrada') { $done++ }
             $left = ''
             if (($state -in 'liberada', 'pendiente', 'reabierta', 'requiere cambios') -and $text -match '(?s)## Qu. falta\s*(.+?)\s*## ') {
@@ -2142,7 +2172,11 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             }
 
             $stateClass = 's-' + ($record.State -replace ' ', '-')
-            $stateCell = if ($record.WaitingFor.Count) {
+            $rowState = $record.State
+            if ($stageIsFrozen -and $record.State -notin 'terminada', 'integrada', 'congelada') { $rowState = 'congelada' }
+            $stateCell = if ($rowState -ne $record.State) {
+                "<span class=""state s-congelada"">congelada</span><div class=""meta"">Etapa congelada · estado en la ficha: $(Encode $record.State)</div>"
+            } elseif ($record.WaitingFor.Count) {
                 "<span class=""state s-bloqueada"">Bloqueada por dependencia</span><div class=""meta"">Espera: $(Encode ($record.WaitingFor -join '; '))</div><div class=""meta"">Estado en la ficha: $(Encode $record.State)</div>"
             } else { "<span class=""state $stateClass"">$(Encode $record.State)</span>" }
             # SEG-T19: a task with a live watcher (tarea), or a pendiente card that says «esperando: ...», reads «En espera de activación».
@@ -2173,7 +2207,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         # SEG-T05: tasks inside a stage follow their code (T01, T02, ...); each row still shows its own last activity.
         $taskRows = @($taskRows | Sort-Object @{ Expression = { if ($_.Id -match '^T(\d+)') { [int]$Matches[1] } else { [int]::MaxValue } } }, @{ Expression = 'Id' })
         # SEG-T07: pending items for the user coming from this stage and its cards.
-        $stageClosedState = (Get-Field $stageText 'Estado').Trim().ToLowerInvariant() -in @('cerrada', 'cerrado', 'closed', 'complete', 'completed')
+        $stageClosedState = (Get-Field $stageText 'Estado').Trim().ToLowerInvariant() -in @('cerrada', 'cerrado', 'closed', 'complete', 'completed', 'congelada')
         if (-not $stageReadFailed -and -not $stageClosedState) {
             $stageFileDate = try { (Get-Item -LiteralPath $stageFile -ErrorAction Stop).LastWriteTime } catch { $null }
             $stageHref = ([uri]$stageFile).AbsoluteUri
@@ -2195,7 +2229,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 $todoDecisions.Add([pscustomobject]@{ Title = $stage.Name; Text = $pideLine; Href = $stageHref; Date = $stageFileDate })
             }
             foreach ($record in $taskRecords) {
-                if ($record.State -in 'terminada', 'integrada') { continue }
+                if ($record.State -in 'terminada', 'integrada', 'congelada') { continue }
                 foreach ($pideLine in @($record.PideLines)) {
                     $todoDecisions.Add([pscustomobject]@{ Title = $record.Id; Text = $pideLine; Href = $record.Href; Date = if ($record.LastRow) { $record.LastRow.Date } else { $record.FileDate } })
                 }
@@ -2233,7 +2267,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         $lastActivityLine = if ($lastActivity) { "<div class=""meta"">Última actividad: $(Encode (Format-ActivityDate $lastActivity.Date)) · $(Encode $lastActivity.Text)</div>" } else { '<div class="meta">Última actividad: sin registro</div>' }
         $pct = if ($total) { [int](100 * $done / $total) } else { 0 }
         # Summary card for every stage that is not verified as closed, built from its task cards.
-        if ($closure.Status -ne 'complete') {
+        if ($closure.Status -notin 'complete', 'frozen') {
             $count = { param($states) @($taskRecords | Where-Object { $_.State -in $states }).Count }
             $integrated = & $count @('integrada')
             $working = @($taskRecords | Where-Object { $_.State -eq 'en curso' } | ForEach-Object { "$($_.Code) ($($_.Agent))" })
@@ -2250,7 +2284,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
 <div class="card">
   <div class="card-head"><span class="gate">$(Encode $stage.Name)</span><span class="pct">$pct%</span></div>
   <div class="bar"><div class="fill" style="width:$pct%"></div></div>
-  <div class="meta">$done de $total terminadas o integradas &middot; $integrated integradas &middot; $available disponibles$(if ($waitingOnDependency) { " &middot; $waitingOnDependency bloqueadas por dependencia" })$(if ($blocked) { " &middot; $blocked en espera o con cambios" })</div>
+  <div class="meta">$done de $total terminadas o integradas &middot; $integrated integradas &middot; $available disponibles$(if ($frozenTasks) { " &middot; $frozenTasks congeladas" })$(if ($waitingOnDependency) { " &middot; $waitingOnDependency bloqueadas por dependencia" })$(if ($blocked) { " &middot; $blocked en espera o con cambios" })</div>
   <div class="goal">$(Encode ($stageTitle -replace '^\S+\s*·\s*', ''))</div>
   <div class="meta">$workingText</div>
   $lastActivityLine
@@ -2268,14 +2302,17 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 $phaseTaskRows = @($taskRows | Where-Object { $phase.TaskIds -contains $_.Id })
                 foreach ($phaseTask in $phaseTaskRows) { [void]$assignedTasks.Add($phaseTask.Id) }
                 $phaseDone = @($phaseTaskRows | Where-Object { $_.State -in 'terminada', 'integrada' }).Count
-                $phaseTaskLabel = if ($phaseTaskRows.Count -eq 1) { 'tarea' } else { 'tareas' }
+                # SEG-T21: frozen tasks are set apart from the phase counts.
+                $phaseFrozen = @($phaseTaskRows | Where-Object { $_.State -eq 'congelada' }).Count
+                $phaseCount = $phaseTaskRows.Count - $phaseFrozen
+                $phaseTaskLabel = if ($phaseCount -eq 1) { 'tarea' } else { 'tareas' }
                 # Phase status: "terminada" is not "integrada" (rule 21 / #131). The badge says which one.
                 # Settled = integrated, or finished with no patch to integrate (analysis deliverables).
                 $phaseIntegrated = @($phaseTaskRows | Where-Object {
                     $_.State -eq 'integrada' -or ($_.State -eq 'terminada' -and -not (Test-TaskPatchRequired $_.Patch))
                 }).Count
                 # SEG-T13: the same label function as the stage header (Get-StatusLabel).
-                $phaseLabel = Get-StatusLabel 'Fase' $phaseTaskRows '' $integrationRound.Since
+                $phaseLabel = if ($stageIsFrozen -and $phaseTaskRows.Count) { [pscustomobject]@{ Text = 'Congelada'; Class = 's-congelada' } } else { Get-StatusLabel 'Fase' $phaseTaskRows '' $integrationRound.Since }
                 $phaseBadge = if ($phaseLabel) { "<span class=""state $($phaseLabel.Class)"">$(Encode $phaseLabel.Text)</span>" } else { '' }
                 $phaseContent = if ($phaseTaskRows.Count) {
                     "$tableHeader$($phaseTaskRows.Html -join "`n")</table>"
@@ -2283,15 +2320,15 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                     '<p class="meta">No hay fichas de tarea que coincidan con esta fase.</p>'
                 }
                 # SEG-T09: collapsible phase. Open only if it is the current one (first phase that is not complete).
-                $phaseComplete = $phaseTaskRows.Count -gt 0 -and $phaseIntegrated -eq $phaseTaskRows.Count
+                $phaseComplete = $phaseCount -gt 0 -and $phaseIntegrated -eq $phaseCount
                 $phaseOpen = $false
-                if (-not $phaseComplete -and -not $currentPhaseFound) { $phaseOpen = $true; $currentPhaseFound = $true }
+                if (-not $phaseComplete -and -not $currentPhaseFound -and -not $stageIsFrozen) { $phaseOpen = $true; $currentPhaseFound = $true }
                 $phaseId = 'seg:' + $stage.Name + ':' + (($phase.Label.ToLowerInvariant() -replace '[^\p{L}\p{Nd}]+', '-').Trim('-'))
                 $phaseSections.Add(@"
 <details class="board-phase seg-phase" data-seg-id="$(Encode $phaseId)"$(if ($phaseOpen) { ' open' })>
-  <summary><h3>$(Encode $phase.Label) $phaseBadge</h3><span class="meta">$phaseDone de $($phaseTaskRows.Count) terminadas o integradas</span></summary>
+  <summary><h3>$(Encode $phase.Label) $phaseBadge</h3><span class="meta">$phaseDone de $phaseCount terminadas o integradas$(if ($phaseFrozen) { " · $phaseFrozen congeladas" })</span></summary>
   <div class="seg-body">
-  <p class="meta">$($phaseTaskRows.Count) $phaseTaskLabel · $phaseDone terminadas o integradas ($phaseIntegrated sin integración pendiente)</p>
+  <p class="meta">$phaseCount $phaseTaskLabel · $phaseDone terminadas o integradas ($phaseIntegrated sin integración pendiente)$(if ($phaseFrozen) { " · $phaseFrozen congeladas aparte" })</p>
   $(if ($phase.Description) { "<p class=""meta"">$(Encode $phase.Description)</p>" })
   $phaseContent
   </div>
@@ -2313,17 +2350,18 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         }
         # SEG-T09: the stage is a collapsible <details>; active stages open, completed ones closed.
         $stageIsComplete = $closure.Status -eq 'complete'
-        $stageOpen = -not $stageIsComplete -and -not $claimsClosed
+        $stageOpen = -not $stageIsComplete -and -not $claimsClosed -and $closure.Status -ne 'frozen'
         $stageStateText = if ($stageIsComplete) { 'cerrada' } elseif ($claimsClosed) { 'cierre no verificado' } else { $sf = (Get-Field $stageText 'Estado').Trim(); if ($sf) { $sf } else { 'activa' } }
         # SEG-T13: the header says what the tasks are doing (same function as the phases); the card's Estado is a secondary datum.
         $stageLabel = Get-StatusLabel 'Etapa' $taskRows $(if ($stageIsComplete) { 'cerrada' } elseif ($claimsClosed) { 'sin verificar' } else { '' }) $integrationRound.Since
+        if ($closure.Status -eq 'frozen') { $stageLabel = [pscustomobject]@{ Text = 'Congelada'; Class = 's-congelada' } }
         $stageEstado = (Get-Field $stageText 'Estado').Trim().ToLowerInvariant()
         $stageStateHtml = if ($stageLabel) {
-            "<span class=""state $($stageLabel.Class)"">$(Encode $stageLabel.Text)</span>" + $(if ($stageEstado -and -not $stageIsComplete -and -not $claimsClosed) { "<span class=""meta seg-estado"">etapa $(Encode $stageEstado)</span>" })
+            "<span class=""state $($stageLabel.Class)"">$(Encode $stageLabel.Text)</span>" + $(if ($stageEstado -and -not $stageIsComplete -and -not $claimsClosed -and $closure.Status -ne 'frozen') { "<span class=""meta seg-estado"">etapa $(Encode $stageEstado)</span>" })
         } else { "<span class=""state s-$($stageStateText -replace '[^\p{L}\p{Nd}]+', '-')"">$(Encode $stageStateText)</span>" }
-        $stateOrder = @('en curso', 'disponible', 'liberada', 'pendiente', 'requiere cambios', 'reabierta', 'terminada', 'integrada')
+        $stateOrder = @('en curso', 'disponible', 'liberada', 'pendiente', 'requiere cambios', 'reabierta', 'congelada', 'terminada', 'integrada')
         $countParts = @($taskRecords | Group-Object State | Sort-Object @{ Expression = { $i = $stateOrder.IndexOf($_.Name); if ($i -lt 0) { 99 } else { $i } } } | ForEach-Object { "$($_.Count) $(Encode $_.Name)" })
-        $stageCountsText = if ($countParts.Count) { $countParts -join ' &middot; ' } else { 'sin tareas' }
+        $stageCountsText = if ($stageIsFrozen -and $taskRecords.Count) { "$($taskRecords.Count) tareas, todas aparte" } elseif ($countParts.Count) { $countParts -join ' &middot; ' } else { 'sin tareas' }
         $stageWorkers = foreach ($r in @($taskRecords | Where-Object { $_.State -eq 'en curso' })) {
             # SEG-T13: the agent in charge of the task is named besides the worker.
             if (@($r.ActiveDelegations).Count) { foreach ($d in $r.ActiveDelegations) { "$(Encode $r.Code)$(if ($r.Agent.Trim() -and $r.Agent.Trim() -ne '-') { " · a cargo de $(Encode $r.Agent.Trim())" }) · $(Encode (Format-ActiveDelegation $d))" } }
@@ -2345,7 +2383,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
   <p class="meta">Autorizada: $(Encode $authorized) &middot; terminadas o integradas: $done de $total</p>
   <p class="meta">Integración: un parche entregado queda pendiente hasta que la ficha registre integrada; sin parche no implica integración pendiente. El commit y la fecha se muestran solo si constan en la ficha y su historial.</p>
   $(if (@($taskRecords | Where-Object { $_.WaitingFor.Count }).Count) { "<p class=""meta"">Bloqueada por dependencia: la ficha dice disponible, pero una dependencia todavía no libera a sus dependientes (regla 27, modo &laquo;$(Encode $releaseMode)&raquo;). Es lo mismo que comprueba tomar-tarea.ps1.</p>" })
-  <p class="meta">Cierre: $(if ($closure.Status -eq 'complete') { 'verificado' } elseif ($closure.Status -eq 'active') { 'etapa activa' } else { 'no verificado — ' + (Encode $closure.Reason) })</p>
+  <p class="meta">Cierre: $(if ($closure.Status -eq 'complete') { 'verificado' } elseif ($closure.Status -eq 'active') { 'etapa activa' } elseif ($closure.Status -eq 'frozen') { 'etapa congelada (no cuenta como pendiente ni disponible)' } else { 'no verificado — ' + (Encode $closure.Reason) })</p>
   $taskGroups
   </div>
 </details>
@@ -2382,6 +2420,8 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
 "@ })
             }
             $boards += $boardHtml
+        } elseif ($closure.Status -eq 'frozen') {
+            $frozenBoards += $boardHtml
         } else {
             $boards += $boardHtml
         }
@@ -2392,6 +2432,8 @@ if (-not $boards) {
         elseif (Test-Path -LiteralPath $tasksDir) { '<section class="panel">Sin etapas activas en el tablero.</section>' }
         else { '<section class="panel">El tablero de tareas no está disponible.</section>' }
 }
+# SEG-T21: frozen stages go in their own section after the active ones (not counted as pending or available).
+$frozenSection = if ($frozenBoards) { "<h2 class=""seg-frozen-title"">Etapas congeladas</h2><p class=""meta"">Congeladas por el alcance vigente: no cuentan como pendientes ni como disponibles.</p>$frozenBoards" } else { '' }
 # SEG-T04: closed stages, newest closure first; stages without a date go last.
 $archiveBoards = (Sort-NewestFirst $archiveBoardEntries | ForEach-Object Html) -join ''
 $uncertainBoards = (Sort-NewestFirst $uncertainEntries | ForEach-Object Html) -join ''
@@ -2861,6 +2903,8 @@ summary { cursor:pointer; }
 .s-terminada { background:#bfe8d3; color:#10442b; }
 .s-integrada { background:var(--ok); color:#fff; }
 .s-disponible { background:var(--accent-soft); border:1px solid var(--accent); }
+.s-congelada { background:var(--accent-soft); color:var(--muted); border:1px solid var(--line); font-style:italic; }
+.seg-frozen-title { margin:22px 0 4px; font-size:18px; }
 .s-idle { background:var(--accent-soft); color:var(--muted); }
 .s-unknown { background:var(--warn-bg); border:1px solid var(--warn-line); }
 .s-bloqueada { background:var(--accent-soft); color:var(--muted); border:1px dashed var(--warn-line); }
@@ -2955,7 +2999,7 @@ $($userWaits.Html)
     $integrationPanel
     $(if ($archiveLinks.Count) { "<section class=""panel todo""><h2>Etapas completadas</h2>$($archiveLinks -join "`n")</section>" })
   </div>
-  <div class="tab" id="tareas"><div class="seg-toolbar"><button type="button" class="seg-btn" data-seg-action="expand" data-seg-scope="tab">Expandir todo</button> <button type="button" class="seg-btn" data-seg-action="collapse" data-seg-scope="tab">Compactar todo</button></div>$($boards -join "`n")</div>
+  <div class="tab" id="tareas"><div class="seg-toolbar"><button type="button" class="seg-btn" data-seg-action="expand" data-seg-scope="tab">Expandir todo</button> <button type="button" class="seg-btn" data-seg-action="collapse" data-seg-scope="tab">Compactar todo</button></div>$($boards -join "`n")$frozenSection</div>
   <div class="tab" id="agentes">$agentsView</div>
   <div class="tab" id="ideas">$ideasView</div>
   <div class="tab" id="cloud">

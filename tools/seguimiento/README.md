@@ -24,9 +24,15 @@ post-preparation state changes remain explicit operator actions.
 
 Quien orquesta y quien trabaja pueden ser de aplicaciones distintas (regla 33 del canal). La pestaña «Agentes» muestra cada trabajador delegado y activo en la tarjeta de SU aplicación («trabajando para <orquestador> en <tarea>», con su modelo, su actividad real y sus tokens por ventana), además de su línea en las delegaciones del orquestador. Una tarjeta de aplicación no dice «sin actividad» mientras tenga trabajadores activos; un trabajador «probablemente detenido» se lista pero no cuenta como activo.
 
-La aplicación sale de la referencia del trabajador (`agent-` Claude, `copilot:` Copilot, `codex:` Codex) y, sin referencia, del nombre del trabajador («Copilot gpt-6-luna»). Sólo se leen horas, estado y nombres de modelo de los archivos de actividad, nunca su contenido.
+La aplicación sale de la referencia del trabajador (`agent-` Claude, `copilot:` Copilot, `codex:` Codex, `agy:` Antigravity) y, sin referencia, del nombre del trabajador («Copilot gpt-6-luna»). Sólo se leen horas, estado y nombres de modelo de los archivos de actividad, nunca su contenido.
 
 Hay UNA tabla de aplicaciones, `$script:WorkerApps` en `ver-seguimiento.ps1`. Agregar una aplicación es agregar una entrada, sin casos especiales por agente: `Key`, `Application` (nombre de su tarjeta), `RefPattern` y `RefId` (su referencia), `BarePattern`, `NamePattern`, `ShowAppPrefix`, `TailBytes`, `FindFile` (dónde está su archivo de actividad), `ReadModel` (cómo se lee su modelo) y `PendingTest` (cómo se detecta una prueba en ejecución). Las pruebas están en `tests/SEG-T17/`.
+
+Antigravity (`agy`, GEM-T04): su referencia es `agy:<conversation_id>` (UUID) y sus trabajadores se llaman `Antigravity-<familia>`. Su actividad sale de la hora de modificación de `conversations\<id>.db` bajo `-AgyRoot` (por omisión `~\.gemini\antigravity-cli`) o, si no está, del json que el orquestador guarda en `orquestacion\herramientas\agy-<n>.json` (sólo se lee su `conversation_id`). El modelo no consta en esas fuentes: el trabajador conserva su nombre registrado, que ya lo lleva. Falta el lector de sesiones de GEM-T04 (multiagent/sessions/).
+
+## Etapas y tareas congeladas
+
+El estado `congelada` (ALCANCE.md) se reconoce en fichas de tarea y de etapa. Una tarea congelada se muestra con su propia insignia y no cuenta como pendiente, disponible ni en el total de su etapa; una etapa congelada sale en una sección aparte («Etapas congeladas»), plegada, sin tarjeta de resumen, sin pendientes para ti y sin aviso.
 
 ## Actividades fuera de tareas
 
