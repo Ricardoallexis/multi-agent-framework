@@ -12,6 +12,12 @@ from ..config import LOCAL_ROOT
 from .detect import CONTEXTS, detect
 
 
+def guided_command(args) -> None:
+    from .guided import guide_step
+
+    print(json.dumps(guide_step(args.app, args.setup_action, context="user_console"), ensure_ascii=False, indent=2))
+
+
 def command(args) -> None:
     # Use the existing LOCAL_DIR override/default without loading .env (which can
     # contain provider credentials). Never inspect an existing evidence file.
@@ -42,3 +48,8 @@ def add_parser(subparsers) -> None:
     parser.add_argument("--claude-path", help="Explicit absolute Claude executable outside the working folder")
     parser.add_argument("--include-antigravity", action="store_true", help="Informational detection only")
     parser.set_defaults(func=command)
+    steps = parser.add_subparsers(dest="setup_action")
+    for name in ("install", "login"):
+        item = steps.add_parser(name, help=f"Open a visible console for the {name} step, then recheck")
+        item.add_argument("app", choices=("claude", "codex", "copilot") + (("agy",) if name == "login" else ()))
+        item.set_defaults(func=guided_command)
