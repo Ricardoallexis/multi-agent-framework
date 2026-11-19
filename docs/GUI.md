@@ -240,6 +240,13 @@ revision, closed proposal or existing task id) the view notifies the operator
 and reloads the proposal. It reads `GET /gui/api/plan-proposals` and
 `/plan-proposals/{id}`, and acts via `POST /gui/api/plan-proposals/{id}/edit`,
 `/reassign`, `/approve` and `/reject`.
+An approved proposal shows **Avanzar plan**. After a confirmation it calls
+`POST /gui/api/plan-proposals/{id}/advance` (no body; the server fixes the actor
+and channel as above) and says which tasks moved, or that there was nothing to
+advance, which is not an error. It advances once: press it again after a task's
+run finishes. If a bundle's tasks use `role:` steps and its team is not approved,
+approval is refused with `team_not_approved` and nothing is created; approve the
+team first (see [planning](PLANNING.md#approve-the-team-first)).
 See [planning](PLANNING.md) for proposal creation, approval, execution, and
 current limits.
 
@@ -269,6 +276,7 @@ The token-protected GUI routes these views use:
 | `POST /gui/api/teams/versions/{id}/approve`, `/reject` | Decide a proposed team version with an optional `note`; the actor (`user:operator`) and channel (`gui`) are fixed by the server. |
 | `GET /gui/api/plan-proposals`, `/plan-proposals/{id}` | List saved plan proposals (optional `status`, `group_id`) and read one proposal with its tasks and history. |
 | `POST /gui/api/plan-proposals/{id}/edit`, `/reassign`, `/approve`, `/reject` | Edit tasks, reassign one task, approve or reject a plan proposal; `user:operator` and `gui` are fixed by the server. |
+| `POST /gui/api/plan-proposals/{id}/advance` | Advance the plan of an approved proposal once («Avanzar plan»); a proposal that is not approved is a conflict, and nothing to advance is not an error. |
 | `GET /gui/api/runs/{id}/usage` | Token and cost details for the right panel. |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts` | Completed attempts of one step (producer, input, output, review, tokens). |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts/compare?a=1&b=2` | Field-by-field and unified line diff between two completed attempts. |
@@ -288,7 +296,12 @@ selector defaults to «Sin modo» (same behavior as before, inheriting any
 `mode` from the bundle's approved `team.yaml`) and sends `operating_mode`
 (`supervised` or `autonomous`) to `POST /gui/api/runs` only when a mode is
 chosen.
-Run details show skipped steps, counters, and human-action history. When a run
+Run details show skipped steps, counters, and human-action history. Each action
+shows who took it and through which channel, as the event recorded them: the GUI
+records `user:operator` and `gui` (shown as «Operador · gui»), and an approval
+sent through the API or the CLI shows `api`. The text is what the caller declared,
+not a verified identity, and an event written before actors were recorded shows
+«Sin dato». When a run
 has an `operating_mode_set` event, the run detail header shows the effective
 mode and whether it came from the run or the bound team; when no mode is set,
 nothing extra is shown (see [Run operating modes](PERMISSIONS.md#run-operating-modes)). When a

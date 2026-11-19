@@ -14,6 +14,13 @@ catalog evidence declares support for it. Unknown support does not become an ass
 currently unknown and is not sent from a profile. A value explicitly supplied by a caller remains visible in the
 attempt record, while an adapter may report that it did not use that value.
 
+**Copilot needs a model.** A Copilot CLI launch or resume without a model is refused with `model_required` before any
+command line or prompt file is built, so Copilot never falls back to its own default model (which can be a Claude
+model). A resume uses the model recorded for the session, and is refused when none is recorded. The other refusals
+stay: a Claude model is `claude_model_rejected`, a model that is not a plain id is `invalid_model`, and the privacy
+check still runs. Pass `model`, or let the assignment profile's routing decision supply one. The framework sets no
+spending cap on a Copilot run (`--max-ai-credits` is not used).
+
 The service uses read permission by default. A task with a file scope may receive write permission inside its task
 work folder. The folder comes from the task/executor configuration or the framework's task work-folder root; invalid
 folders are refused. The adapters use a fixed prompt template and pass the canonical task envelope through stdin or a

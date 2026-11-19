@@ -230,10 +230,10 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S8.B2 | ◐ Done: executor attempts, routing evidence, and results are recorded as team events; reviews and the reason for an assignment are not. | S8.A2 |
 | **S8.C — Assignment** | | |
 | S8.C1 | ◐ Partial. T15 adds descriptor-based policy preview and guarded claims filtered by declared capabilities, roles, permissions, modes, and privacy. Bundled surfaces remain manual/unknown, so availability and execution are not established. | S8.A1, S5.C2 |
-| S8.C2 | ◐ Partial. T14/T15 apply configured mode, permission, privacy, and invocation-budget constraints; unmapped canonical constraints block. ORQ-6 provides task launch, resume, and open operations through disabled-by-default Claude, Codex, and Copilot adapters, and GEM-T03 adds the supervised Antigravity (`agy`) adapter, which launches tasks only (`multiagent/executors/antigravity.py`). CI uses synthetic executables; installed CLI and live account, session, or app behavior have not been verified. See [executor applications](EXECUTORS.md). | S8.C1 |
+| S8.C2 | ◐ Partial. T14/T15 apply configured mode, permission, privacy, and invocation-budget constraints; unmapped canonical constraints block. ORQ-6 provides task launch, resume, and open operations through disabled-by-default Claude, Codex, and Copilot adapters, and GEM-T03 adds the supervised Antigravity (`agy`) adapter, which launches tasks only (`multiagent/executors/antigravity.py`). Copilot launches and resumes need an explicit non-Claude model (`model_required`). CI uses synthetic executables; installed CLI and live account, session, or app behavior have not been verified. See [executor applications](EXECUTORS.md). | S8.C1 |
 | **S8.D — Assisted planning** | | |
 | S8.D1 | ✅ Named pluggable planners: manual, deterministic, and model backed through the existing router and call guards; trusted code can register another. External planner integration and automatic planning remain open. S8.B1 remains partial ([planning](PLANNING.md)). | S8.B1 |
-| S8.D2 | ✅ Saved proposals wait for a `user:` decision; users can edit, reassign, approve, or reject them through Python, API, CLI, and the Planes GUI. Approval creates tasks and starts ready runs through the existing engine. S13.B1 remains partial: no risk level or project context. Group and task creation is not atomic ([planning](PLANNING.md)). | S8.D1, S13.B1 |
+| S8.D2 | ✅ Saved proposals wait for a `user:` decision; users can edit, reassign, approve, or reject them through Python, API, CLI, and the Planes GUI. Approval creates tasks and starts ready runs through the existing engine, but only once each bundle that uses `role:` steps has an approved team (`team_not_approved` otherwise), and an approved proposal can be advanced by its id from Python, API, CLI, and GUI. S13.B1 remains partial: no risk level or project context. Group and task creation is not atomic ([planning](PLANNING.md)). | S8.D1, S13.B1 |
 | S8.D3 | Automatic planning within declared limits. | S8.D2 |
 | **S8.E — Adaptation** | | |
 | S8.E1 | Replanning on failure, rejection, unavailability, or new information. | S8.D2 |
@@ -277,7 +277,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S10.A — Telemetry** | | |
-| S10.A1 | ◐ Partial. Routing decisions, requested/applied effort, bounded-escalation events, and estimated call cost from token counts and valid catalog price evidence are recorded; retries and token estimates are not yet fully delivered. | — |
+| S10.A1 | ◐ Partial. Routing decisions, requested/applied effort, bounded-escalation events, and estimated call cost from token counts and valid catalog price evidence are recorded; Gemini usage is read from the Interactions API fields and stays unknown when not reported; retries and token estimates are not yet fully delivered. | — |
 | S10.A2 | ✅ Exportable run reports in JSON or Markdown (`multiagent run-report`, `GET /api/v1/runs/{run_id}/report`, `multiagent/services/reports.py`); usage records export as JSONL and routing runs as normalized JSONL or CSV. | — |
 | **S10.B — Standards** | | |
 | S10.B1 | ◐ Partial: telemetry attaches through the backend interface; native emits run, step, provider call and tool call spans, while Mock emits run, step and zero-token chat spans. Token and duration metrics use GenAI attributes; telemetry is optional and off by default. | S10.A1, S4.A1 |
@@ -373,7 +373,7 @@ discovery, local model expansion, and the other planned items remain open. See
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S13.A — Review** | | |
-| S13.A1 | ◐ Done: pending decisions appear as cards in the GUI and settle through approve and reject. | — |
+| S13.A1 | ◐ Done: pending decisions appear as cards in the GUI and settle through approve and reject; a run approval records who gave it and through which channel. | — |
 | S13.A2 | ✅ Revision history and comparisons between attempts (`step_attempts`, `compare_attempts`, `multiagent attempts`, «Comparar» in the GUI run detail). Failed attempts without output and the full prompt sent to a model are not stored yet. | — |
 | S13.A3 | ✅ Comments and structured feedback passed safely into later attempts (`comments` on a change request, with quotes of the output wrapped as untrusted data; who and which channel are recorded). | S13.A2 |
 | **S13.B — Policy** | | |

@@ -69,12 +69,36 @@ Saving and editing may identify a user, person, agent, or executor as actor.
 Only an actor whose ID starts with `user:` can approve or reject. Approval
 creates the task group if needed, creates tasks with their dependencies, and
 calls `services.plans.advance` once to start ready runs. Further progress
-requires another `advance` call. History records save, edit, reassign,
+requires another `advance` call (see [Advance by proposal](#advance-by-proposal)).
+History records save, edit, reassign,
 approve, and reject with actor, time, channel, note, revision, and task changes
 for edits. Approval and rejection also attempt to write a decision to
 `services.decisions`; the response includes `decision_id`, or
 `decision_record_error` if that separate write fails. See
 [decisions in the API guide](API.md).
+
+### Approve the team first
+
+A task can use workflow steps with `role:`, which need an approved team for
+the bundle (see [teams](TEAMS.md)). Before it creates anything, `approve`
+checks that every bundle with such steps has an approved team version. If one
+does not, approval fails with a `team_not_approved` conflict (HTTP 409) that
+lists each bundle and the roles it needs under `blockers`. No group or task is
+created and the proposal stays `proposed`, so approve the team and then the
+plan. `get` and `list` carry the same `blockers` list (empty when none), so a
+client can warn before approval. The check reuses the step-role binding that
+a run uses; it does not copy it.
+
+### Advance by proposal
+
+For an approved proposal, `services.plan_proposals.advance(proposal_id,
+actor=..., channel=...)` advances the plan saved in the proposal, so the plan
+document does not have to be kept in a file. It returns the plan status, the
+tasks that moved under `advanced`, and `nothing_to_advance`. When nothing
+moved, `nothing_to_advance` is true and the call is not an error. A proposal
+that is not approved is a conflict (`not_approved`). A task that finished is
+moved on by the next call, not by a background worker. The call does not add
+an entry to the proposal's history.
 
 ## CLI
 
@@ -96,8 +120,14 @@ multiagent plan reject PROPOSAL_ID --actor user:ana --note "Needs a new scope"
 `revised.json` contains the full replacement `tasks` list (or an object
 with that key). The approval and rejection lines are alternatives for a
 proposed ID. The CLI defaults the proposal actor to `user:local` and records
-the channel as `cli`. To inspect and continue an approved plan, save its
-`plan` object as `plan.json` and run:
+the channel as `cli`. To advance an approved proposal, name it:
+
+```text
+multiagent plan advance --proposal PROPOSAL_ID --actor user:ana
+```
+
+To inspect and continue a plan from its document, save the `plan` object as
+`plan.json` and run:
 
 ```text
 multiagent plan status plan.json
@@ -127,7 +157,10 @@ Send that body to `POST /api/v1/plan-proposals/{id}/approve`. For an
 existing task group, `POST /api/v1/plans/status` accepts
 `{"document":{...}}`, and `POST /api/v1/plans/advance` adds
 `"actor":"user:ana"`. Both use the `multiagent.plan/1` document, such as
-the `plan` field in a proposal. The [API reference](API.md) lists every route.
+the `plan` field in a proposal. To advance an approved proposal without its
+document, send `{"actor": "user:ana"}` (and optionally `"channel"`) to
+`POST /api/v1/plan-proposals/{id}/advance`. The [API reference](API.md) lists
+every route.
 
 ## GUI
 
@@ -136,7 +169,9 @@ them by status. Open a proposal to inspect tasks, dependencies, assignment,
 revision, and history. While it is proposed, edit the task list, reassign a
 task, or approve or reject it; the view asks for confirmation and an optional
 note. The server records actor `user:operator` and channel `gui`. A stale
-revision reloads the proposal. The GUI reviews saved proposals; use Python,
+revision reloads the proposal. An approved proposal shows **Avanzar el plan**:
+after a confirmation it advances the plan once and says which tasks moved, or
+that there was nothing to advance. The GUI reviews saved proposals; use Python,
 CLI, or the HTTP API to propose and save one first.
 
 ## Current limits

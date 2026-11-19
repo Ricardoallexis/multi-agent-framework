@@ -17,6 +17,13 @@ provider, model, and creation time. It may also include:
 - prompt identity metadata (ID, version, and SHA-256 hash);
 - success or failure and the error type.
 
+Gemini reports usage under the Interactions API names `total_input_tokens`,
+`total_output_tokens`, `total_thought_tokens` and `total_cached_tokens`. The
+adapter reads those, with the older `input_tokens` and `prompt_tokens` style
+names as a fallback. Thinking tokens are added to the output count and also
+noted in the attempt metadata as `thought_tokens`. If a call reports no usage,
+the record keeps the tokens unknown (`null`), not 0.
+
 Token counts are nullable by design. A human-guided step has
 `provider: "human"` and no provider token counts. A provider failure is
 recorded when possible, including the attempt number. Missing usage is not

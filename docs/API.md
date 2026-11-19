@@ -165,9 +165,9 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `GET` | `/api/v1/plan-proposals/{id}` | Read one proposal, its revision and its history. |
 | `POST` | `/api/v1/plan-proposals/{id}/edit` | Replace its tasks; needs `expected_revision`. |
 | `POST` | `/api/v1/plan-proposals/{id}/reassign` | Change one task's `preferred`, `workflow` or `bundle`; needs `expected_revision`. |
-| `POST` | `/api/v1/plan-proposals/{id}/approve` | A `user:` actor approves the current revision: tasks are created and ready ones get runs. |
+| `POST` | `/api/v1/plan-proposals/{id}/approve` | A `user:` actor approves the current revision: tasks are created and ready ones get runs. If a bundle with `role:` steps has no approved team, it answers `409 team_not_approved` with `blockers` (`[{bundle, roles}]`) and creates nothing; `get` and `list` carry the same `blockers`. |
 | `POST` | `/api/v1/plan-proposals/{id}/reject` | A `user:` actor rejects it with a note; it takes no more changes. |
-| `POST` | `/api/v1/plan-proposals/{id}/advance` | Advance the plan of an approved proposal once with `{"actor", "channel"?}`. A proposal that is not approved is a conflict; with nothing to move it answers `nothing_to_advance: true`. |
+| `POST` | `/api/v1/plan-proposals/{id}/advance` | Advance the plan of an approved proposal once with `{"actor", "channel"?}`. A proposal that is not approved is a conflict (`not_approved`); with nothing to move it answers `nothing_to_advance: true`, and `advanced` lists the tasks that moved. The CLI is `multiagent plan advance --proposal <id> --actor <actor>`. |
 | `GET` | `/api/v1/team-events` | List team events; optional `after`, `group`, `task`, and `limit` (1–1000). |
 | `GET` | `/api/v1/tasks/{task_id}/gate` | Get the task's effective gate, its source (task, group, or none), and its last run. |
 | `PUT` | `/api/v1/tasks/{task_id}/gate` | Set the task's own gate with `{"checks", "actor"}`; an empty list removes it. |
@@ -248,6 +248,11 @@ Run reports (`GET /api/v1/runs/{run_id}/report`, `multiagent run-report`) also
 include a `reviews` section listing `checkpoint`, `human_approved`,
 `human_revision`, and `human_rejected` events with `step_id`, `attempt`,
 `actor`, and `timestamp`.
+`human_approved` records `by` and `channel` as `human_revision` does (and as a
+tool approval does): the GUI route sends `user:operator` and `gui`, and the API
+route, including the CLI, sends `api`. The values are what the caller declared;
+they are not verified. Events written before this change have no `by` or
+`channel`.
 For `human_revision`, the event also records the original `feedback`, structured
 `comments`, `by`, and `channel` (`api` for this unauthenticated route, including
 the CLI; `gui` for the GUI route). The report exposes `channel` and
