@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from multiagent.call_guards import Pause, Proceed, Stop
 from multiagent.document_trust import BlobSink
 from multiagent.tasks.envelopes import blob_ref, canonical_json, envelope_sha256
-from .contracts import (RETRYABLE_CODES, ToolError, ToolErrorCode, ToolRequest, ToolResult,
+from .contracts import (RETRYABLE_CODES, ToolError, ToolErrorCode, ToolExecutionError, ToolRequest, ToolResult,
                         ToolSpec)
 from .permissions import InvalidArguments, check_call
 from .registry import ToolLookupError, ToolRegistry, validate_structure
@@ -166,6 +166,8 @@ class ToolInvoker:
         try:
             output = registered.executor(json.loads(arg_bytes), request.context, should_cancel=should_cancel)
         except Exception as exc:
+            # Only the framework's own executor error carries a stable code into the event; other exceptions stay opaque.
+            details = {"code": exc.code} if isinstance(exc, ToolExecutionError) else None
             message = str(exc).encode("utf-8")
             digest_message = hashlib.sha256(message).hexdigest()
             try:
@@ -180,7 +182,8 @@ class ToolInvoker:
                                      duration=int((self.clock()-start)*1000), message_sha=digest_message,
                                      details={"stage": "blob_sink", "executed": True}, blobs=blobs)
             return self._failure(request, spec.version, digest, ToolErrorCode.EXECUTION_FAILED, "failed",
-                                 duration=int((self.clock()-start)*1000), message_sha=digest_message, blobs=blobs)
+                                 duration=int((self.clock()-start)*1000), message_sha=digest_message,
+                                 details=details, blobs=blobs)
         duration = int((self.clock() - start) * 1000)
         if duration > deadline * 1000:
             return self._failure(request, spec.version, digest, ToolErrorCode.TIMEOUT, "failed", duration=duration, blobs=blobs)

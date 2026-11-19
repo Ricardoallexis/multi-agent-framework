@@ -77,6 +77,16 @@ class ToolErrorCode(str, Enum):
 RETRYABLE_CODES = frozenset({ToolErrorCode.TIMEOUT, ToolErrorCode.EXECUTION_FAILED})
 
 
+class ToolExecutionError(RuntimeError):
+    """Domain failure raised by a local tool executor with a stable ``code`` for event ``details``."""
+
+    def __init__(self, code: str, message: str = "") -> None:
+        if not isinstance(code, str) or not code or len(code) > 120:
+            raise ValueError("Invalid tool execution error code")
+        self.code = code
+        super().__init__(message or code)
+
+
 class SchemaRef(ToolModel):
     schema_id: str
     json_schema: dict[str, JsonValue]

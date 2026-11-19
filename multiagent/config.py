@@ -189,6 +189,9 @@ class Settings(BaseSettings):
     # Local, trusted file of named project commands for task gates (ORQ-2);
     # empty means <local_dir>/project_commands.toml. Never read from a task or a request.
     project_commands_file: Optional[Path] = None
+    # ARC-T01: optional workspace folder exposed to the built-in ``file.*`` workflow tools (no git required).
+    # Empty means no file tool is registered; set to confine list/read/write/move strictly inside this resolved folder.
+    file_tools_root: Optional[Path] = None
 
     # GUI (/gui): local access token file (empty means ~/.multiagent/gui-token) and SSE timing.
     gui_token_file: Optional[Path] = None
@@ -457,8 +460,8 @@ class Settings(BaseSettings):
             normalized.append(host)
         return list(dict.fromkeys(normalized))
 
-    @field_validator("assets_dir", "integration_marker", "antigravity_kill_switch", "antigravity_lock_file",
-                     mode="before")
+    @field_validator("assets_dir", "file_tools_root", "integration_marker", "antigravity_kill_switch",
+                     "antigravity_lock_file", mode="before")
     @classmethod
     def _empty_path_is_unset(cls, value):
         # An empty variable (``INTEGRATION_MARKER=``) means "not set", not ``Path("")``, which is the current folder.
@@ -474,6 +477,8 @@ class Settings(BaseSettings):
         self.runs_dir = Path(self.runs_dir or self.data_dir / "runs").resolve()
         self.assets_dir = Path(self.assets_dir or self.data_dir / "assets").resolve()
         self.project_commands_file = Path(self.project_commands_file or self.local_dir / "project_commands.toml").resolve()
+        if self.file_tools_root is not None:
+            self.file_tools_root = Path(self.file_tools_root).expanduser().resolve()
         self.executor_workdir_root = Path(self.executor_workdir_root or self.local_dir / "executor_runs").resolve()
         self.integration_marker = Path(self.integration_marker
                                        or self.data_dir / "watchers" / "integration.lock").expanduser().resolve()

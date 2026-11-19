@@ -18,6 +18,7 @@ from .db.store import Store
 from .model_router import ModelRouter
 from .prompts import PromptManager
 from .run_service import RunService
+from .tools.files import register_file_tools
 from .tools.mock import register_mock_tools
 from .tools.registry import ToolRegistry
 from .workflow_engine import WorkflowEngine
@@ -62,6 +63,8 @@ def build_system(settings: Settings | None = None, *, dry_run: bool = False, ada
     router = ModelRouter(catalog, adapters, dry_run=dry_run or settings.mock_mode)
     tool_registry = ToolRegistry()
     register_mock_tools(tool_registry)
+    if settings.file_tools_root is not None:
+        register_file_tools(tool_registry, settings.file_tools_root)
     workflows = WorkflowCatalog(settings)
     artifacts = ArtifactWriter(settings)
     context = BackendContext(
