@@ -223,7 +223,8 @@ came (for example `invalid_state` when the proposal was already decided). Propos
 a version stays in `multiagent team propose` and the API. It reads
 `GET /gui/api/teams`, `/teams/{bundle}/versions`, `/teams/versions/{id}` and
 `/teams/{bundle}/org-chart?version_id=`, and decides with
-`POST /gui/api/teams/versions/{id}/approve` and `/reject` (body `{"note"?}`).
+`POST /gui/api/teams/versions/{id}/approve` and `/reject` (body `{"note"?}`). See
+[`TEAMS.md`](TEAMS.md).
 
 The **Mapa** view (`#map`) combines projects, stages and tasks with linked
 sessions and their children. `GET /gui/api/map?project=<id>&only=active|all`

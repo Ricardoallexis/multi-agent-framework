@@ -16,7 +16,7 @@ from ..external_output import canonical_json, sha256
 from ..teams.org_chart import build_org_chart, render_mermaid
 from ..teams.schema import TeamDefinitionError
 from .errors import INVALID_DEFINITION, ServiceError, service_errors
-from .memory import MAX_BODY_CHARS, _CONTROL
+from .memory import MAX_BODY_CHARS, MAX_TITLE_CHARS, _CONTROL
 from .projects import actor_kind
 from .tasks import _conflict, _invalid, _missing, _text
 
@@ -130,6 +130,18 @@ def compute_team_diff(
         "assignments": assignments,
         "relationships": relationships,
     }
+
+
+def _diff_summary(diff: dict[str, Any]) -> str:
+    parts = []
+    for section in ("roles", "members", "assignments", "relationships"):
+        bucket = diff[section]
+        parts.append(
+            f"{section}: {len(bucket['added'])} added, "
+            f"{len(bucket['removed'])} removed, "
+            f"{len(bucket['changed'])} changed"
+        )
+    return "; ".join(parts)
 
 
 def _view(
@@ -310,7 +322,31 @@ class TeamServices:
             updated = self.store.update(conn, version_id, **fields)
         current_id = updated["id"] if target == "approved" else (prior_approved["id"] if prior_approved else None)
         diff = self._diff_against_row(prior_approved, updated) if target == "approved" else None
-        return _view(updated, current_approved_id=current_id, diff=diff)
+        result = _view(updated, current_approved_id=current_id, diff=diff)
+        record_diff = diff if diff is not None else self._diff_against_row(prior_approved, updated)
+        body = "\n".join([
+            f"bundle: {updated['bundle']}",
+            f"sha256: {updated['sha256']}",
+            f"diff: {_diff_summary(record_diff)}",
+        ])[:MAX_BODY_CHARS]
+        outcome = f"{target}: {note}"[:MAX_BODY_CHARS] if note else target
+        try:
+            decision = self._services.decisions.record_review(
+                title=f"Team {updated['team_id']} version {updated['version']}"[:MAX_TITLE_CHARS],
+                body=body,
+                proposed_by=updated.get("proposed_by") or updated["created_by"],
+                decided_by=actor,
+                accepted=target == "approved",
+                outcome=outcome,
+                team_id=updated["team_id"],
+                project=updated["bundle"],
+            )
+        except Exception as exc:
+            result["decision_id"] = None
+            result["decision_record_error"] = type(exc).__name__
+        else:
+            result["decision_id"] = decision["id"]
+        return result
 
     @service_errors
     def approve(

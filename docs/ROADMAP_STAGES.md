@@ -166,11 +166,11 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | --- | --- | --- |
 | **S6.A — Definitions** | | |
 | S6.A1 | ✅ Team definition schema: roles (purpose, rules, skills, contracts, capabilities, permissions), members, assignments, relationships (`multiagent/teams/`, an optional `team.yaml` in a bundle). | S5.C1 |
-| S6.A2 | ✅ Validation with the bundle rules and least-privilege permissions (`multiagent/teams/validation.py`, in `validate_bundle`, `POST /api/v1/bundles/{name}/validate` and `multiagent bundle validate`). | S6.A1 |
-| S6.A3 | ✅ Human approval before a team is created or changed: versions of a bundle's `team.yaml` (migration 015, `services.teams`), proposed after validation, approved or rejected only by a `user:` actor, with a structural diff against the approved version; a new run of the bundle records the approved version in a `team_version_bound` event. | S6.A2 |
+| S6.A2 | ✅ Validation with the bundle rules and least-privilege permissions (`multiagent/teams/validation.py`, in `validate_bundle`, `POST /api/v1/bundles/{name}/validate` and `multiagent bundle-validate`). | S6.A1 |
+| S6.A3 | ✅ Human approval before a team is created or changed: versions of a bundle's `team.yaml` (migration 015, `services.teams`), proposed after validation, approved or rejected only by a `user:` actor, with a structural diff against the approved version and decision-register entries; a new run of the bundle records the approved version in a `team_version_bound` event. | S6.A2 |
 | **S6.B — Views** | | |
 | S6.B1 | ✅ Render the organization chart (for example Mermaid) from relationships: `render_mermaid` in `multiagent/teams/org_chart.py`, a deterministic `flowchart TD` with `reports_to` as the tree and `reviews` and `delegates_to` as dashed links. | S6.A1 |
-| S6.B2 | ✅ Organization chart model: a service that returns the tree of positions (role, who holds it, reports) with status, through Python, HTTP, and CLI; validated (no cycles, one root or an explicit forest). | S6.A1 |
+| S6.B2 | ✅ Organization chart model: a service that returns the tree of positions (role, who holds it, reports) with status, through Python, HTTP, and CLI; validated (no cycles, one root or an explicit forest). See [`TEAMS.md`](TEAMS.md). | S6.A1 |
 | **S6.C — Runtime roles** | | |
 | S6.C1 | Role switching per step: load the role's rules and context, keep contexts separate, record role and member. | S6.A1, S4.A2 |
 | **S6.D — Team design from a prompt** | | |

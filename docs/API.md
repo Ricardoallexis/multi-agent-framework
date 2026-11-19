@@ -24,12 +24,12 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.definitions` | `list_workflows`, `get_workflow`, `list_agents`, `list_bundles`, `validate_bundle` |
 | `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_check`, `human_submit`, `artifacts`, `events`, `usage`, `step_attempts`, `compare_attempts` |
 | `services.tasks` | `create_group`, `update_group`, `get_group`, `list_groups`, `create_task`, `get_task`, `list_tasks`, `ready_tasks`, `add_dependency`, `remove_dependency`, `transition`, `events` |
-| `services.teams` | `propose`, `submit`, `approve`, `reject`, `get`, `list`, `approved`, `diff`, `org_chart`: versions of a bundle's `team.yaml` with human approval (`user:` actors only) and a structural diff against the approved version; see the `/api/v1/teams` routes. |
+| `services.teams` | `propose`, `submit`, `approve`, `reject`, `get`, `list`, `approved`, `diff`, `org_chart`: versions of a bundle's `team.yaml` with human approval (`user:` actors only), structural diffs against the approved version, and decision-register records; see [`TEAMS.md`](TEAMS.md) and the `/api/v1/teams` routes. |
 | `services.gates` | `set_task_gate`, `set_group_gate`, `get_gate`, `review`, `run_gate`, `abort_gate`, `results`, `project_commands` |
 | `services.envelopes` | `set_task_context`, `get_envelope`, `put_blob`, `get_artifact`, `submit_result`, `get_result`, `list_results`, `get_cursor`, `read_events`, `ack_events` |
 | `services.executors` | `run_task`, `resume_task`, `open_target`, `status` (and `record_app_open`, `session_guard`): run an ORQ task in Codex, Claude or Copilot, continue or open its session |
 | `services.memory` | `create`, `list`, `get`, `delete`: facts, decisions and conventions of a project, each with its author as provenance and a computed trust level. Entries live in the system database; a bundle run reads the memory of the project with the same name there. A workflow or step receives them, quoted as data, only when it sets `project_memory`. |
-| `services.decisions` | `propose`, `get`, `list`, `accept`, `reject`, `supersede`: durable proposals with a human decision, effective expiry and active filtering. Successful run reviews create records automatically. |
+| `services.decisions` | `propose`, `get`, `list`, `accept`, `reject`, `supersede` (plus `record_review`, accepting optional `team_id`): durable proposals with a human decision, effective expiry and active filtering. Successful run reviews and team version approvals/rejections create records automatically. |
 | `services.evaluation` | `run(set, live=False)`: run an evaluation set of workflow, agent or prompt cases and return its report; see [Evaluation sets](EVALUATION.md). |
 
 For example, create a built-in social-post run:
@@ -124,8 +124,8 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `GET` | `/api/v1/teams/{bundle}/versions` | List the bundle's team versions; optional `status`. |
 | `GET` | `/api/v1/teams/versions/{id}` | Get one version with its diff against the approved version. |
 | `POST` | `/api/v1/teams/versions/{id}/submit` | Move a draft to `proposed` with `{actor}`. |
-| `POST` | `/api/v1/teams/versions/{id}/approve` | Approve a proposed version with `{actor, note?}`. `actor` must be a `user:` actor; another state is `invalid_state` (409). |
-| `POST` | `/api/v1/teams/versions/{id}/reject` | Reject a proposed version with `{actor, note?}`, under the same rules. |
+| `POST` | `/api/v1/teams/versions/{id}/approve` | Approve a proposed version with `{actor, note?}`. `actor` must be a `user:` actor; another state is `invalid_state` (409). Records the decision in the register and returns `decision_id` (or `decision_id: null` and `decision_record_error` if recording fails, without undoing the approval). See [`TEAMS.md`](TEAMS.md). |
+| `POST` | `/api/v1/teams/versions/{id}/reject` | Reject a proposed version with `{actor, note?}`, under the same rules and with the same `decision_id` / `decision_record_error` response fields. |
 | `GET` | `/api/v1/teams/{bundle}/approved` | The current approved version, or `null`. |
 | `GET` | `/api/v1/teams/{bundle}/org-chart` | The organization chart: positions with holders, manager, reports and status (`occupied`, `vacant`, `pending`, `pending_removal`), `root` or `roots` and `forest`, `links`, and `mermaid`. Optional `version_id` shows that version without the pending overlay. |
 | `POST` | `/api/v1/evaluations/run` | Run an evaluation set (the YAML document as JSON). Mock by default, on a temporary database; `"live": true` runs a workflow set on this server's worker and returns `409 eval_live_worker_unavailable` when it is not running. Every report is saved in the system database (the cases of a Mock run still use a temporary one) and `meta.evaluation_run_id` names it; an optional `actor` is stored with it. See [Evaluation sets](EVALUATION.md). |

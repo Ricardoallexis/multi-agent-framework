@@ -156,11 +156,12 @@ Human control is intended to remain a first-class part of the architecture rathe
 
 ## Collaborative agent teams
 
-**Progress:** `████░░░░░░` 9/24 · 38% <!-- progress -->
+**Progress:** `████░░░░░░` 10/25 · 40% <!-- progress -->
 
 A domain-neutral core for coordinating two or more agents, and the humans who supervise them, on shared work. Software development is one application; the same primitives should serve design, finance, research, operations, or any other domain. Domain-specific behavior lives in team presets and examples that users can extend, and agents can help a user design their own team setup. The protocol is the framework's own and runs on its runs, events, and Human Bridge; A2A or Microsoft Agent Framework may carry messages, but they do not define it.
 
 - [ ] Teams: roles, capabilities, members (framework agents, external agents, or humans), and an entrypoint (an agent or a workflow).
+  - [x] Team definitions (`team.yaml` with roles, members, assignments, and relationships), bundle and least-privilege validation, human-approved versions with structural diffs and decision-register records, and JSON/Mermaid organization charts across Python, HTTP, CLI, and the operator GUI (see [`docs/TEAMS.md`](docs/TEAMS.md)); team entrypoints and runtime role switching (`S6.C1`) are not implemented yet.
 - [ ] Scoped workspaces: each member changes only the resources assigned to it (for example folders, documents, datasets, or records); shared resources need a proposal and an approval.
   - [x] Declare a file scope per task: a claim locks it and is refused on overlap, and a write needs approval for every path of the scope.
 - [ ] A team log and member inboxes: an append-only log plus a per-member inbox where reading a message acknowledges it, so members process only unread messages and never poll.

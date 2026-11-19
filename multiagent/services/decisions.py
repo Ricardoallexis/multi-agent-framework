@@ -102,16 +102,18 @@ class DecisionServices:
 
     @service_errors
     def record_review(self, *, title: str, body: str, proposed_by: str, decided_by: str,
-                      accepted: bool, outcome: str, run_id: str, step_id: str | None,
-                      attempt: int | None, project: str | None, task_id: str | None) -> dict[str, Any]:
-        """Atomically record a completed run review after the run has been resolved."""
+                      accepted: bool, outcome: str, run_id: str | None = None, step_id: str | None = None,
+                      attempt: int | None = None, project: str | None = None, task_id: str | None = None,
+                      team_id: str | None = None) -> dict[str, Any]:
+        """Atomically record a completed run or team review after the decision has been resolved."""
         title, body = _content(title, body)
         proposed_by = _actor(proposed_by)
         decided_by = _actor(decided_by, human=True)
         outcome = _text("outcome", outcome, maximum=MAX_BODY_CHARS)
         links = {name: _text(name, value, maximum=200) if value is not None else None
                  for name, value in (("run_id", run_id), ("step_id", step_id),
-                                     ("project", project), ("task_id", task_id))}
+                                     ("project", project), ("task_id", task_id),
+                                     ("team_id", team_id))}
         if attempt is not None and (type(attempt) is not int or attempt < 1):
             raise _invalid("attempt", "attempt must be a positive integer")
         now = utcnow()
