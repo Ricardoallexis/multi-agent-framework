@@ -120,12 +120,25 @@ def _clean(value: Any, depth: int = 0) -> Any:
     return value
 
 
+def _event_actor(payload: dict[str, Any]) -> str:
+    """Who the event says decided (``by``), or ``unknown`` for an event written before it was recorded."""
+    by = payload.get("by")
+    return by.strip()[:100] if isinstance(by, str) and by.strip() else "unknown"
+
+
+def _event_channel(payload: dict[str, Any]) -> str:
+    channel = payload.get("channel")
+    return channel if isinstance(channel, str) else ""
+
+
 def _history(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Human actions of the run, oldest first, built only from its events.
 
     ``actor`` is ``operator`` (a decision made in a client; the framework has no
     user identities), ``system`` or ``declared`` (provider and model the person
-    typed when pasting a response: reported by the human, not verified).
+    typed when pasting a response: reported by the human, not verified). An approval
+    or a change request shows the ``by`` its event recorded (nothing authenticates it
+    beyond the token of the GUI); an old event without one shows ``unknown``.
     """
     history = []
     for event in events:
@@ -140,13 +153,14 @@ def _history(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         elif kind == "human_submission_invalid":
             entry.update(kind="response_rejected", error=_clean(payload.get("error") or ""))
         elif kind == "human_approved":
-            entry.update(kind="approved")
+            entry.update(kind="approved", actor=_event_actor(payload), channel=_event_channel(payload))
         elif kind == "human_revision":
             regenerated = payload.get("mode") == "regenerate"
             entry.update(kind="regenerated" if regenerated else "changes_requested",
                          feedback="" if regenerated else _clean(payload.get("feedback") or ""))
             if "comments" in payload:
                 entry["comments"] = _clean(payload["comments"])
+            entry.update(actor=_event_actor(payload))
             if "channel" in payload:
                 entry["channel"] = payload["channel"]
         elif kind == "human_rejected":
@@ -516,7 +530,7 @@ def build_router(services) -> APIRouter:
 
     @router.post("/runs/{run_id}/approve")
     def approve(run_id: str, body: ApproveBody | None = None):
-        services.runs.approve(run_id, channel="gui", person=True,
+        services.runs.approve(run_id, by=EXTERNAL_ACTOR, channel="gui", person=True,
                               permission_request_id=body.permission_request_id if body else None)
         return run_view(services, services.runs.get(run_id))
 
@@ -525,7 +539,8 @@ def build_router(services) -> APIRouter:
         if not body.feedback.strip() and not body.comments:
             raise ServiceError(INVALID_REQUEST, "Feedback or comments are required to request changes", status=422,
                                details={"field": "feedback"})
-        services.runs.request_changes(run_id, body.feedback, comments=body.comments, channel="gui")
+        services.runs.request_changes(run_id, body.feedback, comments=body.comments,
+                                      by=EXTERNAL_ACTOR, channel="gui")
         return run_view(services, services.runs.get(run_id))
 
     @router.post("/runs/{run_id}/reject")

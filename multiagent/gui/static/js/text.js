@@ -84,7 +84,12 @@ export function historyText(entry) {
 export function actorText(entry) {
   if (entry.actor === "system") return "Sistema";
   if (entry.actor === "declared") return "Persona o modelo externo (declarado, sin verificar)";
-  return "Operador";
+  if (entry.actor === "unknown") return "Sin dato";
+  // ARR-T04: an approval shows who its event says gave it and the door it came through; the text is declared, not verified.
+  if (entry.actor && entry.actor !== "operator" && entry.actor !== "user:operator") {
+    return entry.actor + (entry.channel ? " · " + entry.channel : "");
+  }
+  return entry.channel ? "Operador · " + entry.channel : "Operador";
 }
 
 // Example shown as placeholder text; a choice field has no free text, so it shows none.

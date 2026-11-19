@@ -319,7 +319,7 @@ def test_guided_flow_records_a_history_of_human_actions(env):
     assert [h["kind"] for h in history] == [
         "prompt_delivered", "response_rejected", "response_submitted", "changes_requested",
         "prompt_delivered", "response_submitted", "approved"]
-    assert [h["actor"] for h in history] == ["system", "operator", "declared", "operator", "system", "declared", "operator"]
+    assert [h["actor"] for h in history] == ["system", "operator", "declared", "user:operator", "system", "declared", "user:operator"]
     submitted = history[2]
     assert (submitted["provider"], submitted["model"], submitted["step_id"], submitted["attempt"]) == (
         "gemini-web", "gemini 3", "create", 1)

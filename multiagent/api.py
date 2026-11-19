@@ -704,7 +704,7 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def approve(run_id: str):
         # No token here: this route never approves a budget cut (it spends money) nor a tool call (``person_required``).
         # The GUI route does; it takes the permission_request_id it showed.
-        return services.runs.approve(run_id, recorded_only=True)
+        return services.runs.approve(run_id, recorded_only=True, channel="api")
 
     @app.post("/api/v1/runs/{run_id}/changes")
     def changes(run_id: str, review: HumanReviewRequest):

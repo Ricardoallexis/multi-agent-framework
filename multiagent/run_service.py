@@ -158,7 +158,7 @@ class RunService:
         completed = budget or next_step == len(definition.steps)
         self.store.finish_review(
             run, artifact, approve=True, completed=completed,
-            current_step=len(definition.steps) if completed else next_step,
+            current_step=len(definition.steps) if completed else next_step, by=by, channel=channel,
         )
         return self.store.get_run(run_id)
 

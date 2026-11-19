@@ -731,6 +731,10 @@ class Store:
                 if comments is not None:
                     payload["comments"] = comments
                 payload.update(by=by, channel=channel)
+            else:
+                # ARR-T04: an approval says who gave it and through which door, as a tool approval does.
+                declared, door = resolution_source(by, channel)
+                payload.update(by=declared, channel=door)
             conn.execute(
                 "INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
                 (run_id, utcnow(), "human_approved" if approve else "human_revision",

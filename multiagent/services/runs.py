@@ -318,6 +318,10 @@ class RunServices:
         other id is ``invalid_state`` with ``code`` ``permission_request_mismatch`` and nothing is approved. A caller
         nobody authenticated (``recorded_only``), or one that does not pass ``person=True``, never approves it
         (``PersonRequired``, CAP-T15 B1); only the token route of the GUI passes it.
+
+        Every approval records ``by`` and ``channel`` on its event (``human_approved``, ``tool_approval_approved``, the
+        content and budget resolutions), as ``request_changes`` already did: ``by`` is what the caller declared, or the
+        channel when it declared nothing, and ``channel`` is ``gui`` or ``api`` (ARR-T04). Nothing authenticates ``by``.
         """
         runtime = self._find(run_id)
         before = runtime.store.get_run(run_id)

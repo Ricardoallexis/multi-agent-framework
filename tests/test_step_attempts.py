@@ -116,7 +116,7 @@ def test_checkpoint_revision_records_two_attempts_feedback_review_and_report(tmp
         assert (second["attempt"], second["status"]) == (2, "completed")
         assert second["input"] == {"revision_feedback": feedback, "has_previous_output": True}
         assert second["review"]["status"] == "approved"
-        assert second["review"]["actor"] == "operator"
+        assert second["review"]["actor"] == "api"
         assert second["review"]["reviewed_at"]
         assert second["approved"] is True
 
