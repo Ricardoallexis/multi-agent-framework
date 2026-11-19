@@ -43,6 +43,7 @@ from .runs import build_router as build_runs_router
 from .security import GUISecurityHeadersMiddleware, require_json, require_token
 from .sessions_api import add_session_routes
 from .teams_api import add_teams_routes
+from .threads_api import add_thread_routes
 from .usage_api import add_usage_routes
 from ..services.work_map import build_work_map
 
@@ -119,6 +120,7 @@ def mount_gui(app: FastAPI) -> None:
     add_evaluation_routes(api, services)  # /gui/api/evaluations/* (EVA-T03, read only)
     add_teams_routes(api, services)  # /gui/api/teams/* (EQP-T05)
     add_plans_routes(api, services)  # /gui/api/plan-proposals/* (PLN-T04)
+    add_thread_routes(api, services)  # /gui/api/threads/runs/{run_id} (CHT-T01)
     api.include_router(build_runs_router(services))
     app.include_router(api)
     app.mount("/gui/static", StaticFiles(directory=STATIC_DIR), name="gui-static")

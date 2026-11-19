@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Run thread API for the GUI: `GET /gui/api/threads/runs/{run_id}` rebuilds a run's conversation (launch, steps, messages, waits with the actions the server accepts, and the final output) from its stored events, and `?after=<cursor>` returns only the new entries.
 - A plan proposal whose tasks use workflow roles cannot be approved until each bundle has an approved team: approval answers a `team_not_approved` conflict with the bundle and its roles and creates nothing, and the proposal view carries the same `blockers` so Planes can warn before approval.
 - Approvals record who gave them and through which channel: the `human_approved` event carries `by` and `channel` as tool approvals do, the GUI sends `user:operator` and `gui`, the API sends `api`, and the run history shows the actor of each event ("Sin dato" for older events).
 - Gemini steps record their real token usage: the adapter reads the Interactions API fields (`total_input_tokens`, `total_output_tokens`, `total_thought_tokens`, `total_cached_tokens`) with the older names as a fallback, so runs no longer show 0 tokens, and missing usage stays unknown.
