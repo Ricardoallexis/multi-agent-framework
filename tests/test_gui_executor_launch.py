@@ -125,6 +125,9 @@ def test_disabled_agy_is_rejected_with_its_reason(world):
     assert detail["details"]["reason"] == "executor_disabled"
     assert "disabled" in detail["message"]
     assert world.fake_agy.calls() == []
+    # A refused launch leaves no open task behind: the task the route created is cancelled.
+    launched = [task for task in world.services.tasks.list_tasks() if task["id"].startswith("gui-executor-")]
+    assert len(launched) == 1 and launched[0]["status"] == "cancelled"
 
 
 def test_agy_below_launch_floor_is_rejected_with_the_quota_reason(world):

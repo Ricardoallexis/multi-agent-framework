@@ -52,8 +52,18 @@ def add_executor_launch_routes(api: APIRouter, services) -> None:
         services.tasks.create_group(group_id, "Sesión única con ejecutor", actor="user:operator", authorized=True)
         services.tasks.create_task(group_id, task_id, "Sesión única con ejecutor", actor="user:operator",
                                    objective=task)
-        result = await anyio.to_thread.run_sync(lambda: services.executors.run_task(
-            task_id, body.executor_id, model, effort, actor="user:operator"))
+        try:
+            result = await anyio.to_thread.run_sync(lambda: services.executors.run_task(
+                task_id, body.executor_id, model, effort, actor="user:operator"))
+        except ServiceError as exc:
+            # A refused launch (disabled executor, quota floor, agy busy) leaves no open task behind; the refusal and
+            # its reason still reach the page unchanged.
+            try:
+                services.tasks.transition(task_id, "cancel", actor="user:operator",
+                                          cause=f"executor launch refused: {exc.code}")
+            except ServiceError:
+                pass
+            raise
         status = services.executors.status(task_id)
         if isinstance(result, dict) and result.get("outcome") == "running":
             response.status_code = 202
