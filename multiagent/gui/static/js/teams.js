@@ -28,6 +28,9 @@ export const VERSION_STATUS = {
 export const LINK_TEXT = { reviews: "revisa a", delegates_to: "delega en", reports_to: "reporta a" };
 export const SECTION_TEXT = { roles: "Puestos", members: "Miembros", assignments: "Asignaciones", relationships: "Relaciones" };
 const BUCKET_TEXT = { added: "Añadidos", removed: "Quitados", changed: "Cambiados" };
+// Where the chart comes from (services.teams.org_chart ``source``), in words.
+export const SOURCE_TEXT = { approved: "la versión aprobada", proposed: "la última propuesta", draft: "el último borrador",
+  "team.yaml": "el team.yaml del bundle, sin versiones guardadas", version: "la versión elegida" };
 
 const when = (value) => {
   if (!value) return "Sin fecha";
@@ -127,7 +130,7 @@ export function OrgChartView({ chart }) {
     catch (_) { setCopied("No se pudo copiar: selecciona el texto y cópialo a mano."); }
   };
   return html`<div>
-    <p class="muted small">Origen: ${chart.source}${chart.version ? ", versión " + chart.version : ""}.
+    <p class="muted small">Origen: ${SOURCE_TEXT[chart.source] || chart.source}${chart.version ? ", versión " + chart.version : ""}.
       ${chart.pending_version_id ? " Hay una propuesta pendiente: sus cambios se marcan como pendientes." : ""}</p>
     ${chart.forest && html`<p class="notice">El equipo tiene varias raíces: es un bosque, no un solo árbol.</p>`}
     <h4>Organigrama</h4><${Help} topic="teams.chart" />
@@ -262,7 +265,7 @@ export function Teams({ token, route }) {
   const refresh = () => { if (bundle) { if (reload.current) reload.current(); } else loadTeams(); };
   const busy = !bundle && teams.loading;
   return html`<div class="usage-view">
-    <h3 id="teams-title">Equipos</h3><${Help} topic="teams.section" />
+    <h3 id="teams-title">Equipos y organigramas</h3><${Help} topic="teams.section" />
     <div class="usage-title-row"><p class="muted">Equipos de los bundles, su organigrama y sus versiones. Una persona decide si aprueba o rechaza una propuesta.</p>
       <div class="usage-refresh-control" role="group" aria-label="Actualizar los equipos">
         <button type="button" class="btn" disabled=${busy} ...${helpFor("teams.refresh")} onClick=${refresh}>${busy ? "Actualizando…" : "Actualizar"}</button>

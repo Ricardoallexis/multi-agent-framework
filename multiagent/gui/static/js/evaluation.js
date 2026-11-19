@@ -158,7 +158,7 @@ export function Evaluation({ token, route }) {
   const refresh = () => { if (setName) { if (reload.current) reload.current(); } else loadSets(); };
   const busy = !setName && sets.loading;
   return html`<div class="usage-view">
-    <h3 id="evaluation-title">Evaluación</h3><${Help} topic="evaluation.section" />
+    <h3 id="evaluation-title">Conjuntos de evaluación</h3><${Help} topic="evaluation.section" />
     <div class="usage-title-row"><p class="muted">Conjuntos de evaluación y sus ejecuciones guardadas. Solo lectura.</p>
       <div class="usage-refresh-control" role="group" aria-label="Actualizar la evaluación">
         <button type="button" class="btn" disabled=${busy} ...${helpFor("evaluation.refresh")} onClick=${refresh}>${busy ? "Actualizando…" : "Actualizar"}</button>
