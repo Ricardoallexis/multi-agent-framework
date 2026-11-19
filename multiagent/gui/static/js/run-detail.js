@@ -8,6 +8,8 @@ import { ApiError, apiGet, runPath } from "./api.js";
 import { debounce, subscribe } from "./bus.js";
 import { Help, helpFor } from "./help.js";
 import { HumanActions } from "./human-actions.js";
+import { threadHref } from "./route.js";
+import { NARROW_QUERY, PHONE_QUERY, computeRunsLayout } from "./runs-layout.js";
 import {
   actorText, cursorText, errorText, executorText, fmtDate, fmtJson, historyText, skipReason,
   statusInfo, waitingText, MODE_LABELS,
@@ -389,9 +391,25 @@ function Technical({ view }) {
   </details>`;
 }
 
-export function RunDetail({ token, runId, status, onChanged }) {
+function useMedia(query) {
+  const read = () => { try { return window.matchMedia(query).matches; } catch (_) { return false; } };
+  const [matches, setMatches] = useState(read);
+  useEffect(() => {
+    let list = null;
+    try { list = window.matchMedia(query); } catch (_) { return undefined; }
+    const update = () => setMatches(list.matches);
+    update();
+    list.addEventListener("change", update);
+    return () => list.removeEventListener("change", update);
+  }, [query]);
+  return matches;
+}
+
+export function RunDetail({ token, runId, status, onChanged, onBack = null }) {
   const [view, setView] = useState(null);
   const [error, setError] = useState(null);
+  const narrow = useMedia(NARROW_QUERY);
+  const phone = useMedia(PHONE_QUERY);
   const latest = useRef(0);
   const current = useRef(runId);
   current.current = runId;
@@ -435,19 +453,40 @@ export function RunDetail({ token, runId, status, onChanged }) {
     return () => clearInterval(timer);
   }, [polling, runId, token]);
 
+  const backBar = onBack ? html`<div class="header-tools back-bar">
+    <button type="button" class="btn secondary small" ...${helpFor("runs.back")} onClick=${onBack}>← Volver a la lista</button>
+    <${Help} topic="runs.back" compact=${true} />
+  </div>` : null;
+
   if (!view) {
-    return error
-      ? html`<p class="message error" role="alert">${errorText(error)}</p>`
-      : html`<p class="muted" aria-busy="true">Cargando la ejecución…</p>`;
+    return html`<div class="run-detail-state">
+      ${backBar}
+      ${error
+        ? html`<p class="message error" role="alert">${errorText(error)}</p>`
+        : html`<p class="muted" aria-busy="true">Cargando la ejecución…</p>`}
+    </div>`;
   }
   const info = statusInfo(view.status);
-  return html`<article class="run-detail" aria-labelledby="run-title">
+  const layout = computeRunsLayout({
+    narrow,
+    phone,
+    hasSelection: true,
+    waiting: Boolean(view.waiting && !view.terminal),
+    terminal: Boolean(view.terminal),
+  });
+  const chatHref = typeof threadHref === "function" ? threadHref(view.id) : null;
+  const actionsCard = html`<${HumanActions} token=${token} view=${view} onUpdate=${accept} onStale=${load} actionBar=${layout.actionBar} />`;
+
+  return html`<article class=${"run-detail" + (layout.actionBar ? " has-action-bar" : "")} aria-labelledby="run-title">
+    ${backBar}
     <header>
       <h3 id="run-title">${view.workflow_id} <span class="muted">· ${view.project_name || "sin proyecto"}</span></h3>
       <div class="status-line">
         <${StatusChip} status=${view.status} labels="run" />
         ${!view.terminal && html`<span class=${"badge " + (live ? "connected" : "reconnecting")}>${live ? "En vivo" : "Sin conexión en vivo"}</span>`}
         <${RunOperatingMode} view=${view} />
+        ${chatHref && html`<a class="btn secondary small" href=${chatHref} ...${helpFor("run.open_chat")}>Abrir en el chat</a>
+          <${Help} topic="run.open_chat" compact=${true} />`}
         <button type="button" class="btn secondary small" ...${helpFor("run.refresh")} onClick=${load}>Actualizar</button>
         <${Help} topic="run.refresh" compact=${true} />
       </div>
@@ -462,11 +501,12 @@ export function RunDetail({ token, runId, status, onChanged }) {
     ${error && html`<p class="message error" role="alert">No se pudo actualizar: ${errorText(error)}</p>`}
     <p class="summary">${view.waiting ? waitingText(view.waiting) : info.help}${view.cancel_requested && !view.terminal ? " Se pidió cancelar." : ""}</p>
     ${view.error && html`<p class="message error" role="alert">Error de la ejecución: ${view.error}</p>`}
-    <${HumanActions} token=${token} view=${view} onUpdate=${accept} onStale=${load} />
+    ${layout.actionFirst && actionsCard}
     <${Steps} view=${view} />
     <${Counters} view=${view} />
     <${History} view=${view} />
     <${Results} view=${view} token=${token} />
+    ${!layout.actionFirst && actionsCard}
     <section class="panel" aria-labelledby="inputs-title">
       <h4 id="inputs-title">Entradas de la ejecución</h4>
       <${Help} topic="run.inputs" />

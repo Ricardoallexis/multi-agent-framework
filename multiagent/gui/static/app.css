@@ -535,3 +535,18 @@ code.command { font: .9rem var(--mono); overflow-wrap: anywhere; }
   .pending-count, .pending-item { border: 1px solid CanvasText; }
   .pending-count { color: Canvas; background: Highlight; }
 }
+/* --- RWD-T02: maestro-detalle en Ejecuciones y barra fija de acción pendiente --- */
+.human-actions-waiting { border-color: var(--accent); scroll-margin-top: calc(var(--bar-h) + 12px); }
+.human-waiting-reason { margin: 4px 0 10px; }
+.human-action-bar { display: none; }
+@media (max-width: 599.98px) {
+  .run-detail.has-action-bar { padding-bottom: 8.5rem; }
+  .human-action-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 25;
+    display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto;
+    padding: 10px 12px; background: var(--panel); border-top: 2px solid var(--accent);
+    box-shadow: 0 -4px 14px rgba(0, 0, 0, .14);
+  }
+  .human-bar-reason { margin: 0; font-size: .9rem; overflow-wrap: anywhere; }
+  .human-bar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+}

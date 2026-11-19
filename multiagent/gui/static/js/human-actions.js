@@ -5,6 +5,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost, runPath } from "./api.js";
 import { Help, helpFor } from "./help.js";
+import { waitingReasonLabel } from "./runs-layout.js";
 import { errorText } from "./text.js";
 import { ExternalOutput } from "./external-output.js";
 
@@ -31,7 +32,7 @@ export function Confirm({ title, children, confirmLabel, keepLabel, danger, busy
   </div>`;
 }
 
-export function HumanActions({ token, view, onUpdate, onStale }) {
+export function HumanActions({ token, view, onUpdate, onStale, actionBar = false }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
   const [confirm, setConfirm] = useState(null);
@@ -39,6 +40,16 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
   const [comments, setComments] = useState([]);
   const [feedbackInvalid, setFeedbackInvalid] = useState(false);
   const [reason, setReason] = useState("");
+  const cardRef = useRef(null);
+
+  function focusActions() {
+    if (!cardRef.current) return;
+    let reduced = false;
+    try { reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (_) { reduced = false; }
+    cardRef.current.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    const target = cardRef.current.querySelector("button, textarea, input, select");
+    if (target) target.focus({ preventScroll: true });
+  }
 
   // A new run (or a new state of it) starts without the previous message or open confirmation.
   const stateKey = [view.id, view.status, view.waiting && view.waiting.reason, view.waiting && view.waiting.step_id,
@@ -216,13 +227,34 @@ export function HumanActions({ token, view, onUpdate, onStale }) {
     </div>`;
   }
 
-  return html`<section class="panel" aria-labelledby="human-actions-title">
+  const isWaiting = Boolean(waiting && !view.terminal);
+  const waitLabel = isWaiting ? waitingReasonLabel(waiting) : "";
+  const isReviewLike = isWaiting && (waiting.reason === "review" || waiting.reason === "approval_pending" || waiting.reason === "budget_exhausted" || waiting.reason === "");
+  const isToolApproval = isWaiting && waiting.reason === "tool_approval" && Boolean(view.tool_approval);
+
+  return html`<section ref=${cardRef} class=${"panel" + (isWaiting ? " human-actions-waiting" : "")} aria-labelledby="human-actions-title">
     <h4 id="human-actions-title">Acciones humanas</h4>
     <${Help} topic="human.section" />
+    ${isWaiting && html`<p class="human-waiting-reason"><strong>Motivo de la espera:</strong> ${waitLabel}</p>`}
     ${body}
     ${waiting && ["review", "execute_step", "research"].includes(waiting.reason) && !view.cancel_requested && html`<${ExternalOutput}
       key=${view.id} token=${token} view=${view} onUpdate=${onUpdate} onStale=${onStale} />`}
     <${Message} message=${message} />
+    ${isWaiting && actionBar && html`<div class="human-action-bar" role="region" aria-label="Acción pendiente">
+      <p class="human-bar-reason"><strong>${waitLabel}</strong></p>
+      <div class="human-bar-actions">
+        ${isReviewLike && html`<button type="button" class="btn" disabled=${busy} ...${helpFor("human.approve")}
+          onClick=${() => act(runPath(id, "approve"), {},
+            (v) => v.status === "completed" ? "Aprobado. La ejecución terminó." : "Aprobado. La ejecución continúa con el siguiente paso.")}>Aprobar</button>`}
+        ${isToolApproval && html`<button type="button" class="btn" disabled=${busy} ...${helpFor("human.tool_approve")}
+          onClick=${() => act(runPath(id, "approve"), { permission_request_id: view.tool_approval.permission_request_id },
+            (v) => v.status === "completed" ? "Llamada aprobada. La ejecución terminó." : "Llamada aprobada. La ejecución continúa.")}>Aprobar llamada</button>`}
+        <button type="button" class="btn secondary" ...${helpFor("human.bar_focus")} onClick=${focusActions}>
+          ${isReviewLike || isToolApproval ? "Más acciones" : "Ir a la acción"}
+        </button>
+        <${Help} topic="human.bar_focus" compact=${true} />
+      </div>
+    </div>`}
   </section>`;
 }
 

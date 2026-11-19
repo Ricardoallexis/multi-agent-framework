@@ -6,11 +6,27 @@ import { ApiError, apiGet } from "./api.js";
 import { debounce, subscribe } from "./bus.js";
 import { CreateRun } from "./create-run.js";
 import { Help, helpFor } from "./help.js";
+import { navigate } from "./route.js";
 import { RunDetail } from "./run-detail.js";
+import { NARROW_QUERY, PHONE_QUERY, computeRunsLayout } from "./runs-layout.js";
 import { errorText, fmtDate } from "./text.js";
 import { StatusChip } from "./ui/status-chip.js";
 
 const LIST_DEBOUNCE_MS = 500;
+
+function useMedia(query) {
+  const read = () => { try { return window.matchMedia(query).matches; } catch (_) { return false; } };
+  const [matches, setMatches] = useState(read);
+  useEffect(() => {
+    let list = null;
+    try { list = window.matchMedia(query); } catch (_) { return undefined; }
+    const update = () => setMatches(list.matches);
+    update();
+    list.addEventListener("change", update);
+    return () => list.removeEventListener("change", update);
+  }, [query]);
+  return matches;
+}
 
 function RunList({ token, status, selected, version, onSelect }) {
   const [runs, setRuns] = useState(null);
@@ -55,10 +71,18 @@ export function Runs({ token, status, mock, initialRunId = null }) {
   const [selected, setSelected] = useState(initialRunId);
   const [creating, setCreating] = useState(false);
   const [version, setVersion] = useState(0);
+  const narrow = useMedia(NARROW_QUERY);
+  const phone = useMedia(PHONE_QUERY);
   const bump = () => setVersion((value) => value + 1);
 
   // A link from the sessions screen ("#runs/<id>") opens that run.
-  useEffect(() => { if (initialRunId) { setSelected(initialRunId); setCreating(false); } }, [initialRunId]);
+  useEffect(() => {
+    if (initialRunId) { setSelected(initialRunId); setCreating(false); }
+    else { setSelected(null); }
+  }, [initialRunId]);
+
+  const layout = computeRunsLayout({ narrow, phone, hasSelection: Boolean(selected), creating });
+  const goBack = () => { setCreating(false); setSelected(null); navigate("runs"); };
 
   let main;
   if (creating) {
@@ -66,14 +90,15 @@ export function Runs({ token, status, mock, initialRunId = null }) {
       onClose=${() => setCreating(false)}
       onCreated=${(run) => { setCreating(false); setSelected(run.id); bump(); }} />`;
   } else if (selected) {
-    main = html`<${RunDetail} token=${token} runId=${selected} status=${status} onChanged=${bump} />`;
+    main = html`<${RunDetail} token=${token} runId=${selected} status=${status} onChanged=${bump}
+      onBack=${layout.showBack ? goBack : null} />`;
   } else {
     main = html`<p class="muted">Elige una ejecución de la lista o crea una nueva.</p>`;
   }
   return html`<div class="runs-page">
     <${Help} topic="runs.section" />
     <div class="runs">
-      <aside class="runs-side" aria-label="Lista de ejecuciones">
+      <aside class="runs-side" aria-label="Lista de ejecuciones" hidden=${!layout.showList}>
         <div>
           <button type="button" class="btn" ...${helpFor("runs.new")} onClick=${() => { setCreating(true); }}>Nueva ejecución</button>
           <${Help} topic="runs.new" />
@@ -82,7 +107,7 @@ export function Runs({ token, status, mock, initialRunId = null }) {
         <${RunList} token=${token} status=${status} selected=${creating ? null : selected} version=${version}
           onSelect=${(id) => { setCreating(false); setSelected(id); }} />
       </aside>
-      <section class="runs-main" aria-live="off">${main}</section>
+      <section class="runs-main" aria-live="off" hidden=${!layout.showDetail}>${main}</section>
     </div>
   </div>`;
 }

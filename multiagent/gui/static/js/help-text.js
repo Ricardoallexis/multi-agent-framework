@@ -87,6 +87,30 @@ export const HELP = {
       "Pulsa una fila para abrir su detalle."
     ]
   },
+  "runs.back": {
+    "title": "Volver a la lista",
+    "hint": "Cierra el detalle y vuelve a la lista de ejecuciones.",
+    "more": [
+      "En pantallas estrechas muestra de nuevo la lista de ejecuciones.",
+      "No detiene ni modifica la ejecución abierta."
+    ]
+  },
+  "run.open_chat": {
+    "title": "Abrir en el chat",
+    "hint": "Abre esta ejecución como hilo en la vista de chat.",
+    "more": [
+      "Muestra los pasos y las decisiones pendientes en forma de conversación.",
+      "Conserva la ejecución actual sin crear otra nueva."
+    ]
+  },
+  "human.bar_focus": {
+    "title": "Ir a las acciones",
+    "hint": "Desplaza la vista hasta la tarjeta de acciones humanas.",
+    "more": [
+      "Te lleva arriba del detalle donde están todas las opciones disponibles.",
+      "Úsalo para pedir cambios, rechazar o pegar una respuesta."
+    ]
+  },
 
   "create.back": {
     "title": "Volver",
