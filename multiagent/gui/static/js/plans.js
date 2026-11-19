@@ -28,6 +28,13 @@ export const HISTORY_KIND = {
   reject: "Rechazada",
 };
 
+// What «Avanzar plan» answers, as one sentence: the tasks that moved, or that nothing was left to advance.
+export function advanceSummary(result) {
+  const moved = result && Array.isArray(result.advanced) ? result.advanced : [];
+  if (!moved.length) return "No había nada que avanzar.";
+  return "Plan avanzado: " + moved.map((item) => item.task_id).join(", ") + ".";
+}
+
 const when = (value) => {
   if (!value) return "Sin fecha";
   const date = new Date(value);
@@ -183,6 +190,40 @@ export function HistoryList({ history }) {
   </ul>`;
 }
 
+function AdvanceAction({ token, proposal }) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+  useEffect(() => { setConfirm(false); setMessage(null); }, [proposal.id]);
+  const advance = async () => {
+    if (busy) return;
+    setBusy(true);
+    setMessage({ kind: "info", text: "Enviando…" });
+    try {
+      const result = await apiPost(BASE + "/" + enc(proposal.id) + "/advance", token, {});
+      setMessage({ kind: "ok", text: advanceSummary(result) });
+    } catch (error) {
+      const failure = error instanceof ApiError ? error : new ApiError({ message: String(error) });
+      setMessage({ kind: "error", text: failureText(failure) });
+    } finally {
+      setConfirm(false);
+      setBusy(false);
+    }
+  };
+  return html`<div class="panel">
+    <h4>Avanzar el plan</h4><${Help} topic="plans.advance" />
+    <div class="actions">
+      <button type="button" class="btn" disabled=${busy} ...${helpFor("plans.advance")}
+        onClick=${() => setConfirm(true)}>Avanzar plan…</button>
+    </div>
+    ${confirm && html`<${Confirm} title="¿Avanzar el plan una vez?" confirmLabel="Sí, avanzar"
+      keepLabel="Cancelar" danger=${false} busy=${busy} onKeep=${() => setConfirm(false)} onConfirm=${advance}>
+      <p class="muted">Se pasan a revisión las tareas cuyo run terminó y arrancan las que ya pueden empezar, a nombre del operador.</p>
+    <//>`}
+    ${message && html`<p class=${"message " + message.kind} role=${message.kind === "error" ? "alert" : "status"}>${message.text}</p>`}
+  </div>`;
+}
+
 function PlanActions({ token, proposal, onUpdated, onReload }) {
   const tasks = proposal.proposal && Array.isArray(proposal.proposal.tasks) ? proposal.proposal.tasks : [];
   const [editing, setEditing] = useState(false);
@@ -263,6 +304,7 @@ function PlanActions({ token, proposal, onUpdated, onReload }) {
     return html`<div class="panel">
       <p class="muted">Esta propuesta ya fue decidida (${(PLAN_STATUS[proposal.status] || { text: proposal.status }).text}) y no admite más cambios.</p>
       ${message && html`<p class=${"message " + message.kind} role=${message.kind === "error" ? "alert" : "status"}>${message.text}</p>`}
+      ${proposal.status === "approved" && html`<${AdvanceAction} token=${token} proposal=${proposal} />`}
     </div>`;
   }
 

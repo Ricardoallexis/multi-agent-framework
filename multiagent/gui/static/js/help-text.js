@@ -1130,6 +1130,14 @@ export const HELP = {
       "La decisión queda anotada a nombre del operador con el canal de la interfaz."
     ]
   },
+  "plans.advance": {
+    "title": "Avanzar el plan",
+    "hint": "Pide confirmación y avanza una vez el plan de esta propuesta aprobada.",
+    "more": [
+      "Pasa a revisión las tareas cuyo run terminó y arranca las que ya pueden empezar. Si no hay nada que mover, lo avisa.",
+      "Queda a nombre del operador con el canal de la interfaz; el plan no avanza solo."
+    ]
+  },
   "plans.note": {
     "title": "Nota de la acción",
     "hint": "Texto opcional que queda guardado en el historial de la propuesta.",

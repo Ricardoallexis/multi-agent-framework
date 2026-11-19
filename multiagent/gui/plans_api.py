@@ -11,6 +11,7 @@ Everything comes from ``services.plan_proposals`` (PLN-T03), so HTTP, CLI and GU
 * ``POST /plan-proposals/{id}/reassign``: change one task's ``preferred``, ``workflow`` or ``bundle`` at ``expected_revision``.
 * ``POST /plan-proposals/{id}/approve``: approve ``expected_revision`` and create the plan's tasks.
 * ``POST /plan-proposals/{id}/reject``: reject the proposal with an optional ``note``.
+* ``POST /plan-proposals/{id}/advance``: advance the plan of an approved proposal once (no body).
 
 The actor is fixed by the server (``user:operator``, the person holding the token) and the channel is ``gui``; the page
 cannot pick either.
@@ -90,3 +91,7 @@ def add_plans_routes(api: APIRouter, services: ApplicationServices) -> None:
         note = body.note if body else None
         return services.plan_proposals.reject(
             proposal_id, actor=DECIDER, channel=CHANNEL, note=note or "")
+
+    @api.post("/plan-proposals/{proposal_id}/advance")
+    def advance_proposal(proposal_id: str):
+        return services.plan_proposals.advance(proposal_id, actor=DECIDER, channel=CHANNEL)

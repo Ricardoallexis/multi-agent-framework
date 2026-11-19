@@ -253,6 +253,29 @@ class PlanProposalServices:
         return result
 
     @service_errors
+    def advance(self, proposal_id: str, *, actor: str, channel: str = "python") -> dict[str, Any]:
+        """Advance the plan of an approved proposal once, from the document the proposal saved.
+
+        Answers the plan status that ``services.plans.advance`` gives, plus ``advanced`` (each task whose state or
+        run moved) and ``nothing_to_advance`` (true when nothing moved, which is not an error).
+        """
+        actor, _channel_name = _actor(actor), _channel(channel)
+        with self.store.db.connect() as conn:
+            row = self._row(proposal_id, conn)
+        if row["status"] != "approved":
+            raise _conflict(f"Cannot advance a {row['status']} plan proposal", reason="not_approved",
+                            status=row["status"])
+        plan = json.loads(row["proposal_json"])["plan"]
+        before = {task["id"]: (task["state"], (task["run"] or {}).get("id"))
+                  for task in self._services.plans.status(plan)["tasks"]}
+        result = self._services.plans.advance(plan, actor=actor)
+        advanced = [{"task_id": task["id"], "state": task["state"], "run_id": (task["run"] or {}).get("id")}
+                    for task in result["tasks"]
+                    if before.get(task["id"]) != (task["state"], (task["run"] or {}).get("id"))]
+        return {**result, "proposal_id": row["id"], "advanced": advanced,
+                "nothing_to_advance": not advanced}
+
+    @service_errors
     def reject(self, proposal_id: str, *, actor: str, channel: str, note: str) -> dict[str, Any]:
         actor, channel, note = _actor(actor, human=True), _channel(channel), _note(note)
         with self.store.db.tx() as conn:

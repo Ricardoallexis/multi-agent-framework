@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- An approved plan proposal can be advanced by its id: `services.plan_proposals.advance`, `POST /api/v1/plan-proposals/{id}/advance`, `multiagent plan advance --proposal <id>`, and an «Avanzar plan» button with confirmation in the GUI; a proposal that is not approved answers a `not_approved` conflict, and nothing to advance is not an error.
 - Connection status for every model provider and executor app (Gemini, OpenAI, Ollama, Claude, Codex, Copilot and agy): installed, version, session, whether a key is set (never its value), enabled, quota and the one step that is missing, cached and checked one at a time without any model call, from Python, `/api/v1/connections`, `/gui/api/connections` and `multiagent connections`.
 - Copilot CLI launches and resumes need an explicit non-Claude model: a request without one is refused with `model_required` before any argv or prompt file is built, so Copilot never falls back to its default model.
 - Run thread API for the GUI: `GET /gui/api/threads/runs/{run_id}` rebuilds a run's conversation (launch, steps, messages, waits with the actions the server accepts, and the final output) from its stored events, and `?after=<cursor>` returns only the new entries.

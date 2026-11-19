@@ -161,6 +161,11 @@ class PlanProposalReject(_Body):
     note: str = ""
 
 
+class PlanProposalAdvance(_Body):
+    actor: str
+    channel: str = "api"
+
+
 class TaskGroupCreate(_Body):
     id: str
     title: str
@@ -996,6 +1001,10 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     def reject_plan_proposal(proposal_id: str, body: PlanProposalReject):
         return services.plan_proposals.reject(proposal_id, actor=body.actor, channel=body.channel,
                                               note=body.note)
+
+    @app.post("/api/v1/plan-proposals/{proposal_id}/advance")
+    def advance_plan_proposal(proposal_id: str, body: PlanProposalAdvance):
+        return services.plan_proposals.advance(proposal_id, actor=body.actor, channel=body.channel)
 
     # --- projects (PRY) --------------------------------------------------------------
 

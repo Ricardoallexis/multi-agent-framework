@@ -40,6 +40,15 @@ def cmd_plan(args) -> None:
     from .services import ServiceError
     from .services.errors import INVALID_REQUEST
 
+    proposal_id = getattr(args, "proposal", None)
+    if args.plan_action == "advance" and proposal_id:
+        if args.file:
+            raise ServiceError(INVALID_REQUEST, "Use either a plan file or --proposal, not both", status=422)
+        pretty(_api_json("POST", f"/api/v1/plan-proposals/{_segment(proposal_id)}/advance",
+                         json_body={"actor": args.actor, "channel": "cli"}))
+        return
+    if not args.file:
+        raise ServiceError(INVALID_REQUEST, "A plan file is required (or --proposal <id> with advance)", status=422)
     try:
         document = yaml.safe_load(Path(args.file).read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
@@ -1308,7 +1317,8 @@ def build_parser() -> argparse.ArgumentParser:
     plan = sub.add_parser("plan", help="Inspect or advance a task plan").add_subparsers(
         dest="plan_action", required=True)
     x = plan.add_parser("status"); x.add_argument("file"); x.set_defaults(func=cmd_plan)
-    x = plan.add_parser("advance"); x.add_argument("file"); x.add_argument("--actor", required=True)
+    x = plan.add_parser("advance"); x.add_argument("file", nargs="?"); x.add_argument("--actor", required=True)
+    x.add_argument("--proposal", help="Advance the plan saved in this approved proposal instead of a file")
     x.set_defaults(func=cmd_plan)
     x = plan.add_parser("planners"); x.set_defaults(func=cmd_plan_planners)
     x = plan.add_parser("propose"); x.add_argument("--planner", required=True); x.add_argument("file")
