@@ -11,6 +11,7 @@ follow; ``&only=children`` for the subagents panel) serve the session viewer; se
 ``/gui/api/usage/{plans,tokens,costs}`` serve the usage view (plan usage, tokens and estimated cost); see ``usage_api``.
 ``/gui/api/evaluations`` serves the evaluation view: sets, saved runs and the comparison with the baseline (EVA-T03, read only); see ``evaluation_api``.
 ``/gui/api/teams`` serves the teams view: versions, the org chart and the human approval of a proposal (EQP-T05); see ``teams_api``.
+``/gui/api/plan-proposals`` serves the plan proposals view: list, inspect, edit, reassign and decide (PLN-T04); see ``plans_api``.
 ``/gui/api/continuity/*`` and ``/gui/api/tasks/{id}/continuity/decision`` serve the decision cards of tasks held by a usage limit
 (CNT-T06); see ``continuity_api``.
 ``/gui/api/extensions`` lists the folders of ``static/extensions/`` that views, panel slots and help texts are added
@@ -36,6 +37,7 @@ from .continuity_api import add_continuity_routes, held_children, with_extra_chi
 from .document_alerts_api import add_document_alerts_routes
 from .evaluation_api import add_evaluation_routes
 from .extensions import discover_extensions
+from .plans_api import add_plans_routes
 from .project_api import add_project_routes
 from .runs import build_router as build_runs_router
 from .security import GUISecurityHeadersMiddleware, require_json, require_token
@@ -116,6 +118,7 @@ def mount_gui(app: FastAPI) -> None:
     add_continuity_routes(api, services)  # /gui/api/continuity/* (CNT-T06)
     add_evaluation_routes(api, services)  # /gui/api/evaluations/* (EVA-T03, read only)
     add_teams_routes(api, services)  # /gui/api/teams/* (EQP-T05)
+    add_plans_routes(api, services)  # /gui/api/plan-proposals/* (PLN-T04)
     api.include_router(build_runs_router(services))
     app.include_router(api)
     app.mount("/gui/static", StaticFiles(directory=STATIC_DIR), name="gui-static")

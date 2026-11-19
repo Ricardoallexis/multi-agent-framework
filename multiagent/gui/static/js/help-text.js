@@ -1031,6 +1031,94 @@ export const HELP = {
       "Si no hay versión aprobada, todo cuenta como añadido."
     ]
   },
+  "plans.section": {
+    "title": "Planes propuestos",
+    "hint": "Revisa las propuestas de plan guardadas antes de crear tareas.",
+    "more": [
+      "Una propuesta reúne las tareas, dependencias y flujos sugeridos para un objetivo.",
+      "Solo una persona puede aprobar o rechazar una propuesta, y aquí queda registrada a nombre del operador."
+    ]
+  },
+  "plans.refresh": {
+    "title": "Actualizar los planes",
+    "hint": "Vuelve a leer la lista de propuestas o la propuesta abierta.",
+    "more": [
+      "La pantalla conserva la última respuesta si la lectura falla.",
+      "Una propuesta guardada o editada por otro canal aparece al actualizar."
+    ]
+  },
+  "plans.filter": {
+    "title": "Filtrar por estado",
+    "hint": "Muestra todas las propuestas o solo las pendientes, aprobadas o rechazadas.",
+    "more": [
+      "Propuesta indica que espera una decisión; Aprobada, que sus tareas ya se crearon.",
+      "El filtro consulta al servidor local cada vez que cambias la selección."
+    ]
+  },
+  "plans.list": {
+    "title": "Lista de propuestas",
+    "hint": "Muestra cada propuesta con su grupo, estado, revisión y número de tareas.",
+    "more": [
+      "Cada cambio guardado en una propuesta pendiente sube su número de revisión.",
+      "Abre una propuesta por su enlace para ver sus tareas, historial y acciones."
+    ]
+  },
+  "plans.detail": {
+    "title": "Tareas y dependencias",
+    "hint": "Lista las tareas de la propuesta, de qué tareas dependen, su flujo y su preferente.",
+    "more": [
+      "Las dependencias indican qué tareas deben terminar antes de que otra pueda empezar.",
+      "El preferente señala el agente o persona sugerida para tomar la tarea, si existe."
+    ]
+  },
+  "plans.history": {
+    "title": "Historial de cambios",
+    "hint": "Muestra quién guardó, editó, reasignó o decidió cada revisión de la propuesta.",
+    "more": [
+      "Cada línea anota la fecha, el número de revisión, el actor, el canal y las tareas modificadas.",
+      "Las notas opcionales escritas al confirmar quedan guardadas debajo de cada movimiento."
+    ]
+  },
+  "plans.edit": {
+    "title": "Editar tareas",
+    "hint": "Modifica títulos, objetivos, dependencias, flujos o preferentes antes de aprobar.",
+    "more": [
+      "Al confirmar se valida la propuesta completa sobre la revisión que estás viendo.",
+      "Si alguien cambió la propuesta antes, la pantalla avisa del conflicto y vuelve a cargarla."
+    ]
+  },
+  "plans.reassign": {
+    "title": "Reasignar una tarea",
+    "hint": "Cambia el preferente, el workflow o el bundle de una sola tarea sin editar las demás.",
+    "more": [
+      "Deja vacío el bundle si el workflow pertenece a los incluidos en el framework.",
+      "Pide confirmación antes de enviar y sube la revisión si no hay conflicto."
+    ]
+  },
+  "plans.approve": {
+    "title": "Aprobar el plan",
+    "hint": "Pide confirmación antes de aprobar la revisión visible y crear las tareas.",
+    "more": [
+      "Al aprobar se crean el grupo si falta y todas las tareas, y arrancan las que no tienen dependencias.",
+      "Si la revisión cambió o ya existe una tarea con ese identificador, el servidor rechaza el cambio."
+    ]
+  },
+  "plans.reject": {
+    "title": "Rechazar el plan",
+    "hint": "Pide confirmación antes de rechazar la propuesta sin crear tareas.",
+    "more": [
+      "La propuesta queda cerrada como rechazada y no admite más ediciones ni decisiones.",
+      "La decisión queda anotada a nombre del operador con el canal de la interfaz."
+    ]
+  },
+  "plans.note": {
+    "title": "Nota de la acción",
+    "hint": "Texto opcional que queda guardado en el historial de la propuesta.",
+    "more": [
+      "Sirve para explicar por qué editas, reasignas, apruebas o rechazas.",
+      "Puedes dejar este campo vacío."
+    ]
+  },
   "open.copilot": {
     "title": "Abrir en Copilot",
     "hint": "Abre esta sesión en la app de Copilot mediante un enlace.",

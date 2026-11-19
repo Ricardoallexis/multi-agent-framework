@@ -1,6 +1,6 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// Tiny hash router: "#sessions", "#sessions/<id>", "#tree/<session id>", "#runs", "#runs/<run id>", "#evaluation/<set name>", "#teams/<bundle>" and "#new" (a new session:
+// Tiny hash router: "#sessions", "#sessions/<id>", "#tree/<session id>", "#runs", "#runs/<run id>", "#evaluation/<set name>", "#teams/<bundle>", "#plans/<id>" and "#new" (a new session:
 // the guided chat of GUI2-T03, which can fall back to the create-run form). The id is URL-encoded.
 // "#run=<id>" is what the API gives as the link of a framework session; it opens that run in "Ejecuciones".
 // The screens that extensions register (extensions.js, FLU-T04) route the same way: "#<id>" and "#<id>/<item>".
@@ -9,7 +9,7 @@ import { useState, useEffect } from "../vendor/htm-preact-standalone.module.js";
 import { isRegisteredView, subscribeRegistry } from "./extensions.js";
 
 export const DEFAULT_SECTION = "sessions";
-const SECTION_IDS = ["sessions", "runs", "usage", "evaluation", "teams", "tree", "map"];   // extensions.js keeps RESERVED_SECTIONS equal to this plus "new"
+const SECTION_IDS = ["sessions", "runs", "usage", "evaluation", "teams", "plans", "tree", "map"];   // extensions.js keeps RESERVED_SECTIONS equal to this plus "new"
 export const NEW_SECTION = "new";
 
 export function parseRoute(hash) {

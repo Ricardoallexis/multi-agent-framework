@@ -226,6 +226,21 @@ a version stays in `multiagent team propose` and the API. It reads
 `POST /gui/api/teams/versions/{id}/approve` and `/reject` (body `{"note"?}`). See
 [`TEAMS.md`](TEAMS.md).
 
+The **Planes** view (`#plans`) lists saved plan proposals (filterable by
+status: proposed, approved or rejected) with their group, revision, task count
+and creator. Opening one (`#plans/<id>`) displays its tasks, dependencies,
+workflow/bundle, `preferred` assignee and revision history. While a proposal is
+still `proposed`, an operator can edit its tasks, reassign one task
+(`preferred`, `workflow` or `bundle`), approve the visible revision (creating
+the group/tasks and advancing ready ones) or reject it, each behind a
+confirmation box with an optional note; the server sets the actor to
+`user:operator` and the channel to `gui`. Edits, reassignments and approvals send
+the displayed `revision` as `expected_revision`: on a `409` conflict (stale
+revision, closed proposal or existing task id) the view notifies the operator
+and reloads the proposal. It reads `GET /gui/api/plan-proposals` and
+`/plan-proposals/{id}`, and acts via `POST /gui/api/plan-proposals/{id}/edit`,
+`/reassign`, `/approve` and `/reject`.
+
 The **Mapa** view (`#map`) combines projects, stages and tasks with linked
 sessions and their children. `GET /gui/api/map?project=<id>&only=active|all`
 returns the read-only map; the project filter is optional and `only` defaults
@@ -250,6 +265,8 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/evaluations`, `/evaluations/runs`, `/evaluations/runs/{id}`, `/evaluations/comparison?set_name=` | Evaluation sets, saved runs and the latest run against the baseline (read only). |
 | `GET /gui/api/teams`, `/teams/{bundle}/versions`, `/teams/versions/{id}`, `/teams/{bundle}/org-chart` | Team bundles with their approved and pending versions, versions with their diff, and the org chart with its Mermaid text. |
 | `POST /gui/api/teams/versions/{id}/approve`, `/reject` | Decide a proposed team version with an optional `note`; the actor (`user:operator`) and channel (`gui`) are fixed by the server. |
+| `GET /gui/api/plan-proposals`, `/plan-proposals/{id}` | List saved plan proposals (optional `status`, `group_id`) and read one proposal with its tasks and history. |
+| `POST /gui/api/plan-proposals/{id}/edit`, `/reassign`, `/approve`, `/reject` | Edit tasks, reassign one task, approve or reject a plan proposal; `user:operator` and `gui` are fixed by the server. |
 | `GET /gui/api/runs/{id}/usage` | Token and cost details for the right panel. |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts` | Completed attempts of one step (producer, input, output, review, tokens). |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts/compare?a=1&b=2` | Field-by-field and unified line diff between two completed attempts. |

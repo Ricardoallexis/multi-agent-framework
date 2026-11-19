@@ -29,7 +29,7 @@ NODE = shutil.which("node")
 # The modules that draw the screens: every control they render must have help.
 VIEW_FILES = [
     "main.js", "runs.js", "create-run.js", "run-detail.js", "human-actions.js", "usage.js", "evaluation.js", "teams.js",
-    "sessions.js", "session-detail.js", "session-items.js", "open-in-app.js", "subagents-panel.js", "agent-tree.js",
+    "plans.js", "sessions.js", "session-detail.js", "session-items.js", "open-in-app.js", "subagents-panel.js", "agent-tree.js",
 ]
 # The app shell (GUI2-T02: top bar, sidebar, right panel) draws controls too, under the same rules.
 VIEW_FILES += ["shell.js", "sidebar.js", "right-panel.js", "panel-slots.js", "subagents-mount.js"]
@@ -76,7 +76,7 @@ SECTION_TOPICS = {
     "panel-tokens-title": "panel.tokens", "panel-sources-title": "panel.sources",
     "agent-tree-title": "agent_tree.view", "at-log-title": "agent_tree.log", "usage-title": "usage.section",
     "usage-plans-title": "usage.plans", "usage-global-title": "usage.global", "usage-costs-title": "usage.costs",
-    "evaluation-title": "evaluation.section", "teams-title": "teams.section",
+    "evaluation-title": "evaluation.section", "teams-title": "teams.section", "plans-title": "plans.section",
 }
 DATA_HEADINGS = {"run-title", "session-title", "at-detail-title"}   # the last one is the name of the chosen agent
 
