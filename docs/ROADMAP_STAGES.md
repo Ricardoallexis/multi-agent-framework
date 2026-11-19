@@ -420,6 +420,7 @@ advanced visualization items below remain planned.
 | S14.7 | Administrative views for workers, migrations, diagnostics, and recovery. | S4.D1, S14.1 |
 | S14.8 | Sanitized rich rendering (Markdown or HTML) for any future UI. | S14.1 |
 | S14.9 | ◐ Done: the organization chart of a team as an accessible nested list with each position's role, holder, and status shown as text, plus the copyable Mermaid text, with no dependencies and within the Content Security Policy (`multiagent/gui/static/js/teams.js`); not drawn as position cards. | S6.B2, S14.1, S14.2 |
+| S14.10 | ◐ Done: the GUI works on a phone-width window of the same PC (reference widths 360, 390 and 768 px, two shared breakpoints), «Ejecuciones» shows the list and the run one after the other with a fixed bar for the pending action, and a «Pendientes» button with a count and an optional browser notification lists what waits for a person (`multiagent/gui/static/js/runs-layout.js`, `pending.js`, `multiagent/gui/pending_api.py`); the server still listens only on 127.0.0.1, so a phone on the network cannot open it. | S14.1 |
 
 **Parallel:** S14.5, S14.6, and S14.8 after S14.1, alongside the UI stages.
 

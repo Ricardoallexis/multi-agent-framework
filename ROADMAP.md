@@ -264,7 +264,7 @@ Research which well-known open-source tools make good examples for the most comm
 
 ## Frontend / UI
 
-**Progress:** `███░░░░░░░` 7/23 · 30% <!-- progress -->
+**Progress:** `███░░░░░░░` 8/24 · 33% <!-- progress -->
 
 `F00` shipped without a graphical interface. The local operator GUI is now available as a local interface, not the final
 product. The Stage 0 run-console prototype has been removed. See
@@ -272,6 +272,7 @@ product. The Stage 0 run-console prototype has been removed. See
 
 - [x] Stage 0, right after the application services and HTTP parity: start a run from an available workflow (mock by default), follow its status and events, handle the pending human action (approve, request changes, regenerate, reject, cancel, or paste an external model's response and see validation errors), and inspect artifacts. Its review and confirmation step for externally produced output can follow the same human-confirmation pattern as the external-delivery importer (`tools/seguimiento/`).
 - [x] Local operator GUI served by the API at `/gui/`: read-only session browsing for configured Claude, Codex, Copilot, Antigravity, and framework sources; framework-run creation, human actions and per-call tool approval; live session follow; confirmation-gated open-in-app actions; three-zone layout with subagent, changes, token and source panels; guided workflow chat with routing preview; agent tree; usage view; and project work map. It uses a local bearer token and stays on loopback. It replaces the Stage 0 prototype, which has been removed. This is a partial delivery of S14, not completion of UI stages 1–3.
+- [x] The operator GUI at phone width on the same PC: reference widths of 360, 390 and 768 px with two shared breakpoints, «Ejecuciones» as a list and a run one after the other with a fixed bar for the pending action, and a «Pendientes» button with a count and an optional browser notification. The server still listens only on 127.0.0.1, so a phone on the network cannot open it.
 - [ ] Stage 1: agent and workflow configuration, once agent, tool, and capability contracts are stable.
   - [x] Choose a workflow and its declared inputs, and set routing preferences with a no-dispatch preview, when creating a run in the operator GUI.
 - [ ] Stage 2: teams, plans, and tasks, to inspect and approve generated plans and follow task execution.

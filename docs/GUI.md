@@ -131,6 +131,28 @@ End, and progress indicators expose their values accessibly. The interface uses
 a skip link, visible focus and 44 px touch targets; the palette follows
 `prefers-color-scheme`.
 
+**Widths and breakpoints.** The GUI is checked at four reference widths: 360 and
+390 px (phone), 768 px (tablet) and a desktop of 900 px or more. Every stylesheet
+and extension uses the same two breakpoints and no others, written at the top of
+`app.css`:
+
+| Breakpoint | Applies to | What changes |
+| --- | --- | --- |
+| `max-width: 899.98px` | tablet and phone | The sidebar becomes a drawer, the right panel stacks under the content, grids fall to one column, and «Ejecuciones» shows the list and the selected run one after the other. |
+| `max-width: 599.98px` | phone | The top bar wraps and its title is kept for screen readers only, the content padding shrinks, the «Pendientes» list fills the screen, and a run that waits for a person gets a fixed action bar. |
+
+Grid and flex children can shrink (`min-width: 0`), controls keep the 44 px touch
+height (`--target`), and `pre` blocks and wide tables scroll inside themselves, so
+the page does not scroll sideways at any reference width. `tests/test_gui_rwd.py`
+checks these rules statically, one test per view.
+
+**Trying a width on the PC.** The GUI only listens on `127.0.0.1` (see
+[Security model](#security-model)), so a phone on the network cannot open it: the
+narrow layouts are for a narrow window on the same PC. Make the browser window
+narrow, or open the developer tools (F12) and turn on the device toolbar
+(Ctrl+Shift+M in Edge and Chrome), then set the width to 360, 390 or 768 and
+reload. Nothing has to be installed.
+
 ## Views
 
 **Nueva sesión** (`#new`) is a guided chat (GUI2-T03). It greets with "¿Qué
@@ -319,6 +341,31 @@ Under «Pedir cambios», the operator can add up to 20 comments alongside or
 instead of free text. Each comment has a part of the output (General, a
 top-level field, or a typed path), a change type, required text, and an
 optional quote. Comments appear in the attempt review and action history.
+
+**Ejecuciones on a phone** (`js/runs-layout.js`). At 900 px or more the list of
+runs and the selected run sit side by side. At 899.98 px or less they go one after
+the other: the list first, then the selected run, or the create form, alone, with
+«← Volver a la lista» at the top. Each row of the list shows the run's status, so
+a run waiting for a person says so. When a run waits, «Acciones humanas» is
+marked with the reason for the wait («Esperando tu revisión · paso …»), and on a
+phone the pending action stays in a fixed bar at the bottom of the run: the
+reason, «Aprobar» or «Aprobar llamada» for a review or a tool call, and a button
+that jumps to the full set of actions. The bar leaves the screen once the run no
+longer waits.
+
+**Pendientes** is a button in the top bar with the number of items that wait for a
+person: runs in review, proposed team versions and plans, continuity decisions
+and tasks that wait for the user. It reads the read-only, token-protected
+`GET /gui/api/pending` (every 5 s while the tab is visible, every 30 s while it is
+hidden) and shows the same number in the tab title, as `(2) Multiagent`. The
+button opens a list; on a tablet or wider it is a panel under the top bar, and on
+a phone it fills the screen. Each item says its kind and why it waits and links to
+the run's thread, or to the team, plan, continuity or task view; following the
+link closes the list. The link only changes view: it approves and starts nothing.
+**Activar avisos** is off by default. Pressing it asks the browser for permission,
+and only then does the browser on this PC raise a notification for each new item.
+The choice is kept in this browser, and **Desactivar avisos** turns it off.
+Nothing is sent to another device.
 
 **Salida externa** (HIL2-T02) appears in the run detail while a run waits for a
 human step or a review. Paste the JSON output, optionally pick evidence files
