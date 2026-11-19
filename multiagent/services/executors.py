@@ -3453,7 +3453,7 @@ class ExecutorServices:
                 "mode": descriptor.mode,
                 "available": bool(status_by_id.get(executor_id, {}).get("available"))
                     and models.status is SupportState.SUPPORTED and bool(models.values)
-                    and efforts.status is SupportState.SUPPORTED and bool(efforts.values),
+                    and (efforts.status is not SupportState.SUPPORTED or bool(efforts.values)),
                 "models": sorted(models.values or ()) if models.status is SupportState.SUPPORTED else [],
                 "efforts": sorted(efforts.values or ()) if efforts.status is SupportState.SUPPORTED else [],
             })

@@ -1451,6 +1451,38 @@ export const HELP = {
       "Los chips muestran preferencias, no garantizan qué modelo se usará efectivamente; la vista previa solo muestra el prompt y no ejecuta nada."
     ]
   },
+  "chat.model_picker": {
+    "title": "Modelos y ejecutores conectados",
+    "hint": "Elige una opción comprobada para la próxima sesión única.",
+    "more": [
+      "La lista muestra cuándo se comprobó cada conexión y la cuota de cada ejecutor.",
+      "Esta elección no lanza nada ni cambia el enrutamiento del workflow actual."
+    ]
+  },
+  "chat.model_choice": {
+    "title": "Elegir modelo o ejecutor",
+    "hint": "Solo se pueden elegir opciones habilitadas y conectadas.",
+    "more": [
+      "Las opciones sin conexión aparecen plegadas con el motivo y el paso pendiente.",
+      "Antigravity usa tu suscripción y pide aprobación en cada lanzamiento."
+    ]
+  },
+  "chat.model_disconnected": {
+    "title": "Opciones no conectadas",
+    "hint": "Muestra las opciones que todavía no se pueden elegir.",
+    "more": [
+      "Cada opción indica el paso pendiente o el motivo que la bloquea.",
+      "Vuelve a comprobarla desde Apps y agentes después de completar ese paso."
+    ]
+  },
+  "chat.model_retry": {
+    "title": "Reintentar conexiones",
+    "hint": "Vuelve a leer el estado de conexión que guarda el servidor.",
+    "more": [
+      "No inicia ninguna sesión ni ejecuta un modelo.",
+      "Si sigue fallando, comprueba que el servidor local está disponible."
+    ]
+  },
   "chat.launch": {
     "title": "Lanzar",
     "hint": "Crea la ejecución con estas respuestas.",

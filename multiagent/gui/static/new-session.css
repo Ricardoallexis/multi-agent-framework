@@ -115,3 +115,26 @@
 .thread-long, .thread-json, .thread-earlier { margin-top: 8px; }
 .thread-readable-text { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .thread-earlier { display: flex; flex-direction: column; gap: 10px; }
+
+/* SES-T02: connection picker in Nueva sesión. */
+.ns-picker { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.ns-picker p { margin: 0; }
+.ns-picker-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; padding: 8px;
+  border: 1px solid var(--line); border-radius: 8px; }
+.ns-picker-group legend { padding: 0 4px; font-weight: 600; }
+.ns-picker-choice { display: flex; align-items: flex-start; gap: 8px; min-width: 0; min-height: var(--target); padding: 8px;
+  border: 1px solid var(--line); border-radius: 8px; }
+.ns-picker-choice input { flex: 0 0 auto; margin: 3px 0 0; }
+.ns-picker-facts { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.ns-picker-unavailable { opacity: .75; }
+.ns-picker-reason { color: var(--muted); }
+.ns-picker-notice { font-size: .85rem; line-height: 1.5; }
+.ns-picker-disconnected { min-width: 0; }
+.ns-picker-disconnected summary { min-height: var(--target); cursor: pointer; }
+.ns-picker-choices { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; }
+
+@media (max-width: 599.98px) {
+  .ns-picker { padding: 8px; }
+  .ns-picker-choice { padding: 6px; }
+}

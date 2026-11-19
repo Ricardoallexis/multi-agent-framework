@@ -46,7 +46,8 @@ BLOCK_DELEGATION = "delegation_requested"
 MODES = ("manual", "semi_auto", "auto")
 CANDIDATE_POLICIES = ("no_ask", "ask", "never")
 _POLICY_SETTINGS = ("continuity_mode", "continuity_wait_threshold_hours", "continuity_max_handoffs", "continuity_candidates")
-APPS = {"claude_cli": ("Claude", "claude"), "codex_cli": ("Codex", "codex"), "copilot_cli": ("Copilot", "copilot")}
+APPS = {"claude_cli": ("Claude", "claude"), "codex_cli": ("Codex", "codex"), "copilot_cli": ("Copilot", "copilot"),
+        "antigravity_cli": ("Antigravity", "antigravity")}
 LEVELS = ("T1", "T2", "T3", "T4")
 _SESSION_ID_CHARS = 100
 

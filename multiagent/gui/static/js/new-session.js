@@ -12,6 +12,7 @@ import { ApiError, apiGet, apiPost } from "./api.js";
 import { CreateRun, PreviewPanel } from "./create-run.js";
 import { Help, helpFor } from "./help.js";
 import { modeHelpEntry } from "./help-text.js";
+import { ModelPicker } from "./model-picker.js";
 import {
   SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, answerRows, cardDescription, createConversation, currentQuestion, formSeed, inputsPath, loadCatalog, originLabel, parseCommand,
   pickRuns, progress, reduce, runBody, suggestedEntries,
@@ -215,6 +216,8 @@ export function NewSession({ token, mock }) {
   const [view, setView] = useState("chat");                        // "chat" or "form" (the existing create-run form)
   const [formInitial, setFormInitial] = useState(null);
   const [catalog, setCatalog] = useState({ entries: [], loading: true, error: null });
+  const [connections, setConnections] = useState({ data: null, loading: true, error: null });
+  const [selectedConnection, setSelectedConnection] = useState(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingCloud, setPendingCloud] = useState(null);
@@ -263,6 +266,19 @@ export function NewSession({ token, mock }) {
     startCatalog();
     return () => { alive.current = false; };
   }, [token]);
+
+  // SES-T02: connection checks only read status; choosing a row never launches it.
+  function refreshConnections() {
+    setConnections((current) => ({ data: current.data, loading: true, error: null }));
+    apiGet("/gui/api/connections", token).then(
+      (data) => { if (alive.current) setConnections({ data, loading: false, error: null }); },
+      (failure) => { if (alive.current) setConnections({ data: null, loading: false, error: asError(failure) }); },
+    );
+  }
+
+  useEffect(() => {
+    if (!runId) refreshConnections();
+  }, [token, runId]);
 
   const question = currentQuestion(conv);
 
@@ -462,6 +478,12 @@ export function NewSession({ token, mock }) {
   const label = question ? "Tu respuesta: " + question.label : "Escribe qué quieres hacer";
   const status = catalog.error ? "" : catalog.loading ? "Leyendo los workflows disponibles…"
     : catalog.entries.length + (catalog.entries.length === 1 ? " workflow disponible." : " workflows disponibles.");
+  const pickerHelp = {
+    picker: html`<${Help} topic="chat.model_picker" compact=${true} />`,
+    choice: html`<${Help} topic="chat.model_choice" compact=${true} />`,
+    disconnected: html`<${Help} topic="chat.model_disconnected" compact=${true} />`,
+    retry: html`<${Help} topic="chat.model_retry" compact=${true} />`,
+  };
 
   return html`<div class="ns">
     <div class="ns-intro">
@@ -469,6 +491,8 @@ export function NewSession({ token, mock }) {
       <p class="ns-lead">Escribe en tus palabras lo que necesitas, o elige una opción. Te guío paso a paso y nada se ejecuta sin que lo confirmes.</p>
       <${Help} topic="chat.welcome" />
     </div>
+    <${ModelPicker} connections=${connections.data} selectedId=${selectedConnection} onSelect=${setSelectedConnection}
+      loading=${connections.loading} error=${connections.error} onRetry=${refreshConnections} help=${pickerHelp} />
     ${conv.phase === "welcome" && html`<${Starters} disabled=${busy} onPick=${chooseStarter} />`}
     ${(conv.phase === "welcome" || conv.phase === "choose") && html`<p class="muted small" role="status" aria-live="polite">${status}</p>`}
     ${catalog.error && html`<div class="ns-row"><p class="message error" role="alert">No se pudo leer la lista de workflows: ${errorText(catalog.error)}</p>
