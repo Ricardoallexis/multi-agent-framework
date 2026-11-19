@@ -34,6 +34,7 @@ from ..services.usage import UsageServices
 from ..version import __version__
 from . import events
 from .continuity_api import add_continuity_routes, held_children, with_extra_children
+from .connections_api import add_connection_routes
 from .document_alerts_api import add_document_alerts_routes
 from .evaluation_api import add_evaluation_routes
 from .extensions import discover_extensions
@@ -114,6 +115,7 @@ def mount_gui(app: FastAPI) -> None:
 
     add_session_routes(api, sessions, extra_children=lambda session_id: held_children(services, session_id))  # + held tasks (CNT-T06)
     add_usage_routes(api, usage)  # /gui/api/usage/{plans,tokens,costs} (USO-T02)
+    add_connection_routes(api, services)  # SES-T01
     add_project_routes(api, services)  # /gui/api/projects (PRY-T03)
     add_document_alerts_routes(api, services)
     add_continuity_routes(api, services)  # /gui/api/continuity/* (CNT-T06)

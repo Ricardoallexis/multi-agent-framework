@@ -582,6 +582,15 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
             "openai": system_obj.adapters["openai"].health(),
         }
 
+    # SES-T01: cached, non-generating connection facts and one-tool recheck.
+    @app.get("/api/v1/connections")
+    def list_connections():
+        return services.connections.list()
+
+    @app.post("/api/v1/connections/{connection_id}/check")
+    def check_connection(connection_id: str):
+        return services.connections.check(connection_id)
+
     # --- definitions ----------------------------------------------------------
 
     @app.get("/api/v1/workflows")

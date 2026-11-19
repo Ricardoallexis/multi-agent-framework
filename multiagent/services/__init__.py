@@ -35,6 +35,7 @@ from .activities import ActivityServices
 from .assignment import AssignmentServices
 from .definitions import DefinitionServices
 from .decisions import DecisionServices
+from .connections import ConnectionServices
 from .envelopes import EnvelopeServices
 from .evaluation import EvaluationServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
@@ -61,6 +62,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ActivityServices",
     "ApplicationServices",
+    "ConnectionServices",
     "DefinitionServices",
     "DecisionServices",
     "EnvelopeServices",
@@ -116,6 +118,7 @@ class ApplicationServices:
         self.projects = ProjectServices(self)
         self.activities = ActivityServices(self)
         self.usage = UsageServices(self)
+        self.connections = ConnectionServices(self)
         self.inbox = InboxServices(self)
         self.memory = MemoryServices(self)
         self.decisions = DecisionServices(self)

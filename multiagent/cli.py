@@ -1291,6 +1291,14 @@ def cmd_usage_report(args) -> None:
         pretty(result)
 
 
+def cmd_connections(args) -> None:
+    """Read the same connection service as HTTP and the GUI."""
+    from .services import ApplicationServices
+
+    service = ApplicationServices.create(get_settings()).connections
+    pretty(service.check(args.check) if args.check else service.list())
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="multiagent", description=f"Multi-Agent Framework {__version__} — Hybrid Human/AI Orchestration")
     p.add_argument("--version", action="version", version=__version__)
@@ -1346,6 +1354,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     x = sub.add_parser("init"); x.set_defaults(func=cmd_init)
     x = sub.add_parser("doctor"); x.add_argument("--deep", action="store_true"); x.set_defaults(func=cmd_doctor)
+    x = sub.add_parser("connections", help="Show cached connection readiness without a model call")
+    x.add_argument("--check", choices=("gemini", "openai", "ollama", "claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"))
+    x.set_defaults(func=cmd_connections)
     x = sub.add_parser("worker", help="Run the configured database worker until Ctrl+C")
     x.add_argument("--concurrency", type=_worker_concurrency, metavar="N",
                    help="Maximum runs in this process, 1 to 256 (default: WORKER_CONCURRENCY)")
