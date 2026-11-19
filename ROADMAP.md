@@ -156,7 +156,7 @@ Human control is intended to remain a first-class part of the architecture rathe
 
 ## Collaborative agent teams
 
-**Progress:** `████░░░░░░` 10/25 · 40% <!-- progress -->
+**Progress:** `████░░░░░░` 11/26 · 42% <!-- progress -->
 
 A domain-neutral core for coordinating two or more agents, and the humans who supervise them, on shared work. Software development is one application; the same primitives should serve design, finance, research, operations, or any other domain. Domain-specific behavior lives in team presets and examples that users can extend, and agents can help a user design their own team setup. The protocol is the framework's own and runs on its runs, events, and Human Bridge; A2A or Microsoft Agent Framework may carry messages, but they do not define it.
 
@@ -179,6 +179,7 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 - [ ] Check results with visibility rules: a member's own checks stay private to it, shared checks are visible to the team, and one designated reader summarizes each report.
 - [ ] Workspace synchronization after each approved stage, only with each member's confirmation and without losing unfinished work.
 - [ ] Operating modes: supervised (a human approves applying, checking, approving, and publishing; members act only when asked) and autonomous (policy-driven gates, budgets, and sandboxing, escalating to a human on failures, shared resources, or external actions).
+  - [x] Optional `supervised` and `autonomous` modes (`S7.D1`) on approved teams (`team.yaml` `mode`) and runs (`operating_mode` across Python, HTTP, CLI, and the operator GUI, bound at creation in `operating_mode_set`), pausing supervised role handoffs and write calls while letting autonomous runs run role-permitted ordinary writes (`approval_cause: autonomous`); destructive and external calls and plan approval still wait for a person, and `S7.C1` remains partial (see [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md#run-operating-modes)).
 - [ ] Per-member token and cost budgets and minimal-reading rules.
 - [ ] A resumable status snapshot (stage, milestones, and next action for each member) and human-readable views of communication, progress, and pending decisions.
 - [ ] Team presets as examples: a software development team (resources are files, change sets are patches, checks are test suites, and stages end in a commit), plus examples for other domains such as design reviews or financial reporting.

@@ -212,6 +212,15 @@ To run a bundle workflow, send a generic `RunRequest` and provide the registered
 bundle name in the `bundle` query parameter. Bundle filesystem paths are
 configured by the server, not supplied by API clients.
 
+A `RunRequest` also accepts an optional `"operating_mode"` (`"supervised"` or
+`"autonomous"`). When omitted, the run inherits `mode` from the bundle's bound
+approved `team.yaml` if one is set. When either sets a mode, creation emits an
+`operating_mode_set` event (`{"mode", "source"}` with `source` `"run"` or
+`"team"`), and `GET /api/v1/runs/{run_id}` returns `"operating_mode"`
+(`"supervised"`, `"autonomous"`, or `null`); when neither is set, no
+`operating_mode_set` event is emitted and `"operating_mode"` is `null`. See
+[Run operating modes](PERMISSIONS.md#run-operating-modes).
+
 See [`TELEMETRY.md`](TELEMETRY.md) for the local-only usage model, CLI
 export, nullable token semantics, and the future OpenTelemetry mapping.
 

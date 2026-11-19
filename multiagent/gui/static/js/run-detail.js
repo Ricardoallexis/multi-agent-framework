@@ -19,6 +19,44 @@ import { StatusChip } from "./ui/status-chip.js";
 const DEGRADED_POLL_MS = 10000;
 const REFRESH_DEBOUNCE_MS = 250;
 
+const OPERATING_MODE_LABELS = {
+  supervised: "Supervisado",
+  autonomous: "Autónomo",
+};
+
+const OPERATING_MODE_SOURCES = {
+  run: "de la ejecución",
+  team: "del equipo",
+};
+
+export function operatingModeInfo(view) {
+  for (const event of (view && view.events) || []) {
+    if (!event || event.type !== "operating_mode_set") continue;
+    const payload = event.payload;
+    if (!payload || typeof payload.mode !== "string" || !payload.mode) continue;
+    return {
+      mode: payload.mode,
+      source: typeof payload.source === "string" ? payload.source : "",
+    };
+  }
+  if (view && typeof view.operating_mode === "string" && view.operating_mode) {
+    return {
+      mode: view.operating_mode,
+      source: typeof view.operating_mode_source === "string" ? view.operating_mode_source : "",
+    };
+  }
+  return null;
+}
+
+export function RunOperatingMode({ view }) {
+  const modeInfo = operatingModeInfo(view);
+  if (!modeInfo) return null;
+  const label = OPERATING_MODE_LABELS[modeInfo.mode] || modeInfo.mode;
+  const sourceLabel = modeInfo.source ? (OPERATING_MODE_SOURCES[modeInfo.source] || modeInfo.source) : "";
+  return html`<span class="badge operating-mode-badge">Modo de operación: ${label}${sourceLabel ? " (" + sourceLabel + ")" : ""}</span>
+    <${Help} topic="run.operating_mode" compact=${true} />`;
+}
+
 function Counters({ view }) {
   const counters = view.counters;
   return html`<section class="panel" aria-labelledby="counters-title">
@@ -409,6 +447,7 @@ export function RunDetail({ token, runId, status, onChanged }) {
       <div class="status-line">
         <${StatusChip} status=${view.status} labels="run" />
         ${!view.terminal && html`<span class=${"badge " + (live ? "connected" : "reconnecting")}>${live ? "En vivo" : "Sin conexión en vivo"}</span>`}
+        <${RunOperatingMode} view=${view} />
         <button type="button" class="btn secondary small" ...${helpFor("run.refresh")} onClick=${load}>Actualizar</button>
         <${Help} topic="run.refresh" compact=${true} />
       </div>

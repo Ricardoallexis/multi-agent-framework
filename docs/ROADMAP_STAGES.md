@@ -205,7 +205,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S7.C2 | Check results with visibility rules and one designated reader per report. | S7.C1 |
 | S7.C3 | Workspace synchronization after each approved stage, with confirmation and no lost work. | S7.C1 |
 | **S7.D — Modes and budgets** | | |
-| S7.D1 | Supervised and autonomous operating modes. | S7.C1 |
+| S7.D1 | ✅ Supervised and autonomous operating modes: optional `supervised`/`autonomous` `mode` on approved `team.yaml` versions and `operating_mode` on runs across Python, HTTP, CLI (`--operating-mode`), and the GUI (optional selector at creation and mode/source in run detail); the effective mode (run over team) is bound at creation in `operating_mode_set {mode, source}` (absent when unset). Supervised runs require human review at role handoffs (native and mock) and per-call approval for writes; autonomous runs allow role-permitted ordinary writes (`approval_cause: autonomous`) within run limits (native; mock runs without tools), while destructive/external calls and plan approval still wait for a person. See [permissions](PERMISSIONS.md#run-operating-modes). `S7.C1` remains partial. | S7.C1 |
 | S7.D2 | Per-member token and cost budgets and minimal-reading rules. | S3, S7.A1 |
 | S7.D3 | Resumable status snapshot and readable views of progress and pending decisions. | S7.A2 |
 

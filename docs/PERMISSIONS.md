@@ -86,3 +86,27 @@ Activation is a manual step for the user. Copy
 run the application once with the user. Do not commit machine paths or local
 settings. Configure Copilot CLI options for each run instead; there is no
 active Copilot project settings file here.
+
+## Run operating modes
+
+A workflow run can run under an optional **`supervised`** or **`autonomous`** operating mode. When neither the run nor the bound team sets a mode, existing behavior applies unchanged.
+
+- **`supervised`:** pauses for human review (`waiting_reason: "review"`, `checkpoint` event) whenever a model or human-guided step hands off to a following executed step with a different `role` (and does not skip that handoff through the step cache). Ordinary write, destructive, and external tool calls continue to require per-call human approval (`tool_approval`).
+- **`autonomous`:** does not pause on role handoffs, and lets ordinary write-only tool calls (impacts within `{read, write}`) run without per-call human approval when the step's role grants `write` (recorded on `tool_call_completed` with `approval_cause: "autonomous"`). Read permissions, data-class checks, and bundle least-privilege validation (`invalid_definition` if a step's role lacks required permissions) remain enforced.
+
+Even in `autonomous` mode, the following always wait for a person:
+
+- **Destructive and external tool calls** (`ImpactClass.DESTRUCTIVE` and `ImpactClass.EXTERNAL`), which still pause in `tool_approval` for per-call approval.
+- **Plan proposal approval** (`services.plan_proposals.approve` requires a `user:` actor).
+- **Explicit workflow reviews and guards:** step checkpoints (`checkpoint_after: true`), `human_guided` steps, escalation approvals, content reviews, and budget-cut approvals.
+
+### Setting the mode on a team or run
+
+- **Team (`team.yaml`):** set the optional top-level `mode` field to `supervised` or `autonomous` (invalid values fail validation with `invalid_mode`). When omitted, `mode` is excluded from canonical JSON so existing teams keep their `sha256`; version diffs track changes under `team_fields.mode`.
+- **Run (`RunRequest`):** pass `operating_mode: "supervised" | "autonomous"` in Python, `POST /api/v1/runs`, `POST /gui/api/runs`, `multiagent run --operating-mode <mode>`, or the optional **Modo** selector in the GUI create-run form.
+
+The run's `operating_mode` takes precedence over the bound approved team's `mode`. The effective mode is resolved and bound once inside the run-creation transaction, so approving a different team version later never changes an existing run.
+
+### `operating_mode_set` event
+
+When either the run or the bound approved team sets a mode, creation records an `operating_mode_set` event with `{"mode": "supervised" | "autonomous", "source": "run" | "team"}`. When neither sets a mode, no `operating_mode_set` event is written. `services.runs.get` and `GET /api/v1/runs/{run_id}` expose `operating_mode` read from that event (or `null` when unset).

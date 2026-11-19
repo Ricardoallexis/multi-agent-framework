@@ -283,8 +283,15 @@ Workflows may declare inputs with a name, label, description, example,
 required flag and type (`text`, `long_text` or `choice`); the form shows the
 description and example, and uses a selector for choices. Workflows without
 declared inputs continue to derive them from prompt placeholders. The GUI
-previews the rendered prompt before creating the run.
-Run details show skipped steps, counters, and human-action history. When a
+previews the rendered prompt before creating the run. An optional **Modo**
+selector defaults to «Sin modo» (same behavior as before, inheriting any
+`mode` from the bundle's approved `team.yaml`) and sends `operating_mode`
+(`supervised` or `autonomous`) to `POST /gui/api/runs` only when a mode is
+chosen.
+Run details show skipped steps, counters, and human-action history. When a run
+has an `operating_mode_set` event, the run detail header shows the effective
+mode and whether it came from the run or the bound team; when no mode is set,
+nothing extra is shown (see [Run operating modes](PERMISSIONS.md#run-operating-modes)). When a
 step runs under a role from the bound approved team, both the step list and its
 completed attempts show the role, member, and team version. Results are
 grouped by step with each completed attempt's producer, review status, tokens,

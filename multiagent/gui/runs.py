@@ -13,7 +13,7 @@ file paths are dropped and long strings are cut.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -58,6 +58,7 @@ class InterpretBody(_Body):
 class CreateBody(PreviewBody):
     project_name: str = Field(min_length=2, max_length=120)
     idempotency_key: str = Field(default="", max_length=120)
+    operating_mode: Literal["supervised", "autonomous"] | None = None
     step_modes: dict[str, ExecutionMode] = Field(default_factory=dict)
 
 
@@ -473,7 +474,8 @@ def build_router(services) -> APIRouter:
         try:
             request = RunRequest(
                 workflow_id=body.workflow_id, project_name=body.project_name.strip(), inputs=body.inputs,
-                execution_mode=body.execution_mode, idempotency_key=body.idempotency_key, sensitive=body.sensitive,
+                execution_mode=body.execution_mode, operating_mode=body.operating_mode,
+                idempotency_key=body.idempotency_key, sensitive=body.sensitive,
                 routing_preferences=body.routing_preferences, step_modes=body.step_modes)
         except ValidationError as exc:
             raise translate(exc) from exc

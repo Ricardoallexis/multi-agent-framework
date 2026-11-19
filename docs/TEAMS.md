@@ -56,6 +56,7 @@ relationships:
 Every model rejects unknown fields:
 
 - **Top level:** `schema_version` (must be `1`), `id`, optional `description`, `roles`, `members`, `assignments`, and `relationships`.
+- **Top-level `mode` (optional):** `supervised` or `autonomous` (validated with `invalid_mode`); see [Run operating modes](PERMISSIONS.md#run-operating-modes).
 - **`roles[]`:** `id` (unique across roles), `purpose`, optional `rules`, `skills`, `contracts`, `capabilities` (validated capability IDs), and `permissions` (`read`, `write`, `destructive`, `external`).
 - **`members[]`:** `id` (unique across members), `kind` (`agent` or `person`), `agent` (required for `agent` and forbidden for `person`), and optional `name`.
 - **`assignments[]`:** `role` and `member`, referencing defined role and member IDs.

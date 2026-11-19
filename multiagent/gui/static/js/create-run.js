@@ -13,6 +13,33 @@ import { MODE_LABELS, errorText, exampleText, inputHelp, inputsNote, skipReason 
 
 const PREVIEW_DEBOUNCE_MS = 400;
 const MODES = ["auto", "local", "cloud", "human_guided"];
+export const OPERATING_MODES = [
+  { value: "", label: "Sin modo" },
+  { value: "supervised", label: "Supervisado" },
+  { value: "autonomous", label: "Autónomo" },
+];
+
+export function buildCreateRunBody({ workflowId, bundle, project, inputs, mode, sensitive, operatingMode }) {
+  const body = {
+    workflow_id: workflowId,
+    bundle: bundle || null,
+    project_name: project.trim(),
+    inputs,
+    execution_mode: mode,
+    sensitive,
+  };
+  if (operatingMode) body.operating_mode = operatingMode;
+  return body;
+}
+
+export function OperatingModeSelect({ value, disabled, onChange }) {
+  return html`<div><label for="cr-operating-mode">Modo <span class="muted">(opcional)</span></label>
+    <${Help} topic="create.operating_mode" />
+    <select id="cr-operating-mode" ...${helpFor("create.operating_mode")} value=${value} disabled=${disabled}
+      onChange=${(event) => onChange(event.target.value)}>
+      ${OPERATING_MODES.map((item) => html`<option key=${item.value} value=${item.value}>${item.label}</option>`)}
+    </select></div>`;
+}
 
 const newKey = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 const asError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
@@ -98,6 +125,7 @@ export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {
   const [touched, setTouched] = useState({});
   const [project, setProject] = useState(initial ? initial.project || "" : "");
   const [mode, setMode] = useState(initial && initial.mode ? initial.mode : "auto");
+  const [operatingMode, setOperatingMode] = useState(initial && initial.operatingMode ? initial.operatingMode : "");
   const [sensitive, setSensitive] = useState(Boolean(initial && initial.sensitive));
   const [confirmReal, setConfirmReal] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -178,7 +206,9 @@ export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {
       setTouched(Object.fromEntries((spec ? spec.inputs : []).map((item) => [item.name, true])));
       return;
     }
-    const body = { workflow_id: workflowId, bundle: bundle || null, project_name: project.trim(), inputs: inputs(), execution_mode: mode, sensitive };
+    const body = buildCreateRunBody({
+      workflowId, bundle, project, inputs: inputs(), mode, sensitive, operatingMode,
+    });
     const fingerprint = JSON.stringify(body);
     if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: newKey() };
     setBusy(true);
@@ -255,6 +285,7 @@ export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {
           onChange=${(event) => setSensitive(event.target.checked)} /> Contenido sensible (no se enviará a la nube)</label>
           <${Help} topic="create.sensitive" /></div>
       </div>
+      <${OperatingModeSelect} value=${operatingMode} disabled=${busy} onChange=${setOperatingMode} />
       ${!mock && html`<div class="notice check"><label><input type="checkbox" checked=${confirmReal} disabled=${busy} ...${helpFor("create.confirm_real")}
         onChange=${(event) => setConfirmReal(event.target.checked)} /> Entiendo que el servidor no está en modo Mock y esta ejecución puede usar modelos reales.</label>
         <${Help} topic="create.confirm_real" /></div>`}

@@ -168,6 +168,16 @@ export const HELP = {
       "Guiado por una persona: el framework no llama a ningún modelo; tú copias el prompt, lo usas donde quieras y pegas la respuesta."
     ]
   },
+  "create.operating_mode": {
+    "title": "Modo",
+    "hint": "Opcional: fija si la ejecución pide revisión entre roles o permite escrituras del rol.",
+    "more": [
+      "«Sin modo» usa el modo del equipo aprobado si tiene uno, o el comportamiento habitual sin modo.",
+      "«Supervisado» pide aprobación humana en cada entrega entre roles y en cada escritura de herramienta.",
+      "«Autónomo» deja pasar escrituras ordinarias permitidas al rol dentro de los límites de la ejecución.",
+      "Lo destructivo, lo externo y aprobar un plan siguen esperando siempre a una persona."
+    ]
+  },
   "create.sensitive": {
     "title": "Contenido sensible",
     "hint": "Márcalo si el texto no debe salir de tu equipo.",
@@ -263,6 +273,15 @@ export const HELP = {
     "more": [
       "El rol aporta su propósito, sus reglas y sus habilidades al paso, e indica qué miembro del equipo lo ejecuta.",
       "Sale de la versión aprobada del equipo vinculada al crear la ejecución, nunca de cambios posteriores."
+    ]
+  },
+  "run.operating_mode": {
+    "title": "Modo de operación",
+    "hint": "El modo fijado al crear la ejecución y si vino de la ejecución o del equipo.",
+    "more": [
+      "«Supervisado» pide revisión humana en entregas entre roles y aprobación en cada escritura.",
+      "«Autónomo» permite escrituras ordinarias del rol, pero lo destructivo y lo externo siguen esperando.",
+      "El modo queda fijado al crear la ejecución y no cambia aunque se apruebe otro equipo después."
     ]
   },
   "run.counters": {
