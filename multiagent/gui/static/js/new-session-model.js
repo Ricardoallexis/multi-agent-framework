@@ -9,7 +9,7 @@
 //   continue  the runs that can be picked up again
 //   ask       one question at a time, one per workflow input, and the project name last
 //   confirm   the summary card; only its «Lanzar» button creates a run
-//   launched  the run was created
+//   launched  the run was created; the run thread is shown in this same column
 // Free text is read by a model on the server (GUI2-T17, POST /gui/api/new-session/interpret): new-session.js sends it and
 // hands the answer to the reducer as `interpretation`. This file only validates what it is given: a proposal for a workflow
 // that is in the catalog is shown as a card with its inputs prefilled; anything else (no model, an error, an invalid or
@@ -383,7 +383,7 @@ export function reduce(state, action) {
     case "skip": return onSkip(state);
     case "back": return onBack(state);
     case "edit": return onEdit(state);
-    case "launched": return say({ ...state, phase: "launched" }, "assistant", "La ejecución está creada. Te llevo a su detalle.");
+    case "launched": return say({ ...state, phase: "launched", runId: action.runId }, "assistant", "La ejecución está creada. Seguimos aquí su avance.");
     case "notice": return say(state, "assistant", String(action.text || ""));
     case "typing": return state.error ? { ...state, error: "" } : state;
     default: return state;

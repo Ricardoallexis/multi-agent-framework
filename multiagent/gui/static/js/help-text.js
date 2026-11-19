@@ -1417,11 +1417,11 @@ export const HELP = {
   },
   "chat.runs": {
     "title": "Ejecuciones para continuar",
-    "hint": "Pulsa una para abrir su detalle y seguir donde quedó.",
+    "hint": "Pulsa una para abrir su hilo y seguir donde quedó.",
     "more": [
       "Primero aparecen las que esperan una acción tuya o se interrumpieron.",
       "Si no hay ninguna, se muestran las más recientes.",
-      "Abrir una ejecución no la modifica."
+      "Abrir el hilo no modifica la ejecución."
     ]
   },
   "chat.question": {
@@ -1457,7 +1457,7 @@ export const HELP = {
     "more": [
       "Es el único botón del chat que ejecuta algo.",
       "Si el servidor no está en modo Mock, antes debes confirmar que puede usar modelos reales.",
-      "Al terminar se abre el detalle de la ejecución."
+      "Al crearla, el chat sigue el avance de la ejecución."
     ]
   },
   "chat.edit": {
@@ -1475,6 +1475,56 @@ export const HELP = {
       "Este botón solo aparece si no se pudo leer la lista de workflows.",
       "Si el fallo continúa, abre el formulario con «Ver como formulario»."
     ]
+  },
+  "thread.section": {
+    "title": "Hilo de la ejecución",
+    "hint": "Muestra los pasos y las decisiones de esta ejecución.",
+    "more": ["El hilo se actualiza cada pocos segundos mientras esta vista está abierta.", "Las decisiones aparecen en la parada actual."]
+  },
+  "thread.refresh": {
+    "title": "Actualizar hilo",
+    "hint": "Vuelve a leer todos los mensajes de esta ejecución.",
+    "more": ["Úsalo si quieres comprobar el estado ahora.", "No cambia la ejecución."]
+  },
+  "thread.detail": {
+    "title": "Ver detalle de la ejecución",
+    "hint": "Abre el detalle completo en Ejecuciones.",
+    "more": ["Allí puedes revisar resultados y acciones que este hilo no muestra.", "El enlace conserva la ejecución elegida."]
+  },
+  "thread.related": {
+    "title": "Abrir elemento relacionado",
+    "hint": "Abre el plan o equipo vinculado a la ejecución.",
+    "more": ["El enlace aparece cuando la ejecución pertenece a una tarea o usa un equipo.", "Abrirlo no modifica la ejecución."]
+  },
+  "thread.approve": {
+    "title": "Aprobar la parada",
+    "hint": "Confirma el resultado o la llamada pendiente.",
+    "more": ["Lee el detalle antes de decidir.", "La aprobación se envía solo después de confirmarla."]
+  },
+  "thread.changes": {
+    "title": "Pedir cambios",
+    "hint": "Devuelve el paso con indicaciones o comentarios.",
+    "more": ["Escribe una indicación o añade un comentario.", "Confirma antes de enviarlos."]
+  },
+  "thread.reject": {
+    "title": "Rechazar la ejecución",
+    "hint": "Termina esta ejecución después de confirmar.",
+    "more": ["Puedes escribir un motivo.", "Rechazar no se puede deshacer."]
+  },
+  "thread.feedback": {
+    "title": "Indicación de la decisión",
+    "hint": "Escribe qué debe cambiar o por qué rechazas.",
+    "more": ["Para pedir cambios necesitas una indicación o un comentario.", "El motivo del rechazo es opcional."]
+  },
+  "thread.comment": {
+    "title": "Comentario de revisión",
+    "hint": "Señala una parte, el tipo de cambio y su texto.",
+    "more": ["Puedes añadir varios comentarios.", "La cita de la salida es opcional."]
+  },
+  "thread.confirm": {
+    "title": "Confirmar decisión",
+    "hint": "Envía la decisión o vuelve sin cambiar la ejecución.",
+    "more": ["Comprueba el resultado y las indicaciones antes de enviar.", "El hilo se vuelve a leer tras la acción."]
   },
   "shell.search": {
     "title": "Buscar en la lista",

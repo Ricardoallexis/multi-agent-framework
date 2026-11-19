@@ -81,3 +81,21 @@
   .ns-msg { max-width: 95%; }
   .ns-composer { bottom: 4px; }
 }
+
+/* CHT-T02: the run thread continues in the same single column. */
+.thread-view { width: 100%; }
+.thread-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.thread-head h3 { margin: 0; }
+.thread-head .muted { flex: 1 1 12rem; overflow-wrap: anywhere; }
+.thread-list { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.thread-card { min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow-wrap: anywhere; }
+.thread-card p { margin: 8px 0 0; white-space: pre-wrap; }
+.thread-card-head, .thread-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.thread-card-head a { margin-left: auto; }
+.thread-decision, .thread-confirm, .thread-comments { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.thread-decision button, .thread-head button { min-height: var(--target); }
+.thread-confirm label, .thread-comments label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.thread-confirm textarea, .thread-comments input, .thread-comments select { width: 100%; min-width: 0; }
+.thread-comments fieldset { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.thread-output { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.thread-compose-slot { border-top: 1px solid var(--line); padding-top: 8px; }

@@ -16,7 +16,8 @@ import {
   SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, answerRows, cardDescription, createConversation, currentQuestion, formSeed, inputsPath, loadCatalog, originLabel, parseCommand,
   pickRuns, progress, reduce, runBody, suggestedEntries,
 } from "./new-session-model.js";
-import { navigate, routeHref } from "./route.js";
+import { navigate, threadHref, useRoute } from "./route.js";
+import { RunThread } from "./thread.js";
 import { MODE_LABELS, errorText, exampleText, fmtDate, statusInfo } from "./text.js";
 
 const MODES = Object.keys(MODE_LABELS);
@@ -72,11 +73,11 @@ function RunsList({ runs }) {
   return html`<div class="ns-suggest">
     <p class="muted">${runs.runs.length === 0
       ? "Todavía no hay ejecuciones. Elige «Trabajar en un workflow» para crear la primera."
-      : runs.resumable ? "Pulsa una para abrir su detalle y seguir donde quedó." : "No hay ejecuciones por retomar; estas son las más recientes."}</p>
+      : runs.resumable ? "Pulsa una para abrir su hilo y seguir donde quedó." : "No hay ejecuciones por retomar; estas son las más recientes."}</p>
     <ul class="ns-run-list">
       ${runs.runs.map((run) => {
         const info = statusInfo(run.status);
-        return html`<li key=${run.id}><a class="ns-card ns-run" href=${routeHref("runs", run.id)} ...${helpFor("chat.runs")}>
+        return html`<li key=${run.id}><a class="ns-card ns-run" href=${threadHref(run.id)} ...${helpFor("chat.runs")}>
           <span class="ns-card-name">${run.workflow_id} <span class="muted">· ${run.project_name}</span></span>
           <span class=${"badge tone-" + info.tone}>${info.label}</span>
           <span class="ns-card-meta">${fmtDate(run.created_at)}${run.bundle ? " · " + run.bundle : ""}</span>
@@ -207,6 +208,8 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
 }
 
 export function NewSession({ token, mock }) {
+  const route = useRoute();
+  const runId = route.section === "new" ? route.id : null;
   const store = useRef(createConversation());
   const [conv, setConv] = useState(store.current);
   const [view, setView] = useState("chat");                        // "chat" or "form" (the existing create-run form)
@@ -407,7 +410,7 @@ export function NewSession({ token, mock }) {
       const run = await apiPost("/gui/api/runs", token, { ...body, idempotency_key: attempt.current.key });
       attempt.current = { fingerprint: "", key: "" };
       dispatch({ type: "launched", runId: run.id });
-      navigate("runs", run.id);
+      location.hash = threadHref(run.id);
     } catch (failure) {
       setLaunchError(asError(failure));
     } finally { setBusy(false); }
@@ -441,6 +444,8 @@ export function NewSession({ token, mock }) {
     setDraft(event.target.value);
     if (store.current.error) dispatch({ type: "typing" }, { keepDraft: true });      // the message was about the old text
   };
+
+  if (runId) return html`<${RunThread} key=${runId} token=${token} runId=${runId} />`;
 
   if (view === "form") {
     return html`<${CreateRun} token=${token} mock=${mock} initial=${formInitial}
