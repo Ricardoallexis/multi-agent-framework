@@ -242,28 +242,28 @@ class RunServices:
         if task_id is not None and self._services.tasks.store.get_task(task_id) is None:
             raise ServiceError(NOT_FOUND, f"Task not found: {task_id}", status=404, details={"task": task_id})
         runtime = self._system_runtime if bundle is None else self._bundle_runtime(bundle)
+        # The approved team travels with the run (its runs live in the bundle's database, the versions in the
+        # system's): the binding is stored in the same transaction as the run, before any worker can take it.
+        team_binding = None
+        approved_team = self._services.teams.approved(bundle) if bundle is not None else None
+        if approved_team is not None:
+            team_binding = {
+                "id": approved_team["id"],
+                "version_id": approved_team["id"],
+                "bundle": bundle,
+                "team_id": approved_team["team_id"],
+                "version": approved_team["version"],
+                "sha256": approved_team["sha256"],
+                "team": approved_team["team"],
+            }
         try:
-            run = runtime.service.create_run(request)
+            run = runtime.service.create_run(request, team_binding=team_binding)
         except ValueError as exc:
             if isinstance(exc, FunctionStepRequestError):
                 raise
             if getattr(request, "routing_preferences", None):
                 raise ServiceError(INVALID_REQUEST, str(exc), status=422) from exc
             raise
-        if bundle is not None:
-            events = run.get("events") or ()
-            if len(events) == 1 and events[0].get("event_type") == "workflow_started":
-                approved_team = self._services.teams.approved(bundle)
-                if approved_team is not None:
-                    runtime.store.db.log_event(run["id"], "team_version_bound", {
-                        "id": approved_team["id"],
-                        "version_id": approved_team["id"],
-                        "bundle": bundle,
-                        "team_id": approved_team["team_id"],
-                        "version": approved_team["version"],
-                        "sha256": approved_team["sha256"],
-                    })
-                    run = runtime.store.get_run(run["id"])
         return self._tag(runtime, run)
 
     @service_errors

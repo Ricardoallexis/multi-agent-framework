@@ -9,6 +9,7 @@ from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition
 from .tools.approvals import ToolApprovalMismatch
 from .run_request import RunRequest, validate_function_step_options
 from .routing_preferences import validate_run_preferences
+from .teams.step_roles import TEAM_VERSION_BOUND, bind_step_roles, bound_team_from_payload
 
 
 class PersonRequired(InvalidStateTransition):
@@ -27,8 +28,12 @@ class RunService:
     def create_social_post(self, request: SocialPostRequest) -> dict[str, Any]:
         return self.create_run(request)
 
-    def create_run(self, request: RunRequest | SocialPostRequest) -> dict[str, Any]:
-        """Validate and persist a named workflow, preserving social request compatibility."""
+    def create_run(self, request: RunRequest | SocialPostRequest, *,
+                   team_binding: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Validate and persist a named workflow, preserving social request compatibility.
+
+        ``team_binding`` is the ``team_version_bound`` payload of a bundle's approved team (``services.runs``): the
+        roles the steps name are checked against it, and it is stored with the run in the same transaction."""
         existing = self.store.find_idempotent_run(request)
         if existing is not None:
             return existing
@@ -39,9 +44,16 @@ class RunService:
         definition = self.engine.preflight(self.store.workflow_id_for(request))
         if isinstance(request, RunRequest):
             validate_function_step_options(request, definition)
+        # Preferences are checked with the agent each role gives its step, as the run will execute it.
+        definition, _ = bind_step_roles(
+            definition, bound_team_from_payload(team_binding) if team_binding is not None else None,
+            catalog=getattr(self.engine, "catalog", None),
+            skills_dir=getattr(getattr(self.engine, "prompts", None), "skills_dir", None))
         if getattr(request, "routing_preferences", None):
             validate_run_preferences(self.engine, request, definition)
-        return self.store.create_run(request, self.settings.max_llm_calls, self.settings.max_run_seconds)
+        events = ((TEAM_VERSION_BOUND, team_binding),) if team_binding is not None else ()
+        return self.store.create_run(request, self.settings.max_llm_calls, self.settings.max_run_seconds,
+                                     events=events)
 
     def get(self, run_id: str) -> dict[str, Any]:
         if self.engine is not None:

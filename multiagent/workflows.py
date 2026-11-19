@@ -64,6 +64,9 @@ class WorkflowStep:
     # Deterministic step, mutually exclusive with all provider and tool fields.
     function: str | None = None
     arguments: dict[str, Any] | None = None
+    # Role of the team version bound to the run (S6.C1, ``teams.step_roles``). With a role, ``agent`` may be null:
+    # the role's only agent member runs the step. ``None``: the step runs as it always did.
+    role: str | None = None
 
 
 @dataclass(frozen=True)

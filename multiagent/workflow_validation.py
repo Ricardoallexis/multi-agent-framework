@@ -393,7 +393,7 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
             if step.arguments is not None and not _literal_arguments(step.arguments):
                 add("invalid_value", "arguments", "Expected a mapping of JSON-like literal arguments")
             for field in ("agent", "prompt_id", "prompt_version", "skills", "preferred_model", "fallback_model",
-                          "requires_web", "tools", "egress", "effort", "project_memory"):
+                          "requires_web", "tools", "egress", "effort", "project_memory", "role"):
                 if getattr(step, field) is not None:
                     add("invalid_value", field, "Function steps cannot declare model or tool fields")
             if step.when is not None and step.when not in SUPPORTED_CONDITIONS:
@@ -406,7 +406,12 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
             add("invalid_value", "arguments", "Arguments require a function step")
 
         _check_text(add, "description", step.description)
+        if step.role is not None:
+            _check_name(add, "role", step.role)
+        # A step with a role may leave ``agent`` null: the run gives it the role's only agent member.
         for field in ("agent", "contract", "preferred_model"):
+            if field == "agent" and step.agent is None and step.role is not None:
+                continue
             _check_name(add, field, getattr(step, field))
         if step.fallback_model is not None:
             _check_name(add, "fallback_model", step.fallback_model)
@@ -503,7 +508,9 @@ def _reference_issues(definition: WorkflowDefinition, *, catalog: Catalog, promp
                 add("unknown_function", "function", f"Unknown registered function {step.function!r}")
             continue
 
-        if step.agent not in catalog.agents:
+        if step.agent is None and step.role is not None:
+            pass  # the agent comes from the role when the run starts (``teams.step_roles``)
+        elif step.agent not in catalog.agents:
             add("unknown_agent", "agent", f"Unknown agent {step.agent!r}; configured agents: {_names(catalog.agents)}")
         elif isinstance(catalog.agents[step.agent], dict) and catalog.agents[step.agent].get("active") is False:
             add("inactive_agent", "agent", f"Agent {step.agent!r} is marked inactive in the catalog")

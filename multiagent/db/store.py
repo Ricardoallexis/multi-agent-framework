@@ -209,7 +209,11 @@ class Store:
 
         return None
 
-    def create_run(self, req: SocialPostRequest | RunRequest, max_llm_calls: int, max_run_seconds: int) -> dict[str, Any]:
+    def create_run(self, req: SocialPostRequest | RunRequest, max_llm_calls: int, max_run_seconds: int, *,
+                   events: tuple[tuple[str, dict[str, Any]], ...] = ()) -> dict[str, Any]:
+        """Persist a queued run. ``workflow_started`` and then ``events`` (``(event_type, payload)``, such as the
+        ``team_version_bound`` of a bundle run) are stored in the same transaction as the run, so a worker never
+        claims the run without them. An idempotent replay returns the existing run and stores nothing."""
         existing = self.find_idempotent_run(req)
         if existing is not None:
             return existing
@@ -242,8 +246,18 @@ class Store:
                     getattr(req, "task_id", None),
                 ),
             )
+            notices = []
+            for event_type, payload in (("workflow_started", {"workflow_id": workflow_id}), *events):
+                cursor = conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                                      (run_id, utcnow(), event_type, json.dumps(payload, ensure_ascii=False)))
+                notices.append((run_id, event_type, payload, cursor.lastrowid))
             conn.commit()
-        self.db.log_event(run_id, "workflow_started", {"workflow_id": workflow_id})
+        for notice in notices:
+            for listener in tuple(self.db.event_listeners):
+                try:
+                    listener(*notice)
+                except Exception:
+                    pass
         return self.get_run(run_id)
 
     def get_run(self, run_id: str) -> dict[str, Any]:

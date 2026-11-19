@@ -83,6 +83,7 @@ from .tools.permissions import InvalidArguments, check_call, required_permission
 from .tools.registry import ToolLookupError, ToolRegistry
 from .tools.selection import SelectionConfig, SelectionError, load_selection_config, select_tool
 from .tools.trust import render_result_for_prompt
+from .teams.step_roles import bind_step_roles, bound_team
 from .workflows import WorkflowCatalog, WorkflowDefinition, WorkflowStep, condition_is_true
 from .workflow_validation import (
     WorkflowDefinitionError, validate_resume_point, validate_workflow_definition,
@@ -423,6 +424,9 @@ class WorkflowEngine:
             self._check_cancel(run_id)
             try:
                 definition = self.preflight(run["workflow_id"])
+                # Roles of the team version bound to the run (S6.C1); steps without a role are left as they are.
+                definition, step_roles = bind_step_roles(definition, bound_team(run.get("events")),
+                                                         catalog=self.catalog, skills_dir=self.prompts.skills_dir)
             except (KeyError, WorkflowDefinitionError) as exc:
                 payload = exc.to_payload() if isinstance(exc, WorkflowDefinitionError) else {}
                 self.store.fail_active_run(run_id, exc, issues=payload.get("issues"), message=payload.get("error"))
@@ -446,6 +450,7 @@ class WorkflowEngine:
                 self.store.heartbeat(run_id)
 
                 step = definition.steps[index]
+                step_role = step_roles.get(step.id)
                 if step.function is None:
                     self._check_active_budget(run_id, base_active, started_mono)
                 if not condition_is_true(step.when, request):
@@ -504,11 +509,13 @@ class WorkflowEngine:
                 prompt = self.prompts.render(step.prompt_id, step.prompt_version, **context)
                 skill_text = "\n\n".join(self.prompts.skill_text(skill) for skill in step.skills)
                 # Stable prefix first (skills, output schema), then the variable part (the rendered step prompt with its
-                # input, prior artifacts and feedback, then the context sections), then a short fixed tail, so that
-                # untrusted content is always followed by trusted text. Providers cache the leading bytes.
+                # input, prior artifacts and feedback, then the step's role section and the context sections), then a
+                # short fixed tail, so that untrusted content is always followed by trusted text. Providers cache the
+                # leading bytes. Only a step with a role gets a role section, and only its own role's.
+                role_sections = [step_role.section()] if step_role is not None else []
                 final_prompt = self.prompts.assemble(
                     self.prompts.stable_prefix(skill_text, self._output_schema_block(output_schema)),
-                    prompt.text, [*step_context.sections(), *tool_sections], OUTPUT_CONTRACT_REMINDER)
+                    prompt.text, [*role_sections, *step_context.sections(), *tool_sections], OUTPUT_CONTRACT_REMINDER)
                 prompt_sha256 = hashlib.sha256(final_prompt.encode("utf-8")).hexdigest()
                 estimated_input = estimate_tokens_conservative(final_prompt)
 
@@ -577,6 +584,7 @@ class WorkflowEngine:
                     "execution_mode": execution_mode.value,
                     "step_kind": step.kind,
                     "effort": effective_effort,
+                    **(step_role.fields() if step_role is not None else {}),
                     **({"escalation": escalation_info} if escalation_info is not None else {}),
                     **({"context_summary": {"ref": compaction.summary_ref, "replaced": list(compaction.step_ids)}}
                        if compaction is not None and step_context.summary_ref is not None else {}),
@@ -925,6 +933,7 @@ class WorkflowEngine:
 
         try:
             definition = self.validate_waiting_step(run, pending)
+            definition, _ = bind_step_roles(definition, bound_team(run.get("events")))   # the agent a role gives a step
             if (run["cancel_requested"] or run["waiting_step"] != pending["step_id"]
                     or run["waiting_attempt"] != pending["attempt"]
                     or self.store.latest_step_attempt(run_id, pending["step_id"]) != pending["attempt"]):

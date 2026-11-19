@@ -2,7 +2,7 @@
 
 A team is an optional `team.yaml` file inside a definition bundle. It declares roles, human or agent members, role assignments, and relationships between roles.
 
-> **Current runtime scope:** no run executes with a team definition yet. Runtime role loading and role switching arrive in `S6.C1`. Today, starting a run for a bundle with an approved team only records a `team_version_bound` event.
+> **Current runtime scope:** a run binds the bundle's approved team version, and only workflow steps that name a `role` use it (see [Roles in workflow steps](#roles-in-workflow-steps)). Other team fields (`contracts`, `capabilities`, `permissions`, relationships) are not enforced at run time.
 
 ## Team definition (`team.yaml`)
 
@@ -89,7 +89,18 @@ Team definitions in a bundle follow a versioned approval lifecycle (`tmv-<12 hex
 5. **Active version:** approving a new version makes it active (`active: true`); earlier approved versions stay in history (`active: false`).
 6. **Structural diff:** each version computes a diff against the relevant approved version (or an explicit `against` version ID in `services.teams.diff`) across `team_fields` (`id`, `description`, `schema_version`), `roles`, `members`, `assignments`, and `relationships`.
 
-When a new run is queued for a bundle that has an approved team version, `services.runs.create` logs a `team_version_bound` event with `id`, `version_id`, `bundle`, `team_id`, `version`, and `sha256`. Bundles without `team.yaml` or without an approved version do not emit this event. Runs do not read or enforce team roles yet (`S6.C1`).
+When a new run is queued for a bundle that has an approved team version, `services.runs.create` logs a `team_version_bound` event with `id`, `version_id`, `bundle`, `team_id`, `version`, `sha256`, and `team` (the approved team itself). The event is written in the same transaction as the run, so no worker can take the run before it is bound. Bundles without `team.yaml` or without an approved version do not emit this event.
+
+## Roles in workflow steps
+
+A model step may name a `role` from the team version bound to its run (`S6.C1`). The run reads the role from its own `team_version_bound` event, never from the system database:
+
+- **Member:** the role's assigned `agent` member whose `agent` is the step's agent. A step with `agent: null` gets the role's only agent member. A role never changes the agent a step names.
+- **Prompt:** the step's prompt gets a `## Role: <id>` section with the role's `purpose` and `rules`. Only the steps of that role get it. A step that declares no `skills` uses the role's skills. Outputs of earlier steps reach later steps as before.
+- **Records:** `step_started`, the step's attempts, and the run report record `role`, `member`, `team_id`, `team_version_id`, and `team_version`.
+- **Errors:** `422 invalid_definition` when the run is created (or a failed run before any model call, if the definition changed while it was queued), with issue codes `role_without_team`, `team_binding_invalid`, `unknown_role`, `role_member_not_found`, and `role_member_ambiguous`.
+
+Steps without a `role` run exactly as before, with or without a bound team. Function steps cannot name a role.
 
 ## Decision register records
 

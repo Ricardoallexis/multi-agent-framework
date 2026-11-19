@@ -40,6 +40,7 @@ from ..errors import (
 )
 from ..functions import FunctionStepError, execute_function_step
 from ..observability.usage import TokenUsageRecord, UsageRecorder
+from ..teams.step_roles import bind_step_roles, bound_team
 from ..workflow_validation import (
     WorkflowDefinitionError,
     validate_resume_point,
@@ -335,6 +336,11 @@ class MockBackend:
             self._check_cancel(run_id)
             try:
                 definition = self.preflight(run["workflow_id"])
+                # Roles of the team version bound to the run, exactly as the native engine applies them (S6.C1).
+                definition, step_roles = bind_step_roles(
+                    definition, bound_team(run.get("events")), catalog=self.catalog,
+                    skills_dir=self.prompts.skills_dir if self.prompts is not None else None,
+                )
             except (KeyError, WorkflowDefinitionError) as exc:
                 payload = exc.to_payload() if isinstance(exc, WorkflowDefinitionError) else {}
                 self.store.fail_active_run(run_id, exc, issues=payload.get("issues"), message=payload.get("error"))
@@ -361,6 +367,7 @@ class MockBackend:
                 self.store.heartbeat(run_id)
 
                 step = definition.steps[index]
+                step_role = step_roles.get(step.id)
                 if step.function is None:
                     self._check_active_budget(run_id, base_active, started_mono)
                 if not condition_is_true(step.when, request):
@@ -406,6 +413,8 @@ class MockBackend:
                     brand_version=fresh.get("brand_version"),
                 )
                 prompt_text = self._render_prompt(step, context)
+                if step_role is not None:   # the step's own role section, as the native engine adds it
+                    prompt_text = f"{prompt_text}\n\n{step_role.section()}"
                 prompt_sha256 = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
 
                 self.store.db.log_event(run_id, "step_started", {
@@ -418,6 +427,7 @@ class MockBackend:
                     "execution_mode": execution_mode.value,
                     "step_kind": step.kind,
                     "effort": step.effort,
+                    **(step_role.fields() if step_role is not None else {}),
                 })
 
                 if execution_mode == ExecutionMode.HUMAN_GUIDED:
@@ -534,6 +544,7 @@ class MockBackend:
 
         try:
             definition = self._validate_waiting_step(run, pending)
+            definition, _ = bind_step_roles(definition, bound_team(run.get("events")))   # the agent a role gives a step
             if (
                 run["cancel_requested"]
                 or run["waiting_step"] != pending["step_id"]

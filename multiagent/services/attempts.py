@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from ..attempt_compare import compare_outputs
 from ..observability.usage import read_usage, totals_of
+from ..teams.step_roles import ROLE_FIELDS
 from .errors import INVALID_REQUEST, NOT_FOUND, ServiceError
 
 def event_actor(payload: Mapping[str, Any] | None, *, default: str) -> str:
@@ -224,6 +225,13 @@ def build_step_attempts(runtime, definitions, run_id: str, step_id: str) -> dict
         if event.get("event_type") == "step_started" and isinstance(event.get("payload"), Mapping)
         and event["payload"].get("step_id") == step_id and event["payload"].get("function")
     }
+    # The role and member that ran each attempt (S6.C1), as its step_started recorded them.
+    roles_by_attempt = {
+        event["payload"].get("attempt"): {name: event["payload"].get(name) for name in ROLE_FIELDS}
+        for event in run.get("events") or []
+        if event.get("event_type") == "step_started" and isinstance(event.get("payload"), Mapping)
+        and event["payload"].get("step_id") == step_id and isinstance(event["payload"].get("role"), str)
+    }
     data_dir = runtime.service.settings.data_dir
 
     attempts: list[dict[str, Any]] = []
@@ -265,6 +273,7 @@ def build_step_attempts(runtime, definitions, run_id: str, step_id: str) -> dict
             "tokens": _tokens_for(usage_records),
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
+            **roles_by_attempt.get(attempt, {}),
         })
 
     return {

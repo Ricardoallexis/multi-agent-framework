@@ -12,6 +12,8 @@ import re
 from collections import OrderedDict
 from typing import Any, Mapping
 
+from ..teams.step_roles import ROLE_FIELDS
+
 
 _TOOL_EVENTS = {
     "tool_call_requested", "tool_permission_requested", "tool_call_denied",
@@ -233,6 +235,8 @@ def build_run_report(run: Mapping[str, Any], usage: Mapping[str, Any], *, includ
                   else _safe_fields(payload, _EVENT_FIELDS[kind]))}
         if kind == "step_started" and isinstance(payload, Mapping) and payload.get("function"):
             row.pop("agent_id", None)
+        if kind == "step_started" and isinstance(payload, Mapping) and isinstance(payload.get("role"), str):
+            row.update(_safe_fields(payload, ROLE_FIELDS))     # the step's role and member (S6.C1); none without one
         if include_raw:
             if kind in _TOOL_EVENTS:
                 row.update(_tool_raw_extras(payload))
