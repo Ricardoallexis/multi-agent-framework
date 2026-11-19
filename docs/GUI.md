@@ -313,6 +313,22 @@ and, once approved, one message for each task with its run. **Aprobar** and
 described under «Planes». Pending runs, team versions and plans in «Pendientes» link to
 these threads.
 
+*Message box.* The thread ends with a box that writes to the inbox of the run
+(`js/inbox-model.js`, in `js/thread.js`): **Nota** (for the record, the run goes
+on), **Ajustar**, **Interrumpir** and **Cancelar**. The last three ask for a
+confirmation first. A message is only appended through
+`POST /gui/api/runs/{id}/messages` (`GET` lists them), with the actor
+(`user:operator`) fixed by the server and an idempotent `message_id`; the run
+reads it at the boundary of its next step, never when it is posted: «Cancelar»
+ends the run as cancelled, «Interrumpir» and «Ajustar» make it wait for you, and
+«Nota» is recorded. None of them approves, accepts or rejects anything: a run
+that waits for you is still settled with its cards. The tasks have the same
+routes (`/gui/api/tasks/{id}/messages`). The box is part of the opt-in
+availability policy (`AVAILABILITY_ENABLED`, off by default): while it is off,
+`GET /gui/api/inbox/policy` says so with its reason, the box shows that reason and
+sends nothing, and the server answers `409` with `availability_disabled`. A run
+that has ended no longer takes messages.
+
 *Limits.* The cards show text only: nothing the server or a model wrote is
 interpreted as HTML or Markdown. The preview of `file.write` appears only when the
 arguments rebuilt from the step declaration and the run inputs have the same
@@ -491,6 +507,10 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/threads/runs/{run_id}` (`?after=<cursor>`) | The conversation of a run for «Nueva sesión» (`#new/run/<id>`): launch, steps, messages, stops with the actions the server accepts, and the final output, rebuilt from the stored events (read only). |
 | `GET /gui/api/threads/teams/{version_id}` | The thread of a team version (`#new/team/<id>`): its card and one stop with Approve and Reject (read only; the decision uses the teams routes). |
 | `GET /gui/api/threads/plans/{proposal_id}` | The thread of a plan proposal (`#new/plan/<id>`): tasks and inputs, bundles without an approved team, and the run of each task once approved (read only; the decision uses the plan-proposal routes). |
+| `GET /gui/api/runs/{id}/messages` (`?after=`, `?limit=`), `POST /gui/api/runs/{id}/messages` | The messages of the person's inbox for a run, and writing one (`{message_id, kind: note\|adjust\|interrupt\|cancel, text}`). The actor (`user:operator`) is fixed by the server, the post is idempotent by `message_id` and only appends; it answers `409` `availability_disabled` while the availability policy is off. It never approves anything. |
+| `GET /gui/api/tasks/{id}/messages`, `POST /gui/api/tasks/{id}/messages` | The same for a task, read by its background attempt. |
+| `GET /gui/api/inbox/policy` | Whether the availability policy is on and, when it is not, the reason (read only). |
+| `GET /gui/api/pending/background` | Runs that are `running` or `queued`, for «En fondo» in «Pendientes» (read only). |
 | `GET /gui/api/runs/{id}/tool-approval/preview?permission_request_id=` | Content and diff of a pending `file.write` approval, only when the rebuilt arguments match its fingerprint; writes nothing. |
 | `GET /gui/api/connections`, `POST /gui/api/connections/{id}/check` | Cached connection facts for the seven model providers and executor apps, or a fresh check of one; no model is called and no key value is returned. |
 | `GET /gui/api/setup/status` | For «Apps y agentes»: whether launching is allowed (`gui_allow_launch`) and the console is supported, the read-only presence of each permission template, and the fixed, dated install and sign-in plans (read only; no template file is read, only checked for presence). |
@@ -565,6 +585,14 @@ link closes the list. The link only changes view: it approves and starts nothing
 and only then does the browser on this PC raise a notification for each new item.
 The choice is kept in this browser, and **Desactivar avisos** turns it off.
 Nothing is sent to another device.
+
+Under the list, **En fondo** shows the runs that are `running` or `queued`
+(`GET /gui/api/pending/background`, read only; it does not change the count or the
+contract of `GET /gui/api/pending`), each with its state and a link to its thread.
+**Cancelar** asks for a confirmation and then writes a `cancel` message to the
+run's inbox (`POST /gui/api/runs/{id}/messages`): the run stops at its next step
+boundary, not at once, and nothing is approved. With the availability policy off,
+the section says so and the button is disabled.
 
 **Salida externa** (HIL2-T02) appears in the run detail while a run waits for a
 human step or a review. Paste the JSON output, optionally pick evidence files

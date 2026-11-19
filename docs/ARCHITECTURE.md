@@ -67,6 +67,15 @@ steps:
         arguments: {target: notes/post.txt, text: "${topic}"}
 ```
 
+### Availability (opt-in)
+
+The availability policy keeps the orchestrator from blocking its caller. It is off by default (`AVAILABILITY_ENABLED`, read by `multiagent/services/availability.py`); with it off, every path below behaves as before and the inbox refuses writes (`availability_disabled`). Nothing here turns it on for you.
+
+- **Background and heartbeat.** With the policy on, `services.executors.run_task` starts an executor attempt in a background thread and waits at most `AVAILABILITY_MAX_WAIT_SECONDS` (30 by default). A short attempt answers as before; a longer one answers `running`, and its end is still recorded as `executor.attempt_finished`. While it runs, its process watch writes `executor.heartbeat` every `AVAILABILITY_HEARTBEAT_SECONDS` (60 by default) with only the elapsed time, idle time and attention flag, never any content; the 15-minute stall check reuses the same watch. A resume stays synchronous.
+- **The person's inbox.** `services.inbox` appends `user.message` events to the log that already exists (`run_events` for a run, `team_events` for a task; no table of its own): `cancel`, `interrupt`, `adjust` or `note`, numbered by `seq`, idempotent by `message_id`, and never written by a program or by the assignee. Nothing reads the inbox when a message is posted. A run reads it in its worker thread at the boundary of each step (the `UserInboxGuard`, before a model call); a background task attempt reads it at each tick of its process watch. In both, the messages are read in the policy's order (`cancel` first), each is marked `user.message_consumed` before anything is done, and a `note` only goes on the record. `cancel` ends the run or task as cancelled; `interrupt` and `adjust` stop it and hold it on an approval that only the person who wrote the message can record. The inbox never approves, accepts or decides anything.
+- **Hand-off at the boundary.** An attempt is never moved in the middle of a step. When the next attempt of a task starts (`resume_task`) and the context measure of the CMP profile is over its threshold, the framework saves a checkpoint, retires the old session once (`session.retired`) and launches a new one with the checkpoint and the context snapshot; the package keeps `inbox_cursor`, and the new session reads `messages(after=cursor)`. It first reads the inbox again: a `cancel` nobody has acted on stops the hand-off before anything is claimed.
+- **Surfaces.** `POST /api/v1/runs/{id}/messages` and the task routes, `multiagent/gui/inbox_api.py` for the GUI (see [Operator GUI](GUI.md#views)), and the integration test `tests/test_availability_integration.py`, which runs a long fake attempt through all of it. The sessions of Claude, Codex and Copilot as apps are outside this path, and the orchestrator threshold stays reserved.
+
 ### `multiagent/model_router.py`
 
 Selects the preferred model and optional fallback according to workflow bindings and execution mode.
