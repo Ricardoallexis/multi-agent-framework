@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -90,6 +91,9 @@ def test_picker_is_wired_to_read_only_connections_and_has_phone_rules():
     assert 'helpFor("chat.model_retry")' in component
     assert 'group("Modelos", picker.models)' in component and 'group("Ejecutores", picker.executors)' in component
     assert "/* SES-T02:" in css and "@media (max-width: 599.98px)" in css
+    # app.css gives every input full width and a touch-target height; the picker radio keeps its own size.
+    radio = re.search(r"\.ns-picker-choice input\s*\{([^}]*)\}", css)
+    assert radio and "width: auto" in radio.group(1) and "min-height: 0" in radio.group(1)
     assert "innerHTML" not in view + component
 
 

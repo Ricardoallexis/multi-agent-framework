@@ -125,7 +125,7 @@
 .ns-picker-group legend { padding: 0 4px; font-weight: 600; }
 .ns-picker-choice { display: flex; align-items: flex-start; gap: 8px; min-width: 0; min-height: var(--target); padding: 8px;
   border: 1px solid var(--line); border-radius: 8px; }
-.ns-picker-choice input { flex: 0 0 auto; margin: 3px 0 0; }
+.ns-picker-choice input { flex: 0 0 auto; width: auto; min-height: 0; margin: 3px 0 0; }
 .ns-picker-facts { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .ns-picker-unavailable { opacity: .75; }
 .ns-picker-reason { color: var(--muted); }
