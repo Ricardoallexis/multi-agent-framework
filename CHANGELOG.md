@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- A plan proposal whose tasks use workflow roles cannot be approved until each bundle has an approved team: approval answers a `team_not_approved` conflict with the bundle and its roles and creates nothing, and the proposal view carries the same `blockers` so Planes can warn before approval.
 - Approvals record who gave them and through which channel: the `human_approved` event carries `by` and `channel` as tool approvals do, the GUI sends `user:operator` and `gui`, the API sends `api`, and the run history shows the actor of each event ("Sin dato" for older events).
 - Gemini steps record their real token usage: the adapter reads the Interactions API fields (`total_input_tokens`, `total_output_tokens`, `total_thought_tokens`, `total_cached_tokens`) with the older names as a fallback, so runs no longer show 0 tokens, and missing usage stays unknown.
 - Operating modes in the GUI and guides (S7.D1): the create-run form has an optional **Modo** selector (none, supervised, autonomous) that sends `operating_mode` only when one is chosen, and the run detail shows the effective mode and whether it came from the run or the bound team, each with its help entry. [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md#run-operating-modes) explains both modes and what always waits for a person; the API, GUI and teams guides link to it, and the roadmap marks S7.D1 done while S7.C1 stays partial.

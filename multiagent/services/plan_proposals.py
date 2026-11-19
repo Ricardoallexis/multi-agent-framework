@@ -11,6 +11,8 @@ from ..db.database import utcnow
 from ..db.plan_proposal_store import PlanProposalStore
 from ..external_output import canonical_json, sha256
 from ..planning import validate_proposal
+from ..teams.step_roles import bind_step_roles
+from ..workflow_validation import WorkflowDefinitionError
 from .errors import service_errors
 from .memory import MAX_BODY_CHARS, MAX_TITLE_CHARS
 from .projects import actor_kind
@@ -42,11 +44,13 @@ def _encoded(proposal: dict[str, Any]) -> tuple[str, str]:
     return raw.decode("utf-8"), sha256(raw)
 
 
-def _view(row: dict[str, Any], history: list[dict[str, Any]]) -> dict[str, Any]:
+def _view(row: dict[str, Any], history: list[dict[str, Any]],
+          blockers: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     result = {key: value for key, value in row.items() if key != "proposal_json"}
     result["proposal"] = json.loads(row["proposal_json"])
     result["history"] = [{**{key: value for key, value in entry.items() if key != "changes_json"},
                           "changes": json.loads(entry["changes_json"])} for entry in history]
+    result["blockers"] = blockers if blockers is not None else []
     return result
 
 
@@ -67,6 +71,39 @@ class PlanProposalServices:
         if row is None:
             raise _missing("Plan proposal", proposal_id)
         return row
+
+    def _blockers(self, proposal: dict[str, Any]) -> list[dict[str, Any]]:
+        roles_by_bundle: dict[str | None, set[str]] = {}
+        for task in proposal["tasks"]:
+            bundle = task.get("bundle")
+            definition, _ = self._services.definitions._read_parts(task["workflow"], bundle)
+            try:
+                bind_step_roles(definition, None)
+            except WorkflowDefinitionError as exc:
+                role_issues = [issue for issue in exc.issues if issue.code == "role_without_team"]
+                if len(role_issues) != len(exc.issues):
+                    raise
+                step_ids = {issue.step_id for issue in role_issues}
+                roles = {step.role for step in definition.steps
+                         if step.id in step_ids and step.role is not None}
+                if roles:
+                    roles_by_bundle.setdefault(bundle, set()).update(roles)
+
+        blockers = []
+        for bundle, roles in sorted(roles_by_bundle.items(), key=lambda item: item[0] or ""):
+            if bundle is not None and self._services.teams.approved(bundle) is not None:
+                continue
+            blockers.append({"bundle": bundle, "roles": sorted(roles)})
+        return blockers
+
+    def _view_blockers(self, row: dict[str, Any]) -> list[dict[str, Any]]:
+        """The warning a view shows; a workflow that can no longer be read never breaks a listing (approve still refuses)."""
+        if row["status"] != "proposed":
+            return []
+        try:
+            return self._blockers(json.loads(row["proposal_json"]))
+        except Exception:  # noqa: BLE001 - approve re-reads the workflows and reports the real error
+            return []
 
     @staticmethod
     def _open(row: dict[str, Any], expected_revision: int | None = None) -> None:
@@ -96,7 +133,7 @@ class PlanProposalServices:
     def get(self, proposal_id: str) -> dict[str, Any]:
         with self.store.db.connect() as conn:
             row = self._row(proposal_id, conn)
-        return _view(row, self.store.history(proposal_id))
+        return _view(row, self.store.history(proposal_id), self._view_blockers(row))
 
     @service_errors
     def list(self, *, group_id: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
@@ -104,8 +141,10 @@ class PlanProposalServices:
             _text("group_id", group_id, maximum=64)
         if status is not None and status not in {"proposed", "approved", "rejected"}:
             raise _invalid("status", "status must be proposed, approved or rejected")
-        return [_view(row, self.store.history(row["id"])) for row in
-                self.store.list(group_id=group_id, status=status)]
+        return [
+            _view(row, self.store.history(row["id"]), self._view_blockers(row))
+            for row in self.store.list(group_id=group_id, status=status)
+        ]
 
     def _replace(self, proposal_id: str, tasks: Any, *, actor: str, channel: str,
                  note: str, expected_revision: int, kind: str) -> dict[str, Any]:
@@ -186,6 +225,10 @@ class PlanProposalServices:
             if existing:
                 raise _conflict("A proposed task already exists", task_id=existing["id"],
                                 reason="task_exists")
+        blockers = self._blockers(proposal)
+        if blockers:
+            raise _conflict("A plan package needs an approved team before approval",
+                            reason="team_not_approved", blockers=blockers)
         if group is None:
             self._services.tasks.create_group(row["group_id"], row["goal"][:200], actor=actor,
                                               authorized=True)
