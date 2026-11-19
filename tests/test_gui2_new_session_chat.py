@@ -90,7 +90,8 @@ def test_the_stylesheet_follows_the_csp_the_theme_and_the_touch_rules():
 def test_the_chat_replaces_the_form_at_new_and_the_form_stays_available():
     main = source("main.js")
     assert 'import { NewSession } from "./new-session.js"' in main
-    assert re.search(r"\$\{creating && html`<\$\{NewSession\} token=\$\{token\} mock=\$\{mock\} />`\}", main)
+    # The team and plan threads (CHT-T05, CHT-T06) take "#new/team/<id>" and "#new/plan/<id>"; every other "#new" is the chat.
+    assert re.search(r'\$\{creating (?:&& route\.kind !== "\w+" )*&& html`<\$\{NewSession\} token=\$\{token\} mock=\$\{mock\} />`\}', main)
     assert "interpret" not in main                                     # the shell does not call the interpreter: new-session.js does
     assert "<${Runs}" in main and "startCreating" not in main + source("runs.js")
     chat = source("new-session.js")
