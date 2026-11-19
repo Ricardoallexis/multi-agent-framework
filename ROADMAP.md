@@ -161,7 +161,7 @@ Human control is intended to remain a first-class part of the architecture rathe
 A domain-neutral core for coordinating two or more agents, and the humans who supervise them, on shared work. Software development is one application; the same primitives should serve design, finance, research, operations, or any other domain. Domain-specific behavior lives in team presets and examples that users can extend, and agents can help a user design their own team setup. The protocol is the framework's own and runs on its runs, events, and Human Bridge; A2A or Microsoft Agent Framework may carry messages, but they do not define it.
 
 - [ ] Teams: roles, capabilities, members (framework agents, external agents, or humans), and an entrypoint (an agent or a workflow).
-  - [x] Team definitions (`team.yaml` with roles, members, assignments, and relationships), bundle and least-privilege validation, human-approved versions with structural diffs and decision-register records, and JSON/Mermaid organization charts across Python, HTTP, CLI, and the operator GUI (see [`docs/TEAMS.md`](docs/TEAMS.md)); team entrypoints and runtime role switching (`S6.C1`) are not implemented yet.
+  - [x] Team definitions (`team.yaml` with roles, members, assignments, and relationships), bundle and least-privilege validation, human-approved versions with structural diffs and decision-register records, JSON/Mermaid organization charts across Python, HTTP, CLI, and the operator GUI, and runtime role switching per model step (`S6.C1`; see [`docs/TEAMS.md`](docs/TEAMS.md)). Team entrypoints remain open; permission validation for a role-bound step with `agent: null` remains open.
 - [ ] Scoped workspaces: each member changes only the resources assigned to it (for example folders, documents, datasets, or records); shared resources need a proposal and an approval.
   - [x] Declare a file scope per task: a claim locks it and is refused on overlap, and a write needs approval for every path of the scope.
 - [ ] A team log and member inboxes: an append-only log plus a per-member inbox where reading a message acknowledges it, so members process only unread messages and never poll.
@@ -215,7 +215,7 @@ Turn a high-level objective into an executable plan for a team the user has defi
 
 ## Team design from a prompt
 
-**Progress:** `░░░░░░░░░░` 0/9 · 0% <!-- progress -->
+**Progress:** `█░░░░░░░░░` 1/9 · 11% <!-- progress -->
 
 Describe what you need in one prompt and get a working team: the agents it recommends, their instructions and responsibilities, and an organization chart. If the prompt already defines the team, the generator formalizes it instead of redesigning it. The result is data — a team definition that is validated, reviewed by a human, and versioned like any bundle or preset — never code in the core.
 
@@ -225,7 +225,7 @@ Roles are not tied to models. A **role** holds rules, skills, contracts, capabil
 - [ ] Generate a team definition from a prompt with a meta-workflow that runs on the existing engine: (a) from an objective alone, recommending roles with a short rationale; (b) from a team the user already described, formalizing it and asking about gaps instead of redesigning it.
 - [ ] Validate generated teams with the same rules as bundles (references, contracts, capabilities, least-privilege permissions) and require human approval before any team is created or changed, reusing the human-in-the-loop.
 - [ ] Recommend model or provider bindings per role from the capability catalog and the model router, as editable suggestions; never hard-code vendors in the core, and allow any available member, or a human, to take any role.
-- [ ] Let one member switch roles at runtime: each step declares its role, the runtime loads that role's rules and context, keeps role contexts separated, and records the role and the member in the trace.
+- [x] Let one member switch roles at runtime: a model step declares its role, the runtime loads that role's rules and skills, keeps each step's role instructions separate, and records the role and member in the trace (`S6.C1`; see [`docs/TEAMS.md`](docs/TEAMS.md#roles-in-workflow-steps)). Permission validation for a role-bound step with `agent: null` remains open.
 - [ ] Render the organization chart from the relationships (for example as a Mermaid diagram) in docs and, later, in the UI (stage 2).
 - [ ] Expose the organization chart as a model through the application services (Python, HTTP, and CLI): each position shows its role, who holds it (agent, human, or model), who it reports to, and its status, validated for cycles and roots.
 - [ ] Show that model in the UI as an accessible organization chart with position cards, without extra dependencies.

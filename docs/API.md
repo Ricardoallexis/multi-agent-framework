@@ -96,12 +96,13 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `POST` | `/api/v1/bundles/{name}/validate` | Validate a registered bundle. With a `team.yaml`, the team is checked against the bundle's workflows too: errors return `422` with `details.team` (each finding with `code`, `location`, `message` and `severity`), and warnings alone return `200` with `warnings`. |
 | `POST` | `/api/v1/runs` | Queue a run; optional `?bundle=<name>`. Returns `202 Accepted`. |
 | `GET` | `/api/v1/runs` | List runs; optional `limit` (1–500), `status`, and `project` query parameters. |
-| `GET` | `/api/v1/runs/{run_id}` | Get a run with its events and artifacts. |
+| `GET` | `/api/v1/runs/{run_id}` | Get a run with its events and artifacts. A role-bound step's `step_started` event includes `role`, `member`, `team_id`, `team_version_id`, and `team_version`. |
 | `GET` | `/api/v1/runs/{run_id}/artifacts` | List the run's artifacts. |
 | `GET` | `/api/v1/runs/{run_id}/events` | List the run's events; optional `after` (integer ≥ 0) returns only events with a greater `seq`. |
 | `GET` | `/api/v1/runs/{run_id}/usage` | List local token-usage records and totals by run, agent, and step; costs are estimates. |
-| `GET` | `/api/v1/runs/{run_id}/steps/{step_id}/attempts` | List completed attempts of one step with producer, revision input, JSON/Markdown output, review status, human notes/prompt, and tokens. |
-| `GET` | `/api/v1/runs/{run_id}/steps/{step_id}/attempts/compare` | Compare two completed attempts (`?a=1&b=2`) field by field, with unified line diffs for long or multi-line strings. |
+| `GET` | `/api/v1/runs/{run_id}/report` | JSON run report (or `?format=markdown`); `steps` entries for role-bound `step_started` events include the role and member fields. |
+| `GET` | `/api/v1/runs/{run_id}/steps/{step_id}/attempts` | List completed attempts of one step with producer, revision input, JSON/Markdown output, review status, human notes/prompt, tokens, and role/member fields when present. |
+| `GET` | `/api/v1/runs/{run_id}/steps/{step_id}/attempts/compare` | Compare two completed attempts (`?a=1&b=2`) field by field, with unified line diffs for long or multi-line strings; `a` and `b` retain their role/member fields. |
 | `POST` | `/api/v1/runs/{run_id}/approve` | Approve the current human review (`tool_approval` requires `POST /gui/api/runs/{run_id}/approve` with `permission_request_id`; see [Built-in file tools](FILE_TOOLS.md#approvals)). |
 | `POST` | `/api/v1/runs/{run_id}/changes` | Request changes with free text, structured comments, or both (see below). |
 | `POST` | `/api/v1/runs/{run_id}/regenerate` | Regenerate the item under review. |
@@ -215,6 +216,15 @@ See [`TELEMETRY.md`](TELEMETRY.md) for the local-only usage model, CLI
 export, nullable token semantics, and the future OpenTelemetry mapping.
 
 ### Step attempts and comparison
+
+When a model step declares a role, its `step_started` event payload, each
+completed attempt object, and its `step_started` run-report row include `role`,
+`member`, `team_id`, `team_version_id`, and `team_version`. The attempt list
+returns these fields inside `attempts[]`; comparison returns them inside `a`
+and `b`. A step without a role omits the fields. The run's
+`team_version_bound` event records the approved team version used to resolve
+the role. See [Roles in workflow steps](TEAMS.md#roles-in-workflow-steps) for
+declaration, member selection, and error codes.
 
 Inspect completed attempts of a step or compare two attempts from the CLI with
 the same JSON responses returned by the HTTP API:

@@ -93,14 +93,69 @@ When a new run is queued for a bundle that has an approved team version, `servic
 
 ## Roles in workflow steps
 
-A model step may name a `role` from the team version bound to its run (`S6.C1`). The run reads the role from its own `team_version_bound` event, never from the system database:
+A model step declares `role` beside `agent` in its workflow YAML. For example, the
+[`summarize_document` workflow](../examples/bundles/general/workflows/summarize_document.yaml)
+has `extract_key_points` with `agent: document_analyst`; the
+[`general` team](../examples/bundles/general/team.yaml) assigns that agent's
+member to `analyst`. Add the role to that step as follows:
 
-- **Member:** the role's assigned `agent` member whose `agent` is the step's agent. A step with `agent: null` gets the role's only agent member. A role never changes the agent a step names.
-- **Prompt:** the step's prompt gets a `## Role: <id>` section with the role's `purpose` and `rules`. Only the steps of that role get it. A step that declares no `skills` uses the role's skills. Outputs of earlier steps reach later steps as before.
-- **Records:** `step_started`, the step's attempts, and the run report record `role`, `member`, `team_id`, `team_version_id`, and `team_version`.
-- **Errors:** `422 invalid_definition` when the run is created (or a failed run before any model call, if the definition changed while it was queued), with issue codes `role_without_team`, `team_binding_invalid`, `unknown_role`, `role_member_not_found`, and `role_member_ambiguous`.
+```yaml
+- id: extract_key_points
+  agent: document_analyst
+  role: analyst
+  prompt_id: general/extract_key_points
+  prompt_version: 1
+  contract: KeyPoints
+```
 
-Steps without a `role` run exactly as before, with or without a bound team. Function steps cannot name a role.
+Approve the bundle's `team.yaml` before starting a run with a role. At run
+creation, the latest approved team version is saved in the run's
+`team_version_bound` event. The role is resolved from that saved version, even
+if a different team version is approved later. A run without an approved team
+cannot execute a step that declares a role.
+
+- **Member and agent:** the role must have exactly one assigned `agent` member
+  whose `agent` matches the step's agent. With `agent: null`, the role must have
+  exactly one assigned agent member; its agent runs the step. A role does not
+  replace an agent explicitly named by the step.
+- **Prompt and context:** the step gets a `## Role: <id>` section containing
+  that role's `purpose` and `rules`. It uses the role's skills when the step
+  declares no skills. A step receives only its own role section; prior step
+  outputs still flow through the workflow as usual.
+- **Trace:** `step_started` records `role`, `member`, `team_id`,
+  `team_version_id`, and `team_version`. These same fields appear on completed
+  attempts and on `step_started` rows of the run report. Steps without a role
+  omit them.
+
+For a run ID, `multiagent status <run_id>` shows the `step_started` events.
+`multiagent run-report <run_id>` returns the JSON report; add
+`--format markdown` for its **Step roles** list. Use
+`multiagent attempts <run_id> extract_key_points` for the completed attempts
+of that step. The HTTP equivalents are `GET /api/v1/runs/{run_id}` and
+`GET /api/v1/runs/{run_id}/events` for the trace,
+`GET /api/v1/runs/{run_id}/report` for the report, and
+`GET /api/v1/runs/{run_id}/steps/{step_id}/attempts` for attempts. The
+[API guide](API.md#step-attempts-and-comparison) describes the response fields.
+The operator GUI shows role, member, and team version in the run's step list
+and completed attempts, with `run.role` help; see the
+[GUI guide](GUI.md#views).
+
+Role binding errors are `422 invalid_definition` at run creation, or a failed
+run before a model call if the workflow definition changed while queued. The
+issue code identifies the cause:
+
+| Issue code | Meaning |
+| --- | --- |
+| `role_without_team` | No approved team version was bound to this run. |
+| `team_binding_invalid` | The bound event has no readable team or its team does not match the recorded `sha256`. |
+| `unknown_role` | The bound team version has no role with the step's `role` ID. |
+| `role_member_not_found` | The role has no assigned agent member for the step's agent, or none at all with `agent: null`. |
+| `role_member_ambiguous` | More than one assigned agent member qualifies; specify an agent when that distinguishes them. |
+
+Steps without a `role` run as before, with or without a bound team. Function
+steps cannot name a role. Team permission validation currently uses the
+step's explicit agent assignments; it does not check `step.role` when
+`agent: null`.
 
 ## Decision register records
 

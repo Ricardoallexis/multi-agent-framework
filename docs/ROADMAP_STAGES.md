@@ -173,7 +173,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S6.B1 | ✅ Render the organization chart (for example Mermaid) from relationships: `render_mermaid` in `multiagent/teams/org_chart.py`, a deterministic `flowchart TD` with `reports_to` as the tree and `reviews` and `delegates_to` as dashed links. | S6.A1 |
 | S6.B2 | ✅ Organization chart model: a service that returns the tree of positions (role, who holds it, reports) with status, through Python, HTTP, and CLI; validated (no cycles, one root or an explicit forest). See [`TEAMS.md`](TEAMS.md). | S6.A1 |
 | **S6.C — Runtime roles** | | |
-| S6.C1 | Role switching per step: load the role's rules and context, keep contexts separate, record role and member. | S6.A1, S4.A2 |
+| S6.C1 | ✅ Model steps bind a role from the approved team version fixed at run creation, load that role's rules and skills without mixing role instructions, and record role and member in the trace, attempts, report, and GUI ([`TEAMS.md`](TEAMS.md#roles-in-workflow-steps)). Permission validation for role-bound steps with `agent: null` remains open. | S6.A1, S4.A2 |
 | **S6.D — Team design from a prompt** | | |
 | S6.D1 | Meta-workflow that generates a team from an objective, or formalizes a described team and asks about gaps. | S6.A3 |
 | S6.D2 | Recommended (never mandatory) model bindings per role from the capability catalog and router. | S6.D1, S11.A1 |
