@@ -43,6 +43,7 @@ from .gates import GateServices
 from .inbox import InboxServices
 from .memory import MemoryServices
 from .new_session import NewSessionServices
+from .plans import PlanServices
 from .projects import ProjectServices
 from .reports import build_run_report, render_run_report_markdown
 from .runs import RunServices
@@ -67,6 +68,7 @@ __all__ = [
     "InboxServices",
     "MemoryServices",
     "NewSessionServices",
+    "PlanServices",
     "ProjectServices",
     "build_run_report",
     "render_run_report_markdown",
@@ -97,6 +99,7 @@ class ApplicationServices:
         self.definitions = DefinitionServices(self)
         self.runs = RunServices(self)
         self.tasks = TaskServices(self)
+        self.plans = PlanServices(self)
         self.gates = GateServices(self)
         self.envelopes = EnvelopeServices(self)
         self.evaluation = EvaluationServices(self)

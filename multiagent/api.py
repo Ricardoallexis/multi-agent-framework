@@ -108,6 +108,14 @@ class _Body(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class PlanStatusRequest(_Body):
+    document: dict[str, Any]
+
+
+class PlanAdvanceRequest(PlanStatusRequest):
+    actor: str
+
+
 class TaskGroupCreate(_Body):
     id: str
     title: str
@@ -879,6 +887,15 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
                     project: str | None = None, limit: int = Query(500, ge=1, le=1000)):
         """Team events with ``seq`` greater than ``after``, oldest first; ``project`` keeps those of that project."""
         return services.tasks.events(after=after, group_id=group, task_id=task, limit=limit, project_id=project)
+
+    # --- task plans ---------------------------------------------------------------
+    @app.post("/api/v1/plans/status")
+    def plan_status(body: PlanStatusRequest):
+        return services.plans.status(body.document)
+
+    @app.post("/api/v1/plans/advance")
+    def plan_advance(body: PlanAdvanceRequest):
+        return services.plans.advance(body.document, actor=body.actor)
 
     # --- projects (PRY) --------------------------------------------------------------
 

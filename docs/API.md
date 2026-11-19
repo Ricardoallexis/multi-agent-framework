@@ -24,6 +24,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.definitions` | `list_workflows`, `get_workflow`, `list_agents`, `list_bundles`, `validate_bundle` |
 | `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_check`, `human_submit`, `artifacts`, `events`, `usage`, `step_attempts`, `compare_attempts` |
 | `services.tasks` | `create_group`, `update_group`, `get_group`, `list_groups`, `create_task`, `get_task`, `list_tasks`, `ready_tasks`, `add_dependency`, `remove_dependency`, `transition`, `events` |
+| `services.plans` | `status`, `advance`: run a task group from a `multiagent.plan/1` document by creating ordinary runs linked by `task_id` and moving each task from its run's result; no second engine. |
 | `services.teams` | `propose`, `submit`, `approve`, `reject`, `get`, `list`, `approved`, `diff`, `org_chart`: versions of a bundle's `team.yaml` with human approval (`user:` actors only), structural diffs against the approved version, and decision-register records; see [`TEAMS.md`](TEAMS.md) and the `/api/v1/teams` routes. |
 | `services.gates` | `set_task_gate`, `set_group_gate`, `get_gate`, `review`, `run_gate`, `abort_gate`, `results`, `project_commands` |
 | `services.envelopes` | `set_task_context`, `get_envelope`, `put_blob`, `get_artifact`, `submit_result`, `get_result`, `list_results`, `get_cursor`, `read_events`, `ack_events` |
@@ -152,6 +153,8 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `GET` | `/api/v1/tasks/{task_id}/release-facts` | Read the current delivery, test, and integration facts with provenance. |
 | `POST` | `/api/v1/tasks/{task_id}/release-facts/{delivery\|test\|integration\|reset}` | Record or reset current legacy release evidence. |
 | `POST` | `/api/v1/tasks/{task_id}/transitions` | Change a task's state with `{"action", "actor", "cause"?, "expected_revision"?}`. |
+| `POST` | `/api/v1/plans/status` | Read a plan with `{"document"}`: its status and, per task, state, latest run and blockers. |
+| `POST` | `/api/v1/plans/advance` | Advance a plan once with `{"document", "actor"}`: finished runs move their tasks, ready tasks get a run. |
 | `GET` | `/api/v1/team-events` | List team events; optional `after`, `group`, `task`, and `limit` (1–1000). |
 | `GET` | `/api/v1/tasks/{task_id}/gate` | Get the task's effective gate, its source (task, group, or none), and its last run. |
 | `PUT` | `/api/v1/tasks/{task_id}/gate` | Set the task's own gate with `{"checks", "actor"}`; an empty list removes it. |

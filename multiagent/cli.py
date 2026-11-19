@@ -34,6 +34,22 @@ def pretty(value) -> None:
     print(json.dumps(value, ensure_ascii=False, indent=2, default=str))
 
 
+def cmd_plan(args) -> None:
+    """Read a JSON or YAML plan and use the plan HTTP API."""
+    import yaml
+    from .services import ServiceError
+    from .services.errors import INVALID_REQUEST
+
+    try:
+        document = yaml.safe_load(Path(args.file).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise ServiceError(INVALID_REQUEST, f"Invalid plan document: {exc}", status=422) from exc
+    body = {"document": document}
+    if args.plan_action == "advance":
+        body["actor"] = args.actor
+    pretty(_api_json("POST", f"/api/v1/plans/{args.plan_action}", json_body=body))
+
+
 def cmd_eval_run(args) -> None:
     """Run a YAML evaluation set through the shared application service."""
     import yaml
@@ -1234,6 +1250,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=__version__)
     p.add_argument("--debug", action="store_true", help="Show the full traceback when an error occurs")
     sub = p.add_subparsers(dest="command", required=True)
+
+    plan = sub.add_parser("plan", help="Inspect or advance a task plan").add_subparsers(
+        dest="plan_action", required=True)
+    x = plan.add_parser("status"); x.add_argument("file"); x.set_defaults(func=cmd_plan)
+    x = plan.add_parser("advance"); x.add_argument("file"); x.add_argument("--actor", required=True)
+    x.set_defaults(func=cmd_plan)
 
     evaluation = sub.add_parser("eval", help="Run evaluation sets").add_subparsers(dest="eval_command", required=True)
     x = evaluation.add_parser("run"); x.add_argument("file")
