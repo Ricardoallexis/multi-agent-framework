@@ -28,6 +28,17 @@ from ..routing_policy import EFFORT_LEVELS
 GEMINI_THINKING_LEVEL = {"none": "minimal", "low": "low", "medium": "medium", "high": "high", "max": "high"}
 
 
+def _first_count(usage: Any, *names: str) -> int:
+    """First positive integer among the usage fields ``names``; 0 when none is reported (read as unknown)."""
+    for name in names:
+        value = getattr(usage, name, None)
+        if isinstance(value, dict):
+            value = None
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    return 0
+
+
 def _classify_gemini_error(exc: Exception) -> Exception:
     text = str(exc)
     low = text.lower()
@@ -107,10 +118,16 @@ class GeminiAdapter(LLMAdapter):
                         if ann.url not in sources:
                             sources.append(ann.url)
         usage = getattr(interaction, "usage", None)
-        tokens_in = int(getattr(usage, "input_tokens", 0) or getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
-        tokens_out = int(getattr(usage, "output_tokens", 0) or getattr(usage, "completion_tokens", 0) or 0) if usage else 0
+        # The Interactions API names its usage ``total_input_tokens``, ``total_output_tokens``, ``total_thought_tokens``
+        # and ``total_cached_tokens``; the older names stay as a fallback. 0 means "not reported": the engine stores it as None.
+        tokens_in = _first_count(usage, "total_input_tokens", "input_tokens", "prompt_tokens") if usage else 0
+        tokens_out = _first_count(usage, "total_output_tokens", "output_tokens", "completion_tokens") if usage else 0
+        thought = _first_count(usage, "total_thought_tokens") if usage else 0
+        tokens_out += thought  # thinking tokens are billed as output
         metadata = {"grounded": requires_web, "thinking": spec.thinking, **translation.metadata()}
-        cached = cached_tokens(usage, "cached_content_token_count", "total_cached_tokens", "cached_tokens")
+        if thought:
+            metadata["thought_tokens"] = thought
+        cached = cached_tokens(usage, "total_cached_tokens", "cached_content_token_count", "cached_tokens")
         if cached is not None:
             metadata["cache_read_tokens"] = cached  # prompt tokens Gemini reports as served from its cache
         return LLMResponse(
