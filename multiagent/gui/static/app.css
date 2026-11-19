@@ -497,3 +497,41 @@ code.command { font: .9rem var(--mono); overflow-wrap: anywhere; }
   .history li { grid-template-columns: minmax(0, 1fr); }
   .history .who, .history .what, .history blockquote { grid-column: 1; }
 }
+
+/* RWD-T03 */
+.pending-tool { position: relative; flex: none; }
+.pending-button { gap: 7px; }
+.pending-count { display: inline-flex; min-width: 1.5em; justify-content: center; padding: 0 5px; border-radius: 999px;
+  background: var(--accent); color: var(--on-accent); font: 600 .8rem/1.5 var(--mono); }
+.pending-tool .help-more { right: 0; }
+.pending-popover { position: fixed; top: calc(var(--bar-h) + 8px); right: 12px; z-index: 80; display: flex; flex-direction: column;
+  gap: 10px; width: min(440px, calc(100vw - 24px)); max-width: 100%; max-height: min(72vh, 680px); overflow-y: auto;
+  padding: 14px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 32px rgb(0 0 0 / .2); }
+.pending-popover[hidden] { display: none; }
+.pending-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.pending-header h2 { flex: 1 1 8rem; min-width: 0; margin: 0; font-size: 1.1rem; overflow-wrap: anywhere; }
+.pending-actions, .pending-control { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.pending-actions { justify-content: flex-end; max-width: 100%; }
+.pending-control { position: relative; }
+.pending-actions .btn { min-height: var(--target); }
+.pending-control .help-more { right: 0; }
+.pending-status, .pending-notice, .pending-error, .pending-empty { margin: 0; }
+.pending-items { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.pending-item { position: relative; display: flex; align-items: flex-start; gap: 6px; min-width: 0; padding: 8px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--bg); }
+.pending-item-main { display: flex; flex: 1 1 0; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.pending-item-main a { display: inline-flex; align-items: center; min-height: var(--target); color: var(--accent); font-weight: 600; overflow-wrap: anywhere; }
+.pending-type, .pending-since { color: var(--muted); font-size: .82rem; }
+.pending-reason { white-space: pre-wrap; overflow-wrap: anywhere; }
+.pending-item > .help-block { flex: none; }
+.pending-popover :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 599.98px) {
+  .pending-popover { inset: 0; z-index: 90; width: 100%; max-width: 100%; height: 100vh; height: 100dvh;
+    max-height: 100vh; max-height: 100dvh; border: 0; border-radius: 0; padding: 12px; }
+  .pending-header { align-items: center; }
+  .pending-actions { justify-content: flex-start; }
+}
+@media (forced-colors: active) {
+  .pending-count, .pending-item { border: 1px solid CanvasText; }
+  .pending-count { color: Canvas; background: Highlight; }
+}

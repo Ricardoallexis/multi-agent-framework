@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- A «Pendientes» button in the top bar counts what waits for a person (runs in review, proposed team versions and plans, continuity decisions and tasks) from a read-only `GET /gui/api/pending`, opens a list that fills the screen on a phone, shows the count in the tab title, and can raise a browser notification for new items only after the person turns it on.
 - «Nueva sesión» shows a picker of connected models (Gemini, OpenAI, Ollama) and executors (Claude, Codex, Copilot, agy) from the connection status, with the check time, each executor's quota and the reason a row is disabled; rows not connected fold under «No conectados». Choosing does not launch anything. agy joins the continuity apps but not the automatic handoff surfaces, so it always asks for approval; effort values are required only when the catalog says effort is supported.
 - The review stop in the run thread shows the output of the attempt under review as readable fields, lists or tables (`readable.js`), with the raw JSON folded and earlier outputs on request; the help «?» buttons in the thread keep their round size.
 - The GUI has fixed reference widths (360 and 390 px phone, 768 px tablet, desktop) and only two breakpoints, `max-width: 899.98px` and `max-width: 599.98px`, shared by the extensions; grid and flex children shrink, controls keep the touch height, and `pre` blocks scroll inside themselves.

@@ -8,6 +8,7 @@
 // The sidebar and the panel content come in as props (sidebar.js, right-panel.js); this file only lays them out.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { Help, helpFor } from "./help.js";
+import { PendingInbox } from "./pending.js";
 import { NARROW_QUERY, defaultPanelOpen, readPanelOpen, writePanelOpen } from "./shell-state.js";
 
 // True while the media query matches; follows the window when it is resized.
@@ -97,6 +98,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, children }) {
           ...${helpFor("shell.panel")} onClick=${togglePanel}>Panel</button>
         <${Help} topic="shell.panel" compact=${true} />
       </div>
+      <${PendingInbox} />
     </header>
     <div class="scrim" hidden=${!drawerOpen} onClick=${() => closeDrawer(true)}></div>
     <nav id="sidebar" class="sidebar" aria-label="Sesiones y ejecuciones" ref=${sidebarBox} onClick=${onSidebarClick}>${sidebar}</nav>

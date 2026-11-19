@@ -1657,6 +1657,32 @@ export const HELP = {
       "Si una llamada no tiene un precio vigente, su costo queda desconocido y no se suma.",
       "El costo es una estimación: tokens por precio del catálogo, no un importe facturado."
     ]
+  },
+  "pending.toggle": {
+    "title": "Pendientes",
+    "hint": "Muestra lo que espera una decisión o una revisión.",
+    "more": ["La lista reúne ejecuciones, propuestas y tareas que esperan a una persona.",
+      "Se actualiza automáticamente mientras la pestaña está abierta."]
+  },
+  "pending.open": {
+    "title": "Abrir pendiente",
+    "hint": "Abre la vista relacionada con este elemento.",
+    "more": ["El enlace solo cambia de vista.", "No aprueba, rechaza ni inicia ningún trabajo."]
+  },
+  "pending.refresh": {
+    "title": "Actualizar pendientes",
+    "hint": "Vuelve a consultar la lista en el servidor local.",
+    "more": ["La consulta es de solo lectura.", "Usa el token local de la GUI."]
+  },
+  "pending.notifications": {
+    "title": "Avisos del navegador",
+    "hint": "Activa o desactiva los avisos de pendientes nuevos en este navegador.",
+    "more": ["El permiso solo se solicita al pulsar este botón.", "Los avisos son opcionales y solo se muestran si el navegador concede permiso."]
+  },
+  "pending.close": {
+    "title": "Cerrar pendientes",
+    "hint": "Oculta la lista sin cambiar ningún pendiente.",
+    "more": ["Ningún pendiente cambia al cerrarla.", "Vuelve a abrirla desde el botón Pendientes de la barra superior."]
   }
 };
 

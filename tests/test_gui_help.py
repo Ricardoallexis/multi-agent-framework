@@ -41,6 +41,7 @@ CONTROL_TAGS = {"input", "select", "textarea", "button", "summary"}
 VIEW_FILES += ["external-output.js"]   # HIL2-T02: «Salida externa» of the run detail
 VIEW_FILES += ["new-session.js"]       # the guided chat of «Nueva sesión» (GUI2-T03); new-session-model.js draws nothing
 VIEW_FILES += ["thread.js", "thread-cards.js"]  # CHT-T02: the run conversation and its decision cards
+VIEW_FILES += ["pending.js"]           # RWD-T03: the «Pendientes» inbox of the top bar
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
 ALLOWED_EXEMPT = {
