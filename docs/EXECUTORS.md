@@ -31,6 +31,31 @@ Claude/Anthropic variables from the child environment, sets `NoDefaultCurrentDir
 timeout and bounded output capture. Free-form prompt text is kept out of arguments and command records. A timeout or
 explicit cancellation stops the process tree.
 
+## Choosing and launching from the GUI
+
+«Nueva sesión» in the [operator GUI](GUI.md#views) shows which executors are connected and can launch one, always
+one launch at a time.
+
+- **Connected.** The picker reads the connection status (`multiagent connections`, `GET /api/v1/connections`,
+  `GET /gui/api/connections`), which calls no model. For each executor it gives whether the app is installed, its
+  version, its session, the enabled state, the quota the usage plans report, and the one step that is missing:
+  `install`, `session` or `enable`. An executor is selectable only when it is enabled and has no reason. The status is
+  cached and checked one row at a time.
+- **Copilot is never selectable.** Its session cannot be checked without spending model quota, so its row carries
+  `session_unverifiable`. agy has no session check other than its `/usage` quota reading.
+- **Confirmation.** The GUI shows the executor, model, effort, remaining quota and, for agy, its notice. Only
+  **Aprobar y lanzar** sends `POST /gui/api/executors/launch` with `confirmed: true`; without it the route answers
+  `409 confirmation_required`. The route creates a task and calls `ExecutorServices.run_task`, so the checks above
+  apply: `executor_disabled`, `model_required` for Copilot, and for agy the switches, quota floors and single running
+  launch below. A refused launch cancels the task the route created. `GET /gui/api/executors/launch/{task_id}` follows the
+  task.
+
+Enabling an executor is done by the person on their PC, and the GUI never does it. For agy that means two steps (see
+[Controls and launch](#controls-and-launch)): the catalog declaration `enabled: true` and
+`ANTIGRAVITY_NOTICE_ACCEPTED`. Until both hold, the row says «Falta habilitarlo» or «Falta aceptar el aviso de agy».
+The GUI shows the notice with each agy launch but does not accept it, and it does not read or change agy's own settings
+or the Google account.
+
 ## Results, sessions, and limits
 
 The service submits only a parsed task-result envelope through the normal result submission path; the task gate still

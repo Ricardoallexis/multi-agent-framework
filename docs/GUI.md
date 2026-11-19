@@ -185,12 +185,81 @@ server is kept). The writing box accepts an answer with **Enviar** (Enter sends;
 Shift+Enter adds a line); starter and choice chips are options for the chat.
 Before launch, the summary can override mode, profile, level, model and effort
 where the preview exposes choices; `POST /gui/api/runs/preview` validates these
-preferences without creating or executing a run. The chat launches framework
-workflows, not Claude, Codex or Copilot executor tasks. "Ver como formulario"
+preferences without creating or executing a run. The orchestrator flow launches
+framework workflows; only «Sesión única» can launch an executor task (Claude, Codex,
+Copilot or agy), and only after the confirmation described below. "Ver como formulario"
 opens the create-run form with the same workflow and answers. The conversation
 model is pure (`js/new-session-model.js`) and is tested with Node. The proposal comes from
 `POST /gui/api/new-session/interpret` (`{"text"}`; it answers `source` `model` with a
 `proposal`, or `source` `keywords` with a `reason`) and creates nothing.
+
+**Mode.** «Nueva sesión» first asks «¿Cómo quieres empezar?» (`js/new-session.js`).
+**Orquestador** is the guided flow above: bundle, workflow, team and plan. **Sesión
+única** is one task answered by one model or one executor, with no workflow to pick.
+**Cambiar modo** goes back to the question. Nothing is created until a launch button
+is pressed, and each mode has its own confirmation.
+
+**Connected models and executors.** The orchestrator flow shows a picker
+(`js/model-picker.js`, `model-picker-model.js`) with the connected models (Gemini,
+OpenAI, Ollama) and executors (Claude, Codex, Copilot, agy), each with the time it was
+checked and, for an executor, its quota. A row that is not connected folds under
+«No conectados (n)» and says the one step it lacks: «Falta instalarlo»,
+«Falta iniciar sesión», «Falta configurar la clave», «Falta habilitarlo», or a reason
+such as «No responde» or «La cuota está en pausa». Choosing a row only marks it: it
+launches nothing and does not change the workflow's routing.
+
+*How «connected» is decided.* The picker reads `GET /gui/api/connections`
+(`multiagent/services/connections.py`), which spends no model. It reuses what the
+framework already knows: whether the program is installed and its version, the
+signed-in state that each app reports without generating, whether the key setting is
+set (the value is never returned), the executor's enabled and paused state, the usage
+plan and, for Ollama, its health probe. The answer is cached: if the read fails,
+**Reintentar** asks again, and `POST /gui/api/connections/{id}/check` re-checks one row.
+A row is selectable only when it is enabled and has no reason. The same facts come from
+`multiagent connections [--check ID]` and `GET /api/v1/connections`.
+
+*What the picker cannot know.* Copilot never appears as connected: its session cannot
+be checked without spending model quota, so its row says «No se puede comprobar la
+sesión sin gastar cuota» (`session_unverifiable`). A Gemini key is not tried either, so
+Gemini stays in «No conectados» with «No se pudo comprobar el acceso»
+(`reachability_unknown`). agy has no session check besides its `/usage` quota reading.
+
+*The step that is missing.* Each row names one step: install the program, sign in,
+configure the key in `.local/.env`, or enable it. The picker only tells; it installs
+nothing and signs in to nothing. `multiagent setup install <app>` and
+`multiagent setup login <app>` open a console on this PC for the person to run the
+command. Enabling an executor is also the person's step: an executor starts disabled,
+and agy needs two things done on this PC, its declaration in `catalog/models.yaml` and
+the third-party notice in `.local/.env` (see [`EXECUTORS.md`](EXECUTORS.md#antigravity-agy-supervised)).
+The GUI shows agy's notice but never accepts it for the person.
+
+**Sesión única with a model.** The task is a text box. The model choices are the
+connected providers' models that the `answer` step of `ask_once` admits. That workflow
+is in the general bundle and has one step and one model call; the model goes in the
+step's `routing_preferences`, and the server validates it. A provider with no admitted
+model, or one that is not connected, is listed with its reason. The catalog of the
+general bundle declares only `local_default` (Ollama), so this mode needs Ollama
+running. **Revisar y lanzar** shows the routing preview, and **Lanzar** creates the run
+through `POST /gui/api/runs` with an idempotency key (a server that is not Mock also
+asks for the real-model confirmation). The run keeps its usage records, budgets and
+egress policy, and the column follows it at `#new/run/<run id>` like any other run.
+
+**Sesión única with an executor.** **Usar un ejecutor** lists the four executors with
+the reason each one is not available, their remaining quota and, for agy, its notice.
+The models and efforts come from `GET /gui/api/composer/executors`. **Revisar
+lanzamiento** opens a confirmation with the executor, model, effort, remaining quota,
+the task and, for agy, its notice; only **Aprobar y lanzar** sends the launch, so every
+launch is approved one by one. Copilot is not selectable (see above). The server
+(`POST /gui/api/executors/launch`, with the token) refuses a request that lacks
+`"confirmed": true` (409 `confirmation_required`), creates a task and calls the same
+executor service as the API, with its checks: a disabled executor (`executor_disabled`),
+Copilot without a model (`model_required`), and agy's switch, notice, quota floors and
+single running launch. A refused launch cancels the task it created, and the refusal
+and its reason are shown. After a launch, **Seguimiento de la tarea** polls
+`GET /gui/api/executors/launch/{task_id}` every 2 s until the task ends, and shows the
+state, the last attempt, its notes and evidence, and a link to the recorded session in
+«Sesiones». Running the executor spends that app's quota; the framework does not read
+or change the app's own settings.
 
 **The chat follows the run.** After **Lanzar** or «Continuar una ejecución», the
 column stays in «Nueva sesión» and follows the run at `#new/run/<run id>`
@@ -364,6 +433,10 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/threads/teams/{version_id}` | The thread of a team version (`#new/team/<id>`): its card and one stop with Approve and Reject (read only; the decision uses the teams routes). |
 | `GET /gui/api/threads/plans/{proposal_id}` | The thread of a plan proposal (`#new/plan/<id>`): tasks and inputs, bundles without an approved team, and the run of each task once approved (read only; the decision uses the plan-proposal routes). |
 | `GET /gui/api/runs/{id}/tool-approval/preview?permission_request_id=` | Content and diff of a pending `file.write` approval, only when the rebuilt arguments match its fingerprint; writes nothing. |
+| `GET /gui/api/connections`, `POST /gui/api/connections/{id}/check` | Cached connection facts for the seven model providers and executor apps, or a fresh check of one; no model is called and no key value is returned. |
+| `POST /gui/api/executors/launch` | Launch a «Sesión única» task with an executor; the body needs `confirmed: true` (otherwise 409 `confirmation_required`) and Copilot needs a `model`. It creates the task and calls the executor service with its checks. |
+| `GET /gui/api/executors/launch/{task_id}` | Status of that task and its attempts, for the follow-up (read only). |
+| `GET /gui/api/composer/executors` | Models and efforts that each enabled executor admits, for the executor choice. |
 | `GET /gui/api/runs/{id}/usage` | Token and cost details for the right panel. |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts` | Completed attempts of one step (producer, input, output, review, tokens). |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts/compare?a=1&b=2` | Field-by-field and unified line diff between two completed attempts. |

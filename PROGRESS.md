@@ -21,7 +21,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Team design from a prompt | `███░░░░░░░` 33% | 3 of 9 |
 | Preset sharing and community catalog | `█░░░░░░░░░` 12% | 1 of 8 |
 | Reference tool stacks for team presets | `░░░░░░░░░░` 0% | 0 of 5 |
-| Frontend / UI | `████░░░░░░` 36% | 9 of 25 |
+| Frontend / UI | `████░░░░░░` 38% | 10 of 26 |
 | Advanced operator interface | `░░░░░░░░░░` 0% | 0 of 15 |
 | Memory, context, and project knowledge | `██░░░░░░░░` 25% | 2 of 8 |
 | Tools, interoperability, and external applications | `██░░░░░░░░` 15% | 2 of 13 |
@@ -29,7 +29,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Security and privacy | `████░░░░░░` 40% | 4 of 10 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **34%** | **83 of 241** |
+| **All roadmap items** | **35%** | **84 of 242** |
 <!-- progress:table:end -->
 
 ## MVP 1.0 — released in `M1-B03-F01` (package `1.0.0`)
