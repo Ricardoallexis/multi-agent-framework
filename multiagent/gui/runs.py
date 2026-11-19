@@ -534,6 +534,11 @@ def build_router(services) -> APIRouter:
                               permission_request_id=body.permission_request_id if body else None)
         return run_view(services, services.runs.get(run_id))
 
+    # CHT-T04: a read-only, hash-verified preview of the pending file.write call.
+    @router.get("/runs/{run_id}/tool-approval/preview")
+    def tool_approval_preview(run_id: str, permission_request_id: str = Query("")):
+        return services.runs.tool_approval_preview(run_id, permission_request_id=permission_request_id)
+
     @router.post("/runs/{run_id}/changes")
     def changes(run_id: str, body: ChangesBody):
         if not body.feedback.strip() and not body.comments:

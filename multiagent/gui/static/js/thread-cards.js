@@ -4,7 +4,7 @@
 import { html, useEffect, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet, runPath } from "./api.js";
 import { Help, helpFor } from "./help.js";
-import { fmtJson } from "./text.js";
+import { errorText, fmtJson } from "./text.js";
 import { readable } from "./readable.js";
 import { actionsFor, detailHref, previousStepIds, reviewArtifact } from "./thread-model.js";
 
@@ -74,7 +74,54 @@ function ReviewOutput({ entry, view, runId, token }) {
   </section>`;
 }
 
-function Decision({ entry, busy, onAction }) {
+// The server explains in English; the card says it in Spanish and falls back to the server text for file errors.
+const PREVIEW_REASONS = {
+  no_pending_approval: "Ya no hay una aprobación pendiente.",
+  permission_request_mismatch: "La aprobación cambió: actualiza la ejecución para ver su vista previa.",
+  file_tools_disabled: "Las herramientas de archivos no están configuradas en esta aplicación.",
+  file_write_unavailable: "La herramienta file.write no está registrada.",
+  run_inputs_unavailable: "Faltan las entradas de la ejecución para rehacer la llamada.",
+  declaration_unavailable: "El paso ya no declara esta llamada a file.write.",
+  arguments_unavailable: "Los argumentos no se pueden rehacer con las entradas de esta ejecución.",
+  arguments_mismatch: "Los argumentos rehechos no coinciden con la huella de la aprobación, así que no se muestran.",
+};
+
+export function ToolApprovalPreview({ runId, token, permissionRequestId }) {
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+  const request = useRef(0);
+  useEffect(() => {
+    const ticket = ++request.current;
+    setPreview(null); setError("");
+    const path = runPath(runId, "tool-approval/preview") + "?permission_request_id=" +
+      encodeURIComponent(permissionRequestId || "");
+    apiGet(path, token)
+      .then((result) => { if (ticket === request.current) setPreview(result); })
+      .catch((failure) => { if (ticket === request.current) setError(errorText(failure)); });
+    return () => { request.current += 1; };
+  }, [runId, token, permissionRequestId]);
+  if (preview && !preview.available && preview.reason === "unsupported_tool") return null;
+  return html`<section class="tool-approval-preview" aria-label="Vista previa de file.write">
+    <h4>Vista previa de file.write</h4><${Help} topic="human.tool_preview" compact=${true} />
+    ${error && html`<p class="message error" role="alert">${error}</p>`}
+    ${!error && !preview && html`<p class="muted" aria-busy="true">Leyendo vista previa…</p>`}
+    ${preview && !preview.available && html`<p class="message info" role="status">${PREVIEW_REASONS[preview.reason] || preview.message}</p>`}
+    ${preview && preview.available && html`<div>
+      <p><strong>Ruta:</strong> ${preview.path}</p>
+      ${preview.removed_lines > 0 && html`<p class="notice" role="alert">Se quitarán ${preview.removed_lines}
+        ${preview.removed_lines === 1 ? "línea" : "líneas"} del archivo actual.</p>`}
+      ${preview.exists
+        ? html`<h5>Contenido que se escribirá</h5><pre class="thread-readable-text">${preview.content}</pre>
+          <h5>Diferencias con el archivo actual</h5>
+          ${preview.diff ? html`<pre class="thread-readable-text">${preview.diff}</pre>`
+            : html`<p class="muted">El archivo actual ya contiene el mismo contenido.</p>`}`
+        : html`<h5>Archivo nuevo: todas las líneas se añadirán</h5>
+          <pre class="thread-readable-text">${preview.diff || preview.content}</pre>`}
+    </div>`}
+  </section>`;
+}
+
+function Decision({ entry, busy, onAction, runId, token }) {
   const [pending, setPending] = useState("");
   const [feedback, setFeedback] = useState("");
   const [comments, setComments] = useState([]);
@@ -98,6 +145,8 @@ function Decision({ entry, busy, onAction }) {
   };
   return html`<div class="thread-decision">
     <p class="muted">${REASONS[entry.reason] || entry.reason || "Parada"} · paso ${entry.step_id || "sin indicar"}${entry.attempt ? " · intento " + entry.attempt : ""}</p>
+    ${tool && html`<${ToolApprovalPreview} runId=${runId} token=${token}
+      permissionRequestId=${entry.decision.permission_request_id} />`}
     ${!pending && html`<div class="thread-actions">
       ${actions.includes("approve") && html`<button type="button" class="btn" disabled=${busy || (tool && !entry.decision.permission_request_id)}
         ...${helpFor("thread.approve")} onClick=${() => setPending("approve")}>Aprobar</button>`}
@@ -160,7 +209,8 @@ export function ThreadCard({ entry, status, runId, token, reviewView, busy, onAc
     ${entry.kind === "waiting" && status === "waiting_human" && entry.decision &&
       ["review", "content_review", "budget_exhausted"].includes(entry.reason) && reviewView && html`
         <${ReviewOutput} entry=${entry} view=${reviewView} runId=${runId} token=${token} />`}
-    ${entry.kind === "waiting" && status === "waiting_human" && entry.decision && html`<${Decision} entry=${entry} busy=${busy} onAction=${onAction} />`}
+    ${entry.kind === "waiting" && status === "waiting_human" && entry.decision && html`<${Decision} entry=${entry} busy=${busy}
+      onAction=${onAction} runId=${runId} token=${token} />`}
     ${output && html`<pre class="thread-output">${output}</pre>`}
   </li>`;
 }

@@ -1747,6 +1747,15 @@ export const HELP = {
   "pending.cancel_back": {
     "title": "Volver a En fondo", "hint": "Cierra la confirmación sin enviar.",
     "more": ["La ejecución sigue en su estado actual.", "Puedes abrirla desde su enlace para ver el hilo."]
+  },
+  "human.tool_preview": {
+    "title": "Vista previa de file.write",
+    "hint": "Muestra el contenido que se propone escribir antes de aprobar la llamada.",
+    "more": [
+      "Si el archivo existe, también compara el contenido actual con el propuesto y avisa si se quitarán líneas.",
+      "La vista usa los argumentos reconstruidos del workflow y solo los muestra si coinciden con la huella de la aprobación pendiente.",
+      "Si no coinciden o la ruta no cumple los límites, explica por qué no puede mostrar el contenido."
+    ]
   }
 };
 

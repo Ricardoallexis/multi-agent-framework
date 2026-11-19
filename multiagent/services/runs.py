@@ -26,6 +26,7 @@ import os
 import time
 import uuid
 import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -34,14 +35,17 @@ from ..bundles import load_bundle
 from ..contracts import HumanStepSubmission, SocialPostRequest
 from ..db.database import Database
 from ..db.store import Store
-from ..errors import HumanSubmissionError, InvalidStateTransition
+from ..errors import HumanSubmissionError, InvalidStateTransition, ValidationFailed
 from ..external_output import EvidenceRejected, canonical_json, check_evidence, external_step, sha256
 from ..observability.usage import read_usage, summarize_usage
 from ..run_request import FunctionStepRequestError, RunRequest
 from ..run_request import operating_mode_from_events
 from ..run_service import PersonRequired, RunService
+from ..tasks.envelopes import envelope_sha256
 from ..tools.approvals import ToolApprovalMismatch
-from ..tools.contracts import PermissionRequest
+from ..tools.contracts import PermissionRequest, ToolExecutionError
+from ..tools.files import preview_file_write
+from ..tools.registry import ToolLookupError
 from ..worker import LocalWorker
 from ..workflow_engine import WorkflowEngine
 from .errors import HUMAN_STEP_UNAVAILABLE, HUMAN_SUBMISSION_INVALID, INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
@@ -337,6 +341,90 @@ class RunServices:
         except PersonRequired as exc:
             raise ServiceError(INVALID_STATE, str(exc), status=409,
                                details={"reason": "person_required", "run_id": run_id}) from exc
+
+    # CHT-T04: reconstruct only the declared file.write call; never modify the run or its target file.
+    @service_errors
+    def tool_approval_preview(self, run_id: str, *, permission_request_id: str | None = None) -> dict[str, Any]:
+        """Return the preview only when rehydrated arguments match the pending request's canonical hash.
+
+        If tool arguments later reference earlier step outputs (C2), extend this reconstruction before enabling the
+        preview for those calls; this method intentionally resolves only the current literal and run-input contract.
+        """
+        runtime = self._find(run_id)
+        run = runtime.store.get_run(run_id)
+        pending = pending_tool_approval(run)
+        if pending is None:
+            return {"available": False, "reason": "no_pending_approval",
+                    "message": "There is no pending tool approval for this run."}
+        if permission_request_id is not None and pending.get("permission_request_id") != permission_request_id:
+            return {"available": False, "reason": "permission_request_mismatch",
+                    "message": "The pending approval changed; refresh the run before reviewing its preview."}
+        if pending.get("tool_id") != "file.write":
+            return {"available": False, "reason": "unsupported_tool",
+                    "message": "A preview is available only for file.write approvals."}
+
+        root = self._services.settings.file_tools_root
+        if root is None:
+            return {"available": False, "reason": "file_tools_disabled",
+                    "message": "File tools are not configured for this application."}
+        registry = getattr(self._services.system, "tool_registry", None)
+        if registry is None:
+            return {"available": False, "reason": "file_write_unavailable",
+                    "message": "The file.write tool is not registered."}
+        try:
+            registered = registry.lookup("file.write", pending.get("tool_version"))
+        except ToolLookupError:
+            return {"available": False, "reason": "file_write_unavailable",
+                    "message": "The approved file.write tool version is no longer registered."}
+
+        request = run.get("request")
+        if not isinstance(request, Mapping):
+            return {"available": False, "reason": "run_inputs_unavailable",
+                    "message": "The run inputs needed to rebuild this tool call are unavailable."}
+        definition = self._services.definitions.read_workflow(run["workflow_id"], bundle=runtime.bundle)
+        step = next((item for item in definition.get("steps", [])
+                     if item.get("id") == pending.get("step_id")), None)
+        if step is None:
+            return {"available": False, "reason": "declaration_unavailable",
+                    "message": "The workflow no longer contains the step that requested this approval."}
+
+        matched_arguments = None
+        has_declaration = False
+        has_reconstructed_arguments = False
+        for entry in step.get("tools") or []:
+            if not isinstance(entry, Mapping):
+                continue
+            declared_tool = entry.get("capability") if "capability" in entry else entry.get("tool")
+            if declared_tool != pending.get("tool_id"):
+                continue
+            has_declaration = True
+            declared_arguments = entry.get("arguments") or {}
+            if not isinstance(declared_arguments, Mapping):
+                continue
+            try:
+                arguments = WorkflowEngine._tool_arguments(declared_arguments, request)
+            except ValidationFailed:
+                continue
+            has_reconstructed_arguments = True
+            if envelope_sha256(arguments) == pending.get("arguments_sha256"):
+                matched_arguments = arguments
+                break
+
+        if matched_arguments is None:
+            if not has_declaration:
+                return {"available": False, "reason": "declaration_unavailable",
+                        "message": "The file.write call is no longer declared by this workflow step."}
+            if not has_reconstructed_arguments:
+                return {"available": False, "reason": "arguments_unavailable",
+                        "message": "The declared file.write arguments cannot be rebuilt from this run's inputs."}
+            return {"available": False, "reason": "arguments_mismatch",
+                    "message": "The rebuilt file.write arguments do not match the pending approval's fingerprint."}
+
+        try:
+            preview = preview_file_write(root, matched_arguments, max_bytes=registered.spec.max_output_bytes)
+        except ToolExecutionError as exc:
+            return {"available": False, "reason": exc.code, "message": str(exc)}
+        return {"available": True, **preview}
 
     @service_errors
     def request_changes(self, run_id: str, feedback: str, *, comments=None,

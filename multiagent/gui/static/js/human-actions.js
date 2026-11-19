@@ -8,6 +8,7 @@ import { Help, helpFor } from "./help.js";
 import { waitingReasonLabel } from "./runs-layout.js";
 import { errorText } from "./text.js";
 import { ExternalOutput } from "./external-output.js";
+import { ToolApprovalPreview } from "./thread-cards.js";
 
 // Pasted answers survive a rejection or a re-render; memory only, keyed by run, step and attempt.
 const drafts = new Map();
@@ -190,6 +191,8 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
     body = call
       ? html`<div>
           <p class="muted">El paso «${call.step_id}» quiere usar la herramienta «${call.tool_id}». Revisa qué hará y decide.</p>
+          ${call.tool_id === "file.write" && html`<${ToolApprovalPreview} runId=${id} token=${token}
+            permissionRequestId=${call.permission_request_id} />`}
           <dl class="tool-approval">
             <dt>Qué hará</dt><dd>${call.summary || "(sin resumen)"}</dd>
             <dt>Efectos</dt><dd>${call.impacts.length ? call.impacts.join(", ") : "ninguno declarado"}</dd>

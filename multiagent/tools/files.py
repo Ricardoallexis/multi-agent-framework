@@ -3,6 +3,7 @@
 """Built-in file tools confined to one declared root folder (no git required)."""
 from __future__ import annotations
 
+import difflib
 import json
 import ntpath
 import os
@@ -175,27 +176,68 @@ def _read_executor(root: Path, max_bytes: int):
     return execute
 
 
+def _prepare_write(root: Path, arguments: Mapping[str, Any], max_bytes: int) -> tuple[Path, str, bytes, str]:
+    parts = _parse_relative(arguments["path"])
+    ext = _validate_extension(parts)
+    content = arguments["content"]
+    if not isinstance(content, str):
+        raise ToolExecutionError(ERR_UNSUPPORTED_FORMAT, "Content must be text")
+    try:
+        data = content.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ToolExecutionError(ERR_UNSUPPORTED_FORMAT, "Content is not valid UTF-8") from exc
+    if len(data) > max_bytes:
+        raise ToolExecutionError(ERR_TOO_LARGE, "Content exceeds max_output_bytes")
+    if ext == ".json":
+        try:
+            json.loads(content)
+        except ValueError as exc:
+            raise ToolExecutionError(ERR_INVALID_JSON, "Content is not valid JSON") from exc
+    if root.exists() and not root.is_dir():
+        raise ToolExecutionError(ERR_NOT_FOUND, "Configured root is not a directory")
+    target, rel_posix = _resolve_inside(root, parts)
+    if target.exists() and target.is_dir():
+        raise ToolExecutionError(ERR_ALREADY_EXISTS, "Target path is an existing directory")
+    return target, rel_posix, data, content
+
+
+def preview_file_write(root: Path | str, arguments: Mapping[str, Any], *,
+                       max_bytes: int = DEFAULT_MAX_OUTPUT_BYTES) -> dict[str, Any]:
+    """Build a bounded, read-only preview of ``file.write`` without creating or changing files."""
+    if type(max_bytes) is not int or not 1 <= max_bytes <= MAX_OUTPUT_BYTES_CEILING:
+        raise ValueError(f"max_bytes must be between 1 and {MAX_OUTPUT_BYTES_CEILING}")
+    target, rel_posix, data, content = _prepare_write(Path(root).expanduser().resolve(), arguments, max_bytes)
+    current = None
+    if target.exists():
+        if not target.is_file():
+            raise ToolExecutionError(ERR_ALREADY_EXISTS, "Target is not a regular file")
+        if target.stat().st_size > max_bytes:
+            raise ToolExecutionError(ERR_TOO_LARGE, "Existing file exceeds max_output_bytes")
+        with target.open("rb") as source:
+            raw = source.read(max_bytes + 1)
+        if len(raw) > max_bytes:
+            raise ToolExecutionError(ERR_TOO_LARGE, "Existing file exceeds max_output_bytes")
+        try:
+            current = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ToolExecutionError(ERR_UNSUPPORTED_FORMAT, "Existing file is not valid UTF-8") from exc
+    diff = list(difflib.unified_diff(
+        (current or "").splitlines(), content.splitlines(),
+        fromfile=f"a/{rel_posix}" if current is not None else "/dev/null",
+        tofile=f"b/{rel_posix}", lineterm=""))
+    return {
+        "path": rel_posix,
+        "content": content,
+        "size": len(data),
+        "exists": current is not None,
+        "diff": "\n".join(diff),
+        "removed_lines": sum(line.startswith("-") for line in diff[2:] if not line.startswith("@@")),
+    }
+
+
 def _write_executor(root: Path, max_bytes: int):
     def execute(arguments: Mapping[str, Any], context: ToolCallContext, *, should_cancel: Callable[[], bool]) -> dict[str, Any]:
-        parts = _parse_relative(arguments["path"])
-        ext = _validate_extension(parts)
-        content = arguments["content"]
-        try:
-            data = content.encode("utf-8")
-        except UnicodeEncodeError as exc:
-            raise ToolExecutionError(ERR_UNSUPPORTED_FORMAT, "Content is not valid UTF-8") from exc
-        if len(data) > max_bytes:
-            raise ToolExecutionError(ERR_TOO_LARGE, "Content exceeds max_output_bytes")
-        if ext == ".json":
-            try:
-                json.loads(content)
-            except ValueError as exc:
-                raise ToolExecutionError(ERR_INVALID_JSON, "Content is not valid JSON") from exc
-        if root.exists() and not root.is_dir():
-            raise ToolExecutionError(ERR_NOT_FOUND, "Configured root is not a directory")
-        target, rel_posix = _resolve_inside(root, parts)
-        if target.exists() and target.is_dir():
-            raise ToolExecutionError(ERR_ALREADY_EXISTS, "Target path is an existing directory")
+        target, rel_posix, data, _ = _prepare_write(root, arguments, max_bytes)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
         return {"path": rel_posix, "size": len(data)}
