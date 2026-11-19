@@ -95,9 +95,23 @@
 .thread-card-head, .thread-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .thread-card-head a { margin-left: auto; }
 .thread-decision, .thread-confirm, .thread-comments { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-.thread-decision button, .thread-head button { min-height: var(--target); }
+.thread-decision button.btn, .thread-head button.btn { min-height: var(--target); }
 .thread-confirm label, .thread-comments label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .thread-confirm textarea, .thread-comments input, .thread-comments select { width: 100%; min-width: 0; }
 .thread-comments fieldset { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .thread-output { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .thread-compose-slot { border-top: 1px solid var(--line); padding-top: 8px; }
+
+/* CHT-T03: readable review output inside the waiting card. */
+.thread-review { min-width: 0; margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.thread-review h4, .thread-earlier h5 { margin: 0 0 8px; }
+.thread-fields { display: grid; grid-template-columns: minmax(6rem, 1fr) minmax(0, 2fr); gap: 8px; min-width: 0; margin: 8px 0; }
+.thread-fields dt { font-weight: 600; overflow-wrap: anywhere; }
+.thread-fields dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.thread-value-list { margin: 8px 0; padding-left: 24px; }
+.thread-review .usage-table-wrap { min-width: 0; max-width: 100%; overflow: auto; }
+.thread-review table { width: max-content; min-width: 100%; border-collapse: collapse; }
+.thread-review th, .thread-review td { padding: 6px 10px; border: 1px solid var(--line); vertical-align: top; text-align: left; }
+.thread-long, .thread-json, .thread-earlier { margin-top: 8px; }
+.thread-readable-text { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.thread-earlier { display: flex; flex-direction: column; gap: 10px; }

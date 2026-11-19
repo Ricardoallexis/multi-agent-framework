@@ -27,3 +27,15 @@ export const isTerminal = (status) => ["completed", "failed", "cancelled", "reje
 export const actionsFor = (entry, status) => entry.kind === "waiting" && status === "waiting_human"
   ? (entry.decision?.actions || []).filter((action) => ["approve", "changes", "reject"].includes(action)) : [];
 export const detailHref = (runId) => "#runs/" + encodeURIComponent(runId);
+
+// The current decision identifies one attempt; never substitute another attempt's artifact.
+export const reviewArtifact = (view, entry) => (view?.artifacts || []).find((item) =>
+  item.step_id === entry.step_id && Number(item.attempt) === Number(entry.attempt)) || null;
+
+export function previousStepIds(view, entry) {
+  const order = (view?.steps || []).map((step) => step.id);
+  const stop = order.indexOf(entry.step_id);
+  if (stop < 0) return [];
+  const earlier = new Set(order.slice(0, stop));
+  return [...new Set((view.artifacts || []).map((item) => item.step_id).filter((id) => earlier.has(id)))];
+}

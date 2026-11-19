@@ -126,7 +126,8 @@ def test_each_thread_control_has_help_and_own_css_block():
     topics = set(re.findall(r'helpFor\("(thread\.[a-z_]+)"\)', cards + thread))
     topics |= set(re.findall(r'topic="(thread\.[a-z_]+)"', cards + thread))
     assert topics == {"thread.section", "thread.refresh", "thread.detail", "thread.related", "thread.approve", "thread.changes",
-                      "thread.reject", "thread.feedback", "thread.comment", "thread.confirm"}
+                      "thread.reject", "thread.feedback", "thread.comment", "thread.confirm", "thread.output",
+                      "thread.json", "thread.previous", "thread.calls"}
     for topic in topics:
         assert f'"{topic}":' in help_text
         assert f'topic="{topic}"' in cards + thread

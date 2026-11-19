@@ -11,6 +11,7 @@ import { POLL_MS, createThread, entryKey, isTerminal, mergeThread, pollAfter } f
 export function RunThread({ token, runId }) {
   const [thread, setThread] = useState(createThread);
   const [error, setError] = useState(null);
+  const [reviewView, setReviewView] = useState(null);
   const [busy, setBusy] = useState(false);
   const current = useRef(createThread());
   const ticket = useRef(0);
@@ -24,10 +25,17 @@ export function RunThread({ token, runId }) {
     try {
       const after = full ? 0 : pollAfter(current.current);
       const page = await apiGet("/gui/api/threads/runs/" + encodeURIComponent(runId) + "?after=" + after, token);
+      let view = null;
+      let reviewFailure = null;
+      if (page.status === "waiting_human") {
+        try { view = await apiGet(runPath(runId), token); }
+        catch (failure) { reviewFailure = failure; }
+      }
       if (request !== ticket.current) return;
       current.current = mergeThread(full ? createThread() : current.current, page);
       setThread(current.current);
-      setError(null);
+      setReviewView(view);
+      setError(reviewFailure);
     } catch (failure) {
       if (request === ticket.current) setError(failure);
     } finally {
@@ -36,7 +44,7 @@ export function RunThread({ token, runId }) {
   }
 
   useEffect(() => {
-    current.current = createThread(); setThread(current.current); setError(null);
+    current.current = createThread(); setThread(current.current); setReviewView(null); setError(null);
     load(true);
     const timer = setInterval(() => { if (!isTerminal(current.current.status)) load(); }, POLL_MS);
     const visible = () => { if (!document.hidden && !isTerminal(current.current.status)) load(); };
@@ -61,11 +69,11 @@ export function RunThread({ token, runId }) {
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("thread.refresh")}
         onClick=${() => load(true)}>Actualizar</button><${Help} topic="thread.refresh" compact=${true} /></div>
     <${Help} topic="thread.section" />
-    ${error && html`<p class="message error" role="alert">No se pudo actualizar el hilo: ${errorText(error)}</p>`}
+    ${error && html`<p class="message error" role="alert">No se pudo actualizar el hilo o su revisión: ${errorText(error)}</p>`}
     ${!thread.loaded && !error && html`<p class="muted" aria-busy="true">Cargando el hilo…</p>`}
     <ol class="thread-list" role="log" aria-label="Mensajes de la ejecución">
       ${thread.entries.map((entry) => html`<${ThreadCard} key=${entryKey(entry)} entry=${entry} status=${thread.status}
-        runId=${runId} busy=${busy} onAction=${act} />`)}
+        runId=${runId} token=${token} reviewView=${reviewView} busy=${busy} onAction=${act} />`)}
     </ol>
     <div class="thread-compose-slot" aria-label="Espacio para mensajes al run">
       <p class="muted">Mensajes al run disponibles próximamente.</p>

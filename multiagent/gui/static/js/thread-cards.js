@@ -1,9 +1,12 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Cards of the run conversation. Values from the server are rendered as text by htm/Preact.
-import { html, useState } from "../vendor/htm-preact-standalone.module.js";
+import { html, useEffect, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
+import { apiGet, runPath } from "./api.js";
 import { Help, helpFor } from "./help.js";
-import { actionsFor, detailHref } from "./thread-model.js";
+import { fmtJson } from "./text.js";
+import { readable } from "./readable.js";
+import { actionsFor, detailHref, previousStepIds, reviewArtifact } from "./thread-model.js";
 
 const LABELS = { launched: "Inicio", step: "Paso terminado", user_message: "Tu mensaje",
   message_consumed: "Mensaje leído", waiting: "Se necesita tu decisión", final: "Final" };
@@ -11,6 +14,65 @@ const KIND_LABELS = { fix: "Corregir", add: "Añadir", remove: "Quitar", rewrite
 const REASONS = { review: "Revisión", tool_approval: "Aprobación de herramienta", execute_step: "Paso humano",
   research: "Investigación externa", escalation_approval: "Escalamiento", budget_exhausted: "Presupuesto agotado",
   content_review: "Revisión de contenido" };
+
+function ReadableValue({ node }) {
+  if (node.kind === "long") return html`<details class="thread-long"><summary ...${helpFor("thread.output")}>Ver texto largo</summary>
+    <pre class="thread-readable-text">${node.text}</pre></details>`;
+  if (node.kind === "fields") return html`<dl class="thread-fields">${node.fields.map(({ name, value }) => html`
+    <dt key=${name + "-name"}>${name}</dt><dd key=${name}><${ReadableValue} node=${value} /></dd>`)}</dl>`;
+  if (node.kind === "table") return html`<div class="usage-table-wrap" role="region" aria-label="Tabla de la salida" tabindex="0">
+    <table><thead><tr>${node.columns.map((name) => html`<th key=${name} scope="col">${name}</th>`)}</tr></thead>
+      <tbody>${node.rows.map((row, index) => html`<tr key=${index}>${row.map((cell, column) => html`
+        <td key=${column}><${ReadableValue} node=${cell} /></td>`)}</tr>`)}</tbody></table></div>`;
+  if (node.kind === "list") return html`<ol class="thread-value-list">${node.items.map((item, index) => html`
+    <li key=${index}><${ReadableValue} node=${item} /></li>`)}</ol>`;
+  return html`<span>${node.text}</span>`;
+}
+
+function ReviewOutput({ entry, view, runId, token }) {
+  const [earlier, setEarlier] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const request = useRef(0);
+  useEffect(() => {
+    request.current += 1;
+    setEarlier(null); setLoading(false); setLoadError(false);
+    return () => { request.current += 1; };
+  }, [runId, entry.step_id, entry.attempt]);
+  const artifact = reviewArtifact(view, entry);
+  const steps = previousStepIds(view, entry);
+  const counters = view?.counters;
+  async function showEarlier() {
+    if (loading) return;
+    const ticket = ++request.current;
+    setLoading(true); setLoadError(false);
+    try {
+      const pages = await Promise.all(steps.map((stepId) => apiGet(
+        runPath(runId, "steps/" + encodeURIComponent(stepId) + "/attempts"), token)));
+      if (ticket === request.current) setEarlier(steps.map((stepId, index) => ({ stepId, attempts: pages[index].attempts || [] })));
+    } catch (_) { if (ticket === request.current) setLoadError(true); }
+    finally { if (ticket === request.current) setLoading(false); }
+  }
+  return html`<section class="thread-review" aria-label="Salida para revisar">
+    <h4>Salida para revisar</h4><${Help} topic="thread.output" compact=${true} />
+    ${artifact ? html`<${ReadableValue} node=${readable(artifact.data)} />
+      <details class="thread-json"><summary ...${helpFor("thread.json")}>JSON completo</summary>
+        <${Help} topic="thread.json" compact=${true} /><pre class="thread-readable-text">${fmtJson(artifact.data)}</pre></details>`
+      : html`<p class="muted">No se encontró la salida de este intento.</p>`}
+    ${counters && html`<p class="thread-calls">Llamadas a modelo: ${counters.model_calls} de ${counters.max_model_calls} máximo.
+      <${Help} topic="thread.calls" compact=${true} /></p>`}
+    ${steps.length > 0 && html`<button type="button" class="btn secondary" disabled=${loading}
+      ...${helpFor("thread.previous")} onClick=${showEarlier}>${loading ? "Cargando…" : "Ver pasos anteriores"}</button>`}
+    ${steps.length > 0 && html`<${Help} topic="thread.previous" compact=${true} />`}
+    ${loadError && html`<p class="message error" role="alert">No se pudieron leer los pasos anteriores.</p>`}
+    ${earlier && html`<div class="thread-earlier">${earlier.map(({ stepId, attempts }) => html`<section key=${stepId}>
+      <h5>Paso ${stepId}</h5>${attempts.length ? attempts.map((attempt) => html`<details key=${attempt.attempt}>
+        <summary ...${helpFor("thread.previous")}>Intento ${attempt.attempt}</summary><${ReadableValue} node=${readable(attempt.output)} />
+        <details class="thread-json"><summary ...${helpFor("thread.json")}>JSON completo</summary>
+          <${Help} topic="thread.json" compact=${true} /><pre class="thread-readable-text">${fmtJson(attempt.output)}</pre></details>
+      </details>`) : html`<p class="muted">Sin salidas guardadas.</p>`}</section>`)}</div>`}
+  </section>`;
+}
 
 function Decision({ entry, busy, onAction }) {
   const [pending, setPending] = useState("");
@@ -79,7 +141,7 @@ function Decision({ entry, busy, onAction }) {
   </div>`;
 }
 
-export function ThreadCard({ entry, status, runId, busy, onAction }) {
+export function ThreadCard({ entry, status, runId, token, reviewView, busy, onAction }) {
   const details = detailHref(runId);
   const output = entry.kind === "final" ? entry.error || (entry.output == null ? "" :
     typeof entry.output === "string" ? entry.output : JSON.stringify(entry.output, null, 2)) : "";
@@ -95,6 +157,9 @@ export function ThreadCard({ entry, status, runId, busy, onAction }) {
       ${entry.team_href && html` · <a href=${entry.team_href} ...${helpFor("thread.related")}>Ver equipo</a>`}</p>`}
     ${entry.kind === "launched" && (entry.task_href || entry.team_href) && html`<${Help} topic="thread.related" compact=${true} />`}
     ${entry.kind === "step" && html`<p class="muted">${entry.step_id}${entry.executor ? " · " + (entry.executor.model || entry.executor.function || entry.executor.provider || entry.executor.kind || "") : ""}</p>`}
+    ${entry.kind === "waiting" && status === "waiting_human" && entry.decision &&
+      ["review", "content_review", "budget_exhausted"].includes(entry.reason) && reviewView && html`
+        <${ReviewOutput} entry=${entry} view=${reviewView} runId=${runId} token=${token} />`}
     ${entry.kind === "waiting" && status === "waiting_human" && entry.decision && html`<${Decision} entry=${entry} busy=${busy} onAction=${onAction} />`}
     ${output && html`<pre class="thread-output">${output}</pre>`}
   </li>`;

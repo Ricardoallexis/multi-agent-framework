@@ -1526,6 +1526,26 @@ export const HELP = {
     "hint": "Envía la decisión o vuelve sin cambiar la ejecución.",
     "more": ["Comprueba el resultado y las indicaciones antes de enviar.", "El hilo se vuelve a leer tras la acción."]
   },
+  "thread.output": {
+    "title": "Salida para revisar",
+    "hint": "Es la salida guardada del intento que espera tu decisión.",
+    "more": ["Los campos aparecen como lista y las listas de objetos como tablas.", "El texto y el JSON completo se muestran como texto plano."]
+  },
+  "thread.json": {
+    "title": "JSON completo",
+    "hint": "Abre la salida original con todos sus campos.",
+    "more": ["Está plegada para que puedas leer primero el resumen.", "No interpreta Markdown ni HTML."]
+  },
+  "thread.previous": {
+    "title": "Ver pasos anteriores",
+    "hint": "Carga las salidas guardadas de los pasos anteriores de esta ejecución.",
+    "more": ["Se leen solo cuando pulsas el botón.", "Cada intento se puede abrir por separado."]
+  },
+  "thread.calls": {
+    "title": "Llamadas a modelo",
+    "hint": "Muestra las llamadas usadas y el máximo de esta ejecución.",
+    "more": ["El número ayuda a decidir si pedir cambios.", "No cambia el presupuesto del workflow."]
+  },
   "shell.search": {
     "title": "Buscar en la lista",
     "hint": "Filtra la lista de la izquierda mientras escribes.",
