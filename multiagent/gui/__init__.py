@@ -46,6 +46,7 @@ from .project_api import add_project_routes
 from .runs import build_router as build_runs_router
 from .security import GUISecurityHeadersMiddleware, require_json, require_token
 from .sessions_api import add_session_routes
+from .setup_api import add_setup_routes
 from .teams_api import add_teams_routes
 from .threads_api import add_thread_routes
 from .usage_api import add_usage_routes
@@ -120,6 +121,7 @@ def mount_gui(app: FastAPI) -> None:
     add_usage_routes(api, usage)  # /gui/api/usage/{plans,tokens,costs} (USO-T02)
     add_connection_routes(api, services)  # SES-T01
     add_executor_launch_routes(api, services)  # SES-T04
+    add_setup_routes(api, services)  # /gui/api/setup/* (INS-T05)
     add_project_routes(api, services)  # /gui/api/projects (PRY-T03)
     add_document_alerts_routes(api, services)
     add_continuity_routes(api, services)  # /gui/api/continuity/* (CNT-T06)

@@ -1,0 +1,345 @@
+# Copyright 2026 Ricardoallexis and contributors
+# SPDX-License-Identifier: Apache-2.0
+"""INS-T05: «Apps y agentes» (#apps) extension, read-only INS-T03 template status, and INS-T04 console route."""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import threading
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import pytest
+from fastapi import APIRouter, Depends, FastAPI
+from fastapi.responses import JSONResponse
+from fastapi.testclient import TestClient
+
+from multiagent.api import create_app
+from multiagent.config import Settings
+from multiagent.db.database import Database
+from multiagent.db.store import Store
+from multiagent.gui import STATIC_DIR
+from multiagent.gui.security import CSP, require_json, require_token
+from multiagent.gui.setup_api import add_setup_routes, permission_status
+from multiagent.gui.token import ensure_token
+from multiagent.services.errors import ServiceError
+from multiagent.setup import guided
+
+EXT_APPS = STATIC_DIR / "extensions" / "apps"
+NODE = shutil.which("node")
+
+
+def _build_client(tmp_path: Path, *, allow_launch: bool = True, policy=None, setup_guide=None,
+                  setup_launcher=None, setup_detector=None, setup_system: str | None = "Windows",
+                  project_root: Path | None = None):
+    token_file = tmp_path / "gui-token"
+    token_file.write_text("synthetic-token-with-enough-length", encoding="utf-8")
+    settings = SimpleNamespace(gui_allow_launch=allow_launch)
+    services = SimpleNamespace(
+        settings=settings,
+        executors=SimpleNamespace(document_policy=policy),
+        setup_guide=setup_guide,
+        setup_launcher=setup_launcher,
+        setup_detector=setup_detector,
+        setup_system=setup_system,
+        setup_project_root=project_root,
+    )
+    app = FastAPI()
+    app.state.gui_token_file = token_file
+
+    # create_app() answers every ServiceError with its status; this bare app needs the same handler.
+    @app.exception_handler(ServiceError)
+    async def service_error(request, exc):
+        return JSONResponse(status_code=exc.status, content={"detail": exc.to_payload()})
+
+    router = APIRouter(prefix="/gui/api", dependencies=[Depends(require_token), Depends(require_json)])
+    add_setup_routes(router, services)
+    app.include_router(router)
+    headers = {"Authorization": "Bearer synthetic-token-with-enough-length", "Content-Type": "application/json"}
+    return TestClient(app), headers
+
+
+def test_setup_routes_require_token_and_never_accept_commands(tmp_path):
+    client, headers = _build_client(tmp_path, setup_guide=lambda *a, **kw: pytest.fail("must not launch"))
+    assert client.get("/gui/api/setup/status").status_code == 401
+    assert client.post("/gui/api/setup/console", json={"id": "claude_cli", "step": "install"}).status_code == 401
+
+    bad_command = client.post("/gui/api/setup/console", headers=headers,
+                              json={"id": "claude_cli", "step": "install", "command": ["whoami"]})
+    assert bad_command.status_code == 422
+
+    bad_tool = client.post("/gui/api/setup/console", headers=headers, json={"id": "gemini", "step": "install"})
+    assert bad_tool.status_code == 400
+
+    bad_agy_install = client.post("/gui/api/setup/console", headers=headers,
+                                  json={"id": "antigravity_cli", "step": "install"})
+    assert bad_agy_install.status_code == 400
+
+
+def test_permission_status_is_read_only_and_reflects_templates(tmp_path):
+    (tmp_path / "docs" / "permissions").mkdir(parents=True)
+    (tmp_path / "docs" / "permissions" / "claude-settings.template.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "docs" / "permissions" / "codex-config.template.toml").write_text("", encoding="utf-8")
+
+    inactive = permission_status(tmp_path)
+    assert inactive["claude_cli"]["template_present"] is True
+    assert inactive["claude_cli"]["active"] is False
+    assert inactive["codex_cli"]["active"] is False
+    assert inactive["copilot_cli"]["mode"] == "per_run"
+    assert inactive["antigravity_cli"]["mode"] == "supervised_modes"
+
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
+    (tmp_path / ".claude" / "settings.local.json").write_text('{"secret": "SYNTHETIC"}', encoding="utf-8")
+    active = permission_status(tmp_path)
+    assert active["claude_cli"]["active"] is True
+    assert active["claude_cli"]["local_present"] is True
+    assert "SYNTHETIC" not in json.dumps(active)
+
+
+def test_console_route_calls_guided_step_with_fake_launcher_and_blocks_concurrent_console(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCAL_DIR", str(tmp_path / "local"))
+    monkeypatch.setattr(guided.launch_safety, "launch_environment", lambda: {"SAFE": "1"})
+
+    started = threading.Event()
+    release = threading.Event()
+    launched = []
+
+    class FakeChild:
+        def wait(self):
+            started.set()
+            assert release.wait(timeout=5)
+            return 0
+
+    def fake_launcher(argv, **kwargs):
+        launched.append((argv, kwargs))
+        return FakeChild()
+
+    def fake_detector(**kwargs):
+        return {"contexts": {kwargs["context"]: {"state": "measured", "apps": []}}}
+
+    client, headers = _build_client(
+        tmp_path,
+        policy=object(),  # proves active document_policy receives the confirmed GUI approval
+        setup_launcher=fake_launcher,
+        setup_detector=fake_detector,
+        setup_system="Windows",
+    )
+
+    first_result = {}
+
+    def run_first():
+        first_result["resp"] = client.post("/gui/api/setup/console", headers=headers,
+                                            json={"id": "codex_cli", "step": "login"})
+
+    worker = threading.Thread(target=run_first)
+    worker.start()
+    try:
+        assert started.wait(timeout=5)
+        second = client.post("/gui/api/setup/console", headers=headers,
+                             json={"id": "claude_cli", "step": "install"})
+        assert second.status_code == 409
+        assert second.json()["detail"]["code"] == "console_already_open"
+    finally:
+        release.set()
+        worker.join(timeout=5)
+
+    resp = first_result["resp"]
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["app"] == "codex"
+    assert body["step"] == "login"
+    assert body["console_exit_code"] == 0
+    assert body["plan"]["command"] == ["codex", "login"]
+    assert len(launched) == 1
+    assert launched[0][0][1:] == ["-m", "multiagent.setup.guided", "--console", "codex", "login"]
+    assert launched[0][1]["creationflags"] == guided.CREATE_NEW_CONSOLE
+
+
+def test_console_route_respects_allow_launch_and_non_windows_and_agy_info(tmp_path):
+    disabled_client, headers = _build_client(
+        tmp_path, allow_launch=False, setup_guide=lambda *a, **kw: pytest.fail("must not launch"),
+    )
+    assert disabled_client.get("/gui/api/setup/status", headers=headers).json()["allow_launch"] is False
+    denied = disabled_client.post("/gui/api/setup/console", headers=headers,
+                                  json={"id": "claude_cli", "step": "install"})
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "launch_disabled"
+
+    linux_client, headers = _build_client(
+        tmp_path, setup_launcher=lambda *a, **kw: pytest.fail("must not open console"), setup_system="Linux",
+    )
+    assert linux_client.get("/gui/api/setup/status", headers=headers).json()["console_supported"] is False
+    unsupported = linux_client.post("/gui/api/setup/console", headers=headers,
+                                    json={"id": "copilot_cli", "step": "install"})
+    assert unsupported.status_code == 409
+    assert unsupported.json()["detail"]["code"] == "launch_unsupported"
+
+    agy = linux_client.post("/gui/api/setup/console", headers=headers,
+                            json={"id": "antigravity_cli", "step": "login"})
+    assert agy.status_code == 200
+    assert "Inicia sesión tú en agy" in agy.json()["plan"]["message"]
+
+
+def test_apps_extension_is_discovered_and_served_on_real_app(tmp_path):
+    settings = Settings(_env_file=None, local_dir=tmp_path / "local", worker_enabled=False, mock_mode=True,
+                        gui_token_file=tmp_path / "gui-token", gui_heartbeat_seconds=0.05, gui_poll_seconds=0.02,
+                        gui_stream_max_seconds=0.4)
+    database = Database(settings)
+    database.migrate()
+    token = ensure_token(settings.gui_token_file)
+    services = SimpleNamespace(
+        system=SimpleNamespace(settings=settings, worker=Mock(), store=Store(database)),
+        runs=Mock(),
+        definitions=Mock(),
+    )
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
+        auth = {"Authorization": f"Bearer {token}"}
+        manifest = client.get("/gui/api/extensions", headers=auth).json()["extensions"]
+        entry = next(item for item in manifest if item["id"] == "apps")
+        assert entry["script"] == "/gui/static/extensions/apps/index.js"
+        assert entry["style"] == "/gui/static/extensions/apps/style.css"
+
+        for rel in ("index.js", "model.js", "help.js", "style.css"):
+            resp = client.get(f"/gui/static/extensions/apps/{rel}")
+            assert resp.status_code == 200
+            assert resp.headers["content-security-policy"] == CSP
+
+        status_resp = client.get("/gui/api/setup/status", headers=auth)
+        assert status_resp.status_code == 200
+        assert "permissions" in status_resp.json() and "plans" in status_resp.json()
+
+
+def _run_node(script: str, env_data: dict | None = None) -> dict:
+    env = {**os.environ}
+    if env_data is not None:
+        env["DATA"] = json.dumps(env_data)
+    run = subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True,
+                         encoding="utf-8", timeout=60, env=env)
+    assert run.returncode == 0, run.stderr
+    return json.loads(run.stdout)
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_apps_pure_model_shows_only_the_missing_step_and_never_uses_network():
+    data = {
+        "connections": [
+            {"id": "claude_cli", "kind": "executor", "installed": False, "version": None, "session": "unknown",
+             "enabled": False, "available": False, "reason": "not_installed", "missing_step": "install",
+             "checked_at": "2026-11-19T01:00:00Z"},
+            {"id": "codex_cli", "kind": "executor", "installed": True, "version": "1.0.0", "session": "signed_out",
+             "enabled": True, "available": False, "reason": "session_missing", "missing_step": "session",
+             "checked_at": "2026-11-19T01:00:00Z"},
+            {"id": "copilot_cli", "kind": "executor", "installed": True, "version": "0.2.0", "session": "unknown",
+             "enabled": False, "available": False, "reason": "disabled", "missing_step": "enable",
+             "checked_at": "2026-11-19T01:00:00Z"},
+            {"id": "antigravity_cli", "kind": "executor", "installed": True, "version": "1.5.10", "session": "unknown",
+             "enabled": False, "notice_accepted": False, "available": False, "reason": "notice_not_accepted",
+             "missing_step": "enable", "checked_at": "2026-11-19T01:00:00Z"},
+            {"id": "gemini", "kind": "model", "key_configured": False, "key_setting": "GEMINI_API_KEY",
+             "key_file": ".local/.env", "enabled": True, "available": False, "reason": "key_missing",
+             "missing_step": "key", "checked_at": "2026-11-19T01:00:00Z"},
+            {"id": "openai", "kind": "model", "key_configured": True, "key_setting": "OPENAI_API_KEY",
+             "key_file": ".local/.env", "enabled": False, "available": False, "reason": "disabled",
+             "missing_step": "enable", "checked_at": "2026-11-19T01:00:00Z"},
+            {"id": "ollama", "kind": "model", "reachable": True, "version": "0.5.0", "enabled": True,
+             "available": True, "reason": None, "missing_step": None, "checked_at": "2026-11-19T01:00:00Z"},
+        ],
+        "setupStatus": {
+            "allow_launch": True,
+            "console_supported": True,
+            "permissions": {
+                "claude_cli": {"mode": "template", "template_path": "docs/permissions/claude-settings.template.json",
+                               "active_path": ".claude/settings.json", "active": False, "guide": "docs/PERMISSIONS.md"},
+                "codex_cli": {"mode": "template", "template_path": "docs/permissions/codex-config.template.toml",
+                              "active_path": ".codex/config.toml", "active": True, "guide": "docs/PERMISSIONS.md"},
+                "copilot_cli": {"mode": "per_run", "guide": "docs/PERMISSIONS.md"},
+                "antigravity_cli": {"mode": "supervised_modes", "guide": "docs/EXECUTORS.md"},
+            },
+            "plans": {
+                "claude_cli": {"install": {"command": ["winget", "install", "Anthropic.ClaudeCode"],
+                                           "source": "https://example.invalid", "source_date": "2026-11-19"}},
+                "codex_cli": {"login": {"command": ["codex", "login"],
+                                        "source": "https://example.invalid", "source_date": "2026-11-19"}},
+            },
+        },
+    }
+    script = f"""
+      import {{ buildAppsView }} from {json.dumps((EXT_APPS / "model.js").as_uri())};
+      globalThis.fetch = () => {{ throw new Error("pure model must not use network"); }};
+      const payload = JSON.parse(process.env.DATA);
+      console.log(JSON.stringify(buildAppsView(payload, payload.setupStatus)));
+    """
+    view = _run_node(script, data)
+    execs = {item["id"]: item for item in view["executors"]}
+    models = {item["id"]: item for item in view["models"]}
+
+    assert list(execs) == ["claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"]
+    assert list(models) == ["gemini", "openai", "ollama"]
+
+    assert execs["claude_cli"]["action"]["kind"] == "console"
+    assert execs["claude_cli"]["action"]["step"] == "install"
+    assert execs["claude_cli"]["action"]["commandText"] == "winget install Anthropic.ClaudeCode"
+    assert "Inactiva" in execs["claude_cli"]["permissions"]
+
+    assert execs["codex_cli"]["action"]["kind"] == "console"
+    assert execs["codex_cli"]["action"]["step"] == "login"
+    assert "Activa en .codex/config.toml" in execs["codex_cli"]["permissions"]
+
+    assert execs["copilot_cli"]["action"]["kind"] == "enable_executor"
+    assert "enabled: true" in execs["copilot_cli"]["action"]["catalogLines"]
+    assert execs["copilot_cli"]["action"]["envLines"] is None
+
+    assert execs["antigravity_cli"]["action"]["kind"] == "enable_executor"
+    assert "enabled: true" in execs["antigravity_cli"]["action"]["catalogLines"]
+    assert execs["antigravity_cli"]["action"]["envLines"] == "ANTIGRAVITY_NOTICE_ACCEPTED=agy-third-party-notice/1"
+
+    assert models["gemini"]["action"] == {
+        "kind": "key",
+        "title": "Falta configurar la clave",
+        "setting": "GEMINI_API_KEY",
+        "file": ".local/.env",
+        "detail": "Añade GEMINI_API_KEY en .local/.env, reinicia la aplicación y pulsa «Volver a comprobar». Nunca escribas la clave aquí.",
+    }
+    assert models["openai"]["action"]["kind"] == "enable_model"
+    assert models["openai"]["action"]["line"] == "OPENAI_ENABLED=true"
+    assert models["ollama"]["action"] is None and models["ollama"]["available"] is True
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_apps_pure_model_handles_agy_uninstalled_and_ollama_tls():
+    data = {
+        "connections": [
+            {"id": "antigravity_cli", "kind": "executor", "installed": False, "missing_step": "install",
+             "available": False, "reason": "not_installed"},
+            {"id": "ollama", "kind": "model", "reachable": False, "available": False, "reason": "tls_certificate",
+             "diagnosis": "The TLS certificate could not be verified; check the local trust chain."},
+        ],
+    }
+    script = f"""
+      import {{ buildAppsView }} from {json.dumps((EXT_APPS / "model.js").as_uri())};
+      const payload = JSON.parse(process.env.DATA);
+      console.log(JSON.stringify(buildAppsView(payload, null)));
+    """
+    view = _run_node(script, data)
+    agy = view["executors"][0]
+    ollama = view["models"][0]
+    assert agy["action"]["kind"] == "info"
+    assert ollama["action"]["kind"] == "info"
+    assert "TLS certificate" in ollama["action"]["detail"]
+
+
+def test_apps_extension_has_no_key_input_and_meets_rwd_rules():
+    # «Conectar otro» lives in the core picker (new-session.js): shared code may not import an extension.
+    for js_file in EXT_APPS.glob("*.js"):
+        src = js_file.read_text(encoding="utf-8")
+        assert not re.search(r"<(?:input|textarea)\b", src), f"{js_file.name} must never render an input/textarea for keys"
+    css = (EXT_APPS / "style.css").read_text(encoding="utf-8")
+    assert ".apps-view" in css and "min-width: 0" in css
+    assert "@media (max-width: 899.98px)" in css
+    assert "@media (max-width: 599.98px)" in css

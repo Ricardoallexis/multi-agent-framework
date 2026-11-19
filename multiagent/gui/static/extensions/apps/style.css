@@ -1,0 +1,222 @@
+/* Copyright 2026 Ricardoallexis and contributors */
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Styles of «Apps y agentes» (INS-T05). Every rule starts with .apps- or #apps-; colours come from app.css variables. */
+
+.apps-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.apps-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+}
+
+.apps-head-title {
+  min-width: 0;
+}
+
+.apps-head-title h3,
+.apps-section-head h4 {
+  margin: 0;
+}
+
+.apps-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.apps-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.apps-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.apps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apps-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.apps-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.apps-card-name {
+  font-size: 1rem;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.apps-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.apps-facts dt {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.apps-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.apps-quota {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.apps-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.apps-step-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.apps-step-text {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.apps-notice {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 0.9rem;
+}
+
+.apps-snippet {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.apps-snippet pre.data {
+  margin: 0;
+}
+
+.apps-snippet-label {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.apps-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.apps-confirm p {
+  margin: 0;
+}
+
+.apps-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.apps-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.apps-status-line {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+@media (max-width: 899.98px) {
+  .apps-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 599.98px) {
+  .apps-card {
+    padding: 10px 12px;
+  }
+
+  .apps-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .apps-facts dd {
+    margin-bottom: 4px;
+  }
+
+  .apps-actions,
+  .apps-card-foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .apps-actions .btn,
+  .apps-card-foot .btn {
+    width: 100%;
+  }
+}
