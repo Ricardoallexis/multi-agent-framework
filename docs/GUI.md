@@ -228,7 +228,9 @@ Gemini stays in «No conectados» with «No se pudo comprobar el acceso»
 configure the key in `.local/.env`, or enable it. The picker only tells; it installs
 nothing and signs in to nothing. `multiagent setup install <app>` and
 `multiagent setup login <app>` open a console on this PC for the person to run the
-command. Enabling an executor is also the person's step: an executor starts disabled,
+command. **Conectar otro**, under the picker, links to «Apps y agentes» (below),
+where the same step can be done; the link is drawn only when that view is loaded.
+Enabling an executor is also the person's step: an executor starts disabled,
 and agy needs two things done on this PC, its declaration in `catalog/models.yaml` and
 the third-party notice in `.local/.env` (see [`EXECUTORS.md`](EXECUTORS.md#antigravity-agy-supervised)).
 The GUI shows agy's notice but never accepts it for the person.
@@ -321,6 +323,63 @@ output) and the call can still be approved or rejected without it. The thread of
 a run is read by polling every 4 s, not pushed; the team and plan threads are
 read once and reload after a decision. The chat answers nothing by itself: every
 approval is a person's click.
+
+**Apps y agentes** (`#apps`, the extension `multiagent/gui/static/extensions/apps/`) shows
+the same connection status as the picker, in full, and only the step each tool is
+missing. The executors (Claude Code, Codex CLI, GitHub Copilot CLI, Antigravity) come
+first and the models (Gemini, OpenAI, Ollama) after them. **Actualizar** reads the lists
+again from `GET /gui/api/connections` and `GET /gui/api/setup/status`; it spends no model
+and opens nothing.
+
+*What each card shows.* Whether the app is installed and its version, its session, its
+state (enabled, disabled, or for agy also whether the notice is accepted), the
+permission templates, the quota the usage plans report, the reason it is not ready, and
+when it was checked. For a model, the session line is whether its key is set, shown only
+as the setting name and the file, for example `GEMINI_API_KEY` in `.local/.env`; the
+value is never read, shown or asked for, and Ollama shows whether its local service
+answers. The templates line is read only: it says whether the template of Claude Code
+(`docs/permissions/claude-settings.template.json`) or of Codex
+(`docs/permissions/codex-config.template.toml`) is present and whether it is active
+(`.claude/settings.json`, `.codex/config.toml`), and that Copilot uses options for each
+run and agy its supervised modes. See [Permission profiles](PERMISSIONS.md#what-the-gui-shows).
+
+*The step that is missing.* Each card gives one step, never the whole list:
+
+- **Install or sign in.** **Abrir consola** asks for confirmation first. The
+  confirmation names the fixed, dated official command (winget or npm, never a remote
+  script) and its source, and only **Confirmar y abrir consola** sends
+  `POST /gui/api/setup/console`; **Cancelar** sends nothing. The server opens a visible
+  Windows console that shows the command and waits for the person to press Enter in it,
+  so nothing runs hidden. Only one console can be open at a time, and the card shows the
+  exit code when it closes. After installing Claude, the console also checks its
+  publisher signature. The view never reads what is typed in the console.
+- **Copy instead of open.** Where the console is not available, the card shows the same
+  command with **Copiar** to run in your own terminal: on a system that is not Windows,
+  when `GUI_ALLOW_LAUNCH` (`gui_allow_launch`) is `false`, and after a refusal.
+- **Key.** The card names the setting and the file (for example `OPENAI_API_KEY` in
+  `.local/.env`) with **Copiar** for the name. It never accepts or writes the value.
+- **Enable.** The card shows the exact lines to add, with **Copiar**: for an executor,
+  `enabled: true` under `executor_routing` in `catalog/models.yaml` and, for agy, the
+  notice line in `.local/.env` with the notice text; for OpenAI, `OPENAI_ENABLED=true`.
+  **Copiar** writes nothing to any file: pasting them and restarting is the person's step
+  (see [Choosing and launching from the GUI](EXECUTORS.md#choosing-and-launching-from-the-gui)).
+- **Information only.** agy has no install button and no sign-in command: the card says
+  to install it from its official distribution and to sign in yourself, because its
+  session cannot be checked without spending quota. A Copilot session cannot be checked
+  either, so its card offers the sign-in console as optional.
+
+**Volver a comprobar** measures that one tool again through
+`POST /gui/api/connections/{id}/check`, without generating with any model, and is the
+step to use after installing, signing in or restarting. When a console closes, the
+card rechecks that tool by itself; a path added to `PATH` by an install can show only in
+consoles opened afterwards.
+
+*Limits.* The GUI installs nothing by itself and signs in to nothing: it opens a console
+for the person, who presses Enter. It does not enable an executor, accept agy's notice,
+write a key or token, or touch the apps' own settings or the Google account. The console
+exists only on Windows. The reasons and the quota text come as the services report them,
+so one can appear in English. See [Install and sign in](EXECUTORS.md#installing-and-signing-in-to-an-executor)
+for the command line.
 
 **Sesiones** is the default view. It combines a read-only, filterable and
 paginated list of Claude Code, Claude Desktop, Codex, GitHub Copilot, and
@@ -434,6 +493,8 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/threads/plans/{proposal_id}` | The thread of a plan proposal (`#new/plan/<id>`): tasks and inputs, bundles without an approved team, and the run of each task once approved (read only; the decision uses the plan-proposal routes). |
 | `GET /gui/api/runs/{id}/tool-approval/preview?permission_request_id=` | Content and diff of a pending `file.write` approval, only when the rebuilt arguments match its fingerprint; writes nothing. |
 | `GET /gui/api/connections`, `POST /gui/api/connections/{id}/check` | Cached connection facts for the seven model providers and executor apps, or a fresh check of one; no model is called and no key value is returned. |
+| `GET /gui/api/setup/status` | For «Apps y agentes»: whether launching is allowed (`gui_allow_launch`) and the console is supported, the read-only presence of each permission template, and the fixed, dated install and sign-in plans (read only; no template file is read, only checked for presence). |
+| `POST /gui/api/setup/console` | Open the visible Windows console for a fixed `install` or `login` step of a tool; the body is only `{"id", "step"}` (any other field is 422, an unsupported step 400). It answers `403 launch_disabled` when `gui_allow_launch` is off, `409 console_already_open` while another console is open and `409 launch_unsupported` outside Windows. |
 | `POST /gui/api/executors/launch` | Launch a «Sesión única» task with an executor; the body needs `confirmed: true` (otherwise 409 `confirmation_required`) and Copilot needs a `model`. It creates the task and calls the executor service with its checks. |
 | `GET /gui/api/executors/launch/{task_id}` | Status of that task and its attempts, for the follow-up (read only). |
 | `GET /gui/api/composer/executors` | Models and efforts that each enabled executor admits, for the executor choice. |
@@ -650,7 +711,7 @@ a JSON list or as values separated by `;`.
 | `GUI_COPILOT_HOME` | unset | Override Copilot's session store location. |
 | `GUI_ANTIGRAVITY_HOME` | unset (`~/.gemini/antigravity-cli`) | Override Antigravity's (agy) session store location. |
 | `GUI_CLAUDE_DESKTOP_DIR` | unset | Override Claude Desktop's session directory. |
-| `GUI_ALLOW_LAUNCH` | `true` | Allow the GUI to launch Claude Desktop sessions. |
+| `GUI_ALLOW_LAUNCH` | `true` | Allow the GUI to launch Claude Desktop sessions and the setup consoles of «Apps y agentes». |
 | `GUI_NEW_SESSION_INTERPRET` | `true` | Let a model read the free text of Nueva sesión and propose a workflow and inputs; `false` always compares words. |
 | `GUI_NEW_SESSION_MODEL` | `local_default` | Catalog model that reads that text (a local model sends nothing out). |
 | `GUI_TOKEN_FILE` | `~/.multiagent/gui-token` | GUI access-token file. |

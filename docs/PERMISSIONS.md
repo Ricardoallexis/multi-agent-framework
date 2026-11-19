@@ -87,6 +87,16 @@ run the application once with the user. Do not commit machine paths or local
 settings. Configure Copilot CLI options for each run instead; there is no
 active Copilot project settings file here.
 
+## What the GUI shows
+
+«Apps y agentes» in the [operator GUI](GUI.md#views) lists, read only, whether each template is
+present and whether it is active: `docs/permissions/claude-settings.template.json` against
+`.claude/settings.json` (and whether `.claude/settings.local.json` exists), and
+`docs/permissions/codex-config.template.toml` against `.codex/config.toml`. For Copilot it says
+that permissions are options for each run, and for agy that it uses its supervised modes. The
+view only checks that the files exist: it does not read them, the local override or any secret,
+and it never copies, activates or edits a template. Activation stays the manual step above.
+
 ## Run operating modes
 
 A workflow run can run under an optional **`supervised`** or **`autonomous`** operating mode. When neither the run nor the bound team sets a mode, existing behavior applies unchanged.

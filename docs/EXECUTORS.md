@@ -56,6 +56,28 @@ Enabling an executor is done by the person on their PC, and the GUI never does i
 The GUI shows the notice with each agy launch but does not accept it, and it does not read or change agy's own settings
 or the Google account.
 
+## Installing and signing in to an executor
+
+`multiagent setup` measures, without spending any model quota, which of Claude, Codex and Copilot is installed (version) and,
+for Claude and Codex, whether it is signed in, and keeps the evidence under `.local/setup-evidence/`. agy is only
+informational. To fix what is missing, the person opens a visible console, either with
+`multiagent setup install <app>` and `multiagent setup login <app>` (`claude`, `codex`, `copilot`; `agy` has `login`
+only) or with **Abrir consola** in «Apps y agentes» of the [operator GUI](GUI.md#views), which calls
+`POST /gui/api/setup/console`.
+
+- The console shows a fixed, dated official command (winget for Claude and Copilot, npm for Codex; never a remote
+  script) and its source, and waits for Enter before running it here. Closing the window cancels.
+- Only one console is open at a time. After Claude's install the console checks its publisher signature, and when the
+  console closes the connection status is measured again. A new `PATH` shows only in consoles opened afterwards.
+- It needs Windows. On another system, or with `GUI_ALLOW_LAUNCH=false`, the GUI shows the command to copy and run
+  yourself.
+- agy has no `install` step, and its `login` has no command: the person signs in from their own terminal.
+
+The framework installs nothing in the background and never types credentials. «Apps y agentes» also shows, for an
+executor that is not enabled, the exact lines to add (`enabled: true` in `catalog/models.yaml` and, for agy, the notice
+line in `.local/.env`) with a **Copiar** button; copying writes nothing. Enabling stays the person's step, as in
+[Choosing and launching from the GUI](#choosing-and-launching-from-the-gui).
+
 ## Results, sessions, and limits
 
 The service submits only a parsed task-result envelope through the normal result submission path; the task gate still
