@@ -5,9 +5,10 @@
 Drives ``copilot -p`` for one task envelope and reads its JSON-lines output back. The shapes are those of
 ``contract.py``; every launch goes through ``process.run`` (ORQ-T47), the only way an agent CLI is started.
 
-Command (``build_command``), in this order; ``--model``, ``--effort`` and ``--resume`` are conditional::
+Command (``build_command``), in this order; ``--model`` is required, while ``--effort`` and ``--resume`` are
+conditional::
 
-    copilot -p "Read <file> in the current folder and do exactly what it says." [--model M] [--effort E]
+    copilot -p "Read <file> in the current folder and do exactly what it says." --model M [--effort E]
             [--resume=<uuid>] -C <workdir> --no-ask-user --allow-tool=read [--allow-tool=write]
             --output-format=json
 
@@ -20,7 +21,8 @@ Command (``build_command``), in this order; ``--model``, ``--effort`` and ``--re
   --allow-tool=write``. ``--allow-all``, ``--allow-all-tools``, ``--allow-all-paths``, ``--allow-all-urls`` and ``--yolo``
   are never used.
 * **Models.** A Claude model is never run through Copilot (the Claude CLI is the executor for those): any model
-  id that contains ``claude`` is rejected with ``CopilotAdapterError(code="claude_model_rejected")``.
+  id that contains ``claude`` is rejected with ``CopilotAdapterError(code="claude_model_rejected")``. A missing
+  model is rejected with ``CopilotAdapterError(code="model_required")``.
 * **Effort** is passed as ``--effort`` (the flag of the real run of 2026-10-11; Copilot 1.0.95 documents the same
   option as ``--reasoning-effort``). Documented levels: none, minimal, low, medium, high, xhigh, max.
 * **Sessions.** The id comes from the final ``result`` event (``sessionId``); ``session.start`` is a fallback for a
@@ -154,11 +156,11 @@ def _is_claude(model: str) -> bool:
     return "claude" in model.lower()
 
 
-def _check_model(model: object) -> str | None:
+def _check_model(model: object) -> str:
     if model is None:
-        return None
+        raise CopilotAdapterError("model_required", "a model must be selected for Copilot CLI")
     if not isinstance(model, str) or not model.strip():
-        raise CopilotAdapterError("invalid_model", "model must be a non-empty model id or None")
+        raise CopilotAdapterError("invalid_model", "model must be a non-empty model id")
     if _is_claude(model):
         raise CopilotAdapterError(
             "claude_model_rejected", f"model {model!r} is a Claude model: Claude models are not run through Copilot "
@@ -173,7 +175,8 @@ def _check_privacy(request: ExecutorLaunchRequest) -> None:
 
     Fails closed when either is present: a class with no policy is ``privacy_class_unknown`` (``decide_privacy`` reads a
     missing policy as nothing declared). Only a request with NEITHER field (a caller that predates MOD-T04, such as the
-    adapter's own contract tests) is not checked here; the service checks it in ``_execute``. The error carries the reason code only: no prompt, path or class.
+    adapter's own contract tests) is not checked here; the service checks it in ``_execute``. Model errors retain their
+    own code ahead of this check. The error carries the reason code only: no prompt, path or class.
     """
     if request.data_class is None and request.privacy is None:
         return
@@ -537,6 +540,7 @@ class CopilotAdapter:
 
     def build_resume_command(self, request: ExecutorLaunchRequest, session_id: str) -> list[str]:
         """argv to continue ``session_id``: only a session this framework created (see ``session_guard``)."""
+        _check_model(request.model)
         value = _check_session_id(session_id)
         if not self._framework_created(value):
             raise CopilotAdapterError(
@@ -598,14 +602,13 @@ class CopilotAdapter:
         return bool(self._session_guard and self._session_guard(session_id))
 
     def _argv(self, request: ExecutorLaunchRequest, *, resume: str | None) -> list[str]:
-        name = prompt_file_name(request, resume=resume is not None)
         model = _check_model(request.model)
+        name = prompt_file_name(request, resume=resume is not None)
         effort = _check_effort(request.effort)
         permission = _check_permission(request.permission)
         workdir = _check_workdir(request.workdir)
         argv = [*self._program, "-p", fixed_prompt(name)]
-        if model:
-            argv += ["--model", model]
+        argv += ["--model", model]
         if effort:
             argv += [EFFORT_FLAG, effort]
         if resume:

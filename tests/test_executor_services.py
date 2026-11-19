@@ -543,11 +543,11 @@ def test_only_sessions_the_framework_created_are_resumed(world):
     # The Copilot adapter asks the service's guard: a session the framework did not store is refused.
     request = ExecutorLaunchRequest("T1", build_task_envelope(task_id="T1", group_id="ORQ", revision=1, attempt=1,
                                                               assignee="a", status="running", objective="x"),
-                                    world.root)
+                                    world.root, model="gpt-6-luna")
     with pytest.raises(CopilotAdapterError) as caught:
         world.adapters["copilot"].build_resume_command(request, stranger)
     assert caught.value.code == "session_not_created_by_framework"
-    out = services.executors.run_task("T1", "copilot_cli")
+    out = services.executors.run_task("T1", "copilot_cli", model="gpt-6-luna")
     assert services.executors.session_guard(out["session_id"]) is True
     assert "--resume=" + out["session_id"] in world.adapters["copilot"].build_resume_command(request, out["session_id"])
 
@@ -595,7 +595,7 @@ def test_recording_an_open_validates_its_input_and_keeps_an_unknown_session_out_
 ])
 def test_open_target_is_the_adapters_target_for_the_recorded_session(world, executor_id, kind, value, confirm):
     services = world.services
-    out = services.executors.run_task("T1", executor_id)
+    out = services.executors.run_task("T1", executor_id, model="gpt-6-luna")
     adapter = world.adapters[executor_id.removesuffix("_cli")]
     expected = adapter.open_target(out["session_id"])
     assert out["open_target"] == {"kind": kind, "value": value, "needs_confirmation": confirm}

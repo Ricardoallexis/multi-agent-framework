@@ -257,10 +257,16 @@ def test_the_prompt_file_name_is_plain_and_follows_the_task_and_attempt(workdir)
         assert caught.value.code == "invalid_task_id"
 
 
-def test_model_and_effort_are_optional(adapter, workdir):
-    argv = adapter.build_command(make_request(workdir, model=None, effort=None))
-    assert argv == ["copilot", *expected_args(workdir, model=None, effort=None)]
-    assert "--model" not in argv and "--effort" not in argv
+def test_effort_is_optional_but_model_is_required(adapter, workdir):
+    argv = adapter.build_command(make_request(workdir, effort=None))
+    assert argv == ["copilot", *expected_args(workdir, effort=None)]
+    assert argv[argv.index("--model") + 1] == "gpt-6-luna" and "--effort" not in argv
+
+
+def test_a_model_is_required(adapter, workdir):
+    with pytest.raises(CopilotAdapterError) as caught:
+        adapter.build_command(make_request(workdir, model=None))
+    assert caught.value.code == "model_required"
 
 
 @pytest.mark.parametrize("model", ["gpt-6-luna", "gpt-5.4", "auto", "o4-mini", "gemini-3-pro", "gpt_x.1"])
@@ -306,7 +312,7 @@ def test_effort_is_normalised_and_unknown_levels_are_refused(adapter, workdir):
 
 def test_the_working_folder_must_be_an_absolute_path(adapter, workdir):
     for bad in ("relative/folder", "", "C:work" if sys.platform == "win32" else "work", "bad\nfolder"):
-        request = ExecutorLaunchRequest(task_id="ORQ-T99", task_envelope=make_envelope(), workdir=bad)  # type: ignore[arg-type]
+        request = ExecutorLaunchRequest(task_id="ORQ-T99", task_envelope=make_envelope(), workdir=bad, model="gpt-6-luna")  # type: ignore[arg-type]
         with pytest.raises(CopilotAdapterError) as caught:
             adapter.build_command(request)
         assert caught.value.code == "invalid_workdir"
@@ -344,6 +350,13 @@ def test_a_session_guard_vouches_for_stored_sessions(workdir):
     with pytest.raises(CopilotAdapterError) as caught:
         adapter.build_resume_command(make_request(workdir), OTHER_SID)
     assert caught.value.code == "session_not_created_by_framework"
+
+
+def test_resume_requires_the_recorded_model_before_session_lookup(workdir):
+    adapter = CopilotAdapter(session_guard=lambda sid: True)
+    with pytest.raises(CopilotAdapterError) as caught:
+        adapter.build_resume_command(make_request(workdir, model=None), SID)
+    assert caught.value.code == "model_required"
 
 
 def test_the_resume_id_is_normalised_and_validated(workdir):
@@ -698,11 +711,18 @@ def test_launch_runs_the_fake_and_reads_everything_back(fake, workdir, monkeypat
 
 def test_launch_with_write_permission_passes_the_write_tool(fake, workdir):
     fake.respond(stdout=good_stdout())
-    result = fake.adapter().launch(make_request(workdir, permission=Permission.WRITE, model=None, effort=None))
+    result = fake.adapter().launch(make_request(workdir, permission=Permission.WRITE, effort=None))
     assert result.status is RunStatus.COMPLETED
     (call,) = fake.calls()
-    assert call["argv"] == expected_args(workdir, model=None, effort=None, write=True)
+    assert call["argv"] == expected_args(workdir, effort=None, write=True)
     assert "WRITE" in call["prompt_text"]
+
+
+def test_launch_without_a_model_is_refused_before_prompt_or_process(fake, workdir):
+    with pytest.raises(CopilotAdapterError) as caught:
+        fake.adapter().launch(make_request(workdir, model=None))
+    assert caught.value.code == "model_required"
+    assert fake.calls() == [] and list(workdir.iterdir()) == []
 
 
 def test_launch_without_a_result_envelope_is_completed_but_says_so(fake, workdir):
@@ -893,6 +913,14 @@ def test_resume_refuses_a_session_the_framework_did_not_create(fake, workdir):
     stored = fake.adapter(session_guard=lambda sid: sid == OTHER_SID)         # the service vouches for a stored id
     assert stored.resume(make_request(workdir), OTHER_SID).status is RunStatus.COMPLETED
     assert fake.calls()[0]["argv"] == expected_args(workdir, resume=OTHER_SID, name="maf-prompt-ORQ-T99-1-resume.md")
+
+
+def test_resume_without_a_recorded_model_is_refused_before_process(fake, workdir):
+    adapter = fake.adapter(session_guard=lambda sid: True)
+    with pytest.raises(CopilotAdapterError) as caught:
+        adapter.resume(make_request(workdir, model=None), SID)
+    assert caught.value.code == "model_required"
+    assert fake.calls() == [] and list(workdir.iterdir()) == []
 
 
 def test_a_quota_failure_on_resume_is_reported_like_one_on_launch(fake, workdir):

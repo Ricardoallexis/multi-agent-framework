@@ -230,7 +230,7 @@ def test_assignment_profile_values_reach_each_adapter_without_caller_overrides(w
 @pytest.mark.parametrize("executor_id,kind", CASES)
 def test_malformed_result_is_recorded_and_never_retried(world, executor_id, kind):
     world.fake.spec(kind, stdout=_stdout(kind, "not a result envelope", usage=True))
-    result = world.services.executors.run_task("T1", executor_id)
+    result = world.services.executors.run_task("T1", executor_id, model=f"{kind}-model")
     assert result["outcome"] == "failed" and result["result"] is None
     assert world.services.tasks.get_task("T1")["state"] == "paused"
     attempts = [e for e in world.services.tasks.events(task_id="T1") if e["type"] == "executor.attempt_finished"]
@@ -240,7 +240,7 @@ def test_malformed_result_is_recorded_and_never_retried(world, executor_id, kind
 @pytest.mark.parametrize("executor_id,kind", CASES)
 def test_framework_created_session_opened_recently_cannot_resume(world, executor_id, kind):
     world.fake.spec(kind, stdout=_stdout(kind, "invalid first answer", usage=False))
-    first = world.services.executors.run_task("T1", executor_id)
+    first = world.services.executors.run_task("T1", executor_id, model=f"{kind}-model")
     assert first["session_id"] == SIDS[kind]
     # Session provenance comes from the service event written by this launch.
     assert world.services.executors.session_guard(first["session_id"])
@@ -264,7 +264,7 @@ def test_process_timeout_and_cancellation_are_not_submitted(world, monkeypatch, 
                               cancelled=flag == "cancelled", command=record)
 
     monkeypatch.setattr(process, "run", outcome)
-    result = world.services.executors.run_task("T1", executor_id, timeout_seconds=1)
+    result = world.services.executors.run_task("T1", executor_id, model=f"{kind}-model", timeout_seconds=1)
     assert result["outcome"] == expected and world.services.tasks.get_task("T1")["state"] == "paused"
     assert "result.submitted" not in [e["type"] for e in world.services.tasks.events(task_id="T1")]
 
@@ -279,7 +279,7 @@ def test_quota_stops_the_app_and_requires_a_person_to_rerun(world, monkeypatch, 
                               stderr_truncated=False, timed_out=False, cancelled=False, command=record)
 
     monkeypatch.setattr(process, "run", quota)
-    result = world.services.executors.run_task("T1", executor_id)
+    result = world.services.executors.run_task("T1", executor_id, model=f"{kind}-model")
     assert result["outcome"] == "quota_exhausted" and result["executor_paused_until"]
     assert world.services.tasks.get_task("T1")["state"] == "paused"
     with pytest.raises(ServiceError) as caught:
