@@ -100,6 +100,10 @@ Even in `autonomous` mode, the following always wait for a person:
 - **Plan proposal approval** (`services.plan_proposals.approve` requires a `user:` actor).
 - **Explicit workflow reviews and guards:** step checkpoints (`checkpoint_after: true`), `human_guided` steps, escalation approvals, content reviews, and budget-cut approvals.
 
+### Seeing a write before approving it
+
+A `file.write` call that waits in `tool_approval` can be reviewed in the operator GUI before a person decides: the approval card shows the content to be written and, for an existing file, the diff against it. The preview is read only (`GET /gui/api/runs/{run_id}/tool-approval/preview`), writes nothing and does not change the approval, and it appears only when the arguments rebuilt from the workflow and the run inputs match the fingerprint of the pending request. Approval is still a person's decision in either operating mode; see [Built-in file tools](FILE_TOOLS.md#approvals).
+
 ### Setting the mode on a team or run
 
 - **Team (`team.yaml`):** set the optional top-level `mode` field to `supervised` or `autonomous` (invalid values fail validation with `invalid_mode`). When omitted, `mode` is excluded from canonical JSON so existing teams keep their `sha256`; version diffs track changes under `team_fields.mode`.

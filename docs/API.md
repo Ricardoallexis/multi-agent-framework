@@ -308,6 +308,8 @@ The operator GUI is served at `/gui/`; its local routes live under
 `/api/v1` contract. For startup, session access, settings, and the security
 model, see the [operator GUI guide](GUI.md).
 
+The chat that follows a run reads three more local routes, all read only: `GET /gui/api/threads/runs/{run_id}` (with `?after=<cursor>`) rebuilds a run's conversation from its stored events (launch, steps, messages, stops with the actions the server accepts, and the final output), `GET /gui/api/threads/teams/{version_id}` returns a team version's card with its one stop, and `GET /gui/api/threads/plans/{proposal_id}` returns a plan proposal's tasks, missing teams and runs. Decisions go through the existing run, team and plan-proposal routes. `GET /gui/api/runs/{run_id}/tool-approval/preview?permission_request_id=<id>` returns the content and diff of a pending `file.write` approval without writing anything (see [Built-in file tools](FILE_TOOLS.md#approvals)). See [Operator GUI](GUI.md#views).
+
 Start the local GUI with `multiagent gui [--port N] [--real] [--no-browser]`
 or `python -m multiagent.gui`. The read-only session service is also available
 through `multiagent sessions list`, `multiagent sessions show`, and

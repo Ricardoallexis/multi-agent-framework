@@ -192,6 +192,67 @@ model is pure (`js/new-session-model.js`) and is tested with Node. The proposal 
 `POST /gui/api/new-session/interpret` (`{"text"}`; it answers `source` `model` with a
 `proposal`, or `source` `keywords` with a `reason`) and creates nothing.
 
+**The chat follows the run.** After **Lanzar** or «Continuar una ejecución», the
+column stays in «Nueva sesión» and follows the run at `#new/run/<run id>`
+(`js/thread.js`, with the pure state in `js/thread-model.js` and the cards in
+`js/thread-cards.js`). The thread comes from the read-only, token-protected
+`GET /gui/api/threads/runs/{run_id}`, which rebuilds the conversation on every
+read from the run's stored events and state. Each entry is a message: the launch
+(workflow, project, mode, and links to the task and the bound team), each
+completed step with the model, function or person that produced it, the messages
+sent to the run, each stop, and the final output or error. The page asks for new
+entries every 4 s (`?after=<cursor>`, one entry back, merged by identity) and
+stops once the run is completed, failed, cancelled or rejected. Every message
+links to «Ver detalle», the run in «Ejecuciones».
+
+*Stops as messages.* A run that waits for a person becomes a card in the thread
+with the actions the server accepts for that wait: «Aprobar», «Pedir cambios» (a
+note and optional comments, each with a part of the output, a type, a text and an
+optional quote) and «Rechazar». Each one asks for a confirmation first, then calls
+the route that «Ejecuciones» already uses (`POST /gui/api/runs/{id}/approve`,
+`/changes` or `/reject`) with the actor fixed by the server. Only the
+current stop offers actions; earlier stops stay in the thread as text.
+
+*Review.* The stop for a review shows the output of the attempt under review
+(`js/readable.js`): fields, lists and tables, with long text folded and
+nesting limited to three levels, and the complete JSON folded under «JSON
+completo». «Ver pasos anteriores» loads the earlier outputs of the same run on
+request, and the number of model calls against the maximum is shown.
+
+*Tool call.* The stop for a `file.write` call shows what will be written. For a
+new file it lists every line as an addition; for an existing file it shows the
+content, the lines that change against the current file, and a notice when lines
+will be removed. The same preview appears in the «Acciones humanas» of
+«Ejecuciones». It comes from the read-only
+`GET /gui/api/runs/{id}/tool-approval/preview?permission_request_id=<id>`, which
+writes nothing. Calls to other tools show no preview.
+
+*Team and plan.* A proposed team version opens as a thread of one stop at
+`#new/team/<version id>`, read from `GET /gui/api/threads/teams/{version_id}`. Its
+card shows the team mode and, for each position, its rules, permissions, members
+and the model that its agent resolves to in the bundle catalog, or the reason
+when none can be resolved; **Aprobar** and **Rechazar** use the team routes
+described under «Equipos», which show the same card. A first version is compared
+with an empty team. A plan proposal opens at `#new/plan/<proposal id>`, read from
+`GET /gui/api/threads/plans/{proposal_id}`: its tasks with their inputs, a
+message for each bundle whose roles have no approved team (it links to the
+proposed team version, or to «Equipos»; **Aprobar** stays disabled and says why),
+and, once approved, one message for each task with its run. **Aprobar** and
+**Rechazar** send the revision on screen as `expected_revision` to the routes
+described under «Planes». Pending runs, team versions and plans in «Pendientes» link to
+these threads.
+
+*Limits.* The cards show text only: nothing the server or a model wrote is
+interpreted as HTML or Markdown. The preview of `file.write` appears only when the
+arguments rebuilt from the step declaration and the run inputs have the same
+fingerprint (`arguments_sha256`) as the pending request; otherwise the card says
+why it cannot show them (the approval changed, file tools are not configured, the
+step no longer declares the call, or the arguments depend on an earlier step's
+output) and the call can still be approved or rejected without it. The thread of
+a run is read by polling every 4 s, not pushed; the team and plan threads are
+read once and reload after a decision. The chat answers nothing by itself: every
+approval is a person's click.
+
 **Sesiones** is the default view. It combines a read-only, filterable and
 paginated list of Claude Code, Claude Desktop, Codex, GitHub Copilot, and
 framework-run sessions. Details are rendered according to item kind and
@@ -299,6 +360,10 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/plan-proposals`, `/plan-proposals/{id}` | List saved plan proposals (optional `status`, `group_id`) and read one proposal with its tasks and history. |
 | `POST /gui/api/plan-proposals/{id}/edit`, `/reassign`, `/approve`, `/reject` | Edit tasks, reassign one task, approve or reject a plan proposal; `user:operator` and `gui` are fixed by the server. |
 | `POST /gui/api/plan-proposals/{id}/advance` | Advance the plan of an approved proposal once («Avanzar plan»); a proposal that is not approved is a conflict, and nothing to advance is not an error. |
+| `GET /gui/api/threads/runs/{run_id}` (`?after=<cursor>`) | The conversation of a run for «Nueva sesión» (`#new/run/<id>`): launch, steps, messages, stops with the actions the server accepts, and the final output, rebuilt from the stored events (read only). |
+| `GET /gui/api/threads/teams/{version_id}` | The thread of a team version (`#new/team/<id>`): its card and one stop with Approve and Reject (read only; the decision uses the teams routes). |
+| `GET /gui/api/threads/plans/{proposal_id}` | The thread of a plan proposal (`#new/plan/<id>`): tasks and inputs, bundles without an approved team, and the run of each task once approved (read only; the decision uses the plan-proposal routes). |
+| `GET /gui/api/runs/{id}/tool-approval/preview?permission_request_id=` | Content and diff of a pending `file.write` approval, only when the rebuilt arguments match its fingerprint; writes nothing. |
 | `GET /gui/api/runs/{id}/usage` | Token and cost details for the right panel. |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts` | Completed attempts of one step (producer, input, output, review, tokens). |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts/compare?a=1&b=2` | Field-by-field and unified line diff between two completed attempts. |

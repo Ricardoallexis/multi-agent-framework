@@ -174,6 +174,16 @@ after a confirmation it advances the plan once and says which tasks moved, or
 that there was nothing to advance. The GUI reviews saved proposals; use Python,
 CLI, or the HTTP API to propose and save one first.
 
+A proposal also opens as a thread of the chat at `#new/plan/<id>` (read only,
+`GET /gui/api/threads/plans/{proposal_id}`). Its card lists each task with its
+inputs as readable text and has **Aprobar** and **Rechazar**, which send the
+revision on screen as `expected_revision` to the routes above. For each bundle
+whose `role:` steps have no approved team, a message links to the proposed team
+version (or to **Equipos**) and **Aprobar** stays disabled with the reason, the
+same `team_not_approved` check that approval makes. Once approved, the thread
+shows one message for each task with its run. Pending proposals in **Pendientes**
+link to this thread.
+
 ## Current limits
 
 - The plan schema and task lifecycle are partial: it does not yet express all
