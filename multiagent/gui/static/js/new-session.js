@@ -10,6 +10,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost } from "./api.js";
 import { CreateRun, PreviewPanel } from "./create-run.js";
+import { isRegisteredView } from "./extensions.js";
 import { Help, helpFor } from "./help.js";
 import { modeHelpEntry } from "./help-text.js";
 import { ModelPicker } from "./model-picker.js";
@@ -794,6 +795,10 @@ export function NewSession({ token, mock }) {
     </div>
     <${ModelPicker} connections=${connections.data} selectedId=${selectedConnection} onSelect=${setSelectedConnection}
       loading=${connections.loading} error=${connections.error} onRetry=${refreshConnections} help=${pickerHelp} />
+    ${isRegisteredView("apps") && html`<div class="ns-row">
+      <a class="btn secondary small" href=${routeHref("apps")} ...${helpFor("chat.connect_other")}>Conectar otro</a>
+      <${Help} topic="chat.connect_other" compact=${true} />
+    </div>`}
     ${conv.phase === "welcome" && html`<${Starters} disabled=${busy} onPick=${chooseStarter} />`}
     ${(conv.phase === "welcome" || conv.phase === "choose") && html`<p class="muted small" role="status" aria-live="polite">${status}</p>`}
     ${catalog.error && html`<div class="ns-row"><p class="message error" role="alert">No se pudo leer la lista de workflows: ${errorText(catalog.error)}</p>

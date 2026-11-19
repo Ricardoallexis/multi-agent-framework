@@ -183,7 +183,7 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, bu
       <dt>Versión</dt><dd>${item.version}</dd>
       <dt>Sesión</dt><dd>${item.session}</dd>
       <dt>Estado</dt><dd>${item.enabled}</dd>
-      <dt>Permisos (INS-T03)</dt><dd>${item.permissions}</dd>
+      <dt>Permisos</dt><dd>${item.permissions}</dd>
       ${item.quota.length > 0 && html`<dt>Cuota</dt><dd class="apps-quota">${item.quota.map((line) => html`<span key=${line}>${line}</span>`)}</dd>`}
       ${item.reasonText && html`<dt>Motivo</dt><dd>${item.reasonText}</dd>`}
       <dt>Comprobado</dt><dd>${item.checkedAt ? fmtDate(item.checkedAt) : "Sin fecha"}</dd>

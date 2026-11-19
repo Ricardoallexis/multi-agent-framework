@@ -1484,6 +1484,14 @@ export const HELP = {
       "Puedes volver a elegir el modo antes de lanzar."
     ]
   },
+  "chat.connect_other": {
+    "title": "Conectar otro",
+    "hint": "Abre «Apps y agentes» para ver qué le falta a cada app o modelo.",
+    "more": [
+      "Allí cada app y cada modelo muestra solo el paso que le falta: instalarlo, iniciar sesión, configurar la clave o habilitarlo.",
+      "Este enlace solo cambia de pantalla: no instala, no inicia sesión y no habilita nada."
+    ]
+  },
   "chat.single_model": {
     "title": "Modelo para la tarea",
     "hint": "Elige un modelo admitido y conectado.",
