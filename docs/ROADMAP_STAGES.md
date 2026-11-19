@@ -183,7 +183,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 **Acceptance:** a team file validates, is approved by a human, and runs with role switching recorded in the trace.
 **Example:** "a research team of three with a reviewer" becomes a team definition and an org chart for approval.
 
-## S7 · Collaborative team primitives ☐
+## S7 · Collaborative team primitives ◐
 
 - **Class:** Core (primitives) + Example (software development preset).
 - **Objective:** two or more agents and humans work on shared resources safely.
@@ -213,7 +213,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 **Acceptance:** two agents deliver changes to different scoped resources; a supervisor applies them in order; a stage closes only with passing checks.
 **Example:** a software development preset where resources are files, changes are patches, and checks are test suites.
 
-## S8 · Planning and delegation ☐
+## S8 · Planning and delegation ◐
 
 - **Class:** Core (plans, planners interface, assignment) + Extension (LLM or external planners).
 - **Objective:** turn an objective into an executable, traceable plan for a user-defined team.
@@ -230,7 +230,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S8.B2 | ◐ Done: executor attempts, routing evidence, and results are recorded as team events; reviews and the reason for an assignment are not. | S8.A2 |
 | **S8.C — Assignment** | | |
 | S8.C1 | ◐ Partial. T15 adds descriptor-based policy preview and guarded claims filtered by declared capabilities, roles, permissions, modes, and privacy. Bundled surfaces remain manual/unknown, so availability and execution are not established. | S8.A1, S5.C2 |
-| S8.C2 | ◐ Partial. T14/T15 apply configured mode, permission, privacy, and invocation-budget constraints; unmapped canonical constraints block. ORQ-6 provides task launch, resume, and open operations through disabled-by-default Claude, Codex, and Copilot adapters. CI uses synthetic executables; installed CLI and live account, session, or app behavior have not been verified. See [executor applications](EXECUTORS.md). | S8.C1 |
+| S8.C2 | ◐ Partial. T14/T15 apply configured mode, permission, privacy, and invocation-budget constraints; unmapped canonical constraints block. ORQ-6 provides task launch, resume, and open operations through disabled-by-default Claude, Codex, and Copilot adapters, and GEM-T03 adds the supervised Antigravity (`agy`) adapter, which launches tasks only (`multiagent/executors/antigravity.py`). CI uses synthetic executables; installed CLI and live account, session, or app behavior have not been verified. See [executor applications](EXECUTORS.md). | S8.C1 |
 | **S8.D — Assisted planning** | | |
 | S8.D1 | ✅ Named pluggable planners: manual, deterministic, and model backed through the existing router and call guards; trusted code can register another. External planner integration and automatic planning remain open. S8.B1 remains partial ([planning](PLANNING.md)). | S8.B1 |
 | S8.D2 | ✅ Saved proposals wait for a `user:` decision; users can edit, reassign, approve, or reject them through Python, API, CLI, and the Planes GUI. Approval creates tasks and starts ready runs through the existing engine. S13.B1 remains partial: no risk level or project context. Group and task creation is not atomic ([planning](PLANNING.md)). | S8.D1, S13.B1 |
@@ -262,7 +262,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S9.C2 | A2A adapter when a concrete need appears. | S5.A2 |
 | **S9.D — Applications** | | |
 | S9.D1 | ◐ Done: launching and opening an application are separate effects with separate approvals. | S5.B2 |
-| S9.D2 | ◐ Done: independent adapters for three agent applications, disabled by default; no design, CAD, or media adapters. | S9.D1 |
+| S9.D2 | ◐ Done: independent adapters for four agent applications (Claude, Codex, Copilot, and supervised Antigravity), disabled by default; no design, CAD, or media adapters. | S9.D1 |
 
 **Parallel:** S9.A right away; S9.B and S9.C after S5.A.
 **Acceptance:** an MCP client can list workflows and start a run; a shared-folder request round-trips with a receipt.
@@ -322,8 +322,8 @@ optional OpenTelemetry traces and metrics attach to each execution backend
 | **S11.D — Optional providers** | | |
 | S11.D1 | Evaluate external structured-decision providers behind a neutral interface, opt-in only. | S11.A1 |
 | **S11.E — Cost reduction** | | |
-| S11.E1 | Stable prompt prefix: place system text, skills, and output contract before variable input for provider prompt caching, and record cached tokens when reported. | S3, S11.A1 |
-| S11.E2 | Opt-in step result cache keyed by prompt hash, input, model, and contract version; off for human and non-deterministic steps. | S11.E1, S3 |
+| S11.E1 | ✅ Stable prompt prefix: system text, skills, and the output contract come first and the variable input last (`stable_prefix` and `assemble` in `multiagent/prompts.py`, used by the engine for every model step), and the cached input tokens a provider reports are recorded as `cache_read_tokens` in usage records (`multiagent/adapters/openai_cloud.py`, `multiagent/adapters/gemini.py`, `multiagent/observability/usage.py`). | S3, S11.A1 |
+| S11.E2 | ◐ Done: an opt-in step result cache keyed by the prompt hash, inputs, model, and contract version, with a read-only deterministic tool cache; steps that wait for a person or need the web are never cached, and a hit is recorded as an event and never as a provider call (`multiagent/step_cache.py`, `StepCachePolicy`, native backend). A host turns it on in Python; no setting, CLI option, or GUI control does. | S11.E1, S3 |
 | S11.E3 | Embedding cache by content hash, model, and version; deliver with retrieval over project files. | S11.C2, S12.C1 |
 
 **Parallel:** S11.A and S11.B at once.
@@ -413,13 +413,13 @@ advanced visualization items below remain planned.
 | --- | --- | --- |
 | S14.1 | ◐ Done: documented GUI extension seam and public API error format; no decision record, no event-transport evaluation. | — |
 | S14.2 | ◐ Done: workflow inputs and per-run routing preferences in the GUI. | S5.C1, S6.A1, S14.1 |
-| S14.3 | UI stage 2: teams, plans, and tasks, with plan approval and task progress. | S8.B1, S14.2 |
-| S14.4 | UI stage 3: tools and interoperability: pending permissions, channels, MCP. | S5.B2, S9.C1, S14.2 |
-| S14.5 | ◐ Done: runs, projects, run history, and a work map; no artifact previews or comparisons. | S14.1 |
+| S14.3 | ◐ Done: the Equipos view with versions, diffs and approve or reject, and a Planes view that lists plan proposals and edits, reassigns, approves, or rejects them (`multiagent/gui/teams_api.py`, `multiagent/gui/plans_api.py`, `multiagent/gui/static/js/teams.js`, `plans.js`); task progress is read in the project and work-map views; no view follows the execution of an approved plan. | S8.B1, S14.2 |
+| S14.4 | ◐ Done: a run that waits for a write or destructive tool call shows that call and approves or rejects it by its permission request id (`multiagent/gui/static/js/human-actions.js`); no channel or MCP view. | S5.B2, S9.C1, S14.2 |
+| S14.5 | ◐ Done: runs, projects, run history, a comparison of two attempts of a step, and a work map; no artifact previews. | S14.1 |
 | S14.6 | ◐ Done: plan usage, tokens per app, model, and level, and estimated cost; no latency, routing, or hardware views. | S10.A1, S14.1 |
 | S14.7 | Administrative views for workers, migrations, diagnostics, and recovery. | S4.D1, S14.1 |
 | S14.8 | Sanitized rich rendering (Markdown or HTML) for any future UI. | S14.1 |
-| S14.9 | Organization chart view: position cards (role above, holder below: agent, human, or model, with a status shown as text and shape, not color alone), drawn with no dependencies from S6.B2, keyboard accessible, and within the Content Security Policy. If S14.1 chooses another frontend, it follows that decision. | S6.B2, S14.1, S14.2 |
+| S14.9 | ◐ Done: the organization chart of a team as an accessible nested list with each position's role, holder, and status shown as text, plus the copyable Mermaid text, with no dependencies and within the Content Security Policy (`multiagent/gui/static/js/teams.js`); not drawn as position cards. | S6.B2, S14.1, S14.2 |
 
 **Parallel:** S14.5, S14.6, and S14.8 after S14.1, alongside the UI stages.
 

@@ -74,7 +74,7 @@ The first public baseline is backend-first and provides the foundation for the r
 
 ## Intelligent model routing
 
-**Progress:** `████░░░░░░` 5/14 · 36% <!-- progress -->
+**Progress:** `████░░░░░░` 6/14 · 43% <!-- progress -->
 
 The framework is intended to use the orchestrator to choose the most appropriate model for each task rather than relying on one model for every capability.
 
@@ -91,7 +91,7 @@ The framework is intended to use the orchestrator to choose the most appropriate
 - [ ] Evaluate optional external structured-decision providers (for example Jev, a commercial service) behind a provider-neutral interface. The native implementation stays the default, any external provider requires an explicit opt-in, and no provider becomes a required dependency. This is a possible evaluation, not an adoption decision.
 - [ ] Improve token/context budgeting and prevent avoidable context overflow.
   - [x] Estimate each prompt against the model's context window before every call, warn at a configured level, compact older context after the step, and hold paid calls that would pass a configured budget (all opt-in).
-- [ ] *(proposed)* Stable prompt prefix: put the parts that do not change between calls (system text, skills, output contract) first and the variable input last, so providers' prompt caching can apply, and record cached tokens where the provider reports them.
+- [x] Stable prompt prefix: put the parts that do not change between calls (system text, skills, output contract) first and the variable input last, so providers' prompt caching can apply, and record cached tokens where the provider reports them.
   - [x] Local usage reports show cache-read and cache-write tokens per app, model, and level where the application reports them.
 - [ ] *(proposed)* Opt-in cache of step results keyed by prompt hash, input, model, and contract version. It is disabled for human steps and non-deterministic steps, and a cache hit is recorded as an event and never as a provider call.
 
@@ -219,7 +219,7 @@ Turn a high-level objective into an executable plan for a team the user has defi
 
 ## Team design from a prompt
 
-**Progress:** `█░░░░░░░░░` 1/9 · 11% <!-- progress -->
+**Progress:** `███░░░░░░░` 3/9 · 33% <!-- progress -->
 
 Describe what you need in one prompt and get a working team: the agents it recommends, their instructions and responsibilities, and an organization chart. If the prompt already defines the team, the generator formalizes it instead of redesigning it. The result is data — a team definition that is validated, reviewed by a human, and versioned like any bundle or preset — never code in the core.
 
@@ -230,8 +230,8 @@ Roles are not tied to models. A **role** holds rules, skills, contracts, capabil
 - [ ] Validate generated teams with the same rules as bundles (references, contracts, capabilities, least-privilege permissions) and require human approval before any team is created or changed, reusing the human-in-the-loop.
 - [ ] Recommend model or provider bindings per role from the capability catalog and the model router, as editable suggestions; never hard-code vendors in the core, and allow any available member, or a human, to take any role.
 - [x] Let one member switch roles at runtime: a model step declares its role, the runtime loads that role's rules and skills, keeps each step's role instructions separate, and records the role and member in the trace (`S6.C1`; see [`docs/TEAMS.md`](docs/TEAMS.md#roles-in-workflow-steps)). Permission validation for a role-bound step with `agent: null` remains open.
-- [ ] Render the organization chart from the relationships (for example as a Mermaid diagram) in docs and, later, in the UI (stage 2).
-- [ ] Expose the organization chart as a model through the application services (Python, HTTP, and CLI): each position shows its role, who holds it (agent, human, or model), who it reports to, and its status, validated for cycles and roots.
+- [x] Render the organization chart from the relationships (for example as a Mermaid diagram) in docs and, later, in the UI (stage 2).
+- [x] Expose the organization chart as a model through the application services (Python, HTTP, and CLI): each position shows its role, who holds it (agent, human, or model), who it reports to, and its status, validated for cycles and roots.
 - [ ] Show that model in the UI as an accessible organization chart with position cards, without extra dependencies.
 - [ ] Regenerate a team as a reviewable diff against the current definition, and save accepted teams as presets.
 
