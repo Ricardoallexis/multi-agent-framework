@@ -331,7 +331,7 @@ It depends on OpenTelemetry events, MCP tool access, and planning with concurren
 
 **Progress:** `██░░░░░░░░` 2/13 · 15% <!-- progress -->
 
-**Implemented in part:** versioned tool contracts, a tool registry, namespaced capabilities with configuration-based tool selection, a local stdio MCP server, and an MCP client that registers operator-configured servers' tools exist (see S5 and S9 in [the stage roadmap](docs/ROADMAP_STAGES.md)). Model-provider adapters do not map their own tool calls yet, agents are not selected by capability, the MCP server does not answer human steps, and the MCP client is not configurable outside Python, so those items stay open.
+**Implemented in part:** versioned tool contracts, a tool registry, namespaced capabilities with configuration-based tool selection, built-in file tools for one declared folder without Git, a local stdio MCP server, and an MCP client that registers operator-configured servers' tools exist (see S5 and S9 in [the stage roadmap](docs/ROADMAP_STAGES.md)). Model-provider adapters do not map their own tool calls yet, agents are not selected by capability, the MCP server does not answer human steps, and the MCP client is not configurable outside Python, so those items stay open.
 
 The core works with generic concepts (tool, capability, provider, channel, permission, external application, request, result, and artifact); anything specific to a model, protocol, or application lives in adapters, plugins, bridges, or providers.
 

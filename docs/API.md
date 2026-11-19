@@ -100,7 +100,7 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `GET` | `/api/v1/runs/{run_id}/usage` | List local token-usage records and totals by run, agent, and step; costs are estimates. |
 | `GET` | `/api/v1/runs/{run_id}/steps/{step_id}/attempts` | List completed attempts of one step with producer, revision input, JSON/Markdown output, review status, human notes/prompt, and tokens. |
 | `GET` | `/api/v1/runs/{run_id}/steps/{step_id}/attempts/compare` | Compare two completed attempts (`?a=1&b=2`) field by field, with unified line diffs for long or multi-line strings. |
-| `POST` | `/api/v1/runs/{run_id}/approve` | Approve the current human review. |
+| `POST` | `/api/v1/runs/{run_id}/approve` | Approve the current human review (`tool_approval` requires `POST /gui/api/runs/{run_id}/approve` with `permission_request_id`; see [Built-in file tools](FILE_TOOLS.md#approvals)). |
 | `POST` | `/api/v1/runs/{run_id}/changes` | Request changes with free text, structured comments, or both (see below). |
 | `POST` | `/api/v1/runs/{run_id}/regenerate` | Regenerate the item under review. |
 | `POST` | `/api/v1/runs/{run_id}/reject` | Reject the run with `{"feedback": "..."}`. |

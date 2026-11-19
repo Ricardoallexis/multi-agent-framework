@@ -342,6 +342,7 @@ See [`docs/VERSIONING.md`](docs/VERSIONING.md), including the release procedure.
 - [`TRADEMARKS.md`](TRADEMARKS.md) — use of the project name.
 - [`docs/VERSIONING.md`](docs/VERSIONING.md) — versioning rules.
 - [`docs/LOCAL_WORKSPACE.md`](docs/LOCAL_WORKSPACE.md) — public-code/private-data separation.
+- [`docs/FILE_TOOLS.md`](docs/FILE_TOOLS.md) — built-in `file.*` workflow tools, `FILE_TOOLS_ROOT` confinement, approvals, and error codes.
 - [`docs/OLLAMA.md`](docs/OLLAMA.md) — local Ollama setup, diagnostics, and execution.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution guidelines.
 - [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — community participation expectations.
