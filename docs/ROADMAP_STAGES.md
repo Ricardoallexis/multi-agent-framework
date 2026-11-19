@@ -224,16 +224,16 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | --- | --- | --- |
 | **S8.A — Plans as data** | | |
 | S8.A1 | ◐ Plan schema: tasks, subtasks, dependencies, capabilities, contracts, assignments, parallel groups, review and integration steps. Done: tasks, groups, and dependencies as data, computed readiness, one transition function, and a team event log ([`TASKS.md`](TASKS.md)). | S6.A1 |
-| S8.A2 | Execute plans through the existing engine and backends, not a second engine. | S8.A1, S4.A2 |
+| S8.A2 | ✅ A `multiagent.plan/1` document advances task groups through ordinary runs on the existing engine and backends; status reports tasks, blockers and linked runs. S8.A1 remains partial: the full plan schema is still open ([planning](PLANNING.md)). | S8.A1, S4.A2 |
 | **S8.B — Manual planning** | | |
-| S8.B1 | ◐ Done: tasks can be created, given dependencies and scope, paused, resumed, cancelled, or reopened with an expected revision; no manual planner. | S8.A2 |
+| S8.B1 | ◐ Done: tasks can be created, given dependencies and scope, paused, resumed, cancelled, or reopened with an expected revision; the manual planner validates proposed tasks, but full manual editing during execution remains open. | S8.A2 |
 | S8.B2 | ◐ Done: executor attempts, routing evidence, and results are recorded as team events; reviews and the reason for an assignment are not. | S8.A2 |
 | **S8.C — Assignment** | | |
 | S8.C1 | ◐ Partial. T15 adds descriptor-based policy preview and guarded claims filtered by declared capabilities, roles, permissions, modes, and privacy. Bundled surfaces remain manual/unknown, so availability and execution are not established. | S8.A1, S5.C2 |
 | S8.C2 | ◐ Partial. T14/T15 apply configured mode, permission, privacy, and invocation-budget constraints; unmapped canonical constraints block. ORQ-6 provides task launch, resume, and open operations through disabled-by-default Claude, Codex, and Copilot adapters. CI uses synthetic executables; installed CLI and live account, session, or app behavior have not been verified. See [executor applications](EXECUTORS.md). | S8.C1 |
 | **S8.D — Assisted planning** | | |
-| S8.D1 | Pluggable planners (manual, deterministic, LLM-based, custom, external). | S8.B1 |
-| S8.D2 | Semi-automatic plans that wait for human approval, where users can edit, reassign, or reject them. | S8.D1, S13.B1 |
+| S8.D1 | ✅ Named pluggable planners: manual, deterministic, and model backed through the existing router and call guards; trusted code can register another. External planner integration and automatic planning remain open. S8.B1 remains partial ([planning](PLANNING.md)). | S8.B1 |
+| S8.D2 | ✅ Saved proposals wait for a `user:` decision; users can edit, reassign, approve, or reject them through Python, API, CLI, and the Planes GUI. Approval creates tasks and starts ready runs through the existing engine. S13.B1 remains partial: no risk level or project context. Group and task creation is not atomic ([planning](PLANNING.md)). | S8.D1, S13.B1 |
 | S8.D3 | Automatic planning within declared limits. | S8.D2 |
 | **S8.E — Adaptation** | | |
 | S8.E1 | Replanning on failure, rejection, unavailability, or new information. | S8.D2 |

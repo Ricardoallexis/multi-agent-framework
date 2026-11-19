@@ -188,17 +188,20 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 
 ## Planning, delegation, and team orchestration
 
-**Progress:** `███░░░░░░░` 6/18 · 33% <!-- progress -->
+**Progress:** `████░░░░░░` 9/21 · 43% <!-- progress -->
 
 Turn a high-level objective into an executable plan for a team the user has defined: understand the objective, decompose the work, find the required capabilities, assign specialists, coordinate execution, request revisions, and integrate the final result. Planners and orchestrators act only within the limits the user declares (roles, capabilities, permissions, contracts, budgets, gates, and policies) and escalate to a human when needed; every decision stays traceable. The core stays domain-neutral; industries appear only in presets and examples.
 
-**Implemented in part:** T15 can preview policy-constrained assignment from explicit executor descriptors and claim a ready task after revalidation. Its bundled surfaces remain manual/unknown, and nonempty unmapped envelope constraints block assignment. This does not yet execute a plan or launch an executor. See [model routing and task assignment](docs/model-routing.md).
+**Implemented in part:** A task plan advances through ordinary runs on the existing engine; manual, deterministic, and model-backed planners can propose it, and saved proposals wait for human approval. T15 can preview policy-constrained assignment from explicit executor descriptors and claim a ready task after revalidation. Its bundled surfaces remain manual/unknown, and nonempty unmapped envelope constraints block assignment. See [planning](docs/PLANNING.md) and [model routing and task assignment](docs/model-routing.md).
 
 - [x] Represent tasks, task groups, and dependencies as data in the core: `blocked` and `ready` are computed from native dependencies, every state change goes through one transition function, and a team event log records each change. Available through Python, HTTP, and the CLI with the same results. Source-aware current-state snapshots support preview, atomic import, durable receipts, and guarded rollback; legacy release dependencies/facts remain distinct from native lifecycle and gates, and API v2 provides a release-aware context with fingerprint/unchanged support. These capabilities do not claim a real migration or bulk snapshot facility (see [`docs/TASKS.md`](docs/TASKS.md) and [`docs/API.md`](docs/API.md)).
 - [ ] Represent a plan as data (tasks, subtasks, dependencies, required capabilities, expected outputs and contracts, assignments, parallel groups, review and integration steps) and execute it through the existing workflow engine and backends instead of a second engine.
   - [x] Validate a project plan as strict data (stages, tasks, dependencies, assignees) and create it atomically only if it still matches the confirmed hash; nothing in a plan is executed.
+  - [x] Advance a task-group plan through ordinary runs on the existing engine and backends, with task status and dependency blockers; the full S8.A1 schema remains partial.
 - [ ] Make planners pluggable: manual, deterministic, LLM-based, a custom plugin, or an external planner.
+  - [x] Register and select manual, deterministic, and model-backed planners; trusted code can register another. External integration and automatic planning remain open; S8.B1 is partial.
 - [ ] Support manual, semi-automatic, and automatic planning on the same core; semi-automatic plans wait for approval through the existing human-in-the-loop mechanism, where users can edit, reassign, or reject them.
+  - [x] Save proposals for human review, edit and reassign them before approval, and approve or reject them through Python, API, CLI, or the Planes GUI. Approval starts ready runs; group and task creation is not atomic, and S13.B1 remains partial.
 - [ ] Assign tasks by capabilities, roles, tools, provider or model, permissions, availability, relationships, and budget, starting with deterministic rules and reusing the model router.
   - [x] Preview a policy-constrained assignment from declared executor descriptors (capabilities, roles, permissions, modes, privacy) and claim a ready task only after revalidating the preview.
 - [ ] Describe organizations as data (members, teams, and relationships such as reporting, supervision, delegation, review, consultation, and approval), supporting hierarchical, flat, matrix, peer-to-peer, and temporary structures.

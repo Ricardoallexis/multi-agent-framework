@@ -332,6 +332,7 @@ See [`docs/VERSIONING.md`](docs/VERSIONING.md), including the release procedure.
 - [`CHANGELOG.md`](CHANGELOG.md) — public release history.
 - [`docs/API.md`](docs/API.md) — Python facade, HTTP endpoints, structured errors, and Mock mode.
 - [`docs/TEAMS.md`](docs/TEAMS.md) — team definitions (`team.yaml`), validation, version approvals, decision records, and organization charts.
+- [`docs/PLANNING.md`](docs/PLANNING.md) — task plans, pluggable planners, proposal review, approval, and execution.
 - [`docs/GUI.md`](docs/GUI.md) — local operator GUI, session viewer, configuration, and security.
 - [`docs/HUMAN_GUIDED.md`](docs/HUMAN_GUIDED.md) — guided external-model steps through CLI, API, and GUI.
 - [`docs/CONTEXT_COMPACTION.md`](docs/CONTEXT_COMPACTION.md) — opt-in workflow and task context compaction, validation, events, and measurement.

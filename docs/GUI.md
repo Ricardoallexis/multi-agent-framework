@@ -240,6 +240,8 @@ revision, closed proposal or existing task id) the view notifies the operator
 and reloads the proposal. It reads `GET /gui/api/plan-proposals` and
 `/plan-proposals/{id}`, and acts via `POST /gui/api/plan-proposals/{id}/edit`,
 `/reassign`, `/approve` and `/reject`.
+See [planning](PLANNING.md) for proposal creation, approval, execution, and
+current limits.
 
 The **Mapa** view (`#map`) combines projects, stages and tasks with linked
 sessions and their children. `GET /gui/api/map?project=<id>&only=active|all`

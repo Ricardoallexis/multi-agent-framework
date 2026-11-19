@@ -24,9 +24,9 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.definitions` | `list_workflows`, `get_workflow`, `list_agents`, `list_bundles`, `validate_bundle` |
 | `services.runs` | `create`, `get`, `list`, `approve`, `request_changes`, `regenerate`, `reject`, `cancel`, `human_next`, `human_check`, `human_submit`, `artifacts`, `events`, `usage`, `step_attempts`, `compare_attempts` |
 | `services.tasks` | `create_group`, `update_group`, `get_group`, `list_groups`, `create_task`, `get_task`, `list_tasks`, `ready_tasks`, `add_dependency`, `remove_dependency`, `transition`, `events` |
-| `services.plans` | `status`, `advance`: run a task group from a `multiagent.plan/1` document by creating ordinary runs linked by `task_id` and moving each task from its run's result; no second engine. |
-| `services.planning` | `planners`, `propose`: named planners (`manual`, `deterministic`, `model`, and any registered by trusted code) return a `multiagent.plan_proposal/1` whose `plan` is the `multiagent.plan/1` document `services.plans` runs; every proposal passes the same validation (ids, dependencies without cycles, existing workflows, text inputs). Proposing never creates tasks or runs. |
-| `services.plan_proposals` | `save`, `get`, `list`, `edit`, `reassign`, `approve`, `reject`: a saved proposal waits until a `user:` actor approves it; edits and reassignments raise its revision and keep who, when, channel and what changed; approving creates the group's tasks and advances the plan once through `services.plans`; rejecting closes it. Each decision also goes to the decision register. |
+| `services.plans` | `status`, `advance`: run a task group from a `multiagent.plan/1` document by creating ordinary runs linked by `task_id` and moving each task from its run's result; no second engine. See [planning](PLANNING.md). |
+| `services.planning` | `planners`, `propose`: named planners (`manual`, `deterministic`, `model`, and any registered by trusted code) return a `multiagent.plan_proposal/1` whose `plan` is the `multiagent.plan/1` document `services.plans` runs; every proposal passes the same validation (ids, dependencies without cycles, existing workflows, text inputs). Proposing never creates tasks or runs. See [planning](PLANNING.md). |
+| `services.plan_proposals` | `save`, `get`, `list`, `edit`, `reassign`, `approve`, `reject`: a saved proposal waits until a `user:` actor approves it; edits and reassignments raise its revision and keep who, when, channel and what changed; approving creates the group's tasks and advances the plan once through `services.plans`; rejecting closes it. Each decision also goes to the decision register. See [planning](PLANNING.md). |
 | `services.teams` | `propose`, `submit`, `approve`, `reject`, `get`, `list`, `approved`, `diff`, `org_chart`: versions of a bundle's `team.yaml` with human approval (`user:` actors only), structural diffs against the approved version, and decision-register records; see [`TEAMS.md`](TEAMS.md) and the `/api/v1/teams` routes. |
 | `services.gates` | `set_task_gate`, `set_group_gate`, `get_gate`, `review`, `run_gate`, `abort_gate`, `results`, `project_commands` |
 | `services.envelopes` | `set_task_context`, `get_envelope`, `put_blob`, `get_artifact`, `submit_result`, `get_result`, `list_results`, `get_cursor`, `read_events`, `ack_events` |
@@ -156,12 +156,12 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `GET` | `/api/v1/tasks/{task_id}/release-facts` | Read the current delivery, test, and integration facts with provenance. |
 | `POST` | `/api/v1/tasks/{task_id}/release-facts/{delivery\|test\|integration\|reset}` | Record or reset current legacy release evidence. |
 | `POST` | `/api/v1/tasks/{task_id}/transitions` | Change a task's state with `{"action", "actor", "cause"?, "expected_revision"?}`. |
-| `POST` | `/api/v1/plans/status` | Read a plan with `{"document"}`: its status and, per task, state, latest run and blockers. |
-| `POST` | `/api/v1/plans/advance` | Advance a plan once with `{"document", "actor"}`: finished runs move their tasks, ready tasks get a run. |
-| `GET` | `/api/v1/planners` | List the planners by name and description. |
-| `POST` | `/api/v1/plans/propose` | Propose a plan with `{"planner", "request", "confirm_cloud"?}`; the `model` planner goes through the same router, egress policy and usage records as a new session, and a cloud model needs `confirm_cloud`. |
-| `POST` | `/api/v1/plan-proposals` | Save a proposal with `{"proposal", "actor", "channel"?, "note"?}`; it creates no task or run. |
-| `GET` | `/api/v1/plan-proposals` | List saved proposals (`?group_id=&status=`), each with its history. |
+| `POST` | `/api/v1/plans/status` | Read a plan with `{"document"}`: its status and, per task, state, latest run and blockers. See [planning](PLANNING.md). |
+| `POST` | `/api/v1/plans/advance` | Advance a plan once with `{"document", "actor"}`: finished runs move their tasks, ready tasks get a run. See [planning](PLANNING.md). |
+| `GET` | `/api/v1/planners` | List the planners by name and description. See [planning](PLANNING.md). |
+| `POST` | `/api/v1/plans/propose` | Propose a plan with `{"planner", "request", "confirm_cloud"?}`; the `model` planner goes through the same router, egress policy and usage records as a new session, and a cloud model needs `confirm_cloud`. See [planning](PLANNING.md). |
+| `POST` | `/api/v1/plan-proposals` | Save a proposal with `{"proposal", "actor", "channel"?, "note"?}`; it creates no task or run. See [planning](PLANNING.md). |
+| `GET` | `/api/v1/plan-proposals` | List saved proposals (`?group_id=&status=`), each with its history. See [planning](PLANNING.md). |
 | `GET` | `/api/v1/plan-proposals/{id}` | Read one proposal, its revision and its history. |
 | `POST` | `/api/v1/plan-proposals/{id}/edit` | Replace its tasks; needs `expected_revision`. |
 | `POST` | `/api/v1/plan-proposals/{id}/reassign` | Change one task's `preferred`, `workflow` or `bundle`; needs `expected_revision`. |
