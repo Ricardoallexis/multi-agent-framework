@@ -258,7 +258,7 @@ executor service as the API, with its checks: a disabled executor (`executor_dis
 Copilot without a model (`model_required`), and agy's switch, notice, quota floors and
 single running launch. A refused launch cancels the task it created, and the refusal
 and its reason are shown. After a launch, **Seguimiento de la tarea** polls
-`GET /gui/api/executors/launch/{task_id}` every 2 s until the task ends, and shows the
+`GET /gui/api/executors/launch/{task_id}` every 4 s until the task ends, and shows the
 state, the last attempt, its notes and evidence, and a link to the recorded session in
 «Sesiones». Running the executor spends that app's quota; the framework does not read
 or change the app's own settings.

@@ -332,7 +332,7 @@ function SingleExecutorSession({ token, connections, connectionLoading, connecti
       (failure) => { if (active) setTracking({ data: null, error: asError(failure) }); },
     );
     refresh();
-    const timer = setInterval(refresh, 2000);
+    const timer = setInterval(refresh, 4000);   // as the run thread: the GUI never polls every 2 s or faster
     return () => { active = false; clearInterval(timer); };
   }, [launched, token, taskState]);
 
