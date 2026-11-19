@@ -151,7 +151,7 @@ def test_project_styles_are_scoped_and_use_only_colours_that_exist():
 
 def test_project_styles_fit_a_phone():
     css = strip_comments((PROJECT_DIR / "style.css").read_text(encoding="utf-8"))
-    assert re.search(r"@media\s*\(max-width:\s*600px\)", css), "no rule for a phone"
+    assert re.search(r"@media\s*\(max-width:\s*599\.98px\)", css), "no rule for a phone"
     assert "overflow-wrap" in css and "min-width: 0" in css, "long words must wrap and flex children must shrink"
     assert "white-space: nowrap" not in css, "nowrap makes a line scroll sideways"
     declarations = " ".join(re.findall(r"\{([^{}]*)\}", css))        # the rules' bodies; a query's own condition is not a width

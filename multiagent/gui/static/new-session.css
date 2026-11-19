@@ -42,7 +42,7 @@
 .ns-run { width: 100%; }
 
 /* One question */
-.ns-question { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--line);
+.ns-question { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px 14px; border: 1px solid var(--line);
   border-radius: 12px; background: var(--panel); }
 .ns-question p { margin: 0; }
 .ns-q-count { color: var(--muted); font-size: .85rem; }
@@ -52,22 +52,22 @@
 .ns-example { font-family: var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* The summary before launching */
-.ns-confirm { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.ns-confirm { margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ns-confirm:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ns-confirm > p { margin: 0; }
 .ns-answers { margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .ns-answer { display: flex; flex-direction: column; gap: 1px; }
 .ns-answer dt { color: var(--muted); font-size: .85rem; font-weight: 600; }
 .ns-answer dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.ns-routing { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
-.ns-routing-step { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
+.ns-routing { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.ns-routing-step { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 6px; border-top: 1px solid var(--line); }
 .ns-routing-step .ns-chip:disabled { opacity: 1; color: var(--text); cursor: default; }
-.ns-route-chip { display: flex; align-items: center; gap: 6px; min-height: var(--target); color: var(--muted); font-size: .88rem; }
-.ns-route-chip select { max-width: min(100%, 18rem); min-height: var(--target); padding: 6px 30px 6px 12px; }
+.ns-route-chip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-width: 100%; min-height: var(--target); color: var(--muted); font-size: .88rem; }
+.ns-route-chip select { min-width: 0; max-width: min(100%, 18rem); min-height: var(--target); padding: 6px 30px 6px 12px; }
 .ns-route-chip select:disabled { opacity: .65; cursor: not-allowed; }
 
 /* The writing box stays in reach while the conversation grows */
-.ns-composer { position: sticky; bottom: 8px; z-index: 10; display: flex; flex-direction: column; gap: 6px;
+.ns-composer { position: sticky; bottom: 8px; z-index: 10; display: flex; flex-direction: column; gap: 6px; min-width: 0;
   padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); }
 .ns-composer-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ns-composer-head label { margin: 0; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
@@ -77,9 +77,11 @@
 .ns-send { margin-left: auto; }
 .ns-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
-@media (max-width: 640px) {
+@media (max-width: 599.98px) {
   .ns-msg { max-width: 95%; }
   .ns-composer { bottom: 4px; }
+  .ns-route-chip { width: 100%; }
+  .ns-route-chip select { width: 100%; max-width: 100%; }
 }
 
 /* CHT-T02: the run thread continues in the same single column. */

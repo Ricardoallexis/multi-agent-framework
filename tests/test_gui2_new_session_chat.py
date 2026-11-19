@@ -82,7 +82,7 @@ def test_the_stylesheet_follows_the_csp_the_theme_and_the_touch_rules():
     for selector in (".ns-chip", ".ns-card", ".ns-composer textarea"):
         assert re.search(re.escape(selector) + r"\s*\{[^}]*min-height:\s*var\(--target\)", text), selector
     assert "minmax(min(100%," in text                                  # the cards fit a 375 px screen
-    assert re.search(r"@media \(max-width: 640px\)", text)
+    assert re.search(r"@media \(max-width: 599\.98px\)", text)
     assert "position: sticky" in text                                  # the writing box stays in reach
     assert "overflow-wrap: anywhere" in text and "white-space: pre-wrap" in text
 

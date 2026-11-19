@@ -379,7 +379,7 @@ def test_the_stylesheet_is_light_dark_and_phone_safe():
     text = re.sub(r"/\*.*?\*/", "", (EXT / "style.css").read_text(encoding="utf-8"), flags=re.S)
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", text)          # colours are the variables of app.css (dark follows)
     assert "var(--panel)" in text and "var(--warn)" in text and "var(--line" in text
-    assert "min-height: 44px" in text and "@media (max-width: 600px)" in text
+    assert "min-height: 44px" in text and "@media (max-width: 599.98px)" in text
     assert "overflow-wrap: anywhere" in text and "overflow-x" not in text           # long words wrap; nothing scrolls sideways
     assert "style=" not in "".join(path.read_text(encoding="utf-8") for path in EXT.glob("*.js"))
 

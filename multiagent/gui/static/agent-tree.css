@@ -88,4 +88,5 @@
 @media (max-width: 599.98px) {
   .at-level { margin-left: 6px; padding-left: 8px; }
   .at-toolbar { gap: 6px; }
+  .at-facts { grid-template-columns: minmax(0, 1fr); }
 }

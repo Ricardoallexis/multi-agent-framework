@@ -45,7 +45,7 @@
 .document-alerts-run { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; }
 .document-alerts-run-link { min-height: var(--target); display: inline-flex; align-items: center; color: var(--accent); }
 
-@media (max-width: 600px) {
+@media (max-width: 599.98px) {
   .document-alerts-view { gap: 8px; }
   .document-alerts-item { padding: 8px; }
 }

@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- The GUI has fixed reference widths (360 and 390 px phone, 768 px tablet, desktop) and only two breakpoints, `max-width: 899.98px` and `max-width: 599.98px`, shared by the extensions; grid and flex children shrink, controls keep the touch height, and `pre` blocks scroll inside themselves.
 - After «Lanzar» or «Continuar una ejecución», «Nueva sesión» follows the run in the same column (`#new/run/<id>`): it polls the run thread, shows each stop as a card with «Aprobar», «Pedir cambios» and «Rechazar» behind a confirmation, and links every message to the run's detail.
 - `multiagent setup install <app>` and `multiagent setup login <app>` open a visible Windows console that shows a fixed, dated official command (winget or npm, never a remote script), wait for Enter, verify Claude's publisher signature after installing, and then recheck the connection status; agy only shows «Inicia sesión tú en agy».
 - An approved plan proposal can be advanced by its id: `services.plan_proposals.advance`, `POST /api/v1/plan-proposals/{id}/advance`, `multiagent plan advance --proposal <id>`, and an «Avanzar plan» button with confirmation in the GUI; a proposal that is not approved answers a `not_approved` conflict, and nothing to advance is not an error.

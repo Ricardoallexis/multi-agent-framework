@@ -371,7 +371,7 @@ def test_the_stylesheet_has_no_fixed_width_that_could_overflow_a_phone_or_the_ri
     text = re.sub(r"/\*.*?\*/", "", (FOLDER / "style.css").read_text(encoding="utf-8"), flags=re.S)
     assert "nowrap" not in text and "overflow-x" not in text
     assert not re.search(r"(?<![-\w])(?:min-)?width:\s*\d+(?:\.\d+)?(?:px|rem|em)", text)
-    assert "overflow-wrap: anywhere" in text and "min-width: 0" in text and "@media (max-width: 600px)" in text
+    assert "overflow-wrap: anywhere" in text and "min-width: 0" in text and "@media (max-width: 599.98px)" in text
 
 
 # --- the client, in Node ---------------------------------------------------------------------------------------------------
