@@ -51,6 +51,7 @@ packages = [
   "multiagent.evaluation",
   "multiagent.interop",
   "multiagent.observability",
+  "multiagent.planning",
   "multiagent.services",
   "multiagent.setup",
   "multiagent.routing",
