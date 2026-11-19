@@ -52,7 +52,8 @@ def permission_request_for(spec: ToolSpec, request: ToolRequest, actions: tuple[
 
 
 def check_call(spec: ToolSpec, request: ToolRequest, *, grants: Iterable[str] | None,
-               evidence: Iterable[Any] | None = None) -> tuple[str | None, PermissionRequest | None]:
+               evidence: Iterable[Any] | None = None,
+               operating_mode: str | None = None) -> tuple[str | None, PermissionRequest | None]:
     """Return an error code and optional human request; no input content grants access."""
     if grants is None or not required_permissions(spec).issubset(set(grants)):
         return "not_granted", None
@@ -60,6 +61,12 @@ def check_call(spec: ToolSpec, request: ToolRequest, *, grants: Iterable[str] | 
                                                  request.context.data_class not in spec.allowed_data_classes):
         return "data_class_not_allowed", None
     actions = actions_for(spec, request.arguments)
+    from .approvals import operating_mode_decision
+    mode_decision = operating_mode_decision(spec, operating_mode) if evidence is None else None
+    if mode_decision == "allow_write":
+        return None, None
+    if mode_decision == "require_approval":
+        return "approval_required", permission_request_for(spec, request, actions, "per-call external approval required")
     if ImpactClass.DESTRUCTIVE in spec.impacts and not any(
             action.kind is ActionKind.DESTRUCTIVE for action in actions):
         return "approval_required", permission_request_for(spec, request, actions, "destructive effect missing")

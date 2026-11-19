@@ -41,6 +41,7 @@ from ..errors import (
 from ..functions import FunctionStepError, execute_function_step
 from ..observability.usage import TokenUsageRecord, UsageRecorder
 from ..teams.step_roles import bind_step_roles, bound_team
+from ..run_request import needs_handoff_review, operating_mode_from_events
 from ..workflow_validation import (
     WorkflowDefinitionError,
     validate_resume_point,
@@ -463,7 +464,8 @@ class MockBackend:
                 )
                 self.store.update_run(run_id, revision_feedback="")
 
-                if step.checkpoint_after:
+                if step.checkpoint_after or needs_handoff_review(
+                        definition, index, request, operating_mode_from_events(run.get("events"))):
                     self.store.update_run(
                         run_id,
                         status=RunStatus.WAITING_HUMAN.value,
@@ -681,7 +683,9 @@ class MockBackend:
         })
         self.store.update_run(run_id, revision_feedback="")
 
-        if step.checkpoint_after:
+        if step.checkpoint_after or needs_handoff_review(
+                self.preflight(run["workflow_id"]), index, run["request"],
+                operating_mode_from_events(run.get("events"))):
             self.store.update_run(
                 run_id,
                 status=RunStatus.WAITING_HUMAN.value,

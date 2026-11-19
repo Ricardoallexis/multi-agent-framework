@@ -889,6 +889,7 @@ def cmd_run(args) -> None:
             "inputs": _parse_inputs(args.input),
             "idempotency_key": args.idempotency_key,
             "execution_mode": args.mode,
+            **({"operating_mode": args.operating_mode} if args.operating_mode else {}),
             "step_modes": _parse_step_modes(args.step_mode),
             "sensitive": args.sensitive,
         }
@@ -898,6 +899,8 @@ def cmd_run(args) -> None:
         raise ValueError("--bundle and --input require --workflow")
     if args.objective is None or args.topic is None:
         raise ValueError("Social-post runs require --objective and --topic")
+    if args.operating_mode:
+        raise ValueError("Operating modes require --workflow")
     payload = {
         "project_name": args.project,
         "objective": args.objective,
@@ -1380,6 +1383,7 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--platform", default="Instagram"); x.add_argument("--audience", default=""); x.add_argument("--instructions", default="")
     x.add_argument("--web", action="store_true"); x.add_argument("--no-brand", action="store_true"); x.add_argument("--idempotency-key", default="")
     x.add_argument("--mode", choices=[m.value for m in ExecutionMode], default="auto")
+    x.add_argument("--operating-mode", choices=["supervised", "autonomous"])
     x.add_argument("--research-mode", choices=[m.value for m in ResearchMode], default="human_bridge")
     x.add_argument("--pipeline", choices=[m.value for m in PipelineMode], default="quick")
     x.add_argument("--step-mode", action="append", help="Override per step, e.g. strategy=human_guided")

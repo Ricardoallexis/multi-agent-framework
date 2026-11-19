@@ -11,7 +11,7 @@ from multiagent.document_actions import Action, Approval, AuthorizationResult, a
 from multiagent.document_trust import Provenance, SourceKind
 from multiagent.tasks.envelopes import envelope_sha256
 
-from .contracts import PermissionRequest, ToolRequest, ToolSpec, spec_sha256
+from .contracts import ImpactClass, PermissionRequest, ToolRequest, ToolSpec, spec_sha256
 
 from multiagent.errors import InvalidStateTransition
 
@@ -20,6 +20,17 @@ EVENT_REQUESTED = "tool_approval_requested"
 EVENT_APPROVED = "tool_approval_approved"
 EVENT_REJECTED = "tool_approval_rejected"
 EVENT_RELEASED = "tool_approval_released"
+
+
+def operating_mode_decision(spec: ToolSpec, mode: str | None) -> str | None:
+    """The one mode-specific decision for a tool call; other permission checks remain in force."""
+    if mode != "autonomous":
+        return None
+    if ImpactClass.EXTERNAL in spec.impacts:
+        return "require_approval"
+    if ImpactClass.WRITE in spec.impacts and spec.impacts <= {ImpactClass.READ, ImpactClass.WRITE}:
+        return "allow_write"
+    return None
 
 
 class ToolApprovalMismatch(InvalidStateTransition):

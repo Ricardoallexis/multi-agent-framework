@@ -7,7 +7,7 @@ from .contracts import HumanStepSubmission, RunStatus, SocialPostRequest, Waitin
 from .db.store import Store
 from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition
 from .tools.approvals import ToolApprovalMismatch
-from .run_request import RunRequest, validate_function_step_options
+from .run_request import OPERATING_MODE_SET, RunRequest, validate_function_step_options
 from .routing_preferences import validate_run_preferences
 from .teams.step_roles import TEAM_VERSION_BOUND, bind_step_roles, bound_team_from_payload
 
@@ -52,6 +52,11 @@ class RunService:
         if getattr(request, "routing_preferences", None):
             validate_run_preferences(self.engine, request, definition)
         events = ((TEAM_VERSION_BOUND, team_binding),) if team_binding is not None else ()
+        run_mode = getattr(request, "operating_mode", None)
+        team_mode = (team_binding or {}).get("team", {}).get("mode")
+        if run_mode is not None or team_mode is not None:
+            events += ((OPERATING_MODE_SET, {"mode": run_mode or team_mode,
+                                             "source": "run" if run_mode is not None else "team"}),)
         return self.store.create_run(request, self.settings.max_llm_calls, self.settings.max_run_seconds,
                                      events=events)
 

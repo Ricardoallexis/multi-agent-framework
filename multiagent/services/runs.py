@@ -38,6 +38,7 @@ from ..errors import HumanSubmissionError, InvalidStateTransition
 from ..external_output import EvidenceRejected, canonical_json, check_evidence, external_step, sha256
 from ..observability.usage import read_usage, summarize_usage
 from ..run_request import FunctionStepRequestError, RunRequest
+from ..run_request import operating_mode_from_events
 from ..run_service import PersonRequired, RunService
 from ..tools.approvals import ToolApprovalMismatch
 from ..tools.contracts import PermissionRequest
@@ -274,6 +275,7 @@ class RunServices:
         event states it, with bounded fields only (never the call's arguments, only their hash). Absent otherwise."""
         runtime = self._find(run_id)
         run = self._tag(runtime, runtime.service.get(run_id))
+        run["operating_mode"] = operating_mode_from_events(run.get("events"))
         pending = pending_tool_approval(run)
         if pending is not None:
             run["tool_approval"] = pending

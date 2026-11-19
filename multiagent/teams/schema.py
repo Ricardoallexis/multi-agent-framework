@@ -296,10 +296,18 @@ class Team(_TeamModel):
     schema_version: Literal[1] = 1
     id: str = Field(min_length=1)
     description: str | None = None
+    mode: Literal["supervised", "autonomous"] | None = Field(default=None, exclude_if=lambda value: value is None)
     roles: list[Role] = Field(default_factory=list)
     members: list[Member] = Field(default_factory=list)
     assignments: list[Assignment] = Field(default_factory=list)
     relationships: list[Relationship] = Field(default_factory=list)
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _validate_mode(cls, value: Any) -> str:
+        if value not in ("supervised", "autonomous"):
+            raise PydanticCustomError("invalid_mode", "Unknown team mode; expected supervised or autonomous")
+        return value
 
     @field_validator("schema_version", mode="before")
     @classmethod
@@ -591,7 +599,7 @@ def _map_pydantic_code(err_type: str) -> str:
         return "missing_field"
     if err_type == "extra_forbidden":
         return "unknown_field"
-    if err_type in ("invalid_schema_version", "self_relationship", "invalid_value"):
+    if err_type in ("invalid_schema_version", "invalid_mode", "self_relationship", "invalid_value"):
         return err_type
     if err_type in ("literal_error", "enum", "value_error") or err_type.startswith(("string_too_short", "too_short")):
         return "invalid_value"

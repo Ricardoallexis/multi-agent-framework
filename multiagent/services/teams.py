@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 _ID = re.compile(r"^tmv-[0-9a-f]{12}$")
 STATUSES = ("draft", "proposed", "approved", "rejected")
-_TEAM_HEADER_FIELDS = ("id", "description", "schema_version")
+_TEAM_HEADER_FIELDS = ("id", "description", "schema_version", "mode")
 
 
 def _actor(value: Any, *, human: bool = False) -> str:

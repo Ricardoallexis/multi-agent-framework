@@ -84,6 +84,7 @@ from .tools.registry import ToolLookupError, ToolRegistry
 from .tools.selection import SelectionConfig, SelectionError, load_selection_config, select_tool
 from .tools.trust import render_result_for_prompt
 from .teams.step_roles import bind_step_roles, bound_team
+from .run_request import needs_handoff_review, operating_mode_from_events
 from .workflows import WorkflowCatalog, WorkflowDefinition, WorkflowStep, condition_is_true
 from .workflow_validation import (
     WorkflowDefinitionError, validate_resume_point, validate_workflow_definition,
@@ -503,7 +504,8 @@ class WorkflowEngine:
                 context = step_context.variables()                  # fills the template: untrusted parts quoted
                 recorded_context = step_context.original.variables()  # what the step is recorded with: plain values
                 # Tools the step declares run before its model call; a call that needs a person pauses here.
-                tool_sections = self._run_step_tools(run_id=run_id, step=step, attempt=attempt, request=request)
+                tool_sections = self._run_step_tools(run_id=run_id, step=step, attempt=attempt, request=request,
+                                                     step_role=step_role)
                 if tool_sections is None:
                     return self._finalize_return(run_id)
                 prompt = self.prompts.render(step.prompt_id, step.prompt_version, **context)
@@ -649,7 +651,9 @@ class WorkflowEngine:
                 # A hit completes the step without calling the model; it
                 # counts as no call and no tokens. Any cache failure falls through to the normal model call.
                 cache_key: str | None = None
-                if (self.step_cache_policy.allows(step.id) and not step.checkpoint_after and not requires_web
+                if (self.step_cache_policy.allows(step.id) and not step.checkpoint_after
+                        and not needs_handoff_review(definition, index, request,
+                                                     operating_mode_from_events(run.get("events"))) and not requires_web
                         and egress_policy.get("action") != "redact"
                         and not request.get("requires_web")):
                     cache_key = self._step_cache_key(
@@ -853,7 +857,8 @@ class WorkflowEngine:
                     request=request, settings=context_settings, profile_id=profile_id, profile=profile,
                     brand_version=fresh.get("brand_version"),
                 )
-                if step.checkpoint_after:
+                if step.checkpoint_after or needs_handoff_review(
+                        definition, index, request, operating_mode_from_events(run.get("events"))):
                     self.store.update_run(
                         run_id,
                         status=RunStatus.WAITING_HUMAN.value,
@@ -1075,7 +1080,9 @@ class WorkflowEngine:
         self.store.update_run(run_id, revision_feedback="")
         self._check_cancel(run_id)
 
-        if step.checkpoint_after:
+        if step.checkpoint_after or needs_handoff_review(
+                self.preflight(run["workflow_id"]), index, run["request"],
+                operating_mode_from_events(run.get("events"))):
             self.store.update_run(
                 run_id,
                 status=RunStatus.WAITING_HUMAN.value,
@@ -1483,7 +1490,7 @@ class WorkflowEngine:
         return fill(dict(arguments))
 
     def _run_step_tools(self, *, run_id: str, step: WorkflowStep, attempt: int,
-                        request: Mapping[str, Any]) -> list[str] | None:
+                        request: Mapping[str, Any], step_role: Any = None) -> list[str] | None:
         """Invoke the tools ``step`` declares through ``ToolInvoker`` (CAP-T02/T19/T12 wiring).
 
         Returns the prompt sections (each result quoted as untrusted data), or ``None`` when a call needs a person:
@@ -1501,6 +1508,7 @@ class WorkflowEngine:
                               event_sink=lambda kind, payload: self.store.db.log_event(run_id, kind, dict(payload)))
         data_class = "sensitive" if request.get("sensitive") else "non_sensitive"
         sections: list[str] = []
+        run_mode = operating_mode_from_events(self.store.get_run(run_id).get("events"))
         for ordinal, entry in enumerate(step.tools):
             self._check_cancel(run_id)
             try:
@@ -1518,16 +1526,17 @@ class WorkflowEngine:
                                        arguments=self._tool_arguments(entry.get("arguments") or {}, request),
                                        context=context, origin=ToolOrigin(kind="workflow_step", ref=f"step:{step.id}"))
             grants = required_permissions(spec)
+            tool_mode = (run_mode if step_role is None or spec.impacts <= step_role.role.permissions else None)
             evidence = None
             try:
-                code, permission = check_call(spec, tool_request, grants=grants)
+                code, permission = check_call(spec, tool_request, grants=grants, operating_mode=tool_mode)
             except InvalidArguments:
                 code, permission = None, None          # the invoker reports invalid arguments with its own events
             if code == ToolErrorCode.APPROVAL_REQUIRED.value and permission is not None:
                 grant = self.store.take_tool_approval(permission)
                 if grant is not None:
                     evidence = [grant]
-            result = invoker.invoke(tool_request, grants=grants, evidence=evidence)
+            result = invoker.invoke(tool_request, grants=grants, evidence=evidence, operating_mode=tool_mode)
             if (not result.ok and result.error is not None and result.error.code == ToolErrorCode.APPROVAL_REQUIRED
                     and result.permission_request is not None):
                 self.store.hold_tool_approval(result.permission_request)

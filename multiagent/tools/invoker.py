@@ -92,7 +92,7 @@ class ToolInvoker:
 
     def invoke(self, request: ToolRequest, *, grants: Iterable[str] | None = None,
                evidence: Iterable[Any] | None = None, should_cancel: Callable[[], bool] = lambda: False,
-               state: Any = None) -> ToolResult:
+               state: Any = None, operating_mode: str | None = None) -> ToolResult:
         if should_cancel():
             raise RuntimeError("Tool call cancelled by host")
         if not isinstance(request, ToolRequest):
@@ -132,7 +132,8 @@ class ToolInvoker:
             return self._failure(request, spec.version, digest, ToolErrorCode.INVALID_ARGUMENTS, "denied",
                                  details={"path": problem}, blobs=blobs)
         try:
-            code, permission = check_call(spec, request, grants=grants, evidence=evidence)
+            code, permission = check_call(spec, request, grants=grants, evidence=evidence,
+                                          operating_mode=operating_mode)
         except InvalidArguments:
             return self._failure(request, spec.version, digest, ToolErrorCode.INVALID_ARGUMENTS, "denied", blobs=blobs)
         if code:
@@ -217,8 +218,11 @@ class ToolInvoker:
                             spec_sha256=digest, ok=True, output=output, output_sha256=hashlib.sha256(output_bytes).hexdigest(),
                             output_bytes=len(output_bytes), duration_ms=duration,
                             provenance_ref=f"tool:{request.request_id}", blob_refs=blobs)
+        from .approvals import operating_mode_decision
         self._emit(EVENT_COMPLETED, request, spec.version, digest, output_sha256=result.output_sha256,
-                   output_bytes=result.output_bytes, duration_ms=duration, blob_refs=blobs.copy())
+                   output_bytes=result.output_bytes, duration_ms=duration, blob_refs=blobs.copy(),
+                   **({"approval_cause": "autonomous"} if operating_mode_decision(spec, operating_mode) == "allow_write"
+                      and evidence is None else {}))
         return result
 
     def _failure(self, request: ToolRequest, version: int | None, digest: str | None,

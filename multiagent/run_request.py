@@ -41,6 +41,7 @@ class RunRequest(StrictModel):
     inputs: dict[str, str] = Field(default_factory=dict)
     idempotency_key: str = Field(default="", max_length=120)
     execution_mode: ExecutionMode = ExecutionMode.AUTO
+    operating_mode: Literal["supervised", "autonomous"] | None = Field(default=None, exclude_if=lambda value: value is None)
     step_modes: dict[str, ExecutionMode] = Field(default_factory=dict)
     sensitive: bool = False
     routing_preferences: dict[str, RoutingPreference] = Field(default_factory=dict, exclude_if=lambda values: not values)
@@ -60,3 +61,28 @@ class RunRequest(StrictModel):
             if key in {"previous_output", "revision_feedback"} or key.endswith("_output"):
                 raise ValueError(f"Input name {key!r} is reserved for runtime context")
         return values
+
+
+OPERATING_MODE_SET = "operating_mode_set"
+
+
+def operating_mode_from_events(events) -> str | None:
+    """Return the mode fixed when the run was created, never a current team setting."""
+    for event in events or ():
+        if event.get("event_type") == OPERATING_MODE_SET:
+            payload = event.get("payload") or {}
+            return payload.get("mode") if payload.get("mode") in ("supervised", "autonomous") else None
+    return None
+
+
+def needs_handoff_review(definition, index: int, request, mode: str | None) -> bool:
+    """A supervised model step hands its artifact to a different role at the next executed step."""
+    from .workflows import condition_is_true
+
+    step = definition.steps[index]
+    if mode != "supervised" or step.function is not None or step.role is None:
+        return False
+    for following in definition.steps[index + 1:]:
+        if condition_is_true(following.when, request):
+            return following.role is not None and following.role != step.role
+    return False
