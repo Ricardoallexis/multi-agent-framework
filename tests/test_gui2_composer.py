@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""GUI2-T06: composer routing is read-only and never starts an executor during preview."""
+"""GUI2-T06: composer preview stays read-only; executor launches use a separate approval route."""
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
@@ -48,6 +48,20 @@ def test_workflow_routing_preview_reports_persisted_selection_without_creating_a
         assert all(isinstance(step["model_options"], list) and isinstance(step["effort_options"], list)
                    for step in body["routing"]["steps"])
         assert client.get("/gui/api/runs?limit=50", headers=auth).json() == before
+    finally:
+        client.close()
+        services.runs.close()
+
+
+def test_executor_launch_route_rejects_a_request_without_explicit_confirmation(tmp_path):
+    services, client, auth = make_client(tmp_path)
+    try:
+        before = services.tasks.list_groups()
+        response = client.post("/gui/api/executors/launch", headers=auth,
+                               json={"task": "Do one task", "executor_id": "codex_cli"})
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "confirmation_required"
+        assert services.tasks.list_groups() == before
     finally:
         client.close()
         services.runs.close()

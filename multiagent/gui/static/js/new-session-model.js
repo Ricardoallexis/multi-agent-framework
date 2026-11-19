@@ -46,6 +46,26 @@ export function singleSessionBody(task, model) {
     routing_preferences: { answer: { mode: "single", model } },
   };
 }
+
+// SES-T04: explicit approval data for a single-session executor launch.
+export function quotaRemainingLines(quota) {
+  const windows = Array.isArray(quota?.windows) ? quota.windows : [];
+  if (!windows.length) return ["Cuota restante: sin datos."];
+  return windows.map((item) => {
+    const name = [item.group, item.window].filter(Boolean).join(" · ") || "Cuota";
+    const remaining = typeof item.used_percent === "number" && Number.isFinite(item.used_percent)
+      ? String(Math.round((100 - item.used_percent) * 10) / 10).replace(".", ",") + " %"
+      : "desconocido";
+    return name + ": " + remaining + " restante" + (item.resets_at ? " · reinicia " + item.resets_at : "");
+  });
+}
+
+export function executorLaunchBody(task, executorId, model, effort) {
+  return {
+    task: String(task).trim(), executor_id: executorId, model: model || null, effort: effort || null, confirmed: true,
+  };
+}
+
 export const STARTERS = [
   { id: "workflow", label: "Trabajar en un workflow" },
   { id: "continuar", label: "Continuar una ejecución" },

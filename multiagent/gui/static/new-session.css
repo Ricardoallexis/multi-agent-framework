@@ -157,3 +157,15 @@
 .tool-approval-preview h5 { margin: 10px 0 4px; overflow-wrap: anywhere; }
 .tool-approval-preview p { margin: 6px 0; }
 .tool-approval-preview .thread-readable-text { max-width: 100%; }
+
+/* SES-T04: explicit executor choice, approval and task tracking. */
+.ns-executor-picker, .ns-executor-tracking { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ns-executor-picker > strong, .ns-executor-tracking h4 { margin: 0; }
+.ns-executor-choice { display: flex; align-items: flex-start; gap: 8px; min-width: 0; min-height: var(--target);
+  padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.ns-executor-choice input { flex: 0 0 auto; width: auto; min-height: 0; margin: 3px 0 0; }
+.ns-executor-facts { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.ns-executor-fields { display: flex; flex-wrap: wrap; gap: 12px; min-width: 0; }
+.ns-executor-fields label { display: flex; flex: 1 1 14rem; flex-direction: column; gap: 4px; min-width: 0; }
+.ns-executor-fields select { width: 100%; min-width: 0; }
+.ns-executor-tracking p { margin: 0; overflow-wrap: anywhere; }

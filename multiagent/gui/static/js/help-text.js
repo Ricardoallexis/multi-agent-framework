@@ -1480,7 +1480,7 @@ export const HELP = {
     "hint": "Elige Orquestador o Sesión única antes de empezar.",
     "more": [
       "Orquestador conserva las preguntas del workflow, el equipo y el plan actuales.",
-      "Sesión única pide una tarea y un modelo del paquete general.",
+      "Sesión única permite elegir un modelo del paquete general o un ejecutor conectado.",
       "Puedes volver a elegir el modo antes de lanzar."
     ]
   },
@@ -1827,6 +1827,16 @@ export const HELP = {
       "Si el archivo existe, también compara el contenido actual con el propuesto y avisa si se quitarán líneas.",
       "La vista usa los argumentos reconstruidos del workflow y solo los muestra si coinciden con la huella de la aprobación pendiente.",
       "Si no coinciden o la ruta no cumple los límites, explica por qué no puede mostrar el contenido."
+    ]
+  },
+  "chat.executor_launch": {
+    "title": "Lanzar con un ejecutor",
+    "hint": "Revisa ejecutor, modelo, esfuerzo y cuota antes de aprobar.",
+    "more": [
+      "La tarea y la selección no inician nada; primero se muestra una confirmación con los ajustes y la cuota restante.",
+      "Solo «Aprobar y lanzar» envía la confirmación explícita al servidor.",
+      "Antigravity muestra su aviso y respeta el interruptor, el uso de créditos desactivado y sus pisos de cuota.",
+      "El seguimiento consulta el estado de la tarea y enlaza su sesión en Sesiones."
     ]
   }
 };

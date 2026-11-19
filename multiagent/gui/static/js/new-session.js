@@ -13,11 +13,13 @@ import { CreateRun, PreviewPanel } from "./create-run.js";
 import { Help, helpFor } from "./help.js";
 import { modeHelpEntry } from "./help-text.js";
 import { ModelPicker } from "./model-picker.js";
+import { buildModelPicker } from "./model-picker-model.js";
 import {
-  SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, answerRows, cardDescription, createConversation, currentQuestion, formSeed, inputsPath, loadCatalog, originLabel, parseCommand,
-  pickRuns, progress, reduce, runBody, singleSessionBody, singleSessionModels, suggestedEntries,
+  SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, answerRows, cardDescription, createConversation, currentQuestion, executorLaunchBody,
+  formSeed, inputsPath, loadCatalog, originLabel, parseCommand, pickRuns, progress, quotaRemainingLines, reduce, runBody,
+  singleSessionBody, singleSessionModels, suggestedEntries,
 } from "./new-session-model.js";
-import { navigate, threadHref, useRoute } from "./route.js";
+import { navigate, routeHref, threadHref, useRoute } from "./route.js";
 import { RunThread } from "./thread.js";
 import { MODE_LABELS, errorText, exampleText, fmtDate, statusInfo } from "./text.js";
 
@@ -25,6 +27,8 @@ const MODES = Object.keys(MODE_LABELS);
 const FREE_PLACEHOLDER = "Ej.: quiero resumir un documento";
 const SINGLE_PREVIEW_PATH = "/gui/api/runs/preview";
 const SINGLE_RUN_PATH = "/gui/api/runs";
+const EXECUTOR_LAUNCH_PATH = "/gui/api/executors/launch";
+const EXECUTOR_STATUS_PATH = "/gui/api/executors/launch/";
 
 const newKey = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 const asError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
@@ -295,6 +299,194 @@ function SingleSession({ token, mock, connections, onBack }) {
   </div>`;
 }
 
+// SES-T04: an executor is chosen and reviewed separately from the model-only ask_once flow.
+function SingleExecutorSession({ token, connections, connectionLoading, connectionError, onRetry, onBack }) {
+  const [task, setTask] = useState("");
+  const [executorId, setExecutorId] = useState("");
+  const [model, setModel] = useState("");
+  const [effort, setEffort] = useState("");
+  const [composer, setComposer] = useState({ options: [], loading: true, error: null });
+  const [ready, setReady] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [launchError, setLaunchError] = useState(null);
+  const [launched, setLaunched] = useState(null);
+  const [tracking, setTracking] = useState({ data: null, error: null });
+
+  useEffect(() => {
+    let active = true;
+    setComposer({ options: [], loading: true, error: null });
+    apiGet("/gui/api/composer/executors", token).then(
+      (data) => { if (active) setComposer({ options: data.executors || [], loading: false, error: null }); },
+      (failure) => { if (active) setComposer({ options: [], loading: false, error: asError(failure) }); },
+    );
+    return () => { active = false; };
+  }, [token]);
+
+  const taskState = tracking.data?.task?.state;
+  useEffect(() => {
+    if (!launched || ["submitted", "accepted", "failed", "cancelled"].includes(taskState)) return undefined;
+    let active = true;
+    const refresh = () => apiGet(EXECUTOR_STATUS_PATH + encodeURIComponent(launched.task_id), token).then(
+      (data) => { if (active) setTracking({ data, error: null }); },
+      (failure) => { if (active) setTracking({ data: null, error: asError(failure) }); },
+    );
+    refresh();
+    const timer = setInterval(refresh, 2000);
+    return () => { active = false; clearInterval(timer); };
+  }, [launched, token, taskState]);
+
+  const picker = buildModelPicker(connections);
+  const choices = picker.executors.concat(picker.disconnected.filter((item) => item.kind === "executor"));
+  const selected = choices.find((item) => item.id === executorId) || null;
+  const selectedOption = composer.options.find((item) => item.executor_id === executorId) || null;
+  const selectedConnection = (connections?.connections || []).find((item) => item.id === executorId) || null;
+  const selectedAvailable = Boolean(selected && selected.selectable && selectedOption && selectedOption.available);
+  const models = selectedOption?.models || [];
+  const efforts = selectedOption?.efforts || [];
+  const canReview = Boolean(task.trim() && selectedAvailable && models.includes(model) &&
+    (!efforts.length || efforts.includes(effort)) && !busy);
+
+  function chooseExecutor(id) {
+    const option = composer.options.find((item) => item.executor_id === id);
+    setExecutorId(id);
+    setModel(option?.models?.[0] || "");
+    setEffort(option?.efforts?.[0] || "");
+    setReady(false);
+    setLaunchError(null);
+  }
+
+  function edit() {
+    setReady(false);
+    setLaunchError(null);
+  }
+
+  async function launch() {
+    if (!ready || !canReview || busy) return;
+    setBusy(true);
+    setLaunchError(null);
+    try {
+      const result = await apiPost(EXECUTOR_LAUNCH_PATH, token, executorLaunchBody(task, executorId, model, effort));
+      setTracking({ data: result.status, error: null });
+      setLaunched({ task_id: result.task_id, launch: result.launch });
+      setReady(false);
+    } catch (failure) {
+      setLaunchError(asError(failure));
+    } finally { setBusy(false); }
+  }
+
+  const executorLabels = {
+    claude_cli: "Claude", codex_cli: "Codex", copilot_cli: "Copilot", antigravity_cli: "Antigravity (agy)",
+  };
+  const sessions = tracking.data?.task?.sessions || [];
+  const attempts = tracking.data?.task?.attempts || [];
+  const latestAttempt = attempts[attempts.length - 1] || null;
+  const sessionLinks = {
+    claude_cli: "claude", codex_cli: "codex", copilot_cli: "copilot", antigravity_cli: "antigravity",
+  };
+
+  return html`<div class="ns">
+    <div class="ns-intro">
+      <h3 class="ns-title">Sesión única con ejecutor</h3>
+      <p class="ns-lead">Describe la tarea, elige un ejecutor y revisa cuota y ajustes antes de aprobar el lanzamiento.</p>
+      ${!launched && html`<button type="button" class="btn secondary" ...${helpFor("chat.executor_launch")}
+        onClick=${onBack}>Volver a Sesión única con modelo</button>
+        <${Help} topic="chat.executor_launch" compact=${true} />`}
+    </div>
+    ${connectionError && html`<div class="ns-row"><p class="message error" role="alert">${errorText(connectionError)}</p>
+      <button type="button" class="btn secondary" ...${helpFor("chat.executor_launch")} onClick=${onRetry}>Reintentar conexiones</button>
+      <${Help} topic="chat.executor_launch" compact=${true} /></div>`}
+    ${connectionLoading && html`<p class="muted small" role="status">Comprobando conexiones de ejecutores…</p>`}
+    ${composer.loading && html`<p class="muted small" role="status">Leyendo los modelos y esfuerzos admitidos…</p>`}
+    ${composer.error && html`<p class="message error" role="alert">${errorText(composer.error)}</p>`}
+    ${!launched && html`
+      <section class="ns-executor-picker panel" aria-label="Ejecutores conectados">
+        <strong>Ejecutor</strong><${Help} topic="chat.executor_launch" compact=${true} />
+        ${choices.length === 0 && !connectionLoading && html`<p class="muted small" role="status">No hay ejecutores conectados.</p>`}
+        ${choices.map((item) => {
+          const option = composer.options.find((candidate) => candidate.executor_id === item.id);
+          const selectable = item.selectable && option?.available === true;
+          const reason = !item.selectable ? item.reason : !option
+            ? "No hay opciones de modelo admitidas para este ejecutor."
+            : !option.available ? "No hay opciones de modelo y esfuerzo disponibles." : null;
+          const connection = (connections?.connections || []).find((candidate) => candidate.id === item.id);
+          return html`<label key=${item.id} class=${"ns-executor-choice" + (selectable ? "" : " ns-picker-unavailable")}>
+            <input type="radio" name="single-executor" value=${item.id} checked=${executorId === item.id}
+              disabled=${busy || !selectable} ...${helpFor("chat.executor_launch")} onChange=${() => chooseExecutor(item.id)} />
+            <span class="ns-executor-facts"><strong>${item.label}</strong>
+              ${reason && html`<span class="ns-picker-reason">${reason}</span>`}
+              ${quotaRemainingLines(connection?.quota).map((line) => html`<span class="muted small" key=${line}>${line}</span>`)}
+              ${item.agyNotice && html`<span class="ns-picker-notice">${item.agyNotice}</span>`}
+            </span>
+          </label>`;
+        })}
+      </section>
+      <div class="ns-executor-fields">
+        <label>Modelo
+          <select value=${model} disabled=${busy || !selectedAvailable || models.length === 0}
+            ...${helpFor("chat.executor_launch")}
+            onChange=${(event) => { setModel(event.target.value); edit(); }}>
+            <option value="">Elige un modelo</option>
+            ${models.map((value) => html`<option key=${value} value=${value}>${value}</option>`)}
+          </select>
+          <${Help} topic="chat.executor_launch" compact=${true} />
+        </label>
+        ${efforts.length > 0 && html`<label>Esfuerzo
+          <select value=${effort} disabled=${busy || !selectedAvailable}
+            ...${helpFor("chat.executor_launch")}
+            onChange=${(event) => { setEffort(event.target.value); edit(); }}>
+            <option value="">Elige un esfuerzo</option>
+            ${efforts.map((value) => html`<option key=${value} value=${value}>${value}</option>`)}
+          </select>
+          <${Help} topic="chat.executor_launch" compact=${true} />
+        </label>`}
+      </div>
+      <div class="ns-composer"><label for="single-executor-task">Tarea</label>
+        <${Help} topic="chat.executor_launch" compact=${true} />
+        <textarea id="single-executor-task" rows="5" maxlength="4000" value=${task} disabled=${ready || busy}
+          ...${helpFor("chat.executor_launch")} onInput=${(event) => { setTask(event.target.value); edit(); }}></textarea>
+      </div>
+      ${launchError && html`<p class="message error" role="alert">${errorText(launchError)}</p>`}
+      ${ready && html`<section class="ns-confirm panel" aria-label="Confirmación de lanzamiento">
+        <h4>Confirma este lanzamiento</h4>
+        <dl class="ns-answers">
+          <div class="ns-answer"><dt>Ejecutor</dt><dd>${selected?.label || executorLabels[executorId] || executorId}</dd></div>
+          <div class="ns-answer"><dt>Modelo</dt><dd>${model}</dd></div>
+          <div class="ns-answer"><dt>Esfuerzo</dt><dd>${effort || "Predeterminado"}</dd></div>
+          <div class="ns-answer"><dt>Cuota restante</dt><dd>${quotaRemainingLines(selectedConnection?.quota).join(" · ")}</dd></div>
+          <div class="ns-answer"><dt>Tarea</dt><dd>${task}</dd></div>
+        </dl>
+        ${selected?.agyNotice && html`<p class="notice ns-picker-notice">${selected.agyNotice}</p>`}
+        <p class="hint" role="status">Nada se lanza hasta que pulses «Aprobar y lanzar».</p>
+        <button type="button" class="btn" disabled=${busy || !canReview}
+          ...${helpFor("chat.executor_launch")} onClick=${launch}>${busy ? "Lanzando…" : "Aprobar y lanzar"}</button>
+        <${Help} topic="chat.executor_launch" compact=${true} />
+        <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.executor_launch")} onClick=${edit}>Editar</button>
+        <${Help} topic="chat.executor_launch" compact=${true} />
+      </section>`}
+      ${!ready && html`<button type="button" class="btn" disabled=${!canReview}
+        ...${helpFor("chat.executor_launch")} onClick=${() => setReady(true)}>Revisar lanzamiento</button>
+        <${Help} topic="chat.executor_launch" compact=${true} />`}
+    `}
+    ${launched && html`<section class="ns-executor-tracking panel" aria-label="Seguimiento del ejecutor">
+      <h4>Seguimiento de la tarea</h4>
+      ${tracking.error && html`<p class="message error" role="alert">${errorText(tracking.error)}</p>`}
+      ${tracking.data?.task && html`<p role="status">Estado: ${tracking.data.task.state} · ${tracking.data.task.status}</p>`}
+      ${(latestAttempt?.outcome || launched.launch?.outcome) && html`<p>Último intento: ${latestAttempt?.outcome || launched.launch?.outcome}</p>`}
+      ${(latestAttempt?.evidence || launched.launch?.evidence) && html`<p class="message error" role="alert">
+        ${latestAttempt?.evidence || launched.launch.evidence}</p>`}
+      ${(latestAttempt?.notes || launched.launch?.notes || []).map((note) => html`<p class="muted small" key=${note}>${note}</p>`)}
+      ${sessions.length === 0 && html`<p class="muted small">Esperando que el ejecutor registre su sesión…</p>`}
+      ${sessions.map((session) => {
+        const source = sessionLinks[session.executor_id];
+        return source && html`<p key=${session.session_id}><a class="btn secondary"
+          href=${routeHref("sessions", source + ":" + session.session_id)}
+          ...${helpFor("chat.executor_launch")}>Abrir sesión en Sesiones</a>
+          <${Help} topic="chat.executor_launch" compact=${true} /></p>`;
+      })}
+    </section>`}
+  </div>`;
+}
+
 export function NewSession({ token, mock }) {
   const route = useRoute();
   const runId = route.section === "new" ? route.id : null;
@@ -559,8 +751,15 @@ export function NewSession({ token, mock }) {
       <button type="button" class="btn secondary" ...${helpFor("chat.session_mode")}
         onClick=${() => setSessionKind("single")}>Sesión única</button></div>
     <${Help} topic="chat.session_mode" compact=${true} /></div>`;
-  if (sessionKind === "single") return html`<${SingleSession} token=${token} mock=${mock}
-    connections=${connections.data} onBack=${() => setSessionKind(null)} />`;
+  if (sessionKind === "single") return html`<div class="ns">
+    <div class="ns-row"><button type="button" class="btn secondary" ...${helpFor("chat.executor_launch")}
+      onClick=${() => setSessionKind("single-executor")}>Usar un ejecutor</button>
+      <${Help} topic="chat.executor_launch" compact=${true} /></div>
+    <${SingleSession} token=${token} mock=${mock} connections=${connections.data} onBack=${() => setSessionKind(null)} />
+  </div>`;
+  if (sessionKind === "single-executor") return html`<${SingleExecutorSession} token=${token}
+    connections=${connections.data} connectionLoading=${connections.loading} connectionError=${connections.error}
+    onRetry=${refreshConnections} onBack=${() => setSessionKind("single")} />`;
 
   if (view === "form") {
     return html`<${CreateRun} token=${token} mock=${mock} initial=${formInitial}
