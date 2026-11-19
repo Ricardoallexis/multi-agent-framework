@@ -265,7 +265,9 @@ required flag and type (`text`, `long_text` or `choice`); the form shows the
 description and example, and uses a selector for choices. Workflows without
 declared inputs continue to derive them from prompt placeholders. The GUI
 previews the rendered prompt before creating the run.
-Run details show skipped steps, counters, and human-action history. Results are
+Run details show skipped steps, counters, and human-action history. When a
+step runs under a role from the bound approved team, both the step list and its
+completed attempts show the role, member, and team version. Results are
 grouped by step with each completed attempt's producer, review status, tokens,
 and output; when a step has two or more completed attempts, **Comparar** lets
 the operator pick two attempts and inspect field-by-field differences (with

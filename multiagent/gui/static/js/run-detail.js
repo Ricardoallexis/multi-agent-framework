@@ -48,7 +48,55 @@ function stepsProgressText(counters) {
   return passed + " de " + counters.steps_total + (counters.steps_total === 1 ? " paso" : " pasos") + skipped;
 }
 
-function Steps({ view }) {
+export function stepRolesByStep(view) {
+  const roles = new Map();
+  for (const event of (view && view.events) || []) {
+    if (!event || event.type !== "step_started") continue;
+    const payload = event.payload;
+    if (!payload || typeof payload.step_id !== "string" || !payload.step_id) continue;
+    if (typeof payload.role !== "string" || !payload.role) continue;
+    roles.set(payload.step_id, {
+      role: payload.role,
+      member: typeof payload.member === "string" ? payload.member : "",
+      team_id: typeof payload.team_id === "string" ? payload.team_id : "",
+      team_version_id: typeof payload.team_version_id === "string" ? payload.team_version_id : "",
+      team_version: typeof payload.team_version === "number" ? payload.team_version : null,
+    });
+  }
+  for (const step of (view && view.steps) || []) {
+    if (step && typeof step.role === "string" && step.role) {
+      roles.set(step.id, {
+        role: step.role,
+        member: typeof step.member === "string" ? step.member : "",
+        team_id: typeof step.team_id === "string" ? step.team_id : "",
+        team_version_id: typeof step.team_version_id === "string" ? step.team_version_id : "",
+        team_version: typeof step.team_version === "number" ? step.team_version : null,
+      });
+    }
+  }
+  return roles;
+}
+
+export function roleTeamTitle(info) {
+  if (!info || !info.role) return null;
+  const parts = [];
+  if (info.team_id) parts.push("Equipo: " + info.team_id);
+  if (info.team_version !== null && info.team_version !== undefined) parts.push("versión " + info.team_version);
+  if (info.team_version_id) parts.push(info.team_version_id);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+export function roleTeamLabel(info) {
+  if (!info || !info.role) return "";
+  const parts = [];
+  if (info.team_id) parts.push(info.team_id);
+  if (info.team_version !== null && info.team_version !== undefined) parts.push("v" + info.team_version);
+  return parts.length ? "(" + parts.join(" ") + ")" : "";
+}
+
+export function Steps({ view }) {
+  const roles = stepRolesByStep(view);
+  const hasRoles = roles.size > 0;
   return html`<section class="panel" aria-labelledby="steps-title">
     <h4 id="steps-title">Pasos</h4>
     <p class="muted">${cursorText(view)}</p>
@@ -56,14 +104,20 @@ function Steps({ view }) {
       max=${view.counters.steps_total} valueText=${stepsProgressText(view.counters)} tone=${view.terminal && view.status !== "completed" ? "warning" : "active"} />`}
     <${Help} topic="run.steps" />
     ${view.steps.some((step) => step.skip) && html`<${Help} topic="run.skipped" />`}
+    ${hasRoles && html`<${Help} topic="run.role" scope="steps" />`}
     <ol class="steps">
-      ${view.steps.map((step) => html`<li key=${step.id} class=${"step " + step.state}>
-        <span class="step-name">${step.id}</span>
-        <${StatusChip} status=${step.state} labels="step" />
-        ${step.skip && html`<span class="step-note">${step.state === "will_skip" ? "Se saltará " : "Se saltó "}${skipReason(step.skip)}.</span>`}
-        ${step.state === "done" && step.executor && html`<span class="step-note">${executorText(step.executor)}${step.attempts > 1 ? " · " + step.attempts + " intentos" : ""}.</span>`}
-        ${step.state === "not_run" && html`<span class="step-note">La ejecución terminó antes de llegar a este paso.</span>`}
-      </li>`)}
+      ${view.steps.map((step) => {
+        const roleInfo = roles.get(step.id);
+        const teamLabel = roleTeamLabel(roleInfo);
+        return html`<li key=${step.id} class=${"step " + step.state}>
+          <span class="step-name">${step.id}</span>
+          <${StatusChip} status=${step.state} labels="step" />
+          ${roleInfo && html`<span class="badge role-badge" title=${roleTeamTitle(roleInfo)}>Rol: ${roleInfo.role}${roleInfo.member ? " · " + roleInfo.member : ""}${teamLabel && html` <span class="muted small">${teamLabel}</span>`}</span>`}
+          ${step.skip && html`<span class="step-note">${step.state === "will_skip" ? "Se saltará " : "Se saltó "}${skipReason(step.skip)}.</span>`}
+          ${step.state === "done" && step.executor && html`<span class="step-note">${executorText(step.executor)}${step.attempts > 1 ? " · " + step.attempts + " intentos" : ""}.</span>`}
+          ${step.state === "not_run" && html`<span class="step-note">La ejecución terminó antes de llegar a este paso.</span>`}
+        </li>`;
+      })}
     </ol>
   </section>`;
 }
@@ -241,27 +295,37 @@ function StepResults({ runId, stepId, items, waiting, token }) {
     </div>`}
     ${items.map((artifact, index) => {
       const detail = byAttempt.get(artifact.attempt);
-      const review = detail && detail.review;
-      const input = detail && detail.input;
-      const human = detail && detail.human;
       const isOpen = Boolean(waiting && waiting.step_id === artifact.step_id && index === items.length - 1);
-      return html`<details key=${artifact.step_id + ":" + artifact.attempt} open=${isOpen}>
-        <summary>Intento ${artifact.attempt} · ${artifact.approved ? "aprobado" : "sin aprobar"} · ${artifact.kind}${detail && detail.producer ? " · " + producerLabel(detail.producer) : ""}</summary>
-        ${detail && html`<dl class="facts attempt-meta">
-          <dt>Producido por</dt><dd>${producerLabel(detail.producer)}</dd>
-          ${input && input.revision_feedback && html`<dt>Comentario recibido</dt><dd>${input.revision_feedback}${input.has_previous_output ? " (con salida previa)" : ""}</dd>`}
-          ${review && html`<dt>Revisión</dt><dd>${REVIEW_LABELS[review.status] || review.status}${review.actor ? " · " + review.actor : ""}${review.reviewed_at ? " · " + fmtDate(review.reviewed_at) : ""}</dd>`}
-          ${review && review.channel && html`<dt>Canal</dt><dd>${review.channel}</dd>`}
-          ${review && review.comments && review.comments.length > 0 && html`<dt>Comentarios</dt><dd><ol>${review.comments.map((comment, index) => html`<li key=${index}><strong>${comment.target === "general" ? "General" : comment.target} · ${COMMENT_KIND_LABELS[comment.kind] || comment.kind}</strong>: ${comment.text}${comment.quote && html`<blockquote>${comment.quote}</blockquote>`}</li>`)}</ol></dd>`}
-          ${human && human.notes && html`<dt>Notas humanas</dt><dd>${human.notes}</dd>`}
-          ${detail.tokens && html`<dt>Tokens</dt><dd>${tokensLabel(detail.tokens)}</dd>`}
-        </dl>`}
-        ${human && human.prompt_used && html`<details class="attempt-extra"><summary>Prompt utilizado (envío humano)</summary><pre class="prompt">${human.prompt_used}</pre></details>`}
-        <pre class="data">${fmtJson(artifact.data)}</pre>
-        ${detail && detail.markdown && html`<details class="attempt-extra"><summary>Salida en Markdown</summary><pre class="data">${detail.markdown}</pre></details>`}
-      </details>`;
+      return html`<${AttemptDetail} key=${artifact.step_id + ":" + artifact.attempt} artifact=${artifact} detail=${detail}
+        isOpen=${isOpen} scopePrefix=${runId} />`;
     })}
   </div>`;
+}
+
+export function AttemptDetail({ artifact, detail, isOpen = false, scopePrefix = "" }) {
+  const review = detail && detail.review;
+  const input = detail && detail.input;
+  const human = detail && detail.human;
+  const hasRole = Boolean(detail && typeof detail.role === "string" && detail.role);
+  const teamLabel = hasRole ? roleTeamLabel(detail) : "";
+  const helpScope = (scopePrefix ? scopePrefix + "-" : "") + artifact.step_id + "-" + artifact.attempt;
+  return html`<details open=${isOpen}>
+    <summary>Intento ${artifact.attempt} · ${artifact.approved ? "aprobado" : "sin aprobar"} · ${artifact.kind}${hasRole ? " · rol: " + detail.role + (detail.member ? " (" + detail.member + ")" : "") : ""}${detail && detail.producer ? " · " + producerLabel(detail.producer) : ""}</summary>
+    ${detail && html`<dl class="facts attempt-meta">
+      <dt>Producido por</dt><dd>${producerLabel(detail.producer)}</dd>
+      ${hasRole && html`<dt>Rol</dt><dd title=${roleTeamTitle(detail)}>${detail.role}${detail.member ? " · " + detail.member : ""}${teamLabel && html` <span class="muted small">${teamLabel}</span>`}
+        <${Help} topic="run.role" compact=${true} scope=${helpScope} /></dd>`}
+      ${input && input.revision_feedback && html`<dt>Comentario recibido</dt><dd>${input.revision_feedback}${input.has_previous_output ? " (con salida previa)" : ""}</dd>`}
+      ${review && html`<dt>Revisión</dt><dd>${REVIEW_LABELS[review.status] || review.status}${review.actor ? " · " + review.actor : ""}${review.reviewed_at ? " · " + fmtDate(review.reviewed_at) : ""}</dd>`}
+      ${review && review.channel && html`<dt>Canal</dt><dd>${review.channel}</dd>`}
+      ${review && review.comments && review.comments.length > 0 && html`<dt>Comentarios</dt><dd><ol>${review.comments.map((comment, index) => html`<li key=${index}><strong>${comment.target === "general" ? "General" : comment.target} · ${COMMENT_KIND_LABELS[comment.kind] || comment.kind}</strong>: ${comment.text}${comment.quote && html`<blockquote>${comment.quote}</blockquote>`}</li>`)}</ol></dd>`}
+      ${human && human.notes && html`<dt>Notas humanas</dt><dd>${human.notes}</dd>`}
+      ${detail.tokens && html`<dt>Tokens</dt><dd>${tokensLabel(detail.tokens)}</dd>`}
+    </dl>`}
+    ${human && human.prompt_used && html`<details class="attempt-extra"><summary>Prompt utilizado (envío humano)</summary><pre class="prompt">${human.prompt_used}</pre></details>`}
+    <pre class="data">${fmtJson(artifact.data)}</pre>
+    ${detail && detail.markdown && html`<details class="attempt-extra"><summary>Salida en Markdown</summary><pre class="data">${detail.markdown}</pre></details>`}
+  </details>`;
 }
 
 function Results({ view, token }) {

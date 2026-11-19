@@ -257,6 +257,14 @@ export const HELP = {
       "«Se saltará» es un aviso previo; «Se saltó» ya ocurrió."
     ]
   },
+  "run.role": {
+    "title": "Rol del paso",
+    "hint": "El puesto del equipo aprobado con el que se ejecutó este paso.",
+    "more": [
+      "El rol aporta su propósito, sus reglas y sus habilidades al paso, e indica qué miembro del equipo lo ejecuta.",
+      "Sale de la versión aprobada del equipo vinculada al crear la ejecución, nunca de cambios posteriores."
+    ]
+  },
   "run.counters": {
     "title": "Contadores",
     "hint": "Cuánto lleva gastado la ejecución frente a sus límites.",

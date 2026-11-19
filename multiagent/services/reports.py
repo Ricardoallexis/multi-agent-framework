@@ -274,6 +274,22 @@ def render_run_report_markdown(report: Mapping[str, Any]) -> str:
             lines.extend(["| " + " | ".join(columns) + " |", "| " + " | ".join("---" for _ in columns) + " |"])
             lines.extend("| " + " | ".join(cell(row.get(name)) for name in columns) + " |" for row in rows)
             lines.append("")
+            if key == "steps":
+                role_rows = [row for row in rows if isinstance(row.get("role"), str) and row.get("role")]
+                if role_rows:
+                    lines.extend(["### Step roles", ""])
+                    for row in role_rows:
+                        attempt = row.get("attempt")
+                        attempt_label = f" (attempt {cell(attempt)})" if attempt is not None else ""
+                        member_label = f", member {cell(row['member'])}" if row.get("member") else ""
+                        team_parts = []
+                        if row.get("team_id"):
+                            team_parts.append(cell(row["team_id"]))
+                        if row.get("team_version") is not None:
+                            team_parts.append(f"v{cell(row['team_version'])}")
+                        team_label = f" — team {' '.join(team_parts)}" if team_parts else ""
+                        lines.append(f"- {cell(row.get('step_id'))}{attempt_label}: role {cell(row['role'])}{member_label}{team_label}")
+                    lines.append("")
     lines.extend(["## Usage", "", "```json", json.dumps(report.get("usage"), ensure_ascii=False,
                                                      indent=2, default=str), "```", ""])
     if "raw_run" in report:
