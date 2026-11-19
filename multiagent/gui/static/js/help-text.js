@@ -1707,6 +1707,46 @@ export const HELP = {
     "title": "Cerrar pendientes",
     "hint": "Oculta la lista sin cambiar ningún pendiente.",
     "more": ["Ningún pendiente cambia al cerrarla.", "Vuelve a abrirla desde el botón Pendientes de la barra superior."]
+  },
+  "inbox.section": {
+    "title": "Mensaje a la ejecución", "hint": "Escribe una instrucción para el siguiente paso de trabajo.",
+    "more": ["La bandeja solo funciona cuando la política de disponibilidad está encendida.", "El mensaje se lee en una frontera de trabajo y nunca aprueba una decisión."]
+  },
+  "inbox.kind": {
+    "title": "Acción del mensaje", "hint": "Elige cancelar, interrumpir, ajustar o dejar una nota.",
+    "more": ["Cancelar detiene la ejecución cuando el trabajador lea el mensaje.", "Interrumpir y ajustar esperan tu decisión; una nota deja constancia y permite continuar."]
+  },
+  "inbox.text": {
+    "title": "Texto del mensaje", "hint": "Explica tu ajuste o deja una nota.",
+    "more": ["El texto es obligatorio para ajustar y para una nota.", "La bandeja admite hasta 1200 bytes de texto."]
+  },
+  "inbox.send": {
+    "title": "Enviar mensaje", "hint": "Guarda el mensaje para que lo lea el trabajador.",
+    "more": ["Cancelar, interrumpir y ajustar requieren una confirmación adicional.", "El botón queda desactivado si la política está apagada o la ejecución terminó."]
+  },
+  "inbox.confirm": {
+    "title": "Confirmar mensaje", "hint": "Confirma la instrucción que vas a guardar.",
+    "more": ["El mensaje se guarda con un identificador propio para evitar duplicados.", "Se aplicará cuando el trabajador llegue a la siguiente frontera de trabajo."]
+  },
+  "inbox.back": {
+    "title": "Volver al mensaje", "hint": "Cierra la confirmación y conserva el texto.",
+    "more": ["Puedes cambiar la acción o el texto antes de enviarlo.", "La ejecución sigue en su estado actual."]
+  },
+  "pending.background": {
+    "title": "En fondo", "hint": "Muestra ejecuciones activas y en cola.",
+    "more": ["La lista se actualiza junto con Pendientes.", "Cada enlace abre el hilo de la ejecución correspondiente."]
+  },
+  "pending.cancel": {
+    "title": "Pedir cancelación", "hint": "Prepara un mensaje para cancelar esta ejecución.",
+    "more": ["Antes de guardarlo se pide confirmación.", "La acción solo está disponible con la política de disponibilidad encendida."]
+  },
+  "pending.cancel_confirm": {
+    "title": "Confirmar cancelación", "hint": "Guarda el mensaje de cancelación.",
+    "more": ["La ejecución se detendrá cuando el trabajador lea el mensaje.", "Esta acción no aprueba ninguna revisión pendiente."]
+  },
+  "pending.cancel_back": {
+    "title": "Volver a En fondo", "hint": "Cierra la confirmación sin enviar.",
+    "more": ["La ejecución sigue en su estado actual.", "Puedes abrirla desde su enlace para ver el hilo."]
   }
 };
 

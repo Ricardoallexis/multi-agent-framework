@@ -550,3 +550,16 @@ code.command { font: .9rem var(--mono); overflow-wrap: anywhere; }
   .human-bar-reason { margin: 0; font-size: .9rem; overflow-wrap: anywhere; }
   .human-bar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 }
+
+/* AVA-T05: background runs inside Pendientes. */
+.pending-background { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin-top: 12px;
+  padding-top: 12px; border-top: 1px solid var(--line); }
+.pending-background h3, .pending-background p { margin: 0; }
+.pending-background-item { flex-wrap: wrap; }
+.pending-background-item .btn { flex: 0 0 auto; }
+.pending-background-confirm { display: flex; flex-wrap: wrap; gap: 8px; }
+.pending-background-confirm p { flex-basis: 100%; }
+@media (max-width: 599.98px) {
+  .pending-background-item .btn { width: 100%; }
+  .pending-background-confirm .btn { flex: 1 1 auto; }
+}

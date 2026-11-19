@@ -138,3 +138,15 @@
   .ns-picker { padding: 8px; }
   .ns-picker-choice { padding: 6px; }
 }
+
+/* AVA-T05: inbox at the foot of the run thread. */
+.thread-inbox { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.thread-inbox h4, .thread-inbox p { margin: 0; }
+.thread-inbox select, .thread-inbox textarea { width: 100%; min-width: 0; }
+.thread-inbox-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.thread-inbox-confirm p { flex-basis: 100%; }
+@media (max-width: 599.98px) {
+  .thread-inbox { padding: 10px; }
+  .thread-inbox-confirm .btn { flex: 1 1 auto; }
+}

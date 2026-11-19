@@ -7,6 +7,7 @@ import { Help, helpFor } from "./help.js";
 import { errorText } from "./text.js";
 import { ThreadCard } from "./thread-cards.js";
 import { POLL_MS, createThread, entryKey, isTerminal, mergeThread, pollAfter } from "./thread-model.js";
+import { MESSAGE_KINDS, NEEDS_CONFIRMATION, messageError, messageId, messagePath } from "./inbox-model.js";
 
 export function RunThread({ token, runId }) {
   const [thread, setThread] = useState(createThread);
@@ -75,8 +76,82 @@ export function RunThread({ token, runId }) {
       ${thread.entries.map((entry) => html`<${ThreadCard} key=${entryKey(entry)} entry=${entry} status=${thread.status}
         runId=${runId} token=${token} reviewView=${reviewView} busy=${busy} onAction=${act} />`)}
     </ol>
-    <div class="thread-compose-slot" aria-label="Espacio para mensajes al run">
-      <p class="muted">Mensajes al run disponibles próximamente.</p>
-    </div>
+    <${RunInbox} runId=${runId} token=${token} status=${thread.status} onSent=${() => load(true)} />
+  </section>`;
+}
+
+// AVA-T05: the message box belongs to the run thread and never calls a decision route.
+const KIND_LABELS = { cancel: "Cancelar", interrupt: "Interrumpir", adjust: "Ajustar", note: "Nota" };
+
+function RunInbox({ runId, token, status, onSent }) {
+  const [policy, setPolicy] = useState({ enabled: false, reason: "Consultando la política de disponibilidad…" });
+  const [kind, setKind] = useState("note");
+  const [body, setBody] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const draftId = useRef(null);
+
+  useEffect(() => {
+    let active = true;
+    setKind("note"); setBody(""); setConfirming(false); setNotice(""); draftId.current = null;
+    setPolicy({ enabled: false, reason: "Consultando la política de disponibilidad…" });
+    apiGet("/gui/api/inbox/policy", token).then((value) => { if (active) setPolicy(value); },
+      (error) => { if (active) setPolicy({ enabled: false, reason: errorText(error) }); });
+    return () => { active = false; };
+  }, [token, runId]);
+
+  const unavailable = isTerminal(status);
+  const reason = unavailable ? "La ejecución terminó y ya no recibe mensajes." : policy.reason;
+  const problem = messageError(kind, body, policy.enabled && !unavailable, reason);
+  const changeKind = (event) => { setKind(event.target.value); setConfirming(false); draftId.current = null; };
+  const changeBody = (event) => { setBody(event.target.value); setConfirming(false); draftId.current = null; };
+  const send = async () => {
+    if (busy || problem) return;
+    setBusy(true); setNotice("");
+    if (!draftId.current) draftId.current = messageId();
+    try {
+      await apiPost(messagePath("runs", runId), token, { message_id: draftId.current, kind, text: body.trim() });
+      draftId.current = null; setBody(""); setConfirming(false); setNotice("Mensaje guardado en la bandeja.");
+      onSent();
+    } catch (error) {
+      setNotice(error?.details?.reason === "availability_disabled"
+        ? "La política de disponibilidad está apagada en este servidor." : errorText(error));
+      setConfirming(false);
+    } finally { setBusy(false); }
+  };
+  const start = () => {
+    if (problem || busy) return;
+    if (NEEDS_CONFIRMATION.includes(kind)) setConfirming(true);
+    else send();
+  };
+
+  return html`<section class="thread-inbox" aria-label="Mensaje a la ejecución">
+    <h4>Escribir a la ejecución</h4>
+    <${Help} topic="inbox.section" />
+    <p class="muted">${policy.enabled && !unavailable ? "Se leerá en la siguiente frontera de trabajo." : reason}</p>
+    <label for="thread-inbox-kind">Acción</label>
+    <select id="thread-inbox-kind" value=${kind} disabled=${busy || !policy.enabled || unavailable}
+      ...${helpFor("inbox.kind")} onChange=${changeKind}>
+      ${MESSAGE_KINDS.map((value) => html`<option value=${value}>${KIND_LABELS[value]}</option>`)}
+    </select>
+    <${Help} topic="inbox.kind" compact=${true} />
+    <label for="thread-inbox-text">Mensaje</label>
+    <textarea id="thread-inbox-text" rows="3" value=${body} disabled=${busy || !policy.enabled || unavailable}
+      ...${helpFor("inbox.text")} onInput=${changeBody}></textarea>
+    <${Help} topic="inbox.text" compact=${true} />
+    ${notice && html`<p role="status">${notice}</p>`}
+    ${!confirming ? html`<button type="button" class="btn" disabled=${Boolean(problem) || busy}
+      ...${helpFor("inbox.send")} onClick=${start}>Enviar</button>`
+      : html`<div class="thread-inbox-confirm">
+        <p>¿Enviar «${KIND_LABELS[kind]}» a esta ejecución?</p>
+        <button type="button" class="btn danger" disabled=${busy} ...${helpFor("inbox.confirm")}
+          onClick=${send}>Sí, enviar</button>
+        <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("inbox.back")}
+          onClick=${() => setConfirming(false)}>Volver</button>
+      </div>`}
+    <${Help} topic="inbox.send" compact=${true} />
+    <${Help} topic="inbox.confirm" compact=${true} />
+    <${Help} topic="inbox.back" compact=${true} />
   </section>`;
 }

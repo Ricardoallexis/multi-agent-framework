@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // The shell inbox polls the local, token-protected pending endpoint.
 import { html, useEffect, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
-import { apiGet } from "./api.js";
+import { apiGet, apiPost } from "./api.js";
 import { loadToken } from "./auth.js";
 import { Help, helpFor } from "./help.js";
 import { readNotificationsEnabled, writeNotificationsEnabled } from "./shell-state.js";
 import { countPending, newlyPending, pendingIds, sortPending } from "./pending-model.js";
+import { messageId, messagePath } from "./inbox-model.js";
 
 const PENDING_PATH = "/gui/api/pending";
 const VISIBLE_POLL_MS = 5000;
@@ -56,7 +57,7 @@ function formatSince(value) {
 }
 
 function usePendingInbox() {
-  const [data, setData] = useState({ items: [], loading: true, error: null });
+  const [data, setData] = useState({ items: [], background: [], policy: { enabled: false, reason: "" }, loading: true, error: null });
   const seen = useRef(null);
   const inFlight = useRef(false);
   const reload = useRef(null);
@@ -70,12 +71,15 @@ function usePendingInbox() {
       inFlight.current = true;
       try {
         const answer = await apiGet(PENDING_PATH, token);
+        const [background, policy] = await Promise.all([
+          apiGet("/gui/api/pending/background", token), apiGet("/gui/api/inbox/policy", token),
+        ]);
         const items = sortPending(Array.isArray(answer?.items) ? answer.items : []);
         if (seen.current !== null) {
           notifyNewItems(newlyPending(items, seen.current, notificationsEnabled(), notificationPermission()));
         }
         seen.current = pendingIds(items);
-        if (!stopped) setData({ items, loading: false, error: null });
+        if (!stopped) setData({ items, background: sortPending(background?.items), policy, loading: false, error: null });
       } catch (error) {
         if (!stopped) setData((current) => ({ ...current, loading: false, error }));
       } finally {
@@ -106,11 +110,30 @@ function usePendingInbox() {
 }
 
 export function PendingInbox() {
-  const { items, count, loading, error, reload } = usePendingInbox();
+  const { items, background, policy, count, loading, error, reload } = usePendingInbox();
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(() => notificationPermission() === "granted" && notificationsEnabled());
   const [permission, setPermission] = useState(notificationPermission);
   const [notice, setNotice] = useState("");
+  // AVA-T05: a background cancellation is an inbox message, never a direct decision.
+  const [cancelId, setCancelId] = useState(null);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+  const cancelMessageId = useRef(null);
+  const cancelBackground = async () => {
+    if (!cancelId || !policy.enabled || cancelBusy) return;
+    setCancelBusy(true); setCancelError("");
+    if (!cancelMessageId.current) cancelMessageId.current = messageId();
+    try {
+      await apiPost(messagePath("runs", cancelId), loadToken(),
+        { message_id: cancelMessageId.current, kind: "cancel", text: "" });
+      setNotice("Cancelación guardada. Se aplicará en la siguiente frontera de trabajo.");
+      setCancelId(null); cancelMessageId.current = null; reload();
+    } catch (failure) {
+      setCancelError(failure?.details?.reason === "availability_disabled"
+        ? "La política de disponibilidad está apagada en este servidor." : failure.message);
+    } finally { setCancelBusy(false); }
+  };
 
   useEffect(() => {
     document.title = count ? `(${count}) Multiagent` : "Multi-Agent Framework";
@@ -184,6 +207,34 @@ export function PendingInbox() {
           <${Help} topic="pending.open" compact=${true} scope=${item.id} />
         </li>`)}
       </ul>` : !loading && !error && html`<p class="pending-empty">No hay pendientes.</p>`}
+      <section class="pending-background" aria-label="En fondo">
+        <h3>En fondo</h3>
+        <${Help} topic="pending.background" compact=${true} />
+        <p class="muted">${policy.enabled ? "Puedes pedir cancelar una ejecución en curso." : policy.reason}</p>
+        ${cancelError && html`<p role="alert">${cancelError}</p>`}
+        ${background.length ? html`<ul class="pending-items">
+          ${background.map((item) => html`<li class="pending-item pending-background-item" key=${item.id}>
+            <div class="pending-item-main"><span class="pending-type">${item.reason}</span>
+              <a href=${itemHref(item.href)} ...${helpFor("pending.open", { scope: item.id })}
+                onClick=${() => setOpen(false)}>${item.title}</a>
+              <time class="pending-since" dateTime=${item.since || null}>${formatSince(item.since)}</time>
+            </div>
+            <button type="button" class="btn secondary small" disabled=${!policy.enabled || cancelBusy}
+              ...${helpFor("pending.cancel", { scope: item.id })}
+              onClick=${() => { setCancelId(item.id.slice(4)); setCancelError(""); cancelMessageId.current = null; }}>Cancelar</button>
+            <${Help} topic="pending.cancel" compact=${true} scope=${item.id} />
+          </li>`)}
+        </ul>` : !loading && !error && html`<p class="pending-empty">No hay ejecuciones en fondo.</p>`}
+        ${cancelId && html`<div class="pending-background-confirm" role="group" aria-label="Confirmar cancelación">
+          <p>¿Pedir la cancelación de esta ejecución?</p>
+          <button type="button" class="btn danger" disabled=${cancelBusy} ...${helpFor("pending.cancel_confirm")}
+            onClick=${cancelBackground}>Sí, cancelar</button>
+          <button type="button" class="btn secondary" disabled=${cancelBusy} ...${helpFor("pending.cancel_back")}
+            onClick=${() => { setCancelId(null); cancelMessageId.current = null; }}>Volver</button>
+          <${Help} topic="pending.cancel_confirm" compact=${true} />
+          <${Help} topic="pending.cancel_back" compact=${true} />
+        </div>`}
+      </section>
     </section>
   </div>`;
 }

@@ -38,6 +38,7 @@ from .connections_api import add_connection_routes
 from .document_alerts_api import add_document_alerts_routes
 from .evaluation_api import add_evaluation_routes
 from .extensions import discover_extensions
+from .inbox_api import add_inbox_routes
 from .plans_api import add_plans_routes
 from .pending_api import add_pending_routes
 from .project_api import add_project_routes
@@ -125,6 +126,7 @@ def mount_gui(app: FastAPI) -> None:
     add_plans_routes(api, services)  # /gui/api/plan-proposals/* (PLN-T04)
     add_pending_routes(api, services)  # /gui/api/pending (RWD-T03)
     add_thread_routes(api, services)  # /gui/api/threads/runs/{run_id} (CHT-T01)
+    add_inbox_routes(api, services)  # AVA-T05: run and task messages
     api.include_router(build_runs_router(services))
     app.include_router(api)
     app.mount("/gui/static", StaticFiles(directory=STATIC_DIR), name="gui-static")

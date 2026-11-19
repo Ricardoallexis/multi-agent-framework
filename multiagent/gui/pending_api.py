@@ -93,5 +93,17 @@ def add_pending_routes(api: APIRouter, services: Any) -> None:
         items = pending_items(services)
         return {"items": items, "count": len(items)}
 
+    # AVA-T05: active runs have their own section; the existing pending contract stays intact.
+    @api.get("/pending/background")
+    def background_runs():
+        runs = [*services.runs.list(limit=MAX_ITEMS, status="running"),
+                *services.runs.list(limit=MAX_ITEMS, status="queued")]
+        items = [_item("run", str(run["id"]), run.get("project_name") or run.get("workflow_id") or str(run["id"]),
+                       "En ejecución" if run.get("status") == "running" else "En cola",
+                       run.get("updated_at") or run.get("created_at"),
+                       "#new/run/" + quote(str(run["id"]), safe=""))
+                 for run in runs if run.get("status") in {"running", "queued"}]
+        return {"items": items, "count": len(items)}
+
 
 __all__ = ["add_pending_routes", "pending_items"]
