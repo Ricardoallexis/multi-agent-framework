@@ -116,6 +116,12 @@ class PlanAdvanceRequest(PlanStatusRequest):
     actor: str
 
 
+class PlanProposeRequest(_Body):
+    planner: str
+    request: dict[str, Any]
+    confirm_cloud: bool = False
+
+
 class TaskGroupCreate(_Body):
     id: str
     title: str
@@ -896,6 +902,15 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/plans/advance")
     def plan_advance(body: PlanAdvanceRequest):
         return services.plans.advance(body.document, actor=body.actor)
+
+    # --- plan proposals ------------------------------------------------------------
+    @app.get("/api/v1/planners")
+    def plan_planners():
+        return services.planning.planners()
+
+    @app.post("/api/v1/plans/propose")
+    def plan_propose(body: PlanProposeRequest):
+        return services.planning.propose(body.planner, body.request, confirm_cloud=body.confirm_cloud)
 
     # --- projects (PRY) --------------------------------------------------------------
 

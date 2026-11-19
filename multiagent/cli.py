@@ -50,6 +50,23 @@ def cmd_plan(args) -> None:
     pretty(_api_json("POST", f"/api/v1/plans/{args.plan_action}", json_body=body))
 
 
+def cmd_plan_planners(_args) -> None:
+    pretty(_api_json("GET", "/api/v1/planners"))
+
+
+def cmd_plan_propose(args) -> None:
+    from .services import ServiceError
+    from .services.errors import INVALID_REQUEST
+    import yaml
+
+    try:
+        request = yaml.safe_load(Path(args.file).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise ServiceError(INVALID_REQUEST, f"Invalid planning request: {exc}", status=422) from exc
+    pretty(_api_json("POST", "/api/v1/plans/propose", json_body={
+        "planner": args.planner, "request": request, "confirm_cloud": args.confirm_cloud}))
+
+
 def cmd_eval_run(args) -> None:
     """Run a YAML evaluation set through the shared application service."""
     import yaml
@@ -1256,6 +1273,9 @@ def build_parser() -> argparse.ArgumentParser:
     x = plan.add_parser("status"); x.add_argument("file"); x.set_defaults(func=cmd_plan)
     x = plan.add_parser("advance"); x.add_argument("file"); x.add_argument("--actor", required=True)
     x.set_defaults(func=cmd_plan)
+    x = plan.add_parser("planners"); x.set_defaults(func=cmd_plan_planners)
+    x = plan.add_parser("propose"); x.add_argument("--planner", required=True); x.add_argument("file")
+    x.add_argument("--confirm-cloud", action="store_true"); x.set_defaults(func=cmd_plan_propose)
 
     evaluation = sub.add_parser("eval", help="Run evaluation sets").add_subparsers(dest="eval_command", required=True)
     x = evaluation.add_parser("run"); x.add_argument("file")
