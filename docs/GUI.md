@@ -207,6 +207,24 @@ set or sets a baseline; use `multiagent eval` or the API for that. It reads
 and `/evaluations/comparison?set_name=`; the sets are read from the newest 1000
 saved runs. See `docs/EVALUATION.md`.
 
+The **Equipos** view (`#teams`) lists the bundles that define a team (`team.yaml`),
+each with its approved version and its latest pending proposal. Opening one
+(`#teams/<bundle>`) shows its organization chart as a nested list, one item per
+position with its purpose, its occupants and its state written out («Ocupado»,
+«Vacante» or «Pendiente de aprobar»; a position the proposal removes is marked),
+the reviews and delegations apart from the hierarchy, and a notice when the team
+has several roots. The Mermaid text of the chart sits in a code block with a
+«Copiar» button; the view draws no diagram and loads no Mermaid library. The
+versions table opens the diff of each version. A pending proposal can be approved
+or rejected, each behind a confirmation with an optional note; the server records
+the decision as `user:operator` on the `gui` channel (the page cannot choose
+either), and the view then reloads and shows the result or the service error as it
+came (for example `invalid_state` when the proposal was already decided). Proposing
+a version stays in `multiagent team propose` and the API. It reads
+`GET /gui/api/teams`, `/teams/{bundle}/versions`, `/teams/versions/{id}` and
+`/teams/{bundle}/org-chart?version_id=`, and decides with
+`POST /gui/api/teams/versions/{id}/approve` and `/reject` (body `{"note"?}`).
+
 The **Mapa** view (`#map`) combines projects, stages and tasks with linked
 sessions and their children. `GET /gui/api/map?project=<id>&only=active|all`
 returns the read-only map; the project filter is optional and `only` defaults
@@ -229,6 +247,8 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/map?project=<id>&only=active\|all` | Project, task and linked-session map. |
 | `GET /gui/api/usage/plans`, `/usage/tokens`, `/usage/costs` | Plan measurements, token totals and estimated costs for Uso. |
 | `GET /gui/api/evaluations`, `/evaluations/runs`, `/evaluations/runs/{id}`, `/evaluations/comparison?set_name=` | Evaluation sets, saved runs and the latest run against the baseline (read only). |
+| `GET /gui/api/teams`, `/teams/{bundle}/versions`, `/teams/versions/{id}`, `/teams/{bundle}/org-chart` | Team bundles with their approved and pending versions, versions with their diff, and the org chart with its Mermaid text. |
+| `POST /gui/api/teams/versions/{id}/approve`, `/reject` | Decide a proposed team version with an optional `note`; the actor (`user:operator`) and channel (`gui`) are fixed by the server. |
 | `GET /gui/api/runs/{id}/usage` | Token and cost details for the right panel. |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts` | Completed attempts of one step (producer, input, output, review, tokens). |
 | `GET /gui/api/runs/{id}/steps/{step_id}/attempts/compare?a=1&b=2` | Field-by-field and unified line diff between two completed attempts. |

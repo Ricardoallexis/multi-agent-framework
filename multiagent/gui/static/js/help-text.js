@@ -918,6 +918,111 @@ export const HELP = {
       "Sirve para saber qué cambió cuando un caso empeora."
     ]
   },
+  "teams.section": {
+    "title": "Equipos",
+    "hint": "Consulta los equipos de los bundles, su organigrama y sus versiones.",
+    "more": [
+      "Cada equipo se define en el archivo team.yaml de su bundle y se propone desde la línea de comandos o la API.",
+      "Solo una persona puede aprobar o rechazar una propuesta, y aquí queda registrada a nombre del operador."
+    ]
+  },
+  "teams.refresh": {
+    "title": "Actualizar los equipos",
+    "hint": "Vuelve a leer los equipos o el equipo abierto.",
+    "more": [
+      "La pantalla conserva la última respuesta si la lectura falla.",
+      "Una propuesta nueva aparece al actualizar."
+    ]
+  },
+  "teams.list": {
+    "title": "Lista de equipos",
+    "hint": "Muestra cada equipo con su versión aprobada y su propuesta pendiente.",
+    "more": [
+      "Solo aparecen los bundles que tienen un equipo definido.",
+      "Abre un equipo con su nombre para ver su organigrama, sus versiones y decidir sobre la propuesta."
+    ]
+  },
+  "teams.decision": {
+    "title": "Propuesta pendiente",
+    "hint": "Muestra la última propuesta que espera una decisión y permite aprobarla o rechazarla.",
+    "more": [
+      "Aprobar la convierte en la versión activa del equipo; rechazarla deja la versión aprobada como estaba.",
+      "Si otra persona ya decidió, el servidor lo dice y la pantalla se actualiza."
+    ]
+  },
+  "teams.approve": {
+    "title": "Aprobar la propuesta",
+    "hint": "Pide confirmación antes de aprobar la propuesta pendiente.",
+    "more": [
+      "La versión aprobada pasa a ser la activa del equipo.",
+      "La decisión queda registrada a nombre del operador, con el canal de la interfaz y la nota que escribas."
+    ]
+  },
+  "teams.reject": {
+    "title": "Rechazar la propuesta",
+    "hint": "Pide confirmación antes de rechazar la propuesta pendiente.",
+    "more": [
+      "La propuesta queda rechazada y la versión aprobada actual no cambia.",
+      "Una propuesta rechazada no se puede aprobar después: hay que proponer una versión nueva."
+    ]
+  },
+  "teams.note": {
+    "title": "Nota de la decisión",
+    "hint": "Texto opcional que queda guardado junto a la decisión.",
+    "more": [
+      "Sirve para explicar por qué se aprueba o se rechaza.",
+      "Puede quedar vacía."
+    ]
+  },
+  "teams.chart": {
+    "title": "Organigrama",
+    "hint": "Muestra los puestos como una lista anidada: cada puesto cuelga de aquel a quien reporta.",
+    "more": [
+      "Cada puesto dice su propósito, quién lo ocupa y su estado en palabras: Ocupado, Vacante o Pendiente de aprobar.",
+      "Pendiente de aprobar marca lo que cambia en la propuesta; Se quitará indica un puesto que la propuesta elimina.",
+      "Si el equipo tiene varias raíces, la vista lo avisa."
+    ]
+  },
+  "teams.links": {
+    "title": "Relaciones aparte",
+    "hint": "Lista las revisiones y delegaciones, que no forman parte de la jerarquía.",
+    "more": [
+      "Revisa a indica quién revisa el trabajo de otro puesto; delega en, a quién pasa trabajo.",
+      "No cambian el árbol: la jerarquía solo sigue las relaciones de reporte."
+    ]
+  },
+  "teams.mermaid": {
+    "title": "Texto Mermaid",
+    "hint": "Es el mismo organigrama como diagrama en texto, listo para pegar en otra herramienta.",
+    "more": [
+      "Esta vista no dibuja el diagrama: solo muestra el texto.",
+      "Pégalo en un editor que entienda Mermaid para verlo dibujado."
+    ]
+  },
+  "teams.copy": {
+    "title": "Copiar el texto Mermaid",
+    "hint": "Copia el texto del diagrama al portapapeles.",
+    "more": [
+      "Si el navegador no deja copiar, la vista lo avisa y puedes seleccionar el texto a mano.",
+      "No se envía nada fuera de tu equipo."
+    ]
+  },
+  "teams.versions": {
+    "title": "Versiones del equipo",
+    "hint": "Lista las versiones guardadas, de la más antigua a la más reciente.",
+    "more": [
+      "Cada fila dice su estado: Borrador, Propuesta, Aprobada o Rechazada, y quién decidió.",
+      "La versión activa es la última aprobada."
+    ]
+  },
+  "teams.diff": {
+    "title": "Cambios de una versión",
+    "hint": "Muestra qué cambia esa versión respecto de la versión aprobada.",
+    "more": [
+      "Separa puestos, miembros, asignaciones y relaciones añadidos, quitados o cambiados.",
+      "Si no hay versión aprobada, todo cuenta como añadido."
+    ]
+  },
   "open.copilot": {
     "title": "Abrir en Copilot",
     "hint": "Abre esta sesión en la app de Copilot mediante un enlace.",

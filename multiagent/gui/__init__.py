@@ -10,6 +10,7 @@ Host and Origin checks come from ``LocalAPISecurityMiddleware`` in ``api.py``.
 follow; ``&only=children`` for the subagents panel) serve the session viewer; see ``sessions_api`` and ``events``.
 ``/gui/api/usage/{plans,tokens,costs}`` serve the usage view (plan usage, tokens and estimated cost); see ``usage_api``.
 ``/gui/api/evaluations`` serves the evaluation view: sets, saved runs and the comparison with the baseline (EVA-T03, read only); see ``evaluation_api``.
+``/gui/api/teams`` serves the teams view: versions, the org chart and the human approval of a proposal (EQP-T05); see ``teams_api``.
 ``/gui/api/continuity/*`` and ``/gui/api/tasks/{id}/continuity/decision`` serve the decision cards of tasks held by a usage limit
 (CNT-T06); see ``continuity_api``.
 ``/gui/api/extensions`` lists the folders of ``static/extensions/`` that views, panel slots and help texts are added
@@ -39,6 +40,7 @@ from .project_api import add_project_routes
 from .runs import build_router as build_runs_router
 from .security import GUISecurityHeadersMiddleware, require_json, require_token
 from .sessions_api import add_session_routes
+from .teams_api import add_teams_routes
 from .usage_api import add_usage_routes
 from ..services.work_map import build_work_map
 
@@ -113,6 +115,7 @@ def mount_gui(app: FastAPI) -> None:
     add_document_alerts_routes(api, services)
     add_continuity_routes(api, services)  # /gui/api/continuity/* (CNT-T06)
     add_evaluation_routes(api, services)  # /gui/api/evaluations/* (EVA-T03, read only)
+    add_teams_routes(api, services)  # /gui/api/teams/* (EQP-T05)
     api.include_router(build_runs_router(services))
     app.include_router(api)
     app.mount("/gui/static", StaticFiles(directory=STATIC_DIR), name="gui-static")

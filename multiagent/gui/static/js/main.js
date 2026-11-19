@@ -20,6 +20,7 @@ import { Sidebar } from "./sidebar.js";
 import { WorkMap } from "./work-map.js";
 import { Usage } from "./usage.js";
 import { Evaluation } from "./evaluation.js";
+import { Teams } from "./teams.js";
 import { extensionFailures, loadExtensions, registeredViews, registryVersion, subscribeRegistry } from "./extensions.js";
 
 const STATUS_TEXT = {
@@ -35,6 +36,7 @@ const SECTIONS = [
   { id: "runs", label: "Ejecuciones" },
   { id: "usage", label: "Uso" },
   { id: "evaluation", label: "Evaluación" },
+  { id: "teams", label: "Equipos" },
   { id: "map", label: "Mapa" },
 ];
 // The built-in screens, then the ones extensions registered (by their `order`).
@@ -107,6 +109,7 @@ function App({ token }) {
     ${section === "runs" && html`<${Runs} token=${token} status=${status} mock=${mock} initialRunId=${route.id} />`}
     ${section === "usage" && html`<${Usage} token=${token} />`}
     ${section === "evaluation" && html`<${Evaluation} token=${token} route=${route} />`}
+    ${section === "teams" && html`<${Teams} token=${token} route=${route} />`}
     ${section === "map" && html`<${WorkMap} token=${token} />`}
     ${views.map((view) => section === view.id && html`<${view.component} key=${view.id} token=${token} status=${status} mock=${mock} route=${route} />`)}
     ${failed.length > 0 && html`<p class="muted small" role="status">No se pudo cargar: ${failed.map((item) => item.id).join(", ")}.</p>`}

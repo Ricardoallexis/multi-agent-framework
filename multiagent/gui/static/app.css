@@ -401,6 +401,8 @@ code.command { font: .9rem var(--mono); overflow-wrap: anywhere; }
 .usage-disclosure > details { flex: 0 1 auto; }
 .usage-disclosure > .help-block { flex: 1 1 100%; }
 .usage-cost { font-size: 1.15rem; font-weight: 700; }
+.team-tree, .team-tree ul { margin: 4px 0; padding-left: 20px; }
+.team-tree li { margin: 6px 0; overflow-wrap: anywhere; }
 .usage-table-wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
 .usage-table { width: 100%; border-collapse: collapse; text-align: left; }
 .usage-table caption { padding: 10px; text-align: left; font-weight: 600; }
