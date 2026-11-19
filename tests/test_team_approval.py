@@ -437,7 +437,8 @@ def test_migration_015_applies_on_database_already_at_017(tmp_path: Path):
     migrations = tmp_path / "migrations"
     migrations.mkdir()
     for path in source.glob("*.sql"):
-        if int(path.stem.split("_", 1)[0]) != 15:
+        number = int(path.stem.split("_", 1)[0])
+        if number != 15 and number <= 17:
             shutil.copyfile(path, migrations / path.name)
 
     db = Database(SimpleNamespace(db_path=tmp_path / "data" / "multiagent.db", migrations_dir=migrations))

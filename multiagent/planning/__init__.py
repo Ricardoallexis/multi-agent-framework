@@ -53,6 +53,25 @@ def propose(services: Any, name: str, request: Any, *, confirm_cloud: bool = Fal
     raw = _REGISTRY[name][1](services, request, confirm_cloud)
     if not isinstance(raw, Mapping):
         raise _invalid("Planner output must be an object")
+    return validate_proposal(services, {**raw, "schema": "multiagent.plan_proposal/1",
+                                        "planner": name, "group_id": group_id, "goal": goal})
+
+
+def validate_proposal(services: Any, proposal: Any) -> dict[str, Any]:
+    """Normalize a generated or edited proposal through the same task contract."""
+    if not isinstance(proposal, Mapping) or proposal.get("schema") != "multiagent.plan_proposal/1":
+        raise _invalid("Proposal schema must be multiagent.plan_proposal/1")
+    name = proposal.get("planner")
+    if not isinstance(name, str) or name not in _REGISTRY:
+        raise _invalid("Proposal planner must be registered")
+    group_id, goal = proposal.get("group_id"), proposal.get("goal")
+    if not isinstance(group_id, str) or not _GROUP.fullmatch(group_id):
+        raise _invalid("group_id must be a valid task group id")
+    if not isinstance(goal, str) or not goal.strip():
+        raise _invalid("goal must be non-empty text")
+    raw = proposal
+    if not isinstance(raw, Mapping):
+        raise _invalid("Planner output must be an object")
     tasks = raw.get("tasks")
     if not isinstance(tasks, list) or not tasks:
         raise _invalid("Planner must propose a non-empty task list")
@@ -61,7 +80,7 @@ def propose(services: Any, name: str, request: Any, *, confirm_cloud: bool = Fal
     edges: list[dict[str, str]] = []
     for index, item in enumerate(tasks):
         if not isinstance(item, Mapping) or set(item) - {
-                "id", "title", "objective", "depends_on", "workflow", "bundle", "inputs"}:
+                "id", "title", "objective", "depends_on", "workflow", "bundle", "inputs", "preferred"}:
             raise _invalid(f"Task {index} has unknown fields or is not an object")
         task_id, title, workflow = item.get("id"), item.get("title"), item.get("workflow")
         if not isinstance(task_id, str) or not _ID.fullmatch(task_id):
@@ -86,6 +105,9 @@ def propose(services: Any, name: str, request: Any, *, confirm_cloud: bool = Fal
         bundle = item.get("bundle")
         if bundle is not None and (not isinstance(bundle, str) or not bundle):
             raise _invalid(f"Task {task_id} bundle must be non-empty text")
+        preferred = item.get("preferred")
+        if preferred is not None and (not isinstance(preferred, str) or len(preferred) > 100):
+            raise _invalid(f"Task {task_id} preferred must be text of at most 100 characters")
         inputs = item.get("inputs", {})
         if not isinstance(inputs, Mapping) or any(
                 not isinstance(key, str) or not isinstance(value, str) for key, value in inputs.items()):
@@ -97,6 +119,8 @@ def propose(services: Any, name: str, request: Any, *, confirm_cloud: bool = Fal
             entry["objective"] = objective
         if bundle is not None:
             entry["bundle"] = bundle
+        if preferred is not None:
+            entry["preferred"] = preferred
         if "inputs" in item:
             entry["inputs"] = dict(inputs)
         normalized.append(entry)

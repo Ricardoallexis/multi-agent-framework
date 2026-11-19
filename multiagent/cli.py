@@ -67,6 +67,32 @@ def cmd_plan_propose(args) -> None:
         "planner": args.planner, "request": request, "confirm_cloud": args.confirm_cloud}))
 
 
+def cmd_plan_proposal(args) -> None:
+    action = args.plan_action
+    base = "/api/v1/plan-proposals"
+    if action == "save":
+        pretty(_api_json("POST", base, json_body={"proposal": _plan_file(args.file),
+                                                   "actor": args.actor, "channel": "cli", "note": args.note}))
+    elif action == "proposals":
+        params = {key: value for key, value in (("group_id", args.group), ("status", args.status)) if value}
+        pretty(_api_json("GET", base, params=params or None))
+    elif action == "show":
+        pretty(_api_json("GET", f"{base}/{_segment(args.id)}"))
+    else:
+        body = {"actor": args.actor, "channel": "cli", "note": args.note}
+        if action != "reject":
+            body["expected_revision"] = args.revision
+        if action == "edit":
+            document = _plan_file(args.file)
+            body["tasks"] = document["tasks"] if isinstance(document, dict) else document
+        elif action == "reassign":
+            body["task_id"] = args.task_id
+            for key in ("preferred", "workflow", "bundle"):
+                if getattr(args, key) is not None:
+                    body[key] = getattr(args, key)
+        pretty(_api_json("POST", f"{base}/{_segment(args.id)}/{action}", json_body=body))
+
+
 def cmd_eval_run(args) -> None:
     """Run a YAML evaluation set through the shared application service."""
     import yaml
@@ -1276,6 +1302,27 @@ def build_parser() -> argparse.ArgumentParser:
     x = plan.add_parser("planners"); x.set_defaults(func=cmd_plan_planners)
     x = plan.add_parser("propose"); x.add_argument("--planner", required=True); x.add_argument("file")
     x.add_argument("--confirm-cloud", action="store_true"); x.set_defaults(func=cmd_plan_propose)
+
+    # Saved proposals and human approval (S8.D2).
+    x = plan.add_parser("save"); x.add_argument("file"); x.add_argument("--actor", default="user:local")
+    x.add_argument("--note", default=""); x.set_defaults(func=cmd_plan_proposal)
+    x = plan.add_parser("proposals"); x.add_argument("--group"); x.add_argument("--status")
+    x.add_argument("--actor", default="user:local"); x.set_defaults(func=cmd_plan_proposal)
+    x = plan.add_parser("show"); x.add_argument("id"); x.add_argument("--actor", default="user:local")
+    x.set_defaults(func=cmd_plan_proposal)
+    x = plan.add_parser("edit"); x.add_argument("id"); x.add_argument("file")
+    x.add_argument("--revision", type=int, required=True); x.add_argument("--actor", default="user:local")
+    x.add_argument("--note", default=""); x.set_defaults(func=cmd_plan_proposal)
+    x = plan.add_parser("reassign"); x.add_argument("id"); x.add_argument("task_id")
+    x.add_argument("--revision", type=int, required=True); x.add_argument("--actor", default="user:local")
+    x.add_argument("--preferred"); x.add_argument("--workflow"); x.add_argument("--bundle")
+    x.add_argument("--note", default=""); x.set_defaults(func=cmd_plan_proposal)
+    for action in ("approve", "reject"):
+        x = plan.add_parser(action); x.add_argument("id"); x.add_argument("--actor", default="user:local")
+        x.add_argument("--note", default="")
+        if action == "approve":
+            x.add_argument("--revision", type=int, required=True)
+        x.set_defaults(func=cmd_plan_proposal)
 
     evaluation = sub.add_parser("eval", help="Run evaluation sets").add_subparsers(dest="eval_command", required=True)
     x = evaluation.add_parser("run"); x.add_argument("file")

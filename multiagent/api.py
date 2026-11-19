@@ -122,6 +122,45 @@ class PlanProposeRequest(_Body):
     confirm_cloud: bool = False
 
 
+class PlanProposalSave(_Body):
+    proposal: dict[str, Any]
+    actor: str
+    channel: str = "api"
+    note: str = ""
+
+
+class PlanProposalEdit(_Body):
+    tasks: list[dict[str, Any]]
+    actor: str
+    channel: str = "api"
+    note: str = ""
+    expected_revision: int
+
+
+class PlanProposalReassign(_Body):
+    task_id: str
+    actor: str
+    channel: str = "api"
+    note: str = ""
+    expected_revision: int
+    preferred: str | None = None
+    workflow: str | None = None
+    bundle: str | None = None
+
+
+class PlanProposalApprove(_Body):
+    actor: str
+    channel: str = "api"
+    note: str = ""
+    expected_revision: int
+
+
+class PlanProposalReject(_Body):
+    actor: str
+    channel: str = "api"
+    note: str = ""
+
+
 class TaskGroupCreate(_Body):
     id: str
     title: str
@@ -911,6 +950,43 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/plans/propose")
     def plan_propose(body: PlanProposeRequest):
         return services.planning.propose(body.planner, body.request, confirm_cloud=body.confirm_cloud)
+
+    # --- saved plan proposals (S8.D2) --------------------------------------------
+    @app.post("/api/v1/plan-proposals", status_code=201)
+    def save_plan_proposal(body: PlanProposalSave):
+        return services.plan_proposals.save(body.proposal, actor=body.actor, channel=body.channel, note=body.note)
+
+    @app.get("/api/v1/plan-proposals")
+    def list_plan_proposals(group_id: str | None = None, status: str | None = None):
+        return services.plan_proposals.list(group_id=group_id, status=status)
+
+    @app.get("/api/v1/plan-proposals/{proposal_id}")
+    def get_plan_proposal(proposal_id: str):
+        return services.plan_proposals.get(proposal_id)
+
+    @app.post("/api/v1/plan-proposals/{proposal_id}/edit")
+    def edit_plan_proposal(proposal_id: str, body: PlanProposalEdit):
+        return services.plan_proposals.edit(proposal_id, body.tasks, actor=body.actor,
+                                            channel=body.channel, note=body.note,
+                                            expected_revision=body.expected_revision)
+
+    @app.post("/api/v1/plan-proposals/{proposal_id}/reassign")
+    def reassign_plan_proposal(proposal_id: str, body: PlanProposalReassign):
+        return services.plan_proposals.reassign(proposal_id, body.task_id, actor=body.actor,
+                                                channel=body.channel, note=body.note,
+                                                expected_revision=body.expected_revision,
+                                                preferred=body.preferred, workflow=body.workflow,
+                                                bundle=body.bundle)
+
+    @app.post("/api/v1/plan-proposals/{proposal_id}/approve")
+    def approve_plan_proposal(proposal_id: str, body: PlanProposalApprove):
+        return services.plan_proposals.approve(proposal_id, actor=body.actor, channel=body.channel,
+                                               note=body.note, expected_revision=body.expected_revision)
+
+    @app.post("/api/v1/plan-proposals/{proposal_id}/reject")
+    def reject_plan_proposal(proposal_id: str, body: PlanProposalReject):
+        return services.plan_proposals.reject(proposal_id, actor=body.actor, channel=body.channel,
+                                              note=body.note)
 
     # --- projects (PRY) --------------------------------------------------------------
 
