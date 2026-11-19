@@ -53,7 +53,14 @@ def _view(row: dict[str, Any], history: list[dict[str, Any]]) -> dict[str, Any]:
 class PlanProposalServices:
     def __init__(self, services: ApplicationServices):
         self._services = services
-        self.store = PlanProposalStore(services.system.db)
+        self._store: PlanProposalStore | None = None
+
+    @property
+    def store(self) -> PlanProposalStore:
+        """Opened on first use, so building the services facade never touches the database."""
+        if self._store is None:
+            self._store = PlanProposalStore(self._services.system.db)
+        return self._store
 
     def _row(self, proposal_id: str, conn: Any) -> dict[str, Any]:
         row = self.store.get(_text("id", proposal_id, maximum=100), conn=conn)
