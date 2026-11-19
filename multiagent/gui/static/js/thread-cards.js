@@ -15,7 +15,7 @@ const REASONS = { review: "Revisión", tool_approval: "Aprobación de herramient
   research: "Investigación externa", escalation_approval: "Escalamiento", budget_exhausted: "Presupuesto agotado",
   content_review: "Revisión de contenido" };
 
-function ReadableValue({ node }) {
+export function ReadableValue({ node }) {   // CHT-T06: also used by plan-thread.js and plans.js
   if (node.kind === "long") return html`<details class="thread-long"><summary ...${helpFor("thread.output")}>Ver texto largo</summary>
     <pre class="thread-readable-text">${node.text}</pre></details>`;
   if (node.kind === "fields") return html`<dl class="thread-fields">${node.fields.map(({ name, value }) => html`

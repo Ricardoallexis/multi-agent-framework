@@ -1838,6 +1838,51 @@ export const HELP = {
       "Antigravity muestra su aviso y respeta el interruptor, el uso de créditos desactivado y sus pisos de cuota.",
       "El seguimiento consulta el estado de la tarea y enlaza su sesión en Sesiones."
     ]
+  },
+  "plan_card.inputs": {
+    "title": "Entradas de las tareas",
+    "hint": "Muestra lo que recibirá cada tarea del plan al correr.",
+    "more": ["Los textos largos van plegados y un objeto se resume en campos legibles.", "Salen del documento del plan guardado en la propuesta, sin cambios.", "Para editarlas hay que usar la vista de Planes."]
+  },
+  "plan_card.approve": {
+    "title": "Aprobar el plan",
+    "hint": "Pide confirmación antes de aprobar el plan con la revisión que ves.",
+    "more": ["Se crean las tareas y arrancan las que no esperan a otra.", "La decisión queda registrada a nombre del operador, con tu nota.", "Si el plan cambió mientras lo mirabas, el servidor lo rechaza y la tarjeta se vuelve a leer.", "Se desactiva si falta el equipo aprobado de un paquete con puestos."]
+  },
+  "plan_card.reject": {
+    "title": "Rechazar el plan",
+    "hint": "Pide confirmación antes de rechazar el plan.",
+    "more": ["El plan queda cerrado como rechazado y no se crean tareas.", "Un plan rechazado no se puede aprobar después: hay que proponer otro."]
+  },
+  "plan_card.note": {
+    "title": "Nota de la decisión",
+    "hint": "Texto opcional que queda guardado junto a la decisión.",
+    "more": ["Sirve para explicar por qué se aprueba o se rechaza.", "Puede quedar vacía."]
+  },
+  "plan_card.confirm": {
+    "title": "Confirmar la decisión",
+    "hint": "Envía la decisión sobre este plan o vuelve sin decidir.",
+    "more": ["Sí envía la decisión con tu nota y la revisión que ves.", "Volver cierra la confirmación y no cambia nada."]
+  },
+  "plan_card.team": {
+    "title": "Equipo que falta",
+    "hint": "Abre la versión propuesta del equipo, o la vista de Equipos si no hay ninguna.",
+    "more": ["Los pasos con puestos necesitan un equipo aprobado del paquete.", "Al aprobar el equipo, vuelve a este plan y pulsa Actualizar."]
+  },
+  "plan_card.run": {
+    "title": "Run de la tarea",
+    "hint": "Abre el hilo del run que creó el plan para esta tarea.",
+    "more": ["Ahí ves los pasos, las paradas y el resultado.", "No cambia nada por sí solo."]
+  },
+  "plan_card.open": {
+    "title": "Ver en Planes",
+    "hint": "Abre el plan en la vista de Planes, con su historial y sus ediciones.",
+    "more": ["La decisión se puede tomar aquí o allí: es la misma.", "No cambia nada por sí solo."]
+  },
+  "plan_card.refresh": {
+    "title": "Actualizar el plan",
+    "hint": "Vuelve a leer la propuesta, sus avisos y los runs de sus tareas.",
+    "more": ["Sirve si otra persona ya decidió o si se aprobó el equipo que faltaba.", "No cambia nada en el servidor."]
   }
 };
 

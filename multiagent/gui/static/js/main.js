@@ -12,6 +12,7 @@ import { publishEvent } from "./bus.js";
 import { navigate, useRoute, NEW_SECTION } from "./route.js";
 import { NewSession } from "./new-session.js";
 import { TeamThread } from "./team-thread.js";   // CHT-T05
+import { PlanThread } from "./plan-thread.js";   // CHT-T06
 import { RightPanel } from "./right-panel.js";
 import { AgentTree } from "./agent-tree.js";
 import { Runs } from "./runs.js";
@@ -109,7 +110,8 @@ function App({ token }) {
     <${Sessions} token=${token} route=${route} active=${section === "sessions"} />
     ${tree && html`<${AgentTree} key=${route.id || ""} token=${token} sessionId=${route.id} />`}
     ${creating && route.kind === "team" && html`<${TeamThread} key=${route.id} token=${token} versionId=${route.id} />`}
-    ${creating && route.kind !== "team" && html`<${NewSession} token=${token} mock=${mock} />`}
+    ${creating && route.kind === "plan" && html`<${PlanThread} key=${route.id} token=${token} proposalId=${route.id} />`}
+    ${creating && route.kind !== "team" && route.kind !== "plan" && html`<${NewSession} token=${token} mock=${mock} />`}
     ${section === "runs" && html`<${Runs} token=${token} status=${status} mock=${mock} initialRunId=${route.id} />`}
     ${section === "usage" && html`<${Usage} token=${token} />`}
     ${section === "evaluation" && html`<${Evaluation} token=${token} route=${route} />`}

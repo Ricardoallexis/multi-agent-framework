@@ -137,6 +137,67 @@ def build_team_thread(services: Any, version_id: str) -> dict[str, Any]:
     return {"version_id": version["id"], "status": version["status"], "cursor": 1, "entries": [entry]}
 
 
+def _blocker_entries(services: Any, blockers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One message per bundle whose roles lack an approved team; it points at a proposed version when there is one."""
+    entries = []
+    for blocker in blockers:
+        bundle, version_id = blocker.get("bundle"), None
+        if bundle:
+            try:
+                proposed = services.teams.list(bundle, status="proposed")["versions"]
+            except Exception:   # noqa: BLE001 - a bundle that cannot be listed still gets its message, linked to Equipos
+                proposed = []
+            version_id = proposed[-1]["id"] if proposed else None
+        entries.append({"bundle": bundle, "roles": list(blocker.get("roles") or []), "team_version_id": version_id})
+    return entries
+
+
+def build_plan_thread(services: Any, proposal_id: str) -> dict[str, Any]:
+    """CHT-T06: the thread of a plan proposal. The decision goes through the existing plan-proposal routes.
+
+    Entries: the proposal (tasks with their inputs and the ``revision`` the decision must send), one message per bundle
+    that still lacks an approved team (it disables approving, with the reason), and, once approved, one message per task
+    with its run.
+    """
+    proposal = services.plan_proposals.get(proposal_id)
+    document = proposal["proposal"]
+    specs = (document.get("plan") or {}).get("tasks") or {}
+    tasks = [{"id": task["id"], "title": task.get("title") or task["id"], "objective": task.get("objective") or "",
+              "depends_on": list(task.get("depends_on") or []), "workflow": task.get("workflow"),
+              "bundle": task.get("bundle"), "preferred": task.get("preferred") or "",
+              "inputs": dict((specs.get(task["id"]) or {}).get("inputs") or task.get("inputs") or {})}
+             for task in document.get("tasks") or []]
+    summary = {key: proposal.get(key) for key in ("id", "group_id", "goal", "planner", "status", "revision", "created_by",
+                                                  "created_at", "decided_by", "decided_at")}
+    summary["rationale"] = document.get("rationale") or ""
+    missing = _blocker_entries(services, proposal.get("blockers") or [])
+    open_ = proposal["status"] == "proposed"
+    decision = {"type": "plan_approval", "step_id": "", "attempt": None, "revision": proposal["revision"],
+                "actions": ["approve", "reject"] if open_ else [],
+                "approve_blocked": ({"reason": "team_not_approved", "blockers": missing} if open_ and missing else None)}
+    ts = proposal.get("created_at")
+    entries: list[dict[str, Any]] = [{"seq": 1, "ts": ts, "kind": "plan", "text": f"Plan {proposal['goal']}",
+                                      "proposal": summary, "tasks": tasks, "decision": decision}]
+    if open_:
+        entries += [{"seq": 2 + index, "ts": ts, "kind": "team_missing", "text": f"Team missing for {item['bundle']}",
+                     **item} for index, item in enumerate(missing)]
+    if proposal["status"] == "approved":
+        try:
+            status = services.plans.status(document["plan"])
+            by_id = {item["id"]: item for item in status["tasks"]}
+        except Exception:   # noqa: BLE001 - the thread still shows the plan when its runs cannot be read
+            by_id = {}
+        for index, task in enumerate(tasks):
+            view = by_id.get(task["id"]) or {}
+            run = view.get("run") or None
+            entries.append({"seq": 2 + index, "ts": proposal.get("decided_at"), "kind": "task_run",
+                            "text": f"Task {task['id']}", "task_id": task["id"], "title": task["title"],
+                            "state": view.get("state"), "run_id": run["id"] if run else None,
+                            "run_status": run["status"] if run else None})
+    return {"proposal_id": proposal["id"], "status": proposal["status"], "revision": proposal["revision"],
+            "cursor": entries[-1]["seq"], "entries": entries}
+
+
 def add_thread_routes(api: APIRouter, services: Any) -> None:
     @api.get("/threads/runs/{run_id}")
     def thread(run_id: str, after: int = Query(0, ge=0)):
@@ -145,3 +206,7 @@ def add_thread_routes(api: APIRouter, services: Any) -> None:
     @api.get("/threads/teams/{version_id}")   # CHT-T05
     def team_thread(version_id: str):
         return build_team_thread(services, version_id)
+
+    @api.get("/threads/plans/{proposal_id}")   # CHT-T06
+    def plan_thread(proposal_id: str):
+        return build_plan_thread(services, proposal_id)

@@ -18,6 +18,9 @@ export function parseRoute(hash) {
   // CHT-T05: "#new/team/<version id>" is a team version as a one-stop thread of the chat; main.js mounts team-thread.js for it.
   const newTeam = /^new\/team\/(.+)$/.exec(text);
   if (newTeam) return { section: NEW_SECTION, id: safeDecode(newTeam[1]), kind: "team" };
+  // CHT-T06: "#new/plan/<proposal id>" is a plan proposal as a thread of the chat; main.js mounts plan-thread.js for it.
+  const newPlan = /^new\/plan\/(.+)$/.exec(text);
+  if (newPlan) return { section: NEW_SECTION, id: safeDecode(newPlan[1]), kind: "plan" };
   const newRun = /^new\/run\/(.+)$/.exec(text);
   if (newRun) return { section: NEW_SECTION, id: safeDecode(newRun[1]) };
   const legacy = /^run=(.+)$/.exec(text);
@@ -39,6 +42,7 @@ export function routeHref(section, id) {
 
 export const threadHref = (runId) => "#new/run/" + encodeURIComponent(runId);
 export const teamThreadHref = (versionId) => "#new/team/" + encodeURIComponent(versionId);   // CHT-T05
+export const planThreadHref = (proposalId) => "#new/plan/" + encodeURIComponent(proposalId);   // CHT-T06
 
 // Sets the address, which fires "hashchange" (so the Back button works too).
 export function navigate(section, id) {

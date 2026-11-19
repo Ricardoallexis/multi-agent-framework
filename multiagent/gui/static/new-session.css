@@ -169,3 +169,8 @@
 .ns-executor-fields label { display: flex; flex: 1 1 14rem; flex-direction: column; gap: 4px; min-width: 0; }
 .ns-executor-fields select { width: 100%; min-width: 0; }
 .ns-executor-tracking p { margin: 0; overflow-wrap: anywhere; }
+
+/* CHT-T06: the plan thread and the inputs of each task (the long text uses .thread-readable-text, which already scrolls). */
+.plan-task-list { display: flex; flex-direction: column; gap: 12px; min-width: 0; margin: 8px 0; padding-left: 20px; }
+.plan-task-list li { min-width: 0; overflow-wrap: anywhere; }
+.plan-task-inputs { min-width: 0; max-width: 100%; margin-top: 4px; }

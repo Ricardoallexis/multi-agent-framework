@@ -62,9 +62,9 @@ def pending_items(services: Any) -> list[dict[str, Any]]:
 
     for proposal in services.plan_proposals.list(status="proposed"):
         proposal_id = str(proposal["id"])
-        # Plan detail view until CHT-T06 adds the thread route (#new/plan/<id>).
+        # CHT-T06: the plan thread, one stop with Approve and Reject.
         items.append(_item("plan", proposal_id, proposal.get("goal") or proposal_id, "Plan propuesto",
-                           proposal.get("created_at"), "#plans/" + quote(proposal_id, safe="")))
+                           proposal.get("created_at"), "#new/plan/" + quote(proposal_id, safe="")))
 
     for card in build_cards(services):
         if card.get("decision", "pending") != "pending":

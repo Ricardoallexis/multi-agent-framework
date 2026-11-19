@@ -43,6 +43,7 @@ VIEW_FILES += ["new-session.js"]       # the guided chat of «Nueva sesión» (G
 VIEW_FILES += ["thread.js", "thread-cards.js"]  # CHT-T02: the run conversation and its decision cards
 VIEW_FILES += ["pending.js"]           # RWD-T03: the «Pendientes» inbox of the top bar
 VIEW_FILES += ["team-thread.js", "team-card.js"]   # CHT-T05: the chat thread of a team version and its card
+VIEW_FILES += ["plan-thread.js"]   # CHT-T06: the chat thread of a plan proposal, its decision and its messages
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
 ALLOWED_EXEMPT = {

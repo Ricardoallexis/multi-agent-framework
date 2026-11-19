@@ -10,6 +10,8 @@ import { Help, helpFor } from "./help.js";
 import { Confirm } from "./human-actions.js";
 import { routeHref } from "./route.js";
 import { StatusChip } from "./ui/index.js";
+import { TaskInputs } from "./plan-thread.js";   // CHT-T06
+import { inputsValue } from "./plan-card-model.js";
 
 const BASE = "/gui/api/plan-proposals";
 const enc = encodeURIComponent;
@@ -164,7 +166,8 @@ export function TasksTable({ tasks }) {
     <tbody>${list.map((task) => html`<tr key=${task.id}>
       <th scope="row">${task.title}
         <div class="muted small">${task.id}</div>
-        ${task.objective && html`<div class="small">${task.objective}</div>`}</th>
+        ${task.objective && html`<div class="small">${task.objective}</div>`}
+        ${inputsValue(task.inputs) && html`<${TaskInputs} inputs=${task.inputs} />`}</th>
       <td>${Array.isArray(task.depends_on) && task.depends_on.length
         ? html`<ul>${task.depends_on.map((dep) => html`<li key=${dep}>${dep}</li>`)}</ul>`
         : "Ninguna"}</td>
