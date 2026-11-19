@@ -15,7 +15,7 @@ import { modeHelpEntry } from "./help-text.js";
 import { ModelPicker } from "./model-picker.js";
 import {
   SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, answerRows, cardDescription, createConversation, currentQuestion, formSeed, inputsPath, loadCatalog, originLabel, parseCommand,
-  pickRuns, progress, reduce, runBody, suggestedEntries,
+  pickRuns, progress, reduce, runBody, singleSessionBody, singleSessionModels, suggestedEntries,
 } from "./new-session-model.js";
 import { navigate, threadHref, useRoute } from "./route.js";
 import { RunThread } from "./thread.js";
@@ -23,6 +23,8 @@ import { MODE_LABELS, errorText, exampleText, fmtDate, statusInfo } from "./text
 
 const MODES = Object.keys(MODE_LABELS);
 const FREE_PLACEHOLDER = "Ej.: quiero resumir un documento";
+const SINGLE_PREVIEW_PATH = "/gui/api/runs/preview";
+const SINGLE_RUN_PATH = "/gui/api/runs";
 
 const newKey = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 const asError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
@@ -208,6 +210,91 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
   </section>`;
 }
 
+// SES-T03: one task, one catalog model, then the same run thread as every workflow.
+function SingleSession({ token, mock, connections, onBack }) {
+  const [task, setTask] = useState("");
+  const [model, setModel] = useState("");
+  const [catalogPreview, setCatalogPreview] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmReal, setConfirmReal] = useState(false);
+  const [ready, setReady] = useState(false);
+  const attempt = useRef({ fingerprint: "", key: "" });
+  useEffect(() => {
+    let active = true;
+    apiPost(SINGLE_PREVIEW_PATH, token, {
+      workflow_id: "ask_once", bundle: "general", inputs: { task: "Vista previa" }, execution_mode: "auto",
+    }).then((result) => { if (active) setCatalogPreview(result.routing); },
+      (failure) => { if (active) setError(asError(failure)); });
+    return () => { active = false; };
+  }, [token]);
+  const choices = singleSessionModels(connections, catalogPreview);
+  const selected = choices.some((choice) => choice.models.some((item) => item.id === model));
+  const check = async () => {
+    if (!task.trim() || !selected || busy) return;
+    setBusy(true); setError(null);
+    try {
+      const body = singleSessionBody(task, model);
+      const { project_name, ...previewBody } = body;
+      const result = await apiPost(SINGLE_PREVIEW_PATH, token, previewBody);
+      setPreview(result); setReady(true);
+    } catch (failure) { setError(asError(failure)); }
+    finally { setBusy(false); }
+  };
+  const launch = async () => {
+    if (!ready || !preview || !selected || busy || (!mock && !confirmReal)) return;
+    setBusy(true); setError(null);
+    try {
+      const body = singleSessionBody(task, model);
+      const fingerprint = JSON.stringify(body);
+      if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: newKey() };
+      const run = await apiPost(SINGLE_RUN_PATH, token, {
+        ...body, idempotency_key: attempt.current.key,
+      });
+      attempt.current = { fingerprint: "", key: "" };
+      location.hash = threadHref(run.id);
+    } catch (failure) { setError(asError(failure)); setBusy(false); }
+  };
+  const edit = () => { setReady(false); setPreview(null); setError(null); };
+  return html`<div class="ns">
+    <div class="ns-intro"><h3 class="ns-title">Sesión única</h3>
+      <p class="ns-lead">Describe una tarea sencilla y elige un modelo del paquete general.</p>
+      <button type="button" class="btn secondary" ...${helpFor("chat.session_mode")} onClick=${onBack}>Cambiar modo</button>
+      <${Help} topic="chat.session_mode" compact=${true} /></div>
+    <section class="panel" aria-label="Modelo de la sesión única">
+      <strong>Modelo</strong><${Help} topic="chat.single_model" compact=${true} />
+      ${!catalogPreview && !error && html`<p role="status">Leyendo modelos del paquete…</p>`}
+      ${choices.map((choice) => html`<div key=${choice.provider} class="ns-row">
+        ${choice.models.map((item) => html`<label key=${item.id} class="ns-picker-choice">
+          <input type="radio" name="single-model" value=${item.id} checked=${model === item.id}
+            ...${helpFor("chat.single_model")} onChange=${() => { setModel(item.id); edit(); }} />
+          <span>${choice.provider} · ${item.id}</span></label>`)}
+        ${choice.reason && html`<p class="muted small">${choice.provider}: ${choice.reason}</p>`}
+      </div>`)}
+      ${catalogPreview && choices.length === 0 && html`<p role="status">No hay proveedores de modelos conectados.</p>`}
+    </section>
+    <div class="ns-composer"><label for="single-task">Tarea</label><${Help} topic="chat.single_task" compact=${true} />
+      <textarea id="single-task" rows="5" value=${task} disabled=${ready || busy}
+        ...${helpFor("chat.single_task")} onInput=${(event) => { setTask(event.target.value); edit(); }}></textarea></div>
+    ${error && html`<p class="message error" role="alert">${errorText(error)}</p>`}
+    ${ready && html`<section class="ns-confirm panel" aria-label="Resumen antes de lanzar">
+      <p><strong>Modelo:</strong> ${model}</p><p><strong>Tarea:</strong> ${task}</p>
+      <${PreviewPanel} preview=${preview} error=${null} loading=${false} />
+      ${!mock && html`<label class="check"><input type="checkbox" checked=${confirmReal}
+        ...${helpFor("create.confirm_real")} onChange=${(event) => setConfirmReal(event.target.checked)} />
+        Entiendo que esta ejecución puede usar modelos reales.</label>`}
+      <button type="button" class="btn" disabled=${busy || !selected || (!mock && !confirmReal)}
+        ...${helpFor("chat.launch")} onClick=${launch}>${busy ? "Lanzando…" : "Lanzar"}</button>
+      <${Help} topic="chat.launch" compact=${true} />
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.edit")} onClick=${edit}>Editar</button>
+      <${Help} topic="chat.edit" compact=${true} />
+    </section>`}
+    ${!ready && html`<button type="button" class="btn" disabled=${busy || !task.trim() || !selected}
+      ...${helpFor("chat.single_task")} onClick=${check}>Revisar y lanzar</button>`}
+  </div>`;
+}
+
 export function NewSession({ token, mock }) {
   const route = useRoute();
   const runId = route.section === "new" ? route.id : null;
@@ -218,6 +305,7 @@ export function NewSession({ token, mock }) {
   const [catalog, setCatalog] = useState({ entries: [], loading: true, error: null });
   const [connections, setConnections] = useState({ data: null, loading: true, error: null });
   const [selectedConnection, setSelectedConnection] = useState(null);
+  const [sessionKind, setSessionKind] = useState(null); // SES-T03: ask the mode before either flow.
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingCloud, setPendingCloud] = useState(null);
@@ -463,6 +551,17 @@ export function NewSession({ token, mock }) {
 
   if (runId) return html`<${RunThread} key=${runId} token=${token} runId=${runId} />`;
 
+  // SES-T03: the orchestrator flow below keeps its existing state and ordering.
+  if (sessionKind === null) return html`<div class="ns ns-intro"><h3 class="ns-title">¿Cómo quieres empezar?</h3>
+    <p class="ns-lead">Elige el tipo de sesión antes de describir tu tarea.</p>
+    <div class="actions"><button type="button" class="btn" ...${helpFor("chat.session_mode")}
+      onClick=${() => setSessionKind("orchestrator")}>Orquestador</button>
+      <button type="button" class="btn secondary" ...${helpFor("chat.session_mode")}
+        onClick=${() => setSessionKind("single")}>Sesión única</button></div>
+    <${Help} topic="chat.session_mode" compact=${true} /></div>`;
+  if (sessionKind === "single") return html`<${SingleSession} token=${token} mock=${mock}
+    connections=${connections.data} onBack=${() => setSessionKind(null)} />`;
+
   if (view === "form") {
     return html`<${CreateRun} token=${token} mock=${mock} initial=${formInitial}
       onClose=${() => setView("chat")} onCreated=${(run) => navigate("runs", run.id)} />`;
@@ -486,6 +585,9 @@ export function NewSession({ token, mock }) {
   };
 
   return html`<div class="ns">
+    <button type="button" class="btn secondary" ...${helpFor("chat.session_mode")}
+      onClick=${() => setSessionKind(null)}>Cambiar modo</button>
+    <${Help} topic="chat.session_mode" compact=${true} />
     <div class="ns-intro">
       <h3 class="ns-title">¿Qué quieres hacer?</h3>
       <p class="ns-lead">Escribe en tus palabras lo que necesitas, o elige una opción. Te guío paso a paso y nada se ejecuta sin que lo confirmes.</p>

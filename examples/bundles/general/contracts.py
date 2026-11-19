@@ -88,6 +88,11 @@ class CollectedOutputs(StrictModel):
     steps: dict[str, dict[str, object]]
 
 
+# -- ask_once -----------------------------------------------------------------------------------
+class FreeTextAnswer(StrictModel):
+    answer: str = Field(min_length=1)
+
+
 OUTPUT_SCHEMAS = {
     "KeyPoints": KeyPoints,
     "DocumentSummary": DocumentSummary,
@@ -97,9 +102,11 @@ OUTPUT_SCHEMAS = {
     "ChecklistResult": ChecklistResult,
     "ReviewReport": ReviewReport,
     "CollectedOutputs": CollectedOutputs,
+    "FreeTextAnswer": FreeTextAnswer,
 }
 
 SAMPLE_OUTPUTS = {
+    "FreeTextAnswer": {"answer": "Esta es una respuesta de ejemplo de Mock."},
     "CollectedOutputs": {"steps": {}},
     "KeyPoints": {
         "key_points": [

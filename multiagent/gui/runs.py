@@ -331,9 +331,22 @@ def _routing_preview(services, workflow_id: str, bundle: str | None, inputs: dic
         if step.get("function") and step["id"] in preferences:
             raise translate(FunctionStepRequestError(step["id"]))
     engine = services.system.engine if bundle is None else None
+    # SES-T03: validate bundle preferences with the same read-only selector used by run creation.
+    # Build no bundle runtime here: that would create a database and possibly start its worker.
+    if bundle is not None and preferences:
+        from ..model_router import ModelRouter
+        from ..workflow_engine import WorkflowEngine
+
+        loaded = services.definitions._bundle(bundle)
+        engine = WorkflowEngine(
+            store=services.system.store, catalog=loaded.catalog, prompts=loaded.prompts,
+            workflows=loaded.workflows,
+            router=ModelRouter(loaded.catalog, services.system.adapters,
+                               dry_run=services.system.engine.router.dry_run),
+            artifacts=services.system.engine.artifacts, settings=loaded.settings,
+            output_schemas=loaded.output_schemas,
+        )
     if preferences:
-        if engine is None:
-            raise ServiceError(INVALID_REQUEST, "Bundle preferences are unavailable in read-only preview", status=422)
         draft = RunRequest(workflow_id=workflow_id, project_name="Preview", inputs=inputs,
                            execution_mode=execution_mode, sensitive=sensitive, routing_preferences=preferences)
         try:
@@ -343,9 +356,8 @@ def _routing_preview(services, workflow_id: str, bundle: str | None, inputs: dic
     if bundle is None:
         catalog, router = services.system.catalog, services.system.engine.router
     else:
-        # Bundle routing is declared by the bundle. Use its catalog for profile details; model selection stays
-        # unavailable here because preview never builds or mutates a bundle runtime.
-        catalog, router = services.definitions._bundle(bundle).catalog, None
+        catalog = engine.catalog if engine is not None else services.definitions._bundle(bundle).catalog
+        router = engine.router if engine is not None else None
     steps = []
     for step in definition.get("steps", []):
         try:
@@ -420,7 +432,7 @@ def _routing_preview(services, workflow_id: str, bundle: str | None, inputs: dic
                 model_options = []
         elif profile_id and bundle is not None:
             model, status = None, "bundle_selection_unavailable"
-            model_options = []
+            model_options = [key for key in (profile.get("candidate_model_ids") or []) if key in catalog.models]
         steps.append({"step_id": step["id"], "step_kind": step.get("kind") or "work", "skipped": False,
                       "profile_id": profile_id, "mode": mode, "level": level, "model": model,
                       "effort": effort, "status": status, "reason_codes": reasons,
@@ -430,7 +442,10 @@ def _routing_preview(services, workflow_id: str, bundle: str | None, inputs: dic
                       "mode_options": ["supervised", "automatic", "single"],
                       "level_options": list(dict.fromkeys(catalog.model(key).level for key in model_options if catalog.model(key).level)),
                       "preferences": preference})
-    return {"steps": steps}
+    # SES-T03: the client needs catalog IDs and providers to intersect with connected providers.
+    return {"steps": steps, "catalog_models": [
+        {"id": key, "provider": spec.provider} for key, spec in catalog.models.items()
+    ]}
 
 
 def build_router(services) -> APIRouter:

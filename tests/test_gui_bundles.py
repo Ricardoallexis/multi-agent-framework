@@ -36,6 +36,11 @@ GENERAL = ROOT / "examples" / "bundles" / "general"
 TEAM = ROOT / "examples" / "teams" / "software_development"
 
 WORKFLOWS = {
+    "ask_once": {  # SES-T03: the single session of «Nueva sesión»
+        "steps": ["answer"],
+        "reviewed_after": [],
+        "inputs": {"task": "Explica esta idea con palabras sencillas."},
+    },
     "collect_summary": {
         "steps": ["summarize", "collect"],
         "reviewed_after": [],
@@ -297,7 +302,7 @@ def test_the_example_has_the_bundle_layout():
         assert document["id"] == workflow_id
         assert [step["id"] for step in document["steps"]] == WORKFLOWS[workflow_id]["steps"]
         assert [step["id"] for step in document["steps"] if step.get("checkpoint_after")] == WORKFLOWS[workflow_id]["reviewed_after"]
-        assert 2 <= len(document["steps"]) <= 4  # fits the default model-call budget of 4
+        assert 1 <= len(document["steps"]) <= 4  # fits the default model-call budget of 4 (ask_once has one step)
         for step in document["steps"]:
             if step.get("function"):
                 assert "agent" not in step and "prompt_id" not in step

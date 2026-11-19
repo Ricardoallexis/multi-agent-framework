@@ -1,0 +1,24 @@
+# One free-text task, one model call.
+id: ask_once
+description: Responde una tarea sencilla en una sesión única con el modelo elegido.
+max_iterations: 1
+inputs:
+  - name: task
+    label: Tarea
+    description: Describe lo que quieres pedir al modelo.
+    example: Explica esta idea con palabras sencillas.
+    required: true
+    type: long_text
+steps:
+  - id: answer
+    description: Responde a la tarea indicada.
+    agent: summary_writer
+    prompt_id: general/ask_once
+    prompt_version: 1
+    skills: []
+    contract: FreeTextAnswer
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false

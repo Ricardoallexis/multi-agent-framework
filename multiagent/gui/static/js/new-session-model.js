@@ -21,6 +21,31 @@ export const MAX_SUGGESTIONS = 4;
 export const PROJECT_KEY = "@project";          // not an identifier, so it never clashes with an input name
 export const PROJECT_MIN = 2;
 export const PROJECT_MAX = 120;
+
+// SES-T03: a single session can offer only a connected provider's model that the
+// ask_once step admits in the general bundle. The server remains the final validator.
+export function singleSessionModels(connections, routing) {
+  const rows = Array.isArray(connections?.connections) ? connections.connections : [];
+  const allowed = new Set(routing?.steps?.find((step) => step.step_id === "answer")?.model_options || []);
+  const models = Array.isArray(routing?.catalog_models) ? routing.catalog_models : [];
+  return rows.filter((row) => ["ollama", "gemini", "openai"].includes(row.id)).map((row) => {
+    const matches = models.filter((model) => model.provider === row.id && allowed.has(model.id));
+    return {
+      provider: row.id, models: row.enabled === true && row.available === true ? matches : [],
+      reason: row.enabled !== true || row.available !== true
+        ? "La conexión no está habilitada y disponible."
+        : matches.length ? null : "Este proveedor no tiene un modelo admitido en el catálogo del paquete general.",
+    };
+  });
+}
+
+export function singleSessionBody(task, model) {
+  return {
+    workflow_id: "ask_once", bundle: "general", project_name: "Sesión única",
+    inputs: { task: String(task).trim() }, execution_mode: "auto", sensitive: false,
+    routing_preferences: { answer: { mode: "single", model } },
+  };
+}
 export const STARTERS = [
   { id: "workflow", label: "Trabajar en un workflow" },
   { id: "continuar", label: "Continuar una ejecución" },

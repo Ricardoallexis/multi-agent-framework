@@ -1475,6 +1475,33 @@ export const HELP = {
       "Los chips muestran preferencias, no garantizan qué modelo se usará efectivamente; la vista previa solo muestra el prompt y no ejecuta nada."
     ]
   },
+  "chat.session_mode": {
+    "title": "Tipo de sesión",
+    "hint": "Elige Orquestador o Sesión única antes de empezar.",
+    "more": [
+      "Orquestador conserva las preguntas del workflow, el equipo y el plan actuales.",
+      "Sesión única pide una tarea y un modelo del paquete general.",
+      "Puedes volver a elegir el modo antes de lanzar."
+    ]
+  },
+  "chat.single_model": {
+    "title": "Modelo para la tarea",
+    "hint": "Elige un modelo admitido y conectado.",
+    "more": [
+      "Solo aparecen modelos del catálogo del paquete general cuyo proveedor está conectado.",
+      "Si un proveedor no tiene un modelo admitido, se muestra el motivo.",
+      "El servidor valida de nuevo la elección al revisar y lanzar."
+    ]
+  },
+  "chat.single_task": {
+    "title": "Tarea de sesión única",
+    "hint": "Escribe una tarea de texto libre y revísala antes de lanzar.",
+    "more": [
+      "La tarea pasa al único paso del workflow ask_once.",
+      "Revisar muestra el prompt y comprueba el modelo sin ejecutar nada.",
+      "Lanzar crea la ejecución y abre su hilo."
+    ]
+  },
   "chat.model_picker": {
     "title": "Modelos y ejecutores conectados",
     "hint": "Elige una opción comprobada para la próxima sesión única.",
