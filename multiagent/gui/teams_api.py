@@ -8,7 +8,9 @@ Everything comes from ``services.teams`` (EQP-T03 and EQP-T04), so HTTP, CLI and
 * ``GET /teams``: the bundles with a ``team.yaml``, each with its approved version (or ``null``) and its latest pending
   proposal (or ``null``). The versions are summaries: no team body.
 * ``GET /teams/{bundle}/versions``: the versions of a bundle, oldest first.
-* ``GET /teams/versions/{id}``: one version with its diff against the approved one.
+* ``GET /teams/versions/{id}``: one version with its diff against the approved one (an empty team when there is none)
+  and its ``card`` (CHT-T05): per role the rules, permissions and the model its agent resolves to in the catalog, and
+  the team mode.
 * ``GET /teams/{bundle}/org-chart?version_id=``: the organization chart and its Mermaid text.
 * ``POST /teams/versions/{id}/approve`` and ``/reject`` with ``{"note"?}``: the decision. The actor is fixed by the
   server (``user:operator``, the person holding the token) and the channel is ``gui``; the page cannot pick either.
@@ -35,7 +37,7 @@ class DecisionBody(BaseModel):
 def _summary(version: dict[str, Any] | None) -> dict[str, Any] | None:
     if version is None:
         return None
-    return {key: value for key, value in version.items() if key not in ("team", "diff")}
+    return {key: value for key, value in version.items() if key not in ("team", "diff", "card")}
 
 
 def add_teams_routes(api: APIRouter, services: ApplicationServices) -> None:
@@ -61,7 +63,7 @@ def add_teams_routes(api: APIRouter, services: ApplicationServices) -> None:
 
     @api.get("/teams/versions/{version_id}")
     def team_version(version_id: str):
-        return services.teams.get(version_id)
+        return services.teams.get_card(version_id)
 
     @api.post("/teams/versions/{version_id}/approve")
     def approve(version_id: str, body: DecisionBody | None = None):

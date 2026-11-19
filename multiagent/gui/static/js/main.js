@@ -11,6 +11,7 @@ import { startStream } from "./stream.js";
 import { publishEvent } from "./bus.js";
 import { navigate, useRoute, NEW_SECTION } from "./route.js";
 import { NewSession } from "./new-session.js";
+import { TeamThread } from "./team-thread.js";   // CHT-T05
 import { RightPanel } from "./right-panel.js";
 import { AgentTree } from "./agent-tree.js";
 import { Runs } from "./runs.js";
@@ -107,7 +108,8 @@ function App({ token }) {
     ${section === "usage" ? html`<h2 id="usage-title">Uso</h2>` : html`<h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : current?.label}</h2>`}
     <${Sessions} token=${token} route=${route} active=${section === "sessions"} />
     ${tree && html`<${AgentTree} key=${route.id || ""} token=${token} sessionId=${route.id} />`}
-    ${creating && html`<${NewSession} token=${token} mock=${mock} />`}
+    ${creating && route.kind === "team" && html`<${TeamThread} key=${route.id} token=${token} versionId=${route.id} />`}
+    ${creating && route.kind !== "team" && html`<${NewSession} token=${token} mock=${mock} />`}
     ${section === "runs" && html`<${Runs} token=${token} status=${status} mock=${mock} initialRunId=${route.id} />`}
     ${section === "usage" && html`<${Usage} token=${token} />`}
     ${section === "evaluation" && html`<${Evaluation} token=${token} route=${route} />`}

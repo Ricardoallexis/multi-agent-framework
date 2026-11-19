@@ -57,8 +57,8 @@ def pending_items(services: Any) -> list[dict[str, Any]]:
             title = f"{bundle} · v{version.get('version') or version_id}"
             items.append(_item("team", version_id, title, "Versión de equipo propuesta",
                                version.get("proposed_at") or version.get("created_at"),
-                               # Team detail view until CHT-T05 adds the thread route (#new/team/<version id>).
-                               "#teams/" + quote(bundle, safe="")))
+                               # CHT-T05: the team card thread, one stop with Approve and Reject.
+                               "#new/team/" + quote(version_id, safe="")))
 
     for proposal in services.plan_proposals.list(status="proposed"):
         proposal_id = str(proposal["id"])

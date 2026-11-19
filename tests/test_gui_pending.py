@@ -93,8 +93,8 @@ def test_endpoint_lists_each_pending_kind_with_a_local_link_and_does_not_mutate(
     assert set(items) == {"run", "team", "plan", "continuity", "task"}
     assert items["run"]["id"] == "run:" + run_id and items["run"]["reason"] == "review"
     assert items["run"]["href"] == "#new/run/" + run_id
-    # Team and plan open their detail views until CHT-T05/T06 add #new/team/<id> and #new/plan/<id>.
-    assert items["team"]["id"] == "team:" + team["id"] and items["team"]["href"] == "#teams/general"
+    # The plan opens its detail view until CHT-T06 adds #new/plan/<id>; the team opens its card thread (CHT-T05).
+    assert items["team"]["id"] == "team:" + team["id"] and items["team"]["href"] == "#new/team/" + team["id"]
     assert items["plan"]["id"] == "plan:" + proposal["id"] and items["plan"]["href"] == "#plans/" + proposal["id"]
     assert items["continuity"]["href"] == "#continuity"
     assert items["task"]["href"] == "#task_waiting" and items["task"]["reason"] == "Choose a synthetic option"

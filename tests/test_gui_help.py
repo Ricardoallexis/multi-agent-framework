@@ -42,6 +42,7 @@ VIEW_FILES += ["external-output.js"]   # HIL2-T02: «Salida externa» of the run
 VIEW_FILES += ["new-session.js"]       # the guided chat of «Nueva sesión» (GUI2-T03); new-session-model.js draws nothing
 VIEW_FILES += ["thread.js", "thread-cards.js"]  # CHT-T02: the run conversation and its decision cards
 VIEW_FILES += ["pending.js"]           # RWD-T03: the «Pendientes» inbox of the top bar
+VIEW_FILES += ["team-thread.js", "team-card.js"]   # CHT-T05: the chat thread of a team version and its card
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
 ALLOWED_EXEMPT = {

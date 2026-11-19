@@ -98,10 +98,14 @@ def compute_team_diff(
 ) -> dict[str, Any]:
     """Compute structural differences between ``base_team`` (or empty) and ``target_team``."""
     team_fields: dict[str, dict[str, Any]] = {}
-    if base_team is not None:
-        for field in _TEAM_HEADER_FIELDS:
-            if base_team.get(field) != target_team.get(field):
-                team_fields[field] = {"before": base_team.get(field), "after": target_team.get(field)}
+    # CHT-T05: a first version is compared against an empty team. Its ``mode`` counts as a change from nothing, so the
+    # card shows the mode a person is about to approve; id, description and schema_version are not repeated as "changes"
+    # (a legacy team without a mode keeps an empty ``team_fields``, as it always did).
+    header_fields = _TEAM_HEADER_FIELDS if base_team is not None else ("mode",)
+    base_header = base_team or {}
+    for field in header_fields:
+        if base_header.get(field) != target_team.get(field):
+            team_fields[field] = {"before": base_header.get(field), "after": target_team.get(field)}
     roles = _diff_by_id((base_team or {}).get("roles", []), target_team.get("roles", []))
     members = _diff_by_id((base_team or {}).get("members", []), target_team.get("members", []))
     assignments = _diff_by_key(
@@ -159,6 +163,48 @@ def _view(
     return data
 
 
+# CHT-T05: the card a person reads before deciding on a version: per role its rules, permissions and the model that
+# results from its agent in the bundle's catalog, plus the team mode.
+_CARD_ROLE_FIELDS = ("id", "purpose", "rules", "skills", "contracts", "capabilities", "permissions")
+
+
+def _model_entry(spec: Any) -> dict[str, Any]:
+    return {"id": spec.id, "provider": spec.provider, "model": spec.model, "tier": spec.tier,
+            "host": getattr(spec, "host", "unknown")}
+
+
+def _role_models(
+    role: dict[str, Any],
+    agents: list[str],
+    steps: list[Any],
+    catalog: Any,
+) -> dict[str, Any]:
+    """The models a role's agents run with, read from the workflow steps that use them and the catalog."""
+    if not agents:
+        return {"status": "no_agent", "models": [], "missing": []}
+    declared = getattr(catalog, "agents", None) or {}
+    named: list[str] = []
+    for step in steps:
+        if getattr(step, "function", None):
+            continue
+        if step.agent in agents or (step.role == role["id"] and step.agent is None):
+            for model_id in (step.preferred_model, step.fallback_model):
+                if model_id and model_id not in named:
+                    named.append(model_id)
+    known = getattr(catalog, "models", {}) or {}
+    models = [_model_entry(known[item]) for item in named if item in known]
+    missing = [item for item in named if item not in known]
+    if not named:
+        status = "no_step" if any(item in declared for item in agents) else "agent_not_in_catalog"
+    elif models and not missing:
+        status = "resolved"
+    elif models:
+        status = "partial"
+    else:
+        status = "not_in_catalog"
+    return {"status": status, "models": models, "missing": missing}
+
+
 class TeamServices:
     """Manage versioned team definitions and human approval gates."""
 
@@ -177,6 +223,44 @@ class TeamServices:
         if not isinstance(value, str) or not _ID.fullmatch(value):
             raise _invalid("version_id", f"Invalid team version id: {value!r}")
         return value
+
+    def _card(self, bundle: str, team: dict[str, Any]) -> dict[str, Any]:
+        """Roles with their rules, permissions and resolved models, and the team mode (CHT-T05).
+
+        The models come from the bundle as it is now: the version stores the team, not the catalog. A bundle that cannot
+        be read leaves the roles without a model and says so in ``model_error``, so the card never fails the view.
+        """
+        steps: list[Any] = []
+        catalog: Any = None
+        error: str | None = None
+        try:
+            from ..catalog import Catalog
+            from ..workflows import WorkflowCatalog
+            root = self._services.bundle_path(bundle)
+            catalog = Catalog(self._services.settings,
+                              catalog_dir=root / "catalog" if (root / "catalog").is_dir() else None)
+            workflows = WorkflowCatalog(self._services.settings, workflows_dir=root / "workflows")
+            for workflow_id in self._services.definitions._workflow_ids(bundle):
+                try:
+                    steps.extend(workflows.load(workflow_id).steps)
+                except Exception:   # one unreadable workflow leaves its steps out; the others still count
+                    error = "Some workflows could not be read."
+        except Exception as exc:
+            catalog = None
+            error = f"The bundle catalog could not be read ({type(exc).__name__})."
+        members = {item["id"]: item for item in team.get("members", [])}
+        roles = []
+        for role in team.get("roles", []):
+            assigned = [members[item["member"]] for item in team.get("assignments", [])
+                        if item["role"] == role["id"] and item["member"] in members]
+            agents = [item["agent"] for item in assigned if item.get("kind") == "agent" and item.get("agent")]
+            card = {field: role.get(field) for field in _CARD_ROLE_FIELDS}
+            card["members"] = [{"id": item["id"], "kind": item.get("kind"), "name": item.get("name"),
+                                "agent": item.get("agent")} for item in assigned]
+            card["model"] = (_role_models(role, agents, steps, catalog) if catalog is not None
+                             else {"status": "no_agent" if not agents else "unavailable", "models": [], "missing": []})
+            roles.append(card)
+        return {"mode": team.get("mode"), "roles": roles, "model_error": error}
 
     def _diff_against_row(self, base_row: dict[str, Any] | None, target_row: dict[str, Any]) -> dict[str, Any]:
         base_team = json.loads(base_row["team_json"]) if base_row is not None else None
@@ -384,6 +468,13 @@ class TeamServices:
             base_row = self._default_base_row(conn, row, current_approved)
         current_id = current_approved["id"] if current_approved else None
         return _view(row, current_approved_id=current_id, diff=self._diff_against_row(base_row, row))
+
+    @service_errors
+    def get_card(self, version_id: str) -> dict[str, Any]:
+        """``get`` plus the ``card`` a person reads before deciding (CHT-T05); the GUI uses it and ``get`` stays as it was."""
+        result = self.get(version_id)
+        result["card"] = self._card(result["bundle"], result["team"])
+        return result
 
     @service_errors
     def list(self, bundle: str, *, status: str | None = None) -> dict[str, Any]:

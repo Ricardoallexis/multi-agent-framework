@@ -10,6 +10,7 @@ import { Help, helpFor } from "./help.js";
 import { Confirm } from "./human-actions.js";
 import { routeHref } from "./route.js";
 import { StatusChip } from "./ui/index.js";
+import { TeamCardBody, TeamDiffBody } from "./team-card.js";   // CHT-T05: the same card as the chat
 
 const BASE = "/gui/api/teams";
 const enc = encodeURIComponent;
@@ -185,7 +186,9 @@ function VersionDiff({ token, versionId }) {
   const [state] = useLoad(BASE + "/versions/" + enc(versionId), token);
   if (state.error) return html`<${Failure} error=${state.error} />`;
   if (!state.data) return html`<p role="status" aria-live="polite">Cargando los cambios…</p>`;
-  return html`<div class="usage-comparison"><h5>Cambios de la versión ${state.data.version}</h5><${DiffView} diff=${state.data.diff} /></div>`;
+  // CHT-T05: the card (mode, rules, permissions, model per role) and the full diff, the same as in the chat.
+  return html`<div class="usage-comparison"><h5>Versión ${state.data.version}</h5>
+    ${state.data.card && html`<${TeamCardBody} card=${state.data.card} />`}<${TeamDiffBody} diff=${state.data.diff} /></div>`;
 }
 
 // Approve or reject the pending proposal, each behind a confirmation with an optional note. The service answers; its

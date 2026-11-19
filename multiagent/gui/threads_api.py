@@ -124,7 +124,24 @@ def build_thread(services: Any, run: dict[str, Any], *, after: int = 0) -> dict[
             "entries": [entry for entry in entries if entry["seq"] > after]}
 
 
+def build_team_thread(services: Any, version_id: str) -> dict[str, Any]:
+    """CHT-T05: the thread of a team version is one stop. The decision goes through the existing teams routes."""
+    version = services.teams.get_card(version_id)
+    actions = ["approve", "reject"] if version["status"] == "proposed" else []
+    summary = {key: version.get(key) for key in ("id", "bundle", "team_id", "version", "status", "active", "created_by",
+                                                 "proposed_by", "proposed_at", "decided_by", "decided_at", "note")}
+    entry = {"seq": 1, "ts": version.get("proposed_at") or version.get("created_at"), "kind": "team_version",
+             "text": f"Team {version['team_id']} version {version['version']}", "version": summary,
+             "card": version["card"], "diff": version["diff"],
+             "decision": {"type": "team_approval", "step_id": "", "attempt": None, "actions": actions}}
+    return {"version_id": version["id"], "status": version["status"], "cursor": 1, "entries": [entry]}
+
+
 def add_thread_routes(api: APIRouter, services: Any) -> None:
     @api.get("/threads/runs/{run_id}")
     def thread(run_id: str, after: int = Query(0, ge=0)):
         return build_thread(services, services.runs.get(run_id), after=after)
+
+    @api.get("/threads/teams/{version_id}")   # CHT-T05
+    def team_thread(version_id: str):
+        return build_team_thread(services, version_id)

@@ -1629,6 +1629,51 @@ export const HELP = {
     "hint": "Muestra las llamadas usadas y el máximo de esta ejecución.",
     "more": ["El número ayuda a decidir si pedir cambios.", "No cambia el presupuesto del workflow."]
   },
+  "team_card.mode": {
+    "title": "Modo del equipo",
+    "hint": "Dice con qué modo corren las ejecuciones que usan este equipo: supervisado o autónomo.",
+    "more": ["Una ejecución hereda este modo si no se elige otro al lanzarla.", "Los valores posibles son supervisado y autónomo.", "Si la versión no declara un modo, la tarjeta lo dice."]
+  },
+  "team_card.section": {
+    "title": "Puestos, reglas, permisos y modelo",
+    "hint": "Por cada puesto: sus reglas, lo que puede hacer y el modelo que usaría su agente.",
+    "more": ["Las reglas y los permisos salen de la versión que vas a decidir.", "El modelo se lee de los flujos y del catálogo del bundle tal como están ahora.", "Si un puesto no tiene agente o su modelo no está en el catálogo, la tarjeta lo dice en lugar de ocultarlo."]
+  },
+  "team_card.diff": {
+    "title": "Cambios de la versión",
+    "hint": "Lo que cambia frente a la versión aprobada, o todo lo nuevo si no hay ninguna.",
+    "more": ["Incluye los datos del equipo, los puestos con sus reglas y permisos, los miembros, las asignaciones y las relaciones.", "La primera versión se compara contra un equipo vacío."]
+  },
+  "team_card.approve": {
+    "title": "Aprobar la versión",
+    "hint": "Pide confirmación antes de aprobar esta versión del equipo.",
+    "more": ["La versión aprobada pasa a ser la activa del equipo.", "La decisión queda registrada a nombre del operador, con el canal de la interfaz y tu nota."]
+  },
+  "team_card.reject": {
+    "title": "Rechazar la versión",
+    "hint": "Pide confirmación antes de rechazar esta versión del equipo.",
+    "more": ["La versión queda rechazada y la aprobada actual no cambia.", "Una versión rechazada no se puede aprobar después: hay que proponer otra."]
+  },
+  "team_card.note": {
+    "title": "Nota de la decisión",
+    "hint": "Texto opcional que queda guardado junto a la decisión.",
+    "more": ["Sirve para explicar por qué se aprueba o se rechaza.", "Puede quedar vacía."]
+  },
+  "team_card.confirm": {
+    "title": "Confirmar la decisión",
+    "hint": "Envía la decisión sobre esta versión o vuelve sin decidir.",
+    "more": ["Sí envía la decisión con tu nota.", "Volver cierra la confirmación y no cambia nada."]
+  },
+  "team_card.open": {
+    "title": "Ver en Equipos",
+    "hint": "Abre el equipo en la vista de Equipos, con su organigrama y sus versiones.",
+    "more": ["La decisión se puede tomar aquí o allí: es la misma.", "No cambia nada por sí solo."]
+  },
+  "team_card.refresh": {
+    "title": "Actualizar la versión",
+    "hint": "Vuelve a leer la versión del equipo y su tarjeta.",
+    "more": ["Sirve si otra persona ya decidió o si cambió el catálogo del bundle.", "No cambia nada en el servidor."]
+  },
   "shell.search": {
     "title": "Buscar en la lista",
     "hint": "Filtra la lista de la izquierda mientras escribes.",
