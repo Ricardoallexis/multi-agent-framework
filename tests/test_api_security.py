@@ -23,7 +23,7 @@ def make_client(tmp_path, *, hosts=None, base_url="http://localhost"):
     definitions = Mock()
     definitions.list_workflows.return_value = [{"id": "example", "bundle": None}]
     services = SimpleNamespace(
-        system=SimpleNamespace(settings=settings, worker=Mock()),
+        system=SimpleNamespace(settings=settings, worker=Mock(), catalog=Mock()),
         runs=runs, definitions=definitions,
     )
     return TestClient(create_app(services=services), base_url=base_url), runs
