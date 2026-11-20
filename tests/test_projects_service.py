@@ -1058,7 +1058,8 @@ def test_a_run_can_carry_the_task_it_works_for(tmp_path):
 def test_a_run_without_a_task_keeps_the_fingerprint_it_had_before_the_field_existed():
     request = RunRequest(**RUN, idempotency_key="k")
     payload = request.model_dump(mode="json")
-    for name in ("idempotency_key", "task_id"):
+    # fields that did not exist then: task_id, and CUO-T03's confirm_cloud and server-derived grants
+    for name in ("idempotency_key", "task_id", "confirm_cloud", "effective_permissions", "authorized_data_classes"):
         payload.pop(name)
     old = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     assert _canonical_request_fingerprint(request) == old

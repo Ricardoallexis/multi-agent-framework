@@ -907,6 +907,7 @@ def cmd_run(args) -> None:
             **({"operating_mode": args.operating_mode} if args.operating_mode else {}),
             "step_modes": _parse_step_modes(args.step_mode),
             "sensitive": args.sensitive,
+            **({"confirm_cloud": True} if args.confirm_cloud else {}),  # CUO-T03: the person confirms cloud use
         }
         pretty(_api_json("POST", "/api/v1/runs", json_body=payload, params=_bundle_params(args)))
         return
@@ -1415,6 +1416,8 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--pipeline", choices=[m.value for m in PipelineMode], default="quick")
     x.add_argument("--step-mode", action="append", help="Override per step, e.g. strategy=human_guided")
     x.add_argument("--sensitive", action="store_true", help="Force local routing in AUTO and add a warning to Human Guided prompts")
+    x.add_argument("--confirm-cloud", action="store_true",
+                   help="Confirm sending this generic run to a cloud model (--mode cloud or a cloud model preference)")
     x.set_defaults(func=cmd_run)
 
     x = sub.add_parser("workflows", help="List workflows or inspect one workflow")

@@ -236,6 +236,7 @@ function SingleSession({ token, mock, connections, onBack }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [confirmReal, setConfirmReal] = useState(false);
+  const [confirmCloud, setConfirmCloud] = useState(false);
   const [ready, setReady] = useState(false);
   const attempt = useRef({ fingerprint: "", key: "" });
   useEffect(() => {
@@ -247,6 +248,8 @@ function SingleSession({ token, mock, connections, onBack }) {
     return () => { active = false; };
   }, [token]);
   const choices = singleSessionModels(connections, catalogPreview);
+  const cloudSelected = choices.some((choice) => choice.provider !== "ollama" &&
+    choice.models.some((item) => item.id === model));
   const selected = choices.some((choice) => choice.models.some((item) => item.id === model));
   const check = async () => {
     if (!task.trim() || !selected || busy) return;
@@ -260,10 +263,10 @@ function SingleSession({ token, mock, connections, onBack }) {
     finally { setBusy(false); }
   };
   const launch = async () => {
-    if (!ready || !preview || !selected || busy || (!mock && !confirmReal)) return;
+    if (!ready || !preview || !selected || busy || (!mock && !confirmReal) || (cloudSelected && !confirmCloud)) return;
     setBusy(true); setError(null);
     try {
-      const body = singleSessionBody(task, model);
+      const body = singleSessionBody(task, model, cloudSelected && confirmCloud);
       const fingerprint = JSON.stringify(body);
       if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: newKey() };
       const run = await apiPost(SINGLE_RUN_PATH, token, {
@@ -285,7 +288,7 @@ function SingleSession({ token, mock, connections, onBack }) {
       ${choices.map((choice) => html`<div key=${choice.provider} class="ns-row">
         ${choice.models.map((item) => html`<label key=${item.id} class="ns-picker-choice">
           <input type="radio" name="single-model" value=${item.id} checked=${model === item.id}
-            ...${helpFor("chat.single_model")} onChange=${() => { setModel(item.id); edit(); }} />
+            ...${helpFor("chat.single_model")} onChange=${() => { setModel(item.id); setConfirmCloud(false); edit(); }} />
           <span>${choice.provider} · ${item.id}</span></label>`)}
         ${choice.reason && html`<p class="muted small">${choice.provider}: ${choice.reason}</p>`}
       </div>`)}
@@ -298,10 +301,13 @@ function SingleSession({ token, mock, connections, onBack }) {
     ${ready && html`<section class="ns-confirm panel" aria-label="Resumen antes de lanzar">
       <p><strong>Modelo:</strong> ${model}</p><p><strong>Tarea:</strong> ${task}</p>
       <${PreviewPanel} preview=${preview} error=${null} loading=${false} />
+      ${cloudSelected && html`<label class="check"><input type="checkbox" checked=${confirmCloud}
+        ...${helpFor("chat.cloud_confirm")} onChange=${(event) => setConfirmCloud(event.target.checked)} />
+        Confirmo enviar esta tarea al modelo en la nube.</label><${Help} topic="chat.cloud_confirm" compact=${true} />`}
       ${!mock && html`<label class="check"><input type="checkbox" checked=${confirmReal}
         ...${helpFor("create.confirm_real")} onChange=${(event) => setConfirmReal(event.target.checked)} />
         Entiendo que esta ejecución puede usar modelos reales.</label>`}
-      <button type="button" class="btn" disabled=${busy || !selected || (!mock && !confirmReal)}
+      <button type="button" class="btn" disabled=${busy || !selected || (!mock && !confirmReal) || (cloudSelected && !confirmCloud)}
         ...${helpFor("chat.launch")} onClick=${launch}>${busy ? "Lanzando…" : "Lanzar"}</button>
       <${Help} topic="chat.launch" compact=${true} />
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.edit")} onClick=${edit}>Editar</button>

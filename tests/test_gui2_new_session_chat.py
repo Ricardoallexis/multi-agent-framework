@@ -54,6 +54,30 @@ def run_node(script: str, data: dict | None = None) -> dict:
     return json.loads(done.stdout)
 
 
+# CUO-T03: a limited provider returns to word matching with a concrete notice.
+def test_new_session_limit_keeps_keyword_fallback_and_observed_time(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from multiagent.errors import QuotaExceeded
+    from test_gui2_new_session_model import Scripted, make
+
+    retry_at = datetime(2026, 11, 20, 18, tzinfo=timezone.utc)
+    made = make(tmp_path, Scripted(error=QuotaExceeded("synthetic quota", retry_at=retry_at)),
+                gui_new_session_model="cloud_fast")
+    monkeypatch.setattr(made.connections, "list", lambda: {"connections": [
+        {"id": "ollama", "kind": "model", "available": False, "enabled": True},
+        {"id": "gemini", "kind": "model", "available": True, "enabled": True},
+        {"id": "claude_cli", "kind": "executor", "available": True, "enabled": True},
+    ]})
+    try:
+        result = made.new_session.interpret("review a spec", confirm_cloud=True)
+        assert result["source"] == "keywords" and result["reason"] == "limit_reached"
+        assert result["proposal"] is None
+        assert result["limit"]["resets_at"] == retry_at.isoformat()
+        assert result["limit"]["suggestions"] == ["claude_cli"]
+    finally:
+        made.runs.close()
+
+
 # --- the files ---------------------------------------------------------------------------------------------------
 
 def test_chat_files_exist_and_the_page_links_the_stylesheet_after_app_css():

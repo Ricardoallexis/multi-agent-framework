@@ -1051,7 +1051,7 @@ class TaskServices:
                     requirements: Iterable[str] = (), preferred: str = "",
                     release_dependencies: Iterable[Mapping[str, str]] = (), reopen_group: bool = False,
                     expected_group_revision: int | None = None, cause: str = "",
-                    context_refs: Iterable[str] = ()) -> dict[str, Any]:
+                    context_refs: Iterable[str] = (), continuity: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Create an ``open`` task; events ``task.created`` (with its initial status) and ``dependency.added``.
 
         ``depends_on`` holds task ids or ``{"task_id": ..., "requires": ...}``;
@@ -1068,6 +1068,7 @@ class TaskServices:
         actor = _text("actor", actor, maximum=100)
         objective = _text("objective", objective, maximum=4000, required=False)
         preferred = _text("preferred", preferred, maximum=100, required=False)
+        initial_continuity = _continuity_changes(continuity)
         if expected_group_revision is not None and (isinstance(expected_group_revision, bool) or not isinstance(expected_group_revision, int)):
             raise _invalid("expected_group_revision", "expected_group_revision must be an integer")
         if reopen_group:
@@ -1162,7 +1163,8 @@ class TaskServices:
                                             cause=cause, payload={"from": "closed", "to": "open",
                                                                   "revision": group["revision"]})
                 self.store.insert_task(conn, task_id, group_id, title, actor=actor, objective=objective,
-                                       preferred=preferred, requirements=labels, file_scope=scope, context_refs=refs)
+                                       preferred=preferred, requirements=labels, file_scope=scope, context_refs=refs,
+                                       execution=merge_continuity(None, initial_continuity) if initial_continuity else None)
                 added = []
                 for dep_id, requires in wanted:
                     requires = requires or group["default_requires"]

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from ..services.errors import INVALID_REQUEST, ServiceError
+from ..services.limits import LIMIT_REASONS, limit_notice
 
 _EXECUTORS = frozenset({"claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"})
 
@@ -52,7 +53,7 @@ def add_executor_launch_routes(api: APIRouter, services) -> None:
         task_id = "gui-executor-" + identity
         services.tasks.create_group(group_id, "Sesión única con ejecutor", actor="user:operator", authorized=True)
         services.tasks.create_task(group_id, task_id, "Sesión única con ejecutor", actor="user:operator",
-                                   objective=task)
+                                   objective=task, continuity={"mode": "manual"})
         try:
             result = await anyio.to_thread.run_sync(lambda: services.executors.run_task(
                 task_id, body.executor_id, model, effort, actor="user:operator",
@@ -65,11 +66,33 @@ def add_executor_launch_routes(api: APIRouter, services) -> None:
                                           cause=f"executor launch refused: {exc.code}")
             except ServiceError:
                 pass
+            reason = str(exc.details.get("reason") or exc.details.get("code") or "")
+            if reason in LIMIT_REASONS or "quota" in reason:
+                raise ServiceError(exc.code, exc.message, status=exc.status,
+                                   details={**exc.details, "limit": limit_notice(services, body.executor_id)}) from exc
             raise
+        if isinstance(result, dict) and str(result.get("reason") or "") in LIMIT_REASONS:
+            raise ServiceError("limit_reached", "Executor limit reached.", status=409,
+                               details={"limit": limit_notice(services, body.executor_id)})
+        if isinstance(result, dict) and result.get("outcome") == "quota_exhausted" and any(
+            str(note).startswith("not_started:") for note in result.get("notes") or []
+        ):
+            try:
+                services.tasks.transition(task_id, "cancel", actor="user:operator",
+                                          cause="executor launch refused: limit_reached")
+            except ServiceError:
+                pass
+            raise ServiceError("limit_reached", "Executor limit reached.", status=409,
+                               details={"task_id": task_id,
+                                        "limit": limit_notice(services, body.executor_id,
+                                                              retry_at=(result.get("hold") or {}).get("reset_at"))})
         status = services.executors.status(task_id)
         if isinstance(result, dict) and result.get("outcome") == "running":
             response.status_code = 202
-        return {"task_id": task_id, "launch": result, "status": status}
+        return {"task_id": task_id, "launch": result, "status": status,
+                "limit": (limit_notice(services, body.executor_id,
+                                       retry_at=(result.get("hold") or {}).get("reset_at"))
+                          if isinstance(result, dict) and result.get("outcome") == "quota_exhausted" else None)}
 
     @api.get("/executors/launch/{task_id}")
     def launch_status(task_id: str):

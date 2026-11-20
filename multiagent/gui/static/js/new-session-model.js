@@ -40,11 +40,12 @@ export function singleSessionModels(connections, routing) {
   });
 }
 
-export function singleSessionBody(task, model) {
+export function singleSessionBody(task, model, confirmCloud = false) {
   return {
     workflow_id: "ask_once", bundle: "general", project_name: "Sesión única",
     inputs: { task: String(task).trim() }, execution_mode: "auto", sensitive: false,
     routing_preferences: { answer: { mode: "single", model } },
+    ...(confirmCloud ? { confirm_cloud: true } : {}),
   };
 }
 

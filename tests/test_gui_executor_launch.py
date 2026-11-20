@@ -180,10 +180,23 @@ def test_confirmed_launch_returns_and_serves_executor_task_status(world):
     assert body["launch"]["executor_id"] == "claude_cli"
     assert body["status"]["task"]["task_id"] == task_id
     assert body["status"]["task"]["sessions"][0]["executor_id"] == "claude_cli"
+    assert world.services.tasks.get_task(task_id)["continuity"]["mode"] == "manual"
     assert world.fake_cli.calls("claude")
     status = world.client.get(GUI_LAUNCH + "/" + task_id, headers=world.auth)
     assert status.status_code == 200
     assert status.json()["task"]["task_id"] == task_id
+
+
+def test_agy_exhausted_quota_reports_limit_and_does_not_launch(world):
+    world.configure({"antigravity_cli"})
+    world.fake_agy.set(
+        usage={"stdout": usage_text(gemini_week=0, gemini_5h=0, other_week=0, other_5h=0, argon=0)},
+        run={"stdout": []},
+    )
+    response = world.client.post(GUI_LAUNCH, headers=world.auth, json=launch_body("antigravity_cli"))
+    assert response.status_code in {409, 422}, response.text
+    assert response.json()["detail"]["details"]["limit"]["code"] == "limit_reached"
+    assert world.fake_agy.runs() == []
 
 
 def run_node(script: str) -> Any:

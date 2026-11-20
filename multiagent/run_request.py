@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from pydantic import Field, field_validator, field_serializer
+from pydantic import Field, computed_field, field_validator, field_serializer
 
 from .contracts import ExecutionMode, StrictModel
 
@@ -44,9 +44,21 @@ class RunRequest(StrictModel):
     operating_mode: Literal["supervised", "autonomous"] | None = Field(default=None, exclude_if=lambda value: value is None)
     step_modes: dict[str, ExecutionMode] = Field(default_factory=dict)
     sensitive: bool = False
+    confirm_cloud: bool = False
     routing_preferences: dict[str, RoutingPreference] = Field(default_factory=dict, exclude_if=lambda values: not values)
     # Optional link to a task (PRY): checked against the system database when the run is created and never changed.
     task_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+    @computed_field
+    @property
+    def effective_permissions(self) -> list[str] | None:
+        """Server-derived grant; computed fields cannot be supplied in a request body."""
+        return ["provider:cloud"] if self.confirm_cloud and not self.sensitive else None
+
+    @computed_field
+    @property
+    def authorized_data_classes(self) -> list[str] | None:
+        return ["non_sensitive"] if self.confirm_cloud and not self.sensitive else None
 
     @field_serializer("routing_preferences")
     def serialize_preferences(self, values):

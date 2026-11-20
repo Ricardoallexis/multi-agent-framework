@@ -199,7 +199,12 @@ class NewSessionServices:
         except _Refused:
             return _fallback("refused")
         except Exception as exc:  # noqa: BLE001 - no model, a provider error or a bad answer all end in the word matching
-            from ..errors import StructuredOutputError
+            from ..errors import QuotaExceeded, RateLimitExceeded, StructuredOutputError
+            from .limits import limit_notice
+            if isinstance(exc, (QuotaExceeded, RateLimitExceeded)):
+                return {**_fallback("limit_reached"),
+                        "limit": limit_notice(self._services, self._services.settings.gui_new_session_model,
+                                              retry_at=exc.retry_at)}
             return _fallback("invalid_output" if isinstance(exc, StructuredOutputError) else "model_error")
         if not proposed.workflow_id.strip():
             return _fallback("no_match")

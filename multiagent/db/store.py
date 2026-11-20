@@ -46,6 +46,11 @@ def _canonical_request_fingerprint(req: SocialPostRequest | RunRequest) -> str:
     payload.pop("idempotency_key", None)
     if payload.get("task_id") is None:
         payload.pop("task_id", None)   # a run without a task keeps the fingerprint it had before the field existed
+    # CUO-T03: the server-derived grants follow confirm_cloud; old runs keep the fingerprint they had.
+    payload.pop("effective_permissions", None)
+    payload.pop("authorized_data_classes", None)
+    if not payload.get("confirm_cloud"):
+        payload.pop("confirm_cloud", None)
     if not payload.get("routing_preferences"):
         payload.pop("routing_preferences", None)  # keep existing idempotency fingerprints
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -1103,6 +1108,8 @@ class Store:
             if not row["request_fingerprint"]:
                 try:
                     payload = json.loads(row["request_json"])
+                    payload.pop("effective_permissions", None)  # derived, rebuilt from confirm_cloud
+                    payload.pop("authorized_data_classes", None)
                     request_type = RunRequest if "workflow_id" in payload else SocialPostRequest
                     req = request_type.model_validate(payload)
                     updates["request_fingerprint"] = _canonical_request_fingerprint(req)

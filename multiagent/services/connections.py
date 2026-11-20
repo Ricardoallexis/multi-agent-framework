@@ -10,6 +10,7 @@ from typing import Any, Callable
 from ..executors.antigravity import LAUNCH_FLOOR_PERCENT, NOTICE_ID, PAUSE_FLOOR_PERCENT
 from ..setup.detect import detect
 from .errors import NOT_FOUND, ServiceError
+from .limits import LIMIT_REASONS, limit_notice
 
 IDS = ("gemini", "openai", "ollama", "claude_cli", "codex_cli", "copilot_cli", "antigravity_cli")
 APPS = {"claude_cli": "claude", "codex_cli": "codex", "copilot_cli": "copilot", "antigravity_cli": "agy"}
@@ -45,6 +46,14 @@ class ConnectionServices:
                     self.check(identifier)
         finally:
             self._batch_detection = None
+        # A complete snapshot gives every limited row the same eligible alternatives.
+        for identifier in IDS:
+            row = self._last[identifier]
+            if row.get("limit") or row.get("reason") in LIMIT_REASONS or any(
+                window.get("used_percent") is not None and window["used_percent"] >= 100
+                for window in (row.get("quota") or {}).get("windows") or []
+            ):
+                row["limit"] = limit_notice(self._services, identifier, rows=self._last.values())
         return {"connections": [dict(self._last[identifier]) for identifier in IDS]}
 
     def check(self, identifier: str) -> dict[str, Any]:
@@ -62,6 +71,11 @@ class ConnectionServices:
         else:
             self._model(row)
         row["available"] = row["reason"] is None
+        if row.get("limit") or row.get("reason") in LIMIT_REASONS or any(
+            window.get("used_percent") is not None and window["used_percent"] >= 100
+            for window in (row.get("quota") or {}).get("windows") or []
+        ):
+            row["limit"] = limit_notice(self._services, identifier, rows=[*self._last.values(), row])
         self._last[identifier] = row
         return dict(row)
 
@@ -123,6 +137,12 @@ class ConnectionServices:
                     "used_percent": item.get("used_percent"), "resets_at": item.get("resets_at")}
                    for item in entry.get("windows", [])]
         row["quota"] = {"status": entry.get("status"), "windows": windows}
+        if app in {"claude", "codex"} and row["reason"] is None and any(
+            item.get("state") == "limit_reached" or
+            isinstance(item.get("used_percent"), (float, int)) and item["used_percent"] >= 100
+            for item in entry.get("windows", [])
+        ):
+            row["reason"] = "quota_paused"
         # CUO-T01: the cache is a session signal and a hard premium-interaction limit.
         if app == "copilot":
             cache = (entry.get("source") or {}).get("kind") == "copilot_cache"

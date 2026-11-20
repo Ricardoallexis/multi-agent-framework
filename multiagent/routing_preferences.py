@@ -40,7 +40,8 @@ def resolve_profile(catalog, workflow_id, step_id, kind, preference):
     return profile_id, validate_routing_profile(profile_id, profile)
 
 
-def preference_request(engine, workflow_id, step, inputs, execution_mode, sensitive, preference):
+def preference_request(engine, workflow_id, step, inputs, execution_mode, sensitive, preference,
+                       *, effective_permissions=None, authorized_data_classes=None):
     if step.function is not None:
         raise FunctionStepRequestError(step.id)
     profile_id, profile = resolve_profile(engine.catalog, workflow_id, step.id, step.kind, preference)
@@ -54,6 +55,8 @@ def preference_request(engine, workflow_id, step, inputs, execution_mode, sensit
                         or (binding.preferred_model if binding else None),
         required_capabilities=frozenset({"structured_output"} | ({"web"} if requires_web else set())),
         required_role=step.agent, required_permissions=frozenset((profile or {}).get("required_permissions") or ()),
+        effective_permissions=frozenset(effective_permissions) if effective_permissions is not None else None,
+        authorized_data_classes=frozenset(authorized_data_classes) if authorized_data_classes is not None else None,
         data_class="sensitive" if sensitive else "non_sensitive", execution_mode=execution_mode.value,
         requires_web=requires_web, output_schema=step.contract, step_kind=step.kind,
         effort=preference.get("effort") if "effort" in preference else step.effort,
@@ -74,7 +77,9 @@ def validate_run_preferences(engine, request, definition):
         mode = request.step_modes.get(step_id, request.execution_mode)
         step = by_id[step_id]
         routing, profile = preference_request(engine, request.workflow_id, step, request.inputs,
-                                             mode, request.sensitive, preference)
+                                             mode, request.sensitive, preference,
+                                             effective_permissions=request.effective_permissions,
+                                             authorized_data_classes=request.authorized_data_classes)
         # Human-guided execution must not bypass validation of model choices.
         check = replace(routing, execution_mode=ExecutionMode.AUTO.value) if mode is ExecutionMode.HUMAN_GUIDED else routing
         # Switching to single mode does not bypass the original level/candidate policy.

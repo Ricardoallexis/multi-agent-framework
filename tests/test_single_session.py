@@ -6,11 +6,14 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from multiagent.adapters.fake import FakeAdapter
+from multiagent.errors import QuotaExceeded
 from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.gui.token import ensure_token
@@ -101,12 +104,11 @@ def test_run_without_preference_calls_only_local_default(app):
 
 @pytest.mark.parametrize("execution_mode", ["auto", "cloud"])
 def test_cloud_model_without_a_cloud_grant_is_rejected_before_run(app, execution_mode):
-    # No public route carries a cloud grant yet (RunRequest is strict and has none), so the server refuses
-    # cloud_fast whatever the client says; it never reaches Gemini and creates no run.
+    # A selected cloud model needs the explicit confirmation before the run is stored.
     services, client, auth = app
     response = client.post("/gui/api/runs", headers=auth, json=body("cloud_fast", execution_mode=execution_mode))
     assert response.status_code == 422, response.text
-    assert response.json()["detail"]["code"] == "invalid_request"
+    assert response.json()["detail"]["code"] == "cloud_confirmation_required"
     assert services.runs.list() == []
 
 
@@ -116,6 +118,111 @@ def test_sensitive_data_cannot_select_cloud_fast(app):
                            json=body("cloud_fast", sensitive=True))
     assert response.status_code == 422, response.text
     assert services.runs.list() == []
+
+
+def test_confirmed_cloud_run_seals_only_non_sensitive_grant(app):
+    services, client, auth = app
+    request = {**body("cloud_fast"), "confirm_cloud": True}
+    created = client.post("/gui/api/runs", headers=auth, json=request)
+    assert created.status_code == 202, created.text
+    stored = services.runs.get(created.json()["id"])["request"]
+    assert stored["effective_permissions"] == ["provider:cloud"]
+    assert stored["authorized_data_classes"] == ["non_sensitive"]
+    assert client.post("/gui/api/runs", headers=auth, json={**request, "sensitive": True}).status_code == 422
+    api_request = {key: value for key, value in request.items() if key != "bundle"}
+    injected = client.post("/api/v1/runs?bundle=general", json={**api_request,
+                           "effective_permissions": ["provider:cloud", "data:sensitive"]})
+    assert injected.status_code == 422
+
+
+def test_api_run_accepts_confirmed_cloud_without_client_permissions(app):
+    services, client, _ = app
+    request = {key: value for key, value in body("cloud_fast").items() if key != "bundle"}
+    refused = client.post("/api/v1/runs?bundle=general", json=request)
+    assert refused.status_code == 422 and refused.json()["detail"]["code"] == "cloud_confirmation_required"
+    created = client.post("/api/v1/runs?bundle=general", json={**request, "confirm_cloud": True})
+    assert created.status_code == 202, created.text
+    assert services.runs.get(created.json()["id"])["request"]["effective_permissions"] == ["provider:cloud"]
+    sensitive = client.post("/api/v1/runs?bundle=general", json={**request, "confirm_cloud": True, "sensitive": True})
+    assert sensitive.status_code == 422
+
+
+def test_confirmed_single_cloud_calls_only_fake_gemini(tmp_path):
+    class CountingGemini(FakeAdapter):
+        def __init__(self):
+            super().__init__(sample_outputs={"FreeTextAnswer": {"answer": "Synthetic Gemini answer."}})
+            self.calls = 0
+
+        def generate_structured(self, **kwargs):
+            self.calls += 1
+            return super().generate_structured(**kwargs)
+
+    class ForbiddenLocal(FakeAdapter):
+        def generate_structured(self, **_kwargs):
+            raise AssertionError("local fallback was called")
+
+    gemini = CountingGemini()
+    settings = Settings(_env_file=None, local_dir=tmp_path / "local", worker_enabled=False,
+                        mock_mode=False, gemini_api_key="SYNTHETIC_KEY", openai_api_key="", openai_enabled=False,
+                        gui_token_file=tmp_path / "token")
+    services = ApplicationServices.create(settings, bundles={"general": GENERAL}, dry_run=False,
+                                          adapter_overrides={"gemini": gemini, "ollama": ForbiddenLocal()})
+    auth = {"Authorization": "Bearer " + ensure_token(settings.gui_token_file)}
+    try:
+        with TestClient(create_app(services=services), base_url="http://localhost") as client:
+            created = client.post("/gui/api/runs", headers=auth,
+                                  json={**body("cloud_fast"), "confirm_cloud": True})
+            assert created.status_code == 202, created.text
+            runtime = services.runs._bundle_runtime("general", create=False)
+            assert runtime.worker.process_once()
+            run = services.runs.get(created.json()["id"])
+            assert run["status"] == "completed", run.get("error")
+            assert run["llm_calls"] == gemini.calls == 1
+            attempts = [event["payload"] for event in run["events"] if event["event_type"] == "model_attempt"]
+            assert len(attempts) == 1 and attempts[0]["model"] == "cloud_fast"
+    finally:
+        services.runs.close()
+
+
+def test_single_cloud_limit_has_one_attempt_and_run_notice(tmp_path):
+    retry_at = datetime(2026, 11, 20, 18, tzinfo=timezone.utc)
+
+    class LimitedGemini(FakeAdapter):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def generate_structured(self, **_kwargs):
+            self.calls += 1
+            raise QuotaExceeded("synthetic limit", retry_at=retry_at)
+
+    gemini = LimitedGemini()
+    settings = Settings(_env_file=None, local_dir=tmp_path / "local", worker_enabled=False,
+                        mock_mode=False, gemini_api_key="SYNTHETIC_KEY", openai_api_key="", openai_enabled=False,
+                        gui_token_file=tmp_path / "token")
+    services = ApplicationServices.create(settings, bundles={"general": GENERAL}, dry_run=False,
+                                          adapter_overrides={"gemini": gemini, "ollama": FakeAdapter()})
+    services.connections.list = lambda: {"connections": [
+        {"id": "gemini", "kind": "model", "available": False, "enabled": True},
+        {"id": "ollama", "kind": "model", "available": True, "enabled": True},
+    ]}
+    auth = {"Authorization": "Bearer " + ensure_token(settings.gui_token_file)}
+    try:
+        with TestClient(create_app(services=services), base_url="http://localhost") as client:
+            created = client.post("/gui/api/runs", headers=auth,
+                                  json={**body("cloud_fast"), "confirm_cloud": True})
+            assert created.status_code == 202, created.text
+            assert services.runs._bundle_runtime("general", create=False).worker.process_once()
+            run = services.runs.get(created.json()["id"])
+            assert run["status"] == "failed" and gemini.calls == 1
+            attempts = [event for event in run["events"] if event["event_type"] == "model_attempt"]
+            assert len(attempts) == 1 and attempts[0]["payload"]["retry_at"] == retry_at.isoformat()
+            viewed = client.get(f"/gui/api/runs/{run['id']}", headers=auth)
+            assert viewed.status_code == 200
+            assert viewed.json()["limit"]["resets_at"] == retry_at.isoformat()
+            assert viewed.json()["limit"]["suggestions"] == ["ollama"]
+    finally:
+        services.runs.close()
 
 
 def test_budget_still_limits_single_session(app):
@@ -150,6 +257,7 @@ def test_pure_model_only_offers_connected_catalog_candidates():
       if (noGeminiKey[1].models.length) throw Error('cloud model offered without a configured connection');
       const body = singleSessionBody('  hola  ', 'local_default');
       if (body.inputs.task !== 'hola' || body.routing_preferences.answer.mode !== 'single') throw Error('wrong body');
+      if (singleSessionBody('hola', 'cloud_fast', true).confirm_cloud !== true) throw Error('cloud confirmation missing');
     """
     result = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr

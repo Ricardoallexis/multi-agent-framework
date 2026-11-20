@@ -79,6 +79,17 @@ def test_key_notice_quota_and_certificate():
     assert tls["reason"] == "tls_certificate" and "secret path" not in str(tls)
 
 
+def test_limited_connection_keeps_reason_and_excludes_unavailable_suggestions():
+    service = fixture(quota=100)
+    rows = {row["id"]: row for row in service.list()["connections"]}
+    claude = rows["claude_cli"]
+    assert claude["reason"] == "quota_paused" and claude["available"] is False
+    assert claude["limit"]["code"] == "limit_reached"
+    assert claude["limit"]["resets_at"] == "2026-12-01T00:00:00Z"
+    assert "claude_cli" not in claude["limit"]["suggestions"]
+    assert "codex_cli" not in claude["limit"]["suggestions"]
+
+
 def test_gui_token_and_cli_parser(tmp_path):
     token = tmp_path / "gui-token"
     token.write_text("synthetic-token-with-enough-length", encoding="utf-8")

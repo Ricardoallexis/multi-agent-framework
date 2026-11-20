@@ -672,6 +672,10 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         """A generic ``RunRequest`` (optionally for a bundle) or the social-post request."""
         if bundle is not None and not isinstance(request, RunRequest):
             raise ServiceError(INVALID_REQUEST, "Bundles run generic requests with a workflow_id", status=422)
+        if isinstance(request, RunRequest):
+            from .services.limits import require_cloud_confirmation
+            catalog = services.system.catalog if bundle is None else services.definitions._bundle(bundle).catalog
+            require_cloud_confirmation(request, catalog)
         return services.runs.create(request, bundle=bundle)
 
     @app.get("/api/v1/runs")

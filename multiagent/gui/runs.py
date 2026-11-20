@@ -23,6 +23,7 @@ from ..run_request import FunctionStepRequestError, RunRequest, RoutingPreferenc
 from ..routing_preferences import preference_request, validate_run_preferences
 from ..routing_policy import EFFORT_LEVELS, RoutingRequest
 from ..services.errors import HUMAN_STEP_UNAVAILABLE, INVALID_REQUEST, ServiceError, translate
+from ..services.limits import LIMIT_ERRORS, limit_notice, require_cloud_confirmation
 from ..services.runs import pending_tool_approval
 from ..services.workflow_inputs import missing_required
 from ..workflows import condition_is_true
@@ -61,6 +62,7 @@ class CreateBody(PreviewBody):
     idempotency_key: str = Field(default="", max_length=120)
     operating_mode: Literal["supervised", "autonomous"] | None = None
     step_modes: dict[str, ExecutionMode] = Field(default_factory=dict)
+    confirm_cloud: bool = False
 
 
 class ChangesBody(_Body):
@@ -273,6 +275,13 @@ def run_view(services, run: dict[str, Any]) -> dict[str, Any]:
     cursor = int(run.get("current_step") or 0)
     pending = run.get("human_step_request")
     history = _history(events)
+    # The final quota/rate error describes this failed run; prior recovered attempts do not.
+    last_attempt = next((event["payload"] for event in reversed(events)
+                         if event["event_type"] == "model_attempt"), None) if run["status"] == "failed" else None
+    limit_attempt = last_attempt if last_attempt and last_attempt.get("error_type") in LIMIT_ERRORS else None
+    limit = (limit_notice(services, str(limit_attempt.get("model") or limit_attempt.get("provider") or ""),
+                          retry_at=limit_attempt.get("retry_at"), provider=limit_attempt.get("provider"))
+             if limit_attempt else None)
     return {
         "id": run["id"],
         "workflow_id": run["workflow_id"],
@@ -284,6 +293,7 @@ def run_view(services, run: dict[str, Any]) -> dict[str, Any]:
         "created_at": run.get("created_at"),
         "updated_at": run.get("updated_at"),
         "error": run.get("error") or "",
+        "limit": limit,
         "cancel_requested": bool(run.get("cancel_requested")),
         "waiting": ({"reason": run.get("waiting_reason") or "", "step_id": run.get("waiting_step") or "",
                      "attempt": run.get("waiting_attempt")} if run["status"] == "waiting_human" else None),
@@ -507,9 +517,12 @@ def build_router(services) -> APIRouter:
                 workflow_id=body.workflow_id, project_name=body.project_name.strip(), inputs=body.inputs,
                 execution_mode=body.execution_mode, operating_mode=body.operating_mode,
                 idempotency_key=body.idempotency_key, sensitive=body.sensitive,
-                routing_preferences=body.routing_preferences, step_modes=body.step_modes)
+                routing_preferences=body.routing_preferences, step_modes=body.step_modes,
+                confirm_cloud=body.confirm_cloud)
         except ValidationError as exc:
             raise translate(exc) from exc
+        catalog = (services.system.catalog if body.bundle is None else services.definitions._bundle(body.bundle).catalog)
+        require_cloud_confirmation(request, catalog)
         return run_view(services, services.runs.create(request, bundle=body.bundle))
 
     @router.get("/runs")
