@@ -216,6 +216,7 @@ from ..executors.selection import (
     SOURCE_HANDOFF, ExecutorSelection, select_for_executor, select_for_handoff, select_for_resume,
 )
 from ..routing.executor_capabilities import CapabilityEvidence, SupportState
+from ..secret_gate import masked_sample as _masked_sample, scan_text as _scan_secrets
 from ..routing_policy import MODEL_LEVELS, STEP_KINDS
 from ..sessions.models import is_uuid
 from ..tasks.envelopes import MAX_CONSTRAINTS, MAX_CONTEXT_REFS, EnvelopeError
@@ -279,7 +280,14 @@ _PROBE_SESSION = "00000000-0000-4000-8000-000000000000"   # only to build an arg
 _EXECUTOR_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _SOURCE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$")
-_FAILURE_OUTCOMES = ("timeout", "cancelled", "quota_exhausted", "blocked_open_session", "permission_blocked")
+_FAILURE_OUTCOMES = ("timeout", "cancelled", "quota_exhausted", "blocked_open_session", "permission_blocked",
+                     "secret_review_required")
+# SEC-T03: what of the envelope changes between attempts without changing what is sent (so the approved digest holds).
+class _ApprovalLookupFailed(Exception):
+    """The approvals could not be read (SEC-T03): never taken as «not a secret»."""
+
+
+_SECRET_VOLATILE = frozenset({"attempt", "revision", "status", "assignee", "events_after", "data_class", "depends_on"})
 
 
 def _invalid(field_name: str, message: str, **details: Any) -> ServiceError:
@@ -423,6 +431,7 @@ class _Attempt:
     failure_kind: FailureKind | None = None
     last_message: str = ""                        # the last text the agent wrote, from the tail of its output
     effective: Mapping[str, Any] | None = None    # what the app says it ran with (model, effort, permission), if it does
+    secret_review: Mapping[str, Any] | None = None  # SEC-T03: the approval a secret in what was to be sent waits for
 
 
 @dataclass
@@ -1594,6 +1603,9 @@ class ExecutorServices:
             paused_until, new_hold, saved = outcome_hold["until"], outcome_hold["hold"], outcome_hold["checkpoint"]
             task_note, checkpoint_note = outcome_hold["task_note"], outcome_hold["checkpoint_note"]
             launch.settled = True                                  # paused, with its hold
+        elif submission is None and outcome == "secret_review_required":
+            new_hold, task_note = self._hold_for_secret(launch, attempt)     # SEC-T03: retained until a person clicks
+            launch.settled = True
         else:
             if submission is None:
                 task_note = self._pause_task(task_id, actor, f"attempt {view['attempt']} {outcome}",
@@ -1613,7 +1625,9 @@ class ExecutorServices:
             "command": attempt.command, "evidence": evidence or None, "notes": notes,
             "executor_paused_until": paused_until, "checkpoint": saved, "hold": new_hold, "context_handoff": None,
             "result": submission,
-            "gate": self._services.gates.get_gate(task_id), "task": self._tasks.get_task(task_id)}
+            "gate": self._services.gates.get_gate(task_id), "task": self._tasks.get_task(task_id),
+            **({"secret_review": dict(attempt.secret_review)} if outcome == "secret_review_required"
+               and attempt.secret_review else {})}
 
     def _preflight(self, plan: _Plan, request: ExecutorLaunchRequest, resume_session: str | None) -> None:
         """Build the command and find the program before the task changes: a refusal here leaves the task as it was."""
@@ -1677,6 +1691,9 @@ class ExecutorServices:
                 "attempt": hold.get("attempt")}
 
     def _call_adapter(self, adapter: Any, request: ExecutorLaunchRequest, resume_session: str | None) -> _Attempt:
+        blocked = self._secret_gate(adapter, request)         # SEC-T03: every launch and resume passes the gate
+        if blocked is not None:
+            return blocked
         try:
             result = adapter.resume(request, resume_session) if resume_session else adapter.launch(request)
         except (MultiAgentError, EnvelopeError, ValueError, OSError) as exc:
@@ -1696,6 +1713,88 @@ class ExecutorServices:
                         failure_kind=getattr(result, "failure_kind", None),
                         last_message=_checkpoint.extract_last_message(result.stdout_tail),
                         effective=_effective_of(getattr(result, "effective", None)))
+
+    # -------- secret gate (SEC-T03) --------
+    def _secret_gate(self, adapter: Any, request: ExecutorLaunchRequest) -> _Attempt | None:
+        """``None`` when nothing the framework sends holds a secret or a person approved this exact text; else the attempt
+        that does not launch.
+
+        It reads what the executor would receive: the prompt (``render_prompt``) and the envelope (objective, constraints
+        and context references). The digest covers the envelope without what changes between attempts, so an approval
+        holds for the same text and not for another one. A person's click only approves; this check spends the approval
+        (``consume``) and lets the launch go once. Only the types, a masked sample and the digest are kept anywhere.
+        """
+        envelope = dict(request.task_envelope or {})
+        stable = {key: value for key, value in envelope.items() if key not in _SECRET_VOLATILE}
+        body = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        try:
+            prompt = adapter.render_prompt(request)
+        except (MultiAgentError, EnvelopeError, ValueError, TypeError, KeyError):
+            prompt = ""                                       # the adapter refuses it itself when it launches
+        # The ids the framework made (task, group, dependencies, session, folder) are long and look random: they are not
+        # what a person typed, so they are taken out before the prompt is read. What is left is the person's text.
+        ours = {str(envelope.get(key) or "") for key in ("task_id", "group_id", "base_commit", "assignee")}
+        ours |= {str(request.session_id or ""), str(request.workdir)}
+        ours |= {str(item.get("task_id") or "") for item in envelope.get("depends_on") or () if isinstance(item, Mapping)}
+        ours |= {str(item) for key in ("artifact_refs",) for item in envelope.get(key) or ()}
+        for value in sorted((item for item in ours if len(item) >= 8), key=len, reverse=True):
+            prompt = prompt.replace(value, "·")
+        content = json.dumps({key: stable.get(key) for key in ("objective", "constraints", "context_refs", "file_scope")},
+                             ensure_ascii=False, default=str)
+        found = [(text, _scan_secrets(text)) for text in (prompt, content)]
+        found = [(text, matches) for text, matches in found if matches]
+        if not found:
+            return None
+        text, matches = found[0]
+        types = sorted({kind for _, hits in found for _, _, kind in hits})
+        # The digest also covers the secret values found in both texts (only the digest is kept): a different secret in
+        # the prompt, with the same envelope, is another text and needs its own approval.
+        values = sorted({scanned[start:end] for scanned, hits in found for start, end, _ in hits})
+        digest = hashlib.sha256("".join([body, *values]).encode("utf-8")).hexdigest()
+        target = {"model_id": f"executor:{adapter.adapter_id}", "tier": "executor", "model": request.model or "default"}
+        approvals = getattr(self._services, "user_approvals", None)
+        if approvals is None:
+            return _Attempt(status="launch_refused", notes=["launch_refused: secret_review_unavailable"],
+                            evidence="The program was not started: a secret was found and no approval service exists")
+        item = approvals.for_task(request.task_id, sha256=digest, destination=target)
+        if item is not None and item["state"] == "approved":
+            if approvals.consume(item["id"], sha256=digest, destination=target):
+                return None
+            item = None
+        if item is None:
+            item = approvals.request(
+                kind="secret_send", destination=target, location={"source": "task", "task_id": request.task_id},
+                secret_types=types, masked_sample=_masked_sample(text, matches), sha256=digest)
+        where = f"GUI > Aprobaciones (#approvals/{item['id']})"
+        return _Attempt(
+            status="secret_review_required", notes=[f"secret_review_required: approve in {where}"],
+            evidence=f"secret_review_required: the task holds a secret ({', '.join(types)}); a person approves it in {where}",
+            secret_review={"approval_id": item["id"], "secret_types": types, "sha256": digest, "destination": target})
+
+    def _hold_for_secret(self, launch: _Launch, attempt: _Attempt) -> tuple[dict[str, Any] | None, str | None]:
+        """Retain the task on an ``approval`` condition tied to the request of the gate: ``(hold, note)``.
+
+        The hold remembers what the launch was (model, effort, folder and the session being resumed, if any), so the check
+        that follows the click starts the same thing. Without a hold the task is only paused: it never launches.
+        """
+        plan, view, task_id = launch.plan, launch.view, launch.task["id"]
+        review = dict(attempt.secret_review or {})
+        try:
+            held = self.hold_on_condition(
+                task_id, {"type": _waits.APPROVAL, "params": {"approval": review["approval_id"]}},
+                reason=_waits.APPROVAL, actor=launch.actor, executor_id=plan.executor_id)["hold"]
+        except (ServiceError, KeyError) as exc:
+            note = self._pause_task(task_id, launch.actor, f"attempt {view['attempt']} secret_review_required",
+                                    attempt=int(view["attempt"]))
+            return None, note or f"secret_hold_failed: {getattr(exc, 'code', 'invalid_request')}"
+        settings = {"model": plan.model, "effort": plan.effort, "permission": launch.permission.value,
+                    "adapter": plan.adapter.adapter_id, "workdir": _workdir_id(launch.workdir)}
+
+        def mutate(current: dict[str, Any]) -> dict[str, Any] | None:
+            return {**current, "session_id": launch.resume_session or None, "secret_gate": True,
+                    "settings": {key: value for key, value in settings.items() if value is not None}}
+
+        return (self._update_hold(task_id, held, mutate, launch.actor) or held), None
 
     def _hold_after_limit(self, attempt: _Attempt, plan: _Plan, view: Mapping[str, Any], actor: str, workdir: Path,
                           permission: Permission, *, prior: Mapping[str, Any], auto: bool,
@@ -2230,7 +2329,9 @@ class ExecutorServices:
             # MOD-T04: nor may the privacy check refuse it after the retirement (the model is the one ``_relaunch`` sends).
             self._privacy_precheck(task, executor_id, descriptor,
                                    recorded.get("model") if _supports(descriptor.model_support, recorded.get("model")) else None)
-            self._supersede(task_id, hold, actor)
+            if not (hold.get("secret_gate") and not hold.get("session_id")):
+                # SEC-T03: a launch the secret gate held has nothing to retire, and a checkpoint would change the text.
+                self._supersede(task_id, hold, actor)
             result = self._relaunch(task_id, executor_id, recorded.get("model"), recorded.get("effort"), actor, hold,
                                     drift, timeout_seconds, trigger)
         since = _hold.parse_utc(hold.get("since"))
@@ -2420,6 +2521,15 @@ class ExecutorServices:
         by = _text("by", by, maximum=100)
         if by.startswith(NOT_APPROVERS):
             raise _conflict("approver_not_allowed", "A program does not approve in the name of a person", task_id=task_id)
+        # SEC-T03: a secret is approved by one click in the GUI, never through the tray, the API or the CLI.
+        try:
+            secret = self._is_secret_approval(approval_id)
+        except _ApprovalLookupFailed:
+            raise _conflict("approval_lookup_failed", "The approvals could not be read: nothing was decided",
+                            task_id=task_id, approval_id=approval_id) from None
+        if secret:
+            raise _conflict("user_click_required", "Aprueba en la GUI → Aprobaciones", task_id=task_id,
+                            approval_id=approval_id, where="Aprueba en la GUI → Aprobaciones")
         task = self._tasks.get_task(task_id)
         hold = self._view_hold(task)
         condition = _hold.condition_of(hold)
@@ -2460,6 +2570,21 @@ class ExecutorServices:
             raise _conflict("hold_changed", "The task or its hold changed since it was read", task_id=task_id)
         return {"task_id": task_id, "approval_id": approval_id, "status": status, "by": by, "created": True,
                 "hold_id": hold.get("id")}
+
+    def _secret_approval(self, approval_id: str) -> Mapping[str, Any] | None:
+        """The ``secret_send`` request of the gate that this condition key names, or ``None`` (SEC-T03)."""
+        approvals = getattr(self._services, "user_approvals", None)
+        if approvals is None:
+            return None
+        try:
+            item = approvals.peek(approval_id)
+        except Exception:                      # fail closed: the callers refuse or treat it as pending
+            _logger.exception("approval lookup failed")
+            raise _ApprovalLookupFailed from None
+        return item if item is not None and item.get("kind") == "secret_send" else None
+
+    def _is_secret_approval(self, approval_id: str) -> bool:
+        return self._secret_approval(approval_id) is not None
 
     @staticmethod
     def _view_hold(task: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -2535,6 +2660,16 @@ class ExecutorServices:
             elif leaf.get("type") == _waits.APPROVAL:
                 key = str(params.get("approval"))
                 fact = None
+                try:
+                    secret = self._secret_approval(key)
+                except _ApprovalLookupFailed:
+                    approvals[key] = _waits.ApprovalFact("pending", None, None)       # fail closed
+                    continue
+                if secret is not None:
+                    # SEC-T03: only the click in the GUI decides it; a decision written into the condition is not read.
+                    state = {"approved": "approved", "rejected": "rejected"}.get(str(secret["state"]), "pending")
+                    approvals[key] = _waits.ApprovalFact(state, "user:gui" if state != "pending" else None, None)
+                    continue
                 if self.approval_source is not None:
                     try:
                         fact = self.approval_source(str(task["id"]), key)

@@ -20,6 +20,14 @@ def _approval_error(reason: str, approval_id: str = "") -> ServiceError:
                         details={"reason": reason, "approval_id": approval_id})
 
 
+def _new_id() -> str:
+    """A fresh id that starts with a letter or digit, so a task condition accepts it as its ``approval`` token (SEC-T03)."""
+    while True:
+        token = secrets.token_urlsafe(24)
+        if token[0].isalnum():
+            return token
+
+
 class UserApprovalServices:
     """The event log is authoritative; only a matching approved request can be consumed.
 
@@ -100,7 +108,7 @@ class UserApprovalServices:
             raise ServiceError(INVALID_REQUEST, "The sample must be masked", status=422)
         if len(secret_types) > 16 or any(not isinstance(item, str) or len(item) > 60 for item in secret_types):
             raise ServiceError(INVALID_REQUEST, "Invalid secret types", status=422)
-        approval_id = approval_id or secrets.token_urlsafe(24)
+        approval_id = approval_id or _new_id()
         payload = {"kind": kind, "destination": destination, "location": location,
                    "secret_types": list(secret_types), "masked_sample": masked_sample, "sha256": sha256}
         with self._store.transaction() as conn:
@@ -145,6 +153,22 @@ class UserApprovalServices:
                                                  approve=decision == "approve")
             return self._all()[approval_id]
         return decided
+
+    # SEC-T03: task approvals. The click only approves; the next check of the task's hold consumes it and launches once.
+    def peek(self, approval_id: str) -> dict[str, Any] | None:
+        """One approval as the event log shows it, or ``None``; unlike ``status`` it never reads the run pauses."""
+        return self._all().get(approval_id)
+
+    def for_task(self, task_id: str, *, sha256: str, destination: str | dict[str, str]) -> dict[str, Any] | None:
+        """The newest ``secret_send`` of this task for this exact digest and destination that is still pending or approved."""
+        found = None
+        for item in self._all().values():
+            location = item.get("location")
+            if (item.get("kind") == "secret_send" and isinstance(location, dict) and location.get("source") == "task"
+                    and location.get("task_id") == task_id and item.get("sha256") == sha256
+                    and item.get("destination") == destination and item["state"] in ("pending", "approved")):
+                found = item
+        return found
 
     def consume(self, approval_id: str, *, sha256: str, destination: str | dict[str, str]) -> bool:
         """Atomically spend approval for one exact content digest and destination."""
