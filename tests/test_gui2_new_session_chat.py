@@ -107,9 +107,13 @@ def test_the_chat_replaces_the_form_at_new_and_the_form_stays_available():
 
 def test_the_model_is_pure_and_matching_is_deterministic_with_no_dead_hooks():
     model = source("new-session-model.js")
-    assert not re.search(r"^import\b", model, re.M)                    # loads in Node with no DOM, no Preact
+    imports = re.findall(r'^import\b.*$', model, re.M)
+    assert all(re.match(r'^import\s+\{[^}]+\}\s+from\s+"\./quota-text\.js";?$', line) for line in imports), imports
+    quota_text = source("quota-text.js")
+    assert not re.search(r"^import\b", quota_text, re.M)
     for forbidden in ("fetch(", "apiPost", "apiGet", "document.", "window.", "localStorage"):
         assert forbidden not in model, forbidden
+        assert forbidden not in quota_text, forbidden
     chat = source("new-session.js")
     for text in (model, chat):                                         # no unwired hook (GUI2-T17 wired the interpretation: test_gui2_new_session_model.py)
         assert "hinted" not in text and "NOT wired" not in text

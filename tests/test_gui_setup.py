@@ -331,7 +331,8 @@ def test_apps_pure_model_handles_agy_uninstalled_and_ollama_tls():
     ollama = view["models"][0]
     assert agy["action"]["kind"] == "info"
     assert ollama["action"]["kind"] == "info"
-    assert "TLS certificate" in ollama["action"]["detail"]
+    assert "No se pudo verificar el certificado TLS" in ollama["action"]["detail"]
+    assert "TLS certificate" not in ollama["action"]["detail"]
 
 
 def test_apps_extension_has_no_key_input_and_meets_rwd_rules():

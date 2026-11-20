@@ -1,6 +1,8 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Connection facts -> the ordered, selectable choices of Nueva sesión. No DOM or network.
+import { formatQuotaLines } from "./quota-text.js";
+
 export const MODEL_IDS = ["gemini", "openai", "ollama"];
 export const EXECUTOR_IDS = ["claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"];
 
@@ -22,18 +24,8 @@ const REASONS = {
   not_installed: "No está instalado.", session_missing: "Falta iniciar sesión.", key_missing: "Falta configurar la clave.",
 };
 
-const percent = (value) => typeof value === "number" && Number.isFinite(value)
-  ? String(Math.round(value * 10) / 10).replace(".", ",") + " %" : "desconocido";
-
 export function quotaLines(quota) {
-  if (!quota) return ["Cuota: sin datos."];
-  const windows = Array.isArray(quota.windows) ? quota.windows : [];
-  if (!windows.length) return ["Cuota: sin datos."];
-  return windows.map((item) => {
-    const name = [item.group, item.window].filter(Boolean).join(" · ") || "Cuota";
-    return name + ": " + percent(item.used_percent) + " usado" +
-      (item.resets_at ? " · reinicia " + item.resets_at : "");
-  });
+  return formatQuotaLines(quota);
 }
 
 function choice(row) {

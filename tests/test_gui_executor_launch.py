@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -183,7 +184,7 @@ def run_node(script: str) -> Any:
       {script}
     """
     completed = subprocess.run([NODE, "--input-type=module", "-e", source], capture_output=True, text=True,
-                               encoding="utf-8", timeout=60)
+                               encoding="utf-8", timeout=60, env={**os.environ, "TZ": "UTC"})
     assert completed.returncode == 0, completed.stderr
     return json.loads(completed.stdout)
 
@@ -203,5 +204,5 @@ def test_node_quota_summary_reports_remaining_and_unknown_values():
         { group: "Claude", window: "5h", used_percent: null }
       ] })));
     """)
-    assert lines == ["Gemini · weekly: 27,5 % restante · reinicia 2026-11-20",
-                     "Claude · 5h: desconocido restante"]
+    assert lines == ["Gemini · Semana: 27,5 % restante · reinicia el 20 nov, 00:00",
+                     "Claude · Uso: desconocido restante"]

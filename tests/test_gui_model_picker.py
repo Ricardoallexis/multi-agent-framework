@@ -118,3 +118,15 @@ def test_agy_is_named_in_continuity_but_still_requires_approval():
                           within_level=True, same_folder=True)
     assert candidate.subscription is False
     assert candidate.ask_reasons() == ["paid_api"]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_quota_lines_translate_window_names_and_format_reset_without_raw_iso():
+    lines = run_node(
+        "console.log(JSON.stringify(m.quotaLines({windows:[{group:'Copilot',window:'monthly',used_percent:40,resets_at:'2026-12-01T01:00:00Z'}]})))",
+        {},
+    )
+    assert len(lines) == 1
+    assert lines[0].startswith("Copilot · Mes: 40 % usado · reinicia el ")
+    assert "monthly" not in lines[0]
+    assert "2026-12-01T01:00:00Z" not in lines[0]

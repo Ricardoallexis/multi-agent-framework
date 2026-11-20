@@ -1,6 +1,8 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Pure view-model for «Apps y agentes» (#apps): transforms /gui/api/connections and /gui/api/setup/status without DOM or network.
+import { formatQuotaLines } from "../../js/quota-text.js";
+
 export const EXECUTOR_IDS = ["claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"];
 export const MODEL_IDS = ["gemini", "openai", "ollama"];
 
@@ -39,18 +41,8 @@ export const EXECUTOR_ENABLE_NOTICE =
   "Habilitar un ejecutor permite que el framework lance esta app bajo tu supervisión y usando tu suscripción. " +
   "El visor nunca modifica estos archivos por ti.";
 
-const percent = (value) => (typeof value === "number" && Number.isFinite(value)
-  ? String(Math.round(value * 10) / 10).replace(".", ",") + " %"
-  : "desconocido");
-
 export function quotaLines(quota) {
-  if (!quota) return [];
-  const windows = Array.isArray(quota.windows) ? quota.windows : [];
-  if (!windows.length) return ["Cuota: sin datos."];
-  return windows.map((item) => {
-    const name = [item.group, item.window].filter(Boolean).join(" · ") || "Cuota";
-    return name + ": " + percent(item.used_percent) + " usado" + (item.resets_at ? " · reinicia " + item.resets_at : "");
-  });
+  return formatQuotaLines(quota, { emptyWhenMissing: true });
 }
 
 function installedLabel(row, kind) {
@@ -207,11 +199,18 @@ export function missingAction(row, kind, setupStatus) {
       detail: "La clave está configurada; el acceso no se prueba sin gastar cuota.",
     };
   }
-  if (row.reason === "tls_certificate" || row.reason === "unreachable") {
+  if (row.reason === "tls_certificate") {
     return {
       kind: "info",
-      title: REASONS[row.reason] || "No responde",
-      detail: row.diagnosis || "Comprueba el servicio local y pulsa «Volver a comprobar».",
+      title: REASONS.tls_certificate,
+      detail: "No se pudo verificar el certificado TLS; revisa la cadena de confianza local y pulsa «Volver a comprobar».",
+    };
+  }
+  if (row.reason === "unreachable") {
+    return {
+      kind: "info",
+      title: REASONS.unreachable,
+      detail: "Ollama no respondió a su comprobación. Comprueba el servicio local y pulsa «Volver a comprobar».",
     };
   }
   return {

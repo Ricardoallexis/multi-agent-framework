@@ -1,7 +1,7 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Conversation model of the guided "Nueva sesión" chat (GUI2-T03). Plain data and pure functions: no DOM, no Preact and
-// no imports, so a Node test can run it. new-session.js draws it; this file decides what happens.
+// only the pure quota-text helper, so a Node test can run it. new-session.js draws it; this file decides what happens.
 //
 // The flow is a small state machine (state.phase):
 //   welcome   the greeting and the three starters
@@ -15,6 +15,7 @@
 // that is in the catalog is shown as a card with its inputs prefilled; anything else (no model, an error, an invalid or
 // empty answer) falls back to the deterministic matching of names and descriptions, and the chat says which one it used.
 // Nothing here calls a model or the network, and nothing runs before «Lanzar».
+import { formatQuotaLines } from "./quota-text.js";
 
 export const COMMANDS = ["workflow", "continuar", "ayuda"];
 export const MAX_SUGGESTIONS = 4;
@@ -49,15 +50,7 @@ export function singleSessionBody(task, model) {
 
 // SES-T04: explicit approval data for a single-session executor launch.
 export function quotaRemainingLines(quota) {
-  const windows = Array.isArray(quota?.windows) ? quota.windows : [];
-  if (!windows.length) return ["Cuota restante: sin datos."];
-  return windows.map((item) => {
-    const name = [item.group, item.window].filter(Boolean).join(" · ") || "Cuota";
-    const remaining = typeof item.used_percent === "number" && Number.isFinite(item.used_percent)
-      ? String(Math.round((100 - item.used_percent) * 10) / 10).replace(".", ",") + " %"
-      : "desconocido";
-    return name + ": " + remaining + " restante" + (item.resets_at ? " · reinicia " + item.resets_at : "");
-  });
+  return formatQuotaLines(quota, { remaining: true });
 }
 
 export function executorLaunchBody(task, executorId, model, effort) {
