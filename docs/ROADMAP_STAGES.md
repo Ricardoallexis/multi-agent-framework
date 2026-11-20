@@ -150,7 +150,7 @@ Provider-reported token usage per run, agent, step, and attempt, with duration a
 | S5.D2 | ✅ Tool calls and their outputs are recorded as run events with a safe projection, and run reports have a tools section (`multiagent/tools/trace.py`); executor launches, attempts, and routing evidence are team events. | S5.A2 |
 | S5.D3 | ✅ Built-in file tools for one declared folder without Git (`FILE_TOOLS_ROOT`, `multiagent/tools/files.py`): `file.list` and `file.read` read, `file.write` and `file.move` write, so each call waits in `tool_approval`; paths are confined to the folder, `.md`, `.csv`, `.json` and `.txt` in UTF-8, failures carry a stable `details.code`. Checked on every backend that declares `tools` (`tests/test_file_tools_conformance.py`; mock runs without tools) and described in [`FILE_TOOLS.md`](FILE_TOOLS.md). | S5.A2, S5.B2, S5.C2 |
 | **S5.E — Guardrails** | | |
-| S5.E1 | ✅ Guardrail on outgoing content: a deterministic check of secrets and personal data before each cloud call, with a per-step policy (`egress:` on the step, default `EGRESS_DEFAULT=off`: redact, block, or escalate to a human) and events (`multiagent/egress_guard.py`); local models are skipped unless the policy says `include_local`. | S5.B2 |
+| S5.E1 | ✅ Guardrail on outgoing content: a deterministic check of secrets and personal data before each cloud call, with a per-step policy (`egress:` on the step, default `EGRESS_DEFAULT=off`: redact, block, or escalate to a human) and events (`multiagent/egress_guard.py`); local models are skipped unless the policy says `include_local`. The secret gate (`multiagent/secret_gate.py`) is always on, whatever `EGRESS_DEFAULT` says: before a non-local model call, and before every executor launch and resume, a likely private key, secret key, bearer token or long token holds the send until a person approves that exact text with one click in the GUI (see `docs/security/secret-gate.md`). The rest of the guardrail stays opt-in. | S5.B2 |
 
 **Parallel:** S5.B, S5.C, and S5.D2 after S5.A; S5.E1 after S5.B.
 **Acceptance:** a workflow step calls an approved tool through the contract; a destructive action waits for human approval; capabilities select a tool without code changes.
@@ -373,7 +373,7 @@ discovery, local model expansion, and the other planned items remain open. See
 | Task | Description | Depends on |
 | --- | --- | --- |
 | **S13.A — Review** | | |
-| S13.A1 | ◐ Done: pending decisions appear as cards in the GUI and settle through approve and reject; a run approval records who gave it and through which channel; a run's stops, proposed team versions and plan proposals also open as cards in the chat thread (`multiagent/gui/threads_api.py`, `multiagent/gui/static/js/thread.js`) and settle through the same routes, with a confirmation. | — |
+| S13.A1 | ◐ Done: pending decisions appear as cards in the GUI and settle through approve and reject; a run approval records who gave it and through which channel; a run's stops, proposed team versions and plan proposals also open as cards in the chat thread (`multiagent/gui/threads_api.py`, `multiagent/gui/static/js/thread.js`) and settle through the same routes, with a confirmation. Approvals for secret sends and external security queries are reserved for the user: only a click in «Aprobaciones» gives them, with a browser session and a one-use code, and the CLI, the API and MCP answer `user_click_required`. | — |
 | S13.A2 | ✅ Revision history and comparisons between attempts (`step_attempts`, `compare_attempts`, `multiagent attempts`, «Comparar» in the GUI run detail). Failed attempts without output and the full prompt sent to a model are not stored yet. | — |
 | S13.A3 | ✅ Comments and structured feedback passed safely into later attempts (`comments` on a change request, with quotes of the output wrapped as untrusted data; who and which channel are recorded). | S13.A2 |
 | **S13.B — Policy** | | |
@@ -387,7 +387,7 @@ discovery, local model expansion, and the other planned items remain open. See
 
 **External executors (S13.C):** whoever produces the external output (a person, a cloud agent, a vendor's always-on agent) is outside the framework, which only validates the artifact. Document and mitigate:
 - **Data leakage:** the delivered prompt may carry project context, personal data, or secrets; apply per-step context propagation (S12.B1) and sanitization (S17.3) before handing it over, and never credentials (S17.1).
-- **Outgoing provider calls:** the S5.E1 guardrail checks prompts for secrets and personal data before cloud calls when a step or `EGRESS_DEFAULT` turns it on; incoming untrusted-content screening does not provide this protection.
+- **Outgoing provider calls:** the S5.E1 guardrail checks prompts for secrets and personal data before cloud calls when a step or `EGRESS_DEFAULT` turns it on, and the always-on secret gate holds a likely secret for one click in the GUI; incoming untrusted-content screening does not provide this protection. Remaining risk: on a PC where agents run as the same user, the click is not a barrier against a program built to imitate it, and an executor can read files from disk by itself (see `docs/security/secret-gate.md`).
 - **Provenance:** the pasted result does not prove who produced it or with which model; the receipt records `executor: external` with a self-declared label and the hashes of the delivered prompt and the result, without authenticating.
 - **Instructions in the result:** the result is data; it is validated against the contract and nothing inside it is ever executed.
 - **Side actions of the executor:** an executor with connected apps may act outside the framework while "running" the step (send mail, open pull requests); governing that is the user's responsibility on the external platform.
@@ -474,7 +474,7 @@ advanced visualization items below remain planned.
 | --- | --- | --- |
 | S17.1 | ◐ Done: opt-in profiles keep sensitive data classes off cloud models; no secret manager beyond `.env`. | — |
 | S17.2 | Dependency, secret, and static-analysis checks in CI. | — |
-| S17.3 | ◐ Done: untrusted content quoting, detection, quarantine and review; telemetry stays local. Outgoing prompt screening is S5.E1 (opt-in). | — |
+| S17.3 | ◐ Done: untrusted content quoting, detection, quarantine and review; telemetry stays local. Outgoing prompt screening is S5.E1: the secret gate is always on, and the personal-data policy is opt-in. | — |
 | S17.4 | ◐ Done: CI builds and installs the wheel in a clean environment on Ubuntu; no containers. | — |
 | S17.5 | ◐ Done: API reference and three runnable examples; no framework-equivalence page. | S4.C1 for the equivalences |
 | S17.6 | ◐ Done: numbered database migrations with upgrade tests; configuration, prompts, and workflows are not covered. | — |

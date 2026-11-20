@@ -181,6 +181,24 @@ A limit (`QuotaExceeded` or `RateLimitExceeded`) is handled by the kind of entry
   `422 cloud_confirmation_required` unless the request carries `confirm_cloud` (`--confirm-cloud` in the CLI). The confirmation grants only
   `provider:cloud` for non-sensitive data; a run marked sensitive can never confirm it.
 
+## The chain of checks before a call
+
+Before every model call of a run step, the router hands the candidate to a chain of guards (`multiagent/call_guards.py`).
+They run in this order, and the first `Stop` or `Pause` ends the check: the person's inbox (50, only with the
+availability policy), context (100, only with a context profile), untrusted content (150, only with a document policy),
+limits (200), **secrets (240)**, egress (250, only when the egress policy is not `off`) and the budget (300, only with a
+budget). The call is booked only when every guard lets it through.
+
+The secret guard (`multiagent/secret_gate.py`) is always in the chain and cannot be skipped or switched off. For a
+candidate whose catalog tier is not `local`, it scans the outgoing text for a private key, secret key, bearer token or
+long high-entropy token. Without a finding the call goes on. With one, it pauses the run in `waiting_human` with the
+reason `secret_review` and a request that names the types, a masked sample, the SHA-256 of the text and the destination
+model. A click in the GUI approves it, the approval is spent by exactly that call, and a rejection fails the run
+without calling the provider. A step whose egress policy is `block` or `redact` hands the text to the egress guard
+instead; with `off` or `escalate`, the secret guard asks. Local models (Ollama) are not gated, because the text stays on
+the computer. The model planner and the free-text reader of «Nueva sesión» use the same guard and hold the request with
+`secret_review_required`. See the [secret gate](security/secret-gate.md).
+
 ## Bounded escalation
 
 A step whose cheaper model fails on the **quality of its output** can move up one model level, once. It applies only to an economic profile in `supervised` or `automatic` mode that declares `escalation` with `max_escalations_per_step: 1`; every other profile, `single` mode, a limit of 0 and a dry run behave as before.

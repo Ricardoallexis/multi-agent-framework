@@ -265,6 +265,29 @@ to the provider, after the egress policy redacted it. It is off by default and
 should stay off for sensitive runs. The GenAI conventions are still evolving, so
 attribute names may follow later versions.
 
+## Secret gate events
+
+The [secret gate](security/secret-gate.md) records what it held and what a person decided. None of these events,
+or any log line of the gate, holds the value of a secret: only the type, a masked sample and a SHA-256 digest of the
+text.
+
+Run events (`GET /api/v1/runs/{run_id}/events`):
+
+- `call_paused` with `guard: "secret"` and `waiting_reason: "secret_review"`. Its `request` carries `approval_id`,
+  `step_id`, `attempt`, `model_id`, `ordinal`, `retry`, `sha256`, the `destination` (`model_id` and `tier`),
+  `secret_types` and `masked_sample` (the finding's type and three characters at each end of a long value, or `***`).
+  The run report keeps only `step_id`, `attempt`, `guard`, `waiting_reason`, `model_id` and `ordinal` of this event.
+- `secret_approved` and `secret_rejected`, with the same identity fields and no sample. A rejection also adds
+  `workflow_failed` of type `SecretReviewRejected`.
+- `secret_released`, written when the one approved call goes out, with the `approval_id` it spent.
+
+Team events (`GET /api/v1/team-events`): `user_approval.requested` (kind, destination, origin, secret types, masked
+sample and `sha256`), `user_approval.decided` (`approved` or `rejected`, with the actor `user:gui`) and
+`user_approval.consumed`. A request is made by `system:approval`.
+
+The usage records of a call that the gate held do not exist, because the provider was not called. Nothing here goes
+to a telemetry service, and the OpenTelemetry export does not carry these events.
+
 ## Dashboard guidance
 
 A future local dashboard can use the usage response without reading the

@@ -144,7 +144,7 @@ Human control is intended to remain a first-class part of the architecture rathe
 
 - [x] Allow a human review after any step and resume from the next step without repeating approved work.
 - [ ] Improve review queues and actionable human-step requests.
-  - [x] Surface pending decisions (a task held at a limit, a step paused for escalation, a content review, or a budget cut) as actionable cards in the operator GUI and settle them through the existing approve and reject operations.
+  - [x] Surface pending decisions (a task held at a limit, a step paused for escalation, a content review, or a budget cut) as actionable cards in the operator GUI and settle them through the existing approve and reject operations. Approvals for secret sends and external security queries are reserved for a click in the GUI: the CLI, the API and MCP cannot give them.
 - [x] Improve the human-guided external model flow (copy the prompt, use any external chat or application, import the response, and validate it against the contract) across the CLI, the API, and the UI, as a feature for human control, interoperability, provider independence, and transparency: a read-only check reports field-level problems before submitting, and the three doors share the same validation and the same error for a stale wait (see [`docs/HUMAN_GUIDED.md`](docs/HUMAN_GUIDED.md)).
 - [ ] Support approval policies per workflow, step, risk level, or project.
   - [x] Configure supervised or automatic escalation per workflow step, a budget that cuts or only warns, and a content-review policy, each pausing for a human when it applies.
@@ -377,7 +377,7 @@ The core works with generic concepts (tool, capability, provider, channel, permi
 - [ ] Improve secret-management options beyond local `.env` files.
 - [ ] Add configurable policies for sensitive workloads and local-only execution.
   - [x] Keep sensitive runs off cloud candidates unless a profile and an explicit, verified grant allow the data class (opt-in profiles).
-- [x] Guardrail on outgoing content: before every call to a cloud provider, a deterministic check finds secrets and personal data in the prompt and applies the step's policy (allow, redact, block, or escalate to a human), with events. It is opt-in and builds on the existing chain of checks that runs before each model call.
+- [x] Guardrail on outgoing content: before every call to a cloud provider, a deterministic check finds secrets and personal data in the prompt and applies the step's policy (allow, redact, block, or escalate to a human), with events. The egress policy is opt-in. A separate secret gate is always on: a likely private key, secret key, bearer token or long token in text bound for a non-local model or an executor waits until a person approves that exact text with one click in the GUI, and no other channel can approve it. Both build on the existing chain of checks that runs before each model call.
 - [ ] Review uploaded assets, external tool inputs, and generated artifacts for safe handling boundaries.
   - [x] Quote untrusted content as data, detect instruction-like and hidden text, quarantine or hold it for review, and never let it authorize an effect.
 - [ ] Add dependency, secret, and static-analysis checks to CI where appropriate.

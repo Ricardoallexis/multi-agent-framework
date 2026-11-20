@@ -331,6 +331,44 @@ agents, and `POST /api/v1/runs`) answer `409` until a person decides in the GUI:
 Only the GUI can grant these approvals. Settings: `bundle_scan`, `skillspector_python` and
 `bundle_scan_timeout_seconds`.
 
+### Approvals and `user_click_required`
+
+Some approvals can only be given by a click in the GUI. Today they are a send that carries a secret
+(`secret_send`, see the [secret gate](security/secret-gate.md)), the OSV.dev query of a bundle scan
+(`osv_query`) and the load of a flagged bundle (`bundle_load`). Each one is a one-use approval stored as team
+events (`user_approval.requested`, `user_approval.decided`, `user_approval.consumed`) with its kind, destination,
+origin, secret types, a masked sample and the SHA-256 of the exact content, never the content.
+
+A run held by the secret gate has `status: "waiting_human"` and `waiting_reason: "secret_review"`. The
+`call_paused` event names the guard (`secret`) and carries the `approval_id`, the secret types, the masked
+sample and the digest. These channels cannot approve it and answer `409` `invalid_state` with
+`details.reason` `user_click_required` and `details.where` `Aprueba en la GUI → Aprobaciones`:
+
+- `POST /api/v1/runs/{run_id}/approve`, `multiagent approve` and the MCP tool;
+- `POST /gui/api/runs/{run_id}/approve`, which has the GUI token but no browser approval session;
+- the task approval route (`record_approval`) when the approval it names is a secret approval. If the approvals
+  cannot be read, it answers `409` with `details.reason` `approval_lookup_failed` and decides nothing.
+
+Rejecting a held run works from any channel, since it sends nothing.
+
+The model planner (`POST /api/v1/plans/propose`) and the free-text reader of «Nueva sesión»
+(`POST /gui/api/new-session/interpret`) answer a held text with `409` `secret_review_required` (planner, in
+`details.reason`) or `source: "keywords"` with `reason: "secret_review_required"` (new session), both with
+an `approval_id`. After the click, the same request is sent again with `approval_id` and the call goes out once.
+
+An executor task held by the gate returns `outcome: "secret_review_required"` with a `secret_review` object
+(`approval_id`, `secret_types`, `sha256`, `destination`). The task stays held until the click.
+
+The decision routes are local, need the GUI token and a browser approval session (cookie), and are not part of
+`/api/v1`:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/gui/api/approvals` | The pending approvals as `{items}`. Needs only the GUI token. It lists the requests of runs already held by the gate, but never decides or spends one. |
+| `POST` | `/gui/api/approvals/session` | `{code}`: exchanges the startup code, once, for the `HttpOnly` session cookie. `409` `approval_session_unavailable` if another browser already took it or the code is wrong. |
+| `POST` | `/gui/api/approvals/{id}/challenge` | With the cookie: a one-use `{code, expires_in: 120, sha256}` tied to that pending approval. |
+| `POST` | `/gui/api/approvals/{id}/decision` | With the cookie: `{code, decision: "approve"\|"reject"}`. A wrong, reused or expired code, or no cookie, is `409` `user_click_required`. For a held executor task the answer adds `resume`, the result of the check that follows the click (`checked`, `running` or `error`). |
+
 ## GUI routes (local, token-protected)
 
 The operator GUI is served at `/gui/`; its local routes live under
@@ -377,7 +415,7 @@ resources use `404`; invalid state or operation errors use `409`. Common stable
 codes include `not_found`, `invalid_request`, `invalid_definition`,
 `invalid_state`, `invalid_operation`, `budget_exceeded`,
 `idempotency_conflict`, `human_step_unavailable`, and
-`human_submission_invalid`. A bundle load can also answer `409` with `bundle_scan_pending`, `bundle_scan_running` or `bundle_scan_blocked` (see [Bundle scan status](#bundle-scan-status)).
+`human_submission_invalid`. A held secret answers `invalid_state` with `details.reason` `user_click_required` when a channel other than the GUI tries to approve it (see [Approvals and `user_click_required`](#approvals-and-user_click_required)). A bundle load can also answer `409` with `bundle_scan_pending`, `bundle_scan_running` or `bundle_scan_blocked` (see [Bundle scan status](#bundle-scan-status)).
 
 ## Mock mode
 

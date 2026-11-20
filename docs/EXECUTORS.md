@@ -60,6 +60,36 @@ Enabling an executor is done by the person on their PC, and the GUI never does i
 The GUI shows the notice with each agy launch but does not accept it, and it does not read or change agy's own settings
 or the Google account.
 
+## The secret gate before a launch
+
+Every launch and every resume of a task passes the [secret gate](security/secret-gate.md) first, whatever the
+entry (the GUI, `multiagent executors run`, `POST /api/v1/executors/run`, the worker, `resume-due`, `resume-met`).
+It cannot be turned off.
+
+- **What it reads.** What the framework would send to the app: the rendered prompt and the task's objective,
+  constraints, context references and file scope. The ids the framework made (task, group, dependencies, session,
+  folder) are taken out first, so they are not read as secrets. It looks for private keys, secret keys, bearer
+  tokens and long high-entropy tokens.
+- **What happens when it finds one.** The app is not started. The attempt ends `secret_review_required`, the task
+  is held on an `approval` condition and a request appears in the GUI under «Aprobaciones». The result carries
+  `secret_review` (`approval_id`, `secret_types`, `sha256`, `destination`). Without an approvals service the launch is
+  refused (`launch_refused: secret_review_unavailable`).
+- **Who approves.** Only a click in the GUI. `record_approval` answers `409` `user_click_required` for a secret
+  approval, and `approval_lookup_failed` when it cannot read the approvals, so the tray, the CLI and the API cannot
+  decide it. After the click the GUI checks the held task at once (`resume_met`); if the approval is valid and the
+  text is the same, the app launches once and the approval is spent. A rejection never launches it. Automatic
+  resumes, the worker and hand-offs never approve: they find the hold and wait.
+- **Bound to the text.** The digest covers the envelope without what changes between attempts (attempt number,
+  revision, status, assignee, event cursor, data class and dependencies) and the secret values found. A changed
+  text, or another secret in the same text, asks again.
+- **What is kept.** The type, a masked sample and the digest. Never the value.
+
+**What it does not see.** An executor application can read files on disk by itself, so a secret in a file that
+the app opens is not in the prompt and the gate cannot see it. The permission templates in
+[`docs/permissions/`](permissions/) (see [Permission profiles](PERMISSIONS.md)) remain the defense against that.
+On a PC where the agents run as the same user as you, the approval is not a barrier against a program built to
+imitate your click; the guide to the secret gate states that risk in full.
+
 ## Installing and signing in to an executor
 
 `multiagent setup` measures, without spending any model quota, which of Claude, Codex and Copilot is installed (version) and,

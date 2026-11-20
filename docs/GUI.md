@@ -24,7 +24,10 @@ loopback host and refuses other hosts. It creates a random 256-bit local token
 in `~/.multiagent/gui-token` and opens
 `http://127.0.0.1:<port>/gui/#token=…`. The page stores the token in
 `sessionStorage` and removes it from the URL. `--no-browser` prints the URL
-without opening it. The default port is `APP_PORT` (8000).
+without opening it, and with the one-use approval code added to the fragment
+(`#token=…&approval=…`); without that option the printed URL carries neither,
+and the browser that the command opens gets both (see [Approvals](#approvals)).
+The default port is `APP_PORT` (8000).
 
 ## Register bundles
 
@@ -828,6 +831,44 @@ and the framework never spends agy's AI credits. See
 A generic run that selects a cloud model needs the person's cloud confirmation
 (`confirm_cloud` in `POST /gui/api/runs`, `--confirm-cloud` in `multiagent run`); the
 server answers `422 cloud_confirmation_required` without it.
+
+## Approvals
+
+«Aprobaciones» (`#approvals`, an extension) lists the decisions that only a click in the GUI can give, each
+as a card. Three kinds exist: a send that carries a secret (`secret_send`), the OSV.dev query of a bundle scan
+(`osv_query`) and the load of a flagged bundle (`bundle_load`). The last two are described in
+[Bundle scans in Approvals](#bundle-scans-in-approvals); the first is stopped by the
+[secret gate](security/secret-gate.md), which is always on.
+
+A secret card shows why the send was held, the destination (a model, or an executor and its model), where it
+came from (a run, a task, «Nueva sesión» or the planner), the secret types and a masked sample. It never
+shows the secret. **Aprobar este envío** authorizes that exact text for that destination once; **Rechazar**
+closes the request so nothing goes out. There is no «remember» and no «approve all», and a different text
+asks again. Opening or refreshing the view only lists the requests; it never decides or spends one.
+
+How the click is protected:
+
+- **Startup code.** `multiagent gui` makes a random code at each start. The browser it opens receives it in the
+  URL fragment next to the token, and `auth.js` exchanges it once with `POST /gui/api/approvals/session` for an
+  `HttpOnly`, `SameSite=Strict` cookie limited to `/gui/api/approvals`. With `--no-browser` the printed URL
+  carries the code, so open that URL yourself.
+- **One browser.** Only the first exchange works for each start. A second tab or browser, or a page opened
+  without the code, sees «Otra pestaña o navegador ya tomó las aprobaciones: reinicia la GUI», and the card
+  asks you to restart the GUI. Restarting invalidates every cookie and code.
+- **One code for each decision.** The card asks for a challenge code tied to that approval, its SHA-256 and the
+  browser session (`POST /gui/api/approvals/{id}/challenge`), and sends the decision with it in the same click
+  (`POST /gui/api/approvals/{id}/decision`). The code is valid once and for 120 seconds; **Intentar de nuevo**
+  asks for another.
+
+What happens next depends on the origin. A run waiting on `secret_review` goes back to the queue when you approve
+and fails when you reject. A held executor task is checked right after the decision: if the text is the same, it
+launches once; a rejection never launches it. In «Nueva sesión», a held message stays in the box and the card
+links to «Aprobaciones»; after you decide, send it again and it goes with its `approval_id`. The tray, the CLI, the
+HTTP API and MCP answer `user_click_required` for these approvals.
+
+The first real **Aprobar** is yours. The tests approve with a test client and seeded values, and no agent or
+worker presses the button in the real GUI. The guide to the [secret gate](security/secret-gate.md) says what
+the gate does not see and the risk that remains on a PC where programs run as the same user.
 
 ## Bundle scans in Approvals
 
