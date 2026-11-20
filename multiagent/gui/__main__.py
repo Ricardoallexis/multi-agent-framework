@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import secrets
 import threading
 import webbrowser
 from collections.abc import Mapping
@@ -61,9 +62,12 @@ def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
     _check_port_free(host, port)
     token = ensure_token(settings.gui_token_file)
     app = create_app(build_system(settings), bundles=bundles)
+    approval_code = secrets.token_urlsafe(32)
+    app.state.approval_sessions.bootstrap_code = approval_code
 
-    url = f"http://{f'[{host}]' if ':' in host else host}:{port}/gui/#token={token}"
-    print(f"Multi-Agent Framework GUI: {url}")
+    base_url = f"http://{f'[{host}]' if ':' in host else host}:{port}/gui/"
+    url = f"{base_url}#token={token}&approval={approval_code}"
+    print(f"Multi-Agent Framework GUI: {url if no_browser else base_url}")
     print(f"Token file: {settings.gui_token_file}")
     print("Mode: " + ("REAL models (provider calls may cost money)" if real else "Mock (synthetic results)"))
     if bundles:

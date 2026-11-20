@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Secret sends and external security queries get a one-use approval that only the GUI can give: `multiagent gui` passes the browser a bootstrap code in the URL fragment (printed only with `--no-browser`), which is exchanged once for an `HttpOnly`, `SameSite=Strict` cookie, and each decision needs a single-use code that is bound to the request and its SHA-256 and expires in 120 s; the requests are team events that never hold the secret, and `multiagent approve`, `POST /api/v1/runs/{id}/approve`, MCP and the token-only GUI route answer `user_click_required` for a `secret_review` while rejecting still works from any channel (`SEC-T01`).
 - Extension screens show one title: `registerView` takes an optional `topic` (a help key) that `main.js` places beside the page heading, and «Apps y agentes», «Alertas de documentos», «Esperan tu decisión», «Decisiones» and «Proyectos» drop their repeated heading (`ARR2-T04`).
 - The team version status shows a Spanish label instead of its raw code in the team card and «Equipos», and long API setting names in «Apps y agentes» wrap at the word instead of overflowing at 375 px (`ARR2-T03`).
 - Gemini can be chosen before it is verified («Sin comprobar»): no probe call is made, and the first real request records whether the key, the limit or the access failed, with the reset time when the provider gives one; the outcome lives only in process memory and the key is never stored (`CUO-T02`).

@@ -16,6 +16,10 @@ class PersonRequired(InvalidStateTransition):
     """The decision needs an authenticated person and the caller is not one (``details.reason`` ``person_required``)."""
 
 
+class UserClickRequired(InvalidStateTransition):
+    """A secret review can only be released by the GUI approval decision."""
+
+
 class RunService:
     def __init__(self, settings: Settings, store: Store, engine=None):
         self.settings = settings
@@ -113,6 +117,9 @@ class RunService:
         with ``person=True``; without it the answer is ``PersonRequired``, as with ``recorded_only`` (CAP-T15, B1). Only
         the token route of the GUI (which the command line goes through) passes it."""
         run = self.store.get_run(run_id)
+        if (run["status"] == RunStatus.WAITING_HUMAN.value
+                and run.get("waiting_reason") == WaitingReason.SECRET_REVIEW.value):
+            raise UserClickRequired("Aprueba en la GUI → Aprobaciones")
         if permission_request_id is not None and not self._awaits_tool_approval(run):
             # An id names one tool request; it never approves a wait of another kind (a stale click, CAP-T14 M1).
             raise ToolApprovalMismatch("The run is not waiting on the tool request that id names",

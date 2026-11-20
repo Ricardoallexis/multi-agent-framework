@@ -42,6 +42,11 @@ def _team_bundles(services: Any) -> list[str]:
 def pending_items(services: Any) -> list[dict[str, Any]]:
     """Project existing read services into the compact shape used by the inbox."""
     items = []
+    for approval in services.user_approvals.pending():
+        approval_id = str(approval["id"])
+        items.append(_item("approval", approval_id, "Aprobación requerida",
+                           str(approval["kind"]), approval.get("created_at"),
+                           "#approvals/" + quote(approval_id, safe="")))
     for run in services.runs.list(limit=MAX_ITEMS, status="waiting_human"):
         if run.get("status") != "waiting_human":
             continue

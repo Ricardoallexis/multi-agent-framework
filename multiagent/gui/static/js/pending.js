@@ -14,6 +14,7 @@ const VISIBLE_POLL_MS = 5000;
 const HIDDEN_POLL_MS = 30000;
 let memoryNotifications = false;
 const TYPE_LABELS = {
+  approval: "Aprobación",
   run: "Ejecución",
   team: "Equipo",
   plan: "Plan",
@@ -44,7 +45,7 @@ function notifyNewItems(items) {
 
 function itemHref(href) {
   if (typeof href !== "string") return "#";
-  if (/^#(?:new\/(?:run|team|plan)|teams|plans)\/[^#]*$/.test(href)) return href;
+  if (/^#(?:new\/(?:run|team|plan)|teams|plans|approvals)\/[^#]*$/.test(href)) return href;
   return ["#continuity", "#task_waiting", "#map"].includes(href) ? href : "#";
 }
 

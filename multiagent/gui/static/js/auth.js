@@ -2,14 +2,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // Local token handling: read it from the URL fragment once, keep it in sessionStorage.
 const KEY = "multiagent.gui.token";
+let approvalSessionError = "";
+
+export function getApprovalSessionError() { return approvalSessionError; }
+
+function reportApprovalSessionError(message) {
+  approvalSessionError = message;
+  window.dispatchEvent(new CustomEvent("approval-session-error", { detail: message }));
+}
 
 export function loadToken() {
-  const match = /(?:^#|&)token=([^&]+)/.exec(location.hash);
+  const fragment = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const match = fragment.get("token");
   if (match) {
-    try { sessionStorage.setItem(KEY, decodeURIComponent(match[1])); } catch (_) { /* storage blocked */ }
+    try { sessionStorage.setItem(KEY, match); } catch (_) { /* storage blocked */ }
     // Drop the fragment so the token is not left in the address bar or history.
     history.replaceState(null, "", location.pathname + location.search);
-    return decodeURIComponent(match[1]);
+    const approval = fragment.get("approval");
+    if (approval) {
+      fetch("/gui/api/approvals/session", {
+        method: "POST", headers: { ...authHeaders(match), "Content-Type": "application/json" },
+        body: JSON.stringify({ code: approval }), credentials: "same-origin", cache: "no-store",
+      }).then(async response => {
+        if (!response.ok) {
+          const detail = await response.json().catch(() => ({}));
+          reportApprovalSessionError(detail?.detail?.message || "Reinicia la GUI para tomar las aprobaciones.");
+        }
+      }).catch(() => reportApprovalSessionError("No se pudo iniciar la sesión de aprobaciones."));
+    }
+    return match;
   }
   try { return sessionStorage.getItem(KEY) || ""; } catch (_) { return ""; }
 }

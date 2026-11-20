@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import hmac
+import secrets
+import threading
+import time
 
 from fastapi import HTTPException, Request
 from starlette.datastructures import MutableHeaders
@@ -74,3 +77,67 @@ def require_json(request: Request) -> None:
         raise HTTPException(status_code=415, detail={
             "code": "unsupported_media_type", "message": "Content-Type must be application/json", "details": {},
         })
+
+
+# Approval sessions are process-local. Restarting the GUI invalidates every cookie and challenge.
+APPROVAL_COOKIE = "multiagent_approval_session"
+APPROVAL_COOKIE_PATH = "/gui/api/approvals"
+APPROVAL_WINDOW_SECONDS = 120
+
+
+def _click_required(reason: str) -> HTTPException:
+    return HTTPException(status_code=409, detail={
+        "code": "invalid_state", "message": "Aprueba en la GUI → Aprobaciones",
+        "details": {"reason": "user_click_required", "cause": reason,
+                    "where": "Aprueba en la GUI → Aprobaciones"},
+    })
+
+
+class ApprovalSessions:
+    """One bootstrap exchange and one short-lived challenge for each decision."""
+
+    def __init__(self, bootstrap_code: str | None = None, *, clock=None):
+        self.bootstrap_code = bootstrap_code
+        self.clock = clock or time.monotonic
+        self._lock = threading.Lock()
+        self._session: str | None = None
+        self._challenges: dict[str, tuple[str, str, str, float]] = {}
+
+    def exchange(self, code: str) -> str:
+        with self._lock:
+            if self.bootstrap_code is None or self._session is not None or not code or not hmac.compare_digest(
+                    code, self.bootstrap_code):
+                raise HTTPException(status_code=409, detail={
+                    "code": "invalid_state", "message": "Otra pestaña o navegador ya tomó las aprobaciones: reinicia la GUI",
+                    "details": {"reason": "approval_session_unavailable"},
+                })
+            self._session = secrets.token_urlsafe(32)
+            self.bootstrap_code = None
+            return self._session
+
+    def valid(self, cookie: str | None) -> bool:
+        with self._lock:
+            return bool(cookie and self._session and hmac.compare_digest(cookie, self._session))
+
+    def challenge(self, approval_id: str, sha256: str, session: str) -> str:
+        with self._lock:
+            code = secrets.token_urlsafe(32)
+            self._challenges[approval_id] = (code, sha256, session, self.clock() + APPROVAL_WINDOW_SECONDS)
+            return code
+
+    def verify(self, approval_id: str, sha256: str, session: str, code: str) -> None:
+        with self._lock:
+            challenge = self._challenges.get(approval_id)
+            if (challenge is None or not code or not hmac.compare_digest(code, challenge[0])
+                    or sha256 != challenge[1] or session != challenge[2]
+                    or self.clock() >= challenge[3]):
+                raise _click_required("invalid_or_expired_code")
+            del self._challenges[approval_id]
+
+
+def require_approval_session(request: Request) -> str:
+    """Dependency for a browser session cookie, in addition to the GUI bearer token."""
+    session = request.cookies.get(APPROVAL_COOKIE)
+    if not request.app.state.approval_sessions.valid(session):
+        raise _click_required("missing_or_invalid_session")
+    return session

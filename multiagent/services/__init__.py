@@ -54,6 +54,7 @@ from .sessions import SessionServices
 from .tasks import TaskServices
 from .teams import TeamServices
 from .usage import UsageServices
+from .user_approvals import UserApprovalServices
 
 if TYPE_CHECKING:
     from ..bootstrap import System
@@ -84,6 +85,7 @@ __all__ = [
     "TaskServices",
     "TeamServices",
     "UsageServices",
+    "UserApprovalServices",
     "service_errors",
     "translate",
 ]
@@ -124,6 +126,7 @@ class ApplicationServices:
         self.decisions = DecisionServices(self)
         self.teams = TeamServices(self)
         self.new_session = NewSessionServices(self)
+        self.user_approvals = UserApprovalServices(self)
         # The engine of the system reads the availability policy from the inbox, the same place that accepts the messages.
         engine = getattr(system, "engine", None)
         if engine is not None:

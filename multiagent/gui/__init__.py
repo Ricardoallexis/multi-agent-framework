@@ -34,6 +34,7 @@ from ..services.usage import UsageServices
 from ..version import __version__
 from . import events
 from .continuity_api import add_continuity_routes, held_children, with_extra_children
+from .approvals_api import add_approval_routes
 from .connections_api import add_connection_routes
 from .document_alerts_api import add_document_alerts_routes
 from .executor_launch_api import add_executor_launch_routes
@@ -44,7 +45,7 @@ from .plans_api import add_plans_routes
 from .pending_api import add_pending_routes
 from .project_api import add_project_routes
 from .runs import build_router as build_runs_router
-from .security import GUISecurityHeadersMiddleware, require_json, require_token
+from .security import ApprovalSessions, GUISecurityHeadersMiddleware, require_json, require_token
 from .sessions_api import add_session_routes
 from .setup_api import add_setup_routes
 from .teams_api import add_teams_routes
@@ -66,6 +67,7 @@ def mount_gui(app: FastAPI) -> None:
     sessions = getattr(services, "sessions", None) or SessionServices(services)
     usage = getattr(services, "usage", None) or UsageServices(services)
     app.state.gui_token_file = settings.gui_token_file
+    app.state.approval_sessions = ApprovalSessions()
     app.add_middleware(GUISecurityHeadersMiddleware)
 
     api = APIRouter(prefix="/gui/api", dependencies=[Depends(require_token), Depends(require_json)])
@@ -129,6 +131,7 @@ def mount_gui(app: FastAPI) -> None:
     add_teams_routes(api, services)  # /gui/api/teams/* (EQP-T05)
     add_plans_routes(api, services)  # /gui/api/plan-proposals/* (PLN-T04)
     add_pending_routes(api, services)  # /gui/api/pending (RWD-T03)
+    add_approval_routes(api, services)
     add_thread_routes(api, services)  # /gui/api/threads/runs/{run_id} (CHT-T01)
     add_inbox_routes(api, services)  # AVA-T05: run and task messages
     api.include_router(build_runs_router(services))

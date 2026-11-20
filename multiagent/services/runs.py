@@ -40,7 +40,7 @@ from ..external_output import EvidenceRejected, canonical_json, check_evidence, 
 from ..observability.usage import read_usage, summarize_usage
 from ..run_request import FunctionStepRequestError, RunRequest
 from ..run_request import operating_mode_from_events
-from ..run_service import PersonRequired, RunService
+from ..run_service import PersonRequired, RunService, UserClickRequired
 from ..tasks.envelopes import envelope_sha256
 from ..tools.approvals import ToolApprovalMismatch
 from ..tools.contracts import PermissionRequest, ToolExecutionError
@@ -341,6 +341,10 @@ class RunServices:
         except PersonRequired as exc:
             raise ServiceError(INVALID_STATE, str(exc), status=409,
                                details={"reason": "person_required", "run_id": run_id}) from exc
+        except UserClickRequired as exc:
+            raise ServiceError(INVALID_STATE, str(exc), status=409,
+                               details={"reason": "user_click_required", "run_id": run_id,
+                                        "where": "Aprueba en la GUI → Aprobaciones"}) from exc
 
     # CHT-T04: reconstruct only the declared file.write call; never modify the run or its target file.
     @service_errors

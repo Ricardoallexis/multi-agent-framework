@@ -43,6 +43,17 @@ def get(env):
     return env.client.get("/gui/api/pending", headers={"Authorization": f"Bearer {env.token}"})
 
 
+def test_pending_includes_user_approval(env):
+    approval = env.services.user_approvals.request(
+        kind="secret_send", destination={"provider": "fake", "model": "mock"},
+        location={"run": "synthetic", "step": "create"}, secret_types=["token"],
+        masked_sample="ab…yz", sha256="a" * 64)
+    body = get(env).json()
+    item = next(item for item in body["items"] if item["id"] == "approval:" + approval["id"])
+    assert item["href"] == "#approvals/" + approval["id"]
+    assert body["count"] == len(body["items"])
+
+
 def waiting_run(env):
     response = env.client.post("/gui/api/runs", headers={"Authorization": f"Bearer {env.token}"}, json={
         "workflow_id": "social_post", "project_name": "Synthetic review",
@@ -125,6 +136,7 @@ def test_shell_wires_help_and_requests_notifications_only_from_an_opt_in_click()
     style = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
     assert 'import { PendingInbox } from "./pending.js"' in shell and "<${PendingInbox} />" in shell
     assert 'apiGet(PENDING_PATH, token)' in pending and 'const PENDING_PATH = "/gui/api/pending"' in pending
+    assert 'plans|approvals)' in pending and 'approval: "Aprobación"' in pending
     assert "fetch(" not in pending and not re.search(r"https?://", pending)
     assert all(value not in model for value in ("document", "window", "fetch("))
     handler = pending.split("const onNotificationsClick = async () => {", 1)[1].split("\n  };", 1)[0]
