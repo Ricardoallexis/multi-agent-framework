@@ -82,6 +82,7 @@ class ConnectionServices:
         if app == "copilot":
             row["session"] = "unknown"
             row["session_note"] = "Cannot check the Copilot session without spending model quota."
+            row.update(verification="unverified", warning=None, limit=None)
         elif app == "agy":
             row["session"] = "unknown"
             row["session_note"] = "The /usage quota probe is the only safe session signal."
@@ -122,6 +123,21 @@ class ConnectionServices:
                     "used_percent": item.get("used_percent"), "resets_at": item.get("resets_at")}
                    for item in entry.get("windows", [])]
         row["quota"] = {"status": entry.get("status"), "windows": windows}
+        # CUO-T01: the cache is a session signal and a hard premium-interaction limit.
+        if app == "copilot":
+            cache = (entry.get("source") or {}).get("kind") == "copilot_cache"
+            if cache:
+                row["verification"] = "verified"
+                row["session"] = "signed_in"
+                row.pop("session_note", None)
+                if row["reason"] == "session_unverifiable":
+                    row["reason"] = None
+                monthly = next((item for item in entry.get("windows", []) if item.get("window") == "monthly"), None)
+                if monthly and monthly.get("state") == "limit_reached":
+                    row["limit"] = {"code": "limit_reached", "resets_at": monthly.get("resets_at"),
+                                    "target": "copilot_cli", "suggestions": []}
+                    if row["reason"] is None:
+                        row["reason"] = "limit_reached"
         if app == "agy":
             if windows and entry.get("status") in {"ok", "partial"}:
                 row["session"] = "signed_in"

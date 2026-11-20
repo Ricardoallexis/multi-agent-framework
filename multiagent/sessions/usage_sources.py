@@ -14,8 +14,8 @@ What each app gives (USO-T01):
   operator configured it, the JSON a ``statusLine`` script received (``rate_limits`` with percent and reset).
 * Codex: ``token_count`` events of ``sessions/**/rollout-*.jsonl`` (cumulative tokens, plus ``rate_limits``
   with the percent and reset of the 5 hour and weekly windows).
-* Copilot: ``session-store.db`` table ``assistant_usage_events`` (tokens and AI credits per call) and
-  ``session.error`` ``quota_exceeded`` events; the monthly reset is a documented rule, not on disk.
+* Copilot: the bounded user cache supplies premium-interaction quota facts; ``session-store.db`` table
+  ``assistant_usage_events`` supplies tokens and AI credits per call, and ``session.error`` limit hits.
 * Antigravity (agy): nothing on disk; the limits come from the text of ``agy -p /usage --output-format text``
   (``parse_agy_usage``, a pure parser: this module never starts agy).
 
@@ -26,6 +26,7 @@ column allow-list. Every reader skips what it cannot read and reports it as a sh
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 from collections.abc import Iterator, Mapping, Sequence
@@ -97,6 +98,20 @@ class PlanObservation:
 
 
 @dataclass(frozen=True)
+class CopilotQuota:
+    """Only the permitted quota facts from Copilot's user cache."""
+
+    retrieved_at: datetime
+    resets_at: datetime
+    entitlement: float | None
+    remaining: float | None
+    percent_remaining: float | None
+    unlimited: bool
+    overage_permitted: bool
+    timestamp: datetime | None
+
+
+@dataclass(frozen=True)
 class LimitHit:
     """A limit the app rejected a request for (the latest one per window)."""
 
@@ -131,6 +146,13 @@ def _epoch(value: object) -> datetime | None:
 def _number(value: object) -> float | None:
     """A finite non-negative number (a bool is not one), else ``None``."""
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or value < 0:
+        return None
+    return float(value)
+
+
+def _signed_number(value: object) -> float | None:
+    """A finite number that may be negative (Copilot's balance goes below 0 on overage), else ``None``."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value:
         return None
     return float(value)
 
@@ -357,6 +379,85 @@ def read_claude_statusline(path: Path) -> tuple[PlanObservation | None, list[str
     modified = _mtime(path)
     observed = parse_instant(modified) if modified is not None else None
     return PlanObservation("claude", "claude_statusline", observed, windows=tuple(windows)), []
+
+
+# --------------------------------------------------------------------------- Copilot quota cache
+
+_CACHE_MAX_DEPTH = 3
+_CACHE_MAX_NODES = 256
+
+
+def _copilot_cache_entries(data: object) -> list[Mapping[str, Any]]:
+    """Entries (mappings with ``retrievedAt``) at most ``_CACHE_MAX_DEPTH`` levels down, visiting a bounded count."""
+    found: list[Mapping[str, Any]] = []
+    queue: list[tuple[object, int]] = [(data, 0)]
+    visited = 0
+    while queue and visited < _CACHE_MAX_NODES:
+        node, depth = queue.pop(0)
+        visited += 1
+        if isinstance(node, Mapping):
+            if "retrievedAt" in node:
+                found.append(node)
+            elif depth < _CACHE_MAX_DEPTH:
+                queue.extend((child, depth + 1) for child in node.values())
+        elif isinstance(node, list) and depth < _CACHE_MAX_DEPTH:
+            queue.extend((child, depth + 1) for child in node)
+    return found
+
+
+def read_copilot_quota_cache(path: Path, now: datetime) -> CopilotQuota | None:
+    """Read only quota facts from the newest current-month cache entry; never expose raw JSON."""
+    try:
+        with Path(path).open("rb") as handle:
+            raw = handle.read(MAX_STATUSLINE_BYTES + 1)
+        if len(raw) > MAX_STATUSLINE_BYTES:
+            return None
+        # The real file starts with ``//`` comment lines; drop them before parsing.
+        lines = raw.decode("utf-8-sig").splitlines()
+        start = 0
+        while start < len(lines) and (not lines[start].strip() or lines[start].lstrip().startswith("//")):
+            start += 1
+        data = json.loads(chr(10).join(lines[start:]))
+    except (OSError, ValueError, RecursionError):
+        return None
+
+    entries = _copilot_cache_entries(data)
+
+    latest_entry: Mapping[str, Any] | None = None
+    latest_retrieved: datetime | None = None
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
+        retrieved = parse_instant(entry.get("retrievedAt"))
+        if retrieved is not None and (latest_retrieved is None or retrieved > latest_retrieved):
+            latest_entry, latest_retrieved = entry, retrieved
+    if latest_entry is None or latest_retrieved is None or month_start(latest_retrieved) != month_start(now):
+        return None
+    body = latest_entry.get("response")
+    if not isinstance(body, Mapping):
+        body = latest_entry  # the flat shape: the quota fields sit beside ``retrievedAt``
+    resets = parse_instant(body.get("quota_reset_date_utc"))
+    snapshots = body.get("quota_snapshots")
+    premium = snapshots.get("premium_interactions") if isinstance(snapshots, Mapping) else None
+    if resets is None or resets <= now or not isinstance(premium, Mapping):
+        return None
+    entitlement = _number(premium.get("entitlement"))
+    remaining = _signed_number(premium.get("remaining"))
+    if remaining is None:
+        remaining = _signed_number(premium.get("quota_remaining"))
+    percent = _signed_number(premium.get("percent_remaining"))
+    if percent is not None:
+        percent = max(0.0, percent)  # a negative balance (overage) is 0 percent left
+    unlimited = premium.get("unlimited") is True
+    if any(value is not None and not math.isfinite(value) for value in (entitlement, remaining, percent)):
+        return None
+    if not unlimited and (entitlement is None or remaining is None):
+        return None
+    if percent is not None and percent > 100:
+        return None
+    return CopilotQuota(latest_retrieved, resets, entitlement, remaining, percent, unlimited,
+                        premium.get("overage_permitted") is True,
+                        parse_instant(premium.get("timestamp_utc")))
 
 
 # --------------------------------------------------------------------------- Codex

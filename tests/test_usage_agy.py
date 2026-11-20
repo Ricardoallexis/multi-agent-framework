@@ -32,6 +32,7 @@ def agy(tmp_path, monkeypatch):
         return value
 
     monkeypatch.setattr(usage_module.shutil, "which", lambda name: "C:/bin/agy.exe" if name == "agy" else None)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "no-local-appdata"))  # never the real Copilot cache
     services = make_services(make_stores(tmp_path), mock_mode=False)
     services.usage.clock = lambda: NOW
     services.usage.agy_runner = runner
@@ -130,7 +131,8 @@ def test_mock_mode_never_starts_agy(tmp_path):
     services.runs.close()
 
 
-def test_a_disabled_source_is_reported_disabled(tmp_path):
+def test_a_disabled_source_is_reported_disabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "no-local-appdata"))  # never the real Copilot cache
     services = make_services(make_stores(tmp_path), mock_mode=False, gui_session_sources=["claude"])
     result = next(e for e in services.usage.plans()["apps"] if e["app"] == "antigravity")
     assert result == {"app": "antigravity", "status": "disabled"}

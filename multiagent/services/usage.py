@@ -9,8 +9,8 @@ same answer from Python, the token-protected ``/gui/api/usage/*`` routes, ``/api
 * ``plans()``: what each app's plan allows and how much is used, **only where the app leaves the number on
   disk or documents it** (USO-T01). Codex: the percent and reset of its 5 hour and weekly windows. Claude:
   the reset instant after a limit was hit, and the percent only if the operator saved a ``statusLine``
-  snapshot (``usage_claude_statusline_file``). Copilot: AI credits used this month, the monthly reset (a
-  documented rule) and a percent only if the operator set ``usage_copilot_monthly_credits``. Antigravity (agy):
+  snapshot (``usage_claude_statusline_file``). Copilot: the local quota cache gives premium interactions left,
+  percent and reset; without it, AI credits used this month and the configured cap remain the fallback. Antigravity (agy):
   the five hour and weekly windows per model group and per model, from ``agy -p /usage`` (no model is spent;
   run without a shell, with a time limit, cached for a minute). Everything
   else is listed in ``not_available`` and is never estimated or shown as 0.
@@ -56,6 +56,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import shutil
 import subprocess
 import tempfile
@@ -559,6 +560,35 @@ class UsageServices:
                            credits=dict(observed.credits) if observed and observed.credits else None)
 
     def _plan_copilot(self, config: SessionsConfig, now: datetime) -> dict[str, Any]:
+        settings = self._services.settings
+        cache_path = settings.usage_copilot_cache_file
+        if cache_path is None and not settings.mock_mode and os.environ.get("LOCALAPPDATA"):
+            cache_path = Path(os.environ["LOCALAPPDATA"]) / "copilot" / "copilot-user-cache.json"
+        cache = sources.read_copilot_quota_cache(cache_path, now) if cache_path is not None else None
+        if cache is not None:
+            remaining = cache.remaining
+            total = cache.entitlement
+            percent_left = cache.percent_remaining
+            if percent_left is None and total and remaining is not None:
+                percent_left = min(100.0, remaining / total * 100)
+            used_percent = None if cache.unlimited or percent_left is None else round(100 - percent_left, 2)
+            if remaining is not None and remaining > 0 and used_percent is not None:
+                used_percent = min(used_percent, 99.99)
+            view = self._window_view(RateWindow(sources.MONTHLY, used_percent, cache.resets_at, None,
+                                                sources.RESET_APP_EPOCH), now, started=sources.month_start(now))
+            if remaining is not None and remaining <= 0 and not cache.unlimited:
+                view["state"] = "limit_reached"
+                view["used_percent"] = 100.0
+            credits = {"unit": "premium_interaction", "remaining": remaining, "cap": total,
+                       "used": max(0.0, total - remaining) if total is not None and remaining is not None else None,
+                       "cap_source": "copilot_cache", "unlimited": cache.unlimited,
+                       "overage_permitted": cache.overage_permitted}
+            observed = PlanObservation("copilot", "copilot_cache", cache.retrieved_at)
+            missing = ["model_limits", "plan_name"]
+            if used_percent is None:
+                missing.append("monthly_percent")
+            return self._entry("copilot", observed, [view], missing, [], data=True, credits=credits)
+
         start, reset = sources.month_start(now), sources.next_month(now)
         events, notes = (sources.read_copilot_tokens(config.copilot_home, start, reset)
                          if config.copilot_home else ([], ["source_unavailable: copilot store not configured"]))

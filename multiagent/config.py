@@ -216,6 +216,10 @@ class Settings(BaseSettings):
     # ``rate_limits``). Empty means "not available" is shown instead of a percent.
     usage_copilot_monthly_credits: Optional[int] = Field(default=None, ge=1)
     usage_claude_statusline_file: Optional[Path] = None
+
+    # CUO-T01: optional override for Copilot's read-only quota cache. Empty uses LOCALAPPDATA outside Mock mode.
+    usage_copilot_cache_file: Optional[Path] = None
+
     # USO-T03 budgets: a list of ``UsageBudget`` (an environment value is a JSON array), the mode they use unless
     # a budget sets its own (``warn`` reports, ``cut`` lets USO-T04 hold the call) and the percents that raise an
     # alert (``80;95`` or ``[80, 95]``). No budget is configured by default: nothing is limited or reported.
