@@ -1,0 +1,164 @@
+/* Copyright 2026 Ricardoallexis and contributors */
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Styles of «Aprobaciones» (SEC-T04). Every selector starts with .approvals-; colours use app.css variables. */
+
+.approvals-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.approvals-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  min-width: 0;
+}
+
+.approvals-count,
+.approvals-missing,
+.approvals-status,
+.approvals-notice {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.approvals-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.approvals-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-left: 4px solid var(--warn);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow-wrap: anywhere;
+}
+
+.approvals-card-selected {
+  border-color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+.approvals-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.approvals-card-title {
+  margin: 0;
+  font-size: 1rem;
+  min-width: 0;
+}
+
+.approvals-time {
+  min-width: 0;
+}
+
+.approvals-reason {
+  margin: 0;
+  color: var(--text);
+}
+
+.approvals-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.approvals-facts dt {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.approvals-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.approvals-sample {
+  display: inline-block;
+  max-width: 100%;
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.approvals-card-error {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.approvals-card-error .message {
+  margin: 0;
+}
+
+.approvals-retry,
+.approvals-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.approvals-action {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.approvals-btn {
+  min-height: var(--target);
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 599.98px) {
+  .approvals-card {
+    padding: 10px 12px;
+  }
+
+  .approvals-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .approvals-facts dd {
+    margin-bottom: 4px;
+  }
+
+  .approvals-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .approvals-action,
+  .approvals-btn {
+    width: 100%;
+  }
+}

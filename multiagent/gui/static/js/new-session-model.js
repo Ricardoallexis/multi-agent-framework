@@ -59,6 +59,38 @@ export function executorLaunchBody(task, executorId, model, effort) {
   };
 }
 
+// SEC-T04: secret review holding and resending with approval_id for POST /gui/api/new-session/interpret.
+export const SECRET_REVIEW_REASON = "secret_review_required";
+export const SECRET_REVIEW_NOTICE =
+  "Este mensaje lleva algo con forma de secreto: apruébalo en «Aprobaciones».";
+
+export function isSecretReviewRequired(interpretation) {
+  return Boolean(interpretation && interpretation.reason === SECRET_REVIEW_REASON);
+}
+
+export function interpretBody(text, { confirmCloud = false, approvalId = "" } = {}) {
+  const body = { text: String(text || ""), confirm_cloud: Boolean(confirmCloud) };
+  if (approvalId) body.approval_id = String(approvalId);
+  return body;
+}
+
+export function createSecretReview({ text, requestText, confirmCloud = false, approvalId = "" }) {
+  return {
+    text: String(text || ""),
+    requestText: String(requestText || ""),
+    confirmCloud: Boolean(confirmCloud),
+    approvalId: String(approvalId || ""),
+  };
+}
+
+export function secretResendRequest(pending) {
+  return {
+    text: pending ? pending.requestText : "",
+    confirmCloud: Boolean(pending && pending.confirmCloud),
+    approvalId: pending ? String(pending.approvalId || "") : "",
+  };
+}
+
 export const STARTERS = [
   { id: "workflow", label: "Trabajar en un workflow" },
   { id: "continuar", label: "Continuar una ejecución" },

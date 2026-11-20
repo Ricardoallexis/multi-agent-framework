@@ -16,9 +16,10 @@ import { modeHelpEntry } from "./help-text.js";
 import { ModelPicker } from "./model-picker.js";
 import { buildModelPicker } from "./model-picker-model.js";
 import {
-  SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, answerRows, cardDescription, createConversation, currentQuestion, executorLaunchBody,
-  formSeed, inputsPath, loadCatalog, originLabel, parseCommand, pickRuns, progress, quotaRemainingLines, reduce, runBody,
-  singleSessionBody, singleSessionModels, suggestedEntries,
+  SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_NOTICE, SECRET_REVIEW_REASON, answerRows, cardDescription,
+  createConversation, createSecretReview, currentQuestion, executorLaunchBody, formSeed, inputsPath, interpretBody,
+  isSecretReviewRequired, loadCatalog, originLabel, parseCommand, pickRuns, progress, quotaRemainingLines, reduce,
+  runBody, secretResendRequest, singleSessionBody, singleSessionModels, suggestedEntries,
 } from "./new-session-model.js";
 import { navigate, routeHref, threadHref, useRoute } from "./route.js";
 import { RunThread } from "./thread.js";
@@ -36,6 +37,17 @@ const asError = (failure) => (failure instanceof ApiError ? failure : new ApiErr
 // A touch screen does not get the soft keyboard pushed up just by opening the screen.
 const finePointer = () => { try { return window.matchMedia("(pointer: fine)").matches; } catch (_) { return true; } };
 const prefillOf = (state) => { const question = currentQuestion(state); return question ? state.answers[question.key] || "" : ""; };
+
+// SEC-T04: keep held secret-review state in memory while the user visits #approvals/<id> and returns to #new.
+let heldSecretState = null;
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("multiagent:approval-decided", (event) => {
+    const detail = event && event.detail ? event.detail : {};
+    if (heldSecretState && heldSecretState.pendingSecret && heldSecretState.pendingSecret.approvalId === detail.id) {
+      heldSecretState = { ...heldSecretState, decision: detail.decision || "" };
+    }
+  });
+}
 
 function Messages({ messages }) {
   return html`<div class="ns-thread" role="log" aria-label="Conversación">
@@ -491,17 +503,19 @@ function SingleExecutorSession({ token, connections, connectionLoading, connecti
 export function NewSession({ token, mock }) {
   const route = useRoute();
   const runId = route.section === "new" ? route.id : null;
-  const store = useRef(createConversation());
+  const restored = !runId ? heldSecretState : null;
+  const store = useRef(restored ? restored.conv : createConversation());
   const [conv, setConv] = useState(store.current);
   const [view, setView] = useState("chat");                        // "chat" or "form" (the existing create-run form)
   const [formInitial, setFormInitial] = useState(null);
   const [catalog, setCatalog] = useState({ entries: [], loading: true, error: null });
   const [connections, setConnections] = useState({ data: null, loading: true, error: null });
   const [selectedConnection, setSelectedConnection] = useState(null);
-  const [sessionKind, setSessionKind] = useState(null); // SES-T03: ask the mode before either flow.
-  const [draft, setDraft] = useState("");
+  const [sessionKind, setSessionKind] = useState(restored ? restored.sessionKind : null); // SES-T03: ask the mode before either flow.
+  const [draft, setDraft] = useState(restored ? restored.draft : "");
   const [busy, setBusy] = useState(false);
   const [pendingCloud, setPendingCloud] = useState(null);
+  const [pendingSecret, setPendingSecret] = useState(restored ? restored.pendingSecret : null);
   const [runs, setRuns] = useState(null);
   const [mode, setMode] = useState("auto");
   const [sensitive, setSensitive] = useState(false);
@@ -602,13 +616,36 @@ export function NewSession({ token, mock }) {
   }, [conv.phase, conv.workflow, conv.answers, mode, sensitive, routingOverrides, token]);
 
   const settledCatalog = async () => (catalogRun.current ? catalogRun.current : { entries: catalog.entries, error: catalog.error });
-  const askModel = (text, confirm_cloud = false) => apiPost("/gui/api/new-session/interpret", token, { text, confirm_cloud });
+  const askModel = (text, confirm_cloud = false, approval_id = "") =>
+    apiPost("/gui/api/new-session/interpret", token, interpretBody(text, { confirmCloud: confirm_cloud, approvalId: approval_id }));
+
+  function holdSecret(held, keptDraft) {
+    heldSecretState = { sessionKind: "orchestrator", conv: store.current, draft: keptDraft, pendingSecret: held, decision: "" };
+    setPendingSecret(held);
+  }
+
+  function clearSecret() {
+    heldSecretState = null;
+    setPendingSecret(null);
+  }
+
+  function secretInterpretationFromError(failure) {
+    if (failure && failure.details && failure.details.reason === SECRET_REVIEW_REASON) {
+      return {
+        source: SOURCE_KEYWORDS,
+        reason: SECRET_REVIEW_REASON,
+        approval_id: failure.details.approval_id || "",
+        proposal: null,
+      };
+    }
+    return { source: SOURCE_KEYWORDS, reason: "model_error", proposal: null };
+  }
 
   // What the user sent: a command, an answer or free text. The text stays in the box when the answer is not accepted.
   async function submit(text) {
     const trimmed = String(text).trim();
     const asking = store.current.phase === "ask";
-    if (busy || pendingCloud || (!asking && !trimmed)) return;
+    if (busy || pendingCloud || pendingSecret || (!asking && !trimmed)) return;
     const command = parseCommand(trimmed);
     let entries = catalog.entries;
     if (!asking && (!command || command.name === "workflow")) {
@@ -628,11 +665,20 @@ export function NewSession({ token, mock }) {
       setBusy(true);
       try {
         interpretation = await askModel(command ? command.rest : trimmed);
-      } catch (_) {
-        interpretation = { source: SOURCE_KEYWORDS, reason: "model_error", proposal: null };     // the words are compared instead
+      } catch (failure) {
+        interpretation = secretInterpretationFromError(failure);     // the words are compared instead on model error
       } finally { setBusy(false); }
       if (interpretation && interpretation.reason === "cloud_confirmation_required") {
         setPendingCloud({ text: trimmed, requestText: command ? command.rest : trimmed, entries, interpretation });
+        return;
+      }
+      if (isSecretReviewRequired(interpretation)) {
+        holdSecret(createSecretReview({
+          text: trimmed,
+          requestText: command ? command.rest : trimmed,
+          confirmCloud: false,
+          approvalId: interpretation.approval_id || "",
+        }), String(text));
         return;
       }
     }
@@ -651,14 +697,81 @@ export function NewSession({ token, mock }) {
       setBusy(true);
       try {
         interpretation = await askModel(requestText, true);
-      } catch (_) {
-        interpretation = { source: SOURCE_KEYWORDS, reason: "model_error", proposal: null };
+      } catch (failure) {
+        interpretation = secretInterpretationFromError(failure);
       } finally { setBusy(false); }
+      if (!alive.current) return;
+      if (isSecretReviewRequired(interpretation)) {
+        holdSecret(createSecretReview({
+          text,
+          requestText,
+          confirmCloud: true,
+          approvalId: interpretation.approval_id || "",
+        }), draft);
+        return;
+      }
     }
     if (!alive.current) return;
     const next = dispatch({ type: "send", text, catalog: entries, interpretation }, { keepDraft: true });
     setDraft(prefillOf(next));
   }
+
+  async function resendSecret() {
+    if (!pendingSecret || busy) return;
+    const current = pendingSecret;
+    setBusy(true);
+    let entries = catalog.entries;
+    let interpretation = null;
+    try {
+      const loaded = await settledCatalog();
+      entries = loaded.entries;
+      if (entries.length === 0 && loaded.error) {
+        dispatch({ type: "notice", text: "No se pudo leer la lista de workflows: " + errorText(loaded.error) }, { keepDraft: true });
+        return;
+      }
+      const req = secretResendRequest(current);
+      interpretation = await askModel(req.text, req.confirmCloud, req.approvalId);
+    } catch (failure) {
+      interpretation = secretInterpretationFromError(failure);
+    } finally {
+      setBusy(false);
+    }
+    if (!alive.current) return;
+    if (interpretation && interpretation.reason === "cloud_confirmation_required") {
+      clearSecret();
+      setPendingCloud({ text: current.text, requestText: current.requestText, entries, interpretation });
+      return;
+    }
+    if (isSecretReviewRequired(interpretation)) {
+      holdSecret(createSecretReview({
+        text: current.text,
+        requestText: current.requestText,
+        confirmCloud: current.confirmCloud,
+        approvalId: interpretation.approval_id || current.approvalId || "",
+      }), draft);
+      return;
+    }
+    clearSecret();
+    const before = store.current.messages.length;
+    const next = dispatch({ type: "send", text: current.text, catalog: entries, interpretation }, { keepDraft: true });
+    if (next.messages.length !== before) setDraft(prefillOf(next));
+  }
+
+  function cancelSecret() {
+    clearSecret();
+  }
+
+  useEffect(() => {
+    if (!pendingSecret || !heldSecretState || !heldSecretState.decision) return;
+    const decision = heldSecretState.decision;
+    heldSecretState = { ...heldSecretState, decision: "" };
+    if (decision === "approved") {
+      resendSecret();
+    } else if (decision === "rejected") {
+      clearSecret();
+      dispatch({ type: "notice", text: "La aprobación fue rechazada; puedes editar el texto antes de enviarlo." }, { keepDraft: true });
+    }
+  }, [pendingSecret]);
 
   async function chooseStarter(starter) {
     if (busy) return;
@@ -725,6 +838,7 @@ export function NewSession({ token, mock }) {
   function restart() {
     store.current = createConversation();
     setPendingCloud(null);
+    clearSecret();
     setRoutingOverrides({});
     setConv(store.current);
     setLaunchError(null);
@@ -815,6 +929,18 @@ export function NewSession({ token, mock }) {
         <${Help} topic="chat.cloud_confirm" compact=${true} />
       </div>
     </div>`}
+    ${pendingSecret && html`<div class="ns-msg ns-bot notice" role="alert" aria-label="Revisión de secreto requerida">
+      <p>${SECRET_REVIEW_NOTICE}</p>
+      <p><a href=${routeHref("approvals", pendingSecret.approvalId || undefined)}>Ir a «Aprobaciones»</a></p>
+      <div class="actions">
+        <button type="button" class="btn" disabled=${busy} ...${helpFor("chat.send", { scope: "secret-resend" })}
+          onClick=${resendSecret}>Reenviar</button>
+        <${Help} topic="chat.send" compact=${true} scope="secret-resend" />
+        <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.edit", { scope: "secret-edit" })}
+          onClick=${cancelSecret}>Editar mensaje</button>
+        <${Help} topic="chat.edit" compact=${true} scope="secret-edit" />
+      </div>
+    </div>`}
     ${conv.phase === "choose" && suggestions.length > 0 && html`<${Cards} items=${suggestions} source=${conv.source} disabled=${busy}
       canShowAll=${!conv.showAll && catalog.entries.length > suggestions.length} onPick=${pick} onShowAll=${showAll} />`}
     ${conv.phase === "continue" && html`<${RunsList} runs=${runs} />`}
@@ -828,7 +954,7 @@ export function NewSession({ token, mock }) {
     <form class="ns-composer" onSubmit=${(event) => { event.preventDefault(); submit(draft); }} aria-busy=${busy ? "true" : "false"}>
       <div class="ns-composer-head"><label for="ns-composer-input">${label}</label><${Help} topic="chat.composer" compact=${true} /></div>
       <textarea id="ns-composer-input" ref=${composer} rows=${rows} value=${draft} placeholder=${placeholder}
-        disabled=${busy || pendingCloud || conv.phase === "launched"} aria-invalid=${conv.error ? "true" : null}
+        disabled=${busy || pendingCloud || pendingSecret || conv.phase === "launched"} aria-invalid=${conv.error ? "true" : null}
         ...${helpFor("chat.composer", { also: [describedBy, conv.error ? "ns-composer-error" : ""].filter(Boolean).join(" ") })}
         onInput=${typing} onKeyDown=${keyDown}></textarea>
       ${conv.error && html`<p id="ns-composer-error" class="field-error" role="alert">${conv.error}</p>`}
@@ -839,7 +965,7 @@ export function NewSession({ token, mock }) {
         ${canSkip && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.skip")}
           onClick=${() => dispatch({ type: "skip" })}>Omitir</button>
           <${Help} topic="chat.skip" compact=${true} />`}
-        <button type="submit" class="btn ns-send" disabled=${busy || conv.phase === "launched"} ...${helpFor("chat.send")}>Enviar</button>
+        <button type="submit" class="btn ns-send" disabled=${busy || pendingSecret || conv.phase === "launched"} ...${helpFor("chat.send")}>Enviar</button>
         <${Help} topic="chat.send" compact=${true} />
       </div>
     </form>
