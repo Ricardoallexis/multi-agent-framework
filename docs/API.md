@@ -94,6 +94,7 @@ See [Human-guided execution](HUMAN_GUIDED.md) for the complete CLI, API, and GUI
 | `GET` | `/api/v1/agents` | List agents; optional `?bundle=<name>`. |
 | `GET` | `/api/v1/bundles` | List bundles registered by the server. |
 | `POST` | `/api/v1/bundles/{name}/validate` | Validate a registered bundle. With a `team.yaml`, the team is checked against the bundle's workflows too: errors return `422` with `details.team` (each finding with `code`, `location`, `message` and `severity`), and warnings alone return `200` with `warnings`. |
+| `GET` | `/api/v1/bundles/{name}/scan` | Report the scan state of a registered bundle. Read-only: it never starts a scan or asks for an approval. See [Bundle scan status](#bundle-scan-status). |
 | `POST` | `/api/v1/runs` | Queue a run; optional `?bundle=<name>`. Returns `202 Accepted`. A request that chooses cloud (`execution_mode: cloud` or a cloud model preference) needs `confirm_cloud: true` (CLI `--confirm-cloud`), otherwise `422 cloud_confirmation_required`; it is never accepted for a `sensitive` run. |
 | `GET` | `/api/v1/runs` | List runs; optional `limit` (1–500), `status`, and `project` query parameters. |
 | `GET` | `/api/v1/runs/{run_id}` | Get a run with its events and artifacts. A role-bound step's `step_started` event includes `role`, `member`, `team_id`, `team_version_id`, and `team_version`. |
@@ -303,6 +304,33 @@ guessing its state. The operator GUI can do this and show a notice while it
 reloads. `seq` is additive: existing fields, including the event `id`, keep
 their meaning. An `after` below 0 or not an integer returns 422 `invalid_request`.
 
+### Bundle scan status
+
+A bundle registered from outside the framework's own folder is scanned with SkillSpector, when it is installed,
+before its code is imported (see [Bundle scan](security/bundle-scan.md)). `GET /api/v1/bundles/{name}/scan`
+(also `GET /gui/api/bundles/{name}/scan` and `multiagent bundle-scan NAME`) returns:
+
+| Field | Meaning |
+| --- | --- |
+| `bundle`, `external` | The name, and whether it is outside the framework's folder. A bundled one answers `state: "exempt"`. |
+| `state` | `unscanned`, `pending`, `running`, `safe`, `caution`, `do_not_install`, `not_analyzed`, `not_installed`, `off` or `exempt`. |
+| `verdict` | The state when it is `safe`, `caution` or `do_not_install`; otherwise `null`. |
+| `findings`, `coverage` | The main findings (at most 20, most severe first) and the coverage percent per folder. |
+| `fingerprint`, `tool_version`, `reason`, `warning` | The bundle fingerprint, the tool version, why a result is `not_analyzed`, and the warning shown when there was no scan. |
+| `approval`, `load_approved` | The pending approval (`id`, `state`, `location: "/gui/"`) or `null`, and whether a person already approved the load. |
+
+Requests that load a bundle's code (`POST /api/v1/bundles/{name}/validate`, `?bundle=<name>` on workflows and
+agents, and `POST /api/v1/runs`) answer `409` until a person decides in the GUI:
+
+| Code | When | `details` |
+| --- | --- | --- |
+| `bundle_scan_pending` | The query to `api.osv.dev` waits for a click. | `approval_id`, `location` |
+| `bundle_scan_running` | A scan is running; only one runs at a time. | `bundle` |
+| `bundle_scan_blocked` | The verdict is `do_not_install`, the bundle was not fully analyzed, or the interpreter is unsigned; loading needs a click. | `approval_id`, `location`, `verdict`, `findings`, `coverage` |
+
+Only the GUI can grant these approvals. Settings: `bundle_scan`, `skillspector_python` and
+`bundle_scan_timeout_seconds`.
+
 ## GUI routes (local, token-protected)
 
 The operator GUI is served at `/gui/`; its local routes live under
@@ -349,7 +377,7 @@ resources use `404`; invalid state or operation errors use `409`. Common stable
 codes include `not_found`, `invalid_request`, `invalid_definition`,
 `invalid_state`, `invalid_operation`, `budget_exceeded`,
 `idempotency_conflict`, `human_step_unavailable`, and
-`human_submission_invalid`.
+`human_submission_invalid`. A bundle load can also answer `409` with `bundle_scan_pending`, `bundle_scan_running` or `bundle_scan_blocked` (see [Bundle scan status](#bundle-scan-status)).
 
 ## Mock mode
 

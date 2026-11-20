@@ -52,6 +52,8 @@ python -m multiagent.gui --bundle general=examples/bundles/general
   `ERROR: Bundle folder not found: ...`.
 - Register only bundles you trust: the bundle's `contracts.py` is imported and
   runs as code.
+- A bundle from outside the framework is scanned before its code loads when SkillSpector is installed, and
+  the risky cases wait for your click in «Aprobaciones» (see [Bundle scans in Approvals](#bundle-scans-in-approvals)).
 
 The repository ships two bundles to try. Both run in Mock mode (the default),
 with synthetic results, no model calls and no API keys.
@@ -826,6 +828,29 @@ and the framework never spends agy's AI credits. See
 A generic run that selects a cloud model needs the person's cloud confirmation
 (`confirm_cloud` in `POST /gui/api/runs`, `--confirm-cloud` in `multiagent run`); the
 server answers `422 cloud_confirmation_required` without it.
+
+## Bundle scans in Approvals
+
+«Aprobaciones» (`#approvals`, the extension `multiagent/gui/static/extensions/approvals/`) shows the two
+decisions of a bundle scan as their own cards. Both come from an external bundle that was asked to load; see
+[Bundle scan](security/bundle-scan.md) for what the scan does and what each verdict means.
+
+- **Consulta a api.osv.dev** (`osv_query`). It names the bundle, the host `api.osv.dev` and the manifests whose
+  package names and versions would leave the computer, or says that none were found. **Permitir la consulta**
+  starts the scan; **No permitir** leaves the bundle «sin analizar».
+- **Cargar este bundle** (`bundle_load`). It shows the verdict (Seguro, Con avisos, No instalar or Sin analizar),
+  the coverage of each folder with the ones left unanalyzed marked, and the top 10 findings as plain text (level,
+  rule, file and line, with the message cut at 200 characters) and how many more there are. A note says that the
+  scan has no language model and that many high findings are false positives. **Cargar este bundle** approves that
+  one load; **No cargar** rejects it.
+- While a scan runs the card says «Escaneando · unos 25 s por carpeta», and the view polls
+  `GET /gui/api/bundles/{name}/scan` every 3 s (every 10 s when idle) and refreshes when the scan ends.
+- Each decision is a one-use approval bound to the bundle's fingerprint, like the other approvals of the view: it
+  asks for a fresh code and sends the decision in the same click. There is no «remember» or «approve all».
+- An edited bundle has a new fingerprint and is scanned again; a result for the old one does not carry over.
+
+Reading the scan status never starts a scan. The cards only appear when a load request (`409
+bundle_scan_pending` or `bundle_scan_blocked`) created the approval.
 
 ## Configuration
 

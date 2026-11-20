@@ -453,8 +453,8 @@ advanced visualization items below remain planned.
 | --- | --- | --- |
 | **S16.A — Package** | | |
 | S16.A1 | Portable, versioned preset format with a manifest (compatibility, capabilities, permissions). | S6.A1 |
-| S16.A2 | ◐ Done: bundles are validated before they run; there is no install, update, or removal. | S16.A1 |
-| S16.A3 | Trust rules for executable content (show, verify, sandbox) and private overlays. | S16.A2 |
+| S16.A2 | ◐ Done: bundles are validated before they run, and an external bundle is scanned before its code loads (SkillSpector, optional, with a click for the OSV.dev query and for loading a bundle it flags or could not fully analyze); there is no install, update, or removal. | S16.A1 |
+| S16.A3 | ◐ Done: show and verify executable content before it loads (scan verdict, findings, coverage, one-click approval). Not done: sandbox and private overlays. | S16.A2 |
 | S16.A4 | Searchable community catalog. | S16.A2 |
 | **S16.F — Reference stacks** | | |
 | S16.F1 | Top five team types, evaluation criteria, and three to five reference tools each; publish and review periodically. | — |

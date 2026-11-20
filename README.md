@@ -196,6 +196,8 @@ facade, bundle registration contract, endpoints, and error format, and
 [Function steps](docs/FUNCTION_STEPS.md) for workflow steps that run a
 registered function instead of a model.
 
+A bundle from outside the framework is scanned before its code loads when SkillSpector is installed; see [Bundle scan](docs/security/bundle-scan.md).
+
 A complete, copyable example is [the software development team bundle](examples/teams/software_development/README.md): seven roles, two human reviews, and sample outputs that run in Mock mode.
 
 To return to provider inference, stop the server, set `MOCK_MODE=false`, and
