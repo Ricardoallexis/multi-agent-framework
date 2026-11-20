@@ -15,7 +15,9 @@ from multiagent.prompts import PromptManager
 from multiagent.workflow_validation import WorkflowDefinitionError, validate_workflow_definition
 
 SPEC_REVIEW = Path(__file__).parent / "fixtures" / "bundles" / "spec_review"
-PACKAGE = Path(__file__).resolve().parents[1] / "multiagent"
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE = ROOT / "multiagent"
+GENERAL = ROOT / "examples" / "bundles" / "general"
 
 
 @pytest.fixture
@@ -85,6 +87,31 @@ def test_default_resources_are_unchanged(settings):
     assert Catalog(settings).catalog_dir == settings.catalog_dir
     prompts = PromptManager(settings)
     assert (prompts.prompts_dir, prompts.skills_dir) == (settings.prompts_dir, settings.skills_dir)
+
+
+def test_general_bundle_declares_cloud_fast_without_changing_ask_once_defaults(settings):
+    framework_models = yaml.safe_load((ROOT / "catalog" / "models.yaml").read_text(encoding="utf-8"))["models"]
+    general_models = yaml.safe_load((GENERAL / "catalog" / "models.yaml").read_text(encoding="utf-8"))["models"]
+    expected_cloud = dict(framework_models["cloud_fast"])
+    expected_cloud["roles"] = [*expected_cloud["roles"], "summary_writer"]
+    assert general_models["cloud_fast"] == expected_cloud
+
+    routing = yaml.safe_load((GENERAL / "catalog" / "models.yaml").read_text(encoding="utf-8"))["routing_profiles"]
+    profile_id = routing["assignments"]["ask_once"]["answer"]
+    profile = routing["profiles"][profile_id]
+    assert profile["candidate_model_ids"] == ["local_default", "cloud_fast"]
+    assert profile["allowed_permissions"] == ["provider:cloud"]
+    assert profile["allowed_data_classes"] == ["non_sensitive"]
+    assert "cloud" in profile["execution_modes"]
+
+    workflow = yaml.safe_load((GENERAL / "workflows" / "ask_once.yaml").read_text(encoding="utf-8"))
+    step = workflow["steps"][0]
+    assert step["preferred_model"] == "local_default"
+    assert step["fallback_model"] is None
+
+    bundle = load_bundle(GENERAL, settings)
+    assert {"local_default", "cloud_fast"} <= set(bundle.catalog.models)
+    assert bundle.load_workflow("ask_once").steps[0].preferred_model == "local_default"
 
 
 @pytest.mark.parametrize("index,field,value,code", [

@@ -15,6 +15,28 @@ models:
     permissions: []
     permissions_required: []
     allowed_data_classes: [non_sensitive]
+  cloud_fast:
+    provider: gemini
+    model: gemini-3.5-flash-lite
+    tier: cloud
+    structured_output: true
+    web: false
+    thinking: minimal
+    context_window:
+      tokens: 1048576
+      source: "https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite (Input token limit 1,048,576; page last updated 2026-07-30 UTC)"
+      checked_at: "2026-10-11"
+      provenance: provider_docs
+      model: gemini-3.5-flash-lite
+      note: "Documented limit. Unconfirmed community reports (discuss.ai.google.dev, June-August 2026) describe intermittent 400 errors citing 32768 tokens on Gemini 3.x models, mostly through the Interactions API that the gemini adapter uses; Google documents no such limit."
+    input_cost_per_million: 0.0
+    output_cost_per_million: 0.0
+    free_tier_eligible: true
+    capabilities: [text_generation]
+    roles: [researcher, strategist, creator, designer, summary_writer]
+    permissions: [provider:cloud]
+    permissions_required: [provider:cloud]
+    allowed_data_classes: [non_sensitive]
 
 routing_profiles:
   profiles:
@@ -22,13 +44,13 @@ routing_profiles:
       version: 1
       enabled: true
       mode: automatic
-      candidate_model_ids: [local_default]
+      candidate_model_ids: [local_default, cloud_fast]
       required_capabilities: [structured_output]
       required_roles: []
       required_permissions: []
-      allowed_permissions: []
+      allowed_permissions: [provider:cloud]
       allowed_data_classes: [non_sensitive]
-      execution_modes: [auto, local]
+      execution_modes: [auto, local, cloud]
       require_health: false
       max_retries_per_candidate: 0
       max_provider_invocations: 1
