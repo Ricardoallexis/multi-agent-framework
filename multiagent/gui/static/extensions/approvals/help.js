@@ -43,5 +43,37 @@ export const HELP = {
       "Cada intento genera un código distinto válido por 120 segundos.",
       "Si el problema sigue tras reiniciar el servidor, recarga desde «multiagent gui»."
     ]
+  },
+  "approvals.osv_allow": {
+    "title": "Permitir la consulta",
+    "hint": "Autoriza una consulta de paquetes a api.osv.dev para escanear este bundle.",
+    "more": [
+      "Solo envía nombres y versiones de los paquetes declarados en los manifiestos indicados.",
+      "Vale una sola vez para esta huella mediante código de un solo uso."
+    ]
+  },
+  "approvals.osv_deny": {
+    "title": "No permitir",
+    "hint": "Niega la consulta a api.osv.dev; el bundle quedará sin analizar.",
+    "more": [
+      "No se ejecutará SkillSpector ni saldrán datos de paquetes hacia internet.",
+      "Al cargar el bundle se pedirá confirmación manual porque quedó sin analizar."
+    ]
+  },
+  "approvals.bundle_allow": {
+    "title": "Cargar este bundle",
+    "hint": "Autoriza cargar esta versión exacta del bundle tras revisar el veredicto.",
+    "more": [
+      "Solo vale para esta huella; cualquier cambio en los archivos volverá a pedir revisión.",
+      "Usa el código de un solo uso de la sesión abierta en esta pestaña."
+    ]
+  },
+  "approvals.bundle_deny": {
+    "title": "No cargar",
+    "hint": "Mantiene bloqueada la carga de este bundle para su huella actual.",
+    "more": [
+      "Los contratos del bundle no se importarán ni se ejecutarán.",
+      "La decisión queda registrada en el historial de aprobaciones."
+    ]
   }
 };

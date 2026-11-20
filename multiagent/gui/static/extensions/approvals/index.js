@@ -16,6 +16,7 @@ import {
   orderApprovals,
   submitApprovalDecision,
 } from "./model.js";
+import { BundleScanCard, BundleScanStatus, isBundleScanApproval } from "./bundle-scan.js";
 
 registerHelp(HELP, "approvals");
 
@@ -172,13 +173,14 @@ export function ApprovalsView({ token, route }) {
     ${error && html`<p class="message error approvals-status" role="alert">No se pudieron leer las aprobaciones: ${errorText(error)}</p>`}
     ${missingSelected && html`<p class="approvals-missing muted" role="status">La solicitud seleccionada ya no está pendiente.</p>`}
     ${ordered.length > 0 && html`<ul class="approvals-list">
-      ${ordered.map((item) => html`<${ApprovalCard} key=${item.id} item=${item} token=${token}
+      ${ordered.map((item) => html`<${isBundleScanApproval(item) ? BundleScanCard : ApprovalCard} key=${item.id} item=${item} token=${token}
         selected=${Boolean(selectedId && item.id === selectedId)}
         sessionUnavailable=${sessionUnavailable}
         onSessionUnavailable=${() => setSessionUnavailable(true)}
         onDecided=${handleDecided}
         onStale=${() => load({ silent: true })} />`)}
     </ul>`}
+    <${BundleScanStatus} token=${token} items=${ordered} onRefresh=${() => load({ silent: true })} />
   </section>`;
 }
 
