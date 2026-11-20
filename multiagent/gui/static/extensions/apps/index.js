@@ -17,6 +17,11 @@ const CHIP_LABELS = {
   waiting: { text: "Falta un paso", tone: "warning", shape: "diamond", explanation: "Falta completar un paso." },
   unknown: { text: "Sin verificar", tone: "neutral", shape: "ring", explanation: "No se puede comprobar sin gastar." },
   error: { text: "No disponible", tone: "danger", shape: "square", explanation: "No disponible en este momento." },
+  unverified: { text: "Sin comprobar", tone: "neutral", shape: "ring", explanation: "Clave configurada; se comprueba con el primer mensaje." },
+  connected: { text: "Conectado", tone: "success", shape: "disc", explanation: "Conectado y comprobado con una respuesta reciente." },
+  key_invalid: { text: "Clave inválida", tone: "danger", shape: "square", explanation: "El proveedor rechazó la clave configurada." },
+  no_access: { text: "Sin acceso", tone: "danger", shape: "square", explanation: "No se pudo conectar con el proveedor." },
+  limit_reached: { text: "Límite alcanzado", tone: "danger", shape: "square", explanation: "Se alcanzó el límite de uso." },
 };
 
 const CONSOLE_POLL_MS = 4000;
@@ -234,6 +239,7 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, bu
       ${item.reasonText && html`<dt>Motivo</dt><dd>${item.reasonText}</dd>`}
       <dt>Comprobado</dt><dd>${item.checkedAt ? fmtDate(item.checkedAt) : "Sin fecha"}</dd>
     </dl>
+    ${item.warning && html`<p class="apps-notice" role="status">${item.warning}</p>`}
     <${MissingStep} item=${item} allowLaunch=${allowLaunch} consoleSupported=${consoleSupported} token=${token}
       onRecheck=${recheck} busyAny=${busyAny} onBusyChange=${onBusyChange} />
     ${checkError && html`<p class="message error apps-status-line" role="alert">${errorText(checkError)}</p>`}

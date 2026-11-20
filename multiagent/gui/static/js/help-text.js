@@ -1891,6 +1891,40 @@ export const HELP = {
     "title": "Actualizar el plan",
     "hint": "Vuelve a leer la propuesta, sus avisos y los runs de sus tareas.",
     "more": ["Sirve si otra persona ya decidió o si se aprobó el equipo que faltaba.", "No cambia nada en el servidor."]
+  },
+  "chat.limit_notice": {
+    "title": "Límite alcanzado",
+    "hint": "Aviso cuando un modelo o ejecutor agota su cuota o ritmo.",
+    "more": [
+      "Muestra «vuelve a las HH:MM» en tu hora local si hay dato, o «sin hora conocida».",
+      "Nunca cambia de modelo ni de ejecutor por su cuenta en un mensaje nuevo.",
+      "Las sugerencias disponibles aparecen como botones para que elijas tú."
+    ]
+  },
+  "chat.limit_suggestion": {
+    "title": "Sugerencia alternativa",
+    "hint": "Cambia la selección a otra opción disponible sin enviar nada.",
+    "more": [
+      "Conserva el texto que ya escribiste en la caja.",
+      "Solo cambia el modelo o ejecutor elegido; enviar o lanzar sigue siendo tuyo."
+    ]
+  },
+  "chat.connection_checks": {
+    "title": "Estado de Gemini y Copilot",
+    "hint": "Gemini «Sin comprobar» se prueba al enviar; Copilot usa su caché del mes.",
+    "more": [
+      "«Sin comprobar» significa que Gemini tiene clave y es elegible, pero aún no respondió en esta sesión.",
+      "Copilot solo es elegible cuando su caché local del mes está vigente; sin caché válida sigue sin comprobarse.",
+      "Puedes revisar el detalle de cada conexión en «Apps y agentes»."
+    ]
+  },
+  "run.limit_retry": {
+    "title": "Reintentar tras límite",
+    "hint": "Abre «Nueva sesión» para volver a lanzar cuando se reinicie la cuota.",
+    "more": [
+      "Cuando una ejecución falla por cuota, muestra «Límite alcanzado» con la hora local o «sin hora conocida».",
+      "Pulsar «Reintentar» abre una nueva sesión sin relanzar nada de forma automática."
+    ]
   }
 };
 

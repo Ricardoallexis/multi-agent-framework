@@ -11,10 +11,11 @@ function Choice({ item, selectedId, onSelect }) {
     <input type="radio" name="ns-model-choice" value=${item.id} checked=${selectedId === item.id}
       disabled=${!item.selectable} ...${helpFor("chat.model_choice")}
       onChange=${() => onSelect(item.id)} />
-    <span class="ns-picker-facts"><strong>${item.label}</strong>
+    <span class="ns-picker-facts"><strong>${item.label}${item.verificationLabel ? " · " + item.verificationLabel : ""}</strong>
       ${item.reason && html`<span class="ns-picker-reason">${item.reason}</span>`}
       <span class="muted small">Comprobado: ${item.checkedAt ? fmtDate(item.checkedAt) : "sin fecha"}</span>
-      ${item.kind === "executor" && item.quota.map((line) => html`<span class="muted small" key=${line}>${line}</span>`)}
+      ${(item.kind === "executor" || item.id === "gemini") && item.quota.map((line) => html`<span class="muted small" key=${line}>${line}</span>`)}
+      ${item.warning && html`<span class="ns-picker-notice">${item.warning}</span>`}
       ${item.agyNotice && html`<span class="ns-picker-notice">${item.agyNotice}</span>`}
     </span>
   </label>`;
@@ -46,6 +47,7 @@ export function ModelPicker({ connections, selectedId, onSelect, loading, error,
         </div>
       </details>`}
       ${help.choice}
+      ${help.connectionChecks || null}
     `}
   </section>`;
 }

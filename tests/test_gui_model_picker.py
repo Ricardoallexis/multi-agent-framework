@@ -130,3 +130,83 @@ def test_quota_lines_translate_window_names_and_format_reset_without_raw_iso():
     assert lines[0].startswith("Copilot · Mes: 40 % usado · reinicia el ")
     assert "monthly" not in lines[0]
     assert "2026-12-01T01:00:00Z" not in lines[0]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_copilot_with_and_without_cache_in_picker():
+    without_cache = {"connections": [
+        {"id": "copilot_cli", "kind": "executor", "enabled": True, "available": False,
+         "session": "unknown", "verification": "unverified", "reason": "session_unverifiable"},
+    ]}
+    picker_no_cache = run_node("console.log(JSON.stringify(m.buildModelPicker(DATA)))", without_cache)
+    assert picker_no_cache["executors"] == []
+    assert picker_no_cache["disconnected"][0]["reason"] == "No se puede comprobar la sesión sin gastar cuota."
+
+    with_cache = {"connections": [
+        {"id": "copilot_cli", "kind": "executor", "enabled": True, "available": True,
+         "session": "signed_in", "verification": "verified", "reason": None,
+         "quota": {"status": "ok", "windows": [
+             {"window": "monthly", "group": "Copilot", "used_percent": 60, "resets_at": "2026-12-01T00:00:00Z"},
+         ]}},
+    ]}
+    picker_cached = run_node("console.log(JSON.stringify(m.buildModelPicker(DATA, 'copilot_cli')))", with_cache)
+    assert picker_cached["selectedId"] == "copilot_cli"
+    assert picker_cached["executors"][0]["selectable"] is True
+    assert "60 % usado" in picker_cached["executors"][0]["quota"][0]
+    assert "reinicia el " in picker_cached["executors"][0]["quota"][0]
+
+    exhausted = {"connections": [
+        {"id": "copilot_cli", "kind": "executor", "enabled": True, "available": False,
+         "session": "signed_in", "verification": "verified", "reason": "limit_reached",
+         "limit": {"code": "limit_reached", "resets_at": "2026-12-01T00:00:00Z", "target": "copilot_cli", "suggestions": []}},
+    ]}
+    picker_limit = run_node("console.log(JSON.stringify(m.buildModelPicker(DATA)))", exhausted)
+    assert picker_limit["disconnected"][0]["selectable"] is False
+    assert re.fullmatch(r"Límite alcanzado · vuelve a las \d{2}:\d{2}", picker_limit["disconnected"][0]["reason"])
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_gemini_five_states_and_agy_floor_warning_in_picker():
+    for verification, label in (("unverified", "Sin comprobar"), ("verified", "Conectado")):
+        eligible = {"connections": [
+            {"id": "gemini", "kind": "model", "enabled": True, "available": True,
+             "key_configured": True, "verification": verification},
+        ]}
+        out = run_node("console.log(JSON.stringify(m.buildModelPicker(DATA, 'gemini')))", eligible)
+        assert out["selectedId"] == "gemini"
+        assert out["models"][0]["verificationLabel"] == label
+        assert out["models"][0]["quota"] == ["La API de Gemini no informa la cuota."]
+
+    for reason, expected in (
+        ("key_invalid", "Clave inválida."),
+        ("no_access", "Sin acceso."),
+    ):
+        bad = {"connections": [{"id": "gemini", "kind": "model", "enabled": True, "available": False, "reason": reason}]}
+        out = run_node("console.log(JSON.stringify(m.buildModelPicker(DATA)))", bad)
+        assert out["disconnected"][0]["reason"] == expected
+
+    no_time = {"connections": [
+        {"id": "gemini", "kind": "model", "enabled": True, "available": False, "reason": "limit_reached",
+         "resets_at": None, "limit": {"code": "limit_reached", "resets_at": None, "target": "gemini", "suggestions": []}},
+    ]}
+    out_no_time = run_node("console.log(JSON.stringify(m.buildModelPicker(DATA)))", no_time)
+    assert out_no_time["disconnected"][0]["reason"] == "Límite alcanzado · sin hora conocida"
+
+    agy_warn = {"connections": [
+        {"id": "antigravity_cli", "kind": "executor", "enabled": True, "available": True, "reason": None,
+         "warning": {"reason": "quota_below_launch_floor", "remaining_percent": 12, "resets_at": "2026-11-21T10:00:00Z"}},
+    ]}
+    out_warn = run_node("console.log(JSON.stringify(m.buildModelPicker(DATA, 'antigravity_cli')))", agy_warn)
+    assert out_warn["selectedId"] == "antigravity_cli"
+    assert out_warn["executors"][0]["warning"] == "Quedan 12 %; bajo el piso del 15 %"
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_picker_scripts_pass_node_check_and_render_warning_and_gemini_quota():
+    component = (JS / "model-picker.js").read_text(encoding="utf-8")
+    assert "item.verificationLabel" in component
+    assert "item.warning" in component
+    assert 'item.id === "gemini"' in component
+    for filename in ("model-picker-model.js", "model-picker.js"):
+        checked = subprocess.run([NODE, "--check", str(JS / filename)], capture_output=True, text=True, timeout=60)
+        assert checked.returncode == 0, checked.stderr

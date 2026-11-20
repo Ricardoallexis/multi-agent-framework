@@ -31,11 +31,45 @@ export function singleSessionModels(connections, routing) {
   const models = Array.isArray(routing?.catalog_models) ? routing.catalog_models : [];
   return rows.filter((row) => ["ollama", "gemini", "openai"].includes(row.id)).map((row) => {
     const matches = models.filter((model) => model.provider === row.id && allowed.has(model.id));
+    const eligible = row.enabled === true && row.available === true;
+    let reason = null;
+    if (!eligible) {
+      if (row.limit || row.reason === "limit_reached" || row.reason === "quota_paused") {
+        reason = limitReachedText(row.limit || row.resets_at || row.paused_until);
+      } else if (row.reason === "key_invalid") {
+        reason = "Clave inválida.";
+      } else if (row.reason === "no_access") {
+        reason = "Sin acceso.";
+      } else if (row.reason === "key_missing") {
+        reason = "Falta configurar la clave.";
+      } else if (row.reason === "disabled") {
+        reason = "No está habilitado.";
+      } else if (row.reason === "unreachable") {
+        reason = "No responde.";
+      } else if (row.reason === "tls_certificate") {
+        reason = "No se pudo verificar el certificado TLS.";
+      } else {
+        reason = "La conexión no está habilitada y disponible.";
+      }
+    } else if (!matches.length) {
+      reason = "Este proveedor no tiene un modelo admitido en el catálogo del paquete general.";
+    }
+    const status = row.id === "gemini" && eligible
+      ? (row.verification === "verified" ? "Conectado" : "Sin comprobar")
+      : null;
+    const limit = !eligible && (row.limit || row.reason === "limit_reached" || row.reason === "quota_paused")
+      ? buildLimitNotice(
+        row.limit || { code: "limit_reached", resets_at: row.resets_at || row.paused_until || null, target: row.id, suggestions: [] },
+        connections,
+      )
+      : null;
     return {
-      provider: row.id, models: row.enabled === true && row.available === true ? matches : [],
-      reason: row.enabled !== true || row.available !== true
-        ? "La conexión no está habilitada y disponible."
-        : matches.length ? null : "Este proveedor no tiene un modelo admitido en el catálogo del paquete general.",
+      provider: row.id,
+      models: eligible ? matches : [],
+      reason,
+      status,
+      quotaNote: row.id === "gemini" ? "La API de Gemini no informa la cuota." : null,
+      limit,
     };
   });
 }
@@ -54,10 +88,117 @@ export function quotaRemainingLines(quota) {
   return formatQuotaLines(quota, { remaining: true });
 }
 
-export function executorLaunchBody(task, executorId, model, effort) {
+export function executorLaunchBody(task, executorId, model, effort, acceptQuotaWarning = false) {
   return {
     task: String(task).trim(), executor_id: executorId, model: model || null, effort: effort || null, confirmed: true,
+    ...(acceptQuotaWarning ? { accept_quota_warning: true } : {}),
   };
+}
+
+// CUO-T06: pure limit-notice, agy floor warning and suggestion selection helpers (no DOM, no network).
+const CONNECTION_LABELS = {
+  gemini: "Gemini",
+  openai: "OpenAI",
+  ollama: "Ollama",
+  claude_cli: "Claude",
+  codex_cli: "Codex",
+  copilot_cli: "Copilot",
+  antigravity_cli: "Antigravity (agy)",
+};
+const MODEL_PROVIDER_IDS = new Set(["gemini", "openai", "ollama"]);
+const EXECUTOR_PROVIDER_IDS = new Set(["claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"]);
+
+const LIMIT_TIME_FORMAT = new Intl.DateTimeFormat("es", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+export function connectionLabel(id) {
+  return CONNECTION_LABELS[id] || String(id || "");
+}
+
+export function limitTimeText(resetsAt) {
+  if (typeof resetsAt !== "string" && !(resetsAt instanceof Date)) return "";
+  if (typeof resetsAt === "string" && !resetsAt.trim()) return "";
+  const date = resetsAt instanceof Date ? resetsAt : new Date(resetsAt);
+  if (Number.isNaN(date.getTime())) return "";
+  return LIMIT_TIME_FORMAT.format(date);
+}
+
+export function limitReachedText(limitOrResetsAt) {
+  const raw = limitOrResetsAt && typeof limitOrResetsAt === "object" && !(limitOrResetsAt instanceof Date)
+    ? limitOrResetsAt.resets_at
+    : limitOrResetsAt;
+  const hhmm = limitTimeText(raw);
+  return hhmm ? "Límite alcanzado · vuelve a las " + hhmm : "Límite alcanzado · sin hora conocida";
+}
+
+export function quotaWarningText(warning) {
+  if (!warning || typeof warning.remaining_percent !== "number" || !Number.isFinite(warning.remaining_percent)) {
+    return null;
+  }
+  const pct = String(Math.round(warning.remaining_percent * 10) / 10).replace(".", ",");
+  return "Quedan " + pct + " %; bajo el piso del 15 %";
+}
+
+export function buildLimitNotice(limit, connectionsPayload = null) {
+  if (!limit || typeof limit !== "object") return null;
+  const rows = Array.isArray(connectionsPayload?.connections) ? connectionsPayload.connections : [];
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const rawSuggestions = Array.isArray(limit.suggestions) ? limit.suggestions : [];
+  const suggestions = [];
+  for (const id of rawSuggestions) {
+    if (!id || suggestions.some((item) => item.id === id) || id === limit.target) continue;
+    const row = byId.get(id);
+    if (row && (row.available !== true || row.enabled !== true)) continue;
+    suggestions.push({
+      id,
+      label: connectionLabel(id),
+      kind: MODEL_PROVIDER_IDS.has(id) ? "model" : EXECUTOR_PROVIDER_IDS.has(id) ? "executor" : "other",
+    });
+    if (suggestions.length >= 3) break;
+  }
+  return {
+    code: limit.code || "limit_reached",
+    target: limit.target || "",
+    resetsAt: limit.resets_at || null,
+    text: limitReachedText(limit),
+    suggestions,
+  };
+}
+
+export function selectOrchestratorSuggestion(suggestion, draft) {
+  return {
+    selectedConnection: suggestion?.id || null,
+    draft: String(draft === null || draft === undefined ? "" : draft),
+    sent: false,
+  };
+}
+
+export function selectSingleModelSuggestion(suggestion, choices, task) {
+  const keptTask = String(task === null || task === undefined ? "" : task);
+  if (!suggestion || !suggestion.id) return { target: "single", model: "", confirmCloud: false, task: keptTask, sent: false };
+  if (suggestion.kind === "executor") {
+    return { target: "single-executor", executorId: suggestion.id, task: keptTask, sent: false };
+  }
+  const match = (choices || []).find((choice) => choice.provider === suggestion.id && choice.models?.length);
+  return {
+    target: "single",
+    model: match ? match.models[0].id : "",
+    confirmCloud: false,
+    task: keptTask,
+    sent: false,
+  };
+}
+
+export function selectSingleExecutorSuggestion(suggestion, task) {
+  const keptTask = String(task === null || task === undefined ? "" : task);
+  if (!suggestion || !suggestion.id) return { target: "single-executor", executorId: "", task: keptTask, sent: false };
+  if (suggestion.kind === "model") {
+    return { target: "single", provider: suggestion.id, task: keptTask, sent: false };
+  }
+  return { target: "single-executor", executorId: suggestion.id, task: keptTask, sent: false };
 }
 
 // SEC-T04: secret review holding and resending with approval_id for POST /gui/api/new-session/interpret.
@@ -285,6 +426,7 @@ const FALLBACK_REASONS = {
   model_error: "el modelo no respondió",
   refused: "la política de salida del framework no dejó enviar el texto",
   cloud_confirmation_required: "no se confirmó el envío a la nube",
+  limit_reached: "se alcanzó el límite de uso",
   budget_cut: "se alcanzó un tope de presupuesto",
   invalid_output: "el modelo devolvió una respuesta que no encaja con los workflows",
   no_match: "el modelo no encontró un workflow que encaje",

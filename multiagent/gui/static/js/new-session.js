@@ -16,10 +16,11 @@ import { modeHelpEntry } from "./help-text.js";
 import { ModelPicker } from "./model-picker.js";
 import { buildModelPicker } from "./model-picker-model.js";
 import {
-  SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_NOTICE, SECRET_REVIEW_REASON, answerRows, cardDescription,
-  createConversation, createSecretReview, currentQuestion, executorLaunchBody, formSeed, inputsPath, interpretBody,
-  isSecretReviewRequired, loadCatalog, originLabel, parseCommand, pickRuns, progress, quotaRemainingLines, reduce,
-  runBody, secretResendRequest, singleSessionBody, singleSessionModels, suggestedEntries,
+  SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_NOTICE, SECRET_REVIEW_REASON, answerRows, buildLimitNotice,
+  cardDescription, createConversation, createSecretReview, currentQuestion, executorLaunchBody, formSeed, inputsPath,
+  interpretBody, isSecretReviewRequired, loadCatalog, originLabel, parseCommand, pickRuns, progress,
+  quotaRemainingLines, reduce, runBody, secretResendRequest, selectOrchestratorSuggestion,
+  selectSingleExecutorSuggestion, selectSingleModelSuggestion, singleSessionBody, singleSessionModels, suggestedEntries,
 } from "./new-session-model.js";
 import { navigate, routeHref, threadHref, useRoute } from "./route.js";
 import { RunThread } from "./thread.js";
@@ -227,9 +228,26 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
   </section>`;
 }
 
+// CUO-T06: limit notice with local reset time (or unknown) and up to 3 selection-only suggestion buttons.
+function LimitBanner({ notice, connections, busy, onSelectSuggestion }) {
+  const view = notice && notice.text ? notice : buildLimitNotice(notice, connections);
+  if (!view) return null;
+  return html`<div class="ns-msg ns-bot notice" role="status" aria-label="Límite alcanzado">
+    <p>${view.text}</p>
+    <${Help} topic="chat.limit_notice" compact=${true} />
+    ${view.suggestions.length > 0 && html`<div class="ns-chips" role="group" aria-label="Alternativas disponibles">
+      ${view.suggestions.map((item) => html`<button key=${item.id} type="button" class="ns-chip" disabled=${busy}
+        ...${helpFor("chat.limit_suggestion")} onClick=${() => onSelectSuggestion(item)}>${item.label}</button>`)}
+    </div>
+    <${Help} topic="chat.limit_suggestion" compact=${true} />`}
+  </div>`;
+}
+
 // SES-T03: one task, one catalog model, then the same run thread as every workflow.
-function SingleSession({ token, mock, connections, onBack }) {
-  const [task, setTask] = useState("");
+function SingleSession({
+  token, mock, connections, onBack, initialTask = "", initialProvider = "", onTaskChange = null, onSwitchExecutor = null,
+}) {
+  const [task, setTask] = useState(initialTask);
   const [model, setModel] = useState("");
   const [catalogPreview, setCatalogPreview] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -248,9 +266,31 @@ function SingleSession({ token, mock, connections, onBack }) {
     return () => { active = false; };
   }, [token]);
   const choices = singleSessionModels(connections, catalogPreview);
+  useEffect(() => {
+    if (!initialProvider || model) return;
+    const hit = choices.find((choice) => choice.provider === initialProvider && choice.models.length > 0);
+    if (hit) setModel(hit.models[0].id);
+  }, [initialProvider, choices, model]);
   const cloudSelected = choices.some((choice) => choice.provider !== "ollama" &&
     choice.models.some((item) => item.id === model));
   const selected = choices.some((choice) => choice.models.some((item) => item.id === model));
+  const activeLimit = error?.details?.limit || choices.find((choice) => choice.limit)?.limit || null;
+  const updateTask = (value) => {
+    setTask(value);
+    if (onTaskChange) onTaskChange(value);
+  };
+  const selectSuggestion = (item) => {
+    const next = selectSingleModelSuggestion(item, choices, task);
+    if (next.target === "single-executor") {
+      if (onSwitchExecutor) onSwitchExecutor(next.executorId, next.task);
+      return;
+    }
+    if (next.model) {
+      setModel(next.model);
+      setConfirmCloud(false);
+      edit();
+    }
+  };
   const check = async () => {
     if (!task.trim() || !selected || busy) return;
     setBusy(true); setError(null);
@@ -289,14 +329,18 @@ function SingleSession({ token, mock, connections, onBack }) {
         ${choice.models.map((item) => html`<label key=${item.id} class="ns-picker-choice">
           <input type="radio" name="single-model" value=${item.id} checked=${model === item.id}
             ...${helpFor("chat.single_model")} onChange=${() => { setModel(item.id); setConfirmCloud(false); edit(); }} />
-          <span>${choice.provider} · ${item.id}</span></label>`)}
+          <span>${choice.provider} · ${item.id}${choice.status ? " · " + choice.status : ""}
+            ${choice.quotaNote && html`<span class="muted small"> · ${choice.quotaNote}</span>`}
+          </span></label>`)}
         ${choice.reason && html`<p class="muted small">${choice.provider}: ${choice.reason}</p>`}
       </div>`)}
       ${catalogPreview && choices.length === 0 && html`<p role="status">No hay proveedores de modelos conectados.</p>`}
+      <${Help} topic="chat.connection_checks" compact=${true} />
     </section>
+    <${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />
     <div class="ns-composer"><label for="single-task">Tarea</label><${Help} topic="chat.single_task" compact=${true} />
       <textarea id="single-task" rows="5" value=${task} disabled=${ready || busy}
-        ...${helpFor("chat.single_task")} onInput=${(event) => { setTask(event.target.value); edit(); }}></textarea></div>
+        ...${helpFor("chat.single_task")} onInput=${(event) => { updateTask(event.target.value); edit(); }}></textarea></div>
     ${error && html`<p class="message error" role="alert">${errorText(error)}</p>`}
     ${ready && html`<section class="ns-confirm panel" aria-label="Resumen antes de lanzar">
       <p><strong>Modelo:</strong> ${model}</p><p><strong>Tarea:</strong> ${task}</p>
@@ -319,15 +363,19 @@ function SingleSession({ token, mock, connections, onBack }) {
 }
 
 // SES-T04: an executor is chosen and reviewed separately from the model-only ask_once flow.
-function SingleExecutorSession({ token, connections, connectionLoading, connectionError, onRetry, onBack }) {
-  const [task, setTask] = useState("");
-  const [executorId, setExecutorId] = useState("");
+function SingleExecutorSession({
+  token, connections, connectionLoading, connectionError, onRetry, onBack,
+  initialTask = "", initialExecutorId = "", onTaskChange = null, onSwitchModel = null,
+}) {
+  const [task, setTask] = useState(initialTask);
+  const [executorId, setExecutorId] = useState(initialExecutorId);
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
   const [composer, setComposer] = useState({ options: [], loading: true, error: null });
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [launchError, setLaunchError] = useState(null);
+  const [limitNotice, setLimitNotice] = useState(null);
   const [launched, setLaunched] = useState(null);
   const [tracking, setTracking] = useState({ data: null, error: null });
 
@@ -340,6 +388,15 @@ function SingleExecutorSession({ token, connections, connectionLoading, connecti
     );
     return () => { active = false; };
   }, [token]);
+
+  useEffect(() => {
+    if (!executorId || model) return;
+    const option = composer.options.find((item) => item.executor_id === executorId);
+    if (option) {
+      setModel(option.models?.[0] || "");
+      setEffort(option.efforts?.[0] || "");
+    }
+  }, [executorId, composer.options, model]);
 
   const taskState = tracking.data?.task?.state;
   useEffect(() => {
@@ -365,6 +422,11 @@ function SingleExecutorSession({ token, connections, connectionLoading, connecti
   const canReview = Boolean(task.trim() && selectedAvailable && models.includes(model) &&
     (!efforts.length || efforts.includes(effort)) && !busy);
 
+  const updateTask = (value) => {
+    setTask(value);
+    if (onTaskChange) onTaskChange(value);
+  };
+
   function chooseExecutor(id) {
     const option = composer.options.find((item) => item.executor_id === id);
     setExecutorId(id);
@@ -372,24 +434,44 @@ function SingleExecutorSession({ token, connections, connectionLoading, connecti
     setEffort(option?.efforts?.[0] || "");
     setReady(false);
     setLaunchError(null);
+    setLimitNotice(null);
+  }
+
+  function selectSuggestion(item) {
+    const next = selectSingleExecutorSuggestion(item, task);
+    if (next.target === "single") {
+      if (onSwitchModel) onSwitchModel(next.provider, next.task);
+      return;
+    }
+    if (next.executorId) chooseExecutor(next.executorId);
   }
 
   function edit() {
     setReady(false);
     setLaunchError(null);
+    setLimitNotice(null);
   }
 
   async function launch() {
     if (!ready || !canReview || busy) return;
     setBusy(true);
     setLaunchError(null);
+    setLimitNotice(null);
     try {
-      const result = await apiPost(EXECUTOR_LAUNCH_PATH, token, executorLaunchBody(task, executorId, model, effort));
+      const acceptWarning = executorId === "antigravity_cli" && Boolean(selectedConnection?.warning);
+      const result = await apiPost(
+        EXECUTOR_LAUNCH_PATH,
+        token,
+        executorLaunchBody(task, executorId, model, effort, acceptWarning),
+      );
       setTracking({ data: result.status, error: null });
+      if (result.limit) setLimitNotice(buildLimitNotice(result.limit, connections));
       setLaunched({ task_id: result.task_id, launch: result.launch });
       setReady(false);
     } catch (failure) {
-      setLaunchError(asError(failure));
+      const err = asError(failure);
+      setLaunchError(err);
+      if (err.details?.limit) setLimitNotice(buildLimitNotice(err.details.limit, connections));
     } finally { setBusy(false); }
   }
 
@@ -402,6 +484,7 @@ function SingleExecutorSession({ token, connections, connectionLoading, connecti
   const sessionLinks = {
     claude_cli: "claude", codex_cli: "codex", copilot_cli: "copilot", antigravity_cli: "antigravity",
   };
+  const activeLimit = limitNotice || (selectedConnection?.limit ? buildLimitNotice(selectedConnection.limit, connections) : null);
 
   return html`<div class="ns">
     <div class="ns-intro">
@@ -434,6 +517,7 @@ function SingleExecutorSession({ token, connections, connectionLoading, connecti
             <span class="ns-executor-facts"><strong>${item.label}</strong>
               ${reason && html`<span class="ns-picker-reason">${reason}</span>`}
               ${quotaRemainingLines(connection?.quota).map((line) => html`<span class="muted small" key=${line}>${line}</span>`)}
+              ${item.warning && html`<span class="ns-picker-notice">${item.warning}</span>`}
               ${item.agyNotice && html`<span class="ns-picker-notice">${item.agyNotice}</span>`}
             </span>
           </label>`;
@@ -462,9 +546,10 @@ function SingleExecutorSession({ token, connections, connectionLoading, connecti
       <div class="ns-composer"><label for="single-executor-task">Tarea</label>
         <${Help} topic="chat.executor_launch" compact=${true} />
         <textarea id="single-executor-task" rows="5" maxlength="4000" value=${task} disabled=${ready || busy}
-          ...${helpFor("chat.executor_launch")} onInput=${(event) => { setTask(event.target.value); edit(); }}></textarea>
+          ...${helpFor("chat.executor_launch")} onInput=${(event) => { updateTask(event.target.value); edit(); }}></textarea>
       </div>
       ${launchError && html`<p class="message error" role="alert">${errorText(launchError)}</p>`}
+      <${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />
       ${ready && html`<section class="ns-confirm panel" aria-label="Confirmación de lanzamiento">
         <h4>Confirma este lanzamiento</h4>
         <dl class="ns-answers">
@@ -474,6 +559,7 @@ function SingleExecutorSession({ token, connections, connectionLoading, connecti
           <div class="ns-answer"><dt>Cuota restante</dt><dd>${quotaRemainingLines(selectedConnection?.quota).join(" · ")}</dd></div>
           <div class="ns-answer"><dt>Tarea</dt><dd>${task}</dd></div>
         </dl>
+        ${selected?.warning && html`<p class="notice ns-picker-notice" role="status">${selected.warning}</p>`}
         ${selected?.agyNotice && html`<p class="notice ns-picker-notice">${selected.agyNotice}</p>`}
         <p class="hint" role="status">Nada se lanza hasta que pulses «Aprobar y lanzar».</p>
         <button type="button" class="btn" disabled=${busy || !canReview}
@@ -489,6 +575,7 @@ function SingleExecutorSession({ token, connections, connectionLoading, connecti
     ${launched && html`<section class="ns-executor-tracking panel" aria-label="Seguimiento del ejecutor">
       <h4>Seguimiento de la tarea</h4>
       ${tracking.error && html`<p class="message error" role="alert">${errorText(tracking.error)}</p>`}
+      ${activeLimit && html`<${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />`}
       ${tracking.data?.task && html`<p role="status">Estado: ${tracking.data.task.state} · ${tracking.data.task.status}</p>`}
       ${(latestAttempt?.outcome || launched.launch?.outcome) && html`<p>Último intento: ${latestAttempt?.outcome || launched.launch?.outcome}</p>`}
       ${(latestAttempt?.evidence || launched.launch?.evidence) && html`<p class="message error" role="alert">
@@ -522,6 +609,10 @@ export function NewSession({ token, mock }) {
   const [busy, setBusy] = useState(false);
   const [pendingCloud, setPendingCloud] = useState(null);
   const [pendingSecret, setPendingSecret] = useState(restored ? restored.pendingSecret : null);
+  const [limitNotice, setLimitNotice] = useState(null);
+  const [singleTask, setSingleTask] = useState("");
+  const [singleExecutorId, setSingleExecutorId] = useState("");
+  const [singleProvider, setSingleProvider] = useState("");
   const [runs, setRuns] = useState(null);
   const [mode, setMode] = useState("auto");
   const [sensitive, setSensitive] = useState(false);
@@ -647,6 +738,23 @@ export function NewSession({ token, mock }) {
     return { source: SOURCE_KEYWORDS, reason: "model_error", proposal: null };
   }
 
+  function finishInterpretation(text, entries, interpretation, keptDraft) {
+    if (interpretation && (interpretation.reason === "limit_reached" || interpretation.limit)) {
+      const notice = buildLimitNotice(
+        interpretation.limit || { code: "limit_reached", resets_at: null, target: "", suggestions: [] },
+        connections.data,
+      );
+      setLimitNotice(notice);
+      dispatch({ type: "send", text, catalog: entries, interpretation }, { keepDraft: true });
+      setDraft(keptDraft);
+      return;
+    }
+    setLimitNotice(null);
+    const before = store.current.messages.length;
+    const next = dispatch({ type: "send", text, catalog: entries, interpretation }, { keepDraft: true });
+    if (next.messages.length !== before) setDraft(prefillOf(next));      // accepted; an answer that is not accepted stays in the box
+  }
+
   // What the user sent: a command, an answer or free text. The text stays in the box when the answer is not accepted.
   async function submit(text) {
     const trimmed = String(text).trim();
@@ -689,9 +797,7 @@ export function NewSession({ token, mock }) {
       }
     }
     if (!alive.current) return;
-    const before = store.current.messages.length;
-    const next = dispatch({ type: "send", text: trimmed, catalog: entries, interpretation }, { keepDraft: true });
-    if (next.messages.length !== before) setDraft(prefillOf(next));      // accepted; an answer that is not accepted stays in the box
+    finishInterpretation(trimmed, entries, interpretation, String(text));
   }
 
   async function answerCloud(send) {
@@ -718,8 +824,7 @@ export function NewSession({ token, mock }) {
       }
     }
     if (!alive.current) return;
-    const next = dispatch({ type: "send", text, catalog: entries, interpretation }, { keepDraft: true });
-    setDraft(prefillOf(next));
+    finishInterpretation(text, entries, interpretation, draft);
   }
 
   async function resendSecret() {
@@ -758,9 +863,7 @@ export function NewSession({ token, mock }) {
       return;
     }
     clearSecret();
-    const before = store.current.messages.length;
-    const next = dispatch({ type: "send", text: current.text, catalog: entries, interpretation }, { keepDraft: true });
-    if (next.messages.length !== before) setDraft(prefillOf(next));
+    finishInterpretation(current.text, entries, interpretation, draft);
   }
 
   function cancelSecret() {
@@ -844,11 +947,18 @@ export function NewSession({ token, mock }) {
   function restart() {
     store.current = createConversation();
     setPendingCloud(null);
+    setLimitNotice(null);
     clearSecret();
     setRoutingOverrides({});
     setConv(store.current);
     setLaunchError(null);
     setDraft("");
+  }
+
+  function pickOrchestratorSuggestion(item) {
+    const next = selectOrchestratorSuggestion(item, draft);
+    setSelectedConnection(next.selectedConnection);
+    setDraft(next.draft);
   }
 
   // Intro sends, Mayús+Intro makes a new line. A key held down (repeat) is not a second answer.
@@ -876,10 +986,23 @@ export function NewSession({ token, mock }) {
     <div class="ns-row"><button type="button" class="btn secondary" ...${helpFor("chat.executor_launch")}
       onClick=${() => setSessionKind("single-executor")}>Usar un ejecutor</button>
       <${Help} topic="chat.executor_launch" compact=${true} /></div>
-    <${SingleSession} token=${token} mock=${mock} connections=${connections.data} onBack=${() => setSessionKind(null)} />
+    <${SingleSession} token=${token} mock=${mock} connections=${connections.data}
+      initialTask=${singleTask} initialProvider=${singleProvider} onTaskChange=${setSingleTask}
+      onSwitchExecutor=${(executorId, keptTask) => {
+        setSingleTask(keptTask);
+        setSingleExecutorId(executorId);
+        setSessionKind("single-executor");
+      }}
+      onBack=${() => setSessionKind(null)} />
   </div>`;
   if (sessionKind === "single-executor") return html`<${SingleExecutorSession} token=${token}
     connections=${connections.data} connectionLoading=${connections.loading} connectionError=${connections.error}
+    initialTask=${singleTask} initialExecutorId=${singleExecutorId} onTaskChange=${setSingleTask}
+    onSwitchModel=${(provider, keptTask) => {
+      setSingleTask(keptTask);
+      setSingleProvider(provider);
+      setSessionKind("single");
+    }}
     onRetry=${refreshConnections} onBack=${() => setSessionKind("single")} />`;
 
   if (view === "form") {
@@ -902,6 +1025,7 @@ export function NewSession({ token, mock }) {
     choice: html`<${Help} topic="chat.model_choice" compact=${true} />`,
     disconnected: html`<${Help} topic="chat.model_disconnected" compact=${true} />`,
     retry: html`<${Help} topic="chat.model_retry" compact=${true} />`,
+    connectionChecks: html`<${Help} topic="chat.connection_checks" compact=${true} />`,
   };
 
   return html`<div class="ns">
@@ -925,6 +1049,7 @@ export function NewSession({ token, mock }) {
       <button type="button" class="btn secondary" ...${helpFor("chat.retry")} onClick=${() => { startCatalog(); if (composer.current) composer.current.focus(); }}>Reintentar</button>
       <${Help} topic="chat.retry" compact=${true} /></div>`}
     <${Messages} messages=${conv.messages} />
+    <${LimitBanner} notice=${limitNotice} connections=${connections.data} busy=${busy} onSelectSuggestion=${pickOrchestratorSuggestion} />
     ${pendingCloud && html`<div class="ns-msg ns-bot" role="group" aria-label="Confirmación de envío a la nube">
       <p>¿Enviar este texto a ${pendingCloud.interpretation.model} (nube)?</p>
       <div class="actions">

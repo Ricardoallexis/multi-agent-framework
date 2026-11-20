@@ -8,7 +8,8 @@ import { ApiError, apiGet, runPath } from "./api.js";
 import { debounce, subscribe } from "./bus.js";
 import { Help, helpFor } from "./help.js";
 import { HumanActions } from "./human-actions.js";
-import { threadHref } from "./route.js";
+import { routeHref, threadHref } from "./route.js";
+import { connectionLabel, limitReachedText } from "./new-session-model.js";
 import { NARROW_QUERY, PHONE_QUERY, computeRunsLayout } from "./runs-layout.js";
 import {
   actorText, cursorText, errorText, executorText, fmtDate, fmtJson, historyText, skipReason,
@@ -501,6 +502,14 @@ export function RunDetail({ token, runId, status, onChanged, onBack = null }) {
     ${error && html`<p class="message error" role="alert">No se pudo actualizar: ${errorText(error)}</p>`}
     <p class="summary">${view.waiting ? waitingText(view.waiting) : info.help}${view.cancel_requested && !view.terminal ? " Se pidió cancelar." : ""}</p>
     ${view.error && html`<p class="message error" role="alert">Error de la ejecución: ${view.error}</p>`}
+    ${view.limit && html`<div class="notice limit-notice" role="status" aria-label="Límite alcanzado">
+      <p>${limitReachedText(view.limit)}</p>
+      ${Array.isArray(view.limit.suggestions) && view.limit.suggestions.length > 0 && html`<p class="muted small">Opciones disponibles: ${view.limit.suggestions.map(connectionLabel).join(", ")}.</p>`}
+      <div class="actions">
+        <a class="btn secondary small" href=${routeHref("new")} ...${helpFor("run.limit_retry")}>Reintentar</a>
+        <${Help} topic="run.limit_retry" compact=${true} />
+      </div>
+    </div>`}
     ${layout.actionFirst && actionsCard}
     <${Steps} view=${view} />
     <${Counters} view=${view} />

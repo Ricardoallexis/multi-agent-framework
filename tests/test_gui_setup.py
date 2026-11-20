@@ -413,3 +413,74 @@ def test_new_session_picker_links_to_apps_only_when_that_view_is_loaded():
     assert 'href=${routeHref("apps")}' in block.group(1) and "Conectar otro" in block.group(1)
     assert 'helpFor("chat.connect_other")' in block.group(1) and "apiPost" not in block.group(1)
     assert source.index("<${ModelPicker}") < source.index('isRegisteredView("apps")')
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_apps_pure_model_covers_copilot_cache_gemini_states_and_agy_warning():
+    data = {
+        "connections": [
+            {"id": "copilot_cli", "kind": "executor", "installed": True, "version": "0.2.0",
+             "session": "signed_in", "verification": "verified", "enabled": True, "available": True,
+             "quota": {"status": "ok", "windows": [
+                 {"window": "monthly", "group": "Copilot", "used_percent": 35, "resets_at": "2026-12-01T00:00:00Z"},
+             ]}},
+            {"id": "claude_cli", "kind": "executor", "installed": True, "version": "1.0.0",
+             "session": "signed_in", "enabled": True, "available": False, "reason": "quota_paused",
+             "limit": {"code": "limit_reached", "resets_at": "2026-11-20T16:45:00Z", "target": "claude_cli", "suggestions": []}},
+            {"id": "antigravity_cli", "kind": "executor", "installed": True, "version": "1.5.10",
+             "session": "signed_in", "enabled": True, "notice_accepted": True, "available": True,
+             "warning": {"reason": "quota_below_launch_floor", "remaining_percent": 12, "resets_at": "2026-11-21T08:00:00Z"}},
+            {"id": "gemini", "kind": "model", "key_configured": True, "key_setting": "GEMINI_API_KEY",
+             "key_file": ".local/.env", "enabled": True, "available": True, "verification": "unverified"},
+        ],
+    }
+    script = f"""
+      import {{ buildAppsView }} from {json.dumps((EXT_APPS / "model.js").as_uri())};
+      const payload = JSON.parse(process.env.DATA);
+      const first = buildAppsView(payload, null);
+      const verified = buildAppsView({{ connections: [{{ ...payload.connections[3], verification: "verified" }}] }}, null);
+      const keyInvalid = buildAppsView({{ connections: [{{ ...payload.connections[3], available: false, reason: "key_invalid" }}] }}, null);
+      const noAccess = buildAppsView({{ connections: [{{ ...payload.connections[3], available: false, reason: "no_access" }}] }}, null);
+      const limited = buildAppsView({{ connections: [{{ ...payload.connections[3], available: false, reason: "limit_reached", resets_at: null }}] }}, null);
+      console.log(JSON.stringify({{
+        first,
+        verified: verified.models[0],
+        keyInvalid: keyInvalid.models[0],
+        noAccess: noAccess.models[0],
+        limited: limited.models[0],
+      }}));
+    """
+    env = {**os.environ, "DATA": json.dumps(data), "TZ": "UTC"}
+    run = subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True,
+                         encoding="utf-8", timeout=60, env=env)
+    assert run.returncode == 0, run.stderr
+    out = json.loads(run.stdout)
+
+    execs = {item["id"]: item for item in out["first"]["executors"]}
+    assert execs["copilot_cli"]["chip"]["label"] == "Listo"
+    assert execs["copilot_cli"]["session"] == "Iniciada"
+    assert "35 % usado" in execs["copilot_cli"]["quota"][0]
+
+    assert execs["claude_cli"]["chip"]["label"] == "Límite alcanzado"
+    assert execs["claude_cli"]["reasonText"] == "Límite alcanzado · vuelve a las 16:45"
+    assert "16:45" in execs["claude_cli"]["action"]["detail"]
+
+    assert execs["antigravity_cli"]["available"] is True
+    assert execs["antigravity_cli"]["warning"] == "Quedan 12 %; bajo el piso del 15 %"
+    assert execs["antigravity_cli"]["action"] is None
+
+    gem_unverified = out["first"]["models"][0]
+    assert gem_unverified["chip"]["label"] == "Sin comprobar"
+    assert gem_unverified["available"] is True
+    assert gem_unverified["quota"] == ["La API de Gemini no informa la cuota."]
+
+    assert out["verified"]["chip"]["label"] == "Conectado"
+    assert out["keyInvalid"]["chip"]["label"] == "Clave inválida"
+    assert out["keyInvalid"]["action"]["kind"] == "key"
+    assert out["noAccess"]["chip"]["label"] == "Sin acceso"
+    assert out["limited"]["chip"]["label"] == "Límite alcanzado"
+    assert out["limited"]["reasonText"] == "Límite alcanzado · sin hora conocida"
+
+    for name in ("model.js", "index.js"):
+        checked = subprocess.run([NODE, "--check", str(EXT_APPS / name)], capture_output=True, text=True, timeout=60)
+        assert checked.returncode == 0, (name, checked.stderr)

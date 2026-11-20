@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Pure view-model for «Apps y agentes» (#apps): transforms /gui/api/connections and /gui/api/setup/status without DOM or network.
 import { formatQuotaLines } from "../../js/quota-text.js";
+import { limitReachedText, quotaWarningText } from "../../js/new-session-model.js";
 
 export const EXECUTOR_IDS = ["claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"];
 export const MODEL_IDS = ["gemini", "openai", "ollama"];
@@ -22,12 +23,15 @@ const REASONS = {
   notice_not_accepted: "Falta aceptar el aviso de agy.",
   session_missing: "Falta iniciar sesión.",
   key_missing: "Falta configurar la clave.",
+  key_invalid: "Clave inválida.",
+  no_access: "Sin acceso.",
+  limit_reached: "Límite alcanzado · sin hora conocida",
   status_unknown: "No se pudo comprobar la conexión.",
   session_unverifiable: "No se puede comprobar la sesión sin gastar cuota.",
   reachability_unknown: "El acceso no se prueba sin gastar.",
   unreachable: "No responde.",
   tls_certificate: "No se pudo verificar el certificado TLS.",
-  quota_paused: "La cuota está en pausa.",
+  quota_paused: "Límite alcanzado · sin hora conocida",
   quota_below_pause_floor: "Queda menos del 10 % de cuota.",
   quota_below_launch_floor: "Queda menos del 15 % de cuota.",
   usage_unavailable: "No se pudo comprobar la cuota.",
@@ -213,6 +217,32 @@ export function missingAction(row, kind, setupStatus) {
       detail: "Ollama no respondió a su comprobación. Comprueba el servicio local y pulsa «Volver a comprobar».",
     };
   }
+  if (row.reason === "key_invalid") {
+    const setting = row.key_setting || (row.id === "gemini" ? "GEMINI_API_KEY" : "OPENAI_API_KEY");
+    const file = row.key_file || ".local/.env";
+    return {
+      kind: "key",
+      title: "Clave inválida",
+      setting,
+      file,
+      detail: `El proveedor rechazó ${setting} en ${file}. Revisa la clave, reinicia la aplicación y pulsa «Volver a comprobar». Nunca escribas la clave aquí.`,
+    };
+  }
+  if (row.reason === "no_access") {
+    return {
+      kind: "info",
+      title: "Sin acceso",
+      detail: "No se pudo conectar con el proveedor. Revisa tu conexión o certificados y pulsa «Volver a comprobar».",
+    };
+  }
+  if (row.limit || row.reason === "limit_reached" || row.reason === "quota_paused") {
+    const limitText = limitReachedText(row.limit || row.resets_at || row.paused_until);
+    return {
+      kind: "info",
+      title: "Límite alcanzado",
+      detail: `${limitText}. Después pulsa «Volver a comprobar».`,
+    };
+  }
   return {
     kind: "info",
     title: REASONS[row.reason] || "No disponible",
@@ -223,6 +253,19 @@ export function missingAction(row, kind, setupStatus) {
 }
 
 function statusChipFor(row) {
+  if (row.id === "gemini") {
+    if (row.available === true) {
+      return row.verification === "verified"
+        ? { status: "connected", label: "Conectado" }
+        : { status: "unverified", label: "Sin comprobar" };
+    }
+    if (row.reason === "key_invalid") return { status: "key_invalid", label: "Clave inválida" };
+    if (row.reason === "no_access") return { status: "no_access", label: "Sin acceso" };
+    if (row.reason === "limit_reached") return { status: "limit_reached", label: "Límite alcanzado" };
+  }
+  if (row.available !== true && (row.limit || row.reason === "limit_reached" || row.reason === "quota_paused")) {
+    return { status: "limit_reached", label: "Límite alcanzado" };
+  }
   if (row.available === true) return { status: "ok", label: "Listo" };
   if (row.missing_step) return { status: "waiting", label: "Falta un paso" };
   if (row.reason === "session_unverifiable" || row.reason === "reachability_unknown") {
@@ -234,6 +277,12 @@ function statusChipFor(row) {
 function buildEntry(row, kind, setupStatus) {
   const perm = setupStatus?.permissions?.[row.id] || null;
   const chip = statusChipFor(row);
+  const limited = row.available !== true && (Boolean(row.limit) || row.reason === "limit_reached" || row.reason === "quota_paused");
+  const reasonText = row.available
+    ? null
+    : limited
+      ? limitReachedText(row.limit || row.resets_at || row.paused_until)
+      : (REASONS[row.reason] || row.reason || "No disponible.");
   return {
     id: row.id,
     kind,
@@ -245,8 +294,9 @@ function buildEntry(row, kind, setupStatus) {
     session: sessionLabel(row, kind),
     enabled: enabledLabel(row),
     permissions: permissionSummary(row.id, perm, kind),
-    quota: quotaLines(row.quota),
-    reasonText: row.available ? null : (REASONS[row.reason] || row.reason || "No disponible."),
+    quota: row.id === "gemini" ? ["La API de Gemini no informa la cuota."] : quotaLines(row.quota),
+    warning: quotaWarningText(row.warning),
+    reasonText,
     checkedAt: row.checked_at || null,
     action: missingAction(row, kind, setupStatus),
   };

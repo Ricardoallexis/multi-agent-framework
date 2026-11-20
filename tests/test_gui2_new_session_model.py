@@ -490,3 +490,140 @@ def test_the_screen_asks_the_server_and_never_launches_from_the_answer():
     assert "askModel(requestText, true)" in text and "No enviar" in text
     assert text.count('apiPost("/gui/api/runs"') == 1                          # the only launch is «Lanzar»
     assert "fetch(" not in source("new-session-model.js")
+
+
+def _run_node_utc(script: str, data: dict | None = None) -> dict:
+    import os
+    import shutil
+    import subprocess
+    from multiagent.gui import STATIC_DIR
+
+    node = shutil.which("node")
+    assert node is not None
+    js = STATIC_DIR / "js"
+    prelude = (
+        f'import * as m from {__import__("json").dumps((js / "new-session-model.js").as_uri())};\n'
+        "const DATA = JSON.parse(process.env.DATA || 'null');\n"
+        "globalThis.fetch = () => { throw new Error('the model must not touch the network'); };\n"
+    )
+    done = subprocess.run(
+        [node, "--input-type=module", "-e", prelude + script],
+        capture_output=True, text=True, encoding="utf-8", timeout=60,
+        env={**os.environ, "DATA": __import__("json").dumps(data), "TZ": "UTC"},
+    )
+    assert done.returncode == 0, done.stderr
+    return __import__("json").loads(done.stdout)
+
+
+@needs_node
+def test_limit_notice_formats_time_or_unknown_and_caps_three_suggestions():
+    out = _run_node_utc("""
+      const withTime = m.buildLimitNotice({
+        code: "limit_reached",
+        resets_at: "2026-11-20T16:03:00+00:00",
+        target: "gemini",
+        suggestions: ["gemini", "ollama", "claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"],
+      }, {
+        connections: [
+          { id: "gemini", available: false, enabled: true },
+          { id: "ollama", available: true, enabled: true },
+          { id: "claude_cli", available: true, enabled: true },
+          { id: "codex_cli", available: false, enabled: true },
+          { id: "copilot_cli", available: true, enabled: true },
+          { id: "antigravity_cli", available: true, enabled: true },
+        ],
+      });
+      const withoutTime = m.buildLimitNotice({
+        code: "limit_reached",
+        resets_at: null,
+        target: "codex_cli",
+        suggestions: [],
+      });
+      console.log(JSON.stringify({ withTime, withoutTime }));
+    """)
+    assert out["withTime"]["text"] == "Límite alcanzado · vuelve a las 16:03"
+    assert [item["id"] for item in out["withTime"]["suggestions"]] == ["ollama", "claude_cli", "copilot_cli"]
+    assert out["withoutTime"]["text"] == "Límite alcanzado · sin hora conocida"
+    assert out["withoutTime"]["suggestions"] == []
+
+
+@needs_node
+def test_suggestion_buttons_keep_text_and_never_launch():
+    out = run_node("""
+      const orch = m.selectOrchestratorSuggestion({ id: "ollama", label: "Ollama", kind: "model" }, "Mi texto original");
+      const choices = [
+        { provider: "ollama", models: [{ id: "local_default", provider: "ollama" }] },
+        { provider: "gemini", models: [{ id: "cloud_fast", provider: "gemini" }] },
+      ];
+      const singleModel = m.selectSingleModelSuggestion({ id: "ollama", kind: "model" }, choices, "Analiza este texto");
+      const singleToExec = m.selectSingleModelSuggestion({ id: "claude_cli", kind: "executor" }, choices, "Analiza este texto");
+      const execToExec = m.selectSingleExecutorSuggestion({ id: "codex_cli", kind: "executor" }, "Revisa el repo");
+      const execToModel = m.selectSingleExecutorSuggestion({ id: "ollama", kind: "model" }, "Revisa el repo");
+      const reduced = m.reduce(m.createConversation(), {
+        type: "send",
+        text: "quiero revisar una especificacion",
+        catalog: [{ id: "spec_review", bundle: "team", description: "revisar especificacion" }],
+        interpretation: { source: "keywords", reason: "limit_reached", proposal: null, limit: { code: "limit_reached", resets_at: null, target: "cloud_fast", suggestions: ["ollama"] } },
+      });
+      console.log(JSON.stringify({ orch, singleModel, singleToExec, execToExec, execToModel, lastMsg: reduced.messages.at(-1).text }));
+    """)
+    assert out["orch"] == {"selectedConnection": "ollama", "draft": "Mi texto original", "sent": False}
+    assert out["singleModel"] == {"target": "single", "model": "local_default", "confirmCloud": False, "task": "Analiza este texto", "sent": False}
+    assert out["singleToExec"] == {"target": "single-executor", "executorId": "claude_cli", "task": "Analiza este texto", "sent": False}
+    assert out["execToExec"] == {"target": "single-executor", "executorId": "codex_cli", "task": "Revisa el repo", "sent": False}
+    assert out["execToModel"] == {"target": "single", "provider": "ollama", "task": "Revisa el repo", "sent": False}
+    assert "se alcanzó el límite de uso" in out["lastMsg"]
+
+
+@needs_node
+def test_agy_warning_accept_quota_only_on_confirm_and_gemini_single_session():
+    out = _run_node_utc("""
+      const routing = {
+        steps: [{ step_id: "answer", model_options: ["local_default", "cloud_fast"] }],
+        catalog_models: [{ id: "local_default", provider: "ollama" }, { id: "cloud_fast", provider: "gemini" }],
+      };
+      const geminiUnverified = m.singleSessionModels({ connections: [
+        { id: "gemini", enabled: true, available: true, verification: "unverified" },
+      ] }, routing)[0];
+      const geminiVerified = m.singleSessionModels({ connections: [
+        { id: "gemini", enabled: true, available: true, verification: "verified" },
+      ] }, routing)[0];
+      const geminiLimited = m.singleSessionModels({ connections: [
+        { id: "gemini", enabled: true, available: false, reason: "limit_reached",
+          limit: { code: "limit_reached", resets_at: "2026-11-20T18:05:00Z", target: "gemini", suggestions: ["ollama"] } },
+        { id: "ollama", enabled: true, available: true },
+      ] }, routing)[0];
+      const warning = m.quotaWarningText({ reason: "quota_below_launch_floor", remaining_percent: 12 });
+      const plainExec = m.executorLaunchBody("  Tarea  ", "antigravity_cli", "gemini-4-argon-high", null);
+      const confirmedExec = m.executorLaunchBody("  Tarea  ", "antigravity_cli", "gemini-4-argon-high", null, true);
+      console.log(JSON.stringify({ geminiUnverified, geminiVerified, geminiLimited, warning, plainExec, confirmedExec }));
+    """)
+    assert out["geminiUnverified"]["status"] == "Sin comprobar"
+    assert out["geminiUnverified"]["models"] == [{"id": "cloud_fast", "provider": "gemini"}]
+    assert out["geminiUnverified"]["quotaNote"] == "La API de Gemini no informa la cuota."
+    assert out["geminiVerified"]["status"] == "Conectado"
+    assert out["geminiLimited"]["models"] == []
+    assert out["geminiLimited"]["reason"] == "Límite alcanzado · vuelve a las 18:05"
+    assert out["geminiLimited"]["limit"]["suggestions"][0]["id"] == "ollama"
+    assert out["warning"] == "Quedan 12 %; bajo el piso del 15 %"
+    assert "accept_quota_warning" not in out["plainExec"]
+    assert out["confirmedExec"]["accept_quota_warning"] is True
+
+
+@needs_node
+def test_cuo_t06_scripts_pass_node_check_and_keep_run_detail_limit_only():
+    import shutil
+    import subprocess
+    from multiagent.gui import STATIC_DIR
+
+    node = shutil.which("node")
+    js = STATIC_DIR / "js"
+    for name in ("new-session-model.js", "new-session.js", "run-detail.js", "help-text.js"):
+        res = subprocess.run([node, "--check", str(js / name)], capture_output=True, text=True, timeout=60)
+        assert res.returncode == 0, (name, res.stderr)
+    detail = (js / "run-detail.js").read_text(encoding="utf-8")
+    assert "limitReachedText(view.limit)" in detail and "Reintentar" in detail
+    assert 'helpFor("run.limit_retry")' in detail
+    chat = (js / "new-session.js").read_text(encoding="utf-8")
+    assert "Confirmo enviar esta tarea al modelo en la nube." in chat
+    assert "LimitBanner" in chat and "acceptWarning" in chat
