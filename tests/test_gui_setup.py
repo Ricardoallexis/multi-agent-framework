@@ -101,64 +101,121 @@ def test_permission_status_is_read_only_and_reflects_templates(tmp_path):
     assert "SYNTHETIC" not in json.dumps(active)
 
 
-def test_console_route_calls_guided_step_with_fake_launcher_and_blocks_concurrent_console(tmp_path, monkeypatch):
-    monkeypatch.setenv("LOCAL_DIR", str(tmp_path / "local"))
-    monkeypatch.setattr(guided.launch_safety, "launch_environment", lambda: {"SAFE": "1"})
+class _ControlledConsole:
+    """Fake launcher whose console «closes» only when the test says so."""
 
-    started = threading.Event()
-    release = threading.Event()
-    launched = []
+    def __init__(self, exit_code: int = 0):
+        self.exit_code = exit_code
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.launched = []
 
-    class FakeChild:
-        def wait(self):
-            started.set()
-            assert release.wait(timeout=5)
-            return 0
+    def launcher(self, argv, **kwargs):
+        self.launched.append((argv, kwargs))
+        outer = self
 
-    def fake_launcher(argv, **kwargs):
-        launched.append((argv, kwargs))
-        return FakeChild()
+        class Child:
+            def wait(self):
+                outer.started.set()
+                assert outer.release.wait(timeout=5)
+                return outer.exit_code
 
-    def fake_detector(**kwargs):
+        return Child()
+
+    @staticmethod
+    def detector(**kwargs):
         return {"contexts": {kwargs["context"]: {"state": "measured", "apps": []}}}
 
+
+@pytest.fixture()
+def console(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCAL_DIR", str(tmp_path / "local"))
+    monkeypatch.setattr(guided.launch_safety, "launch_environment", lambda: {"SAFE": "1"})
+    monkeypatch.setattr(guided, "_console_state", None)
+    fake = _ControlledConsole()
+    yield fake
+    fake.release.set()  # never leave the waiting thread alive
+    thread = guided._console_thread
+    if thread is not None:
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+
+
+def test_console_post_answers_202_open_then_get_reports_closed_with_recheck(tmp_path, console):
     client, headers = _build_client(
-        tmp_path,
-        policy=object(),  # proves active document_policy receives the confirmed GUI approval
-        setup_launcher=fake_launcher,
-        setup_detector=fake_detector,
-        setup_system="Windows",
+        tmp_path, policy=object(),  # proves active document_policy receives the confirmed GUI approval
+        setup_launcher=console.launcher, setup_detector=console.detector, setup_system="Windows",
     )
+    assert client.get("/gui/api/setup/console").status_code == 401
+    assert client.get("/gui/api/setup/console", headers=headers).json() == {"state": "none"}
 
-    first_result = {}
-
-    def run_first():
-        first_result["resp"] = client.post("/gui/api/setup/console", headers=headers,
-                                            json={"id": "codex_cli", "step": "login"})
-
-    worker = threading.Thread(target=run_first)
-    worker.start()
-    try:
-        assert started.wait(timeout=5)
-        second = client.post("/gui/api/setup/console", headers=headers,
-                             json={"id": "claude_cli", "step": "install"})
-        assert second.status_code == 409
-        assert second.json()["detail"]["code"] == "console_already_open"
-    finally:
-        release.set()
-        worker.join(timeout=5)
-
-    resp = first_result["resp"]
-    assert resp.status_code == 200
+    resp = client.post("/gui/api/setup/console", headers=headers, json={"id": "codex_cli", "step": "login"})
+    # The console is still open (release not set): the request did not wait for it.
+    assert resp.status_code == 202
     body = resp.json()
-    assert body["ok"] is True
-    assert body["app"] == "codex"
-    assert body["step"] == "login"
-    assert body["console_exit_code"] == 0
+    assert body["ok"] is True and body["state"] == "open" and body["console_id"]
+    assert body["app"] == "codex" and body["step"] == "login"
     assert body["plan"]["command"] == ["codex", "login"]
-    assert len(launched) == 1
-    assert launched[0][0][1:] == ["-m", "multiagent.setup.guided", "--console", "codex", "login"]
-    assert launched[0][1]["creationflags"] == guided.CREATE_NEW_CONSOLE
+    assert body["console_exit_code"] is None and body["recheck"] is None
+    assert console.started.wait(timeout=5)
+
+    opened = client.get("/gui/api/setup/console", headers=headers).json()
+    assert opened["state"] == "open" and opened["console_id"] == body["console_id"]
+
+    second = client.post("/gui/api/setup/console", headers=headers, json={"id": "claude_cli", "step": "install"})
+    assert second.status_code == 409
+    assert second.json()["detail"]["code"] == "console_already_open"
+
+    console.exit_code = 3
+    console.release.set()
+    guided._console_thread.join(timeout=5)
+    closed = client.get("/gui/api/setup/console", headers=headers).json()
+    assert closed["state"] == "closed" and closed["console_id"] == body["console_id"]
+    assert closed["console_exit_code"] == 3
+    assert closed["recheck"]["contexts"]["packaged_process"]["state"] == "measured"
+
+    assert len(console.launched) == 1
+    assert console.launched[0][0][1:] == ["-m", "multiagent.setup.guided", "--console", "codex", "login"]
+    assert console.launched[0][1]["creationflags"] == guided.CREATE_NEW_CONSOLE
+    evidence = list((tmp_path / "local" / "setup-evidence").glob("*.jsonl"))
+    assert len(evidence) == 1
+    records = [json.loads(line) for line in evidence[0].read_text(encoding="utf-8").splitlines()]
+    assert records[0]["before_action"]["command"] == ["codex", "login"]
+    assert records[1]["console_exit_code"] == 3
+
+    # The lock is free again once the waiting thread ends.
+    again = client.post("/gui/api/setup/console", headers=headers, json={"id": "codex_cli", "step": "login"})
+    assert again.status_code == 202
+
+
+def test_console_launch_failure_answers_409_and_get_says_failed(tmp_path, console):
+    def broken(argv, **kwargs):
+        raise OSError("synthetic launch failure")
+
+    client, headers = _build_client(tmp_path, setup_launcher=broken, setup_detector=console.detector,
+                                    setup_system="Windows")
+    resp = client.post("/gui/api/setup/console", headers=headers, json={"id": "codex_cli", "step": "login"})
+    assert resp.status_code == 409 and resp.json()["detail"]["code"] == "launch_failed"
+    state = client.get("/gui/api/setup/console", headers=headers).json()
+    assert state["state"] == "failed" and state["reason"] == "launch_failed"
+    assert guided._console_lock.acquire(blocking=False)  # a failed launch must not keep the lock
+    guided._console_lock.release()
+
+
+def test_console_recheck_failure_reports_failed_and_frees_the_lock(tmp_path, console):
+    def broken_detector(**kwargs):
+        raise RuntimeError("synthetic detector failure")
+
+    client, headers = _build_client(tmp_path, setup_launcher=console.launcher, setup_detector=broken_detector,
+                                    setup_system="Windows")
+    resp = client.post("/gui/api/setup/console", headers=headers, json={"id": "codex_cli", "step": "login"})
+    assert resp.status_code == 202
+    console.release.set()
+    guided._console_thread.join(timeout=5)
+    state = client.get("/gui/api/setup/console", headers=headers).json()
+    assert state["state"] == "failed" and state["reason"] == "RuntimeError"
+    assert guided._console_lock.acquire(blocking=False)
+    guided._console_lock.release()
 
 
 def test_console_route_respects_allow_launch_and_non_windows_and_agy_info(tmp_path):
@@ -182,7 +239,7 @@ def test_console_route_respects_allow_launch_and_non_windows_and_agy_info(tmp_pa
 
     agy = linux_client.post("/gui/api/setup/console", headers=headers,
                             json={"id": "antigravity_cli", "step": "login"})
-    assert agy.status_code == 200
+    assert agy.status_code == 200  # nothing to open, so nothing to wait for
     assert "Inicia sesión tú en agy" in agy.json()["plan"]["message"]
 
 

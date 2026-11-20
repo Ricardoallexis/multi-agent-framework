@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -111,6 +112,48 @@ def test_parent_only_launches_helper_then_rechecks(monkeypatch, tmp_path):
     records = [json.loads(line) for line in evidence[0].read_text(encoding="utf-8").splitlines()]
     assert records[0]["before_action"]["command"] == ["copilot", "login"]
     assert records[1]["console_exit_code"] == 0
+
+
+def test_background_returns_before_close_and_cli_default_still_blocks(monkeypatch, tmp_path):
+    monkeypatch.setenv("LOCAL_DIR", str(tmp_path))
+    monkeypatch.setattr(guided.launch_safety, "launch_environment", lambda: {"SAFE": "1"})
+    monkeypatch.setattr(guided, "_console_state", None)
+    release = threading.Event()
+
+    class Child:
+        def wait(self):
+            assert release.wait(timeout=5)
+            return 0
+
+    detector = lambda **kw: {"contexts": {kw["context"]: {"state": "measured"}}}
+    try:
+        result = guided.guide_step("codex", "login", launcher=lambda *a, **kw: Child(), detector=detector,
+                                   system="Windows", background=True)
+        assert set(result) == {"plan", "console_id", "state"} and result["state"] == "open"
+        assert guided.console_status()["state"] == "open"
+        # The lock stays held while the thread waits, and is released when it ends.
+        assert not guided._console_lock.acquire(blocking=False)
+    finally:
+        release.set()
+        guided._console_thread.join(timeout=5)
+    assert not guided._console_thread.is_alive()
+    status = guided.console_status()
+    assert status["state"] == "closed" and status["console_exit_code"] == 0
+    assert guided._console_lock.acquire(blocking=False)
+    guided._console_lock.release()
+
+    # Without background=True the call returns only after the close, as `multiagent setup` expects.
+    order = []
+
+    class SlowChild:
+        def wait(self):
+            order.append("closed")
+            return 0
+
+    blocked = guided.guide_step("codex", "login", launcher=lambda *a, **kw: SlowChild(), detector=detector,
+                                system="Windows")
+    order.append("returned")
+    assert order == ["closed", "returned"] and blocked["console_exit_code"] == 0
 
 
 def test_unsupported_steps_never_open_console():

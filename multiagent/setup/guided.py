@@ -25,6 +25,9 @@ from .detect import CONTEXTS, detect
 SOURCE_DATE = "2026-11-19"
 CREATE_NEW_CONSOLE = 0x00000010
 _console_lock = threading.Lock()
+_state_lock = threading.Lock()
+_console_state: dict | None = None
+_console_thread: threading.Thread | None = None
 STEPS = {
     "claude": {
         "install": (("winget", "install", "Anthropic.ClaudeCode"),
@@ -100,8 +103,15 @@ def console_step(app: str, step: str, *, wait=input, run=subprocess.run,
 
 def guide_step(app: str, step: str, *, launcher=subprocess.Popen,
                detector=detect, system: str | None = None, policy: Any = None,
-               evidence: Any = None, context: str = "packaged_process") -> dict:
-    """Open a console, wait for it to close, then remeasure with INS-T02."""
+               evidence: Any = None, context: str = "packaged_process",
+               background: bool = False) -> dict:
+    """Open a console and remeasure with INS-T02 once the person closes it.
+
+    By default this waits for the close, as the CLI expects. With
+    ``background=True`` it returns as soon as the console is open, with a
+    ``console_id``; a thread waits, remeasures and records the outcome, which
+    ``console_status`` reports. The one-console lock is held until that thread ends.
+    """
     plan = step_plan(app, step)
     if plan["command"] is None:
         return {"plan": plan, "recheck": None}
@@ -113,13 +123,44 @@ def guide_step(app: str, step: str, *, launcher=subprocess.Popen,
                                  evidence, policy=policy)
     if not _console_lock.acquire(blocking=False):
         raise RuntimeError("Another setup console is already open")
+    handed_over = False
     try:
-        return _open_and_recheck(plan, launcher=launcher, detector=detector, context=context)
+        if not background:
+            return _open_and_recheck(plan, launcher=launcher, detector=detector, context=context)
+        console_id = uuid4().hex
+        _set_state({"console_id": console_id, "app": app, "step": step, "state": "open",
+                    "console_exit_code": None, "recheck": None, "reason": None})
+        try:
+            handle, child = _open_console(plan, launcher)
+        except Exception:
+            _set_state({"state": "failed", "reason": "launch_failed"})
+            raise
+        global _console_thread
+        _console_thread = threading.Thread(
+            target=_wait_in_background, args=(plan, handle, child, detector, context, console_id),
+            name="setup-console-wait", daemon=True)
+        handed_over = True
+        _console_thread.start()
+        return {"plan": plan, "console_id": console_id, "state": "open"}
     finally:
-        _console_lock.release()
+        if not handed_over:
+            _console_lock.release()
 
 
-def _open_and_recheck(plan: dict, *, launcher, detector, context: str) -> dict:
+def console_status() -> dict:
+    """State of the latest GUI console: ``none``, ``open``, ``closed`` or ``failed``."""
+    with _state_lock:
+        return dict(_console_state) if _console_state else {"state": "none"}
+
+
+def _set_state(values: dict) -> None:
+    global _console_state
+    with _state_lock:
+        _console_state = {**(_console_state or {}), **values} if "console_id" not in values else dict(values)
+
+
+def _open_console(plan: dict, launcher):
+    """Write the before-action evidence and open the console; returns the open file and the child."""
     app, step = plan["app"], plan["step"]
     folder = Path(os.environ.get("LOCAL_DIR") or LOCAL_ROOT).resolve() / "setup-evidence"
     folder.mkdir(parents=True, exist_ok=True)
@@ -131,17 +172,47 @@ def _open_and_recheck(plan: dict, *, launcher, detector, context: str) -> dict:
     package_root = str(Path(__file__).resolve().parents[2])
     env = launch_safety.launch_environment()
     env["PYTHONPATH"] = os.pathsep.join(filter(None, (package_root, env.get("PYTHONPATH"))))
-    with destination.open("x", encoding="utf-8") as evidence:
-        evidence.write(json.dumps({"before_action": plan}, ensure_ascii=False) + "\n")
-        evidence.flush()
+    handle = destination.open("x", encoding="utf-8")
+    try:
+        handle.write(json.dumps({"before_action": plan}, ensure_ascii=False) + "\n")
+        handle.flush()
         child = launcher([sys.executable, "-m", "multiagent.setup.guided", "--console", app, step],
                          cwd=str(Path.home()), env=env, shell=False,
                          creationflags=CREATE_NEW_CONSOLE)
+    except BaseException:
+        handle.close()
+        raise
+    return handle, child
+
+
+def _wait_and_recheck(plan: dict, handle, child, detector, context: str) -> dict:
+    with handle:
         exit_code = child.wait()
         report = detector(context=context, include_antigravity=False)
-        evidence.write(json.dumps({"console_exit_code": exit_code, "recheck": report}, ensure_ascii=False) + "\n")
-        evidence.flush()
+        handle.write(json.dumps({"console_exit_code": exit_code, "recheck": report}, ensure_ascii=False) + "\n")
+        handle.flush()
     return {"plan": plan, "console_exit_code": exit_code, "recheck": report}
+
+
+def _open_and_recheck(plan: dict, *, launcher, detector, context: str) -> dict:
+    handle, child = _open_console(plan, launcher)
+    return _wait_and_recheck(plan, handle, child, detector, context)
+
+
+def _wait_in_background(plan: dict, handle, child, detector, context: str, console_id: str) -> None:
+    values = {"state": "failed", "reason": "interrupted"}
+    try:
+        result = _wait_and_recheck(plan, handle, child, detector, context)
+        values = {"state": "closed", "console_exit_code": result["console_exit_code"],
+                  "recheck": result["recheck"]}
+    except Exception as exc:  # the person's console is gone either way; report why the recheck failed
+        values = {"state": "failed", "reason": type(exc).__name__}
+    finally:
+        with _state_lock:
+            current = _console_state.get("console_id") if _console_state else None
+        if current == console_id:
+            _set_state(values)
+        _console_lock.release()
 
 
 def _main(argv: list[str]) -> int:

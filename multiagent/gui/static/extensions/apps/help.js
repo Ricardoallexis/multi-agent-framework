@@ -48,7 +48,8 @@ export const HELP = {
     "hint": "Abre una consola visible en este equipo con el comando oficial.",
     "more": [
       "Pide confirmación antes de abrir y solo permite una consola a la vez.",
-      "Dentro de la consola debes pulsar Enter para ejecutar el comando; el servidor nunca corre instalaciones ocultas."
+      "Dentro de la consola debes pulsar Enter para ejecutar el comando; el servidor nunca corre instalaciones ocultas.",
+      "La página no se queda esperando: dice «Consola abierta…» y consulta el estado cada pocos segundos. Al cerrar la consola, vuelve a medir y actualiza la fila."
     ]
   },
   "apps.copy": {

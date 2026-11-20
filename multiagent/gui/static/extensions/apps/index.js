@@ -19,6 +19,8 @@ const CHIP_LABELS = {
   error: { text: "No disponible", tone: "danger", shape: "square", explanation: "No disponible en este momento." },
 };
 
+const CONSOLE_POLL_MS = 4000;
+
 const asError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
 
 function settingText(text) {
@@ -71,6 +73,39 @@ function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDon
     if (phase === "confirm" && confirmRef.current) confirmRef.current.focus();
   }, [phase]);
 
+  // ARR2-T05: the server answers 202 «open» at once; this polls the console state until it closes.
+  const [consoleId, setConsoleId] = useState(null);
+  const finishRef = useRef(null);
+  finishRef.current = (state) => {
+    if (state.state === "closed") {
+      setResult(state);
+      onDone();
+    } else {
+      setError(new ApiError({ code: "console_failed", message: "No se pudo seguir la consola." }));
+    }
+    setConsoleId(null);
+    onBusyChange(false);
+    setPhase("idle");
+  };
+
+  useEffect(() => {
+    if (!consoleId) return undefined;
+    let stopped = false;
+    const timer = setInterval(async () => {
+      try {
+        const state = await apiGet("/gui/api/setup/console", token);
+        if (stopped) return;
+        if (state.console_id === consoleId && state.state === "open") return;
+        stopped = true;
+        clearInterval(timer);
+        finishRef.current(state.console_id === consoleId ? state : { state: "failed" });
+      } catch (_) {
+        // A missed poll is not an error: the next one reads the same state.
+      }
+    }, CONSOLE_POLL_MS);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [consoleId, token]);
+
   async function launch() {
     setPhase("running");
     onBusyChange(true);
@@ -78,14 +113,17 @@ function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDon
     setResult(null);
     try {
       const answer = await apiPost("/gui/api/setup/console", token, { id: item.id, step: action.step });
+      if (answer.console_id) {
+        setConsoleId(answer.console_id);
+        return;
+      }
       setResult(answer);
       onDone();
     } catch (failure) {
       setError(asError(failure));
-    } finally {
-      onBusyChange(false);
-      setPhase("idle");
     }
+    onBusyChange(false);
+    setPhase("idle");
   }
 
   const canOpen = allowLaunch && consoleSupported;
@@ -116,7 +154,7 @@ function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDon
       </div>
     </div>`}
     ${result && html`<p class="message ok apps-status-line" role="status">
-      Consola cerrada (código ${result.console_exit_code ?? 0}). Pulsa «Volver a comprobar» para actualizar el estado.
+      Consola cerrada (código ${result.console_exit_code ?? 0}). Estado actualizado; pulsa «Volver a comprobar» si hace falta.
     </p>`}
     ${error && html`<div role="alert">
       <p class="message error apps-status-line">${consoleErrorText(error)}</p>

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import BUNDLED_ROOT, IN_CHECKOUT, PROJECT_ROOT
@@ -123,7 +124,12 @@ def add_setup_routes(api: APIRouter, services: Any) -> None:
             "plans": setup_plans(),
         }
 
-    @api.post("/setup/console")
+    @api.get("/setup/console")
+    def get_setup_console():
+        """State of the latest console: none, open, closed (with exit code and recheck) or failed."""
+        return guided.console_status()
+
+    @api.post("/setup/console", status_code=202)
     def open_setup_console(body: ConsoleStepRequest):
         if body.id not in TOOL_TO_APP or body.step not in APP_STEPS[body.id]:
             raise ServiceError(INVALID_REQUEST, "Unsupported tool or setup step", status=400,
@@ -142,7 +148,8 @@ def add_setup_routes(api: APIRouter, services: Any) -> None:
             if value is not None:
                 extra[key] = value
         try:
-            result = guide_fn(app, body.step, policy=policy, evidence=evidence, context="packaged_process", **extra)
+            result = guide_fn(app, body.step, policy=policy, evidence=evidence, context="packaged_process",
+                              background=True, **extra)
         except launch_safety.EffectNotAuthorized as exc:
             raise ServiceError(launch_safety.EFFECT_NOT_AUTHORIZED,
                                f"Opening the setup console is not authorized: {exc.result.reason}", status=403) from None
@@ -155,12 +162,16 @@ def add_setup_routes(api: APIRouter, services: Any) -> None:
             raise ServiceError("launch_unsupported", str(exc), status=409) from None
         except (OSError, ProcessLaunchError):
             raise ServiceError("launch_failed", "The setup console could not be started.", status=409) from None
-        return {
+        payload = {
             "ok": True,
             "id": body.id,
             "app": app,
             "step": body.step,
             "plan": result.get("plan"),
+            "console_id": result.get("console_id"),
+            "state": result.get("state"),
             "console_exit_code": result.get("console_exit_code"),
             "recheck": result.get("recheck"),
         }
+        # 202 only when a console is open and still running; a step with nothing to open answers 200.
+        return JSONResponse(payload, status_code=202 if result.get("console_id") else 200)
