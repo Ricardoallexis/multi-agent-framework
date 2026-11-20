@@ -218,11 +218,13 @@ plan and, for Ollama, its health probe. The answer is cached: if the read fails,
 A row is selectable only when it is enabled and has no reason. The same facts come from
 `multiagent connections [--check ID]` and `GET /api/v1/connections`.
 
-*What the picker cannot know.* Copilot never appears as connected: its session cannot
-be checked without spending model quota, so its row says «No se puede comprobar la
-sesión sin gastar cuota» (`session_unverifiable`). A Gemini key is not tried either, so
-Gemini stays in «No conectados» with «No se pudo comprobar el acceso»
-(`reachability_unknown`). agy has no session check besides its `/usage` quota reading.
+*What the picker cannot know.* No session is checked by calling a model. Copilot's
+session counts as signed in only while its local quota cache of the current month is
+valid; without a valid cache its row keeps «No se puede comprobar la sesión sin gastar
+cuota» (`session_unverifiable`) and it is not selectable. A Gemini key is not tried:
+Gemini is selectable when its key is set and shows «Sin comprobar» until a real message
+proves it. agy has no session check besides its `/usage` quota reading. See
+[Limits, «Sin comprobar» and Copilot's cache](#limits-sin-comprobar-and-copilots-cache).
 
 *The step that is missing.* Each row names one step: install the program, sign in,
 configure the key in `.local/.env`, or enable it. The picker only tells; it installs
@@ -240,8 +242,9 @@ connected providers' models that the `answer` step of `ask_once` admits. That wo
 is in the general bundle and has one step and one model call; the model goes in the
 step's `routing_preferences`, and the server validates it. A provider with no admitted
 model, or one that is not connected, is listed with its reason. The catalog of the
-general bundle declares only `local_default` (Ollama), so this mode needs Ollama
-running. **Revisar y lanzar** shows the routing preview, and **Lanzar** creates the run
+general bundle declares `local_default` (Ollama) and `cloud_fast` (Gemini), so this mode
+needs Ollama running or Gemini connected; choosing the cloud model needs the cloud
+confirmation (`422 cloud_confirmation_required` without it). **Revisar y lanzar** shows the routing preview, and **Lanzar** creates the run
 through `POST /gui/api/runs` with an idempotency key (a server that is not Mock also
 asks for the real-model confirmation). The run keeps its usage records, budgets and
 egress policy, and the column follows it at `#new/run/<run id>` like any other run.
@@ -251,7 +254,8 @@ the reason each one is not available, their remaining quota and, for agy, its no
 The models and efforts come from `GET /gui/api/composer/executors`. **Revisar
 lanzamiento** opens a confirmation with the executor, model, effort, remaining quota,
 the task and, for agy, its notice; only **Aprobar y lanzar** sends the launch, so every
-launch is approved one by one. Copilot is not selectable (see above). The server
+launch is approved one by one. Copilot is selectable only with a valid quota cache (see
+above), and always needs a model. The server
 (`POST /gui/api/executors/launch`, with the token) refuses a request that lacks
 `"confirmed": true` (409 `confirmation_required`), creates a task and calls the same
 executor service as the API, with its checks: a disabled executor (`executor_disabled`),
@@ -385,8 +389,9 @@ run and agy its supervised modes. See [Permission profiles](PERMISSIONS.md#what-
   (see [Choosing and launching from the GUI](EXECUTORS.md#choosing-and-launching-from-the-gui)).
 - **Information only.** agy has no install button and no sign-in command: the card says
   to install it from its official distribution and to sign in yourself, because its
-  session cannot be checked without spending quota. A Copilot session cannot be checked
-  either, so its card offers the sign-in console as optional.
+  session cannot be checked without spending quota. A Copilot session is known only
+  through its quota cache (see [Limits](#limits-sin-comprobar-and-copilots-cache)), so
+  its card offers the sign-in console as optional.
 
 **Volver a comprobar** measures that one tool again through
 `POST /gui/api/connections/{id}/check`, without generating with any model, and is the
@@ -732,6 +737,95 @@ comes from `multiagent/gui/continuity_api.py`, under the GUI token like every `/
 Claude and Copilot show new content after reopening the application. Codex
 blocks writes while the application has the thread open; the GUI viewer only
 reads the session.
+
+## Limits, «Sin comprobar» and Copilot's cache
+
+«Nueva sesión» and «Apps y agentes» say what is connected, what is unverified and what
+has reached its limit, without spending any quota.
+
+**How each tool is measured without spending.** Nothing here generates with a model.
+The source is the one each app already leaves for itself:
+
+| Tool | Source | What it gives |
+| --- | --- | --- |
+| Claude | Its own session files; the `statusLine` JSON only if `usage_claude_statusline_file` is set | Tokens per message, the reset when a limit was hit, a percent only with the status-line file |
+| Codex | `token_count` events in its session files | Tokens, and the percent and reset of the 5-hour and weekly windows |
+| Copilot | Its local quota cache (below) | Premium interactions left, percent and monthly reset |
+| agy | `agy -p /usage --output-format text` | The percent left and the reset of each window |
+| Gemini | None: the API reports no quota | The card says «La API de Gemini no informa la cuota.» |
+
+**What is read from Copilot's cache.** The file is `copilot-user-cache.json` under
+`%LOCALAPPDATA%\copilot`, or the path in `USAGE_COPILOT_CACHE_FILE`
+(`usage_copilot_cache_file`); a Mock server never looks for the default path. The
+reader (`multiagent/sessions/usage_sources.py`) opens it read-only, skips the `//`
+comment lines the file starts with, and takes the newest entry (`retrievedAt`) of the
+current UTC month. From it, and only from it, it reads these fields:
+
+- `quota_reset_date_utc`;
+- inside `quota_snapshots.premium_interactions`: `entitlement`, `remaining` (or
+  `quota_remaining`), `percent_remaining`, `unlimited`, `overage_permitted` and
+  `timestamp_utc`.
+
+Every other field is never read and never stored, whatever it holds: the account login,
+tracking identifiers, endpoints and the rest of the JSON. The file is read only up to
+256 KB and to three levels of nesting. Any doubt gives «sin dato»: a missing,
+oversized or malformed file, an entry from another month, a reset that already passed,
+an entitlement or balance that is missing (unless the plan is unlimited), or a percent
+over 100.
+
+A valid cache makes Copilot's row `verification: verified` and its session signed in,
+so Copilot becomes selectable; a balance of zero or less shows «Límite alcanzado» even
+when paid overage is allowed, because overage is money the framework never spends.
+
+**What «Sin comprobar» means.** Gemini with its key set and enabled is selectable
+(`verification: unverified`) and shown as «Sin comprobar»: no probe call is made, since
+that would spend quota. The first real message is the probe. Its outcome is kept in the
+memory of the process only (`multiagent/model_checks.py`), with no migration, and is lost
+on restart, when the row goes back to «Sin comprobar»:
+
+| Outcome | Row says |
+| --- | --- |
+| `verified` | «Conectado» |
+| `key_invalid` | «Clave inválida» |
+| `limit_reached` | «Límite alcanzado», with the reset time when the provider gave one |
+| `no_access` | «Sin acceso» |
+
+The key is never stored and the provider's own error text is never kept in the error.
+**The real Gemini key is tried by the user at the end, never by an agent:** automated
+checks use a fake Gemini client.
+
+**«Límite alcanzado».** A limited row, run or launch carries
+`limit: {code: "limit_reached", resets_at, target, suggestions}`, with up to three
+connected alternatives. The GUI writes «Límite alcanzado · vuelve a las HH:MM» in local
+time, or «Límite alcanzado · sin hora conocida» when no reset was observed; the time is
+never guessed. Where a limit is shown, the available alternatives appear as buttons that
+only change the selection and keep the text already typed.
+
+**A new message and a long task.** A limit does not behave the same for both:
+
+| Entry | Class | With a limit |
+| --- | --- | --- |
+| «Nueva sesión» free text | new message | Never switches model. Says «Límite alcanzado» and keeps the word search. |
+| «Sesión única» with a model | new message | Does not switch; shows the time, suggests the available ones and keeps the text. |
+| «Sesión única» with an executor | new message | The task is created with `continuity.mode = manual`, so it asks and never hands off by itself. |
+| Planner with a model | new message | Already has no fallback. |
+| Workflow runs (GUI, `multiagent run`, `POST /api/v1/runs`, MCP, worker), approved plans, executor tasks by CLI or API | long task | The router moves to the fallback as before; each attempt records `retry_at`. |
+
+A run that exhausts its fallbacks fails as before. Its detail shows «Límite alcanzado»
+and **Reintentar**, which opens «Nueva sesión» and relaunches nothing.
+
+**agy's floors are a warning.** When the plan has less than 15 % left in a window that
+applies, the connection row stays selectable and carries `warning`
+(`reason`, `remaining_percent`, `resets_at`); the picker shows «Quedan X %; bajo el
+piso del 15 %». **Aprobar y lanzar** is the person's confirmation: it sends
+`accept_quota_warning: true`, valid for that one new launch only (never for a resume or
+an automatic one). At 0 % the plan limit always stops the launch as «límite alcanzado»,
+and the framework never spends agy's AI credits. See
+[`EXECUTORS.md`](EXECUTORS.md#controls-and-launch).
+
+A generic run that selects a cloud model needs the person's cloud confirmation
+(`confirm_cloud` in `POST /gui/api/runs`, `--confirm-cloud` in `multiagent run`); the
+server answers `422 cloud_confirmation_required` without it.
 
 ## Configuration
 

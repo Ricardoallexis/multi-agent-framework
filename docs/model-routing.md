@@ -158,6 +158,29 @@ An executor application (Codex, Claude, Copilot; `multiagent executors run`) is 
 
 A plan is not proof: the executor application may use another model than requested, and the price is the catalog's estimate, not a bill.
 
+## When a limit is reached: new message or long task
+
+A limit (`QuotaExceeded` or `RateLimitExceeded`) is handled by the kind of entry, not by the provider:
+
+| Entry | Class | With a limit |
+| --- | --- | --- |
+| «Nueva sesión», free text | new message | No model switch. Answers «límite alcanzado» with the reset time and keeps the word search. |
+| «Sesión única» with a model (`ask_once`, `mode: single`) | new message | No switch (one candidate). Shows the time, suggests the available ones, keeps the text. |
+| «Sesión única» with an executor | new message | The task carries `continuity.mode = manual`: it asks and never hands off by itself. |
+| Planner with a model | new message | Already without fallback; unchanged. |
+| Runs of workflows (GUI, `multiagent run`, `POST /api/v1/runs`, MCP, worker), approved plans, executor tasks by CLI or API, resumes | long task | The router moves to the fallback as before; executors follow the continuity mode (`semi_auto` by default). |
+
+- **`retry_at` in the attempt.** Each `model_attempt` run event carries `retry_at` (ISO instant, or `null`): the time the
+  provider said the limit lifts. Gemini's adapter reads it from the error's `retryDelay` or from `Retry-After`; it is
+  never estimated. `QuotaExceeded`, `RateLimitExceeded` and `ProviderUnavailable` accept and expose `retry_at`.
+- **The notice.** `limit` (`{code: "limit_reached", resets_at, target, suggestions}`) is built by
+  `multiagent/services/limits.py` from that `retry_at` or, without it, from the connection or usage evidence; with none, `resets_at`
+  is `null` and the GUI says «sin hora conocida». `GET /gui/api/runs/{id}` returns it for a failed run whose last attempt hit a limit.
+- **No automatic wait.** A run that exhausts its fallbacks fails as before; waiting for the reset by itself is not part of the engine.
+- **Cloud needs a confirmation.** A generic run that chooses `--mode cloud` or a cloud model preference is refused with
+  `422 cloud_confirmation_required` unless the request carries `confirm_cloud` (`--confirm-cloud` in the CLI). The confirmation grants only
+  `provider:cloud` for non-sensitive data; a run marked sensitive can never confirm it.
+
 ## Bounded escalation
 
 A step whose cheaper model fails on the **quality of its output** can move up one model level, once. It applies only to an economic profile in `supervised` or `automatic` mode that declares `escalation` with `max_escalations_per_step: 1`; every other profile, `single` mode, a limit of 0 and a dry run behave as before.

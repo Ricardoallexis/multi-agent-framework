@@ -41,8 +41,12 @@ one launch at a time.
   version, its session, the enabled state, the quota the usage plans report, and the one step that is missing:
   `install`, `session` or `enable`. An executor is selectable only when it is enabled and has no reason. The status is
   cached and checked one row at a time.
-- **Copilot is never selectable.** Its session cannot be checked without spending model quota, so its row carries
-  `session_unverifiable`. agy has no session check other than its `/usage` quota reading.
+- **Copilot is selectable by its cache.** Its session cannot be checked by calling a model. When its local quota cache
+  of the current month is valid, the row is `verification: verified`, the session is signed in and the executor is
+  eligible; otherwise the row keeps `session_unverifiable`. A balance of zero or less is «límite alcanzado», even when
+  paid overage is allowed. Only an allow-list of quota fields is read from the cache and nothing else is read or stored
+  (see [Limits in the GUI](GUI.md#limits-sin-comprobar-and-copilots-cache)). agy has no session check other than its
+  `/usage` quota reading.
 - **Confirmation.** The GUI shows the executor, model, effort, remaining quota and, for agy, its notice. Only
   **Aprobar y lanzar** sends `POST /gui/api/executors/launch` with `confirmed: true`; without it the route answers
   `409 confirmation_required`. The route creates a task and calls `ExecutorServices.run_task`, so the checks above
@@ -125,10 +129,18 @@ ANTIGRAVITY_NOTICE_ACCEPTED=agy-third-party-notice/1
 - **Quota floors.** Before each launch the adapter reads `agy -p /usage --output-format text`, which spends no model. The
   lines that apply are the model's group (`Gemini Models`, or `Claude and GPT models`) in both windows and the model's
   own weekly line; with no model, or one the adapter cannot place, both windows of both groups must be readable and
-  every line applies. Under 15% left the launch is
-  refused (`quota_below_launch_floor`). Under 10% nothing starts and the attempt ends `quota_exhausted` with a
+  every line applies. Without a person's acceptance, under 15% left the launch is
+  refused (`quota_below_launch_floor`) and under 10% nothing starts and the attempt ends `quota_exhausted` with a
   `plan_limit` at the reset `/usage` gave, so the executor pauses until then. A `/usage` that fails or cannot be read
   refuses the launch (`usage_unavailable`): the floors are never skipped.
+- **The floors are a warning a person can accept.** Between 15% and 0% left, the connection row stays eligible and
+  carries `warning: {reason, remaining_percent, resets_at}` (`reason` is `quota_below_launch_floor` or
+  `quota_below_pause_floor`). One person's confirmation for one launch crosses either floor: `accept_quota_warning: true`
+  in `POST /api/v1/executors/run` and in the GUI launch route (the **Aprobar y lanzar** click on a row with a warning),
+  or `--accept-quota-warning` in `multiagent executors run`. It is not stored: a resume, an automatic launch and the
+  next launch never inherit it, and it only applies to agy. The acceptance is a bool (`StrictBool`); anything else is
+  `422 invalid_request`. At 0% the plan limit always stops the run: the result is `quota_exhausted` with the plan limit
+  and the reset, shown as «límite alcanzado», and the framework never spends agy's AI credits.
 - **No AI credits from the framework.** The adapter changes no agy flag, setting or file, and never reads `~/.gemini`
   (credentials, `settings.json`, `brain/`). `GEMINI_API_KEY` and `GOOGLE_API_KEY` reach agy empty, so a key in the
   environment cannot turn a run into API billing. Keeping the account option that spends AI credits after the quota
