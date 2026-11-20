@@ -17,7 +17,7 @@ import { ModelPicker } from "./model-picker.js";
 import { buildModelPicker } from "./model-picker-model.js";
 import {
   SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_NOTICE, SECRET_REVIEW_REASON, answerRows, buildLimitNotice,
-  cardDescription, createConversation, createSecretReview, currentQuestion, executorLaunchBody, formSeed, inputsPath,
+  cardDescription, connectionLabel, createConversation, createSecretReview, currentQuestion, executorLaunchBody, formSeed, inputsPath,
   interpretBody, isSecretReviewRequired, loadCatalog, originLabel, parseCommand, pickRuns, progress,
   quotaRemainingLines, reduce, runBody, secretResendRequest, selectOrchestratorSuggestion,
   selectSingleExecutorSuggestion, selectSingleModelSuggestion, singleSessionBody, singleSessionModels, suggestedEntries,
@@ -329,10 +329,10 @@ function SingleSession({
         ${choice.models.map((item) => html`<label key=${item.id} class="ns-picker-choice">
           <input type="radio" name="single-model" value=${item.id} checked=${model === item.id}
             ...${helpFor("chat.single_model")} onChange=${() => { setModel(item.id); setConfirmCloud(false); edit(); }} />
-          <span>${choice.provider} · ${item.id}${choice.status ? " · " + choice.status : ""}
+          <span>${connectionLabel(choice.provider)} · ${item.id}${choice.status ? " · " + choice.status : ""}
             ${choice.quotaNote && html`<span class="muted small"> · ${choice.quotaNote}</span>`}
           </span></label>`)}
-        ${choice.reason && html`<p class="muted small">${choice.provider}: ${choice.reason}</p>`}
+        ${choice.reason && html`<p class="muted small">${connectionLabel(choice.provider)}: ${choice.reason}</p>`}
       </div>`)}
       ${catalogPreview && choices.length === 0 && html`<p role="status">No hay proveedores de modelos conectados.</p>`}
       <${Help} topic="chat.connection_checks" compact=${true} />

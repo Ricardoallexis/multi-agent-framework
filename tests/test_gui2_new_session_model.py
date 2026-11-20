@@ -627,3 +627,14 @@ def test_cuo_t06_scripts_pass_node_check_and_keep_run_detail_limit_only():
     chat = (js / "new-session.js").read_text(encoding="utf-8")
     assert "Confirmo enviar esta tarea al modelo en la nube." in chat
     assert "LimitBanner" in chat and "acceptWarning" in chat
+
+
+def test_single_session_rows_use_app_labels_and_the_status_help_has_a_label():
+    """QA 2026-11-20 at 390 px: the rows said «gemini: …» and the status «?» stood alone under the picker."""
+    from multiagent.gui import STATIC_DIR
+
+    chat = (STATIC_DIR / "js" / "new-session.js").read_text(encoding="utf-8")
+    assert "${choice.provider}:" not in chat and "${choice.provider} ·" not in chat
+    assert chat.count("connectionLabel(choice.provider)") == 2
+    picker = (STATIC_DIR / "js" / "model-picker.js").read_text(encoding="utf-8")
+    assert "Estado de Gemini y Copilot ${help.connectionChecks}" in picker

@@ -47,7 +47,7 @@ export function ModelPicker({ connections, selectedId, onSelect, loading, error,
         </div>
       </details>`}
       ${help.choice}
-      ${help.connectionChecks || null}
+      ${help.connectionChecks && html`<p class="muted small ns-row">Estado de Gemini y Copilot ${help.connectionChecks}</p>`}
     `}
   </section>`;
 }
