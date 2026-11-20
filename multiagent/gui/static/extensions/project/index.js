@@ -166,11 +166,8 @@ export function ProjectView({ token, route }) {
         review=${review} headingRef=${heading} onReview=${sendReview} onFeedback=${patchReview} />` : null}
     </div>` : null;
 
-  return html`<section class="project-view" aria-labelledby="project-view-title">
+  return html`<section class="project-view" aria-label="Proyectos">
     <div class="project-head">
-      <div>
-        <h3 id="project-view-title">Proyectos</h3><${Help} topic="project.view" />
-      </div>
       <div class="project-picker">
         <label for="project-select">Proyecto</label>
         <div class="project-picker-row">
@@ -225,5 +222,5 @@ export function ProjectSlot({ token, route }) {
   </div>`;
 }
 
-registerView({ id: "project", owner: "project", label: "Proyectos", component: ProjectView, order: 40 });
+registerView({ id: "project", owner: "project", label: "Proyectos", topic: "project.view", component: ProjectView, order: 40 });
 registerSlot("project", ProjectSlot, { title: "Proyecto", topic: "project.slot", owner: "project", order: 40 });

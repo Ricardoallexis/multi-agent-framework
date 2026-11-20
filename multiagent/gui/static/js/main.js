@@ -10,6 +10,7 @@ import { loadToken, clearToken, getJSON } from "./auth.js";
 import { startStream } from "./stream.js";
 import { publishEvent } from "./bus.js";
 import { navigate, useRoute, NEW_SECTION } from "./route.js";
+import { Help } from "./help.js";
 import { NewSession } from "./new-session.js";
 import { TeamThread } from "./team-thread.js";   // CHT-T05
 import { PlanThread } from "./plan-thread.js";   // CHT-T06
@@ -101,12 +102,14 @@ function App({ token }) {
   const tree = section === TREE_SECTION;
   const current = allSections().find((s) => s.id === section);
   const views = registeredViews();
+  const entry = !creating && !tree ? views.find((view) => view.id === section) : null;
   // The sidebar and the right panel treat the tree of a session as the session itself (it stays marked, its panel stays).
   const context = tree ? { section: "sessions", id: route.id } : route;
   const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} views=${html`<${Views} section=${context.section} />`} />`;
   const panel = html`<${RightPanel} token=${token} route=${context} />`;
   return html`<${Shell} status=${status} statusText=${STATUS_TEXT[status]} mock=${mock} sidebar=${sidebar} panel=${panel}>
     ${section === "usage" ? html`<h2 id="usage-title">Uso</h2>` : html`<h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : current?.label}</h2>`}
+    ${entry?.topic && html`<${Help} key=${entry.id} topic=${entry.topic} />`}
     <${Sessions} token=${token} route=${route} active=${section === "sessions"} />
     ${tree && html`<${AgentTree} key=${route.id || ""} token=${token} sessionId=${route.id} />`}
     ${creating && route.kind === "team" && html`<${TeamThread} key=${route.id} token=${token} versionId=${route.id} />`}

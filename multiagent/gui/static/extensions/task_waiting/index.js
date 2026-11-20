@@ -50,8 +50,7 @@ export function WaitingContent({ data, scope, others = false }) {
 
 export function TaskWaitingView({ token }) {
   const data = useTaskWaiting(token, "view");
-  return html`<section class="task-waiting-view" aria-labelledby="task-waiting-title">
-    <h3 id="task-waiting-title">Esperan tu decisión</h3><${Help} topic="task_waiting.view" />
+  return html`<section class="task-waiting-view" aria-label="Esperan tu decisión">
     <${WaitingContent} data=${data} scope="view" others=${true} />
   </section>`;
 }
@@ -61,5 +60,5 @@ export function TaskWaitingPanel({ token }) {
   return html`<${WaitingContent} data=${data} scope="panel" />`;
 }
 
-registerView({ id: "task_waiting", owner: "task_waiting", label: "Esperan tu decisión", component: TaskWaitingView, order: 55 });
+registerView({ id: "task_waiting", owner: "task_waiting", label: "Esperan tu decisión", topic: "task_waiting.view", component: TaskWaitingView, order: 55 });
 registerSlot("task_waiting", TaskWaitingPanel, { title: "Esperan tu decisión", topic: "task_waiting.panel", owner: "task_waiting", order: 55 });

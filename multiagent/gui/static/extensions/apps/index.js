@@ -251,11 +251,8 @@ export function AppsView({ token }) {
 
   const view = buildAppsView(connections, setupStatus);
 
-  return html`<section class="apps-view" aria-labelledby="apps-title" aria-busy=${loading ? "true" : "false"}>
+  return html`<section class="apps-view" aria-label="Apps y agentes" aria-busy=${loading ? "true" : "false"}>
     <div class="apps-head">
-      <div class="apps-head-title">
-        <h3 id="apps-title">Apps y agentes</h3><${Help} topic="apps.view" />
-      </div>
       <div class="apps-toolbar">
         <button type="button" class="btn secondary" disabled=${loading} ...${helpFor("apps.refresh")} onClick=${loadAll}>
           ${loading ? "Actualizando…" : "Actualizar"}
@@ -290,4 +287,4 @@ export function AppsView({ token }) {
   </section>`;
 }
 
-registerView({ id: "apps", label: "Apps y agentes", component: AppsView, order: 70, owner: "apps" });
+registerView({ id: "apps", label: "Apps y agentes", topic: "apps.view", component: AppsView, order: 70, owner: "apps" });

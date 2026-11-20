@@ -19,8 +19,7 @@ export function ContinuityView({ token }) {
   const pending = cards.filter((card) => card.decision === "pending");
   // One list, the tasks that still wait for a decision first: a card keeps its place in the list (and its focus) when it is decided.
   const ordered = [...pending, ...cards.filter((card) => card.decision !== "pending")];
-  return html`<section class="continuity-view" aria-labelledby="continuity-title">
-    <h3 id="continuity-title">Esperan tu decisión</h3><${Help} topic="continuity.view" />
+  return html`<section class="continuity-view" aria-label="Decisiones">
     <div class="continuity-toolbar">
       <span class="continuity-option"><button type="button" class="btn secondary continuity-btn" disabled=${refreshing}
         ...${helpFor("continuity.refresh")} onClick=${reload}>${refreshing ? "Actualizando…" : "Actualizar"}</button>

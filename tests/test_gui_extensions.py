@@ -694,3 +694,64 @@ def test_a_folder_whose_entry_is_not_a_file_is_not_listed(tmp_path):
     (tmp_path / "extensions" / "fine" ).mkdir(parents=True)
     (tmp_path / "extensions" / "fine" / "index.js").write_text("// entry", encoding="utf-8")
     assert [item["id"] for item in discover_extensions(tmp_path)] == ["fine"]
+
+
+@needs_node
+def test_register_view_accepts_optional_help_topic_and_rejects_invalid_ones():
+    out = run_node(f"""
+      import {{ registerView, registeredViews }} from {url(JS / "extensions.js")};
+      const View = () => null;
+      const attempt = (fn) => {{ try {{ fn(); return null; }} catch (error) {{ return error.message; }} }};
+      registerView({{ id: "plain_view", owner: "plain_view", label: "Sin tema", component: View }});
+      registerView({{ id: "null_topic", owner: "null_topic", label: "Nulo", topic: null, component: View }});
+      registerView({{ id: "with_topic", owner: "with_topic", label: "Con tema", topic: "with_topic.view", component: View }});
+      const invalid = [123, true, {{}}, ["a.b"], "", "notopic", "Bad.topic"].map((topic) =>
+        attempt(() => registerView({{ id: "bad_topic", owner: "bad_topic", label: "Malo", topic, component: View }}))
+      );
+      const topics = Object.fromEntries(registeredViews().map((v) => [v.id, v.topic]));
+      console.log(JSON.stringify({{ topics, invalid }}));
+    """)
+    assert out["topics"] == {"plain_view": None, "null_topic": None, "with_topic": "with_topic.view"}
+    assert all(msg == 'registerView: topic must be a help key like "name.topic"' for msg in out["invalid"])
+
+
+@needs_node
+def test_real_extension_views_have_a_single_title_and_reachable_help():
+    expected = {
+        "apps": ("Apps y agentes", "extensions/apps/index.js"),
+        "continuity": ("Decisiones", "extensions/continuity/view.js"),
+        "document_alerts": ("Alertas de documentos", "extensions/document_alerts/index.js"),
+        "project": ("Proyectos", "extensions/project/index.js"),
+        "task_waiting": ("Esperan tu decisión", "extensions/task_waiting/index.js"),
+    }
+    main = (JS / "main.js").read_text(encoding="utf-8")
+    assert "<${Help}" in main and "topic=${entry.topic}" in main
+    for ext_id, (label, rel_path) in expected.items():
+        source = (STATIC_DIR / rel_path).read_text(encoding="utf-8")
+        assert not re.search(r"<h[123]\b", source), f"{rel_path} must rely on main.js <h2> instead of drawing its own title"
+        assert f'aria-label="{label}"' in source, f"{rel_path} missing section aria-label"
+        assert f'topic="{ext_id}.view"' not in source, f"{rel_path} must not duplicate {ext_id}.view help"
+
+    manifest = discover_extensions(STATIC_DIR)
+    out = run_node(f"""
+      import {{ pathToFileURL }} from "node:url";
+      import {{ loadExtensions, registeredViews, registeredHelp }} from {url(JS / "extensions.js")};
+      const base = {json.dumps(str(STATIC_DIR))};
+      const report = await loadExtensions({{
+        fetchManifest: async () => ({{ extensions: {json.dumps(manifest)} }}),
+        importModule: (target) => import(pathToFileURL(base + target.replace("/gui/static", "")).href),
+        addStylesheet: async () => {{}},
+      }});
+      const views = Object.fromEntries(registeredViews().map((v) => [v.id, {{
+        label: v.label,
+        topic: v.topic,
+        help: v.topic ? registeredHelp(v.topic) : null,
+      }}]));
+      console.log(JSON.stringify({{ report, views }}));
+    """)
+    assert out["report"]["failed"] == []
+    for ext_id, (label, _) in expected.items():
+        info = out["views"][ext_id]
+        assert info["label"] == label
+        assert info["topic"] == f"{ext_id}.view"
+        assert info["help"] and info["help"]["title"] and info["help"]["hint"] and info["help"]["more"]

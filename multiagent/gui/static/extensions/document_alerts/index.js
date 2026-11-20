@@ -90,16 +90,12 @@ export function DocumentAlertsCard({ token, route, sessionId }) {
 export function DocumentAlertsView({ token, route }) {
   const runId = (route && route.id) || null;
   const data = useAlerts(token, runId);
-  return html`<section class="document-alerts-view" aria-labelledby="document-alerts-title">
-    <div class="document-alerts-head">
-      <h3 id="document-alerts-title" class="document-alerts-title">Alertas de documentos</h3>
-      <${Help} topic="document_alerts.view" />
-    </div>
+  return html`<section class="document-alerts-view" aria-label="Alertas de documentos">
     <p class="muted small document-alerts-scope">${runId ? "Solo las alertas de la ejecución " + runId + "."
       : "Las más recientes de las ejecuciones del sistema. Las de un paquete se ven al abrir su ejecución."}</p>
-    <${Alerts} data=${data} scope="view" showRun=${!runId} labelledBy="document-alerts-title" />
+    <${Alerts} data=${data} scope="view" showRun=${!runId} />
   </section>`;
 }
 
-registerView({ id: "document_alerts", owner: "document_alerts", label: "Alertas de documentos", component: DocumentAlertsView, order: 50 });
+registerView({ id: "document_alerts", owner: "document_alerts", label: "Alertas de documentos", topic: "document_alerts.view", component: DocumentAlertsView, order: 50 });
 registerSlot("document_alerts", DocumentAlertsCard, { title: "Alertas de documentos", topic: "document_alerts.card", owner: "document_alerts", order: 50 });
