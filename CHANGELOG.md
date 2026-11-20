@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- The team version status shows a Spanish label instead of its raw code in the team card and «Equipos», and long API setting names in «Apps y agentes» wrap at the word instead of overflowing at 375 px (`ARR2-T03`).
 - Gemini can be chosen before it is verified («Sin comprobar»): no probe call is made, and the first real request records whether the key, the limit or the access failed, with the reset time when the provider gives one; the outcome lives only in process memory and the key is never stored (`CUO-T02`).
 - The usage report and connections read Copilot's monthly premium-request quota from its local cache (`copilot-user-cache.json` under `%LOCALAPPDATA%\copilot`, or `usage_copilot_cache_file`) without a model call: only an allow-list of quota fields from the newest current-month entry, at most 256 KB, and «sin dato» on any doubt; a balance at or below zero shows «límite alcanzado» even when paid overage is allowed (`CUO-T01`).
 - Quota windows read in Spanish across the GUI: a shared `quota-text.js` gives the model picker, «Nueva sesión» and «Apps y agentes» the same lines, with the reset time in readable local hours and the Ollama reason in Spanish instead of the English `diagnosis` (`ARR2-T02`).

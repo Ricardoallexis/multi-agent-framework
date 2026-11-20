@@ -10,21 +10,17 @@ import { Help, helpFor } from "./help.js";
 import { Confirm } from "./human-actions.js";
 import { routeHref } from "./route.js";
 import { StatusChip } from "./ui/index.js";
+import { VERSION_STATUS, versionStatusText } from "./ui/labels.js";
 import { TeamCardBody, TeamDiffBody } from "./team-card.js";   // CHT-T05: the same card as the chat
 
 const BASE = "/gui/api/teams";
 const enc = encodeURIComponent;
+export { VERSION_STATUS };
 
 export const POSITION_STATUS = {
   occupied: { text: "Ocupado", tone: "success", explanation: "El puesto tiene a alguien asignado." },
   vacant: { text: "Vacante", tone: "attention", explanation: "El puesto no tiene a nadie asignado." },
   pending: { text: "Pendiente de aprobar", tone: "neutral", explanation: "El puesto o su ocupante cambia en la propuesta pendiente." },
-};
-export const VERSION_STATUS = {
-  draft: { text: "Borrador", tone: "muted" },
-  proposed: { text: "Propuesta", tone: "attention" },
-  approved: { text: "Aprobada", tone: "success" },
-  rejected: { text: "Rechazada", tone: "danger" },
 };
 export const LINK_TEXT = { reviews: "revisa a", delegates_to: "delega en", reports_to: "reporta a" };
 export const SECTION_TEXT = { roles: "Puestos", members: "Miembros", assignments: "Asignaciones", relationships: "Relaciones" };
@@ -38,7 +34,7 @@ const when = (value) => {
   const date = new Date(value);
   return Number.isNaN(date.valueOf()) ? "Fecha no disponible" : new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short" }).format(date);
 };
-export const versionText = (version) => version ? "v" + version.version + " · " + (VERSION_STATUS[version.status] || { text: version.status }).text : "Ninguna";
+export const versionText = (version) => version ? "v" + version.version + " · " + versionStatusText(version.status) : "Ninguna";
 
 // The members of a position as text ("Ana (human)"); an empty list reads as nobody.
 export const membersText = (members) => Array.isArray(members) && members.length

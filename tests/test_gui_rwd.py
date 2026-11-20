@@ -343,3 +343,31 @@ def test_extensions_project_and_decisions_rwd():
 
     assert "min-width: 0" in rule(waiting, ".task-waiting-view")
     assert "grid-template-columns: minmax(0, 1fr)" in rule(waiting, ".task-waiting-details")
+
+
+def test_apps_key_names_break_at_underscores_without_changing_copied_text():
+    """Apps y agentes: API setting names break only at underscores; manual QA covers 375, 390, and 768 px."""
+    apps_css = read_sheet(EXT / "apps" / "style.css")
+    apps_js = (EXT / "apps" / "index.js").read_text(encoding="utf-8")
+    key_rule = rule(apps_css, ".apps-key-name")
+    assert "word-break: normal" in key_rule and "overflow-wrap: normal" in key_rule
+    assert 'return html`<span class="apps-key-name">${provider}_<wbr />API_<wbr />KEY</span>`' in apps_js
+    assert "navigator.clipboard.writeText(text)" in apps_js
+    assert "text=${`${action.setting}=`}" in apps_js
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_apps_key_setting_copy_value_is_exact():
+    model = EXT / "apps" / "model.js"
+    script = """
+      import { buildAppsView } from %s;
+      const { action } = buildAppsView({ connections: [{
+        id: "gemini", kind: "model", key_configured: false, key_setting: "GEMINI_API_KEY",
+        enabled: true, available: false, reason: "key_missing", missing_step: "key"
+      }] }).models[0];
+      console.log(JSON.stringify({ setting: action.setting, copied: `${action.setting}=` }));
+    """ % json.dumps(model.as_uri())
+    run = subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True,
+                         encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout) == {"setting": "GEMINI_API_KEY", "copied": "GEMINI_API_KEY="}

@@ -21,6 +21,14 @@ const CHIP_LABELS = {
 
 const asError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
 
+function settingText(text) {
+  return String(text).split(/(GEMINI_API_KEY|OPENAI_API_KEY)/g).map((part) => {
+    if (part !== "GEMINI_API_KEY" && part !== "OPENAI_API_KEY") return part;
+    const provider = part === "GEMINI_API_KEY" ? "GEMINI" : "OPENAI";
+    return html`<span class="apps-key-name">${provider}_<wbr />API_<wbr />KEY</span>`;
+  });
+}
+
 function consoleErrorText(error) {
   if (!error) return "";
   if (error.code === "console_already_open") return "Ya hay otra consola de configuración abierta. Ciérrala antes de abrir otra.";
@@ -42,7 +50,7 @@ function CopyBlock({ label, text, scope, statusText }) {
   }
   return html`<div class="apps-snippet">
     ${label && html`<p class="apps-snippet-label">${label}</p>`}
-    <pre class="data">${text}</pre>
+    <pre class="data">${settingText(text)}</pre>
     <div class="apps-actions">
       <button type="button" class="btn secondary small" ...${helpFor("apps.copy", { scope })} onClick=${copy}>Copiar</button>
       <${Help} topic="apps.copy" compact=${true} scope=${scope} />
@@ -129,7 +137,7 @@ function MissingStep({ item, allowLaunch, consoleSupported, token, onRecheck, bu
   if (action.kind === "key") {
     return html`<div class="apps-step">
       <p class="apps-step-title">${action.title}</p>
-      <p class="apps-step-text">${action.detail}</p>
+      <p class="apps-step-text">${settingText(action.detail)}</p>
       <${CopyBlock} label=${`Nombre del ajuste para ${action.file}:`} text=${`${action.setting}=`} scope=${item.id + "-key"} />
     </div>`;
   }
@@ -181,7 +189,7 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, bu
     <dl class="apps-facts">
       <dt>Instalada</dt><dd>${item.installed}</dd>
       <dt>Versión</dt><dd>${item.version}</dd>
-      <dt>Sesión</dt><dd>${item.session}</dd>
+      <dt>Sesión</dt><dd>${settingText(item.session)}</dd>
       <dt>Estado</dt><dd>${item.enabled}</dd>
       <dt>Permisos</dt><dd>${item.permissions}</dd>
       ${item.quota.length > 0 && html`<dt>Cuota</dt><dd class="apps-quota">${item.quota.map((line) => html`<span key=${line}>${line}</span>`)}</dd>`}

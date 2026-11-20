@@ -5,6 +5,7 @@ import { ApiError, apiPost } from "./api.js";
 import { Help, helpFor } from "./help.js";
 import { errorText } from "./text.js";
 import { decisionActions, diffLines, cardRoles, modeText } from "./team-card-model.js";
+import { versionStatusText } from "./ui/labels.js";
 
 // CHT-T05: the card of a team version. The same card is shown in the chat (#new/team/<id>) and in Equipos.
 // Everything comes from the server as text; the decision goes through the teams routes, which decide who signs and where.
@@ -86,7 +87,7 @@ export function TeamVersionCard({ entry, token, onDone }) {
     <div class="thread-card-head"><strong>Versión de equipo para decidir</strong>
       <a href=${"#teams/" + encodeURIComponent(version.bundle || "")} ...${helpFor("team_card.open")}>Ver en Equipos</a>
       <${Help} topic="team_card.open" compact=${true} /></div>
-    <p>${entry.text || ""} · ${version.bundle || ""} · estado ${version.status || "desconocido"}</p>
+    <p>${entry.text || ""} · ${version.bundle || ""} · estado ${versionStatusText(version.status)}</p>
     <${TeamCardBody} card=${entry.card} />
     <${TeamDiffBody} diff=${entry.diff} />
     <${TeamDecision} entry=${entry} token=${token} onDone=${onDone} />

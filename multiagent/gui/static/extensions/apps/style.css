@@ -103,6 +103,11 @@
   overflow-wrap: anywhere;
 }
 
+.apps-key-name {
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
 .apps-quota {
   display: flex;
   flex-direction: column;

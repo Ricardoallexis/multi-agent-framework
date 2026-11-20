@@ -105,6 +105,16 @@ export const DEFAULT_LABELS = Object.freeze({
   },
 });
 
+// Team version statuses (CHT-T05): shared by the Equipos view and its chat card.
+export const VERSION_STATUS = {
+  draft: { text: "Borrador", tone: "muted" },
+  proposed: { text: "Propuesta", tone: "attention" },
+  approved: { text: "Aprobada", tone: "success" },
+  rejected: { text: "Rechazada", tone: "danger" },
+};
+
+export const versionStatusText = (status) => VERSION_STATUS[status]?.text || "Estado desconocido";
+
 // --- the registry: how a map is swapped -----------------------------------------------------------------------------
 
 const registry = new Map(Object.entries(DEFAULT_LABELS));

@@ -291,6 +291,35 @@ def test_the_chat_view_the_card_and_equipos_are_wired_together():
     assert "api/threads" not in block
 
 
+@needs_node
+def test_team_version_status_labels_are_shared_and_unknown_codes_are_hidden(node_root):
+    out = run_node(node_root, r"""
+      import { VERSION_STATUS, versionStatusText } from "./js/ui/labels.js";
+      import { TeamVersionCard } from "./js/team-card.js";
+      const text = (node) => {
+        if (node == null || typeof node === "boolean") return "";
+        if (typeof node === "string" || typeof node === "number") return String(node);
+        if (Array.isArray(node)) return node.map(text).join("");
+        return text(node.props && node.props.children);
+      };
+      const cardText = (status) => text(TeamVersionCard({
+        entry: { text: "Versión", version: { status, bundle: "case" } }, token: "", onDone: () => {}
+      }));
+      console.log(JSON.stringify({
+        labels: [versionStatusText("proposed"), versionStatusText("approved"), versionStatusText("other")],
+        keys: Object.keys(VERSION_STATUS),
+        cards: [cardText("proposed"), cardText("approved"), cardText("unknown-code")],
+      }));
+    """)
+    assert out["labels"] == ["Propuesta", "Aprobada", "Estado desconocido"]
+    assert out["keys"] == ["draft", "proposed", "approved", "rejected"]
+    assert "estado Propuesta" in out["cards"][0] and "proposed" not in out["cards"][0]
+    assert "estado Aprobada" in out["cards"][1] and "approved" not in out["cards"][1]
+    assert "estado Estado desconocido" in out["cards"][2] and "unknown-code" not in out["cards"][2]
+    assert "versionStatusText(version.status)" in read("team-card.js")
+    assert 'import { VERSION_STATUS, versionStatusText } from "./ui/labels.js"' in read("teams.js")
+
+
 def test_the_server_fixes_the_actor_so_the_card_never_sends_one():
     block = read("team-card.js").split("CHT-T05: the card of a team version")[1]
     assert "actor" not in block and "channel" not in block
