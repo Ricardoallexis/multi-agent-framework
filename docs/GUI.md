@@ -366,9 +366,13 @@ run and agy its supervised modes. See [Permission profiles](PERMISSIONS.md#what-
   script) and its source, and only **Confirmar y abrir consola** sends
   `POST /gui/api/setup/console`; **Cancelar** sends nothing. The server opens a visible
   Windows console that shows the command and waits for the person to press Enter in it,
-  so nothing runs hidden. Only one console can be open at a time, and the card shows the
-  exit code when it closes. After installing Claude, the console also checks its
-  publisher signature. The view never reads what is typed in the console.
+  so nothing runs hidden. The request does not wait for the console: the server answers
+  `202` with a console id as soon as the console opens, and the view asks
+  `GET /gui/api/setup/console` every 4 seconds until the state is `closed` (the card then
+  shows the exit code and the app is measured again) or `failed`. Only one console can be
+  open at a time, and the lock is held until it closes. After installing Claude, the
+  console also checks its publisher signature. The view never reads what is typed in the
+  console.
 - **Copy instead of open.** Where the console is not available, the card shows the same
   command with **Copiar** to run in your own terminal: on a system that is not Windows,
   when `GUI_ALLOW_LAUNCH` (`gui_allow_launch`) is `false`, and after a refusal.
@@ -514,7 +518,8 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/runs/{id}/tool-approval/preview?permission_request_id=` | Content and diff of a pending `file.write` approval, only when the rebuilt arguments match its fingerprint; writes nothing. |
 | `GET /gui/api/connections`, `POST /gui/api/connections/{id}/check` | Cached connection facts for the seven model providers and executor apps, or a fresh check of one; no model is called and no key value is returned. |
 | `GET /gui/api/setup/status` | For «Apps y agentes»: whether launching is allowed (`gui_allow_launch`) and the console is supported, the read-only presence of each permission template, and the fixed, dated install and sign-in plans (read only; no template file is read, only checked for presence). |
-| `POST /gui/api/setup/console` | Open the visible Windows console for a fixed `install` or `login` step of a tool; the body is only `{"id", "step"}` (any other field is 422, an unsupported step 400). It answers `403 launch_disabled` when `gui_allow_launch` is off, `409 console_already_open` while another console is open and `409 launch_unsupported` outside Windows. |
+| `POST /gui/api/setup/console` | Open the visible Windows console for a fixed `install` or `login` step of a tool; the body is only `{"id", "step"}` (any other field is 422, an unsupported step 400). It answers `202` with a `console_id` as soon as the console starts, without waiting for it to close (`200` when the step has nothing to open). It answers `403 launch_disabled` when `gui_allow_launch` is off, `409 console_already_open` while another console is open and `409 launch_unsupported` outside Windows. |
+| `GET /gui/api/setup/console` | State of the latest console: `none`, `open`, `closed` (with the exit code and the new measurement) or `failed` (read only). |
 | `POST /gui/api/executors/launch` | Launch a «Sesión única» task with an executor; the body needs `confirmed: true` (otherwise 409 `confirmation_required`) and Copilot needs a `model`. It creates the task and calls the executor service with its checks. |
 | `GET /gui/api/executors/launch/{task_id}` | Status of that task and its attempts, for the follow-up (read only). |
 | `GET /gui/api/composer/executors` | Models and efforts that each enabled executor admits, for the executor choice. |
@@ -642,12 +647,16 @@ import { HELP } from "./help.js";
 registerHelp(HELP, "projects");
 function ProjectView({ token, status, mock, route }) { /* route = { section, id } */ }
 function ProjectCard({ token, route, sessionId }) { /* one section of the right panel */ }
-registerView({ id: "projects", owner: "projects", label: "Proyectos", component: ProjectView, order: 40 });  // button + "#projects/<id>"
+registerView({ id: "projects", owner: "projects", label: "Proyectos", component: ProjectView, topic: "projects.view", order: 40 });  // button + "#projects/<id>"
 registerSlot("projects", ProjectCard, { title: "Proyecto", topic: "projects.card", owner: "projects", order: 40 });
 ```
 
-- `registerView({ id, owner, label, component, order })` adds the sidebar button and the
+- `registerView({ id, owner, label, component, topic, order })` adds the sidebar button and the
   route `#<id>` or `#<id>/<item>`. The ids of the built-in screens are reserved.
+  `topic` is optional and is a help key of the extension (`"projects.view"`, in the same
+  `name.topic` form as the slot topics). `main.js` draws the page heading from `label` and
+  places the «?» button of `topic` beside it, so the view must not draw a heading of its
+  own: the name would show twice. A `topic` that is not a help key is refused.
 - `registerSlot(name, component, { title, topic, owner, order })` adds a section after the
   four fixed ones of the right panel, with its title and its «?» help (`topic` is a
   key of the extension's own help). The names of the fixed sections are reserved.
@@ -761,6 +770,12 @@ State-changing requests accept JSON only. The GUI uses a strict Content
 Security Policy with Trusted Types; its Preact and htm dependencies are
 vendored under `multiagent/gui/static/vendor/`, with their licenses alongside.
 SSE events use a resumable cursor.
+
+The GUI pages (`/gui`, `/gui/`) and the files under `/gui/static/` are sent with
+`Cache-Control: no-cache`: the browser may keep a copy but revalidates it, so after an
+update it does not run stale scripts. `StaticFiles` still answers `304` with `ETag` and
+`Last-Modified` when nothing changed. A response that already sets `Cache-Control`, such as
+the `no-store` event stream, keeps its own, and `/gui/api/*` is unchanged.
 
 The token is a local access credential, not an account or network access
 mechanism. Keep the server on loopback and the token file private. Allowing a
