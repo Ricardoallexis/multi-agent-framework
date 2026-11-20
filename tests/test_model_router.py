@@ -8,7 +8,7 @@ import pytest
 from multiagent.adapters.base import LLMAdapter, LLMResponse
 from multiagent.catalog import ModelSpec
 from multiagent.contracts import ModelTier, TaskRequirements
-from multiagent.errors import ProviderUnavailable, StructuredOutputError
+from multiagent.errors import ProviderUnavailable, QuotaExceeded, RateLimitExceeded, StructuredOutputError
 from multiagent.model_router import ModelBinding, ModelRouter
 from multiagent.routing_policy import RoutingEvidence, RoutingRequest, summarize_routing_evidence
 
@@ -103,6 +103,18 @@ def test_retry_and_final_failure_report_each_invoked_attempt():
     assert [event["retry"] for event in events] == [0, 1]
     assert all(event["provider_invoked"] for event in events)
     assert len(failed) == 2
+
+
+@pytest.mark.parametrize("error_type", [QuotaExceeded, RateLimitExceeded, ProviderUnavailable])
+def test_attempt_exposes_retry_at_when_provider_supplies_it(error_type):
+    retry_at = datetime(2026, 11, 20, 12, tzinfo=timezone.utc)
+    adapter = SequenceAdapter("one", [error_type("limit", retry_at=retry_at)])
+    router = ModelRouter(StaticCatalog(), {"one": adapter})
+    events = []
+    with pytest.raises(error_type):
+        router.execute(binding=ModelBinding("primary"), requirements=requirements(), prompt="x",
+                       output_schema=Payload, on_attempt=events.append)
+    assert events[0]["retry_at"] == retry_at.isoformat()
 
 
 def test_preflight_rejection_emits_event_without_usage_callback():

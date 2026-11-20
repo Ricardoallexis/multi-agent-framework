@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
 import time
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -14,9 +17,9 @@ from ..errors import (
     ProviderRequestError,
     ProviderUnavailable,
     QuotaExceeded,
-    RateLimitExceeded,
     StructuredOutputError,
 )
+from ..model_checks import record_gemini_verification
 from ..routing_policy import EFFORT_LEVELS
 
 # Generic effort -> ``generation_config.thinking_level`` of the Interactions API, whose levels
@@ -39,22 +42,70 @@ def _first_count(usage: Any, *names: str) -> int:
     return 0
 
 
+def _field(value: Any, name: str) -> Any:
+    return value.get(name) if isinstance(value, dict) else getattr(value, name, None)
+
+
+def _retry_delay(value: Any) -> timedelta | None:
+    if isinstance(value, timedelta):
+        return value if value.total_seconds() >= 0 else None
+    if isinstance(value, str):
+        match = re.fullmatch(r"(\d+)(?:\.(\d{1,9}))?s", value.strip())
+        if match:
+            return timedelta(seconds=int(match[1]) + float("0." + (match[2] or "0")))
+    seconds = _field(value, "seconds")
+    nanos = _field(value, "nanos") or 0
+    if isinstance(seconds, (int, float, str)) and str(seconds).isdigit() and isinstance(nanos, int):
+        return timedelta(seconds=int(seconds), microseconds=nanos / 1000)
+    return None
+
+
+def _retry_at(exc: Exception, now: datetime) -> datetime | None:
+    details = _field(exc, "details") or _field(_field(exc, "response"), "details") or []
+    if isinstance(details, dict):
+        details = details.get("details", [details])
+    if not isinstance(details, (list, tuple)):
+        details = [details]
+    for detail in details:
+        delay = _retry_delay(_field(detail, "retryDelay") or _field(detail, "retry_delay"))
+        if delay is not None:
+            return now + delay
+    headers = _field(exc, "headers") or _field(_field(exc, "response"), "headers") or {}
+    try:
+        retry_after = headers.get("Retry-After") or headers.get("retry-after")
+        if retry_after is not None:
+            if str(retry_after).strip().isdigit():
+                return now + timedelta(seconds=int(str(retry_after).strip()))
+            parsed = parsedate_to_datetime(str(retry_after))
+            return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError, OverflowError):
+        pass
+    return None
+
+
 def _classify_gemini_error(exc: Exception) -> Exception:
-    text = str(exc)
-    low = text.lower()
-    if "api_key_invalid" in low or "api key not valid" in low or "unauthenticated" in low:
-        return AuthenticationError(f"Gemini authentication failed: {text}")
-    if "no longer available" in low or "not_found" in low or "model" in low and "404" in low:
-        return ModelUnavailable(f"Gemini model unavailable: {text}")
-    if "quota" in low or "resource_exhausted" in low:
-        return QuotaExceeded(f"Gemini quota exhausted: {text}")
-    if "rate" in low and "limit" in low or "429" in low:
-        return RateLimitExceeded(f"Rate limit Gemini: {text}")
-    if "400" in low or "invalid_argument" in low:
-        return ProviderRequestError(f"Gemini rejected the request: {text}")
-    if "timeout" in low or "connection" in low or "503" in low or "502" in low:
-        return ProviderUnavailable(f"Gemini unavailable: {text}")
-    return ProviderUnavailable(f"Gemini failed: {text}")
+    # Provider text can contain a credential. Keep it only for classification, never in our exception.
+    low = str(exc).lower()
+    code = str(_field(exc, "code") or _field(exc, "status_code") or
+               _field(_field(exc, "response"), "status_code") or "").lower()
+    now = datetime.now(timezone.utc)
+    if code in {"401", "403", "permission_denied", "unauthenticated"} or any(
+            term in low for term in ("api_key_invalid", "api key not valid", "permission_denied", "unauthenticated")) or re.search(r"\b(401|403)\b", low):
+        record_gemini_verification("key_invalid", at=now)
+        return AuthenticationError("Gemini key is invalid")
+    if code in {"429", "resource_exhausted"} or any(term in low for term in ("429", "resource_exhausted", "quota")):
+        retry_at = _retry_at(exc, now)
+        record_gemini_verification("limit_reached", at=now, retry_at=retry_at)
+        return QuotaExceeded("Gemini limit reached", retry_at=retry_at)
+    if code == "404" or "no longer available" in low or "not_found" in low or "model" in low and "404" in low:
+        return ModelUnavailable("Gemini model unavailable")
+    if code == "400" or "invalid_argument" in low:
+        return ProviderRequestError("Gemini rejected the request")
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError)) or any(
+            term in low for term in ("timeout", "connection", "tls", "certificate", "503", "502")):
+        record_gemini_verification("no_access", at=now)
+        return ProviderUnavailable("Gemini has no access")
+    return ProviderUnavailable("Gemini request failed")
 
 
 class GeminiAdapter(LLMAdapter):
@@ -101,7 +152,8 @@ class GeminiAdapter(LLMAdapter):
         try:
             interaction = client.interactions.create(**kwargs)
         except Exception as exc:
-            raise _classify_gemini_error(exc) from exc
+            raise _classify_gemini_error(exc) from None
+        record_gemini_verification("verified", at=datetime.now(timezone.utc))
         latency_ms = int((time.perf_counter() - started) * 1000)
         text = getattr(interaction, "output_text", "") or ""
         try:

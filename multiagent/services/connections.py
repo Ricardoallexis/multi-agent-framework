@@ -41,7 +41,7 @@ class ConnectionServices:
                 self._batch_detection = {}
         try:
             for identifier in IDS:
-                if identifier not in self._last:
+                if identifier == "gemini" or identifier not in self._last:
                     self.check(identifier)
         finally:
             self._batch_detection = None
@@ -162,7 +162,15 @@ class ConnectionServices:
             elif not row["enabled"]:
                 row.update(reason="disabled", missing_step="enable")
             elif identifier == "gemini":
-                row["reason"] = "reachability_unknown"
+                from ..model_checks import gemini_verification
+                check = gemini_verification()
+                row["verification"] = check["verification"]
+                row["verified_at"] = check["verified_at"]
+                row["resets_at"] = check["resets_at"]
+                if check["verification"] in {"key_invalid", "limit_reached", "no_access"}:
+                    row["reason"] = check["verification"]
+                if check["verification"] == "limit_reached" and not check["resets_at"]:
+                    row["limit_note"] = "Reset time is unknown."
             return
         try:
             adapter = self._services.system.adapters["ollama"]

@@ -550,6 +550,7 @@ class ModelRouter:
             "retry": retry,
             "error": str(error) if error is not None else None,
             "error_type": type(error).__name__ if error is not None else None,
+            "retry_at": error.retry_at.isoformat() if isinstance(getattr(error, "retry_at", None), datetime) else None,
             "model_digest": model_digest,
             "tokens_in": tokens_in,
             "tokens_out": tokens_out,

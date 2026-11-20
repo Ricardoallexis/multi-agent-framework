@@ -1,9 +1,14 @@
+from datetime import datetime
+
+
 class MultiAgentError(Exception):
     """Base error for the multi-agent backend."""
 
 
 class ProviderUnavailable(MultiAgentError):
-    pass
+    def __init__(self, message: str, *, retry_at: datetime | None = None):
+        super().__init__(message)
+        self.retry_at = retry_at
 
 
 class AuthenticationError(MultiAgentError):
@@ -15,11 +20,15 @@ class ModelUnavailable(MultiAgentError):
 
 
 class QuotaExceeded(MultiAgentError):
-    pass
+    def __init__(self, message: str, *, retry_at: datetime | None = None):
+        super().__init__(message)
+        self.retry_at = retry_at
 
 
 class RateLimitExceeded(MultiAgentError):
-    pass
+    def __init__(self, message: str, *, retry_at: datetime | None = None):
+        super().__init__(message)
+        self.retry_at = retry_at
 
 
 class ProviderRequestError(MultiAgentError):
