@@ -10,7 +10,7 @@ import anyio
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from .bootstrap import build_system
 from .contracts import FeedbackRequest, HumanReviewRequest, HumanStepSubmission, SocialPostRequest
@@ -367,6 +367,7 @@ class ExecutorRunRequest(_Body):
     timeout_seconds: int | None = None
     step_kind: str | None = None
     wait: bool | None = None          # AVA-T02: true waits for the whole attempt; omitted follows the availability policy
+    accept_quota_warning: StrictBool = False
 
 
 class ExecutorResumeRequest(_Body):
@@ -1264,7 +1265,7 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         result = await anyio.to_thread.run_sync(lambda: services.executors.run_task(
             body.task_id, body.executor_id, body.model, body.effort, body.actor, profile_id=body.profile_id,
             timeout_seconds=body.timeout_seconds, operator_context=operator_context, step_kind=body.step_kind,
-            wait=body.wait))
+            wait=body.wait, accept_quota_warning=body.accept_quota_warning))
         if isinstance(result, dict) and result.get("outcome") == FOREGROUND_RUNNING:
             response.status_code = 202
         return result

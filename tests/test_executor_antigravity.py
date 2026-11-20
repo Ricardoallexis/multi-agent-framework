@@ -20,7 +20,10 @@ from pathlib import Path
 
 import pytest
 import yaml
+from fastapi.testclient import TestClient
 
+from multiagent import cli
+from multiagent.api import create_app
 from multiagent.config import PROJECT_ROOT, Settings
 from multiagent.executors import antigravity as agy
 from multiagent.executors import process
@@ -38,6 +41,7 @@ from multiagent.executors.privacy import DATA_CLASSES
 from multiagent.executors.registry import ExecutorRegistry
 from multiagent.routing import validate_executor_config
 from multiagent.services.assignment import AssignmentServices
+from multiagent.services.errors import ServiceError
 from multiagent.sessions.usage_sources import parse_agy_usage
 from multiagent.tasks.envelopes import TASK_RESULT_SCHEMA, build_task_envelope
 
@@ -474,6 +478,30 @@ def test_under_the_launch_floor_nothing_is_launched(fake, adapter, workdir):
     assert adapter.launch(make_request(workdir)).status is RunStatus.COMPLETED
 
 
+@pytest.mark.parametrize("remaining", [12, 8])
+def test_an_explicit_quota_warning_acceptance_launches_with_plan_quota(fake, adapter, workdir, remaining):
+    fake.set(usage={"stdout": usage_text(gemini_week=remaining)})
+    result = adapter.launch(make_request(workdir, quota_warning_accepted=True))
+    assert result.status is RunStatus.COMPLETED and len(fake.runs()) == 1
+
+
+@pytest.mark.parametrize("accepted", [False, True])
+def test_zero_plan_quota_is_a_hard_limit_even_when_accepted(fake, adapter, workdir, accepted):
+    fake.set(usage={"stdout": usage_text(gemini_5h=0)})
+    result = adapter.launch(make_request(workdir, quota_warning_accepted=accepted))
+    assert result.status is RunStatus.QUOTA_EXHAUSTED and fake.runs() == []
+    assert result.limit.kind is FailureKind.PLAN_LIMIT
+    assert result.limit.reset_at == "2026-11-18T15:00:00Z"
+    assert "not_started: plan limit reached" in result.notes
+
+
+def test_acceptance_does_not_skip_an_unavailable_usage_probe(fake, adapter, workdir):
+    fake.set(usage={"stdout": "", "exit": 1})
+    refused_with(agy.USAGE_UNAVAILABLE,
+                 lambda: adapter.launch(make_request(workdir, quota_warning_accepted=True)))
+    assert fake.runs() == []
+
+
 def test_under_the_pause_floor_the_result_is_a_plan_limit_at_the_reset_usage_gave(fake, adapter, workdir):
     fake.set(usage={"stdout": usage_text(gemini_5h=8)})
     result = adapter.launch(make_request(workdir))
@@ -499,6 +527,9 @@ def test_the_floors_read_the_model_group_and_the_model_line_only():
     assert paused.decision == "pause" and paused.binding.window == "model_weekly"
     assert agy.check_quota(rows, "gemini-3.8-flash-low").decision == "launch"
     assert agy.check_quota(rows, None).decision == "pause"                 # agy's default model: every line counts
+    assert agy.check_quota(rows, MODEL, warning_accepted=True).decision == "launch"
+    zero, _ = parse_agy_usage(usage_text(argon=0))
+    assert agy.check_quota(zero, MODEL, warning_accepted=True).decision == "pause"
     only_gemini, _ = parse_agy_usage("Gemini Models\tWeekly Limit Remaining\t90%\t2026-11-20T10:00:00Z\n")
     refused_with(agy.USAGE_UNAVAILABLE, lambda: agy.check_quota(only_gemini, "claude-opus-5-5-high"))
     refused_with(agy.USAGE_UNAVAILABLE, lambda: agy.check_quota(only_gemini, MODEL))
@@ -699,6 +730,62 @@ def test_the_executor_service_runs_a_task_through_agy_and_submits_its_result(fak
     assert finished["adapter_id"] == "antigravity_cli" and finished["outcome"] == "submitted"
     status = next(e for e in services.executors.status()["executors"] if e["executor_id"] == "antigravity_cli")
     assert status["enabled"] is True
+
+
+def test_service_acceptance_applies_to_one_agy_launch(fake, tmp_path):
+    services, _ = agy_world(tmp_path, fake)
+    fake.set(usage={"stdout": usage_text(gemini_week=8)}, run=service_run())
+    out = services.executors.run_task("T1", "antigravity_cli", model=MODEL, accept_quota_warning=True)
+    assert out["outcome"] == "submitted" and len(fake.runs()) == 1
+
+
+def test_resume_due_does_not_inherit_an_accepted_quota_warning(fake, tmp_path):
+    services, _ = agy_world(tmp_path, fake)
+    low_quota = {"stdout": usage_text(gemini_5h=8)}
+    fake.set(usage=low_quota, run={"stdout": good_run(status="ERROR", error="RESOURCE_EXHAUSTED: quota reached"),
+                                   "exit_code": 1})
+    first = services.executors.run_task("T1", "antigravity_cli", model=MODEL, accept_quota_warning=True)
+    assert first["outcome"] == "quota_exhausted" and len(fake.runs()) == 1
+    services.executors.clock = lambda: datetime(2027, 1, 1, tzinfo=timezone.utc)
+    fake.set(usage=low_quota, run=service_run())
+    report = services.executors.resume_due(task_id="T1")
+    assert report["resumed"] and len(fake.runs()) == 1
+    assert any(call["usage_call"] for call in fake.calls()[2:])
+
+
+def test_manual_agy_resume_after_an_accepted_launch_stays_unsupported(fake, tmp_path):
+    services, _ = agy_world(tmp_path, fake)
+    fake.set(usage={"stdout": usage_text(gemini_5h=8)},
+             run={"stdout": good_run(status="ERROR", error="RESOURCE_EXHAUSTED: quota reached"), "exit_code": 1})
+    first = services.executors.run_task("T1", "antigravity_cli", model=MODEL, accept_quota_warning=True)
+    assert first["outcome"] == "quota_exhausted"
+    services.executors.clock = lambda: datetime(2027, 1, 1, tzinfo=timezone.utc)
+    with pytest.raises(ServiceError) as error:
+        services.executors.resume_task("T1")
+    assert error.value.details["code"] == agy.RESUME_NOT_SUPPORTED
+    assert len(fake.runs()) == 1
+
+
+def test_api_acceptance_reaches_one_agy_launch(fake, tmp_path):
+    services, _ = agy_world(tmp_path, fake)
+    fake.set(usage={"stdout": usage_text(gemini_week=12)}, run=service_run())
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
+        response = client.post("/api/v1/executors/run", json={
+            "task_id": "T1", "executor_id": "antigravity_cli", "model": MODEL,
+            "accept_quota_warning": True})
+    assert response.status_code == 200 and response.json()["outcome"] == "submitted"
+    assert len(fake.runs()) == 1
+
+
+def test_cli_quota_option_is_sent_only_on_run(monkeypatch):
+    sent = []
+    monkeypatch.setattr(cli, "_api_json", lambda method, path, **kwargs: sent.append((path, kwargs["json_body"])) or {})
+    cli.main(["executors", "run", "T1", "--executor", "antigravity_cli", "--accept-quota-warning"])
+    assert sent[-1][0] == "/api/v1/executors/run" and sent[-1][1]["accept_quota_warning"] is True
+    cli.main(["executors", "run", "T2", "--executor", "antigravity_cli"])
+    assert "accept_quota_warning" not in sent[-1][1]
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["executors", "resume", "T1", "--accept-quota-warning"])
 
 
 def test_the_service_refuses_before_the_task_changes_when_agy_is_off(fake, tmp_path):

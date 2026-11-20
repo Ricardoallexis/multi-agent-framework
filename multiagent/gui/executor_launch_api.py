@@ -22,6 +22,7 @@ class ExecutorLaunchBody(BaseModel):
     model: str | None = Field(default=None, max_length=128)
     effort: str | None = Field(default=None, max_length=32)
     confirmed: StrictBool = False
+    accept_quota_warning: StrictBool = False
 
 
 def add_executor_launch_routes(api: APIRouter, services) -> None:
@@ -54,7 +55,8 @@ def add_executor_launch_routes(api: APIRouter, services) -> None:
                                    objective=task)
         try:
             result = await anyio.to_thread.run_sync(lambda: services.executors.run_task(
-                task_id, body.executor_id, model, effort, actor="user:operator"))
+                task_id, body.executor_id, model, effort, actor="user:operator",
+                accept_quota_warning=body.accept_quota_warning))
         except ServiceError as exc:
             # A refused launch (disabled executor, quota floor, agy busy) leaves no open task behind; the refusal and
             # its reason still reach the page unchanged.

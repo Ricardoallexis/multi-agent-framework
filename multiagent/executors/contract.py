@@ -187,6 +187,7 @@ class ExecutorLaunchRequest:
     data_class: str | None = None
     privacy: Any = None
     privacy_decision: Mapping[str, Any] | None = None   # ``PrivacyDecision.to_dict()`` at launch, for MOD-T05 to read
+    quota_warning_accepted: bool = False  # one explicitly confirmed launch; never inherited by a resume
 
 
 @dataclass(frozen=True)

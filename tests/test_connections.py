@@ -67,8 +67,14 @@ def test_key_notice_quota_and_certificate():
     assert fixture().check("gemini")["reachable"] is None
     agy = fixture(notice=False).check("antigravity_cli")
     assert agy["missing_step"] == "enable" and agy["notice_id"] == "agy-third-party-notice/1"
-    assert fixture(quota=90).check("antigravity_cli")["reason"] == "quota_below_launch_floor"
-    assert fixture(quota=95).check("antigravity_cli")["reason"] == "quota_below_pause_floor"
+    for used, reason in ((90, "quota_below_launch_floor"), (95, "quota_below_pause_floor")):
+        row = fixture(quota=used).check("antigravity_cli")
+        assert row["available"] is True and row["reason"] is None
+        assert row["warning"] == {"reason": reason, "remaining_percent": 100 - used,
+                                  "resets_at": "2026-12-01T00:00:00Z"}
+    zero = fixture(quota=100).check("antigravity_cli")
+    assert zero["available"] is False and zero["reason"] == "quota_below_pause_floor"
+    assert "warning" not in zero
     tls = fixture(health={"available": False, "error": "CERTIFICATE_VERIFY_FAILED: secret path"}).check("ollama")
     assert tls["reason"] == "tls_certificate" and "secret path" not in str(tls)
 

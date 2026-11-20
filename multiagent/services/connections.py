@@ -145,9 +145,18 @@ class ConnectionServices:
                 row["reason"] = "usage_unavailable"
             row["quota"]["launch_floor_remaining_percent"] = LAUNCH_FLOOR_PERCENT
             row["quota"]["pause_floor_remaining_percent"] = PAUSE_FLOOR_PERCENT
-            remaining = [100 - item["used_percent"] for item in windows if isinstance(item["used_percent"], (int, float))]
-            if row["reason"] is None and remaining and min(remaining) < LAUNCH_FLOOR_PERCENT:
-                row["reason"] = "quota_below_pause_floor" if min(remaining) < PAUSE_FLOOR_PERCENT else "quota_below_launch_floor"
+            measured = [item for item in windows if isinstance(item["used_percent"], (int, float))]
+            if row["reason"] is None and measured:
+                binding = max(measured, key=lambda item: item["used_percent"])
+                remaining = 100 - binding["used_percent"]
+                if remaining < LAUNCH_FLOOR_PERCENT:
+                    reason = ("quota_below_pause_floor" if remaining < PAUSE_FLOOR_PERCENT
+                              else "quota_below_launch_floor")
+                    if remaining <= 0:
+                        row["reason"] = reason
+                    else:
+                        row["warning"] = {"reason": reason, "remaining_percent": remaining,
+                                          "resets_at": binding["resets_at"]}
 
     def _model(self, row: dict[str, Any]) -> None:
         identifier = row["id"]

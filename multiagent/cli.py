@@ -473,6 +473,8 @@ def cmd_executors(args) -> None:
     if args.executors_command == "run":
         body.update({key: value for key, value in (("executor_id", args.executor), ("profile_id", args.profile_id),
                                                     ("step_kind", args.step_kind)) if value is not None})
+        if args.accept_quota_warning:
+            body["accept_quota_warning"] = True
     # ``timeout=None``: the attempt can take minutes and the server answers when it ends.
     pretty(_api_json("POST", f"/api/v1/executors/{args.executors_command}", json_body=body, timeout=None))
 
@@ -1625,6 +1627,8 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--timeout", type=int, help="Seconds before the attempt is stopped")
     x.add_argument("--step-kind", choices=["orchestration", "planning", "review", "work"],
                    help="Kind of step the model routing profile selects for (default work)")
+    x.add_argument("--accept-quota-warning", action="store_true",
+                   help="Confirm a one-time agy launch with less than 15% of plan quota remaining")
     x.set_defaults(func=cmd_executors)
     x = executors.add_parser("resume", help="Continue the session the framework created for the task")
     x.add_argument("task_id"); x.add_argument("--model"); x.add_argument("--effort")

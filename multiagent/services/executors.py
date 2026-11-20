@@ -1095,7 +1095,8 @@ class ExecutorServices:
     def run_task(self, task_id: str, executor_id: str | None = None, model: str | None = None,
                  effort: str | None = None, actor: str | None = None, *, profile_id: str | None = None,
                  timeout_seconds: int | None = None, operator_context: Any = None,
-                 step_kind: str | None = None, wait: bool | None = None) -> dict[str, Any]:
+                 step_kind: str | None = None, wait: bool | None = None,
+                 accept_quota_warning: bool = False) -> dict[str, Any]:
         """Launch the task in an executor application in a new session; returns the outcome of the attempt.
 
         ``executor_id`` names the executor; without it ``profile_id`` makes the assignment preview choose (it needs a
@@ -1127,10 +1128,14 @@ class ExecutorServices:
         and the task ``submitted`` or ``paused`` as in a synchronous run. ``resume_task`` and the automatic resumptions are
         always synchronous. Errors added: ``invalid_request`` (``wait``), ``invalid_state`` with ``availability_policy_invalid``,
         ``background_attempt_active`` and ``background_capacity``.
+
+        ``accept_quota_warning`` applies only to this new agy attempt. Resumes and automatic launches never inherit it.
         """
+        if not isinstance(accept_quota_warning, bool):
+            raise _invalid("accept_quota_warning", "accept_quota_warning must be true or false")
         return self._run_task(task_id, executor_id, model, effort, actor, profile_id=profile_id,
                               timeout_seconds=timeout_seconds, operator_context=operator_context, step_kind=step_kind,
-                              wait=wait)
+                               wait=wait, accept_quota_warning=accept_quota_warning)
 
     def _background_policy(self, wait: Any) -> AvailabilityPolicy | None:
         """The availability policy when this run goes to the background, else None (a synchronous run, as always)."""
@@ -1151,7 +1156,7 @@ class ExecutorServices:
                   actor: str | None, *, profile_id: str | None = None, timeout_seconds: int | None = None,
                   operator_context: Any = None, step_kind: str | None = None, hold: Mapping[str, Any] | None = None,
                   trigger: str = "manual", drift: tuple[str, ...] = (), wait: bool | None = True,
-                  source: str | None = None) -> dict[str, Any]:
+                  source: str | None = None, accept_quota_warning: bool = False) -> dict[str, Any]:
         task_id = self._task_id(task_id)
         if executor_id is not None and (not isinstance(executor_id, str) or not _EXECUTOR_ID.fullmatch(executor_id)):
             raise _invalid("executor_id", f"Invalid executor_id: {executor_id!r}")
@@ -1181,7 +1186,8 @@ class ExecutorServices:
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
         return self._execute(task, plan, actor, timeout, resume_session=None, hold=hold, trigger=trigger, drift=drift,
-                             policy=policy, operator_context=operator_context)
+                             policy=policy, operator_context=operator_context,
+                             accept_quota_warning=accept_quota_warning)
 
     @service_errors
     def resume_task(self, task_id: str, model: str | None = None, effort: str | None = None,
@@ -1308,7 +1314,7 @@ class ExecutorServices:
                  resume_session: str | None, recorded: Mapping[str, Any] | None = None,
                  hold: Mapping[str, Any] | None = None, trigger: str = "manual",
                  drift: tuple[str, ...] = (), policy: AvailabilityPolicy | None = None,
-                 operator_context: Any = None) -> dict[str, Any]:
+                 operator_context: Any = None, accept_quota_warning: bool = False) -> dict[str, Any]:
         """One attempt. ``hold`` and ``trigger`` (``auto`` from ``resume_due``, ``condition`` from ``resume_met``, else
         ``manual``) say what hold this run ends; ``drift`` is what ``resume_due`` found different before relaunching; ``recorded`` the settings of the
         session being resumed (to compare with what the app reports).
@@ -1333,7 +1339,9 @@ class ExecutorServices:
             task_id=task_id, task_envelope=self._services.envelopes.get_envelope(task_id), workdir=workdir,
             model=plan.model, effort=plan.effort, permission=permission, timeout_seconds=timeout,
             session_id=claude_session_id, data_class=privacy[0], privacy=privacy[1],
-            privacy_decision=privacy[2])
+            privacy_decision=privacy[2],
+            quota_warning_accepted=accept_quota_warning and plan.executor_id == "antigravity_cli"
+            and resume_session is None)
         self._preflight(plan, request, resume_session)
         cause = f"executor {mode} in {plan.executor_id}"
         # A place in the background is taken before the task changes, so a refusal leaves the task as it was.

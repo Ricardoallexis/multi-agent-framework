@@ -143,6 +143,17 @@ def test_agy_below_launch_floor_is_rejected_with_the_quota_reason(world):
     assert world.fake_agy.runs() == []
 
 
+def test_agy_quota_acceptance_requires_token_and_launches_once(world):
+    world.configure({"antigravity_cli"})
+    world.fake_agy.set(usage={"stdout": usage_text(gemini_week=8)}, run={"stdout": good_run()})
+    body = launch_body("antigravity_cli", accept_quota_warning=True)
+    assert world.client.post(GUI_LAUNCH, json=body).status_code == 401
+    assert world.fake_agy.calls() == []
+    response = world.client.post(GUI_LAUNCH, headers=world.auth, json=body)
+    assert response.status_code == 200
+    assert len(world.fake_agy.runs()) == 1
+
+
 def test_a_second_agy_launch_is_rejected_while_the_first_is_running(world):
     world.configure({"antigravity_cli"})
     world.fake_agy.set(run={"stdout": good_run(), "sleep": 1.5})

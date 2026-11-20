@@ -23,10 +23,10 @@ Command (``build_command``), in this order; ``--model`` and ``--add-dir`` are co
 * **Quota floors.** Before each launch ``agy -p /usage --output-format text`` (it spends no model) is read with
   ``sessions.usage_sources.parse_agy_usage``. The lines that apply are the model's group (``Gemini Models``, or
   ``Claude and GPT models``) in both windows and the model's own weekly line; with no model, or one this adapter
-  cannot place, every line applies. Under ``PAUSE_FLOOR_PERCENT`` (10 %) the run is not started and the result is
-  ``quota_exhausted`` with a ``plan_limit`` at the reset ``/usage`` gave (an orderly pause of the executor, CNT-T04);
-  under ``LAUNCH_FLOOR_PERCENT`` (15 %) the launch is refused (``quota_below_launch_floor``). A ``/usage`` that fails
-  or cannot be read refuses the launch (``usage_unavailable``): the floor is never skipped.
+  cannot place, every line applies. Without an explicit one-time acceptance, under ``PAUSE_FLOOR_PERCENT`` (10 %)
+  the result is ``quota_exhausted`` and under ``LAUNCH_FLOOR_PERCENT`` (15 %) the launch is refused. With acceptance,
+  either floor can be crossed while plan quota remains. At 0 % the plan limit always stops the run. A ``/usage``
+  that fails or cannot be read refuses the launch (``usage_unavailable``).
 * **AI credits are never spent by the framework**: no flag, setting or file of agy is changed (the account option that
   lets agy use AI credits after the quota stays the person's; the notice says so). ``GEMINI_API_KEY`` and
   ``GOOGLE_API_KEY`` reach the child empty, so a key in the environment cannot turn the run into API billing.
@@ -92,8 +92,8 @@ ADAPTER_ID = "antigravity_cli"
 ADAPTER_VERSION = "1"
 DEFAULT_PROGRAM = "agy"
 NOTICE_ID = "agy-third-party-notice/1"     # the value of ``antigravity_notice_accepted`` once the notice was accepted
-LAUNCH_FLOOR_PERCENT = 15.0                 # under this much left in a window that applies: not launched
-PAUSE_FLOOR_PERCENT = 10.0                  # under this: the executor is paused until the window resets
+LAUNCH_FLOOR_PERCENT = 15.0                 # under this: explicit acceptance is needed to launch
+PAUSE_FLOOR_PERCENT = 10.0                  # under this: automatic launches pause until the window resets
 USAGE_ARGS = ("-p", "/usage", "--output-format", "text", "--print-timeout", "30s")  # as services.usage: spends no model
 USAGE_TIMEOUT_SECONDS = 40.0
 USAGE_OUTPUT_CAP_BYTES = 64 * 1024
@@ -516,8 +516,8 @@ class QuotaCheck:
                 f"{row.remaining_percent:g}% remaining")
 
 
-def check_quota(rows: Sequence[Any], model: str | None) -> QuotaCheck:
-    """Apply the floors only when both group windows can be checked."""
+def check_quota(rows: Sequence[Any], model: str | None, *, warning_accepted: bool = False) -> QuotaCheck:
+    """Apply the floors only when both group windows can be checked; zero remaining is always a limit."""
     chosen = applicable_limits(rows, model)
     family = _family(model.split("-", 1)[0]) if model else None
     families = (family,) if family else ("gemini", "claude_gpt")
@@ -528,6 +528,10 @@ def check_quota(rows: Sequence[Any], model: str | None) -> QuotaCheck:
                 USAGE_UNAVAILABLE, "agy /usage is missing a window for a model group of this run: "
                 "the quota floor cannot be checked, so nothing is launched")
     binding = min(chosen, key=lambda row: row.remaining_percent)
+    if binding.remaining_percent <= 0:
+        return QuotaCheck("pause", binding, tuple(chosen))
+    if warning_accepted:
+        return QuotaCheck("launch", binding, tuple(chosen))
     if binding.remaining_percent < PAUSE_FLOOR_PERCENT:
         return QuotaCheck("pause", binding, tuple(chosen))
     if binding.remaining_percent < LAUNCH_FLOOR_PERCENT:
@@ -798,7 +802,7 @@ class AntigravityAdapter:
         return {name: "" for name in BLANKED_VARIABLES if name.upper() in present}
 
     def _probe_usage(self, request: ExecutorLaunchRequest, folder: Path) -> "QuotaCheck | ExecutorRunResult":
-        """Read ``agy /usage`` and apply the floors; a pause comes back as the run's result, a refusal is raised."""
+        """Read ``agy /usage`` and apply the floors; acceptance applies only to this request."""
         handle = process.start([*self._program, *USAGE_ARGS], cwd=folder, stdin_text=None,
                                timeout_seconds=self._usage_timeout, env_extra=self._env_extra(),
                                output_cap_bytes=USAGE_OUTPUT_CAP_BYTES)
@@ -829,7 +833,7 @@ class AntigravityAdapter:
         if not rows:
             raise AntigravityAdapterError(USAGE_UNAVAILABLE, "agy /usage printed no limit line: the quota floor cannot "
                                           "be checked, so nothing is launched")
-        check = check_quota(rows, request.model)
+        check = check_quota(rows, request.model, warning_accepted=request.quota_warning_accepted)
         if check.decision == "refuse":
             raise AntigravityAdapterError(
                 QUOTA_BELOW_LAUNCH_FLOOR, f"{check.evidence()}: under the {LAUNCH_FLOOR_PERCENT:g}% launch floor")
@@ -843,7 +847,9 @@ class AntigravityAdapter:
             _logger.info("agy run %s not started: %s", request.task_id, check.evidence())
             return ExecutorRunResult(
                 status=RunStatus.QUOTA_EXHAUSTED, session_id=None, result_envelope=None, usage=None,
-                command=outcome.command, notes=("not_started: quota under the pause floor", "failure:quota"),
+                command=outcome.command,
+                notes=(("not_started: plan limit reached" if row.remaining_percent <= 0
+                        else "not_started: quota under the pause floor"), "failure:quota"),
                 limit=limit)
         return check
 
