@@ -14,6 +14,7 @@ from multiagent.api import create_app
 from multiagent.gui import events
 from multiagent.gui.__main__ import main as gui_main
 from multiagent.gui.__main__ import run as gui_run
+from multiagent.gui.security import CSP
 from multiagent.gui.token import TokenLocationError, check_token_location, ensure_token
 from multiagent.services import ServiceError
 from multiagent.sessions import _common
@@ -229,3 +230,50 @@ def test_the_launcher_accepts_loopback_hosts(tmp_path, monkeypatch, host):
         monkeypatch.setenv(name, value)
     gui_run(port=8123, no_browser=True)
     assert started == [dict(host=host, port=8123, log_level="warning")]
+
+
+def _assert_gui_security_headers(response):
+    assert response.headers["content-security-policy"] == CSP
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cross-origin-opener-policy"] == "same-origin"
+
+
+@pytest.mark.parametrize("path", [
+    "/gui/",
+    "/gui/static/js/main.js",
+    "/gui/static/app.css",
+    "/gui/static/extensions/apps/index.js",
+])
+def test_gui_page_and_static_assets_are_revalidated_with_etags(world, path):
+    response = world.client.get(path)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers.get("etag")
+    assert response.headers.get("last-modified")
+    _assert_gui_security_headers(response)
+
+
+def test_gui_redirect_is_revalidated(world):
+    response = world.client.get("/gui", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["cache-control"] == "no-cache"
+    _assert_gui_security_headers(response)
+
+
+def test_static_asset_revalidates_matching_etag_with_304(world):
+    path = "/gui/static/js/main.js"
+    asset = world.client.get(path)
+    response = world.client.get(path, headers={"If-None-Match": asset.headers["etag"]})
+    assert response.status_code == 304
+    assert response.headers["cache-control"] == "no-cache"
+    _assert_gui_security_headers(response)
+
+
+def test_gui_api_cache_control_is_unchanged(world):
+    session = world.client.get("/gui/api/session", headers=world.auth)
+    stream = world.client.get("/gui/api/stream", headers=world.auth)
+    assert "cache-control" not in session.headers
+    assert stream.headers["cache-control"] == "no-store"
+    _assert_gui_security_headers(session)
+    _assert_gui_security_headers(stream)

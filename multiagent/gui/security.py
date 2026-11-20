@@ -28,9 +28,12 @@ class GUISecurityHeadersMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not is_gui_path(scope.get("path", "")):
+        path = scope.get("path", "")
+        if scope["type"] != "http" or not is_gui_path(path):
             await self.app(scope, receive, send)
             return
+
+        cacheable_path = path in {"/gui", "/gui/", "/gui/static"} or path.startswith("/gui/static/")
 
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
@@ -39,6 +42,8 @@ class GUISecurityHeadersMiddleware:
                 headers["X-Content-Type-Options"] = "nosniff"
                 headers["Referrer-Policy"] = "no-referrer"
                 headers["Cross-Origin-Opener-Policy"] = "same-origin"
+                if cacheable_path and "cache-control" not in headers:
+                    headers["Cache-Control"] = "no-cache"
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
