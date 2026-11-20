@@ -278,6 +278,12 @@ class Settings(BaseSettings):
     # The services and ``multiagent watcher`` both read it from here: a command option cannot point somewhere else.
     integration_marker: Optional[Path] = None
 
+    # SKL-T01 bundle scan (``bundle_scan.py``): ``auto`` runs SkillSpector when its signed ``python.exe`` is found,
+    # ``off`` never does. ``skillspector_python`` is the interpreter of another installation (empty means the uv default).
+    bundle_scan: Literal["auto", "off"] = "auto"
+    skillspector_python: str = ""
+    bundle_scan_timeout_seconds: float = Field(default=300.0, ge=10.0, le=3600.0, allow_inf_nan=False)
+
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:8b"
     ollama_num_ctx: int = Field(default=8192, ge=1024)
