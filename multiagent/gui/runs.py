@@ -53,6 +53,7 @@ class PreviewBody(_Body):
 class InterpretBody(_Body):
     text: str = Field(min_length=1, max_length=2000)
     confirm_cloud: bool = False
+    approval_id: str | None = None
 
 
 class CreateBody(PreviewBody):
@@ -474,7 +475,8 @@ def build_router(services) -> APIRouter:
 
         ``{"source": "model", "proposal": {...}}`` or ``{"source": "keywords", "reason": ..., "proposal": null}``
         (the client then matches words itself). Nothing is created: the operator confirms in the chat."""
-        return services.new_session.interpret(body.text, confirm_cloud=body.confirm_cloud)
+        return services.new_session.interpret(body.text, confirm_cloud=body.confirm_cloud,
+                                              approval_id=body.approval_id)
 
     @router.post("/runs/preview")
     def preview(body: PreviewBody):

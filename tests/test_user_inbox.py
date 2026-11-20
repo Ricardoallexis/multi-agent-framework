@@ -158,7 +158,8 @@ def test_the_guard_is_the_first_of_the_chain_and_its_order_is_fixed():
 
 
 @pytest.mark.parametrize("availability, names", [
-    (None, ("limits",)), (AvailabilityPolicy(), ("limits",)), (AvailabilityPolicy(enabled=True), ("user_inbox", "limits"))])
+    (None, ("limits", "secret")), (AvailabilityPolicy(), ("limits", "secret")),
+    (AvailabilityPolicy(enabled=True), ("user_inbox", "limits", "secret"))])     # SEC-T02: the secret gate is always on
 def test_the_chain_has_the_guard_only_with_an_enabled_policy(availability, names):
     chain = build_call_guards(GuardEnvironment(availability=availability, emit=Emitted()))
     assert chain.names == names

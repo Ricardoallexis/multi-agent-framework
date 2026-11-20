@@ -81,7 +81,8 @@ def propose(services: Any, request: Mapping[str, Any], confirm_cloud: bool) -> M
     outgoing = [prompt]
     guards = build_call_guards(GuardEnvironment(
         scope=SCOPE_RUN_STEP, catalog=system.catalog, egress={"action": settings.egress_default},
-        budgets=policy_from_settings(settings, services.usage), emit=lambda *_: None))
+        budgets=policy_from_settings(settings, services.usage), emit=lambda *_: None,
+        secret_approvals=services.user_approvals, secret_approval_id=request.get("approval_id")))
 
     def before_call(call: CallContext) -> None:
         def replace(value: str) -> None:
@@ -93,6 +94,10 @@ def propose(services: Any, request: Mapping[str, Any], confirm_cloud: bool) -> M
             step_id=step_id, step_kind="planning", data_class="non_sensitive", replace_outgoing=replace),
             {"llm_calls": 0, "max_llm_calls": 1})
         if isinstance(verdict, (Stop, Pause)):
+            if isinstance(verdict, Pause) and verdict.guard == "secret":
+                raise ServiceError(INVALID_REQUEST, "Secret review required", status=409,
+                                   details={"reason": "secret_review_required",
+                                            "approval_id": verdict.request["approval_id"]})
             raise _error(getattr(verdict, "message", None) or "Model call refused by policy")
 
     def record_attempt(event: dict[str, Any]) -> None:

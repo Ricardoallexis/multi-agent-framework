@@ -113,6 +113,23 @@ def test_model_records_usage_and_honors_egress_policy(tmp_path):
         services.runs.close()
 
 
+def test_model_planner_secret_review_and_exact_resend(services):
+    secret = "sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+    services.settings.gui_new_session_model = "cloud_fast"
+    request = {"group_id": "launch", "goal": "Launch with " + secret}
+    with pytest.raises(ServiceError) as caught:
+        services.planning.propose("model", request, confirm_cloud=True)
+    assert caught.value.details["reason"] == "secret_review_required"
+    approval_id = caught.value.details["approval_id"]
+    assert secret not in repr(caught.value.details)
+    services.user_approvals.decide(approval_id, "approve")
+    result = services.planning.propose("model", {**request, "approval_id": approval_id}, confirm_cloud=True)
+    assert result["planner"] == "model"
+    with pytest.raises(ServiceError) as spent:
+        services.planning.propose("model", {**request, "approval_id": approval_id}, confirm_cloud=True)
+    assert spent.value.details["reason"] == "secret_review_required"
+
+
 @pytest.mark.parametrize("change,match", [
     ({"tasks": [{"id": "a", "title": "A", "depends_on": ["b"], "workflow": "social_post"},
                 {"id": "b", "title": "B", "depends_on": ["a"], "workflow": "social_post"}]}, "cycle"),

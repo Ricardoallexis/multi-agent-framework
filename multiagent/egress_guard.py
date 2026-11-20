@@ -38,6 +38,7 @@ _HEX = re.compile(r"[0-9a-fA-F]+\Z")
 _HEX_RUN = re.compile(r"(?<![A-Za-z0-9])[0-9a-fA-F]{32,}(?![A-Za-z0-9])")
 _UUID = re.compile(r"(?<![0-9a-fA-F-])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9a-fA-F-])")
 _BLOB_REF = re.compile(r"blob:sha256:[0-9a-fA-F]{64}\b")
+_DIGEST_REF = re.compile(r"\bsha256=[0-9a-fA-F]{64}\b")
 _URL_PATH = re.compile(r"https?://[^/\s]+(/[^\s?#]*)", re.I)
 _URL_SEGMENT = re.compile(r"[A-Za-z0-9+=_-]{32,}\Z")
 
@@ -62,6 +63,7 @@ def findings(text: str, *, include_entropy: bool = False) -> list[tuple[int, int
         uuid_spans = [m.span() for m in _UUID.finditer(text)]
         uuid_spans.extend(m.span() for m in _HEX_RUN.finditer(text))
         excluded = [m.span() for m in _BLOB_REF.finditer(text)]
+        excluded.extend(m.span() for m in _DIGEST_REF.finditer(text))
         excluded.extend(uuid_spans)
         url_paths = [m.span(1) for m in _URL_PATH.finditer(text)]
         excluded.extend(url_paths)
@@ -128,11 +130,13 @@ class EgressGuard:
     order = ORDER_EGRESS
     observer = False
 
-    def __init__(self, policy: Mapping[str, Any], *, emit: Callable[[str, dict[str, Any]], None] | None = None):
+    def __init__(self, policy: Mapping[str, Any], *, emit: Callable[[str, dict[str, Any]], None] | None = None,
+                 secret_guarded: bool = False):
         if policy.get("action") not in ("redact", "block", "escalate"):
             raise ValueError("Unknown egress action")
         self.policy = policy
         self.emit = emit
+        self.secret_guarded = secret_guarded
 
     def check(self, call: CallContext, state: RunState) -> Verdict:
         if call.outgoing_text is None:
@@ -144,7 +148,12 @@ class EgressGuard:
         action = self.policy["action"]
         if action not in ("redact", "block", "escalate"):
             return Stop("egress_blocked", "Unknown egress action")
-        matches = findings(call.outgoing_text, include_entropy=action != "redact")
+        matches = findings(call.outgoing_text, include_entropy=action != "redact" or self.secret_guarded)
+        if action == "escalate" and self.secret_guarded and getattr(call.spec, "tier", "").casefold() != "local":
+            # SecretGuard ran first and held or released secret spans. Egress still
+            # reviews personal-data spans independently.
+            from .secret_gate import SECRET_TYPES
+            matches = [match for match in matches if match[2] not in SECRET_TYPES]
         if not matches:
             return PROCEED
         counts = dict(Counter(kind for _, _, kind in matches))

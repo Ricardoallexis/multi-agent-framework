@@ -64,6 +64,7 @@ def test_overlapping_findings_cover_the_union():
 def test_long_token_ignores_framework_references_and_public_identifiers():
     values = [
         "blob:sha256:" + "a1" * 32,
+        "sha256=" + "a1" * 32,
         "[resumido · blob:sha256:" + "a1" * 32 + "]",
         "a1" * 20,
         "1" * 64,

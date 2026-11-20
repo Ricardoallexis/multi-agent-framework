@@ -108,7 +108,7 @@ class NewSessionServices:
         except KeyError:
             return ModelTier.CLOUD
 
-    def _ask(self, prompt: str) -> NewSessionProposal:
+    def _ask(self, prompt: str, *, approval_id: str | None = None) -> NewSessionProposal:
         settings = self._services.settings
         system = self._services.system
         router = system.engine.router
@@ -118,7 +118,8 @@ class NewSessionServices:
         outgoing = [prompt]
         chain = build_call_guards(GuardEnvironment(
             scope=SCOPE_RUN_STEP, catalog=system.catalog, egress={"action": settings.egress_default},
-            budgets=policy_from_settings(settings, self._services.usage), emit=lambda *_: None))
+            budgets=policy_from_settings(settings, self._services.usage), emit=lambda *_: None,
+            secret_approvals=self._services.user_approvals, secret_approval_id=approval_id))
 
         def before_call(call: CallContext) -> None:     # the router passes the outgoing text and takes back a redaction
             def replace(value: str) -> None:
@@ -130,6 +131,8 @@ class NewSessionServices:
                                                    replace_outgoing=replace),
                                  {"llm_calls": 0, "max_llm_calls": 1})     # one call, no run behind it
             if isinstance(verdict, (Stop, Pause)):
+                if isinstance(verdict, Pause) and verdict.guard == "secret":
+                    raise _SecretReview(verdict.request["approval_id"])
                 if isinstance(verdict, Pause) and verdict.guard == "budget":
                     raise _BudgetCut(verdict.message)
                 raise _Refused(getattr(verdict, "message", None) or "the egress policy refused the prompt")
@@ -164,7 +167,8 @@ class NewSessionServices:
     # --- the public call -------------------------------------------------------------------------------------
 
     @service_errors
-    def interpret(self, text: str, *, confirm_cloud: bool = False) -> dict[str, Any]:
+    def interpret(self, text: str, *, confirm_cloud: bool = False,
+                  approval_id: str | None = None) -> dict[str, Any]:
         """Propose a workflow and inputs for ``text``.
 
         Returns ``{"source": "model" | "keywords", "reason": str, "proposal": {...} | None}``. ``proposal`` is
@@ -187,7 +191,9 @@ class NewSessionServices:
             return {**_fallback("cloud_confirmation_required"),
                     "model": self._services.settings.gui_new_session_model, "tier": tier.value}
         try:
-            proposed = self._ask(self.build_prompt(clean, catalog))
+            proposed = self._ask(self.build_prompt(clean, catalog), approval_id=approval_id)
+        except _SecretReview as held:
+            return {**_fallback("secret_review_required"), "approval_id": held.approval_id}
         except _BudgetCut:
             return _fallback("budget_cut")
         except _Refused:
@@ -207,6 +213,14 @@ class _Refused(Exception):
 
 class _BudgetCut(Exception):
     """A configured cut budget held the call."""
+
+
+class _SecretReview(Exception):
+    """A browser decision is needed before the model call."""
+
+    def __init__(self, approval_id: str):
+        super().__init__("Secret review required")
+        self.approval_id = approval_id
 
 
 def _fallback(reason: str) -> dict[str, Any]:

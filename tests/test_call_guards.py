@@ -296,16 +296,16 @@ def test_the_limits_guard_checks_the_profile_before_max_llm_calls_and_ignores_a_
 # --- building the chain ----------------------------------------------------------------------------------------
 
 
-def test_the_default_chain_has_only_the_limits_and_nothing_changes_without_a_context_profile():
-    assert build_call_guards(GuardEnvironment()).names == ("limits",)
-    assert build_call_guards(GuardEnvironment(context_settings=ContextSettings(enabled=False))).names == ("limits",)
+def test_the_default_chain_has_limits_and_secret_review_without_a_context_profile():
+    assert build_call_guards(GuardEnvironment()).names == ("limits", "secret")
+    assert build_call_guards(GuardEnvironment(context_settings=ContextSettings(enabled=False))).names == ("limits", "secret")
 
 
 def test_an_enabled_context_profile_adds_the_context_guard_before_the_limits_and_it_emits_to_the_host():
     emitted: list[tuple[str, dict]] = []
     chain = build_call_guards(GuardEnvironment(context_settings=ContextSettings(enabled=True),
                                                emit=lambda event_type, payload: emitted.append((event_type, payload))))
-    assert chain.names == ("context", "limits")
+    assert chain.names == ("context", "limits", "secret")
     chain.check(call(), STATE)                   # an unknown window: one warning for the host
     assert [item[0] for item in emitted] == ["context_warning"]
 
@@ -313,7 +313,7 @@ def test_an_enabled_context_profile_adds_the_context_guard_before_the_limits_and
 def test_a_later_stage_plugs_in_with_one_registration_and_runs_where_its_order_says():
     chain = build_call_guards(GuardEnvironment(context_settings=ContextSettings(enabled=True)))
     chain.register(Probe("budget", ORDER_BUDGET))
-    assert chain.names == ("context", "limits", "budget")
+    assert chain.names == ("context", "limits", "secret", "budget")
 
 
 # --- the router hands the candidate to before_call ---------------------------------------------------------------

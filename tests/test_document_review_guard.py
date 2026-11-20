@@ -287,16 +287,16 @@ def test_in_the_chain_a_hold_names_the_guard_reserves_nothing_and_the_guard_fail
 # =============================================================================================================
 
 def test_without_a_policy_there_is_no_guard_and_the_default_chain_is_what_it_was():
-    assert build_call_guards(GuardEnvironment()).names == ("limits",)
-    assert build_call_guards(GuardEnvironment(document_policy=None)).names == ("limits",)
+    assert build_call_guards(GuardEnvironment()).names == ("limits", "secret")
+    assert build_call_guards(GuardEnvironment(document_policy=None)).names == ("limits", "secret")
     assert GuardEnvironment().document_policy is None
 
 
 @pytest.mark.parametrize("policy", ["quarantine_warn", "pause", DetectionPolicy.PAUSE])
 def test_a_policy_adds_the_guard_between_the_context_and_the_limits(policy):
-    assert build_call_guards(GuardEnvironment(document_policy=policy)).names == ("untrusted_content", "limits")
+    assert build_call_guards(GuardEnvironment(document_policy=policy)).names == ("untrusted_content", "limits", "secret")
     with_context = GuardEnvironment(context_settings=ContextSettings(enabled=True), document_policy=policy)
-    assert build_call_guards(with_context).names == ("context", "untrusted_content", "limits")
+    assert build_call_guards(with_context).names == ("context", "untrusted_content", "limits", "secret")
 
 
 def test_the_guard_of_a_chain_built_with_quarantine_warn_never_holds():
@@ -316,7 +316,8 @@ def capture_chains(monkeypatch) -> list:
 
 
 @pytest.mark.parametrize("policy, names", [
-    (None, ("limits",)), ("quarantine_warn", ("untrusted_content", "limits")), ("pause", ("untrusted_content", "limits"))])
+    (None, ("limits", "secret")), ("quarantine_warn", ("untrusted_content", "limits", "secret")),
+    ("pause", ("untrusted_content", "limits", "secret"))])                       # SEC-T02: the secret gate is always on
 def test_the_engine_hands_its_policy_to_the_chain_of_every_step(tmp_path, monkeypatch, policy, names):
     system = runtime(tmp_path, assign=False)
     system.engine.document_policy = None if policy is None else resolve_policy(policy)

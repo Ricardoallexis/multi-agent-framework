@@ -10,7 +10,7 @@ The fixed order of one check (:meth:`CallGuardChain.check`):
 
 1. **cancel**: the host's own cancellation check (it raises to stop);
 2. **guards**, sorted by ``order``: ``50`` the person's inbox (AVA), ``100`` context (CMP), ``150`` untrusted content
-   (BDI), ``200`` limits, ``250`` egress (CAP), ``300`` budget (USO);
+   (BDI), ``200`` limits, ``240`` secrets, ``250`` egress (CAP), ``300`` budget (USO);
 3. **reserve**: the host books the call (``routing_dispatch_reserved``, ``increment_llm_calls``), and only
    when every guard let the call through.
 
@@ -63,6 +63,7 @@ ORDER_INBOX = 50         # the person's messages, read at the boundary of a step
 ORDER_CONTEXT = 100
 ORDER_CONTENT = 150      # untrusted content held for a review (BDI-T04)
 ORDER_LIMITS = 200
+ORDER_SECRET = 240
 ORDER_EGRESS = 250      # screen the outbound text before the budget guard books a paid call
 ORDER_BUDGET = 300
 
@@ -329,6 +330,8 @@ class GuardEnvironment:
     # then there is no budget guard and nothing changes.
     budgets: "BudgetPolicy | None" = None
     egress: Mapping[str, Any] | None = None
+    secret_approvals: Any = None
+    secret_approval_id: str | None = None
 
 
 def build_call_guards(env: GuardEnvironment, *, cancel: Callable[[CallContext], None] | None = None,
@@ -353,8 +356,11 @@ def build_call_guards(env: GuardEnvironment, *, cancel: Callable[[CallContext], 
     if env.budgets is not None:              # USO-T04: no budget configured, no guard
         from .budget_cut import BudgetGuard
         guards.append(BudgetGuard(env.budgets, emit=env.emit))
+    from .secret_gate import SecretGuard
+    guards.append(SecretGuard(egress=env.egress, emit=env.emit,
+                              approvals=env.secret_approvals, approval_id=env.secret_approval_id))
     if env.egress is not None and env.egress.get("action", "off") not in ("off", False):
         from .egress_guard import EgressGuard
-        guards.append(EgressGuard(env.egress, emit=env.emit))
+        guards.append(EgressGuard(env.egress, emit=env.emit, secret_guarded=True))
     # CNT-T04/T10: guards.append(QuotaHoldGuard(env))
     return CallGuardChain(guards, cancel=cancel, reserve=reserve)

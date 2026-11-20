@@ -270,6 +270,32 @@ def test_the_egress_policy_redacts_or_blocks(tmp_path):
         made.runs.close()
 
 
+# --- SEC-T02: one-use secret review before a cloud interpretation ---------------------------------------------
+
+def test_cloud_secret_waits_for_one_use_approval(tmp_path):
+    secret = "sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+    adapter = Scripted(answer={"workflow_id": ""})
+    made = make(tmp_path, adapter, gui_new_session_model="cloud_fast", egress_default="off")
+    try:
+        held = made.new_session.interpret("Find a workflow for " + secret, confirm_cloud=True)
+        assert held["reason"] == "secret_review_required" and held["approval_id"]
+        assert adapter.prompts == [] and secret not in repr(held)
+        approval = made.user_approvals.status(held["approval_id"])
+        assert secret not in repr(approval)
+        made.user_approvals.decide(approval["id"], "approve")
+        sent = made.new_session.interpret("Find a workflow for " + secret, confirm_cloud=True,
+                                           approval_id=approval["id"])
+        assert sent["reason"] == "no_match" and len(adapter.prompts) == 1
+        again = made.new_session.interpret("Find a workflow for " + secret, confirm_cloud=True,
+                                            approval_id=approval["id"])
+        assert again["reason"] == "secret_review_required" and len(adapter.prompts) == 1
+        changed = made.new_session.interpret("Find a workflow for " + secret + " changed", confirm_cloud=True,
+                                              approval_id=approval["id"])
+        assert changed["reason"] == "secret_review_required" and len(adapter.prompts) == 1
+    finally:
+        made.runs.close()
+
+
 # --- the API ---------------------------------------------------------------------------------------------------------------
 
 @pytest.fixture

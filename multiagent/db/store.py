@@ -859,6 +859,52 @@ class Store:
                           json.dumps({"error": error, "type": "EgressBlocked" if egress else "BudgetCutRejected",
                                       "code": "egress_blocked" if egress else "budget_cut_rejected"}, ensure_ascii=False)))
 
+    def finish_secret_review(self, run: dict[str, Any], *, approval_id: str, sha256: str,
+                             destination: dict[str, str], approve: bool) -> None:
+        """Settle the exact secret pause named by a browser approval."""
+        run_id = run["id"]
+        with self.db.tx() as conn:
+            fresh = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            fields = ("status", "current_step", "waiting_reason", "waiting_step", "waiting_attempt", "cancel_requested")
+            if (fresh is None or fresh["status"] != RunStatus.WAITING_HUMAN.value
+                    or fresh["waiting_reason"] != WaitingReason.SECRET_REVIEW.value or fresh["cancel_requested"]
+                    or any(fresh[key] != run[key] for key in fields)):
+                raise InvalidStateTransition("The persisted secret review changed")
+            paused = None
+            for row in conn.execute("SELECT event_type,payload_json FROM run_events WHERE run_id=? "
+                                    "AND event_type IN ('call_paused','secret_approved','secret_rejected') ORDER BY id",
+                                    (run_id,)):
+                payload = json.loads(row["payload_json"])
+                if row["event_type"] == "call_paused" and payload.get("guard") == "secret" and \
+                        payload.get("waiting_reason") == WaitingReason.SECRET_REVIEW.value:
+                    paused = payload
+                elif row["event_type"] in ("secret_approved", "secret_rejected"):
+                    paused = None
+            request = paused.get("request", {}) if paused else {}
+            if (paused is None or paused.get("step_id") != fresh["waiting_step"]
+                    or paused.get("attempt") != fresh["waiting_attempt"]
+                    or request.get("approval_id") != approval_id or request.get("sha256") != sha256
+                    or request.get("destination") != destination):
+                raise InvalidStateTransition("The run has no matching secret review")
+            payload = {key: request[key] for key in ("approval_id", "step_id", "attempt", "model_id",
+                       "ordinal", "retry", "sha256", "destination") if key in request}
+            now = utcnow()
+            if approve:
+                conn.execute("UPDATE runs SET status=?,waiting_reason='',waiting_step='',waiting_attempt=NULL,"
+                             "updated_at=? WHERE id=?", (RunStatus.QUEUED.value, now, run_id))
+                event_type = "secret_approved"
+            else:
+                error = "Secret review rejected"
+                conn.execute("UPDATE runs SET status=?,error=?,waiting_reason='',waiting_step='',"
+                             "waiting_attempt=NULL,updated_at=? WHERE id=?",
+                             (RunStatus.FAILED.value, error, now, run_id))
+                event_type = "secret_rejected"
+                conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                             (run_id, now, "workflow_failed", json.dumps({"error": error,
+                              "type": "SecretReviewRejected"}, ensure_ascii=False)))
+            conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                         (run_id, now, event_type, json.dumps(payload, ensure_ascii=False)))
+
     def finish_content_review(self, run: dict[str, Any], *, approve: bool, feedback: str = "",
                               by: str | None = None, channel: str | None = None) -> int:
         """Commit a decision on a run held by the content guard (BDI-T04); returns how many reviews it settled.

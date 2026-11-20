@@ -29,7 +29,39 @@ class UserApprovalServices:
     """
 
     def __init__(self, services: Any):
-        self._store = services.tasks.store
+        # SEC-T02: read the stores when used, so a facade without a database (team schema, task services) still builds
+        self._services = services
+
+    @property
+    def _store(self):
+        return self._services.tasks.store
+
+    @property
+    def _run_store(self):
+        return self._services.system.store
+
+    def _sync_run_reviews(self) -> None:
+        """Materialize durable run pauses as browser approvals when they are queried."""
+        with self._run_store.db.connect() as conn:
+            rows = conn.execute("SELECT id FROM runs WHERE status='waiting_human' "
+                                "AND waiting_reason='secret_review'").fetchall()
+        known = self._all()
+        for row in rows:
+            run = self._run_store.get_run(row["id"])
+            paused = next((event["payload"] for event in reversed(run["events"])
+                           if event["event_type"] == "call_paused"
+                           and event["payload"].get("guard") == "secret"), None)
+            request = paused.get("request", {}) if paused else {}
+            approval_id = request.get("approval_id")
+            if (not isinstance(approval_id, str) or approval_id in known or
+                    paused.get("step_id") != run.get("waiting_step") or
+                    paused.get("attempt") != run.get("waiting_attempt")):
+                continue
+            self.request(kind="secret_send", destination=request["destination"],
+                         location={"source": "run", "run_id": run["id"]},
+                         secret_types=request["secret_types"], masked_sample=request["masked_sample"],
+                         sha256=request["sha256"], approval_id=approval_id)
+            known[approval_id] = True
 
     def _events(self, *, conn=None):
         after = 0
@@ -57,7 +89,7 @@ class UserApprovalServices:
 
     def request(self, *, kind: str, destination: str | dict[str, str], location: str | dict[str, str],
                 secret_types: list[str] | tuple[str, ...] = (), masked_sample: str = "",
-                sha256: str) -> dict[str, Any]:
+                sha256: str, approval_id: str | None = None) -> dict[str, Any]:
         if kind not in KINDS or not _HASH.fullmatch(sha256):
             raise ServiceError(INVALID_REQUEST, "Invalid approval kind or SHA-256", status=422)
         if not isinstance(destination, (str, dict)) or not isinstance(location, (str, dict)):
@@ -68,24 +100,29 @@ class UserApprovalServices:
             raise ServiceError(INVALID_REQUEST, "The sample must be masked", status=422)
         if len(secret_types) > 16 or any(not isinstance(item, str) or len(item) > 60 for item in secret_types):
             raise ServiceError(INVALID_REQUEST, "Invalid secret types", status=422)
-        approval_id = secrets.token_urlsafe(24)
+        approval_id = approval_id or secrets.token_urlsafe(24)
         payload = {"kind": kind, "destination": destination, "location": location,
                    "secret_types": list(secret_types), "masked_sample": masked_sample, "sha256": sha256}
         with self._store.transaction() as conn:
+            if approval_id in self._all(conn=conn):
+                raise _approval_error("duplicate_id", approval_id)
             self._store.append_event(conn, "user_approval.requested", actor="system:approval",
                                      ref=approval_id, payload=payload)
             return self._all(conn=conn)[approval_id]
 
     def status(self, approval_id: str) -> dict[str, Any]:
+        self._sync_run_reviews()
         item = self._all().get(approval_id)
         if item is None:
             raise ServiceError(NOT_FOUND, "Approval not found", status=404)
         return item
 
     def pending(self) -> list[dict[str, Any]]:
+        self._sync_run_reviews()
         return [item for item in self._all().values() if item["state"] == "pending"]
 
     def decide(self, approval_id: str, decision: str, *, actor: str = ACTOR) -> dict[str, Any]:
+        self._sync_run_reviews()
         if decision not in {"approve", "reject"}:
             raise ServiceError(INVALID_REQUEST, "Decision must be approve or reject", status=422)
         with self._store.transaction() as conn:
@@ -96,7 +133,18 @@ class UserApprovalServices:
                 raise _approval_error("already_decided", approval_id)
             self._store.append_event(conn, "user_approval.decided", actor=actor, ref=approval_id,
                                      payload={"decision": "approved" if decision == "approve" else "rejected"})
-            return self._all(conn=conn)[approval_id]
+            decided = self._all(conn=conn)[approval_id]
+        location = decided.get("location")
+        if decided.get("kind") == "secret_send" and isinstance(location, dict) and location.get("source") == "run":
+            run = self._run_store.get_run(location["run_id"])
+            if decision == "approve" and not self.consume(
+                    approval_id, sha256=decided["sha256"], destination=decided["destination"]):
+                raise _approval_error("not_consumable", approval_id)
+            self._run_store.finish_secret_review(run, approval_id=approval_id, sha256=decided["sha256"],
+                                                 destination=decided["destination"],
+                                                 approve=decision == "approve")
+            return self._all()[approval_id]
+        return decided
 
     def consume(self, approval_id: str, *, sha256: str, destination: str | dict[str, str]) -> bool:
         """Atomically spend approval for one exact content digest and destination."""

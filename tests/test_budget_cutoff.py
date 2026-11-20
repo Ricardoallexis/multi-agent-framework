@@ -602,8 +602,8 @@ def test_a_failure_to_record_the_release_stops_the_call_and_ends_its_reservation
 def test_without_configured_budgets_there_is_no_policy_and_no_guard():
     assert Settings(_env_file=None).usage_budgets == []
     assert policy_from_settings(Settings(_env_file=None), Reader()) is None
-    assert build_call_guards(GuardEnvironment(budgets=policy_from_settings(Settings(_env_file=None)))).names == ("limits",)
-    assert build_call_guards(GuardEnvironment()).names == ("limits",)
+    assert build_call_guards(GuardEnvironment(budgets=policy_from_settings(Settings(_env_file=None)))).names == ("limits", "secret")
+    assert build_call_guards(GuardEnvironment()).names == ("limits", "secret")
 
 
 def test_the_policy_is_cut_when_any_budget_is_in_cut_mode_by_itself_or_by_default():
@@ -624,13 +624,13 @@ def test_the_budget_guard_runs_last_before_the_reservation_and_a_pause_reserves_
     reserved: list[CallContext] = []
     chain = build_call_guards(GuardEnvironment(budgets=BudgetPolicy(reader=Reader(row(amount=10, used=5)), cut=True),
                                                emit=lambda *a: None), reserve=reserved.append)
-    assert chain.names == ("limits", GUARD_NAME)
-    assert [g.order for g in chain.guards] == [200, ORDER_BUDGET]
-    verdict = chain.check(call(), STATE)
+    assert chain.names == ("limits", "secret", GUARD_NAME)
+    assert [g.order for g in chain.guards] == [200, 240, ORDER_BUDGET]
+    verdict = chain.check(call(outgoing_text="A plain request"), STATE)
     assert isinstance(verdict, Pause) and verdict.guard == GUARD_NAME and reserved == []
     ok = build_call_guards(GuardEnvironment(budgets=BudgetPolicy(reader=Reader(row(amount=999)), cut=True)),
                            reserve=reserved.append)
-    assert ok.check(call(), STATE) is PROCEED and len(reserved) == 1
+    assert ok.check(call(outgoing_text="A plain request"), STATE) is PROCEED and len(reserved) == 1
 
 
 def test_the_budget_guard_fails_closed_cannot_be_skipped_and_the_summarizer_cannot_leave_it_out():
