@@ -38,6 +38,7 @@ class DefinitionServices:
         return self._services.bundle_path(bundle) / "workflows"
 
     def _bundle(self, name: str) -> DefinitionBundle:
+        self._services.bundle_scans.require_load(name)
         return load_bundle(self._services.bundle_path(name), self._services.settings)
 
     def _workflow_ids(self, bundle: str | None) -> list[str]:

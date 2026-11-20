@@ -276,6 +276,10 @@ def cmd_agents(args) -> None:
     pretty(_api_json("GET", "/api/v1/agents", params=_bundle_params(args)))
 
 
+def cmd_bundle_scan(args) -> None:
+    pretty(_api_json("GET", f"/api/v1/bundles/{quote(args.name, safe='')}/scan"))
+
+
 def cmd_bundle_validate(args) -> None:
     name = quote(args.name, safe="")
     response = _api_response("POST", f"/api/v1/bundles/{name}/validate")
@@ -1419,6 +1423,8 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--bundle"); x.set_defaults(func=cmd_agents)
     x = sub.add_parser("bundle-validate", help="Validate a bundle registered on the server")
     x.add_argument("name"); x.set_defaults(func=cmd_bundle_validate)
+    x = sub.add_parser("bundle-scan", help="Show the scan status of a registered bundle")
+    x.add_argument("name"); x.set_defaults(func=cmd_bundle_scan)
     x = sub.add_parser("artifacts", help="List artifacts for a run")
     x.add_argument("run_id"); x.set_defaults(func=cmd_artifacts)
     x = sub.add_parser("events", help="List a run's events, optionally only those after a sequence number")

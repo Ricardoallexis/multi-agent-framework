@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 from .activities import ActivityServices
 from .assignment import AssignmentServices
+from .bundle_scans import BundleScanServices
 from .definitions import DefinitionServices
 from .decisions import DecisionServices
 from .connections import ConnectionServices
@@ -63,6 +64,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ActivityServices",
     "ApplicationServices",
+    "BundleScanServices",
     "ConnectionServices",
     "DefinitionServices",
     "DecisionServices",
@@ -127,6 +129,7 @@ class ApplicationServices:
         self.teams = TeamServices(self)
         self.new_session = NewSessionServices(self)
         self.user_approvals = UserApprovalServices(self)
+        self.bundle_scans = BundleScanServices(self)
         # The engine of the system reads the availability policy from the inbox, the same place that accepts the messages.
         engine = getattr(system, "engine", None)
         if engine is not None:

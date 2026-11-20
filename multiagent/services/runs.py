@@ -132,6 +132,9 @@ class RunServices:
     def _bundle_runtime(self, name: str, *, create: bool = True) -> _Runtime | None:
         """Runtime of a registered bundle; ``None`` if ``create`` is false and it has no store yet."""
         path = self._services.bundle_path(name)  # not_found for unknown bundles
+        if not create and not self._bundle_settings(name).db_path.exists():
+            return None
+        self._services.bundle_scans.require_load(name)
         with self._lock:
             runtime = self._bundle_runtimes.get(name)
             if runtime is not None:

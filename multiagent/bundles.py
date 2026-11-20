@@ -122,7 +122,9 @@ def _load_contracts(root: Path, name: str) -> tuple[dict[str, type[BaseModel]], 
     # Registered like a normal import so pydantic can resolve the module's annotations.
     sys.modules[module_name] = module
     try:
-        spec.loader.exec_module(module)
+        # SKL-T02: run the source the scan read, never a __pycache__ file. An unchecked .pyc would
+        # run code the scan never saw, and writing one would change the bundle's fingerprint.
+        exec(compile(path.read_bytes(), str(path), "exec", dont_inherit=True), module.__dict__)
     except Exception as exc:  # noqa: BLE001 - any import failure makes the bundle unusable
         del sys.modules[module_name]
         fail("bundle_contracts_invalid", f"contracts.py could not be imported: {type(exc).__name__}: {exc}")

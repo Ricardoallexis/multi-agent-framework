@@ -558,6 +558,9 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         yield
         if background is not None:
             await anyio.to_thread.run_sync(background.shutdown)
+        bundle_scans = getattr(services, "bundle_scans", None)
+        if bundle_scans is not None:
+            await anyio.to_thread.run_sync(bundle_scans.close)
         services.runs.close()
         system_obj.worker.stop()
 
@@ -622,6 +625,11 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/bundles/{name}/validate")
     def validate_bundle(name: str):
         return services.definitions.validate_bundle(name)
+
+    # SKL-T02: reading scan status never starts the worker or decides an approval.
+    @app.get("/api/v1/bundles/{name}/scan")
+    def bundle_scan_status(name: str):
+        return services.bundle_scans.status(name)
 
     # --- evaluation sets (EVA-T01) ------------------------------------------
 
