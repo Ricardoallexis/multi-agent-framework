@@ -91,26 +91,52 @@ contract in `SAMPLE_OUTPUTS` so Mock runs work.
 
 ## Layout
 
-The views sit inside a three-zone shell (GUI2-T02):
+The views sit inside a three-zone shell (GUI2-T02, reworked in GUI3-T03 and GUI3-T04):
 
-- **Left sidebar** (`nav`): "Nueva sesión" (the guided chat at `#new`, see
-  Views), a search box and the sessions of Claude, Codex and Copilot
-  plus the framework runs, grouped by project (the folder name of a session, the
-  project name of a run). Each item has a status dot (working, finished, error;
-  also written as text for screen readers) and each group counts its items per
-  app. The sidebar uses `/gui/api/sessions` and `/gui/api/runs`; the work map
-  (`#map`, below) shows projects, stages and tasks. `GET /gui/api/sessions/counts`
-  returns totals per source and status for other clients. Session readers keep a
-  bounded per-file index (up to 5,000 entries) and reuse source listings for 2
-  seconds, so a transcript that only grew is not read again.
-- **Centre** (`main`): the view of the current route. In a session, consecutive
-  tool calls and results fold into one block, "Trabajó N min · K herramientas",
-  that opens to show them.
-- **Right panel** (`aside`): Cambios, Subagentes, Tokens and Fuentes for the
-  session or run open in the centre. A button in the top bar collapses it
-  (`aria-expanded`/`aria-controls`) and the browser remembers the choice in
-  `localStorage`. Each section body is a small component in `js/panel-slots.js`.
-  Subagentes holds the subagents panel (Activos/Terminados tabs).
+- **Left sidebar** (`nav`). On a desktop there is no top bar: the brand («Multi-Agent»,
+  and «MOCK» when the server uses Mock) sits in the sidebar corner. Top to bottom:
+  - «+ Nueva sesión» (the task box at `#new`, see Views);
+  - a «Buscar» row that opens Ctrl+K (see Views);
+  - the fixed rows: «Pendientes» (with the number that waits for you), «Proyectos» and
+    «Apps y agentes», each with a small drawn icon;
+  - «Más», which folds every other section: «Sesiones», «Ejecuciones», «Uso»,
+    «Evaluación», «Equipos», «Planes», «Mapa» and «Personalizar», plus any extension view
+    that declares no group. A section you pin in «Personalizar» moves from «Más» to the
+    fixed rows. Each section appears once and keeps its own route, so nothing is removed;
+  - the sessions of Claude, Codex and Copilot plus the framework runs, grouped by project
+    (the folder name of a session, the project name of a run). The list header has
+    «Actividades» (a toggle, `aria-pressed`, that lists open activities instead) and
+    «Ver todas» (opens «Sesiones»). Each item has a status dot (working, finished, error;
+    also written as text for screen readers) and each group counts its items per app;
+  - a footer that stays at the bottom: the connection state, «Personalizar» (the gear) and
+    «Ayuda» (the help-mode toggle).
+
+  The first time, a short note under «Más» says: «Las demás secciones están en «Más».
+  Puedes fijarlas en la barra.» It goes away with «Entendido» or when «Más» is opened, and
+  the browser remembers that. Without storage it shows on every load and can be closed.
+
+  The sidebar uses `/gui/api/sessions` and `/gui/api/runs`; the work map (`#map`, below)
+  shows projects, stages and tasks. `GET /gui/api/sessions/counts` returns totals per
+  source and status for other clients. Session readers keep a bounded per-file index (up
+  to 5,000 entries) and reuse source listings for 2 seconds, so a transcript that only
+  grew is not read again.
+- **Centre** (`main`): the view of the current route. In a session, consecutive tool calls
+  and results fold into one block, "Trabajó N min · K herramientas", that opens to show
+  them. While a session or a run is open, a thin bar over the content holds the
+  «Contexto» button.
+- **«Contexto» panel** (`aside`, formerly the right panel): Cambios, Subagentes, Tokens and
+  Fuentes for the session or run open in the centre, plus the sections extensions
+  register. The panel starts closed at every width. Its button (`aria-expanded`/
+  `aria-controls`) is offered only while a session or a run is open; a dot beside it says
+  that the closed panel has something to show. The aside stays in the DOM, hidden, when
+  nothing is open. If you open it, the browser remembers that choice (`localStorage`). Each
+  section body is a small component in `js/panel-slots.js`.
+  - *Which cards are drawn.* Each card has a mode, set in «Personalizar»: «Automática»
+    (drawn only when it has content), «Siempre» (drawn even when empty, with its «Sin …»
+    text) or «Nunca». Something urgent, such as a held task or document alerts that wait
+    for a decision, is drawn in every mode. A card that is not drawn stays mounted, so it
+    keeps loading and feeding the dot. «Esperan tu decisión» starts in «Nunca».
+  - Subagentes holds the subagents panel (Activos/Terminados tabs).
   - *Cambios*: the files the session changed (tool calls that write or edit),
     with the +/- lines only when the source counts them (the session readers do
     not yet, so it shows the number of edits and never an invented count); for a
@@ -128,14 +154,26 @@ The views sit inside a three-zone shell (GUI2-T02):
   `/gui/api` routes, page by page from a cursor, every 10 s (30 s for a session
   that is not active, 60 s for a finished run) and only while the panel is visible.
 
-Below about 900 px the sidebar becomes a drawer opened by the "Menú" button
-(Esc or a click outside closes it) and the right panel stacks under the content.
-Shared UI components in `js/ui/` provide status chips, progress bars, tabs and
-level badges. Status text accompanies color; tabs support arrow keys, Home and
-End, and progress indicators expose their values accessibly. The interface uses
-a skip link, visible focus and 44 px touch targets; the palette follows
-`prefers-color-scheme`.
+Below about 900 px the sidebar becomes a drawer opened by the «Menú» button (Esc or a
+click outside closes it; so does choosing a route, also with Intro in Ctrl+K) and the
+«Contexto» panel stacks under the content. A minimal bar keeps «Menú», the brand and
+«MOCK». Shared UI components in `js/ui/` provide status chips, progress bars, tabs, level
+badges and `icon.js`, 24 inline SVG icons drawn in the page (decorative, with no icon
+package and nothing from the network). Status text accompanies color; tabs support arrow
+keys, Home and End, and progress indicators expose their values accessibly. The interface
+uses a skip link, visible focus and 44 px touch targets. The look is neutral: the action
+colour is near-black in the light theme and near-white in the dark one, buttons have no
+border, and the type scale runs from 12 to 24 px with weights up to 600. The theme follows
+`prefers-color-scheme`; «Personalizar» can change the action colour (see Views).
 
+**Help mode.** The «?» disclosures and the hints are hidden until asked for. «Ayuda» in
+the sidebar footer, or F1, turns help mode on and off (the button has `aria-pressed`);
+«Mostrar siempre los «?»» in «Personalizar» is the same switch. With the mode off, the «?»
+beside each screen title, the ones in the approval cards and the one-line hint under a form
+field stay visible. With it on, every explanation is shown as before. Each «?» still opens
+its text, and the text stays in the page for `aria-describedby` either way. The choice is
+remembered in the browser. If a browser does not let the page intercept F1, the button does
+the same.
 **Widths and breakpoints.** The GUI is checked at four reference widths: 360 and
 390 px (phone), 768 px (tablet) and a desktop of 900 px or more. Every stylesheet
 and extension uses the same two breakpoints and no others, written at the top of
@@ -143,8 +181,8 @@ and extension uses the same two breakpoints and no others, written at the top of
 
 | Breakpoint | Applies to | What changes |
 | --- | --- | --- |
-| `max-width: 899.98px` | tablet and phone | The sidebar becomes a drawer, the right panel stacks under the content, grids fall to one column, and «Ejecuciones» shows the list and the selected run one after the other. |
-| `max-width: 599.98px` | phone | The top bar wraps and its title is kept for screen readers only, the content padding shrinks, the «Pendientes» list fills the screen, and a run that waits for a person gets a fixed action bar. |
+| `max-width: 899.98px` | tablet and phone | The sidebar becomes a drawer, the «Contexto» panel stacks under the content, grids fall to one column, and «Ejecuciones» shows the list and the selected run one after the other. |
+| `max-width: 599.98px` | phone | The content padding shrinks, the bar over the content keeps its sides, and a run that waits for a person gets a fixed action bar. |
 
 Grid and flex children can shrink (`min-width: 0`), controls keep the 44 px touch
 height (`--target`), and `pre` blocks and wide tables scroll inside themselves, so
@@ -198,17 +236,27 @@ model is pure (`js/new-session-model.js`) and is tested with Node. The proposal 
 `POST /gui/api/new-session/interpret` (`{"text"}`; it answers `source` `model` with a
 `proposal`, or `source` `keywords` with a `reason`) and creates nothing.
 
-**Mode.** «Nueva sesión» first asks «¿Cómo quieres empezar?» (`js/new-session.js`).
-**Orquestador** is the guided flow above: bundle, workflow, team and plan. **Sesión
-única** is one task answered by one model or one executor, with no workflow to pick.
-**Cambiar modo** goes back to the question. Nothing is created until a launch button
-is pressed, and each mode has its own confirmation.
-
-**Connected models and executors.** The orchestrator flow shows a picker
-(`js/model-picker.js`, `model-picker-model.js`) with the connected models (Gemini,
-OpenAI, Ollama) and executors (Claude, Codex, Copilot, agy), each with the time it was
-checked and, for an executor, its quota. A row that is not connected folds under
-«No conectados (n)» and says the one step it lacks: «Falta instalarlo»,
+**One task box.** «Nueva sesión» starts from a single box (`js/new-session.js`): the task
+text and, in one row of 44 px controls, «＋», «Modo», «Modelo», «Proyecto» and «Enviar».
+The same box serves the three flows. **Modo** is a selector: **Orquestador** is the guided
+flow above (bundle, workflow, team and plan) and **Sesión única** is one task answered by
+one model or one executor, with no workflow to pick. The mode is remembered in the browser;
+with nothing stored, or with storage blocked, it is «Orquestador». There is no screen that
+asks how to start. **«＋»** opens a menu with **Usar un ejecutor** and **Ver como
+formulario**; Esc closes it and the focus returns to «＋». **Modelo** lists the connected
+models and ends in «Conectar otro… (N sin conectar)», which opens «Apps y agentes».
+**Proyecto** lists the names of recent runs (`GET /gui/api/runs?limit=50`); in the executor
+flow it is disabled («No aplica al ejecutor»), because the launch contract takes no
+project. When a project came from this selector, the guided flow does not ask for it again;
+a project that only the model proposed is still checked in the summary. Limit notices sit
+under the box, and «Estado de Gemini y Copilot» shows only in «Sesión única». Nothing is
+created until a launch button is pressed, and each mode keeps its own confirmation.
+**Connected models and executors.** In the orchestrator flow the **Modelo** selector
+(`js/model-picker.js`, `model-picker-model.js`) lists the connected models (Gemini, OpenAI,
+Ollama); the executors (Claude, Codex, Copilot, agy) are reached from «＋» › **Usar un
+ejecutor**. Under the selector, the chosen model shows the time it was checked and its
+quota. A row that is not connected folds under «Sin conectar (n)» and says the one step
+it lacks: «Falta instalarlo»,
 «Falta iniciar sesión», «Falta configurar la clave», «Falta habilitarlo», or a reason
 such as «No responde» or «La cuota está en pausa». Choosing a row only marks it: it
 launches nothing and does not change the workflow's routing.
@@ -254,7 +302,7 @@ through `POST /gui/api/runs` with an idempotency key (a server that is not Mock 
 asks for the real-model confirmation). The run keeps its usage records, budgets and
 egress policy, and the column follows it at `#new/run/<run id>` like any other run.
 
-**Sesión única with an executor.** **Usar un ejecutor** lists the four executors with
+**Sesión única with an executor.** **Usar un ejecutor**, in the «＋» menu of the box, lists the four executors with
 the reason each one is not available, their remaining quota and, for agy, its notice.
 The models and efforts come from `GET /gui/api/composer/executors`. **Revisar
 lanzamiento** opens a confirmation with the executor, model, effort, remaining quota,
@@ -356,6 +404,9 @@ first and the models (Gemini, OpenAI, Ollama) after them. **Actualizar** reads t
 again from `GET /gui/api/connections` and `GET /gui/api/setup/status`; it spends no model
 and opens nothing.
 
+Each tool in the list is a fold: its 44 px summary shows the name, the state in words and,
+while folded, the missing step in one line. A tool with a pending step starts open; the
+others start folded. The console step and the copyable commands are unchanged.
 *What each card shows.* Whether the app is installed and its version, its session, its
 state (enabled, disabled, or for agy also whether the notice is accepted), the
 permission templates, the quota the usage plans report, the reason it is not ready, and
@@ -576,6 +627,14 @@ instead of free text. Each comment has a part of the output (General, a
 top-level field, or a typed path), a change type, required text, and an
 optional quote. Comments appear in the attempt review and action history.
 
+The detail of a run shows its summary first and puts the rest in three tabs
+(`js/runs-layout.js`, `js/run-detail.js`; arrows, Home and End move between them):
+**Pasos** (the default: steps and counters), **Resultados** (outputs by step and attempt,
+with **Comparar**) and **Detalles** (the human history, the inputs and the technical
+events). The summary, errors, the limit notice and the human actions stay above the tabs
+while the run waits for a person, and below them otherwise. The tab goes back to «Pasos»
+when another run is chosen and is not written to the hash, so `#runs/<id>`, `#run=<id>`
+and «Abrir en el chat» do not change.
 **Ejecuciones on a phone** (`js/runs-layout.js`). At 900 px or more the list of
 runs and the selected run sit side by side. At 899.98 px or less they go one after
 the other: the list first, then the selected run, or the create form, alone, with
@@ -587,19 +646,27 @@ reason, «Aprobar» or «Aprobar llamada» for a review or a tool call, and a bu
 that jumps to the full set of actions. The bar leaves the screen once the run no
 longer waits.
 
-**Pendientes** is a button in the top bar with the number of items that wait for a
-person: runs in review, proposed team versions and plans, continuity decisions
-and tasks that wait for the user. It reads the read-only, token-protected
-`GET /gui/api/pending` (every 5 s while the tab is visible, every 30 s while it is
-hidden) and shows the same number in the tab title, as `(2) Multiagent`. The
-button opens a list; on a tablet or wider it is a panel under the top bar, and on
-a phone it fills the screen. Each item says its kind and why it waits and links to
-the run's thread, or to the team, plan, continuity or task view; following the
-link closes the list. The link only changes view: it approves and starts nothing.
-**Activar avisos** is off by default. Pressing it asks the browser for permission,
-and only then does the browser on this PC raise a notification for each new item.
-The choice is kept in this browser, and **Desactivar avisos** turns it off.
-Nothing is sent to another device.
+**Pendientes** (`#pending`) is a screen, not a popover. Its sidebar row is a link with the
+number of items that wait for a person: runs in review, proposed team versions and plans,
+continuity decisions and tasks that wait for the user. The count is also in the tab title,
+as `(2) Multiagent`. The screen has tabs: **Todo**, **Aprobaciones**, **Decisiones**,
+**Alertas de documentos** and **Esperan tu decisión**. The tabs after «Todo» are the views
+that register with `group: "pending"`; a tab shows a count when its view declares a
+`pendingType` (`approval`, `continuity` or `task`) and the pending API counts that type
+(«Alertas de documentos» has no count). The arrows, Home and End move between tabs and
+change the hash. The old addresses still open their tab: `#approvals`, `#approvals/<id>`
+(the card), `#continuity`, `#document_alerts` and `#task_waiting`. These views are not rows
+of «Más».
+
+One poll serves the sidebar row and the screen: `GET /gui/api/pending`, read-only and
+protected by the token, every 5 s while the browser tab is visible and every 30 s while it
+is hidden; it stops when nothing reads it. **Todo** is the list: each item says its kind
+and why it waits and links to the run's thread, or to the team, plan, continuity or task
+view. The link only changes view: it approves and starts nothing. **Actualizar** reads the
+list again. **Activar avisos** is off by default. Pressing it asks the browser for
+permission, and only then does the browser on this PC raise a notification for each new
+item. The choice is kept in this browser, and **Desactivar avisos** turns it off. Nothing
+is sent to another device.
 
 Under the list, **En fondo** shows the runs that are `running` or `queued`
 (`GET /gui/api/pending/background`, read only; it does not change the count or the
@@ -609,6 +676,29 @@ run's inbox (`POST /gui/api/runs/{id}/messages`): the run stops at its next step
 boundary, not at once, and nothing is approved. With the availability policy off,
 the section says so and the button is disabled.
 
+**Ctrl+K** (Cmd+K on a Mac), or the «Buscar» row of the sidebar, opens one native dialog
+with a search field. It finds screens (every row of the sidebar and of «Más»), the tabs of
+«Pendientes», sessions, runs and help titles, matching without accents. Up and Down move,
+Intro opens the entry, and one Esc closes the dialog, also with text typed; the focus goes
+back to where it was. On a phone, choosing a route closes the drawer. A help entry shows
+its text inside the dialog. The dialog only navigates and explains: it never approves,
+allows or launches anything, and it talks to no server.
+
+**Personalizar** (`#customize`, reached from «Más», the gear in the sidebar footer and
+Ctrl+K) has four blocks:
+
+- *Barra lateral*: which sections are pinned to the sidebar (**Fijar**); the rest stay in
+  «Más» and in Ctrl+K.
+- *Contexto*: when each card of the panel is drawn, «Automática», «Siempre» or «Nunca».
+- *Colores*: «Neutro» (the default), «Azul», «Verde» and «Violeta», each a radio with its
+  swatch. A palette changes only `--accent`, `--on-accent` and `--accent-soft`, in the
+  light and the dark theme (`.app[data-accent]` in `app.css`); backgrounds, text and the
+  warning tones do not change, and every palette keeps 4.5:1 contrast.
+- *Ayuda*: «Mostrar siempre los «?»», the same state as F1.
+
+**Restablecer** goes back to the defaults (see
+[What this browser remembers](#what-this-browser-remembers)). Choices apply without a
+reload.
 **Salida externa** (HIL2-T02) appears in the run detail while a run waits for a
 human step or a review. Paste the JSON output, optionally pick evidence files
 (the page reads them and sends them as base64), and press **Vista previa**: it
@@ -624,13 +714,37 @@ a body that carries an `actor` is rejected. Confirm returns the run view plus a
 and lets the operator prepare another. The page never shows evidence content.
 
 Contextual help is available throughout the GUI: controls have a short hint
-and a «?» disclosure with a concise explanation. The disclosures are
-accessible by keyboard and can be closed with Esc.
+and a «?» disclosure with a concise explanation (shown in help mode, see Layout). The
+disclosures are accessible by keyboard and can be closed with Esc.
 
 Stop either GUI server with Ctrl+C. The `multiagent gui` command prints
 «GUI detenida.» after clean shutdown.
 On Windows, a batch launcher may additionally prompt `Terminate batch job
 (Y/N)?`; answer `Y`.
+
+## What this browser remembers
+
+The GUI keeps a few choices in `localStorage`, only in `js/shell-state.js`, and only on
+this PC. Every read and write is guarded: when storage is blocked (a private window, site
+data cleared) the page works with the defaults and the choices last only while it stays
+open. «Personalizar» says so when the browser does not remember.
+
+| Key (`multiagent.gui.…`) | What it keeps | Default |
+| --- | --- | --- |
+| `right-panel` | «Contexto» open or closed | closed |
+| `context-cards` | the mode of each card (`auto`, `always`, `never`) | each card's own default |
+| `pinned-sections` | the sections pinned to the sidebar | none |
+| `more-notice` | that the note under «Más» was seen | not seen |
+| `help-mode` | help mode on or off | off |
+| `accent` | the colour palette (`neutral`, `azul`, `verde`, `violeta`) | `neutral` |
+| `new-session-mode` | «Orquestador» or «Sesión única» | orchestrator |
+| `pending-notifications` | whether browser notifications are on | off |
+
+**Restablecer** in «Personalizar» goes back on four of them: the pinned sections, the
+card modes, help mode and the colour palette. It does not touch the panel, the note
+under «Más», the new-session mode or the notification switch. A value that is not valid
+is ignored, and an unknown palette reads as «Neutro». None of these keys holds a secret
+or any run content.
 
 ## Adding a view, a panel section or help texts
 
@@ -657,19 +771,33 @@ import { HELP } from "./help.js";
 registerHelp(HELP, "projects");
 function ProjectView({ token, status, mock, route }) { /* route = { section, id } */ }
 function ProjectCard({ token, route, sessionId }) { /* one section of the right panel */ }
-registerView({ id: "projects", owner: "projects", label: "Proyectos", component: ProjectView, topic: "projects.view", order: 40 });  // button + "#projects/<id>"
+registerView({ id: "projects", owner: "projects", label: "Proyectos", component: ProjectView, topic: "projects.view", order: 40,
+  group: "primary", icon: "folder" });  // sidebar row + "#projects/<id>"
 registerSlot("projects", ProjectCard, { title: "Proyecto", topic: "projects.card", owner: "projects", order: 40 });
 ```
 
-- `registerView({ id, owner, label, component, topic, order })` adds the sidebar button and the
-  route `#<id>` or `#<id>/<item>`. The ids of the built-in screens are reserved.
+- `registerView({ id, owner, label, component, topic, order, group, icon, pendingType })` adds
+  a sidebar row and the route `#<id>` or `#<id>/<item>`. The ids of the built-in screens are reserved.
   `topic` is optional and is a help key of the extension (`"projects.view"`, in the same
   `name.topic` form as the slot topics). `main.js` draws the page heading from `label` and
   places the «?» button of `topic` beside it, so the view must not draw a heading of its
   own: the name would show twice. A `topic` that is not a help key is refused.
-- `registerSlot(name, component, { title, topic, owner, order })` adds a section after the
-  four fixed ones of the right panel, with its title and its «?» help (`topic` is a
-  key of the extension's own help). The names of the fixed sections are reserved.
+  The last three fields are optional and are checked at registration:
+  - `group`: `"primary"` (a fixed row of the sidebar), `"pending"` (a tab of «Pendientes»,
+    not a row) or `"more"` (under «Más»; the default).
+  - `icon`: the name of one of the drawn icons of `js/ui/icon.js` (`folder`, `apps`,
+    `shield`, `file`, `clock`, …); the default is `dot`. Any other name is refused.
+  - `pendingType`: `"approval"`, `"continuity"` or `"task"`, for a view of `group: "pending"`;
+    it says which items of `GET /gui/api/pending` the tab counts. Without it the tab has no
+    count.
+- `registerSlot(name, component, { title, topic, owner, order, defaultMode })` adds a section
+  after the four fixed ones of the «Contexto» panel, with its title and its «?» help
+  (`topic` is a key of the extension's own help). The names of the fixed sections are
+  reserved. `defaultMode` is `"auto"` (the default), `"always"` or `"never"`: when the card
+  is drawn until the person chooses in «Personalizar». The component receives `onContent`
+  and calls `onContent({ has, urgent })` to say whether it has something to show and
+  whether that is urgent (urgent shows in every mode); a card that never calls it counts as
+  having content.
 - `registerUsageSection({ id, owner, label, component, order })` adds a tab to the «Uso»
   screen after Planes, Global and API y presupuesto (`component` gets `token`). The
   ids `plans`, `global` and `costs` are reserved. `usage.js` draws the registered tabs
@@ -834,7 +962,9 @@ server answers `422 cloud_confirmation_required` without it.
 
 ## Approvals
 
-«Aprobaciones» (`#approvals`, an extension) lists the decisions that only a click in the GUI can give, each
+«Aprobaciones» (`#approvals`, an extension) is a tab of «Pendientes» (`#approvals` and
+`#approvals/<id>` still open it); its cards and the click that decides are unchanged. It
+lists the decisions that only a click in the GUI can give, each
 as a card. Three kinds exist: a send that carries a secret (`secret_send`), the OSV.dev query of a bundle scan
 (`osv_query`) and the load of a flagged bundle (`bundle_load`). The last two are described in
 [Bundle scans in Approvals](#bundle-scans-in-approvals); the first is stopped by the
