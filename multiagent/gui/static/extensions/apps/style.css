@@ -60,11 +60,11 @@
 .apps-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
-  padding: 12px 14px;
+  padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--panel);
   color: var(--text);
 }
@@ -74,12 +74,12 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 6px 10px;
+  gap: 8px 12px;
   min-width: 0;
 }
 
 .apps-card-name {
-  font-size: 1rem;
+  font-size: .9375rem;
   font-weight: 600;
   min-width: 0;
 }
@@ -89,7 +89,7 @@
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 4px 12px;
   margin: 0;
-  font-size: 0.92rem;
+  font-size: 0.875rem;
 }
 
 .apps-facts dt {
@@ -111,7 +111,7 @@
 .apps-quota {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .apps-step {
@@ -119,9 +119,9 @@
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
+  padding: 12px;
+  border: 0;
+  border-radius: 8px;
   background: var(--bg);
 }
 
@@ -132,32 +132,35 @@
 
 .apps-step-text {
   margin: 0;
-  font-size: 0.92rem;
+  font-size: 0.875rem;
 }
 
 .apps-notice {
   margin: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--warn);
-  border-radius: 6px;
-  background: var(--panel);
-  font-size: 0.9rem;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--warn-soft);
+  color: var(--text);
+  font-size: 0.875rem;
 }
 
 .apps-snippet {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
 .apps-snippet pre.data {
   margin: 0;
+  background: var(--chrome);
+  border: 0;
 }
 
 .apps-snippet-label {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
@@ -165,10 +168,11 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--warn);
-  border-radius: 6px;
-  background: var(--panel);
+  padding: 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--warn-soft);
+  color: var(--text);
 }
 
 .apps-confirm p {
@@ -192,7 +196,7 @@
 
 .apps-status-line {
   margin: 0;
-  font-size: 0.88rem;
+  font-size: 0.8125rem;
 }
 
 @media (max-width: 899.98px) {
@@ -203,7 +207,7 @@
 
 @media (max-width: 599.98px) {
   .apps-card {
-    padding: 10px 12px;
+    padding: 12px;
   }
 
   .apps-facts {

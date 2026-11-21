@@ -229,9 +229,9 @@ def test_stylesheet_has_dark_mode_neutral_tokens_one_accent_and_the_plex_font_st
     sheet = css()
     assert "@media (prefers-color-scheme: dark)" in sheet and "color-scheme: light dark" in sheet
     dark = media(sheet, "(prefers-color-scheme: dark)")
-    for token in ("--bg:", "--panel:", "--chrome:", "--text:", "--muted:", "--line:", "--accent:"):
+    for token in ("--bg:", "--panel:", "--chrome:", "--hover:", "--text:", "--muted:", "--line:", "--accent:", "--accent-soft:", "--warn-soft:"):
         assert token in dark, token
-    assert len(re.findall(r"--accent:", sheet)) == 2          # one blue for actions, in light and in dark
+    assert len(re.findall(r"--accent:", sheet)) == 2          # one neutral action colour, in light and in dark
     assert re.search(r'--sans: "IBM Plex Sans", system-ui', sheet) and re.search(r'--mono: "IBM Plex Mono", ui-monospace', sheet)
     assert "sans-serif;" in sheet and "monospace;" in sheet   # system fallbacks at the end of both stacks
     for forbidden in ("@import", "@font-face", "url(", "style=", "http://", "https://"):

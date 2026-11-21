@@ -2,9 +2,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* Guided chat of "Nueva sesión" (GUI2-T03). Uses the colours and sizes of app.css (index.html links this file after it);
    every target is at least var(--target) (44 px) and the layout works down to 375 px. */
-.ns { display: flex; flex-direction: column; gap: 14px; max-width: 760px; min-width: 0; }
+.ns { display: flex; flex-direction: column; gap: 16px; max-width: 720px; min-width: 0; }
 .ns-intro { display: flex; flex-direction: column; gap: 4px; }
-.ns-title { margin: 8px 0 0; font-size: 1.4rem; }
+.ns-title { margin: 8px 0 0; font-size: 1.5rem; font-weight: 600; line-height: 1.25; }
 .ns-lead { margin: 0; color: var(--muted); line-height: 1.6; }
 .ns-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ns-row .message { flex: 1 1 14rem; margin: 0; }
@@ -12,66 +12,63 @@
 /* Starters and choices: pill buttons */
 .ns-starters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ns-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.ns-chip { min-height: var(--target); padding: 8px 16px; border: 1px solid var(--line-strong); border-radius: 999px;
+.ns-chip { min-height: var(--target); padding: 8px 16px; border: 1px solid var(--line); border-radius: 999px;
   background: var(--panel); color: var(--text); font: inherit; cursor: pointer; overflow-wrap: anywhere; }
-.ns-chip:hover { border-color: var(--accent); }
+.ns-chip:hover { background: var(--hover); border-color: var(--line-strong); }
 .ns-chip:disabled { opacity: .55; cursor: not-allowed; }
 
 /* The conversation */
-.ns-thread { display: flex; flex-direction: column; gap: 10px; }
-.ns-msg { max-width: 85%; padding: 8px 12px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
-.ns-user { align-self: flex-end; background: var(--chrome); border: 1px solid var(--line); }
-@supports (background: color-mix(in srgb, red, blue)) {
-  .ns-user { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
-}
+.ns-thread { display: flex; flex-direction: column; gap: 12px; font-size: .9375rem; }
+.ns-msg { max-width: 85%; padding: 8px 16px; border-radius: 16px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+.ns-user { align-self: flex-end; background: var(--hover); border: 0; }
 .ns-bot { align-self: flex-start; }
 .ns-end { scroll-margin-bottom: 9rem; }
 
 /* Workflow cards and runs */
 .ns-suggest { display: flex; flex-direction: column; gap: 8px; }
-.ns-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 10px; }
+.ns-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 12px; }
 .ns-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; min-height: var(--target);
-  padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text);
+  padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text);
   font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
-.ns-card:hover { border-color: var(--accent); }
+.ns-card:hover { background: var(--hover); border-color: var(--line-strong); }
 .ns-card:disabled { opacity: .6; cursor: not-allowed; }
 .ns-card-name { font-weight: 600; overflow-wrap: anywhere; }
-.ns-card-desc { color: var(--muted); font-size: .88rem; line-height: 1.5; overflow-wrap: anywhere; }
-.ns-card-meta { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+.ns-card-desc { color: var(--muted); font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; }
+.ns-card-meta { color: var(--muted); font-size: .75rem; overflow-wrap: anywhere; }
 .ns-run-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .ns-run { width: 100%; }
 
 /* One question */
-.ns-question { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px 14px; border: 1px solid var(--line);
+.ns-question { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 16px; border: 1px solid var(--line);
   border-radius: 12px; background: var(--panel); }
 .ns-question p { margin: 0; }
-.ns-q-count { color: var(--muted); font-size: .85rem; }
+.ns-q-count { color: var(--muted); font-size: .8125rem; }
 .ns-q-label { font-weight: 600; overflow-wrap: anywhere; }
 .ns-q-desc { color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
-.ns-q-example { font-size: .9rem; }
+.ns-q-example { font-size: .875rem; }
 .ns-example { font-family: var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* The summary before launching */
 .ns-confirm { margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ns-confirm:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ns-confirm > p { margin: 0; }
-.ns-answers { margin: 0; display: flex; flex-direction: column; gap: 6px; }
-.ns-answer { display: flex; flex-direction: column; gap: 1px; }
-.ns-answer dt { color: var(--muted); font-size: .85rem; font-weight: 600; }
+.ns-answers { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.ns-answer { display: flex; flex-direction: column; gap: 2px; }
+.ns-answer dt { color: var(--muted); font-size: .8125rem; font-weight: 600; }
 .ns-answer dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.ns-routing { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
-.ns-routing-step { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 6px; border-top: 1px solid var(--line); }
+.ns-routing { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 8px 12px; border: 0; border-radius: 8px; background: var(--bg); }
+.ns-routing-step { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 8px; border-top: 1px solid var(--line); }
 .ns-routing-step .ns-chip:disabled { opacity: 1; color: var(--text); cursor: default; }
-.ns-route-chip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-width: 100%; min-height: var(--target); color: var(--muted); font-size: .88rem; }
-.ns-route-chip select { min-width: 0; max-width: min(100%, 18rem); min-height: var(--target); padding: 6px 30px 6px 12px; }
+.ns-route-chip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; max-width: 100%; min-height: var(--target); color: var(--muted); font-size: .8125rem; }
+.ns-route-chip select { min-width: 0; max-width: min(100%, 18rem); min-height: var(--target); padding: 8px 32px 8px 12px; }
 .ns-route-chip select:disabled { opacity: .65; cursor: not-allowed; }
 
 /* The writing box stays in reach while the conversation grows */
-.ns-composer { position: sticky; bottom: 8px; z-index: 10; display: flex; flex-direction: column; gap: 6px; min-width: 0;
-  padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); }
-.ns-composer-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ns-composer { position: sticky; bottom: 8px; z-index: 10; display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  padding: 12px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--panel); box-shadow: 0 4px 16px rgb(0 0 0 / .08); }
+.ns-composer-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ns-composer-head label { margin: 0; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
-.ns-composer textarea { resize: vertical; min-height: var(--target); }
+.ns-composer textarea { resize: vertical; min-height: var(--target); border: 0; background: transparent; padding: 4px 0; }
 .ns-composer .field-error { margin: 0; }
 .ns-composer-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ns-send { margin-left: auto; }
@@ -90,11 +87,11 @@
 .thread-head h3 { margin: 0; }
 .thread-head .muted { flex: 1 1 12rem; overflow-wrap: anywhere; }
 .thread-list { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
-.thread-card { min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow-wrap: anywhere; }
+.thread-card { min-width: 0; padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow-wrap: anywhere; }
 .thread-card p { margin: 8px 0 0; white-space: pre-wrap; }
 .thread-card-head, .thread-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .thread-card-head a { margin-left: auto; }
-.thread-decision, .thread-confirm, .thread-comments { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.thread-decision, .thread-confirm, .thread-comments { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .thread-decision button.btn, .thread-head button.btn { min-height: var(--target); }
 .thread-confirm label, .thread-comments label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .thread-confirm textarea, .thread-comments input, .thread-comments select { width: 100%; min-width: 0; }
@@ -103,7 +100,7 @@
 .thread-compose-slot { border-top: 1px solid var(--line); padding-top: 8px; }
 
 /* CHT-T03: readable review output inside the waiting card. */
-.thread-review { min-width: 0; margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.thread-review { min-width: 0; margin-top: 12px; padding: 12px; border: 0; border-radius: 8px; background: var(--bg); }
 .thread-review h4, .thread-earlier h5 { margin: 0 0 8px; }
 .thread-fields { display: grid; grid-template-columns: minmax(6rem, 1fr) minmax(0, 2fr); gap: 8px; min-width: 0; margin: 8px 0; }
 .thread-fields dt { font-weight: 600; overflow-wrap: anywhere; }
@@ -111,58 +108,60 @@
 .thread-value-list { margin: 8px 0; padding-left: 24px; }
 .thread-review .usage-table-wrap { min-width: 0; max-width: 100%; overflow: auto; }
 .thread-review table { width: max-content; min-width: 100%; border-collapse: collapse; }
-.thread-review th, .thread-review td { padding: 6px 10px; border: 1px solid var(--line); vertical-align: top; text-align: left; }
+.thread-review th, .thread-review td { padding: 8px 12px; border: 1px solid var(--line); vertical-align: top; text-align: left; }
 .thread-long, .thread-json, .thread-earlier { margin-top: 8px; }
 .thread-readable-text { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
-.thread-earlier { display: flex; flex-direction: column; gap: 10px; }
+.thread-earlier { display: flex; flex-direction: column; gap: 12px; }
 
 /* SES-T02: connection picker in Nueva sesión. */
-.ns-picker { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px 12px;
+.ns-picker { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 16px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 .ns-picker p { margin: 0; }
-.ns-picker-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; padding: 8px;
-  border: 1px solid var(--line); border-radius: 8px; }
+.ns-picker-group { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; padding: 8px 0;
+  border: 0; border-radius: 8px; }
 .ns-picker-group legend { padding: 0 4px; font-weight: 600; }
-.ns-picker-choice { display: flex; align-items: flex-start; gap: 8px; min-width: 0; min-height: var(--target); padding: 8px;
-  border: 1px solid var(--line); border-radius: 8px; }
+.ns-picker-choice { display: flex; align-items: flex-start; gap: 8px; min-width: 0; min-height: var(--target); padding: 8px 12px;
+  border: 0; border-radius: 8px; background: var(--bg); }
+.ns-picker-choice:hover { background: var(--hover); }
 .ns-picker-choice input { flex: 0 0 auto; width: auto; min-height: 0; margin: 3px 0 0; }
 .ns-picker-facts { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .ns-picker-unavailable { opacity: .75; }
 .ns-picker-reason { color: var(--muted); }
-.ns-picker-notice { font-size: .85rem; line-height: 1.5; }
+.ns-picker-notice { font-size: .8125rem; line-height: 1.5; }
 .ns-picker-disconnected { min-width: 0; }
 .ns-picker-disconnected summary { min-height: var(--target); cursor: pointer; }
-.ns-picker-choices { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; }
+.ns-picker-choices { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
 
 @media (max-width: 599.98px) {
-  .ns-picker { padding: 8px; }
-  .ns-picker-choice { padding: 6px; }
+  .ns-picker { padding: 8px 12px; }
+  .ns-picker-choice { padding: 8px; }
 }
 
 /* AVA-T05: inbox at the foot of the run thread. */
-.thread-inbox { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px;
+.thread-inbox { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 16px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 .thread-inbox h4, .thread-inbox p { margin: 0; }
 .thread-inbox select, .thread-inbox textarea { width: 100%; min-width: 0; }
 .thread-inbox-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .thread-inbox-confirm p { flex-basis: 100%; }
 @media (max-width: 599.98px) {
-  .thread-inbox { padding: 10px; }
+  .thread-inbox { padding: 12px; }
   .thread-inbox-confirm .btn { flex: 1 1 auto; }
 }
 /* CHT-T04: show the exact file.write content and any removed lines before approval. */
-.tool-approval-preview { min-width: 0; margin-top: 12px; padding: 10px; border: 1px solid var(--line);
-  border-radius: 8px; background: var(--chrome); }
-.tool-approval-preview h4 { margin: 0 0 6px; }
-.tool-approval-preview h5 { margin: 10px 0 4px; overflow-wrap: anywhere; }
-.tool-approval-preview p { margin: 6px 0; }
+.tool-approval-preview { min-width: 0; margin-top: 12px; padding: 12px; border: 0;
+  border-radius: 8px; background: var(--bg); }
+.tool-approval-preview h4 { margin: 0 0 8px; }
+.tool-approval-preview h5 { margin: 12px 0 4px; overflow-wrap: anywhere; }
+.tool-approval-preview p { margin: 8px 0; }
 .tool-approval-preview .thread-readable-text { max-width: 100%; }
 
 /* SES-T04: explicit executor choice, approval and task tracking. */
 .ns-executor-picker, .ns-executor-tracking { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ns-executor-picker > strong, .ns-executor-tracking h4 { margin: 0; }
 .ns-executor-choice { display: flex; align-items: flex-start; gap: 8px; min-width: 0; min-height: var(--target);
-  padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+  padding: 8px 12px; border: 0; border-radius: 8px; background: var(--bg); }
+.ns-executor-choice:hover { background: var(--hover); }
 .ns-executor-choice input { flex: 0 0 auto; width: auto; min-height: 0; margin: 3px 0 0; }
 .ns-executor-facts { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
 .ns-executor-fields { display: flex; flex-wrap: wrap; gap: 12px; min-width: 0; }

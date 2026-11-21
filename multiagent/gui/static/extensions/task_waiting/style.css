@@ -4,9 +4,9 @@
 .task-waiting-bar, .task-waiting-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .task-waiting-bar p { flex: 1 1 160px; }
 .task-waiting-list { list-style: none; padding: 0; display: grid; gap: 12px; }
-.task-waiting-card { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.task-waiting-card { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 .task-waiting-title { margin-top: 0; }
-.task-waiting-badge { display: inline-block; padding: 4px 8px; border: 1px solid var(--accent); border-radius: 8px; color: var(--accent); }
+.task-waiting-badge { display: inline-block; padding: 4px 8px; border: 0; border-radius: 999px; background: var(--bg); color: var(--text); font-size: .75rem; font-weight: 500; }
 .task-waiting-question { white-space: pre-wrap; }
 .task-waiting-card, .task-waiting-error { overflow-wrap: anywhere; unicode-bidi: isolate; }
 .task-waiting-details { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; font-size: .875rem; }

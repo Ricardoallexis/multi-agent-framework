@@ -10,28 +10,28 @@
 .continuity-list { display: grid; gap: 12px; margin: 12px 0; padding: 0; list-style: none; }
 .continuity-list > li { min-width: 0; }
 
-.continuity-card { min-width: 0; padding: 12px 14px; border: 1px solid var(--line-strong); border-left: 4px solid var(--warn);
-  border-radius: 8px; background: var(--panel); overflow-wrap: anywhere; }
+.continuity-card { min-width: 0; padding: 16px; border: 1px solid var(--line); border-left: 4px solid var(--warn);
+  border-radius: 12px; background: var(--panel); overflow-wrap: anywhere; }
 .continuity-card[data-decision="wait"] { border-left-color: var(--ok); }
 .continuity-card[data-decision="delegate"] { border-left-color: var(--accent); }
 .continuity-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.continuity-card-title { margin: 0 0 4px; font-size: 1rem; line-height: 1.35; }
+.continuity-card-title { margin: 0 0 4px; font-size: .9375rem; font-weight: 600; line-height: 1.35; }
 .continuity-task { margin: 0 0 8px; }
 .continuity-facts { display: grid; gap: 4px; margin: 0 0 8px; padding: 0; list-style: none; }
 .continuity-facts > li { min-width: 0; }
 .continuity-reset { display: flex; align-items: baseline; gap: 8px; }
-.continuity-clock { flex: none; color: var(--warn); font-size: 1.1rem; line-height: 1; }
+.continuity-clock { flex: none; color: var(--warn); font-size: 1rem; line-height: 1; }
 .continuity-note { margin: 4px 0; }
-.continuity-blocked { padding: 6px 8px; border: 1px solid var(--bad); border-radius: 6px; color: var(--bad); }
-.continuity-decision { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--ok); border-radius: 6px; }
+.continuity-blocked { padding: 8px 12px; border: 0; border-radius: 8px; background: var(--bg); color: var(--bad); }
+.continuity-decision { margin: 8px 0; padding: 8px 12px; border: 0; border-radius: 8px; background: var(--bg); }
 .continuity-card[data-decision="delegate"] .continuity-decision { border-color: var(--accent); }
 
-.continuity-actions { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin: 10px 0 4px; }
+.continuity-actions { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin: 12px 0 4px; }
 .continuity-option { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; max-width: 100%; }
 .continuity-option-note { flex: 1 1 100%; min-width: 0; }
 .continuity-btn { min-height: 44px; max-width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .continuity-btn[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); font-weight: 600; }
-.continuity-confirm { margin: 10px 0 4px; }
+.continuity-confirm { margin: 12px 0 4px; }
 .continuity-confirm .actions { flex-wrap: wrap; }
 .continuity-open { margin: 8px 0 0; }
 .continuity-link { display: inline-flex; align-items: center; min-height: 44px; overflow-wrap: anywhere; }
@@ -42,13 +42,13 @@
 .continuity-row dt { font-weight: 600; overflow-wrap: anywhere; }
 .continuity-row dd { margin: 0; overflow-wrap: anywhere; }
 .continuity-candidates { display: grid; gap: 8px; margin: 8px 0; padding: 0; list-style: none; }
-.continuity-candidates > li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0;
-  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow-wrap: anywhere; }
-.continuity-chip { padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 999px; font-size: .85rem; color: var(--muted); }
+.continuity-candidates > li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0;
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow-wrap: anywhere; }
+.continuity-chip { padding: 2px 8px; border: 0; border-radius: 999px; background: var(--bg); font-size: .75rem; color: var(--muted); }
 
 @media (max-width: 599.98px) {
   .continuity-actions { flex-direction: column; align-items: stretch; }
-  .continuity-card { padding: 10px; }
+  .continuity-card { padding: 12px; }
   .continuity-row { grid-template-columns: minmax(0, 1fr); }
   .continuity-option, .continuity-btn { width: 100%; }
   .continuity-toolbar { gap: 4px 8px; }

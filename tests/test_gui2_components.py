@@ -226,7 +226,7 @@ def themes() -> dict[str, dict[str, str]]:
 def test_every_tone_colour_has_normal_text_contrast_on_the_page_panel_and_chrome():
     for theme, colours in themes().items():
         for name in ("ok", "warn", "bad", "accent", "muted", "text"):
-            for background in ("bg", "panel", "chrome"):
+            for background in ("bg", "panel", "chrome", "hover", "accent-soft", "warn-soft"):
                 ratio = contrast(colours[name], colours[background])
                 assert ratio >= 4.5, f"{theme}: --{name} on --{background} is {ratio:.2f}:1"
 
