@@ -36,7 +36,7 @@ def run_node(script: str):
 
 def test_switch_is_a_button_with_aria_pressed_and_its_help():
     shell = read(JS / "shell.js")
-    match = re.search(r"<button[^>]*aria-pressed=\$\{helpOn[^>]*?>Ayuda</button>", shell, re.S)
+    match = re.search(r'<button[^>]*aria-pressed=\$\{helpOn[^>]*?>(?:<\$\{Icon\} name="help" />)?Ayuda</button>', shell, re.S)
     assert match, "the help-mode switch must be a button named Ayuda with aria-pressed"
     assert 'helpFor("shell.help_mode")' in match.group(0)
     assert '<${Help} topic="shell.help_mode"' in shell

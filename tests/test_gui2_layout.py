@@ -109,6 +109,10 @@ def test_shell_has_banner_nav_main_and_complementary_landmarks():
     assert re.search(r'<main id="main-content" class="content" tabindex="-1"', shell)
     assert re.search(r'<aside id="right-panel" class="rightpanel" aria-label="[^"]+"', shell)
     assert shell.count("<h1>") == 1 and "<h2" not in shell
+    assert shell.index('<header class="topbar">') < shell.index('<nav id="sidebar"')
+    assert shell.index('badge mock') < shell.index('<nav id="sidebar"')  # MOCK stays visible outside the mobile drawer
+    assert 'class="side-footer"' in shell and 'role="status" aria-live="polite"' in shell
+    assert 'class="content-toolbar"' in shell and '<${PendingInbox}' not in shell
     # the views and the panel come in as props: main.js composes them
     main = read("main.js")
     for name in ("Shell", "Sidebar", "RightPanel"):
@@ -148,6 +152,9 @@ def test_both_toggles_are_buttons_with_aria_expanded_and_aria_controls_that_exis
     assert 'id="sidebar"' in shell and 'id="right-panel"' in shell
     assert "hidden=${!panelOpen}" in shell                                       # collapsed means really gone
     assert "readPanelOpen(defaultPanelOpen())" in shell and "writePanelOpen(next)" in shell
+    sidebar = read("sidebar.js")
+    assert 'aria-expanded=${moreOpen ? "true" : "false"}' in sidebar and 'aria-controls="side-more"' in sidebar
+    assert 'id="side-more"' in sidebar and 'hidden=${!moreOpen}' in sidebar
 
 
 def test_sidebar_has_new_session_search_groups_and_readable_status():
@@ -155,6 +162,10 @@ def test_sidebar_has_new_session_search_groups_and_readable_status():
     assert "Nueva sesión" in sidebar and "navigate(NEW_SECTION)" in sidebar
     assert 'role="search"' in sidebar and '<label for="side-search">' in sidebar and 'id="side-search"' in sidebar
     assert 'type="search"' in sidebar and 'aria-live="polite"' in sidebar
+    assert 'side-summary" role="status"' not in sidebar  # the connection in the sidebar footer is its status landmark
+    assert '<${PendingInbox} />' in sidebar and 'class="side-pending"' in sidebar
+    assert 'class="side-sessions-head"' in sidebar and 'Ver todas' in sidebar
+    assert 'navigation.primary.map' in sidebar and 'navigation.more.map' in sidebar
     # the status is text too: the dot is a StatusChip (GUI2-T11) whose component says the words for screen readers
     chip = (JS / "ui" / "status-chip.js").read_text(encoding="utf-8")
     assert '<${StatusChip} status=${item.dot} labels="dot" variant="dot"' in sidebar

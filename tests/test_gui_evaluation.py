@@ -134,7 +134,7 @@ def test_the_routes_only_read(env):
 def test_the_view_is_wired_into_the_routes_the_menu_and_the_help():
     view = (JS / "evaluation.js").read_text(encoding="utf-8")
     main = (JS / "main.js").read_text(encoding="utf-8")
-    assert 'import { Evaluation } from "./evaluation.js"' in main and '{ id: "evaluation", label: "Evaluación" }' in main
+    assert 'import { Evaluation } from "./evaluation.js"' in main and '{ id: "evaluation", label: "Evaluación", icon: "check" }' in main
     assert re.search(r"<\$\{Evaluation\}[^>]*route=\$\{route\}", main)
     assert '"evaluation"' in (JS / "route.js").read_text(encoding="utf-8")
     for path in ("/gui/api/evaluations", "/comparison?", "/runs?"):

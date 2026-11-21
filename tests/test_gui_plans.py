@@ -232,7 +232,7 @@ def test_the_view_is_wired_into_routes_sidebar_and_help():
     extensions = (JS / "extensions.js").read_text(encoding="utf-8")
     help_text = (JS / "help-text.js").read_text(encoding="utf-8")
 
-    assert 'import { Plans } from "./plans.js"' in main and '{ id: "plans", label: "Planes" }' in main
+    assert 'import { Plans } from "./plans.js"' in main and '{ id: "plans", label: "Planes", icon: "file" }' in main
     assert re.search(r"<\$\{Plans\}[^>]*route=\$\{route\}", main)
     assert '"plans"' in route and '"plans"' in extensions
 

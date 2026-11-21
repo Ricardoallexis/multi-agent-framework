@@ -191,4 +191,6 @@ registerView({
   component: ApprovalsView,
   order: 45,
   owner: "approvals",
+  group: "pending",
+  icon: "shield",
 });

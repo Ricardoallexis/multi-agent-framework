@@ -12,7 +12,7 @@
 // failed (extensionFailures(), the notice in main.js) and, if it finishes later, it registers late: subscribeRegistry() tells
 // the page, which draws again.
 //
-//   registerView({ id, label, component, topic, order, owner })   a screen: a button in the sidebar and the route "#<id>" or "#<id>/<item>"
+//   registerView({ id, label, component, topic, order, owner, group, icon })   a screen: a button in the sidebar and the route "#<id>" or "#<id>/<item>"
 //                                                   (component props: token, status, mock, route = { section, id }); topic is a help key (optional)
 //   registerSlot(name, component, { title, topic, order, owner })   a section of the right panel (also exported by panel-slots.js);
 //                                                   props: token, route, sessionId; topic is a help key (optional)
@@ -34,6 +34,8 @@ const TOPIC = /^[a-z_]+(?:\.[a-z_]+)+$/;
 const ENTRY_URL = /^\/gui\/static\/extensions\/([a-z][a-z_]{0,39})\/index\.js$/;
 const STYLE_URL = /^\/gui\/static\/extensions\/([a-z][a-z_]{0,39})\/style\.css$/;
 const STYLE_WAIT_MS = 2500;   // a sheet that neither loads nor fails stops being waited for (below LOAD_BUDGET_MS)
+const VIEW_ICONS = new Set(["more", "search", "inbox", "folder", "apps", "dots", "arrow", "panel", "menu", "help",
+  "settings", "send", "shield", "close", "clock", "file", "person", "link", "copy", "refresh", "run", "chart", "check", "map", "dot"]);
 
 const views = new Map();
 const slots = new Map();
@@ -78,14 +80,16 @@ function rollback(owner) {
   if (registrations.length) changed();
 }
 
-export function registerView({ id, label, component, topic = null, order, owner } = {}) {
+export function registerView({ id, label, component, topic = null, order, owner, group = "more", icon = "dot" } = {}) {
   if (typeof id !== "string" || !ID.test(id)) refuse("registerView: id must be lowercase letters, digits and _ (got " + String(id) + ")");
   if (RESERVED_SECTIONS.includes(id)) refuse("registerView: \"" + id + "\" is the route of a built-in screen");
   if (views.has(id)) refuse("registerView: \"" + id + "\" is already registered");
   if (typeof label !== "string" || !label.trim() || label.trim().length > 30) refuse("registerView: label must be 1 to 30 characters");
   if (typeof component !== "function") refuse("registerView: component must be a function");
   if (topic !== null && (typeof topic !== "string" || !TOPIC.test(topic))) refuse("registerView: topic must be a help key like \"name.topic\"");
-  views.set(id, { id, key: id, label: label.trim(), component, topic, order: orderOf(order) });
+  if (!["primary", "pending", "more"].includes(group)) refuse("registerView: group must be primary, pending or more");
+  if (!VIEW_ICONS.has(icon)) refuse("registerView: icon must be an icon name");
+  views.set(id, { id, key: id, label: label.trim(), component, topic, order: orderOf(order), group, icon });
   record(owner, views, id);
   changed();
 }

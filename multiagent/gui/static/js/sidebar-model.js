@@ -6,6 +6,21 @@ import { sessionTitle, statusInfo as sessionStatus } from "./session-text.js";
 import { statusInfo as runStatus } from "./text.js";
 import { DEFAULT_LABELS, labelEntry, labelSet, statusText } from "./ui/labels.js";
 
+// GUI3-T03: one route per navigation section. Extensions with no group remain reachable in Más.
+export function navigationSections(builtins, extensions, pinned = []) {
+  const pinnedIds = new Set(Array.isArray(pinned) ? pinned : []);
+  const primary = [];
+  const more = [];
+  const seen = new Set();
+  for (const section of [...builtins, ...extensions]) {
+    if (!section || typeof section.id !== "string" || seen.has(section.id)) continue;
+    seen.add(section.id);
+    const item = { id: section.id, label: section.label, icon: section.icon || "dots" };
+    (section.group === "primary" || pinnedIds.has(section.id) ? primary : more).push(item);
+  }
+  return { primary, more };
+}
+
 // The kinds counted next to each project. "workflow" is a framework run; the three app ids are their own sessions.
 export const APPS = [
   { id: "claude", label: "Claude" },

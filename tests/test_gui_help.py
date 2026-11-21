@@ -54,7 +54,7 @@ ALLOWED_EXEMPT = {
                  "and tests/test_gui2_components.py checks that every use of Tabs does",
 }
 EXPECTED_EXEMPT = Counter({
-    ("main.js", "navigation"): 1,
+    ("sidebar.js", "navigation"): 3,
     ("runs.js", "data-row"): 1,
     ("human-actions.js", "confirm"): 2,
     ("open-in-app.js", "confirm"): 2,

@@ -132,9 +132,11 @@ def test_shell_wires_help_and_requests_notifications_only_from_an_opt_in_click()
     pending = (JS / "pending.js").read_text(encoding="utf-8")
     model = (JS / "pending-model.js").read_text(encoding="utf-8")
     shell = (JS / "shell.js").read_text(encoding="utf-8")
+    sidebar = (JS / "sidebar.js").read_text(encoding="utf-8")
     help_text = (JS / "help-text.js").read_text(encoding="utf-8")
     style = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
-    assert 'import { PendingInbox } from "./pending.js"' in shell and "<${PendingInbox} />" in shell
+    assert 'import { PendingInbox } from "./pending.js"' in sidebar and "<${PendingInbox} />" in sidebar
+    assert "side-pending" in sidebar and "side-footer" in shell
     assert 'apiGet(PENDING_PATH, token)' in pending and 'const PENDING_PATH = "/gui/api/pending"' in pending
     assert 'plans|approvals)' in pending and 'approval: "Aprobación"' in pending
     assert "fetch(" not in pending and not re.search(r"https?://", pending)

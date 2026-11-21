@@ -60,5 +60,5 @@ export function TaskWaitingPanel({ token }) {
   return html`<${WaitingContent} data=${data} scope="panel" />`;
 }
 
-registerView({ id: "task_waiting", owner: "task_waiting", label: "Esperan tu decisión", topic: "task_waiting.view", component: TaskWaitingView, order: 55 });
+registerView({ id: "task_waiting", owner: "task_waiting", group: "pending", icon: "clock", label: "Esperan tu decisión", topic: "task_waiting.view", component: TaskWaitingView, order: 55 });
 registerSlot("task_waiting", TaskWaitingPanel, { title: "Esperan tu decisión", topic: "task_waiting.panel", owner: "task_waiting", order: 55 });

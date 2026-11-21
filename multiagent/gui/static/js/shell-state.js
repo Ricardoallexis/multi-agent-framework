@@ -65,3 +65,22 @@ export function writeHelpMode(on) {
 export function isHelpKey(event) {
   return Boolean(event) && event.key === "F1" && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && !event.isComposing;
 }
+
+// GUI3-T03: navigation choices and the one-time introduction to Más.
+const PINNED_KEY = "multiagent.gui.pinned-sections";
+const MORE_NOTICE_KEY = "multiagent.gui.more-notice";
+
+export function readPinnedSections() {
+  try {
+    const value = JSON.parse(readStored(PINNED_KEY) || "[]");
+    return Array.isArray(value) ? value.filter((id) => typeof id === "string") : [];
+  } catch (_) { return []; }
+}
+
+export function readMoreNoticeSeen() {
+  return readStored(MORE_NOTICE_KEY) === "seen";
+}
+
+export function writeMoreNoticeSeen() {
+  writeStored(MORE_NOTICE_KEY, "seen");
+}

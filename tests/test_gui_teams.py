@@ -176,7 +176,7 @@ def test_missing_things_are_not_found_and_bad_ids_are_invalid(env):
 def test_the_view_is_wired_into_the_routes_the_menu_and_the_help():
     view = (JS / "teams.js").read_text(encoding="utf-8")
     main = (JS / "main.js").read_text(encoding="utf-8")
-    assert 'import { Teams } from "./teams.js"' in main and '{ id: "teams", label: "Equipos" }' in main
+    assert 'import { Teams } from "./teams.js"' in main and '{ id: "teams", label: "Equipos", icon: "person" }' in main
     assert re.search(r"<\$\{Teams\}[^>]*route=\$\{route\}", main)
     assert '"teams"' in (JS / "route.js").read_text(encoding="utf-8")
     assert '"teams"' in (JS / "extensions.js").read_text(encoding="utf-8")

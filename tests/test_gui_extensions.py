@@ -697,6 +697,24 @@ def test_a_folder_whose_entry_is_not_a_file_is_not_listed(tmp_path):
 
 
 @needs_node
+def test_register_view_groups_and_icons_are_optional_and_checked():
+    out = run_node(f"""
+      import {{ registerView, registeredViews }} from {url(JS / "extensions.js")};
+      const component = () => null;
+      const attempt = (options) => {{ try {{ registerView(options); return null; }} catch (error) {{ return error.message; }} }};
+      registerView({{ id: "plain", owner: "plain", label: "Plain", component }});
+      registerView({{ id: "fixed", owner: "fixed", label: "Fixed", component, group: "primary", icon: "folder" }});
+      registerView({{ id: "waiting", owner: "waiting", label: "Waiting", component, group: "pending", icon: "clock" }});
+      const badGroup = attempt({{ id: "bad_group", owner: "bad_group", label: "Bad", component, group: "other" }});
+      const badIcon = attempt({{ id: "bad_icon", owner: "bad_icon", label: "Bad", component, icon: "unknown" }});
+      console.log(JSON.stringify({{ views: registeredViews().map((v) => [v.id, v.group, v.icon]), badGroup, badIcon }}));
+    """)
+    assert out["views"] == [["fixed", "primary", "folder"], ["plain", "more", "dot"], ["waiting", "pending", "clock"]]
+    assert out["badGroup"] == "registerView: group must be primary, pending or more"
+    assert out["badIcon"] == "registerView: icon must be an icon name"
+
+
+@needs_node
 def test_register_view_accepts_optional_help_topic_and_rejects_invalid_ones():
     out = run_node(f"""
       import {{ registerView, registeredViews }} from {url(JS / "extensions.js")};

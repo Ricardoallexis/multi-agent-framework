@@ -85,7 +85,7 @@ def test_main_registers_sessions_as_the_first_and_default_section():
     assert re.search(r"<\$\{Sessions\}[^>]*route=\$\{route\}", main)
     route = read("route.js")
     assert 'export const DEFAULT_SECTION = "sessions"' in route
-    assert "useRoute" in main and "navigate" in main
+    assert "useRoute" in main and "onClick=${() => navigate(s.id)}" in read("sidebar.js")
 
 
 def test_main_keeps_the_runs_view_and_its_link_from_sessions():

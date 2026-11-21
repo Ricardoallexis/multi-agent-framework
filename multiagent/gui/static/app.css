@@ -571,6 +571,63 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
   .pending-background-confirm .btn { flex: 1 1 auto; }
 }
 
+/* GUI3-T03: compact navigation, with the brand in the sidebar corner on desktop. */
+.icon { display: inline-block; flex: none; width: 20px; height: 20px; fill: none; stroke: currentColor;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.app .topbar { grid-area: 1 / 1 / 2 / 2; }
+.app .sidebar { display: flex; flex-direction: column; grid-area: 2 / 1; }
+.app .content { grid-area: 1 / 2 / 3 / 3; }
+.app .rightpanel { grid-area: 1 / 3 / 3 / 4; top: 0; height: 100vh; }
+.app[data-panel="closed"] .content { grid-area: 1 / 2 / 3 / 3; }
+.topbar h1 { font-size: .875rem; }
+.side { flex: 1 0 auto; min-height: 0; }
+.side-top { gap: 12px; }
+.side .views { display: flex; flex-direction: column; flex-wrap: wrap; gap: 2px; padding: 0; border: 0; background: transparent; }
+.side .views button { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; min-height: var(--target);
+  padding: 8px 12px; text-align: left; font-size: .875rem; }
+.side .views button:focus-visible, .side-sessions-head button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.side .views button[aria-current="page"] { box-shadow: inset 3px 0 0 var(--accent); }
+.side-pending .pending-tool, .side-pending .pending-button { width: 100%; }
+.side-pending .pending-button { justify-content: flex-start; }
+.side-more-list { display: flex; flex-direction: column; gap: 2px; }
+.side-more-list[hidden] { display: none; }
+.side .views .side-more-list button { padding-left: 24px; }
+.side-more-notice { margin: 4px 0 8px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft);
+  color: var(--text); }
+.side-more-notice p { margin: 0 0 8px; }
+.side-more-notice .btn { min-height: var(--target); }
+.side-sessions-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 600; }
+.side-sessions-head button { min-height: var(--target); border: 0; background: none; color: var(--text); cursor: pointer;
+  text-decoration: underline; font: inherit; }
+.side-footer { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-top: 1px solid var(--line);
+  position: sticky; bottom: 0; z-index: 1; margin-top: auto; background: var(--chrome); }
+.side-footer .panel-tool { min-width: 0; }
+.side-footer .help-more { left: 0; right: auto; }
+.side-connection { display: inline-flex; align-items: center; gap: 8px; min-height: var(--target); padding: 0 12px; }
+.side-connection-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.side-connection.connected .side-connection-dot { background: var(--ok); }
+.side-connection.offline .side-connection-dot, .side-connection.unauthorized .side-connection-dot { background: var(--bad); }
+.content-toolbar { display: flex; justify-content: flex-end; min-height: var(--target); margin: -12px -12px 12px; }
+.content-toolbar .help-more { right: 0; }
+/* Pendientes lives in the sidebar now: on desktop its list opens beside the sidebar, above the right panel (z-index 20).
+   In the drawer the sidebar keeps z-index 40, and the list goes back to the right edge (full screen below 600 px). */
+.app .sidebar { z-index: 30; }
+.side-pending .pending-popover { left: calc(var(--side-w) + 8px); right: auto; }
+@media (max-width: 899.98px) {
+  .app .topbar { grid-area: 1 / 1; }
+  .app .content, .app[data-panel="closed"] .content { grid-area: 2 / 1; }
+  .app .rightpanel { grid-area: 3 / 1; position: static; height: auto; }
+  .app .sidebar { position: fixed; top: var(--bar-h); z-index: 40; }
+  .side-pending .pending-popover { left: auto; right: 12px; }
+  .topbar h1 { flex: 1; }
+}
+@media (max-width: 599.98px) {
+  .topbar h1 { position: static; width: auto; height: auto; margin: 0; padding: 0; overflow: visible;
+    clip: auto; white-space: normal; font-size: .8125rem; }
+  .topbar .badge.mock { margin-left: 0; }
+  .side-pending .pending-popover { left: 0; right: 0; }
+}
+
 /* GUI3-T02 help mode: with help off, the "?" blocks hide. They stay in the DOM, so aria-describedby still reaches the hint.
    Visible even when off: the help that follows a screen title, anything marked help-always (the approval cards, the title
    help of the views that draw it themselves) and the one-line hint that follows a form field (without its "?"). */

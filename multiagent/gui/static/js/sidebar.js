@@ -9,7 +9,10 @@ import { debounce, subscribe } from "./bus.js";
 import { Help, helpFor } from "./help.js";
 import { navigate, routeHref, NEW_SECTION } from "./route.js";
 import { relativeTime } from "./session-text.js";
-import { activityItems, appLabel, buildGroups, countsOf, isCurrent, runItems, sessionItems } from "./sidebar-model.js";
+import { activityItems, appLabel, buildGroups, countsOf, isCurrent, navigationSections, runItems, sessionItems } from "./sidebar-model.js";
+import { readMoreNoticeSeen, readPinnedSections, writeMoreNoticeSeen } from "./shell-state.js";
+import { PendingInbox } from "./pending.js";
+import { Icon } from "./ui/icon.js";
 import { StatusChip } from "./ui/status-chip.js";
 
 const SESSION_LIMIT = 100;
@@ -50,12 +53,14 @@ function Group({ group, route, now }) {
   </details>`;
 }
 
-// views: the buttons that switch between the "Sesiones" and "Ejecuciones" screens (they live next to the section list in main.js).
-export function Sidebar({ token, status, route, views }) {
+export function Sidebar({ token, status, route, sections }) {
   const [data, setData] = useState({ sessions: [], runs: [], hint: null, failed: [], loaded: false });
   const [activityData, setActivityData] = useState({ projects: [], loaded: false, loading: false, failed: false });
   const [activitiesMode, setActivitiesMode] = useState(false);
   const [query, setQuery] = useState("");
+  const [pinned] = useState(readPinnedSections);
+  const [noticeSeen, setNoticeSeen] = useState(readMoreNoticeSeen);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
   const ticket = useRef(0);
   const activityTicket = useRef(0);
@@ -115,6 +120,18 @@ export function Sidebar({ token, status, route, views }) {
   const searching = query.trim() !== "";
   const groups = buildGroups(items, query);
   const shown = groups.reduce((total, group) => total + group.items.length, 0);
+  const navigation = navigationSections(sections.filter((s) => !s.group), sections.filter((s) => s.group), pinned);
+  const dismissNotice = () => { setNoticeSeen(true); writeMoreNoticeSeen(); };
+  useEffect(() => {
+    if (route.section !== "sessions" && navigation.more.some((section) => section.id === route.section)) {
+      setMoreOpen(true);
+      if (!noticeSeen) dismissNotice();
+    }
+  }, [route.section]);
+  const toggleMore = () => {
+    setMoreOpen((open) => !open);
+    if (!noticeSeen) dismissNotice();
+  };
 
   let summary = "";
   if (activitiesMode && (!activityData.loaded || activityData.loading)) summary = "Cargando las actividades…";
@@ -132,7 +149,6 @@ export function Sidebar({ token, status, route, views }) {
           ...${helpFor("shell.new_session")} onClick=${() => navigate(NEW_SECTION)}><span aria-hidden="true">+ </span>Nueva sesión</button>
         <${Help} topic="shell.new_session" compact=${true} />
       </div>
-      ${views}
       <div class="side-search" role="search">
         <label for="side-search">Buscar</label>
         <div class="side-search-row">
@@ -144,8 +160,29 @@ export function Sidebar({ token, status, route, views }) {
           ...${helpFor("shell.activities")} onClick=${() => setActivitiesMode((enabled) => !enabled)}>Actividades</button>
         <${Help} topic="shell.activities" compact=${true} />
       </div>
+      <div class="views" aria-label="Secciones">
+        <div class="side-pending"><${PendingInbox} /></div>
+        ${navigation.primary.map((s) => html`<button key=${s.id} type="button" data-nav data-help-exempt="navigation"
+          aria-current=${s.id === route.section ? "page" : null} onClick=${() => navigate(s.id)}>
+          <${Icon} name=${s.icon} />${s.label}</button>`)}
+        <button type="button" class="side-more-button" aria-expanded=${moreOpen ? "true" : "false"} aria-controls="side-more"
+          ...${helpFor("shell.more")} onClick=${toggleMore}><${Icon} name="dots" />Más</button>
+        <${Help} topic="shell.more" compact=${true} />
+        ${!noticeSeen && html`<div class="side-more-notice">
+          <p>Las demás secciones están en «Más». Puedes fijarlas en la barra.</p>
+          <button type="button" class="btn secondary" ...${helpFor("shell.more_notice")} onClick=${dismissNotice}>Entendido</button>
+          <${Help} topic="shell.more_notice" compact=${true} />
+        </div>`}
+        <div id="side-more" class="side-more-list" hidden=${!moreOpen}>
+          ${navigation.more.map((s) => html`<button key=${s.id} type="button" data-nav data-help-exempt="navigation"
+            aria-current=${s.id === route.section ? "page" : null} onClick=${() => navigate(s.id)}>
+            <${Icon} name=${s.icon} />${s.label}</button>`)}
+        </div>
+      </div>
     </div>
-    <p class="muted small side-summary" role="status" aria-live="polite"
+    <div class="side-sessions-head"><span>Sesiones</span><button type="button" data-nav data-help-exempt="navigation"
+      aria-current=${route.section === "sessions" ? "page" : null} onClick=${() => navigate("sessions")}>Ver todas</button></div>
+    <p class="muted small side-summary" aria-live="polite"
       aria-busy=${activitiesMode ? (activityData.loaded && !activityData.loading ? "false" : "true") : (data.loaded ? "false" : "true")}>${summary}</p>
     ${activitiesMode && activityData.failed && html`<p class="message error small" role="alert">No se pudieron leer las actividades. Vuelve a activar el filtro para reintentarlo.</p>`}
     ${!activitiesMode && data.failed.length > 0 && html`<p class="message error small" role="alert">No se pudo leer la lista de ${data.failed.join(" ni de ")}; se reintentará sola.</p>`}

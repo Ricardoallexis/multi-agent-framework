@@ -1795,7 +1795,7 @@ export const HELP = {
   "pending.close": {
     "title": "Cerrar pendientes",
     "hint": "Oculta la lista sin cambiar ningún pendiente.",
-    "more": ["Ningún pendiente cambia al cerrarla.", "Vuelve a abrirla desde el botón Pendientes de la barra superior."]
+    "more": ["Ningún pendiente cambia al cerrarla.", "Vuelve a abrirla desde el botón Pendientes de la barra lateral."]
   },
   "inbox.section": {
     "title": "Mensaje a la ejecución", "hint": "Escribe una instrucción para el siguiente paso de trabajo.",
@@ -1926,6 +1926,16 @@ export const HELP = {
       "Copilot solo es elegible cuando su caché local del mes está vigente; sin caché válida sigue sin comprobarse.",
       "Puedes revisar el detalle de cada conexión en «Apps y agentes»."
     ]
+  },
+  "shell.more": {
+    "title": "Más secciones",
+    "hint": "Muestra las secciones que no están fijadas en la barra.",
+    "more": ["Aquí siguen disponibles las demás pantallas.", "Abrir una sección solo cambia la vista.", "Puedes fijar las que uses con frecuencia."]
+  },
+  "shell.more_notice": {
+    "title": "Entendido",
+    "hint": "Cierra este aviso de primera visita.",
+    "more": ["Las secciones siguen disponibles en «Más».", "El aviso no vuelve a salir en este navegador.", "Si el almacenamiento está bloqueado, vuelve en la próxima carga."]
   },
   "run.limit_retry": {
     "title": "Reintentar tras límite",

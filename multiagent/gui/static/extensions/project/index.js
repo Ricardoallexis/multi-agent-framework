@@ -222,5 +222,5 @@ export function ProjectSlot({ token, route }) {
   </div>`;
 }
 
-registerView({ id: "project", owner: "project", label: "Proyectos", topic: "project.view", component: ProjectView, order: 40 });
+registerView({ id: "project", owner: "project", group: "primary", icon: "folder", label: "Proyectos", topic: "project.view", component: ProjectView, order: 40 });
 registerSlot("project", ProjectSlot, { title: "Proyecto", topic: "project.slot", owner: "project", order: 40 });

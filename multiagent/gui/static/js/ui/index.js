@@ -15,6 +15,7 @@ export { StatusChip } from "./status-chip.js";
 export { Progress, progressInfo } from "./progress.js";
 export { Tabs, nextTabIndex, tabDomIds } from "./tabs.js";
 export { LevelBadge, LEVELS, levelInfo } from "./level-badge.js";
+export { Icon, ICON_NAMES } from "./icon.js";
 export {
   DEFAULT_LABELS, TONES, labelEntry, labelSet, normalizeTone, registerLabelSet, resetLabelSets, resolveLabels, statusText,
 } from "./labels.js";

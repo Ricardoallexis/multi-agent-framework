@@ -187,7 +187,7 @@ def test_controls_and_shell_navigation_meet_target_height_and_wrap():
     Manual QA at 390 px and 768 px confirms tapped controls have >= 44 px height and sidebar buttons never overflow."""
     app = read_sheet(STATIC_DIR / "app.css")
     assert "--target: 44px" in rule(app, ":root")
-    for sel in (".btn", ".tool-btn", ".views button", ".side-item", ".run-list button", ".session-row",
+    for sel in (".btn", ".tool-btn", ".views button", ".side-sessions-head button", ".side-item", ".run-list button", ".session-row",
                 ".tab", 'input:not([type="checkbox"])'):
         assert "min-height: var(--target)" in rule(app, sel), sel
     targets = app[app.index('input:not([type="checkbox"])'):]

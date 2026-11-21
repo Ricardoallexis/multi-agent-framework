@@ -32,8 +32,8 @@ from test_gui_sessions_view import FORBIDDEN
 JS = STATIC_DIR / "js"
 UI = JS / "ui"
 NODE = shutil.which("node")
-UI_FILES = ["labels.js", "status-chip.js", "progress.js", "tabs.js", "level-badge.js", "index.js"]
-COMPONENT_FILES = ["status-chip.js", "progress.js", "tabs.js", "level-badge.js"]
+UI_FILES = ["labels.js", "status-chip.js", "progress.js", "tabs.js", "level-badge.js", "icon.js", "index.js"]
+COMPONENT_FILES = ["status-chip.js", "progress.js", "tabs.js", "level-badge.js", "icon.js"]
 VIEWS = ["main.js", "runs.js", "run-detail.js", "sessions.js", "session-detail.js", "sidebar.js", "subagents-panel.js"]
 TONES = ["success", "active", "info", "attention", "warning", "danger", "muted", "neutral"]
 
@@ -65,7 +65,7 @@ def test_the_ui_folder_has_the_components_and_the_single_label_map():
     for name in UI_FILES:
         assert (UI / name).is_file(), name
     index = ui("index.js")
-    for name in ("StatusChip", "Progress", "Tabs", "LevelBadge", "registerLabelSet", "DEFAULT_LABELS"):
+    for name in ("StatusChip", "Progress", "Tabs", "LevelBadge", "Icon", "registerLabelSet", "DEFAULT_LABELS"):
         assert name in index, name
 
 
@@ -263,7 +263,7 @@ def test_focus_is_visible_everywhere_and_never_removed_from_keyboard_focus():
 def test_every_hit_area_is_44px_or_more():
     css = sheet()
     assert "--target: 44px" in css
-    for selector in (".btn", ".tool-btn", ".tab", ".side-item", ".views button", ".skip-link", ".group > summary",
+    for selector in (".btn", ".tool-btn", ".tab", ".side-item", ".views button", ".side-sessions-head button", ".skip-link", ".group > summary",
                      ".work-fold > details > summary", ".check-inline", ".check label", "details > summary", ".sub-more", ".sub-item"):
         body = rule(css + (STATIC_DIR / "subagents-panel.css").read_text(encoding="utf-8"), selector)
         assert re.search(r"min-height:\s*(var\(--target\)|44px)", body), selector

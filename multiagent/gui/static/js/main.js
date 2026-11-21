@@ -9,7 +9,7 @@ import { html, render, useState, useEffect } from "../vendor/htm-preact-standalo
 import { loadToken, clearToken, getJSON } from "./auth.js";
 import { startStream } from "./stream.js";
 import { publishEvent } from "./bus.js";
-import { navigate, useRoute, NEW_SECTION } from "./route.js";
+import { useRoute, NEW_SECTION } from "./route.js";
 import { Help } from "./help.js";
 import { NewSession } from "./new-session.js";
 import { TeamThread } from "./team-thread.js";   // CHT-T05
@@ -36,16 +36,16 @@ const STATUS_TEXT = {
 
 // "Sesiones" is the main screen and the default one.
 const SECTIONS = [
-  { id: "sessions", label: "Sesiones" },
-  { id: "runs", label: "Ejecuciones" },
-  { id: "usage", label: "Uso" },
-  { id: "evaluation", label: "Evaluación" },
-  { id: "teams", label: "Equipos" },
-  { id: "plans", label: "Planes" },
-  { id: "map", label: "Mapa" },
+  { id: "sessions", label: "Sesiones", icon: "inbox" },
+  { id: "runs", label: "Ejecuciones", icon: "run" },
+  { id: "usage", label: "Uso", icon: "chart" },
+  { id: "evaluation", label: "Evaluación", icon: "check" },
+  { id: "teams", label: "Equipos", icon: "person" },
+  { id: "plans", label: "Planes", icon: "file" },
+  { id: "map", label: "Mapa", icon: "map" },
 ];
 // The built-in screens, then the ones extensions registered (by their `order`).
-const allSections = () => [...SECTIONS, ...registeredViews().map((view) => ({ id: view.id, label: view.label }))];
+const allSections = () => [...SECTIONS, ...registeredViews().map((view) => ({ id: view.id, label: view.label, group: view.group, icon: view.icon }))];
 
 // "#new" is not a section of its own: it shows the guided chat of a new session (new-session.js), which falls back to the
 // create-run form on request.
@@ -60,14 +60,6 @@ function NoToken() {
     <p>Abre esta interfaz con el enlace que imprime <code>python -m multiagent.gui</code>;
       incluye el token después de <code>#token=</code>.</p>
   </main>`;
-}
-
-// The two screens as buttons at the top of the sidebar (the sidebar itself lists the items of both).
-function Views({ section }) {
-  return html`<div class="views">
-    ${allSections().map((s) => html`<button key=${s.id} type="button" data-nav data-help-exempt="navigation" aria-current=${s.id === section ? "page" : null}
-      onClick=${() => navigate(s.id)}>${s.label}</button>`)}
-  </div>`;
 }
 
 // Draws again when an extension registers or fails after the first render (one that was slow).
@@ -106,7 +98,7 @@ function App({ token }) {
   const entry = !creating && !tree ? views.find((view) => view.id === section) : null;
   // The sidebar and the right panel treat the tree of a session as the session itself (it stays marked, its panel stays).
   const context = tree ? { section: "sessions", id: route.id } : route;
-  const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} views=${html`<${Views} section=${context.section} />`} />`;
+  const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} sections=${allSections()} />`;
   const panel = html`<${RightPanel} token=${token} route=${context} />`;
   return html`<${Shell} status=${status} statusText=${STATUS_TEXT[status]} mock=${mock} sidebar=${sidebar} panel=${panel}>
     ${section === "usage" ? html`<h2 id="usage-title">Uso</h2>` : html`<h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : current?.label}</h2>`}

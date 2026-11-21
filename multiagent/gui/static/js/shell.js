@@ -1,14 +1,14 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // App shell (GUI2-T02): the three zones around the views and the keyboard and responsive behaviour that goes with them.
-//   banner   the top bar: menu button (narrow screens), title, connection state, help-mode switch (F1), right-panel toggle
-//   nav      the left sidebar; below ~900 px it is a drawer opened by the menu button (Esc and the scrim close it)
+//   banner   the brand corner: menu button (narrow screens), short title and MOCK badge
+//   nav      the left sidebar with connection and help; below ~900 px it is a drawer (Esc and the scrim close it)
 //   main     the view of the current route
 //   aside    the right panel; it can be collapsed, and the choice is remembered (shell-state.js)
 // The sidebar and the panel content come in as props (sidebar.js, right-panel.js); this file only lays them out.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { Help, helpFor } from "./help.js";
-import { PendingInbox } from "./pending.js";
+import { Icon } from "./ui/icon.js";
 import { NARROW_QUERY, defaultPanelOpen, isHelpKey, readHelpMode, readPanelOpen, writeHelpMode, writePanelOpen } from "./shell-state.js";
 
 // True while the media query matches; follows the window when it is resized.
@@ -106,24 +106,29 @@ export function Shell({ status, statusText, mock, sidebar, panel, children }) {
           ...${helpFor("shell.menu")} onClick=${toggleDrawer}><span class="burger" aria-hidden="true"></span>Menú</button>
         <${Help} topic="shell.menu" compact=${true} />
       </div>
-      <h1>Multi-Agent Framework</h1>
+      <h1>Multi-Agent</h1>
       ${mock && html`<span class="badge mock" title="Resultados sintéticos, sin llamadas a modelos">MOCK</span>`}
-      <span class=${"badge " + status} role="status" aria-live="polite">${statusText}</span>
-      <div class="panel-tool help-tool">
-        <button type="button" class="tool-btn" aria-pressed=${helpOn ? "true" : "false"}
-          ...${helpFor("shell.help_mode")} onClick=${toggleHelp}>Ayuda</button>
-        <${Help} topic="shell.help_mode" compact=${true} />
-      </div>
-      <div class="panel-tool">
-        <button type="button" class="tool-btn" aria-expanded=${panelOpen ? "true" : "false"} aria-controls="right-panel"
-          ...${helpFor("shell.panel")} onClick=${togglePanel}>Panel</button>
-        <${Help} topic="shell.panel" compact=${true} />
-      </div>
-      <${PendingInbox} />
     </header>
     <div class="scrim" hidden=${!drawerOpen} onClick=${() => closeDrawer(true)}></div>
-    <nav id="sidebar" class="sidebar" aria-label="Sesiones y ejecuciones" ref=${sidebarBox} onClick=${onSidebarClick}>${sidebar}</nav>
-    <main id="main-content" class="content" tabindex="-1" ref=${mainBox} inert=${drawerOpen}>${children}</main>
+    <nav id="sidebar" class="sidebar" aria-label="Sesiones y ejecuciones" ref=${sidebarBox} onClick=${onSidebarClick}>
+      ${sidebar}
+      <div class="side-footer">
+        <span class=${"side-connection " + status} role="status" aria-live="polite"><span class="side-connection-dot" aria-hidden="true"></span>${statusText}</span>
+        <div class="panel-tool help-tool">
+          <button type="button" class="tool-btn" aria-pressed=${helpOn ? "true" : "false"}
+            ...${helpFor("shell.help_mode")} onClick=${toggleHelp}><${Icon} name="help" />Ayuda</button>
+          <${Help} topic="shell.help_mode" compact=${true} />
+        </div>
+      </div>
+    </nav>
+    <main id="main-content" class="content" tabindex="-1" ref=${mainBox} inert=${drawerOpen}>
+      <div class="content-toolbar"><div class="panel-tool">
+        <button type="button" class="tool-btn" aria-expanded=${panelOpen ? "true" : "false"} aria-controls="right-panel"
+          ...${helpFor("shell.panel")} onClick=${togglePanel}><${Icon} name="panel" />Panel</button>
+        <${Help} topic="shell.panel" compact=${true} />
+      </div></div>
+      ${children}
+    </main>
     <aside id="right-panel" class="rightpanel" aria-label="Contexto de la sesión" hidden=${!panelOpen} inert=${drawerOpen}>${panel}</aside>
   </div>`;
 }
