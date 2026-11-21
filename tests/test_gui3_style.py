@@ -15,7 +15,10 @@ CORE_SHEETS = [
     STATIC_DIR / "agent-tree.css",
     STATIC_DIR / "subagents-panel.css",
 ]
-ALLOWED_NO_UNDERLINE = {".skip-link", ".side-item", ".session-row", "a.btn", ".ns-card", ".sub-item"}
+# Navigation rows and buttons, not prose. «Pendientes» in the sidebar is a link row since GUI3-T05,
+# marked by aria-current and the accent bar like the other rows.
+ALLOWED_NO_UNDERLINE = {".skip-link", ".side-item", ".session-row", "a.btn", ".ns-card", ".sub-item",
+                        ".side .views a.side-link"}
 
 
 def all_sheets():

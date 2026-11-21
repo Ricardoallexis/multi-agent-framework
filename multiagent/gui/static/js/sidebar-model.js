@@ -11,14 +11,16 @@ export function navigationSections(builtins, extensions, pinned = []) {
   const pinnedIds = new Set(Array.isArray(pinned) ? pinned : []);
   const primary = [];
   const more = [];
+  const pending = [];   // GUI3-T05: the views of «Pendientes» are tabs of #pending, not rows of the sidebar
   const seen = new Set();
   for (const section of [...builtins, ...extensions]) {
     if (!section || typeof section.id !== "string" || seen.has(section.id)) continue;
     seen.add(section.id);
     const item = { id: section.id, label: section.label, icon: section.icon || "dots" };
-    (section.group === "primary" || pinnedIds.has(section.id) ? primary : more).push(item);
+    if (section.group === "pending" && !pinnedIds.has(section.id)) pending.push(item);
+    else (section.group === "primary" || pinnedIds.has(section.id) ? primary : more).push(item);
   }
-  return { primary, more };
+  return { primary, more, pending };
 }
 
 // The kinds counted next to each project. "workflow" is a framework run; the three app ids are their own sessions.

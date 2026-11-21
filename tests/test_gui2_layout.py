@@ -164,7 +164,7 @@ def test_sidebar_has_new_session_search_groups_and_readable_status():
     assert 'role="search"' in sidebar and '<label for="side-search">' in sidebar and 'id="side-search"' in sidebar
     assert 'type="search"' in sidebar and 'aria-live="polite"' in sidebar
     assert 'side-summary" role="status"' not in sidebar  # the connection in the sidebar footer is its status landmark
-    assert '<${PendingInbox} />' in sidebar and 'class="side-pending"' in sidebar
+    assert '<${PendingLink} current=' in sidebar and 'class="side-pending"' in sidebar
     assert 'class="side-sessions-head"' in sidebar and 'Ver todas' in sidebar
     assert 'navigation.primary.map' in sidebar and 'navigation.more.map' in sidebar
     # the status is text too: the dot is a StatusChip (GUI2-T11) whose component says the words for screen readers
@@ -411,18 +411,20 @@ def test_panel_state_survives_blocked_storage_and_the_router_knows_new():
       mode = "media"; result.media = state.defaultPanelOpen();
       const route = await import(%s);
       result.route = [route.parseRoute("#new"), route.parseRoute("#new/"), route.parseRoute("#runs/abc"),
-        route.parseRoute("#sessions"), route.parseRoute("#run=xyz"), route.parseRoute("#main-content"), route.routeHref("new")];
+        route.parseRoute("#sessions"), route.parseRoute("#run=xyz"), route.parseRoute("#main-content"), route.routeHref("new"),
+        route.parseRoute("#pending")];
       console.log(JSON.stringify(result));
     """ % (uri("shell-state.js"), uri("route.js")))
     assert out["fresh"] is True and out["closed"] is False and out["opened"] is True and out["garbage"] is False
     assert out["thrown"] == [True, False] and out["getter"] is True        # blocked storage: the fallback, never an exception
     assert out["narrow"] is False and out["wide"] is False and out["media"] is False   # GUI3-T04: closed at every width
     assert out["route"] is not None                                         # route.js loads in Node (it needs no DOM at import)
-    new, new_slash, run, sessions, legacy, unknown, href = out["route"]
+    new, new_slash, run, sessions, legacy, unknown, href, pending = out["route"]
     assert new == {"section": "new", "id": None} and run == {"section": "runs", "id": "abc"}
     assert new_slash["section"] == "sessions"                               # only "#new" itself is the new-session address
     assert sessions == {"section": "sessions", "id": None} and legacy == {"section": "runs", "id": "xyz"}
     assert unknown["section"] == "sessions" and href == "#new"
+    assert pending == {"section": "pending", "id": None}                    # GUI3-T05: «Pendientes» is a route of its own
 
 
 # --- how it is served ----------------------------------------------------------------------------------------------

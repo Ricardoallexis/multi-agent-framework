@@ -44,10 +44,12 @@ def test_every_section_has_one_route_with_extensions_and_pins():
       for (const view of ext) registerView({{ ...view, component: () => null, owner: view.id }});
       const first = navigationSections(builtins, ext);
       const pinned = navigationSections(builtins, ext, ["runs", "approvals", "missing"]);
-      const ids = (nav) => [...nav.primary, ...nav.more].map((item) => item.id);
+      const ids = (nav) => [...nav.primary, ...nav.more, ...nav.pending].map((item) => item.id);
       console.log(JSON.stringify({{
         primary: first.primary.map((item) => item.id),
         more: first.more.map((item) => item.id),
+        tabs: first.pending.map((item) => item.id),
+        pinnedTabs: pinned.pending.map((item) => item.id),
         pinnedPrimary: pinned.primary.map((item) => item.id),
         pinnedMore: pinned.more.map((item) => item.id),
         unique: new Set(ids(first)).size === ids(first).length && new Set(ids(pinned)).size === ids(pinned).length,
@@ -55,10 +57,12 @@ def test_every_section_has_one_route_with_extensions_and_pins():
       }}));
     """)
     assert out["primary"] == ["project", "apps"]
-    assert out["more"] == ["sessions", "runs", "usage", "evaluation", "teams", "plans", "map", "approvals", "extra"]
+    # GUI3-T05: a view of «Pendientes» is a tab of #pending, not a row of «Más»; every section is still listed once
+    assert out["more"] == ["sessions", "runs", "usage", "evaluation", "teams", "plans", "map", "extra"]
+    assert out["tabs"] == ["approvals"] and out["pinnedTabs"] == []
     assert out["pinnedPrimary"] == ["runs", "project", "apps", "approvals"]
     assert out["pinnedMore"] == ["sessions", "usage", "evaluation", "teams", "plans", "map", "extra"]
-    assert out["unique"] and out["routes"] == out["primary"] + out["more"]
+    assert out["unique"] and out["routes"] == out["primary"] + out["more"] + out["tabs"]
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
@@ -99,23 +103,21 @@ def test_more_disclosure_and_notice_remain_accessible():
     assert sidebar.count('data-help-exempt="navigation"') == 3
 
 
-def test_sidebar_footer_and_pending_list_stay_reachable_on_desktop():
+def test_sidebar_footer_and_the_pending_row_stay_reachable_on_desktop():
     css = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
     # The connection state and «Ayuda» stay at the bottom of the sidebar, not after the whole session list.
     footer = re.search(r"\n\.side-footer \{([^}]*)\}", css).group(1)
     assert "position: sticky" in footer and "bottom: 0" in footer and "background: var(--chrome)" in footer
-    # «Pendientes» opens its fixed list from inside the sidebar: the sidebar must paint above the right panel,
-    # and the list opens beside the sidebar rather than at the far right.
+    # «Pendientes» is a link to its own screen (GUI3-T05): no floating list is left, and the sidebar still paints
+    # above the right panel so its "?" texts are not covered.
     panel_z = int(re.search(r"\n\.rightpanel \{[^}]*z-index: (\d+)", css).group(1))
     t03 = css[css.index("/* GUI3-T03"):css.index("/* GUI3-T02 help mode")]
     assert int(re.search(r"\n\.app \.sidebar \{ z-index: (\d+); \}", t03).group(1)) > panel_z
-    assert "\n.side-pending .pending-popover { left: calc(var(--side-w) + 8px); right: auto; }" in t03
-    # Narrow screens: the drawer keeps its z-index and the list its old place (right edge, full screen below 600 px).
+    assert ".pending-popover" not in css
+    # Narrow screens: the drawer keeps its z-index.
     narrow = re.search(r"@media \(max-width: 899\.98px\) \{(.*?)\n\}", t03, re.S).group(1)
     assert "z-index: 40;" in re.search(r"\.app \.sidebar \{[^}]*\}", narrow).group(0)
-    assert ".side-pending .pending-popover { left: auto; right: 12px; }" in narrow
     phone = re.search(r"@media \(max-width: 599\.98px\) \{(.*?)\n\}", t03, re.S).group(1)
-    assert ".side-pending .pending-popover { left: 0; right: 0; }" in phone
     # The thin bar over the content pulls into the 24 px padding of wider screens; below 600 px the padding is 12 px,
     # so it keeps its sides and «Contexto» does not touch the edge of the screen.
     assert re.search(r"\n\.content-toolbar \{[^}]*margin: -12px -12px 12px;", t03)

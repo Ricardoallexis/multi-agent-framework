@@ -9,7 +9,7 @@ import { useState, useEffect } from "../vendor/htm-preact-standalone.module.js";
 import { isRegisteredView, subscribeRegistry } from "./extensions.js";
 
 export const DEFAULT_SECTION = "sessions";
-const SECTION_IDS = ["sessions", "runs", "usage", "evaluation", "teams", "plans", "tree", "map"];   // extensions.js keeps RESERVED_SECTIONS equal to this plus "new"
+const SECTION_IDS = ["sessions", "runs", "usage", "evaluation", "teams", "plans", "tree", "map", "pending"];   // extensions.js keeps RESERVED_SECTIONS equal to this plus "new"
 export const NEW_SECTION = "new";
 
 export function parseRoute(hash) {

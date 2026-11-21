@@ -6,12 +6,13 @@ import { apiGet, apiPost } from "./api.js";
 import { loadToken } from "./auth.js";
 import { Help, helpFor } from "./help.js";
 import { readNotificationsEnabled, writeNotificationsEnabled } from "./shell-state.js";
-import { countPending, newlyPending, pendingIds, sortPending } from "./pending-model.js";
+import { ALL_TAB, PENDING_SECTION, countPending, createPendingStore, newlyPending, pendingTabs, routeTab, tabRoute } from "./pending-model.js";
 import { messageId, messagePath } from "./inbox-model.js";
+import { navigate } from "./route.js";
+import { Icon } from "./ui/icon.js";
+import { Tabs } from "./ui/tabs.js";
 
 const PENDING_PATH = "/gui/api/pending";
-const VISIBLE_POLL_MS = 5000;
-const HIDDEN_POLL_MS = 30000;
 let memoryNotifications = false;
 const TYPE_LABELS = {
   approval: "Aprobación",
@@ -57,62 +58,68 @@ function formatSince(value) {
   }).format(date);
 }
 
-function usePendingInbox() {
-  const [data, setData] = useState({ items: [], background: [], policy: { enabled: false, reason: "" }, loading: true, error: null });
-  const seen = useRef(null);
-  const inFlight = useRef(false);
-  const reload = useRef(null);
-
-  useEffect(() => {
-    let stopped = false;
-    let timer = null;
+// One poll for the page, shared by the sidebar row and the «Todo» tab (createPendingStore): 5 s visible, 30 s hidden.
+const store = createPendingStore({
+  load: async () => {
     const token = loadToken();
-    const refresh = async () => {
-      if (stopped || inFlight.current) return;
-      inFlight.current = true;
-      try {
-        const answer = await apiGet(PENDING_PATH, token);
-        const [background, policy] = await Promise.all([
-          apiGet("/gui/api/pending/background", token), apiGet("/gui/api/inbox/policy", token),
-        ]);
-        const items = sortPending(Array.isArray(answer?.items) ? answer.items : []);
-        if (seen.current !== null) {
-          notifyNewItems(newlyPending(items, seen.current, notificationsEnabled(), notificationPermission()));
-        }
-        seen.current = pendingIds(items);
-        if (!stopped) setData({ items, background: sortPending(background?.items), policy, loading: false, error: null });
-      } catch (error) {
-        if (!stopped) setData((current) => ({ ...current, loading: false, error }));
-      } finally {
-        inFlight.current = false;
-      }
-    };
-    const schedule = () => {
-      if (timer !== null) clearInterval(timer);
-      timer = setInterval(refresh, document.visibilityState === "hidden" ? HIDDEN_POLL_MS : VISIBLE_POLL_MS);
-    };
-    const onVisibilityChange = () => {
-      schedule();
-      if (document.visibilityState !== "hidden") refresh();
-    };
-    reload.current = refresh;
-    refresh();
-    schedule();
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      stopped = true;
-      reload.current = null;
-      if (timer !== null) clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, []);
+    const answer = await apiGet(PENDING_PATH, token);
+    const [background, policy] = await Promise.all([
+      apiGet("/gui/api/pending/background", token), apiGet("/gui/api/inbox/policy", token),
+    ]);
+    return { answer, background, policy };
+  },
+  setTimer: (run, ms) => setInterval(run, ms),
+  clearTimer: (timer) => clearInterval(timer),
+  isHidden: () => document.visibilityState === "hidden",
+  watchVisibility: (onChange) => {
+    document.addEventListener("visibilitychange", onChange);
+    return () => document.removeEventListener("visibilitychange", onChange);
+  },
+  onNew: (items, seen) => notifyNewItems(newlyPending(items, seen, notificationsEnabled(), notificationPermission())),
+});
 
-  return { ...data, count: countPending(data.items), reload: () => reload.current && reload.current() };
+export function usePendingInbox() {
+  const [data, setData] = useState(store.get);
+  useEffect(() => {
+    const off = store.subscribe(setData);
+    setData(store.get());
+    return off;
+  }, []);
+  return { ...data, count: countPending(data.items), reload: () => store.refresh() };
 }
 
-export function PendingInbox() {
+// The fixed «Pendientes» row of the sidebar: a link to #pending with the count. It also keeps the number in the page title.
+export function PendingLink({ current = false }) {
+  const { count } = usePendingInbox();
+  useEffect(() => {
+    document.title = count ? `(${count}) Multiagent` : "Multi-Agent Framework";
+  }, [count]);
+  return html`<a class="side-link" href=${"#" + PENDING_SECTION} aria-current=${current ? "page" : null}>
+    <${Icon} name="inbox" />Pendientes
+    <span class="pending-count" aria-label=${count + (count === 1 ? " pendiente" : " pendientes")}>${count}</span>
+  </a>
+  <${Help} topic="pending.toggle" compact=${true} />`;
+}
+
+// «Pendientes»: «Todo» and one tab for each view registered with group "pending" (approvals, decisions, document alerts, tasks
+// that wait). The address says which one is open: #pending, or the view's own hash (#approvals, #approvals/<id>, ...).
+export function PendingScreen({ views, route, token, status, mock }) {
+  const { items, loading } = usePendingInbox();
+  const tabs = pendingTabs(views, items, !loading);
+  const selected = routeTab(route, tabs) || ALL_TAB;
+  const entry = selected === ALL_TAB ? null : views.find((candidate) => candidate.id === selected);
+  return html`<${Tabs} id="pending" label="Pendientes" className="pending-tabs" selected=${selected} tabs=${tabs}
+    onSelect=${(tabId) => navigate(...tabRoute(tabId))} ...${helpFor("pending.tabs")}
+    after=${html`<${Help} topic="pending.tabs" compact=${true} />`}>
+    ${!entry ? html`<${PendingAll} />` : html`
+      ${entry.topic && html`<${Help} key=${entry.id} topic=${entry.topic} always=${true} />`}
+      <${entry.component} key=${entry.id} token=${token} status=${status} mock=${mock} route=${route} />`}
+  <//>`;
+}
+
+// The «Todo» tab: everything that waits for a person, what runs in the background, and the browser notifications.
+function PendingAll() {
   const { items, background, policy, count, loading, error, reload } = usePendingInbox();
-  const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(() => notificationPermission() === "granted" && notificationsEnabled());
   const [permission, setPermission] = useState(notificationPermission);
   const [notice, setNotice] = useState("");
@@ -136,10 +143,6 @@ export function PendingInbox() {
     } finally { setCancelBusy(false); }
   };
 
-  useEffect(() => {
-    document.title = count ? `(${count}) Multiagent` : "Multi-Agent Framework";
-  }, [count]);
-
   const onNotificationsClick = async () => {
     if (!("Notification" in window)) {
       setNotice("Este navegador no permite avisos.");
@@ -162,34 +165,21 @@ export function PendingInbox() {
     }
   };
 
-  return html`<div class="pending-tool">
-    <button type="button" class="tool-btn pending-button" aria-expanded=${open ? "true" : "false"} aria-controls="pending-list"
-      ...${helpFor("pending.toggle")} onClick=${() => setOpen(!open)}>
-      Pendientes <span class="pending-count" aria-label=${count + (count === 1 ? " pendiente" : " pendientes")}>${count}</span>
-    </button>
-    <${Help} topic="pending.toggle" compact=${true} />
-    <section id="pending-list" class="pending-popover" role="region" aria-labelledby="pending-title" hidden=${!open}>
-      <header class="pending-header">
-        <h2 id="pending-title">Pendientes</h2>
-        <div class="pending-actions">
-          <span class="pending-control">
-            <button type="button" class="btn secondary small" ...${helpFor("pending.refresh")} onClick=${reload}>Actualizar</button>
-            <${Help} topic="pending.refresh" compact=${true} />
-          </span>
-          <span class="pending-control">
-            <button type="button" class="btn secondary small" aria-pressed=${enabled ? "true" : "false"}
-              disabled=${permission === "unsupported" || permission === "denied"}
-              ...${helpFor("pending.notifications")} onClick=${onNotificationsClick}>
-              ${enabled ? "Desactivar avisos" : "Activar avisos"}
-            </button>
-            <${Help} topic="pending.notifications" compact=${true} />
-          </span>
-          <span class="pending-control">
-            <button type="button" class="btn secondary small" ...${helpFor("pending.close")} onClick=${() => setOpen(false)}>Cerrar</button>
-            <${Help} topic="pending.close" compact=${true} />
-          </span>
-        </div>
-      </header>
+  return html`<section class="pending-all" aria-label="Todo">
+      <div class="pending-actions">
+        <span class="pending-control">
+          <button type="button" class="btn secondary small" ...${helpFor("pending.refresh")} onClick=${reload}>Actualizar</button>
+          <${Help} topic="pending.refresh" compact=${true} />
+        </span>
+        <span class="pending-control">
+          <button type="button" class="btn secondary small" aria-pressed=${enabled ? "true" : "false"}
+            disabled=${permission === "unsupported" || permission === "denied"}
+            ...${helpFor("pending.notifications")} onClick=${onNotificationsClick}>
+            ${enabled ? "Desactivar avisos" : "Activar avisos"}
+          </button>
+          <${Help} topic="pending.notifications" compact=${true} />
+        </span>
+      </div>
       <p class="pending-status" role="status" aria-live="polite">
         ${loading ? "Leyendo pendientes…" : count === 1 ? "1 pendiente." : count + " pendientes."}
       </p>
@@ -199,7 +189,7 @@ export function PendingInbox() {
         ${items.map((item) => html`<li class="pending-item" key=${item.id}>
           <div class="pending-item-main">
             <span class="pending-type">${TYPE_LABELS[item.type] || "Pendiente"}</span>
-            <a href=${itemHref(item.href)} ...${helpFor("pending.open", { scope: item.id })} onClick=${() => setOpen(false)}>
+            <a href=${itemHref(item.href)} ...${helpFor("pending.open", { scope: item.id })}>
               ${item.title}
             </a>
             ${item.reason && html`<span class="pending-reason">${item.reason}</span>`}
@@ -216,8 +206,7 @@ export function PendingInbox() {
         ${background.length ? html`<ul class="pending-items">
           ${background.map((item) => html`<li class="pending-item pending-background-item" key=${item.id}>
             <div class="pending-item-main"><span class="pending-type">${item.reason}</span>
-              <a href=${itemHref(item.href)} ...${helpFor("pending.open", { scope: item.id })}
-                onClick=${() => setOpen(false)}>${item.title}</a>
+              <a href=${itemHref(item.href)} ...${helpFor("pending.open", { scope: item.id })}>${item.title}</a>
               <time class="pending-since" dateTime=${item.since || null}>${formatSince(item.since)}</time>
             </div>
             <button type="button" class="btn secondary small" disabled=${!policy.enabled || cancelBusy}
@@ -236,6 +225,5 @@ export function PendingInbox() {
           <${Help} topic="pending.cancel_back" compact=${true} />
         </div>`}
       </section>
-    </section>
-  </div>`;
+    </section>`;
 }

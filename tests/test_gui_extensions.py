@@ -724,6 +724,21 @@ def test_register_view_groups_and_icons_are_optional_and_checked():
 
 
 @needs_node
+def test_register_view_pending_type_is_optional_and_checked():
+    out = run_node(f"""
+      import {{ registerView, registeredViews }} from {url(JS / "extensions.js")};
+      const component = () => null;
+      const attempt = (options) => {{ try {{ registerView(options); return null; }} catch (error) {{ return error.message; }} }};
+      registerView({{ id: "plain", owner: "plain", label: "Plain", component, group: "pending" }});
+      registerView({{ id: "typed", owner: "typed", label: "Typed", component, group: "pending", pendingType: "task" }});
+      const bad = attempt({{ id: "bad_type", owner: "bad_type", label: "Bad", component, group: "pending", pendingType: "run" }});
+      console.log(JSON.stringify({{ types: registeredViews().map((v) => [v.id, v.pendingType]), bad }}));
+    """)
+    assert out["types"] == [["plain", None], ["typed", "task"]]
+    assert out["bad"] == "registerView: pendingType must be approval, continuity or task"
+
+
+@needs_node
 def test_register_view_accepts_optional_help_topic_and_rejects_invalid_ones():
     out = run_node(f"""
       import {{ registerView, registeredViews }} from {url(JS / "extensions.js")};

@@ -1774,8 +1774,8 @@ export const HELP = {
   },
   "pending.toggle": {
     "title": "Pendientes",
-    "hint": "Muestra lo que espera una decisión o una revisión.",
-    "more": ["La lista reúne ejecuciones, propuestas y tareas que esperan a una persona.",
+    "hint": "Abre la pantalla de lo que espera una decisión o una revisión.",
+    "more": ["El número cuenta ejecuciones, propuestas y tareas que esperan a una persona.",
       "Se actualiza automáticamente mientras la pestaña está abierta."]
   },
   "pending.open": {
@@ -1793,10 +1793,11 @@ export const HELP = {
     "hint": "Activa o desactiva los avisos de pendientes nuevos en este navegador.",
     "more": ["El permiso solo se solicita al pulsar este botón.", "Los avisos son opcionales y solo se muestran si el navegador concede permiso."]
   },
-  "pending.close": {
-    "title": "Cerrar pendientes",
-    "hint": "Oculta la lista sin cambiar ningún pendiente.",
-    "more": ["Ningún pendiente cambia al cerrarla.", "Vuelve a abrirla desde el botón Pendientes de la barra lateral."]
+  "pending.tabs": {
+    "title": "Secciones de Pendientes",
+    "hint": "«Todo» junta la lista; cada pestaña abre una vista de lo que espera una decisión.",
+    "more": ["Las flechas, Inicio y Fin cambian de pestaña, y la dirección de la página dice cuál está abierta.",
+      "El número junto a una pestaña cuenta lo que espera en ella; las alertas de documentos no tienen número."]
   },
   "inbox.section": {
     "title": "Mensaje a la ejecución", "hint": "Escribe una instrucción para el siguiente paso de trabajo.",

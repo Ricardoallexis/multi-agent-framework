@@ -135,7 +135,9 @@ def test_shell_wires_help_and_requests_notifications_only_from_an_opt_in_click()
     sidebar = (JS / "sidebar.js").read_text(encoding="utf-8")
     help_text = (JS / "help-text.js").read_text(encoding="utf-8")
     style = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
-    assert 'import { PendingInbox } from "./pending.js"' in sidebar and "<${PendingInbox} />" in sidebar
+    main = (JS / "main.js").read_text(encoding="utf-8")
+    assert 'import { PendingLink } from "./pending.js"' in sidebar and "<${PendingLink} current=" in sidebar
+    assert 'import { PendingScreen } from "./pending.js"' in main and "<${PendingScreen}" in main
     assert "side-pending" in sidebar and "side-footer" in shell
     assert 'apiGet(PENDING_PATH, token)' in pending and 'const PENDING_PATH = "/gui/api/pending"' in pending
     assert 'plans|approvals)' in pending and 'approval: "Aprobación"' in pending
@@ -144,10 +146,18 @@ def test_shell_wires_help_and_requests_notifications_only_from_an_opt_in_click()
     handler = pending.split("const onNotificationsClick = async () => {", 1)[1].split("\n  };", 1)[0]
     assert "window.Notification.requestPermission()" in handler
     assert pending.count("requestPermission") == 1 and 'onClick=${onNotificationsClick}' in pending
-    for topic in ("pending.toggle", "pending.open", "pending.refresh", "pending.notifications", "pending.close"):
+    # GUI3-T05: the list is the «Todo» tab of #pending; the toggle button and its "Cerrar" are gone, the row is a link
+    for topic in ("pending.toggle", "pending.open", "pending.refresh", "pending.notifications", "pending.tabs"):
         assert f'"{topic}":' in help_text
-        assert f'helpFor("{topic}"' in pending
-    assert "/* RWD-T03 */" in style
+        assert f'"{topic}"' in pending
+    assert '"pending.close":' not in help_text and "pending-popover" not in pending and "aria-expanded" not in pending
+    assert 'href=${"#" + PENDING_SECTION}' in pending and 'aria-current=${current ? "page" : null}' in pending
+    assert '<${Icon} name="inbox" />Pendientes' in pending
+    # one title per screen: the title is the <h2> of main.js, the tab panel has no second one
+    assert "<h2" not in pending
+    # the title count stays in the page title
+    assert "document.title = count ? `(${count}) Multiagent` : \"Multi-Agent Framework\"" in pending
+    assert "/* RWD-T03 */" in style and "/* GUI3-T05 */" in style and ".pending-popover" not in style
     assert set(re.findall(r"@media\s*\(max-width:\s*([\d.]+px)\s*\)", style)) <= {"899.98px", "599.98px"}
 
 

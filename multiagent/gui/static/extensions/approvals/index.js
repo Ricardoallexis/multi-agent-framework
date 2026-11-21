@@ -193,4 +193,5 @@ registerView({
   owner: "approvals",
   group: "pending",
   icon: "shield",
+  pendingType: "approval",
 });

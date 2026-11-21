@@ -15,6 +15,6 @@ import { ContinuitySlot } from "./slot.js";
 import { ContinuityView } from "./view.js";
 
 registerHelp(HELP, "continuity");
-registerView({ id: "continuity", owner: "continuity", group: "pending", icon: "shield", label: "Decisiones", topic: "continuity.view", component: ContinuityView, order: 50 });
+registerView({ id: "continuity", owner: "continuity", group: "pending", pendingType: "continuity", icon: "shield", label: "Decisiones", topic: "continuity.view", component: ContinuityView, order: 50 });
 registerSlot("continuity", ContinuitySlot, { title: "Continuidad", topic: "continuity.slot", owner: "continuity", order: 50 });
 registerUsageSection({ id: "continuity", owner: "continuity", label: "Continuidad", component: ContinuityPolicy, order: 50 });

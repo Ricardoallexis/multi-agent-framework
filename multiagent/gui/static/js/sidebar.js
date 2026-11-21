@@ -11,7 +11,7 @@ import { navigate, routeHref, NEW_SECTION } from "./route.js";
 import { relativeTime } from "./session-text.js";
 import { activityItems, appLabel, buildGroups, countsOf, isCurrent, navigationSections, runItems, sessionItems } from "./sidebar-model.js";
 import { readMoreNoticeSeen, readPinnedSections, writeMoreNoticeSeen } from "./shell-state.js";
-import { PendingInbox } from "./pending.js";
+import { PendingLink } from "./pending.js";
 import { Icon } from "./ui/icon.js";
 import { StatusChip } from "./ui/status-chip.js";
 
@@ -161,7 +161,7 @@ export function Sidebar({ token, status, route, sections }) {
         <${Help} topic="shell.activities" compact=${true} />
       </div>
       <div class="views" aria-label="Secciones">
-        <div class="side-pending"><${PendingInbox} /></div>
+        <div class="side-pending"><${PendingLink} current=${route.section === "pending" || navigation.pending.some((section) => section.id === route.section)} /></div>
         ${navigation.primary.map((s) => html`<button key=${s.id} type="button" data-nav data-help-exempt="navigation"
           aria-current=${s.id === route.section ? "page" : null} onClick=${() => navigate(s.id)}>
           <${Icon} name=${s.icon} />${s.label}</button>`)}

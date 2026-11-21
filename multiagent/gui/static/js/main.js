@@ -21,6 +21,7 @@ import { Runs } from "./runs.js";
 import { Sessions } from "./sessions.js";
 import { Shell } from "./shell.js";
 import { Sidebar } from "./sidebar.js";
+import { PendingScreen } from "./pending.js";
 import { WorkMap } from "./work-map.js";
 import { Usage } from "./usage.js";
 import { Evaluation } from "./evaluation.js";
@@ -97,7 +98,9 @@ function App({ token }) {
   const tree = section === TREE_SECTION;
   const current = allSections().find((s) => s.id === section);
   const views = registeredViews();
-  const entry = !creating && !tree ? views.find((view) => view.id === section) : null;
+  const pendingViews = views.filter((view) => view.group === "pending");
+  const inPending = section === "pending" || pendingViews.some((view) => view.id === section);   // GUI3-T05: one screen, a tab per view
+  const entry = !creating && !tree && !inPending ? views.find((view) => view.id === section) : null;
   // The sidebar and the right panel treat the tree of a session as the session itself (it stays marked, its panel stays).
   const context = tree ? { section: "sessions", id: route.id } : route;
   const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} sections=${allSections()} />`;
@@ -105,7 +108,7 @@ function App({ token }) {
   const hasSubject = Boolean(subjectOf(context, context.section === "sessions" ? context.id : null));   // a session or a run is open
   return html`<${Shell} status=${status} statusText=${STATUS_TEXT[status]} mock=${mock} sidebar=${sidebar} panel=${panel}
     hasSubject=${hasSubject} contextDot=${contextDot}>
-    ${section === "usage" ? html`<h2 id="usage-title">Uso</h2>` : html`<h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : current?.label}</h2>`}
+    ${section === "usage" ? html`<h2 id="usage-title">Uso</h2>` : html`<h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : inPending ? "Pendientes" : current?.label}</h2>`}
     ${entry?.topic && html`<${Help} key=${entry.id} topic=${entry.topic} />`}
     <${Sessions} token=${token} route=${route} active=${section === "sessions"} />
     ${tree && html`<${AgentTree} key=${route.id || ""} token=${token} sessionId=${route.id} />`}
@@ -118,7 +121,8 @@ function App({ token }) {
     ${section === "teams" && html`<${Teams} token=${token} route=${route} />`}
     ${section === "plans" && html`<${Plans} token=${token} route=${route} />`}
     ${section === "map" && html`<${WorkMap} token=${token} />`}
-    ${views.map((view) => section === view.id && html`<${view.component} key=${view.id} token=${token} status=${status} mock=${mock} route=${route} />`)}
+    ${inPending && html`<${PendingScreen} views=${pendingViews} route=${route} token=${token} status=${status} mock=${mock} />`}
+    ${views.map((view) => !inPending && section === view.id && html`<${view.component} key=${view.id} token=${token} status=${status} mock=${mock} route=${route} />`)}
     ${failed.length > 0 && html`<p class="muted small" role="status">No se pudo cargar: ${failed.map((item) => item.id).join(", ")}.</p>`}
     ${lastEvent && html`<p class="muted small">Último evento recibido: ${lastEvent}</p>`}
   <//>`;
