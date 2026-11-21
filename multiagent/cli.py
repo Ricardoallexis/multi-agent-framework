@@ -1637,7 +1637,7 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--step-kind", choices=["orchestration", "planning", "review", "work"],
                    help="Kind of step the model routing profile selects for (default work)")
     x.add_argument("--accept-quota-warning", action="store_true",
-                   help="Confirm a one-time agy launch with less than 15% of plan quota remaining")
+                   help="Confirm a one-time agy launch with less than 15%% of plan quota remaining")
     x.set_defaults(func=cmd_executors)
     x = executors.add_parser("resume", help="Continue the session the framework created for the task")
     x.add_argument("task_id"); x.add_argument("--model"); x.add_argument("--effort")

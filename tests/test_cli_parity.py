@@ -178,3 +178,17 @@ def test_cli_assignment_uses_http_and_anonymous_accept_stays_manual(monkeypatch,
         assert "operator_context_unverified" in accepted["decision"]["reason_codes"]
         assert services.tasks.get_task(task["id"])["state"] == "open"
     services.runs.close()
+
+
+def test_every_cli_help_text_renders():
+    """Python 3.14 refuses a help text with a bare % when the parser is built; render every help everywhere."""
+    import argparse
+
+    def walk(parser):
+        assert parser.format_help()
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for sub in action.choices.values():
+                    walk(sub)
+
+    walk(cli.build_parser())
