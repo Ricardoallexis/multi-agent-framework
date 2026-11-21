@@ -10,7 +10,9 @@ import { Help, helpFor } from "./help.js";
 import { HumanActions } from "./human-actions.js";
 import { routeHref, threadHref } from "./route.js";
 import { connectionLabel, limitReachedText } from "./new-session-model.js";
-import { NARROW_QUERY, PHONE_QUERY, computeRunsLayout } from "./runs-layout.js";
+import {
+  DEFAULT_RUN_TAB, NARROW_QUERY, PHONE_QUERY, RUN_DETAIL_TABS, computeRunsLayout, resolveRunTab,
+} from "./runs-layout.js";
 import {
   actorText, cursorText, errorText, executorText, fmtDate, fmtJson, historyText, skipReason,
   statusInfo, waitingText, MODE_LABELS,
@@ -18,6 +20,7 @@ import {
 import { contextEventText } from "./session-text.js";
 import { Progress } from "./ui/progress.js";
 import { StatusChip } from "./ui/status-chip.js";
+import { Tabs } from "./ui/tabs.js";
 
 const DEGRADED_POLL_MS = 10000;
 const REFRESH_DEBOUNCE_MS = 250;
@@ -407,9 +410,34 @@ function useMedia(query) {
   return matches;
 }
 
+export function RunInputs({ view }) {
+  return html`<section class="panel" aria-labelledby="inputs-title">
+    <h4 id="inputs-title">Entradas de la ejecución</h4>
+    <${Help} topic="run.inputs" />
+    ${Object.keys(view.inputs).length === 0
+      ? html`<p class="muted">Esta ejecución no recibió entradas.</p>`
+      : html`<dl class="facts">${Object.entries(view.inputs).map(([name, value]) => html`<${Input} key=${name} name=${name} value=${value} />`)}</dl>`}
+  </section>`;
+}
+
+export function RunTabContent({ tab, view, token }) {
+  const activeTab = resolveRunTab(tab);
+  if (activeTab === "results") {
+    return html`<${Results} view=${view} token=${token} />`;
+  }
+  if (activeTab === "details") {
+    return html`<${History} view=${view} />
+      <${RunInputs} view=${view} />
+      <${Technical} view=${view} />`;
+  }
+  return html`<${Steps} view=${view} />
+    <${Counters} view=${view} />`;
+}
+
 export function RunDetail({ token, runId, status, onChanged, onBack = null }) {
   const [view, setView] = useState(null);
   const [error, setError] = useState(null);
+  const [tab, setTab] = useState(DEFAULT_RUN_TAB);
   const narrow = useMedia(NARROW_QUERY);
   const phone = useMedia(PHONE_QUERY);
   const latest = useRef(0);
@@ -438,6 +466,7 @@ export function RunDetail({ token, runId, status, onChanged, onBack = null }) {
   }
 
   useEffect(() => { setView(null); setError(null); load(); }, [runId, token]);
+  useEffect(() => { setTab(DEFAULT_RUN_TAB); }, [runId]);
 
   useEffect(() => {
     const refresh = debounce(load, REFRESH_DEBOUNCE_MS);
@@ -476,6 +505,7 @@ export function RunDetail({ token, runId, status, onChanged, onBack = null }) {
     waiting: Boolean(view.waiting && !view.terminal),
     terminal: Boolean(view.terminal),
   });
+  const activeTab = resolveRunTab(tab);
   const chatHref = typeof threadHref === "function" ? threadHref(view.id) : null;
   const actionsCard = html`<${HumanActions} token=${token} view=${view} onUpdate=${accept} onStale=${load} actionBar=${layout.actionBar} />`;
 
@@ -512,19 +542,12 @@ export function RunDetail({ token, runId, status, onChanged, onBack = null }) {
       </div>
     </div>`}
     ${layout.actionFirst && actionsCard}
-    <${Steps} view=${view} />
-    <${Counters} view=${view} />
-    <${History} view=${view} />
-    <${Results} view=${view} token=${token} />
+    <${Tabs} id="rundetail" label="Secciones de la ejecución" className="run-tabs" selected=${activeTab} onSelect=${setTab} ...${helpFor("run.tabs")}
+      tabs=${RUN_DETAIL_TABS}
+      after=${html`<${Help} topic="run.tabs" compact=${true} />`}>
+      <${RunTabContent} tab=${activeTab} view=${view} token=${token} />
+    <//>
     ${!layout.actionFirst && actionsCard}
-    <section class="panel" aria-labelledby="inputs-title">
-      <h4 id="inputs-title">Entradas de la ejecución</h4>
-      <${Help} topic="run.inputs" />
-      ${Object.keys(view.inputs).length === 0
-        ? html`<p class="muted">Esta ejecución no recibió entradas.</p>`
-        : html`<dl class="facts">${Object.entries(view.inputs).map(([name, value]) => html`<${Input} key=${name} name=${name} value=${value} />`)}</dl>`}
-    </section>
-    <${Technical} view=${view} />
   </article>`;
 }
 

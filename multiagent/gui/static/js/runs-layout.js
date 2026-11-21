@@ -51,3 +51,21 @@ export function computeRunsLayout({
     actionPosition: isWaiting ? (isPhone ? "bottom-bar" : "top") : "bottom",
   };
 }
+
+export const DEFAULT_RUN_TAB = "steps";
+
+export const RUN_DETAIL_TABS = [
+  { id: "steps", label: "Pasos" },
+  { id: "results", label: "Resultados" },
+  { id: "details", label: "Detalles" },
+];
+
+export const RUN_TAB_SECTIONS = {
+  steps: ["steps", "counters"],
+  results: ["results"],
+  details: ["history", "inputs", "technical"],
+};
+
+export function resolveRunTab(tabId) {
+  return RUN_DETAIL_TABS.some((tab) => tab.id === tabId) ? tabId : DEFAULT_RUN_TAB;
+}

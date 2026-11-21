@@ -209,6 +209,7 @@ function MissingStep({ item, allowLaunch, consoleSupported, token, onRecheck, bu
 function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, busyAny, onBusyChange }) {
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState(null);
+  const [open, setOpen] = useState(Boolean(item.defaultOpen));
 
   async function recheck() {
     if (checking) return;
@@ -225,29 +226,36 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, bu
   }
 
   return html`<li class="apps-card">
-    <div class="apps-card-head">
-      <strong class="apps-card-name">${item.label}</strong>
-      <${StatusChip} status=${item.chip.status} labels=${CHIP_LABELS} variant="inline" />
-    </div>
-    <dl class="apps-facts">
-      <dt>Instalada</dt><dd>${item.installed}</dd>
-      <dt>Versión</dt><dd>${item.version}</dd>
-      <dt>Sesión</dt><dd>${settingText(item.session)}</dd>
-      <dt>Estado</dt><dd>${item.enabled}</dd>
-      <dt>Permisos</dt><dd>${item.permissions}</dd>
-      ${item.quota.length > 0 && html`<dt>Cuota</dt><dd class="apps-quota">${item.quota.map((line) => html`<span key=${line}>${line}</span>`)}</dd>`}
-      ${item.reasonText && html`<dt>Motivo</dt><dd>${item.reasonText}</dd>`}
-      <dt>Comprobado</dt><dd>${item.checkedAt ? fmtDate(item.checkedAt) : "Sin fecha"}</dd>
-    </dl>
-    ${item.warning && html`<p class="apps-notice" role="status">${item.warning}</p>`}
-    <${MissingStep} item=${item} allowLaunch=${allowLaunch} consoleSupported=${consoleSupported} token=${token}
-      onRecheck=${recheck} busyAny=${busyAny} onBusyChange=${onBusyChange} />
-    ${checkError && html`<p class="message error apps-status-line" role="alert">${errorText(checkError)}</p>`}
-    <div class="apps-card-foot">
-      <button type="button" class="btn secondary" disabled=${checking} ...${helpFor("apps.recheck", { scope: item.id })}
-        onClick=${recheck}>${checking ? "Comprobando…" : "Volver a comprobar"}</button>
-      <${Help} topic="apps.recheck" compact=${true} scope=${item.id} />
-    </div>
+    <details class="apps-card-details" open=${open} onToggle=${(event) => setOpen(event.currentTarget.open)}>
+      <summary class="apps-card-summary">
+        <span class="apps-card-head">
+          <strong class="apps-card-name">${item.label}</strong>
+          <${StatusChip} status=${item.chip.status} labels=${CHIP_LABELS} variant="inline" />
+        </span>
+        ${item.missingLine && html`<span class="apps-card-missing">${item.missingLine}</span>`}
+      </summary>
+      <div class="apps-card-body">
+        <dl class="apps-facts">
+          <dt>Instalada</dt><dd>${item.installed}</dd>
+          <dt>Versión</dt><dd>${item.version}</dd>
+          <dt>Sesión</dt><dd>${settingText(item.session)}</dd>
+          <dt>Estado</dt><dd>${item.enabled}</dd>
+          <dt>Permisos</dt><dd>${item.permissions}</dd>
+          ${item.quota.length > 0 && html`<dt>Cuota</dt><dd class="apps-quota">${item.quota.map((line) => html`<span key=${line}>${line}</span>`)}</dd>`}
+          ${item.reasonText && html`<dt>Motivo</dt><dd>${item.reasonText}</dd>`}
+          <dt>Comprobado</dt><dd>${item.checkedAt ? fmtDate(item.checkedAt) : "Sin fecha"}</dd>
+        </dl>
+        ${item.warning && html`<p class="apps-notice" role="status">${item.warning}</p>`}
+        <${MissingStep} item=${item} allowLaunch=${allowLaunch} consoleSupported=${consoleSupported} token=${token}
+          onRecheck=${recheck} busyAny=${busyAny} onBusyChange=${onBusyChange} />
+        ${checkError && html`<p class="message error apps-status-line" role="alert">${errorText(checkError)}</p>`}
+        <div class="apps-card-foot">
+          <button type="button" class="btn secondary" disabled=${checking} ...${helpFor("apps.recheck", { scope: item.id })}
+            onClick=${recheck}>${checking ? "Comprobando…" : "Volver a comprobar"}</button>
+          <${Help} topic="apps.recheck" compact=${true} scope=${item.id} />
+        </div>
+      </div>
+    </details>
   </li>`;
 }
 

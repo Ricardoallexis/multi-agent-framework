@@ -641,3 +641,7 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 [data-help="off"] .help-block.compact.open.help-always,
 [data-help="off"] .help-always .help-block.compact.open { display: block; }
 [data-help="off"] :is(label, input, select, textarea) + .help-block:not(.compact, .help-always) :is(.help-toggle, .help-more) { display: none; }
+
+/* GUI3-T08 */
+.run-tabs { margin: 12px 0; }
+.run-tabs > .tab-panel > .panel:first-child { margin-top: 8px; }

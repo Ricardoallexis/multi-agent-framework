@@ -8,6 +8,7 @@ export const HELP = {
     "hint": "Estado de cada modelo y ejecutor, y solo el paso que falta.",
     "more": [
       "Muestra si cada herramienta está instalada, con sesión o clave, habilitada y sus plantillas de permisos.",
+      "Las filas con un paso pendiente empiezan abiertas y las demás se despliegan al pulsarlas.",
       "Nunca pide ni escribe claves secretas ni habilita ejecutores por ti."
     ]
   },

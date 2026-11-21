@@ -1944,6 +1944,14 @@ export const HELP = {
       "Cuando una ejecución falla por cuota, muestra «Límite alcanzado» con la hora local o «sin hora conocida».",
       "Pulsar «Reintentar» abre una nueva sesión sin relanzar nada de forma automática."
     ]
+  },
+  "run.tabs": {
+    "title": "Secciones de la ejecución",
+    "hint": "Cambia entre pasos, resultados y detalles de esta ejecución.",
+    "more": [
+      "«Pasos» muestra el avance y los contadores; «Resultados» reúne las salidas por paso e intento.",
+      "«Detalles» guarda el historial humano, las entradas y los eventos técnicos."
+    ]
   }
 };
 
@@ -1986,3 +1994,5 @@ export function fieldHelpEntry(item) {
     more,
   };
 }
+
+/* GUI3-T08 */

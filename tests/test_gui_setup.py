@@ -367,6 +367,13 @@ def test_apps_pure_model_shows_only_the_missing_step_and_never_uses_network():
     assert models["openai"]["action"]["line"] == "OPENAI_ENABLED=true"
     assert models["ollama"]["action"] is None and models["ollama"]["available"] is True
 
+    # GUI3-T08: pending-step rows start open; ready rows start folded with status in words.
+    assert execs["claude_cli"]["defaultOpen"] is True and execs["claude_cli"]["missingLine"] == "Falta instalarlo"
+    assert execs["codex_cli"]["defaultOpen"] is True and execs["codex_cli"]["missingLine"] == "Falta iniciar sesión"
+    assert models["gemini"]["defaultOpen"] is True and models["gemini"]["missingLine"] == "Falta configurar la clave"
+    assert models["ollama"]["defaultOpen"] is False and models["ollama"]["missingLine"] is None
+    assert models["ollama"]["chip"]["label"] == "Listo"
+
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
 def test_apps_pure_model_handles_agy_uninstalled_and_ollama_tls():

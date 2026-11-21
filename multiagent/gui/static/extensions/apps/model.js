@@ -274,6 +274,17 @@ function statusChipFor(row) {
   return { status: "error", label: "No disponible" };
 }
 
+export function isPendingStep(row) {
+  return Boolean(row && row.available !== true && row.missing_step);
+}
+
+export function missingSummaryLine(row, action, chip, reasonText) {
+  if (!row || row.available === true) return null;
+  if (action && action.title && action.title !== chip.label) return action.title;
+  if (reasonText && reasonText !== chip.label) return reasonText;
+  return null;
+}
+
 function buildEntry(row, kind, setupStatus) {
   const perm = setupStatus?.permissions?.[row.id] || null;
   const chip = statusChipFor(row);
@@ -283,11 +294,14 @@ function buildEntry(row, kind, setupStatus) {
     : limited
       ? limitReachedText(row.limit || row.resets_at || row.paused_until)
       : (REASONS[row.reason] || row.reason || "No disponible.");
+  const action = missingAction(row, kind, setupStatus);
   return {
     id: row.id,
     kind,
     label: LABELS[row.id] || row.id,
     available: row.available === true,
+    defaultOpen: isPendingStep(row),
+    missingLine: missingSummaryLine(row, action, chip, reasonText),
     chip,
     installed: installedLabel(row, kind),
     version: row.version || (kind === "model" && row.id !== "ollama" ? "No aplica" : "Sin dato"),
@@ -298,7 +312,7 @@ function buildEntry(row, kind, setupStatus) {
     warning: quotaWarningText(row.warning),
     reasonText,
     checkedAt: row.checked_at || null,
-    action: missingAction(row, kind, setupStatus),
+    action,
   };
 }
 

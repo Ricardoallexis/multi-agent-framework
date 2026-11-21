@@ -127,9 +127,9 @@ def test_master_detail_action_order_fixed_bar_and_chat_shortcut():
     assert "Volver a la lista" in detail and 'helpFor("runs.back")' in detail
     assert "threadHref" in detail and "Abrir en el chat" in detail and 'helpFor("run.open_chat")' in detail
     assert "has-action-bar" in detail
-    # Waiting runs put HumanActions before Steps and Results; non-waiting runs put it after Results.
-    assert detail.index("${layout.actionFirst && actionsCard}") < detail.index("<${Steps}")
-    assert detail.index("<${Results}") < detail.index("${!layout.actionFirst && actionsCard}")
+    # Waiting runs put HumanActions before Tabs; non-waiting runs put it after Tabs.
+    assert detail.index("${layout.actionFirst && actionsCard}") < detail.index("<${Tabs}")
+    assert detail.index("<${Tabs}") < detail.index("${!layout.actionFirst && actionsCard}")
 
     assert "waitingReasonLabel(waiting)" in actions
     assert 'class="human-action-bar"' in actions
