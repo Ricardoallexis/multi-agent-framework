@@ -633,3 +633,49 @@ def test_levelbadge_has_text_marks_and_a_full_name_for_screen_readers(node_root)
     assert t2["hidden"] == ["level-pips", "level-text"]                              # the sighted-only parts are hidden from screen readers
     assert out["t4"]["cls"] == "level level-4 mine" and out["t4"]["visible"] == "T4 máximo" and out["t4"]["pips"] == ["on"] * 4
     assert out["none"] == [None, None, None]                                         # an unclassified model draws nothing
+
+
+@needs_node
+def test_run_steps_line_never_repeats_or_contradicts_the_status(node_root):
+    """GUI test 2026-11-20: a completed run said «Todos los pasos terminaron.» twice, or beside «La ejecución terminó
+    antes de recorrer todos los pasos.» when a step was skipped and the stored cursor lagged."""
+    out = run_node(node_root, "cursor_text", """
+      import { cursorText, statusInfo } from "./js/text.js";
+      const view = (status, terminal, index, total) => ({ definition_available: true, status, terminal,
+        cursor: { index, total, finished: total > 0 && index >= total } });
+      console.log(JSON.stringify({
+        help: statusInfo("completed").help,
+        completedSkipped: cursorText(view("completed", true, 3, 4)),
+        completedFinished: cursorText(view("completed", true, 4, 4)),
+        rejected: cursorText(view("rejected", true, 1, 4)),
+        running: cursorText(view("running", false, 1, 4)),
+      }));
+    """)
+    assert out["help"] == "Todos los pasos terminaron."
+    assert out["completedSkipped"] == "" and out["completedFinished"] == ""   # the summary above the card already says it
+    assert out["rejected"] == "La ejecución terminó antes de recorrer todos los pasos."
+    assert out["running"] == "Va por el paso 2 de 4."
+    assert "${line && html`<p class=\"muted\">${line}</p>`}" in read("run-detail.js")   # an empty line draws nothing
+
+
+@needs_node
+def test_history_lines_without_a_step_read_as_sentences(node_root):
+    """GUI test 2026-11-20: an old run's approval without a step read «Se aprobó el resultado del paso .»."""
+    out = run_node(node_root, "history_text", """
+      import { historyText } from "./js/text.js";
+      const kinds = ["prompt_delivered", "response_submitted", "response_rejected", "approved", "changes_requested", "regenerated"];
+      console.log(JSON.stringify({
+        without: kinds.map((kind) => historyText({ kind })),
+        with: kinds.map((kind) => historyText({ kind, step_id: "create", attempt: 2 })),
+      }));
+    """)
+    for line in out["without"]:
+        assert "  " not in line and " ." not in line and "«" not in line
+    assert out["without"][3] == "Se aprobó el resultado."
+    assert out["with"][3] == "Se aprobó el resultado del paso «create» (intento 2)."
+    assert all("«create» (intento 2)" in line for line in out["with"])
+
+
+def test_changing_screen_starts_at_the_top():
+    """GUI test 2026-11-20: «Apps y agentes» opened 288 px down because the page kept the scroll of the previous screen."""
+    assert "useEffect(() => { window.scrollTo(0, 0); }, [section]);" in read("main.js")

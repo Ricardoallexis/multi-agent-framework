@@ -335,7 +335,7 @@ function SingleSession({
         ${choice.reason && html`<p class="muted small">${connectionLabel(choice.provider)}: ${choice.reason}</p>`}
       </div>`)}
       ${catalogPreview && choices.length === 0 && html`<p role="status">No hay proveedores de modelos conectados.</p>`}
-      <${Help} topic="chat.connection_checks" compact=${true} />
+      <p class="muted small ns-row">Estado de Gemini y Copilot <${Help} topic="chat.connection_checks" compact=${true} /></p>
     </section>
     <${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />
     <div class="ns-composer"><label for="single-task">Tarea</label><${Help} topic="chat.single_task" compact=${true} />

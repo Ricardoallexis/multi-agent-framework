@@ -638,3 +638,11 @@ def test_single_session_rows_use_app_labels_and_the_status_help_has_a_label():
     assert chat.count("connectionLabel(choice.provider)") == 2
     picker = (STATIC_DIR / "js" / "model-picker.js").read_text(encoding="utf-8")
     assert "Estado de Gemini y Copilot ${help.connectionChecks}" in picker
+
+
+def test_single_session_status_help_has_a_visible_label():
+    """GUI test 2026-11-20: 98bec8d labelled the orchestrator's status «?», but single session kept its own lone «?»."""
+    from multiagent.gui import STATIC_DIR
+
+    chat = (STATIC_DIR / "js" / "new-session.js").read_text(encoding="utf-8")
+    assert 'Estado de Gemini y Copilot <${Help} topic="chat.connection_checks"' in chat

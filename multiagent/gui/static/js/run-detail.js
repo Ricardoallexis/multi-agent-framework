@@ -138,9 +138,10 @@ export function roleTeamLabel(info) {
 export function Steps({ view }) {
   const roles = stepRolesByStep(view);
   const hasRoles = roles.size > 0;
+  const line = cursorText(view);
   return html`<section class="panel" aria-labelledby="steps-title">
     <h4 id="steps-title">Pasos</h4>
-    <p class="muted">${cursorText(view)}</p>
+    ${line && html`<p class="muted">${line}</p>`}
     ${view.counters.steps_total > 0 && html`<${Progress} label="Avance de los pasos" value=${view.counters.steps_done + view.counters.steps_skipped}
       max=${view.counters.steps_total} valueText=${stepsProgressText(view.counters)} tone=${view.terminal && view.status !== "completed" ? "warning" : "active"} />`}
     <${Help} topic="run.steps" />

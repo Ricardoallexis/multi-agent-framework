@@ -97,6 +97,10 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 - Remove the Stage 0 run-console prototype, its route, CLI command, package, and guide.
 
+### Fixed
+
+- GUI, from the sprint 5 manual test in Mock: the status «?» of «Sesión única» now sits beside its label «Estado de Gemini y Copilot», as in the orchestrator; the «Pasos» card of a completed run no longer repeats «Todos los pasos terminaron.» or contradicts it when a step was skipped; a history line without a step reads as a sentence («Se aprobó el resultado.», not «… del paso .»); and a new screen opens at its top instead of keeping the previous screen's scroll.
+
 ## [M1-B03-F01] - 2026-11-18
 
 Python package: `1.0.0`.

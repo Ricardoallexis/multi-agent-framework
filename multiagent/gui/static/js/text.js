@@ -57,6 +57,7 @@ export function cursorText(view) {
   if (!view.definition_available) {
     return "No se pudo leer la definición actual del workflow; los pasos se muestran según los eventos de la ejecución.";
   }
+  if (view.status === "completed") return "";   // the summary above already says «Todos los pasos terminaron.»
   if (view.cursor.finished) return "Todos los pasos terminaron.";
   if (view.terminal) return "La ejecución terminó antes de recorrer todos los pasos.";
   return "Va por el paso " + (view.cursor.index + 1) + " de " + view.cursor.total + ".";
@@ -64,16 +65,17 @@ export function cursorText(view) {
 
 export function historyText(entry) {
   const step = entry.step_id ? "«" + entry.step_id + "»" + (entry.attempt ? " (intento " + entry.attempt + ")" : "") : "";
+  const of = (words) => (step ? words + step : "");   // old runs may lack the step: the sentence then leaves it out
   switch (entry.kind) {
-    case "prompt_delivered": return "Se entregó el prompt del paso " + step + " para que lo ejecutes fuera del framework.";
+    case "prompt_delivered": return "Se entregó el prompt" + of(" del paso ") + " para que lo ejecutes fuera del framework.";
     case "response_submitted": {
       const model = entry.model ? ", modelo " + entry.model : ", sin modelo indicado";
-      return "Se pegó la respuesta del paso " + step + ". Proveedor declarado: " + (entry.provider || "sin indicar") + model + ".";
+      return "Se pegó la respuesta" + of(" del paso ") + ". Proveedor declarado: " + (entry.provider || "sin indicar") + model + ".";
     }
-    case "response_rejected": return "Se rechazó la respuesta pegada para el paso " + step + " porque no cumple el contrato.";
-    case "approved": return "Se aprobó el resultado del paso " + step + ".";
-    case "changes_requested": return "Se pidieron cambios sobre el paso " + step + ".";
-    case "regenerated": return "Se pidió repetir el paso " + step + " sin comentarios.";
+    case "response_rejected": return "Se rechazó la respuesta pegada" + of(" para el paso ") + " porque no cumple el contrato.";
+    case "approved": return "Se aprobó el resultado" + of(" del paso ") + ".";
+    case "changes_requested": return "Se pidieron cambios" + of(" sobre el paso ") + ".";
+    case "regenerated": return "Se pidió repetir el paso" + of(" ") + " sin comentarios.";
     case "rejected": return "Se rechazó la ejecución.";
     case "cancel_requested": return "Se pidió cancelar; se detendrá cuando termine el paso en curso.";
     case "cancelled": return entry.forced ? "Se canceló la ejecución de inmediato." : "La ejecución quedó cancelada.";

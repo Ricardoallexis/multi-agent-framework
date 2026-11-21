@@ -98,6 +98,7 @@ function App({ token }) {
   }, [token]);
 
   const section = route.section;
+  useEffect(() => { window.scrollTo(0, 0); }, [section]);   // a new screen starts at its top, not at the old one's scroll
   const creating = section === NEW_SECTION;
   const tree = section === TREE_SECTION;
   const current = allSections().find((s) => s.id === section);
