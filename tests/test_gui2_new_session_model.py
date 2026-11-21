@@ -636,8 +636,7 @@ def test_single_session_rows_use_app_labels_and_the_status_help_has_a_label():
     chat = (STATIC_DIR / "js" / "new-session.js").read_text(encoding="utf-8")
     assert "${choice.provider}:" not in chat and "${choice.provider} ·" not in chat
     assert chat.count("connectionLabel(choice.provider)") == 2
-    picker = (STATIC_DIR / "js" / "model-picker.js").read_text(encoding="utf-8")
-    assert "Estado de Gemini y Copilot ${help.connectionChecks}" in picker
+    assert 'Estado de Gemini y Copilot <${Help} topic="chat.connection_checks"' in chat
 
 
 def test_single_session_status_help_has_a_visible_label():

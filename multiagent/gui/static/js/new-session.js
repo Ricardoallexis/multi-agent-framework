@@ -16,13 +16,14 @@ import { modeHelpEntry } from "./help-text.js";
 import { ModelPicker } from "./model-picker.js";
 import { buildModelPicker } from "./model-picker-model.js";
 import {
-  SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_NOTICE, SECRET_REVIEW_REASON, answerRows, buildLimitNotice,
+  PROJECT_KEY, SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_NOTICE, SECRET_REVIEW_REASON, answerRows, buildLimitNotice,
   cardDescription, connectionLabel, createConversation, createSecretReview, currentQuestion, executorLaunchBody, formSeed, inputsPath,
   interpretBody, isSecretReviewRequired, loadCatalog, originLabel, parseCommand, pickRuns, progress,
   quotaRemainingLines, reduce, runBody, secretResendRequest, selectOrchestratorSuggestion,
   selectSingleExecutorSuggestion, selectSingleModelSuggestion, singleSessionBody, singleSessionModels, suggestedEntries,
 } from "./new-session-model.js";
 import { navigate, routeHref, threadHref, useRoute } from "./route.js";
+import { readNewSessionMode, writeNewSessionMode } from "./shell-state.js";
 import { RunThread } from "./thread.js";
 import { MODE_LABELS, errorText, exampleText, fmtDate, statusInfo } from "./text.js";
 
@@ -222,8 +223,6 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
       <${Help} topic="chat.launch" compact=${true} />
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.edit")} onClick=${onEdit}>Editar</button>
       <${Help} topic="chat.edit" compact=${true} />
-      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.form")} onClick=${onForm}>Ver como formulario</button>
-      <${Help} topic="chat.form" compact=${true} />
     </div>
   </section>`;
 }
@@ -243,11 +242,61 @@ function LimitBanner({ notice, connections, busy, onSelectSuggestion }) {
   </div>`;
 }
 
+// GUI3-T06: the same task box is used by all three flows; its controls only choose or navigate.
+function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows = 2, mode, onMode,
+  modelControl, project, projects, onProject, onExecutor, onForm, error, describedBy = "", onBack, onSkip, inputRef,
+  executorActive = false, maxLength }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuButton = useRef(null);
+  return html`<form class="ns-composer" onSubmit=${(event) => { event.preventDefault(); onSubmit(task); }} aria-busy=${disabled ? "true" : "false"}>
+    <div class="ns-composer-head"><label for="ns-composer-input">${label}</label><${Help} topic="chat.composer" compact=${true} /></div>
+    <textarea id="ns-composer-input" ref=${inputRef} rows=${rows} maxlength=${maxLength} value=${task} placeholder=${placeholder} disabled=${disabled}
+      aria-invalid=${error ? "true" : null} ...${helpFor("chat.composer", { also: [describedBy, error ? "ns-composer-error" : ""].filter(Boolean).join(" ") })}
+      onInput=${(event) => onTask(event.target.value)} onKeyDown=${(event) => {
+        if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+          event.preventDefault(); if (!event.repeat) onSubmit(event.currentTarget.value);
+        }
+      }}></textarea>
+    ${error && html`<p id="ns-composer-error" class="field-error" role="alert">${error}</p>`}
+    <div class="ns-box-controls">
+      <div class="ns-plus-wrap" onKeyDown=${(event) => {
+        // Esc closes the menu from «＋» as well as from inside it, and the focus goes back to «＋». An open help text
+        // inside the wrap closes first (it prevents the default).
+        if (event.key === "Escape" && menuOpen && !event.defaultPrevented) { event.preventDefault(); setMenuOpen(false); menuButton.current?.focus(); }
+      }}><button type="button" ref=${menuButton} class="ns-plus" aria-label="Más opciones" aria-expanded=${menuOpen ? "true" : "false"}
+        ...${helpFor("chat.box_menu")} onClick=${() => setMenuOpen(!menuOpen)}>＋</button>
+        <${Help} topic="chat.box_menu" compact=${true} />
+        ${menuOpen && html`<div class="ns-plus-menu" role="group" aria-label="Opciones de inicio">
+          <button type="button" disabled=${executorActive} ...${helpFor("chat.executor_launch")}
+            onClick=${() => { setMenuOpen(false); onExecutor(); }}>Usar un ejecutor</button>
+          <button type="button" ...${helpFor("chat.form")} onClick=${() => { setMenuOpen(false); onForm(); }}>Ver como formulario</button>
+          <${Help} topic="chat.executor_launch" compact=${true} /><${Help} topic="chat.form" compact=${true} />
+        </div>`}
+      </div>
+      <div class="ns-box-select"><label for="ns-mode-select">Modo</label><select id="ns-mode-select" aria-label="Modo de sesión" value=${mode} ...${helpFor("chat.session_mode")}
+        onChange=${(event) => onMode(event.target.value)}><option value="orchestrator">Orquestador</option>
+        <option value="single">Sesión única</option></select><${Help} topic="chat.session_mode" compact=${true} /></div>
+      ${modelControl}
+      <div class="ns-box-select"><label for="ns-project-select">Proyecto</label><select id="ns-project-select" aria-label="Proyecto" value=${executorActive ? "" : project} disabled=${executorActive}
+        ...${helpFor("chat.project_select")} onChange=${(event) => onProject(event.target.value)}>
+        <option value="">${executorActive ? "No aplica al ejecutor" : "Elegir al confirmar"}</option>
+        ${projects.map((name) => html`<option key=${name} value=${name}>${name}</option>`)}</select>
+        <${Help} topic="chat.project_select" compact=${true} /></div>
+      <button type="submit" class="btn ns-send" disabled=${disabled} ...${helpFor("chat.send")}>Enviar</button>
+      <${Help} topic="chat.send" compact=${true} />
+    </div>
+    ${(onBack || onSkip) && html`<div class="ns-composer-row">
+      ${onBack && html`<button type="button" class="btn secondary" disabled=${disabled} ...${helpFor("chat.back")} onClick=${onBack}>Pregunta anterior</button><${Help} topic="chat.back" compact=${true} />`}
+      ${onSkip && html`<button type="button" class="btn secondary" disabled=${disabled} ...${helpFor("chat.skip")} onClick=${onSkip}>Omitir</button><${Help} topic="chat.skip" compact=${true} />`}
+    </div>`}
+  </form>`;
+}
+
 // SES-T03: one task, one catalog model, then the same run thread as every workflow.
 function SingleSession({
-  token, mock, connections, onBack, initialTask = "", initialProvider = "", onTaskChange = null, onSwitchExecutor = null,
+  token, mock, connections, task, onTaskChange, project, projects, onProject, onMode, onForm,
+  initialProvider = "", onSwitchExecutor = null,
 }) {
-  const [task, setTask] = useState(initialTask);
   const [model, setModel] = useState("");
   const [catalogPreview, setCatalogPreview] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -276,8 +325,7 @@ function SingleSession({
   const selected = choices.some((choice) => choice.models.some((item) => item.id === model));
   const activeLimit = error?.details?.limit || choices.find((choice) => choice.limit)?.limit || null;
   const updateTask = (value) => {
-    setTask(value);
-    if (onTaskChange) onTaskChange(value);
+    onTaskChange(value);
   };
   const selectSuggestion = (item) => {
     const next = selectSingleModelSuggestion(item, choices, task);
@@ -295,7 +343,7 @@ function SingleSession({
     if (!task.trim() || !selected || busy) return;
     setBusy(true); setError(null);
     try {
-      const body = singleSessionBody(task, model);
+      const body = singleSessionBody(task, model, false, project);
       const { project_name, ...previewBody } = body;
       const result = await apiPost(SINGLE_PREVIEW_PATH, token, previewBody);
       setPreview(result); setReady(true);
@@ -306,7 +354,7 @@ function SingleSession({
     if (!ready || !preview || !selected || busy || (!mock && !confirmReal) || (cloudSelected && !confirmCloud)) return;
     setBusy(true); setError(null);
     try {
-      const body = singleSessionBody(task, model, cloudSelected && confirmCloud);
+      const body = singleSessionBody(task, model, cloudSelected && confirmCloud, project);
       const fingerprint = JSON.stringify(body);
       if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: newKey() };
       const run = await apiPost(SINGLE_RUN_PATH, token, {
@@ -317,33 +365,36 @@ function SingleSession({
     } catch (failure) { setError(asError(failure)); setBusy(false); }
   };
   const edit = () => { setReady(false); setPreview(null); setError(null); };
+  const disconnectedCount = buildModelPicker(connections).disconnected.length;
+  const modelControl = html`<div class="ns-box-select"><label for="ns-single-model">Modelo</label><select id="ns-single-model" aria-label="Modelo de sesión única" value=${model}
+    ...${helpFor("chat.single_model")} onChange=${(event) => {
+      if (event.target.value === "connect") { location.hash = routeHref("apps"); return; }
+      setModel(event.target.value); setConfirmCloud(false); edit();
+    }}><option value="">${choices.some((choice) => choice.models.length) ? "Elegir modelo" : "Conecta un modelo"}</option>
+    ${choices.map((choice) => choice.models.map((item) => html`<option key=${item.id} value=${item.id}>${connectionLabel(choice.provider)} · ${item.id}</option>`))}
+    <option value="connect">Conectar otro… (${disconnectedCount} sin conectar)</option></select>
+    <${Help} topic="chat.single_model" compact=${true} /></div>`;
   return html`<div class="ns">
     <div class="ns-intro"><h3 class="ns-title">Sesión única</h3>
       <p class="ns-lead">Describe una tarea sencilla y elige un modelo del paquete general.</p>
-      <button type="button" class="btn secondary" ...${helpFor("chat.session_mode")} onClick=${onBack}>Cambiar modo</button>
-      <${Help} topic="chat.session_mode" compact=${true} /></div>
-    <section class="panel" aria-label="Modelo de la sesión única">
-      <strong>Modelo</strong><${Help} topic="chat.single_model" compact=${true} />
+    </div>
+    <${SessionBox} task=${task} onTask=${(value) => { updateTask(value); edit(); }} onSubmit=${check}
+      disabled=${ready || busy} label="Tarea" placeholder="Describe tu tarea" rows=${5} mode="single" onMode=${onMode}
+      modelControl=${modelControl} project=${project} projects=${projects} onProject=${onProject}
+      onExecutor=${() => onSwitchExecutor("", task)} onForm=${onForm} />
+    <${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />
+    ${mock && html`<p class="muted small ns-mock-note">Modo MOCK: respuestas sintéticas, sin modelos.</p>`}
+    <section class="ns-single-model-details" aria-label="Estado del modelo">
       ${!catalogPreview && !error && html`<p role="status">Leyendo modelos del paquete…</p>`}
-      ${choices.map((choice) => html`<div key=${choice.provider} class="ns-row">
-        ${choice.models.map((item) => html`<label key=${item.id} class="ns-picker-choice">
-          <input type="radio" name="single-model" value=${item.id} checked=${model === item.id}
-            ...${helpFor("chat.single_model")} onChange=${() => { setModel(item.id); setConfirmCloud(false); edit(); }} />
-          <span>${connectionLabel(choice.provider)} · ${item.id}${choice.status ? " · " + choice.status : ""}
-            ${choice.quotaNote && html`<span class="muted small"> · ${choice.quotaNote}</span>`}
-          </span></label>`)}
-        ${choice.reason && html`<p class="muted small">${connectionLabel(choice.provider)}: ${choice.reason}</p>`}
-      </div>`)}
+      ${choices.map((choice) => html`<p key=${choice.provider} class="muted small">${connectionLabel(choice.provider)}${choice.status ? " · " + choice.status : ""}
+        ${choice.quotaNote ? " · " + choice.quotaNote : ""}${choice.reason ? " · " + choice.reason : ""}</p>`)}
       ${catalogPreview && choices.length === 0 && html`<p role="status">No hay proveedores de modelos conectados.</p>`}
       <p class="muted small ns-row">Estado de Gemini y Copilot <${Help} topic="chat.connection_checks" compact=${true} /></p>
     </section>
-    <${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />
-    <div class="ns-composer"><label for="single-task">Tarea</label><${Help} topic="chat.single_task" compact=${true} />
-      <textarea id="single-task" rows="5" value=${task} disabled=${ready || busy}
-        ...${helpFor("chat.single_task")} onInput=${(event) => { updateTask(event.target.value); edit(); }}></textarea></div>
     ${error && html`<p class="message error" role="alert">${errorText(error)}</p>`}
     ${ready && html`<section class="ns-confirm panel" aria-label="Resumen antes de lanzar">
-      <p><strong>Modelo:</strong> ${model}</p><p><strong>Tarea:</strong> ${task}</p>
+      <p><strong>Modelo:</strong> ${model}</p><p><strong>Proyecto:</strong> ${project || "Sesión única"}</p>
+      <p><strong>Tarea:</strong> ${task}</p>
       <${PreviewPanel} preview=${preview} error=${null} loading=${false} />
       ${cloudSelected && html`<label class="check"><input type="checkbox" checked=${confirmCloud}
         ...${helpFor("chat.cloud_confirm")} onChange=${(event) => setConfirmCloud(event.target.checked)} />
@@ -358,16 +409,16 @@ function SingleSession({
       <${Help} topic="chat.edit" compact=${true} />
     </section>`}
     ${!ready && html`<button type="button" class="btn" disabled=${busy || !task.trim() || !selected}
-      ...${helpFor("chat.single_task")} onClick=${check}>Revisar y lanzar</button>`}
+      ...${helpFor("chat.single_task")} onClick=${check}>Revisar y lanzar</button><${Help} topic="chat.single_task" compact=${true} />`}
   </div>`;
 }
 
 // SES-T04: an executor is chosen and reviewed separately from the model-only ask_once flow.
 function SingleExecutorSession({
-  token, connections, connectionLoading, connectionError, onRetry, onBack,
-  initialTask = "", initialExecutorId = "", onTaskChange = null, onSwitchModel = null,
+  token, mock, connections, connectionLoading, connectionError, onRetry, onBack,
+  task, onTaskChange, project, projects, onProject, onMode, onForm,
+  initialExecutorId = "", onSwitchModel = null,
 }) {
-  const [task, setTask] = useState(initialTask);
   const [executorId, setExecutorId] = useState(initialExecutorId);
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
@@ -423,8 +474,7 @@ function SingleExecutorSession({
     (!efforts.length || efforts.includes(effort)) && !busy);
 
   const updateTask = (value) => {
-    setTask(value);
-    if (onTaskChange) onTaskChange(value);
+    onTaskChange(value);
   };
 
   function chooseExecutor(id) {
@@ -485,15 +535,26 @@ function SingleExecutorSession({
     claude_cli: "claude", codex_cli: "codex", copilot_cli: "copilot", antigravity_cli: "antigravity",
   };
   const activeLimit = limitNotice || (selectedConnection?.limit ? buildLimitNotice(selectedConnection.limit, connections) : null);
+  const modelControl = html`<div class="ns-box-select"><label for="ns-executor-model">Modelo</label><select id="ns-executor-model" aria-label="Modelo del ejecutor" value=${model}
+    disabled=${!selectedAvailable || busy} ...${helpFor("chat.executor_launch")}
+    onChange=${(event) => { setModel(event.target.value); edit(); }}><option value="">Elige un modelo</option>
+    ${models.map((value) => html`<option key=${value} value=${value}>${value}</option>`)}</select></div>`;
 
   return html`<div class="ns">
     <div class="ns-intro">
       <h3 class="ns-title">Sesión única con ejecutor</h3>
       <p class="ns-lead">Describe la tarea, elige un ejecutor y revisa cuota y ajustes antes de aprobar el lanzamiento.</p>
       ${!launched && html`<button type="button" class="btn secondary" ...${helpFor("chat.executor_launch")}
-        onClick=${onBack}>Volver a Sesión única con modelo</button>
-        <${Help} topic="chat.executor_launch" compact=${true} />`}
+        onClick=${onBack}>Volver a Sesión única con modelo</button><${Help} topic="chat.executor_launch" compact=${true} />`}
     </div>
+    ${!launched && html`<${SessionBox} task=${task} onTask=${(value) => { updateTask(value); edit(); }}
+      onSubmit=${() => { if (canReview) setReady(true); }} disabled=${ready || busy}
+      label="Tarea" placeholder="Describe tu tarea" rows=${5} maxLength=${4000} executorActive=${true}
+      mode="single" onMode=${onMode}
+      modelControl=${modelControl} project=${project} projects=${projects} onProject=${onProject}
+      onExecutor=${() => {}} onForm=${onForm} />`}
+    <${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />
+    ${mock && html`<p class="muted small ns-mock-note">Modo MOCK: respuestas sintéticas, sin modelos.</p>`}
     ${connectionError && html`<div class="ns-row"><p class="message error" role="alert">${errorText(connectionError)}</p>
       <button type="button" class="btn secondary" ...${helpFor("chat.executor_launch")} onClick=${onRetry}>Reintentar conexiones</button>
       <${Help} topic="chat.executor_launch" compact=${true} /></div>`}
@@ -524,15 +585,6 @@ function SingleExecutorSession({
         })}
       </section>
       <div class="ns-executor-fields">
-        <label>Modelo
-          <select value=${model} disabled=${busy || !selectedAvailable || models.length === 0}
-            ...${helpFor("chat.executor_launch")}
-            onChange=${(event) => { setModel(event.target.value); edit(); }}>
-            <option value="">Elige un modelo</option>
-            ${models.map((value) => html`<option key=${value} value=${value}>${value}</option>`)}
-          </select>
-          <${Help} topic="chat.executor_launch" compact=${true} />
-        </label>
         ${efforts.length > 0 && html`<label>Esfuerzo
           <select value=${effort} disabled=${busy || !selectedAvailable}
             ...${helpFor("chat.executor_launch")}
@@ -543,13 +595,7 @@ function SingleExecutorSession({
           <${Help} topic="chat.executor_launch" compact=${true} />
         </label>`}
       </div>
-      <div class="ns-composer"><label for="single-executor-task">Tarea</label>
-        <${Help} topic="chat.executor_launch" compact=${true} />
-        <textarea id="single-executor-task" rows="5" maxlength="4000" value=${task} disabled=${ready || busy}
-          ...${helpFor("chat.executor_launch")} onInput=${(event) => { updateTask(event.target.value); edit(); }}></textarea>
-      </div>
       ${launchError && html`<p class="message error" role="alert">${errorText(launchError)}</p>`}
-      <${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />
       ${ready && html`<section class="ns-confirm panel" aria-label="Confirmación de lanzamiento">
         <h4>Confirma este lanzamiento</h4>
         <dl class="ns-answers">
@@ -575,7 +621,6 @@ function SingleExecutorSession({
     ${launched && html`<section class="ns-executor-tracking panel" aria-label="Seguimiento del ejecutor">
       <h4>Seguimiento de la tarea</h4>
       ${tracking.error && html`<p class="message error" role="alert">${errorText(tracking.error)}</p>`}
-      ${activeLimit && html`<${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />`}
       ${tracking.data?.task && html`<p role="status">Estado: ${tracking.data.task.state} · ${tracking.data.task.status}</p>`}
       ${(latestAttempt?.outcome || launched.launch?.outcome) && html`<p>Último intento: ${latestAttempt?.outcome || launched.launch?.outcome}</p>`}
       ${(latestAttempt?.evidence || launched.launch?.evidence) && html`<p class="message error" role="alert">
@@ -604,13 +649,14 @@ export function NewSession({ token, mock }) {
   const [catalog, setCatalog] = useState({ entries: [], loading: true, error: null });
   const [connections, setConnections] = useState({ data: null, loading: true, error: null });
   const [selectedConnection, setSelectedConnection] = useState(null);
-  const [sessionKind, setSessionKind] = useState(restored ? restored.sessionKind : null); // SES-T03: ask the mode before either flow.
+  const [sessionKind, setSessionKind] = useState(restored ? restored.sessionKind : readNewSessionMode());
   const [draft, setDraft] = useState(restored ? restored.draft : "");
+  const [project, setProject] = useState("");
+  const [projects, setProjects] = useState([]);
   const [busy, setBusy] = useState(false);
   const [pendingCloud, setPendingCloud] = useState(null);
   const [pendingSecret, setPendingSecret] = useState(restored ? restored.pendingSecret : null);
   const [limitNotice, setLimitNotice] = useState(null);
-  const [singleTask, setSingleTask] = useState("");
   const [singleExecutorId, setSingleExecutorId] = useState("");
   const [singleProvider, setSingleProvider] = useState("");
   const [runs, setRuns] = useState(null);
@@ -630,6 +676,20 @@ export function NewSession({ token, mock }) {
   const endMark = useRef(null);
   const confirmBox = useRef(null);
   const firstFocus = useRef(true);
+
+  function chooseMode(value) {
+    const next = value === "single" ? "single" : "orchestrator";
+    writeNewSessionMode(next);
+    setSessionKind(next);
+  }
+
+  function chooseProject(value) {
+    setProject(value);
+    if (store.current.workflow) {
+      dispatch({ type: "project", project: value });
+      if (currentQuestion(store.current)?.key === PROJECT_KEY) setDraft(value);
+    }
+  }
 
   // Every change of the conversation goes through the pure reducer; this returns the new state at once. The writing box is
   // refilled in the same render (the answer already given after «Editar» or «Pregunta anterior», empty otherwise), so the
@@ -670,6 +730,15 @@ export function NewSession({ token, mock }) {
 
   useEffect(() => {
     if (!runId) refreshConnections();
+  }, [token, runId]);
+
+  useEffect(() => {
+    if (runId) return;
+    let active = true;
+    apiGet("/gui/api/runs?limit=50", token).then((runs) => {
+      if (active) setProjects([...new Set((Array.isArray(runs) ? runs : []).map((run) => run.project_name).filter(Boolean))]);
+    }, () => {});
+    return () => { active = false; };
   }, [token, runId]);
 
   const question = currentQuestion(conv);
@@ -905,7 +974,7 @@ export function NewSession({ token, mock }) {
     setRoutingOverrides({});
     try {
       const spec = await apiGet(inputsPath(entry), token);
-      dispatch({ type: "pick", workflow: entry, spec });
+      dispatch({ type: "pick", workflow: entry, spec, project });
     } catch (failure) {
       dispatch({ type: "notice", text: "No se pudieron leer las entradas de «" + entry.id + "»: " + errorText(asError(failure)) }, { keepDraft: true });
     } finally { setBusy(false); }
@@ -936,11 +1005,15 @@ export function NewSession({ token, mock }) {
   }
 
   function openForm() {
-    if (Object.values(routingOverrides).some((override) => Object.keys(override).length > 0)) {
+    if (sessionKind === "orchestrator" && Object.values(routingOverrides).some((override) => Object.keys(override).length > 0)) {
       setLaunchError(new ApiError({ message: "No se puede abrir el formulario porque no admite estos ajustes de modelo/esfuerzo. Revierte los cambios primero." }));
       return;
     }
-    setFormInitial(formSeed(store.current, { mode, sensitive }));
+    const seed = sessionKind === "orchestrator" ? formSeed(store.current, { mode, sensitive }) : {
+      bundle: "general", workflowId: "ask_once", project: project || "Sesión única",
+      values: { task: draft }, mode: "auto", sensitive: false,
+    };
+    setFormInitial(seed ? { ...seed, project: project || seed.project } : { project });
     setView("form");
   }
 
@@ -957,58 +1030,40 @@ export function NewSession({ token, mock }) {
 
   function pickOrchestratorSuggestion(item) {
     const next = selectOrchestratorSuggestion(item, draft);
+    if (item?.kind === "executor") {
+      setSingleExecutorId(item.id);
+      chooseMode("single");
+      setSessionKind("single-executor");
+      return;
+    }
     setSelectedConnection(next.selectedConnection);
     setDraft(next.draft);
   }
 
-  // Intro sends, Mayús+Intro makes a new line. A key held down (repeat) is not a second answer.
-  const keyDown = (event) => {
-    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
-    event.preventDefault();
-    if (!event.repeat) submit(event.currentTarget.value);
-  };
-  const typing = (event) => {
-    setDraft(event.target.value);
+  const typing = (value) => {
+    setDraft(value);
     if (store.current.error) dispatch({ type: "typing" }, { keepDraft: true });      // the message was about the old text
   };
 
   if (runId) return html`<${RunThread} key=${runId} token=${token} runId=${runId} />`;
 
-  // SES-T03: the orchestrator flow below keeps its existing state and ordering.
-  if (sessionKind === null) return html`<div class="ns ns-intro"><h3 class="ns-title">¿Cómo quieres empezar?</h3>
-    <p class="ns-lead">Elige el tipo de sesión antes de describir tu tarea.</p>
-    <div class="actions"><button type="button" class="btn" ...${helpFor("chat.session_mode")}
-      onClick=${() => setSessionKind("orchestrator")}>Orquestador</button>
-      <button type="button" class="btn secondary" ...${helpFor("chat.session_mode")}
-        onClick=${() => setSessionKind("single")}>Sesión única</button></div>
-    <${Help} topic="chat.session_mode" compact=${true} /></div>`;
-  if (sessionKind === "single") return html`<div class="ns">
-    <div class="ns-row"><button type="button" class="btn secondary" ...${helpFor("chat.executor_launch")}
-      onClick=${() => setSessionKind("single-executor")}>Usar un ejecutor</button>
-      <${Help} topic="chat.executor_launch" compact=${true} /></div>
-    <${SingleSession} token=${token} mock=${mock} connections=${connections.data}
-      initialTask=${singleTask} initialProvider=${singleProvider} onTaskChange=${setSingleTask}
-      onSwitchExecutor=${(executorId, keptTask) => {
-        setSingleTask(keptTask);
-        setSingleExecutorId(executorId);
-        setSessionKind("single-executor");
-      }}
-      onBack=${() => setSessionKind(null)} />
-  </div>`;
-  if (sessionKind === "single-executor") return html`<${SingleExecutorSession} token=${token}
-    connections=${connections.data} connectionLoading=${connections.loading} connectionError=${connections.error}
-    initialTask=${singleTask} initialExecutorId=${singleExecutorId} onTaskChange=${setSingleTask}
-    onSwitchModel=${(provider, keptTask) => {
-      setSingleTask(keptTask);
-      setSingleProvider(provider);
-      setSessionKind("single");
-    }}
-    onRetry=${refreshConnections} onBack=${() => setSessionKind("single")} />`;
-
   if (view === "form") {
     return html`<${CreateRun} token=${token} mock=${mock} initial=${formInitial}
       onClose=${() => setView("chat")} onCreated=${(run) => navigate("runs", run.id)} />`;
   }
+  if (sessionKind === "single") return html`<${SingleSession} token=${token} mock=${mock} connections=${connections.data}
+    task=${draft} onTaskChange=${setDraft} project=${project} projects=${projects} onProject=${chooseProject}
+    onMode=${chooseMode} onForm=${openForm} initialProvider=${singleProvider}
+    onSwitchExecutor=${(executorId, keptTask) => {
+      setDraft(keptTask); setSingleExecutorId(executorId); setSessionKind("single-executor");
+    }} />`;
+  if (sessionKind === "single-executor") return html`<${SingleExecutorSession} token=${token} mock=${mock}
+    connections=${connections.data} connectionLoading=${connections.loading} connectionError=${connections.error}
+    task=${draft} onTaskChange=${setDraft} project=${project} projects=${projects} onProject=${chooseProject}
+    onMode=${chooseMode} onForm=${openForm} initialExecutorId=${singleExecutorId}
+    onSwitchModel=${(provider, keptTask) => {
+      setDraft(keptTask); setSingleProvider(provider); setSessionKind("single");
+    }} onRetry=${refreshConnections} onBack=${() => setSessionKind("single")} />`;
 
   const { n, total } = progress(conv);
   const suggestions = suggestedEntries(conv, catalog.entries);
@@ -1025,31 +1080,37 @@ export function NewSession({ token, mock }) {
     choice: html`<${Help} topic="chat.model_choice" compact=${true} />`,
     disconnected: html`<${Help} topic="chat.model_disconnected" compact=${true} />`,
     retry: html`<${Help} topic="chat.model_retry" compact=${true} />`,
-    connectionChecks: html`<${Help} topic="chat.connection_checks" compact=${true} />`,
+    connect: html`<${Help} topic="chat.connect_other" compact=${true} />`,
   };
+  const modelControl = html`<${ModelPicker} connections=${connections.data} selectedId=${selectedConnection}
+    onSelect=${setSelectedConnection} loading=${connections.loading} error=${connections.error}
+    onRetry=${refreshConnections} onConnect=${() => { location.hash = routeHref("apps"); }} help=${pickerHelp} />`;
+  const noConnectedModels = !connections.loading && buildModelPicker(connections.data).models.length === 0;
 
   return html`<div class="ns">
-    <button type="button" class="btn secondary" ...${helpFor("chat.session_mode")}
-      onClick=${() => setSessionKind(null)}>Cambiar modo</button>
-    <${Help} topic="chat.session_mode" compact=${true} />
     <div class="ns-intro">
       <h3 class="ns-title">¿Qué quieres hacer?</h3>
       <p class="ns-lead">Escribe en tus palabras lo que necesitas, o elige una opción. Te guío paso a paso y nada se ejecuta sin que lo confirmes.</p>
       <${Help} topic="chat.welcome" />
     </div>
-    <${ModelPicker} connections=${connections.data} selectedId=${selectedConnection} onSelect=${setSelectedConnection}
-      loading=${connections.loading} error=${connections.error} onRetry=${refreshConnections} help=${pickerHelp} />
-    ${isRegisteredView("apps") && html`<div class="ns-row">
-      <a class="btn secondary small" href=${routeHref("apps")} ...${helpFor("chat.connect_other")}>Conectar otro</a>
-      <${Help} topic="chat.connect_other" compact=${true} />
-    </div>`}
+    <${SessionBox} task=${draft} onTask=${typing} onSubmit=${submit}
+      disabled=${busy || pendingCloud || pendingSecret || conv.phase === "launched"} label=${label}
+      placeholder=${placeholder} rows=${rows} mode="orchestrator" onMode=${chooseMode}
+      modelControl=${modelControl} project=${project} projects=${projects} onProject=${chooseProject}
+      onExecutor=${() => { writeNewSessionMode("single"); setSingleExecutorId(""); setSessionKind("single-executor"); }} onForm=${openForm}
+      error=${conv.error} describedBy=${describedBy} inputRef=${composer}
+      onBack=${canBack ? () => dispatch({ type: "back" }) : null}
+      onSkip=${canSkip ? () => dispatch({ type: "skip" }) : null} />
+    ${noConnectedModels && html`${isRegisteredView("apps") && html`<a class="btn secondary small" href=${routeHref("apps")}
+      ...${helpFor("chat.connect_other")}>Conectar otro</a>`}`}
+    <${LimitBanner} notice=${limitNotice} connections=${connections.data} busy=${busy} onSelectSuggestion=${pickOrchestratorSuggestion} />
+    ${mock && html`<p class="muted small ns-mock-note">Modo MOCK: respuestas sintéticas, sin modelos.</p>`}
     ${conv.phase === "welcome" && html`<${Starters} disabled=${busy} onPick=${chooseStarter} />`}
     ${(conv.phase === "welcome" || conv.phase === "choose") && html`<p class="muted small" role="status" aria-live="polite">${status}</p>`}
     ${catalog.error && html`<div class="ns-row"><p class="message error" role="alert">No se pudo leer la lista de workflows: ${errorText(catalog.error)}</p>
       <button type="button" class="btn secondary" ...${helpFor("chat.retry")} onClick=${() => { startCatalog(); if (composer.current) composer.current.focus(); }}>Reintentar</button>
       <${Help} topic="chat.retry" compact=${true} /></div>`}
     <${Messages} messages=${conv.messages} />
-    <${LimitBanner} notice=${limitNotice} connections=${connections.data} busy=${busy} onSelectSuggestion=${pickOrchestratorSuggestion} />
     ${pendingCloud && html`<div class="ns-msg ns-bot" role="group" aria-label="Confirmación de envío a la nube">
       <p>¿Enviar este texto a ${pendingCloud.interpretation.model} (nube)?</p>
       <div class="actions">
@@ -1082,31 +1143,10 @@ export function NewSession({ token, mock }) {
         routingOverrides, setRoutingOverrides }}
       onLaunch=${launch} onEdit=${() => dispatch({ type: "edit" })} onForm=${openForm} />`}
     <div class="ns-end" ref=${endMark}></div>
-    <form class="ns-composer" onSubmit=${(event) => { event.preventDefault(); submit(draft); }} aria-busy=${busy ? "true" : "false"}>
-      <div class="ns-composer-head"><label for="ns-composer-input">${label}</label><${Help} topic="chat.composer" compact=${true} /></div>
-      <textarea id="ns-composer-input" ref=${composer} rows=${rows} value=${draft} placeholder=${placeholder}
-        disabled=${busy || pendingCloud || pendingSecret || conv.phase === "launched"} aria-invalid=${conv.error ? "true" : null}
-        ...${helpFor("chat.composer", { also: [describedBy, conv.error ? "ns-composer-error" : ""].filter(Boolean).join(" ") })}
-        onInput=${typing} onKeyDown=${keyDown}></textarea>
-      ${conv.error && html`<p id="ns-composer-error" class="field-error" role="alert">${conv.error}</p>`}
-      <div class="ns-composer-row">
-        ${canBack && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.back")}
-          onClick=${() => dispatch({ type: "back" })}>Pregunta anterior</button>
-          <${Help} topic="chat.back" compact=${true} />`}
-        ${canSkip && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.skip")}
-          onClick=${() => dispatch({ type: "skip" })}>Omitir</button>
-          <${Help} topic="chat.skip" compact=${true} />`}
-        <button type="submit" class="btn ns-send" disabled=${busy || pendingSecret || conv.phase === "launched"} ...${helpFor("chat.send")}>Enviar</button>
-        <${Help} topic="chat.send" compact=${true} />
-      </div>
-    </form>
     <div class="ns-tools">
       ${conv.phase !== "welcome" && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.restart")}
         onClick=${restart}>Empezar de nuevo</button>
         <${Help} topic="chat.restart" compact=${true} />`}
-      ${conv.phase !== "confirm" && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.form")}
-        onClick=${openForm}>Ver como formulario</button>
-        <${Help} topic="chat.form" compact=${true} />`}
     </div>
   </div>`;
 }

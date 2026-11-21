@@ -100,3 +100,14 @@ export function readCardModes() {
 export function writeCardModes(modes) {
   writeStored(CONTEXT_CARDS_KEY, JSON.stringify(normalizeModes(modes)));
 }
+
+// GUI3-T06: the entry box starts in the last chosen mode, even when storage is blocked.
+const NEW_SESSION_MODE_KEY = "multiagent.gui.new-session-mode";
+
+export function readNewSessionMode() {
+  return readStored(NEW_SESSION_MODE_KEY) === "single" ? "single" : "orchestrator";
+}
+
+export function writeNewSessionMode(mode) {
+  writeStored(NEW_SESSION_MODE_KEY, mode === "single" ? "single" : "orchestrator");
+}

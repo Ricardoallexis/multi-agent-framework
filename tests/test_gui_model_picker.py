@@ -85,15 +85,14 @@ def test_picker_is_wired_to_read_only_connections_and_has_phone_rules():
     assert 'apiGet("/gui/api/connections", token)' in view
     assert "<${ModelPicker}" in view
     assert "apiPost(" not in component
-    assert "No conectados (" in component and 'type="radio"' in component
-    assert 'helpFor("chat.model_choice")' in component
+    assert "Sin conectar (" in component and '<select id="ns-model-select"' in component
+    assert "picker.models.map" in component and "picker.disconnected.length" in component
+    assert 'value="connect"' in component and "onConnect()" in component
     assert 'helpFor("chat.model_disconnected")' in component
     assert 'helpFor("chat.model_retry")' in component
-    assert 'group("Modelos", picker.models)' in component and 'group("Ejecutores", picker.executors)' in component
+    assert "picker.executors.map" not in component   # executor choice remains behind the ＋ menu
     assert "/* SES-T02:" in css and "@media (max-width: 599.98px)" in css
-    # app.css gives every input full width and a touch-target height; the picker radio keeps its own size.
-    radio = re.search(r"\.ns-picker-choice input\s*\{([^}]*)\}", css)
-    assert radio and "width: auto" in radio.group(1) and "min-height: 0" in radio.group(1)
+    assert "min-height: var(--target)" in re.search(r"\.ns-box-select select, \.ns-model-select select\s*\{([^}]*)\}", css).group(1)
     assert "innerHTML" not in view + component
 
 
@@ -206,7 +205,7 @@ def test_picker_scripts_pass_node_check_and_render_warning_and_gemini_quota():
     component = (JS / "model-picker.js").read_text(encoding="utf-8")
     assert "item.verificationLabel" in component
     assert "item.warning" in component
-    assert 'item.id === "gemini"' in component
+    assert "selected.quota.map" in component and "item.quota.map" in component
     for filename in ("model-picker-model.js", "model-picker.js"):
         checked = subprocess.run([NODE, "--check", str(JS / filename)], capture_output=True, text=True, timeout=60)
         assert checked.returncode == 0, checked.stderr

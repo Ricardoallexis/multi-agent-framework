@@ -169,6 +169,33 @@
 .ns-executor-fields select { width: 100%; min-width: 0; }
 .ns-executor-tracking p { margin: 0; overflow-wrap: anywhere; }
 
+/* GUI3-T06: one task box with mode, model and project below the text. The row lines up by the top: «Modelo» can show a
+   line under its select, and the three selects stay level; «＋» and «Enviar» drop by the height of a label. */
+.ns-composer { position: relative; bottom: auto; z-index: 1; }
+.ns-box-controls { display: flex; flex-wrap: wrap; align-items: start; gap: 8px; min-width: 0; }
+.ns-box-select, .ns-model-select { display: flex; flex: 1 1 9rem; flex-direction: column; gap: 3px; min-width: 0; color: var(--muted); font-size: .8125rem; }
+.ns-box-select select, .ns-model-select select { min-width: 0; width: 100%; min-height: var(--target); padding: 8px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+.ns-box-select > label, .ns-model-select > label { margin: 0; line-height: 1.25rem; }
+.ns-model-select p { margin: 2px 0 0; overflow-wrap: anywhere; }
+.ns-model-select .ns-picker-notice { color: var(--warn); }
+.ns-plus-wrap { position: relative; margin-top: calc(1.25rem + 3px); }
+.ns-plus { min-width: var(--target); min-height: var(--target); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: 1.3rem; cursor: pointer; }
+.ns-plus:hover, .ns-plus-menu button:hover { background: var(--hover); }
+.ns-plus-menu { position: absolute; left: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column;
+  width: max-content; max-width: min(20rem, 88vw); padding: 4px; border: 1px solid var(--line-strong);
+  border-radius: 10px; background: var(--panel); box-shadow: 0 8px 20px rgb(0 0 0 / .12); }
+.ns-plus-menu button { min-height: var(--target); padding: 8px 12px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.ns-box-controls .ns-send { margin-top: calc(1.25rem + 3px); min-height: var(--target); }
+.ns-mock-note { margin: -8px 0 0; }
+.ns-single-model-details p { margin: 2px 0; }
+@media (max-width: 599.98px) {
+  .ns-box-select, .ns-model-select { flex-basis: calc(50% - 8px); }
+  .ns-box-controls .ns-send { margin-top: 0; margin-left: auto; } /* alone on its own line here */
+}
+
 /* CHT-T06: the plan thread and the inputs of each task (the long text uses .thread-readable-text, which already scrolls). */
 .plan-task-list { display: flex; flex-direction: column; gap: 12px; min-width: 0; margin: 8px 0; padding-left: 20px; }
 .plan-task-list li { min-width: 0; overflow-wrap: anywhere; }

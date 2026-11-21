@@ -206,7 +206,7 @@ def test_controls_and_shell_navigation_meet_target_height_and_wrap():
 # --- 2. One static check per view in the specification -------------------------------------------------------------
 
 def test_view_new_session_rwd():
-    """Nueva sesión: chat cards, routing selectors, composer, and classic create-run form adapt cleanly down to 360 px.
+    """Nueva sesión: one box, selectors, chat and classic create-run form adapt down to 360 px.
 
     Manual QA at 390 px and 768 px: open #new, step through workflow cards, routing selects, and 'Ver como formulario'."""
     ns_css = read_sheet(STATIC_DIR / "new-session.css")
@@ -215,8 +215,13 @@ def test_view_new_session_rwd():
     assert "min-width: 0" in rule(ns_css, ".ns-question")
     assert "min-width: 0" in rule(ns_css, ".ns-confirm")
     assert "min-width: 0" in rule(ns_css, ".ns-routing")
+    assert "flex-wrap: wrap" in rule(ns_css, ".ns-box-controls")
+    for selector in (".ns-box-select", ".ns-model-select"):
+        assert "min-width: 0" in rule(ns_css, selector)
     assert "flex-wrap: wrap" in rule(ns_css, ".ns-route-chip") and "max-width: 100%" in rule(ns_css, ".ns-route-chip")
     phone = all_media(ns_css, PHONE_QUERY)
+    for selector in (".ns-box-select", ".ns-model-select"):
+        assert "flex-basis: calc(50% - 8px)" in rule(phone, selector)
     assert "width: 100%" in rule(phone, ".ns-route-chip")
     assert "max-width: 100%" in rule(phone, ".ns-route-chip select")
 

@@ -268,6 +268,9 @@ def test_every_hit_area_is_44px_or_more():
         body = rule(css + (STATIC_DIR / "subagents-panel.css").read_text(encoding="utf-8"), selector)
         assert re.search(r"min-height:\s*(var\(--target\)|44px)", body), selector
     assert "min-height: var(--target)" in rule(css, 'input:not([type="checkbox"])')
+    new_session = (STATIC_DIR / "new-session.css").read_text(encoding="utf-8")
+    for selector in (".ns-plus", ".ns-plus-menu button", ".ns-box-select select", ".ns-model-select select"):
+        assert "min-height: var(--target)" in rule(new_session, selector), selector
     assert re.search(r"width:\s*1\.25rem", rule(css, 'input[type="checkbox"]')) and "inset: -10px" in rule(css, ".help-toggle::after")
 
 

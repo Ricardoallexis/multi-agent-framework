@@ -74,9 +74,9 @@ export function singleSessionModels(connections, routing) {
   });
 }
 
-export function singleSessionBody(task, model, confirmCloud = false) {
+export function singleSessionBody(task, model, confirmCloud = false, project = "") {
   return {
-    workflow_id: "ask_once", bundle: "general", project_name: "Sesión única",
+    workflow_id: "ask_once", bundle: "general", project_name: String(project).trim() || "Sesión única",
     inputs: { task: String(task).trim() }, execution_mode: "auto", sensitive: false,
     routing_preferences: { answer: { mode: "single", model } },
     ...(confirmCloud ? { confirm_cloud: true } : {}),
@@ -548,12 +548,17 @@ function onPick(state, action) {
   const questions = buildQuestions(spec);
   const answers = prefilledAnswers(state, workflow, questions);
   const prefilled = Object.keys(answers).length;
+  // GUI3-T06: the project chosen in the box fills its answer, and its question stays in the flow to confirm it. A project
+  // that only the model proposed is checked in the summary, as before.
+  const fromBox = String(action.project || "").trim();
+  if (fromBox) answers[PROJECT_KEY] = fromBox;
+  const confirmFromBox = (key) => Boolean(fromBox) && key === PROJECT_KEY;
   const next = say(say(state, "user", "Elijo «" + workflow.id + "»"), "assistant",
     prefilled ? "Perfecto. Usé la propuesta del modelo para " + prefilled + (prefilled === 1 ? " respuesta" : " respuestas") + "; compruébalas." : "Perfecto. Te pregunto lo necesario, una cosa a la vez.");
-  const first = questions.findIndex((question) => question.required && !answers[question.key]);
+  const first = questions.findIndex((question) => question.required && (confirmFromBox(question.key) || !answers[question.key]));
   const started = {
     ...next, phase: first === -1 && prefilled ? "confirm" : "ask", index: first === -1 ? 0 : first, error: "", answers,
-    pendingPrefill: Object.keys(answers),
+    pendingPrefill: Object.keys(answers).filter((key) => !confirmFromBox(key)),
     workflow: { id: workflow.id, bundle: workflow.bundle || null, description: spec.description || workflow.description || "" },
     questions, inputNames: (spec.inputs || []).map((item) => item.name),
   };
@@ -589,6 +594,14 @@ export function reduce(state, action) {
     }
     case "command": return onCommand(state, action);
     case "pick": return onPick(state, action);
+    case "project": {
+      const project = String(action.project || "").trim();
+      const next = { ...state, answers: { ...state.answers, [PROJECT_KEY]: project } };
+      if (state.phase === "confirm" && !project) {
+        return { ...next, phase: "ask", index: state.questions.findIndex((question) => question.key === PROJECT_KEY), error: "" };
+      }
+      return next;
+    }
     case "show_all": {
       const shown = say(state, "assistant", "Estos son todos los workflows disponibles.");
       return { ...shown, phase: "choose", source: "", proposal: null, suggestions: everyone(action.catalog), showAll: true };

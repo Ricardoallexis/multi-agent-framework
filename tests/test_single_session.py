@@ -24,6 +24,16 @@ GENERAL = ROOT / "examples" / "bundles" / "general"
 MODEL = ROOT / "multiagent" / "gui" / "static" / "js" / "new-session-model.js"
 
 
+def test_single_session_enters_through_one_box_and_executor_still_requires_review():
+    view = (MODEL.parent / "new-session.js").read_text(encoding="utf-8")
+    assert 'option value="single">Sesión única</option>' in view
+    assert view.count('<textarea id="ns-composer-input"') == 1
+    assert "Usar un ejecutor" in view[view.index('class="ns-plus-menu"'):view.index('</div>`}', view.index('class="ns-plus-menu"'))]
+    assert 'onSubmit=${() => { if (canReview) setReady(true); }}' in view
+    assert 'disabled=${busy || !canReview}' in view
+    assert 'onClick=${launch}>${busy ? "Lanzando…" : "Aprobar y lanzar"}' in view
+
+
 @pytest.fixture
 def app(tmp_path):
     settings = Settings(_env_file=None, local_dir=tmp_path / "local", worker_enabled=False,
@@ -257,6 +267,8 @@ def test_pure_model_only_offers_connected_catalog_candidates():
       if (noGeminiKey[1].models.length) throw Error('cloud model offered without a configured connection');
       const body = singleSessionBody('  hola  ', 'local_default');
       if (body.inputs.task !== 'hola' || body.routing_preferences.answer.mode !== 'single') throw Error('wrong body');
+      if (singleSessionBody('hola', 'local_default', false, 'Proyecto elegido').project_name !== 'Proyecto elegido')
+        throw Error('project selector did not reach ask_once');
       if (singleSessionBody('hola', 'cloud_fast', true).confirm_cloud !== true) throw Error('cloud confirmation missing');
     """
     result = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True)

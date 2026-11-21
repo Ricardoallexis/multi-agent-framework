@@ -1953,6 +1953,16 @@ export const HELP = {
       "«Pasos» muestra el avance y los contadores; «Resultados» reúne las salidas por paso e intento.",
       "«Detalles» guarda el historial humano, las entradas y los eventos técnicos."
     ]
+  },
+  "chat.box_menu": {
+    "title": "Más opciones",
+    "hint": "Abre las otras formas de empezar.",
+    "more": ["Puedes usar un ejecutor o abrir el formulario completo.", "Elegir una opción no lanza nada."]
+  },
+  "chat.project_select": {
+    "title": "Proyecto de la sesión",
+    "hint": "Elige un proyecto reciente o confírmalo durante el flujo.",
+    "more": ["La pregunta de proyecto sigue en el flujo guiado.", "Puedes corregir el nombre antes de lanzar.", "El lanzamiento con ejecutor no usa proyectos."]
   }
 };
 

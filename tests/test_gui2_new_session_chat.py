@@ -183,13 +183,13 @@ def test_the_real_model_checkbox_is_kept_as_in_the_form():
 
 def test_composer_keyboard_focus_and_labels():
     chat = source("new-session.js")
-    keydown = chat[chat.index("const keyDown"):chat.index("const typing")]
-    assert 'event.key !== "Enter"' in keydown and "event.shiftKey" in keydown and "event.isComposing" in keydown
+    keydown = chat[chat.index("function SessionBox"):chat.index("// SES-T03:")]
+    assert 'event.key === "Enter"' in keydown and "!event.shiftKey" in keydown and "!event.isComposing" in keydown
     assert "event.preventDefault()" in keydown and "!event.repeat" in keydown        # Intro sends; held key and IME do not
     assert re.search(r'<label for="ns-composer-input">', chat) and 'id="ns-composer-input"' in chat
     assert '<form class="ns-composer"' in chat and 'type="submit"' in chat
     assert "(pointer: fine)" in chat                                   # no soft keyboard forced open on a touch screen
-    assert 'role="alert"' in chat and 'aria-invalid=${conv.error ? "true" : null}' in chat
+    assert 'role="alert"' in chat and 'aria-invalid=${error ? "true" : null}' in chat
     assert "ns-composer-error" in chat and "ns-q-desc" in chat         # the box is described by the question and the error
     assert chat.count('aria-live="polite"') >= 1 and 'role="group" aria-label="Opciones de inicio"' in chat
     assert 'tabindex="-1" ref=${boxRef}' in chat

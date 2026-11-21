@@ -6,48 +6,36 @@ import { helpFor } from "./help.js";
 import { buildModelPicker } from "./model-picker-model.js";
 import { errorText, fmtDate } from "./text.js";
 
-function Choice({ item, selectedId, onSelect }) {
-  return html`<label class=${"ns-picker-choice" + (item.selectable ? "" : " ns-picker-unavailable")}>
-    <input type="radio" name="ns-model-choice" value=${item.id} checked=${selectedId === item.id}
-      disabled=${!item.selectable} ...${helpFor("chat.model_choice")}
-      onChange=${() => onSelect(item.id)} />
-    <span class="ns-picker-facts"><strong>${item.label}${item.verificationLabel ? " · " + item.verificationLabel : ""}</strong>
-      ${item.reason && html`<span class="ns-picker-reason">${item.reason}</span>`}
-      <span class="muted small">Comprobado: ${item.checkedAt ? fmtDate(item.checkedAt) : "sin fecha"}</span>
-      ${(item.kind === "executor" || item.id === "gemini") && item.quota.map((line) => html`<span class="muted small" key=${line}>${line}</span>`)}
-      ${item.warning && html`<span class="ns-picker-notice">${item.warning}</span>`}
-      ${item.agyNotice && html`<span class="ns-picker-notice">${item.agyNotice}</span>`}
-    </span>
-  </label>`;
-}
-
-export function ModelPicker({ connections, selectedId, onSelect, loading, error, onRetry, help }) {
+export function ModelPicker({ connections, selectedId, onSelect, loading, error, onRetry, onConnect, help = {} }) {
   const picker = buildModelPicker(connections, selectedId);
-  const group = (label, items) => html`<fieldset class="ns-picker-group">
-    <legend>${label}</legend>
-    ${items.length === 0 && html`<span class="muted small">Sin opciones conectadas.</span>`}
-    ${items.map((item) => html`<${Choice} key=${item.id} item=${item} selectedId=${picker.selectedId} onSelect=${onSelect} />`)}
-  </fieldset>`;
-  return html`<section class="ns-picker" aria-label="Modelos y ejecutores conectados">
-    <div class="ns-row"><strong>Modelos y ejecutores conectados</strong>${help.picker}</div>
+  const selected = picker.models.find((item) => item.id === picker.selectedId);
+  return html`<div class="ns-model-select">
+    <label for="ns-model-select">Modelo</label>
+    <select id="ns-model-select" value=${picker.selectedId || ""} ...${helpFor("chat.model_picker")}
+      onChange=${(event) => event.target.value === "connect" ? onConnect() : onSelect(event.target.value || null)}>
+      <option value="">${picker.models.length ? "Elegir modelo" : "Conecta un modelo"}</option>
+      ${picker.models.map((item) => html`<option key=${item.id} value=${item.id}>${item.label}${item.verificationLabel ? " · " + item.verificationLabel : ""}</option>`)}
+      <option value="connect">Conectar otro… (${picker.disconnected.length} sin conectar)</option>
+    </select>
+    ${help.picker}${help.connect}
     ${loading && html`<p role="status" class="muted small">Comprobando conexiones…</p>`}
     ${error && html`<div class="ns-row"><p role="alert" class="message error">${errorText(error)}</p>
-      <button type="button" class="btn secondary" ...${helpFor("chat.model_retry")} onClick=${onRetry}>Reintentar</button>
-      ${help.retry}
-    </div>`}
-    ${!loading && !error && html`
-      ${picker.empty && html`<p class="muted small" role="status">${picker.empty}</p>`}
-      ${group("Modelos", picker.models)}
-      ${group("Ejecutores", picker.executors)}
-      ${picker.disconnected.length > 0 && html`<details class="ns-picker-disconnected">
-        <summary ...${helpFor("chat.model_disconnected")}>No conectados (${picker.disconnected.length})</summary>
-        ${help.disconnected}
-        <div class="ns-picker-choices">
-          ${picker.disconnected.map((item) => html`<${Choice} key=${item.id} item=${item} selectedId=${picker.selectedId} onSelect=${onSelect} />`)}
-        </div>
-      </details>`}
-      ${help.choice}
-      ${help.connectionChecks && html`<p class="muted small ns-row">Estado de Gemini y Copilot ${help.connectionChecks}</p>`}
-    `}
-  </section>`;
+      <button type="button" class="btn secondary" ...${helpFor("chat.model_retry")} onClick=${onRetry}>Reintentar</button></div>`}
+    ${error && help.retry}
+    ${!loading && !error && !picker.models.length && html`<p class="ns-picker-notice" role="status">Conecta un modelo para usarlo.</p>`}
+    ${selected && html`<p class="muted small ns-model-facts">${selected.label} · ${selected.verificationLabel || "Conectado"} · Comprobado: ${selected.checkedAt ? fmtDate(selected.checkedAt) : "sin fecha"}
+      ${selected.quota.map((line) => html`<span key=${line}> · ${line}</span>`)}
+      ${selected.warning && html`<span class="ns-picker-notice"> · ${selected.warning}</span>`}
+    </p>`}
+    ${selected && help.choice}
+    ${picker.disconnected.length > 0 && html`<details class="ns-picker-disconnected">
+      <summary ...${helpFor("chat.model_disconnected")}>Sin conectar (${picker.disconnected.length})</summary>
+      ${help.disconnected}
+      ${picker.disconnected.map((item) => html`<p key=${item.id} class="muted small">${item.label} · ${item.reason}
+        ${item.quota.map((line) => html`<span key=${line}> · ${line}</span>`)}
+        ${item.warning && html`<span> · ${item.warning}</span>`}
+        ${item.agyNotice && html`<span> · ${item.agyNotice}</span>`}
+      </p>`)}
+    </details>`}
+  </div>`;
 }
