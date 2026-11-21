@@ -247,7 +247,9 @@ def test_stylesheet_has_dark_mode_neutral_tokens_one_accent_and_the_plex_font_st
     dark = media(sheet, "(prefers-color-scheme: dark)")
     for token in ("--bg:", "--panel:", "--chrome:", "--hover:", "--text:", "--muted:", "--line:", "--accent:", "--accent-soft:", "--warn-soft:"):
         assert token in dark, token
-    assert len(re.findall(r"--accent:", sheet)) == 2          # one neutral action colour, in light and in dark
+    palettes = sheet.index(".app[data-accent=")
+    assert len(re.findall(r"--accent:", sheet[:palettes])) == 2   # one neutral action colour in :root, in light and in dark
+    assert len(re.findall(r"--accent:", sheet[palettes:])) == 6   # GUI3-T09: one per palette (azul, verde, violeta) and theme, in their .app[data-accent] blocks
     assert re.search(r'--sans: "IBM Plex Sans", system-ui', sheet) and re.search(r'--mono: "IBM Plex Mono", ui-monospace', sheet)
     assert "sans-serif;" in sheet and "monospace;" in sheet   # system fallbacks at the end of both stacks
     for forbidden in ("@import", "@font-face", "url(", "style=", "http://", "https://"):

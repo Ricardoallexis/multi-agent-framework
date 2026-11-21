@@ -137,11 +137,12 @@ export function writePinnedSections(ids) {
   announceChoice({ pinned: list });
 }
 
-// «Restablecer»: the sidebar, the cards and help mode go back to their defaults.
+// «Restablecer»: the sidebar, the cards, help mode and (GUI3-T09) the accent go back to their defaults.
 export function resetChoices() {
   writePinnedSections([]);
   writeCardModes({});
   writeHelpMode(false);
+  writeAccent(DEFAULT_ACCENT);
 }
 
 // Does this browser remember a choice? It writes and reads back a probe through the same two functions as everything else.
@@ -150,4 +151,21 @@ const PROBE_KEY = "multiagent.gui.storage-probe";
 export function storageRemembers() {
   writeStored(PROBE_KEY, "1");
   return readStored(PROBE_KEY) === "1";
+}
+
+/* GUI3-T09 */
+// The accent palette ("neutral", "azul", "verde" or "violeta"; customize-model.js lists them, app.css holds the colours).
+// Without storage, or with a stored id that does not exist, it is "neutral". The change is announced as { accent }.
+import { DEFAULT_ACCENT, normalizeAccent } from "./customize-model.js";
+
+const ACCENT_KEY = "multiagent.gui.accent";
+
+export function readAccent() {
+  return normalizeAccent(readStored(ACCENT_KEY));
+}
+
+export function writeAccent(id) {
+  const accent = normalizeAccent(id);
+  writeStored(ACCENT_KEY, accent);
+  announceChoice({ accent });
 }

@@ -231,6 +231,35 @@ def test_every_tone_colour_has_normal_text_contrast_on_the_page_panel_and_chrome
                 assert ratio >= 4.5, f"{theme}: --{name} on --{background} is {ratio:.2f}:1"
 
 
+PALETTE_RULE = re.compile(r'\.app\[data-accent="([a-z]+)"\][^{}]*\{([^{}]*)\}')
+
+
+def palette_themes() -> dict[str, dict[str, dict[str, str]]]:
+    """GUI3-T09: for each accent palette, the colour variables of each theme (the :root ones plus the palette's three)."""
+    css = sheet()
+    base = themes()
+    block = css[css.index(".app[data-accent="):]
+    cut = block.index("@media (prefers-color-scheme: dark)")
+    light_part, dark_part = block[:cut], block[cut:]
+    found: dict[str, dict[str, dict[str, str]]] = {}
+    for theme, part in (("light", light_part), ("dark", dark_part)):
+        for name, body in PALETTE_RULE.findall(part):
+            found.setdefault(name, {})[theme] = {**base[theme], **variables(body)}
+    return found
+
+
+def test_every_accent_palette_has_normal_text_contrast_in_both_themes():
+    palettes = palette_themes()
+    assert set(palettes) == {"azul", "verde", "violeta"}
+    for name, by_theme in palettes.items():
+        assert set(by_theme) == {"light", "dark"}, name
+        for theme, colours in by_theme.items():
+            for background in ("bg", "panel", "chrome", "hover", "accent-soft", "warn-soft"):
+                ratio = contrast(colours["accent"], colours[background])
+                assert ratio >= 4.5, f"{name}/{theme}: --accent on --{background} is {ratio:.2f}:1"
+            assert contrast(colours["on-accent"], colours["accent"]) >= 4.5, f"{name}/{theme}: --on-accent on --accent"
+
+
 def test_level_badges_have_normal_text_contrast_and_four_distinct_fills():
     light = themes()["light"]
     fills = []

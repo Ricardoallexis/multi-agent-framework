@@ -177,7 +177,7 @@ def test_the_extension_slots_report_their_content_and_task_waiting_starts_in_nev
     # the same list stays reachable: its screen is still registered
     assert 'registerView({ id: "task_waiting"' in waiting
     css = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
-    block = css[css.index("/* GUI3-T04"):]
+    block = css[css.index("/* GUI3-T04"):css.index("/* GUI3-T09 */")]   # the palettes of T09 come after and set --accent
     assert ".context-dot" in block and "--accent:" not in block and "z-index: " not in block.replace("z-index 20 against 30", "")
 
 

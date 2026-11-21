@@ -10,7 +10,7 @@ import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalo
 import { Help, helpFor } from "./help.js";
 import { Icon } from "./ui/icon.js";
 import { navigate } from "./route.js";
-import { NARROW_QUERY, defaultPanelOpen, isHelpKey, onChoiceChange, readHelpMode, readPanelOpen, writeHelpMode, writePanelOpen } from "./shell-state.js";
+import { NARROW_QUERY, defaultPanelOpen, isHelpKey, onChoiceChange, readAccent, readHelpMode, readPanelOpen, writeHelpMode, writePanelOpen } from "./shell-state.js";
 
 // True while the media query matches; follows the window when it is resized.
 function useMedia(query) {
@@ -36,6 +36,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
   const [drawer, setDrawer] = useState(false);
   const [panelOpen, setPanelOpen] = useState(() => readPanelOpen(defaultPanelOpen()));
   const [helpOn, setHelpOn] = useState(readHelpMode);   // GUI3-T02: the "?" blocks show only in help mode
+  const [accent, setAccent] = useState(readAccent);   // GUI3-T09: the palette; app.css gives its colours by data-accent
   const helpRef = useRef(helpOn);
   helpRef.current = helpOn;
   const drawerOpen = drawer && narrow;
@@ -53,6 +54,8 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
 
   // «Personalizar» changes help mode too (GUI3-T07): it is the same state.
   useEffect(() => onChoiceChange((change) => { if ("help" in change) { helpRef.current = change.help; setHelpOn(change.help); } }), []);
+
+  useEffect(() => onChoiceChange((change) => { if (change.accent) setAccent(change.accent); }), []);
 
   // F1 toggles help mode (the browser's own help is cancelled); no other key is captured. If a browser does not let the
   // page intercept F1, the "Ayuda" button does the same.
@@ -117,7 +120,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
     if (mainBox.current) mainBox.current.focus();
   };
 
-  return html`<div class="app" data-help=${helpOn ? "on" : "off"} data-drawer=${drawerOpen ? "open" : "closed"} data-panel=${panelShown ? "open" : "closed"}>
+  return html`<div class="app" data-help=${helpOn ? "on" : "off"} data-accent=${accent} data-drawer=${drawerOpen ? "open" : "closed"} data-panel=${panelShown ? "open" : "closed"}>
     <a class="skip-link" href="#main-content" onClick=${skip}>Saltar al contenido</a>
     <header class="topbar">
       <div class="menu-only">

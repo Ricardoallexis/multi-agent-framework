@@ -91,7 +91,7 @@ def test_choices_are_stored_read_back_and_reset():
         stored: [...data.keys()].sort() }}));
     """)
     assert out["after"] == {"pinned": ["usage", "map"], "modes": {"tokens": "never", "changes": "always"}, "help": True, "remembers": True}
-    assert out["reset"] == {"pinned": [], "modes": {}} and out["heard"] == 6      # three writes and three resets; none after off()
+    assert out["reset"] == {"pinned": [], "modes": {}} and out["heard"] == 7      # three writes and four resets (the accent too, GUI3-T09); none after off()
     assert "multiagent.gui.pinned-sections" in out["stored"] and "multiagent.gui.context-cards" in out["stored"]
 
 
@@ -124,6 +124,13 @@ def test_the_screen_has_its_three_blocks_and_every_control_is_labelled():
     assert source.count("helpFor(") >= 4
 
 
+def test_the_colours_block_is_a_labelled_fieldset_of_radios_and_reset_returns_to_neutral():
+    source = read("customize.js")        # GUI3-T09: the palettes themselves are checked in test_gui3_accent_palettes.py
+    block = source[source.index('aria-label="Colores"'):source.index('aria-label="Ayuda"')]
+    assert "<fieldset" in block and "<legend>Paleta</legend>" in block and 'type="radio"' in block and "writeAccent(" in block
+    assert "writeAccent(DEFAULT_ACCENT)" in read("shell-state.js")
+
+
 def test_the_route_is_reserved_reachable_and_drawn():
     assert '"customize"' in re.search(r"const SECTION_IDS = \[(.*?)\]", read("route.js"))[1]
     assert '"customize"' in re.search(r"RESERVED_SECTIONS = \[(.*?)\]", read("extensions.js"))[1]
@@ -138,7 +145,7 @@ def test_the_route_is_reserved_reachable_and_drawn():
 
 def test_the_stylesheet_has_the_block_with_44px_targets_and_no_new_accent():
     css = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
-    block = css[css.index("/* GUI3-T07 */"):]
+    block = css[css.index("/* GUI3-T07 */"):css.index("/* GUI3-T09 */")]   # T09 has its own block after this one
     assert css.index("/* GUI3-T05 */") < css.index("/* GUI3-T07 */")
     assert "--accent:" not in block and "url(" not in block and "style=" not in block
     for selector in (".side-search-btn", ".palette-option", ".customize-row"):
@@ -149,6 +156,6 @@ def test_the_stylesheet_has_the_block_with_44px_targets_and_no_new_accent():
 def test_a_pin_row_keeps_the_name_and_its_button_on_one_line_on_a_phone():
     # Below 600 px the name and «Fijar» stay side by side: a full-width button under each name doubled the list.
     css = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
-    block = css[css.index("/* GUI3-T07 */"):]
+    block = css[css.index("/* GUI3-T07 */"):css.index("/* GUI3-T09 */")]   # T09 has its own block after this one
     phone = block[block.index("@media (max-width: 599.98px)"):]
     assert ".customize-row .btn" not in phone

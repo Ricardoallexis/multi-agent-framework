@@ -690,3 +690,18 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 @media (max-width: 599.98px) {
   .palette { margin-top: 8px; max-height: calc(100vh - 16px); }
 }
+
+/* GUI3-T09 */
+/* Accent palettes of «Personalizar». «Neutro» is :root; each other palette changes only --accent, --on-accent and --accent-soft.
+   The swatch of an option takes the same tokens through its own data-accent, so no colour is repeated in JS. */
+.app[data-accent="azul"], .accent-swatch[data-accent="azul"] { --accent: #2457c5; --on-accent: #ffffff; --accent-soft: #e4ecfa; }
+.app[data-accent="verde"], .accent-swatch[data-accent="verde"] { --accent: #1f6b52; --on-accent: #ffffff; --accent-soft: #e0f0e9; }
+.app[data-accent="violeta"], .accent-swatch[data-accent="violeta"] { --accent: #6b3fb8; --on-accent: #ffffff; --accent-soft: #ece6f8; }
+@media (prefers-color-scheme: dark) {
+  .app[data-accent="azul"], .accent-swatch[data-accent="azul"] { --accent: #7aa2f7; --on-accent: #0f141c; --accent-soft: #1f2a40; }
+  .app[data-accent="verde"], .accent-swatch[data-accent="verde"] { --accent: #5fcfa4; --on-accent: #0d1a15; --accent-soft: #1b3029; }
+  .app[data-accent="violeta"], .accent-swatch[data-accent="violeta"] { --accent: #b79bf0; --on-accent: #16101f; --accent-soft: #2a2340; }
+}
+.accent-option { display: inline-flex; align-items: center; gap: 8px; min-height: var(--target); }
+.accent-swatch { display: inline-block; flex: none; width: 16px; height: 16px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--accent); }
+.accent-swatch[data-accent="neutral"] { background: var(--text); }   /* Neutro: the action colour is the text colour */

@@ -5,21 +5,23 @@
 // is kept through shell-state.js; when the browser does not remember, the screen says so and the choices last while the page
 // stays open. The blocks change what is shown, never what can be done: nothing is removed from the application.
 import { html, useEffect, useState } from "../vendor/htm-preact-standalone.module.js";
-import { MODE_LABELS, cardRows, pinnableSections, togglePinned, withCardMode } from "./customize-model.js";
+import { ACCENTS, MODE_LABELS, cardRows, pinnableSections, togglePinned, withCardMode } from "./customize-model.js";
 import { CARD_MODES } from "./context-model.js";
 import { Help, helpFor } from "./help.js";
 import { registeredSlots } from "./extensions.js";
-import { onChoiceChange, readCardModes, readHelpMode, readPinnedSections, resetChoices, storageRemembers, writeCardModes, writeHelpMode, writePinnedSections } from "./shell-state.js";
+import { onChoiceChange, readAccent, readCardModes, readHelpMode, readPinnedSections, resetChoices, storageRemembers, writeAccent, writeCardModes, writeHelpMode, writePinnedSections } from "./shell-state.js";
 
 export function Customize({ sections }) {
   const [remembers] = useState(storageRemembers);
   const [pinned, setPinned] = useState(readPinnedSections);
   const [modes, setModes] = useState(readCardModes);
   const [helpOn, setHelpOn] = useState(readHelpMode);
+  const [accent, setAccent] = useState(readAccent);
   useEffect(() => onChoiceChange((change) => {   // the change carries its value, so it shows even when nothing is stored
     if (change.pinned) setPinned(change.pinned);
     if (change.modes) setModes(change.modes);
     if ("help" in change) setHelpOn(change.help);
+    if (change.accent) setAccent(change.accent);
   }), []);
   const rows = pinnableSections(sections, pinned);
   const cards = cardRows(registeredSlots(), modes);
@@ -50,6 +52,21 @@ export function Customize({ sections }) {
             ${MODE_LABELS[mode]}</label>`)}
         </div>
       </fieldset>`)}
+    </section>
+    <section class="customize-block" aria-label="Colores">
+      <h3 class="customize-title">Colores</h3>
+      <p class="muted small">El color de los botones principales, los enlaces y la selección. Los fondos, el texto y los avisos no cambian.</p>
+      <fieldset class="customize-card">
+        <legend>Paleta</legend>
+        <${Help} topic="customize.accent" compact=${true} />
+        <div class="customize-modes">
+          ${ACCENTS.map((option) => html`<label key=${option.id} class="check-inline accent-option">
+            <input type="radio" name="accent" value=${option.id} checked=${accent === option.id}
+              ...${helpFor("customize.accent")} onChange=${() => writeAccent(option.id)} />
+            <span class="accent-swatch" data-accent=${option.id} aria-hidden="true"></span>
+            ${option.label}</label>`)}
+        </div>
+      </fieldset>
     </section>
     <section class="customize-block" aria-label="Ayuda">
       <h3 class="customize-title">Ayuda</h3>

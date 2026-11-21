@@ -1996,13 +1996,18 @@ export const HELP = {
   },
   "customize.reset": {
     "title": "Restablecer",
-    "hint": "Vuelve a los valores por defecto de la barra, las tarjetas y la ayuda.",
-    "more": ["Suelta las secciones fijadas, deja las tarjetas en su modo inicial y apaga el modo ayuda.", "No toca sesiones, ejecuciones ni datos."]
+    "hint": "Vuelve a los valores por defecto de la barra, las tarjetas, la ayuda y el color.",
+    "more": ["Suelta las secciones fijadas, deja las tarjetas en su modo inicial, apaga el modo ayuda y vuelve al color Neutro.", "No toca sesiones, ejecuciones ni datos."]
   },
   "shell.customize": {
     "title": "Personalizar",
     "hint": "Abre la pantalla para elegir qué se ve.",
     "more": ["Se puede fijar secciones en la barra, elegir las tarjetas de «Contexto» y dejar la ayuda a la vista.", "Solo cambia lo que se muestra."]
+  },
+  "customize.accent": {
+    "title": "Paleta de colores",
+    "hint": "Elige el color de los botones principales, los enlaces y la selección.",
+    "more": ["Neutro es el de siempre. Los fondos, el texto y los avisos no cambian con la paleta.", "Se recuerda en este navegador."]
   }
 };
 

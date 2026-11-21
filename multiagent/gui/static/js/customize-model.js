@@ -47,3 +47,19 @@ export function withCardMode(modes, name, mode) {
   if (!CARD_MODES.includes(mode) || typeof name !== "string") return current;
   return normalizeModes({ ...current, [name]: mode });
 }
+
+/* GUI3-T09 */
+// The accent palettes of the «Colores» block. The ids and names live here; the colours live only in app.css (a block per
+// palette, `.app[data-accent="<id>"]`), so nothing here repeats a value. «Neutro» is the default and has no block: it is :root.
+export const ACCENTS = [
+  { id: "neutral", label: "Neutro" },
+  { id: "azul", label: "Azul" },
+  { id: "verde", label: "Verde" },
+  { id: "violeta", label: "Violeta" },
+];
+export const DEFAULT_ACCENT = "neutral";
+
+// A palette id that does not exist (an old or edited stored value) is «Neutro».
+export function normalizeAccent(value) {
+  return ACCENTS.some((accent) => accent.id === value) ? value : DEFAULT_ACCENT;
+}
