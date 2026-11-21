@@ -96,7 +96,7 @@ export function Runs({ token, status, mock, initialRunId = null }) {
     main = html`<p class="muted">Elige una ejecución de la lista o crea una nueva.</p>`;
   }
   return html`<div class="runs-page">
-    <${Help} topic="runs.section" />
+    <${Help} topic="runs.section" always=${true} />
     <div class="runs">
       <aside class="runs-side" aria-label="Lista de ejecuciones" hidden=${!layout.showList}>
         <div>

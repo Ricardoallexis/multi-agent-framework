@@ -498,7 +498,7 @@ export function Plans({ token, route }) {
   };
   const busy = !proposalId && list.loading;
   return html`<div class="usage-view">
-    <h3 id="plans-title">Planes propuestos</h3><${Help} topic="plans.section" />
+    <h3 id="plans-title">Planes propuestos</h3><${Help} topic="plans.section" always=${true} />
     <div class="usage-title-row">
       <p class="muted">Propuestas de plan guardadas antes de crear tareas. Una persona revisa, ajusta y decide.</p>
       <div class="usage-refresh-control" role="group" aria-label="Actualizar los planes">

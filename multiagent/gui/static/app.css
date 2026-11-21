@@ -570,3 +570,17 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
   .pending-background-item .btn { width: 100%; }
   .pending-background-confirm .btn { flex: 1 1 auto; }
 }
+
+/* GUI3-T02 help mode: with help off, the "?" blocks hide. They stay in the DOM, so aria-describedby still reaches the hint.
+   Visible even when off: the help that follows a screen title, anything marked help-always (the approval cards, the title
+   help of the views that draw it themselves) and the one-line hint that follows a form field (without its "?"). */
+[data-help="off"] .help-block { display: none; }
+[data-help="off"] h2 + .help-block,
+[data-help="off"] .help-block.help-always,
+[data-help="off"] .help-always .help-block,
+[data-help="off"] :is(label, input, select, textarea) + .help-block:not(.compact) { display: block; }
+[data-help="off"] .help-block.compact.help-always,
+[data-help="off"] .help-always .help-block.compact { display: inline-block; }
+[data-help="off"] .help-block.compact.open.help-always,
+[data-help="off"] .help-always .help-block.compact.open { display: block; }
+[data-help="off"] :is(label, input, select, textarea) + .help-block:not(.compact, .help-always) :is(.help-toggle, .help-more) { display: none; }

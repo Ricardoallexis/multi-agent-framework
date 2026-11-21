@@ -48,3 +48,20 @@ export function readNotificationsEnabled() {
 export function writeNotificationsEnabled(enabled) {
   writeStored(NOTIFICATIONS_KEY, enabled ? "true" : "false");
 }
+
+// GUI3-T02: help mode. Off by default: the "?" blocks stay hidden until the user asks for them (button or F1). Without
+// storage the mode comes back off.
+const HELP_MODE_KEY = "multiagent.gui.help-mode";
+
+export function readHelpMode() {
+  return readStored(HELP_MODE_KEY) === "on";
+}
+
+export function writeHelpMode(on) {
+  writeStored(HELP_MODE_KEY, on ? "on" : "off");
+}
+
+// F1 toggles help mode and nothing else is captured; the modified combinations keep their browser meaning.
+export function isHelpKey(event) {
+  return Boolean(event) && event.key === "F1" && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && !event.isComposing;
+}

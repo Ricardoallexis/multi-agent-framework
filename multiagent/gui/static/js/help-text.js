@@ -1317,6 +1317,15 @@ export const HELP = {
       "También se cierra con la tecla Esc o al elegir un elemento de la lista."
     ]
   },
+  "shell.help_mode": {
+    "title": "Modo ayuda",
+    "hint": "Muestra u oculta los «?» y las pistas de cada control.",
+    "more": [
+      "Apagado, solo se ven los «?» de los títulos y de las aprobaciones; la ayuda sigue disponible para los lectores de pantalla.",
+      "También se cambia con la tecla F1.",
+      "Este navegador recuerda el modo que dejaste."
+    ]
+  },
   "shell.panel": {
     "title": "Panel de contexto",
     "hint": "Muestra u oculta el panel de la derecha.",

@@ -179,7 +179,7 @@ export function Usage({ token }) {
   const extra = registeredUsageSections();   // tabs that extensions add (CNT-T06); none unless one registered
   const extraSection = extra.find((section) => section.id === view);
   return html`<div class="usage-view">
-    <h3 id="usage-title">Datos de uso</h3><${Help} topic="usage.section" />
+    <h3 id="usage-title">Datos de uso</h3><${Help} topic="usage.section" always=${true} />
     <div class="usage-title-row"><p class="muted">Uso local medido por aplicación y por el framework.</p>
       <div class="usage-refresh-control" role="group" aria-label="Actualizar datos de uso">
         <button type="button" class="btn" disabled=${refreshing} ...${helpFor("usage.refresh")} onClick=${refresh}>${refreshing ? "Actualizando…" : "Actualizar"}</button>

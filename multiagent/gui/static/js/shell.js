@@ -1,7 +1,7 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // App shell (GUI2-T02): the three zones around the views and the keyboard and responsive behaviour that goes with them.
-//   banner   the top bar: menu button (narrow screens), title, connection state, right-panel toggle
+//   banner   the top bar: menu button (narrow screens), title, connection state, help-mode switch (F1), right-panel toggle
 //   nav      the left sidebar; below ~900 px it is a drawer opened by the menu button (Esc and the scrim close it)
 //   main     the view of the current route
 //   aside    the right panel; it can be collapsed, and the choice is remembered (shell-state.js)
@@ -9,7 +9,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { Help, helpFor } from "./help.js";
 import { PendingInbox } from "./pending.js";
-import { NARROW_QUERY, defaultPanelOpen, readPanelOpen, writePanelOpen } from "./shell-state.js";
+import { NARROW_QUERY, defaultPanelOpen, isHelpKey, readHelpMode, readPanelOpen, writeHelpMode, writePanelOpen } from "./shell-state.js";
 
 // True while the media query matches; follows the window when it is resized.
 function useMedia(query) {
@@ -32,6 +32,9 @@ export function Shell({ status, statusText, mock, sidebar, panel, children }) {
   const narrow = useMedia(NARROW_QUERY);
   const [drawer, setDrawer] = useState(false);
   const [panelOpen, setPanelOpen] = useState(() => readPanelOpen(defaultPanelOpen()));
+  const [helpOn, setHelpOn] = useState(readHelpMode);   // GUI3-T02: the "?" blocks show only in help mode
+  const helpRef = useRef(helpOn);
+  helpRef.current = helpOn;
   const drawerOpen = drawer && narrow;
   const menuButton = useRef(null);
   const sidebarBox = useRef(null);
@@ -42,6 +45,19 @@ export function Shell({ status, statusText, mock, sidebar, panel, children }) {
   const closeDrawer = (restoreFocus) => { state.current.restore = restoreFocus; setDrawer(false); };
   const toggleDrawer = () => { if (drawerOpen) closeDrawer(true); else setDrawer(true); };
   const togglePanel = () => { const next = !panelOpen; setPanelOpen(next); writePanelOpen(next); };
+  const toggleHelp = () => { const next = !helpRef.current; helpRef.current = next; setHelpOn(next); writeHelpMode(next); };
+
+  // F1 toggles help mode (the browser's own help is cancelled); no other key is captured. If a browser does not let the
+  // page intercept F1, the "Ayuda" button does the same.
+  useEffect(() => {
+    const onHelpKey = (event) => {
+      if (!isHelpKey(event)) return;
+      event.preventDefault();
+      toggleHelp();
+    };
+    document.addEventListener("keydown", onHelpKey);
+    return () => document.removeEventListener("keydown", onHelpKey);
+  }, []);
 
   // Esc closes the drawer. It listens in the capture phase and marks the key as handled, so the session screen (which
   // goes back to the list with Esc) leaves it alone; an open "?" help still gets its own Esc first.
@@ -82,7 +98,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, children }) {
     if (mainBox.current) mainBox.current.focus();
   };
 
-  return html`<div class="app" data-drawer=${drawerOpen ? "open" : "closed"} data-panel=${panelOpen ? "open" : "closed"}>
+  return html`<div class="app" data-help=${helpOn ? "on" : "off"} data-drawer=${drawerOpen ? "open" : "closed"} data-panel=${panelOpen ? "open" : "closed"}>
     <a class="skip-link" href="#main-content" onClick=${skip}>Saltar al contenido</a>
     <header class="topbar">
       <div class="menu-only">
@@ -93,6 +109,11 @@ export function Shell({ status, statusText, mock, sidebar, panel, children }) {
       <h1>Multi-Agent Framework</h1>
       ${mock && html`<span class="badge mock" title="Resultados sintéticos, sin llamadas a modelos">MOCK</span>`}
       <span class=${"badge " + status} role="status" aria-live="polite">${statusText}</span>
+      <div class="panel-tool help-tool">
+        <button type="button" class="tool-btn" aria-pressed=${helpOn ? "true" : "false"}
+          ...${helpFor("shell.help_mode")} onClick=${toggleHelp}>Ayuda</button>
+        <${Help} topic="shell.help_mode" compact=${true} />
+      </div>
       <div class="panel-tool">
         <button type="button" class="tool-btn" aria-expanded=${panelOpen ? "true" : "false"} aria-controls="right-panel"
           ...${helpFor("shell.panel")} onClick=${togglePanel}>Panel</button>

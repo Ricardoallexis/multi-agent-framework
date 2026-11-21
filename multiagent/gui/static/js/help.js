@@ -22,8 +22,9 @@ export function helpFor(topic, { also = "", scope = "" } = {}) {
 
 // topic: key of HELP; entry: a full { title, hint, more } for helps built from data (workflow inputs, execution mode);
 // hint: replaces the visible line; compact: only the "?" shows until it is opened (small buttons);
-// scope: makes the ids unique when the same topic appears more than once on the page.
-export function Help({ topic, entry = null, hint = null, compact = false, scope = "" }) {
+// scope: makes the ids unique when the same topic appears more than once on the page;
+// always: the block stays visible when help mode is off (GUI3-T02), for the help of a screen title that does not follow the <h2>.
+export function Help({ topic, entry = null, hint = null, compact = false, scope = "", always = false }) {
   const [open, setOpen] = useState(false);
   const data = entry || HELP[topic] || registeredHelp(topic);   // the texts of an extension come from its own help.js
   if (!data) return null;
@@ -36,7 +37,7 @@ export function Help({ topic, entry = null, hint = null, compact = false, scope 
     const toggle = event.currentTarget.querySelector(".help-toggle");
     if (toggle) toggle.focus();
   };
-  return html`<div class=${"help-block" + (compact ? " compact" : "") + (open ? " open" : "")} onKeyDown=${close}>
+  return html`<div class=${"help-block" + (always ? " help-always" : "") + (compact ? " compact" : "") + (open ? " open" : "")} onKeyDown=${close}>
     <div class="hint-row">
       <span id=${id + "-hint"} class="hint-text" hidden=${compact && !open}>${hint || data.hint}</span>
       <button type="button" class="help-toggle" aria-expanded=${open ? "true" : "false"} aria-controls=${id + "-more"}

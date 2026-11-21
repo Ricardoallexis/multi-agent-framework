@@ -230,7 +230,7 @@ function SessionList({ token }) {
         <${Help} topic="sessions.refresh" compact=${true} />
       </div>
     </div>
-    <${Help} topic="sessions.list" />
+    <${Help} topic="sessions.list" always=${true} />
     <${Filters} draft=${draft} showSubagents=${showSubagents} onChange=${change} onSubmit=${submit} onClear=${clear}
       onToggleSubagents=${setShowSubagents} />
     <p class="muted" role="status" aria-live="polite" aria-busy=${loading ? "true" : "false"}>${summary}</p>

@@ -264,7 +264,7 @@ export function Teams({ token, route }) {
   const refresh = () => { if (bundle) { if (reload.current) reload.current(); } else loadTeams(); };
   const busy = !bundle && teams.loading;
   return html`<div class="usage-view">
-    <h3 id="teams-title">Equipos y organigramas</h3><${Help} topic="teams.section" />
+    <h3 id="teams-title">Equipos y organigramas</h3><${Help} topic="teams.section" always=${true} />
     <div class="usage-title-row"><p class="muted">Equipos de los bundles, su organigrama y sus versiones. Una persona decide si aprueba o rechaza una propuesta.</p>
       <div class="usage-refresh-control" role="group" aria-label="Actualizar los equipos">
         <button type="button" class="btn" disabled=${busy} ...${helpFor("teams.refresh")} onClick=${refresh}>${busy ? "Actualizando…" : "Actualizar"}</button>

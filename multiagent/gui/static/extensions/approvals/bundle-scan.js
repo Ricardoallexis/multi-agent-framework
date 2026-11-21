@@ -504,7 +504,7 @@ export function BundleScanStatus({ token, items, onRefresh }) {
 
   if (runningScans.length === 0 && cautionScans.length === 0) return null;
 
-  return html`<ul class="approvals-list approvals-scan-live">
+  return html`<ul class="approvals-list approvals-scan-live help-always">
     ${runningScans.map((scan) => html`<li key=${"running-" + scan.bundle} class="approvals-card approvals-scan-running" role="status" aria-live="polite">
       <div class="approvals-card-head">
         <p class="approvals-card-title"><strong>Escaneo de bundle</strong></p>

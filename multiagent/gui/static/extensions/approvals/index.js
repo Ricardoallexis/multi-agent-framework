@@ -172,7 +172,7 @@ export function ApprovalsView({ token, route }) {
     ${notice && html`<p class="message ok approvals-status" role="status">${notice}</p>`}
     ${error && html`<p class="message error approvals-status" role="alert">No se pudieron leer las aprobaciones: ${errorText(error)}</p>`}
     ${missingSelected && html`<p class="approvals-missing muted" role="status">La solicitud seleccionada ya no está pendiente.</p>`}
-    ${ordered.length > 0 && html`<ul class="approvals-list">
+    ${ordered.length > 0 && html`<ul class="approvals-list help-always">
       ${ordered.map((item) => html`<${isBundleScanApproval(item) ? BundleScanCard : ApprovalCard} key=${item.id} item=${item} token=${token}
         selected=${Boolean(selectedId && item.id === selectedId)}
         sessionUnavailable=${sessionUnavailable}
