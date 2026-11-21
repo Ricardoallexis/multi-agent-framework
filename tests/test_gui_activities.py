@@ -70,6 +70,9 @@ def test_sidebar_activities_filter_uses_token_route_and_accessible_toggle():
     assert 'apiGet("/gui/api/activities", token)' in sidebar
     assert 'aria-pressed=${activitiesMode ? "true" : "false"}' in sidebar
     assert ">Actividades</button>" in sidebar
+    head = sidebar[sidebar.index('class="side-sessions-head"'):sidebar.index('class="side-sessions-head"') + 700]   # GUI3-T07: in the list header
+    assert 'class="side-activities" aria-pressed=${activitiesMode ? "true" : "false"}' in head and ">Actividades</button>" in head
+    assert 'id="side-search"' not in sidebar
     assert "activityItems(activityData.projects)" in sidebar
 
 

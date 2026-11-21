@@ -1693,12 +1693,12 @@ export const HELP = {
     "more": ["Sirve si otra persona ya decidió o si cambió el catálogo del bundle.", "No cambia nada en el servidor."]
   },
   "shell.search": {
-    "title": "Buscar en la lista",
-    "hint": "Filtra la lista de la izquierda mientras escribes.",
+    "title": "Buscar",
+    "hint": "Abre la búsqueda (Ctrl K) para encontrar una sección, una sesión, una ejecución o una ayuda.",
     "more": [
       "Busca en el título, el proyecto, la aplicación y el estado de cada elemento.",
       "No distingue mayúsculas ni acentos, y pide que aparezcan todas las palabras escritas.",
-      "Solo filtra lo que ya está en la lista: no busca dentro de las conversaciones."
+      "Solo abre pantallas y explica: no busca dentro de las conversaciones."
     ]
   },
   "shell.activities": {
@@ -1964,6 +1964,45 @@ export const HELP = {
     "title": "Proyecto de la sesión",
     "hint": "Elige un proyecto reciente o confírmalo durante el flujo.",
     "more": ["La pregunta de proyecto sigue en el flujo guiado.", "Puedes corregir el nombre antes de lanzar.", "El lanzamiento con ejecutor no usa proyectos."]
+  },
+  "palette.search": {
+    "title": "Buscar en todo",
+    "hint": "Escribe para encontrar una sección, una sesión, una ejecución o un texto de ayuda.",
+    "more": [
+      "Las flechas cambian de resultado, Intro lo abre y Esc cierra la ventana.",
+      "No distingue mayúsculas ni acentos, y pide que aparezcan todas las palabras escritas.",
+      "Solo abre pantallas y explica: no aprueba ni lanza nada."
+    ]
+  },
+  "palette.close": {
+    "title": "Cerrar la búsqueda",
+    "hint": "Cierra la ventana y vuelve a donde estabas.",
+    "more": ["Es lo mismo que pulsar Esc.", "No cambia nada."]
+  },
+  "customize.pin": {
+    "title": "Fijar en la barra",
+    "hint": "Pone esta sección entre las fijas de la barra lateral.",
+    "more": ["Vuelve a pulsar para soltarla: pasa otra vez a «Más».", "Soltarla no quita la sección: sigue en «Más» y en la búsqueda."]
+  },
+  "customize.card": {
+    "title": "Cuándo se ve la tarjeta",
+    "hint": "Automática: solo con algo que mostrar. Siempre: aunque esté vacía. Nunca: oculta.",
+    "more": ["Lo urgente se ve en cualquier modo.", "Es la tarjeta del panel «Contexto»; cambiarlo no borra sus datos."]
+  },
+  "customize.help": {
+    "title": "Mostrar siempre los «?»",
+    "hint": "Deja a la vista las ayudas «?» de cada control.",
+    "more": ["Es el mismo interruptor que «Ayuda» y la tecla F1.", "Apagado, las ayudas siguen disponibles al activarlo."]
+  },
+  "customize.reset": {
+    "title": "Restablecer",
+    "hint": "Vuelve a los valores por defecto de la barra, las tarjetas y la ayuda.",
+    "more": ["Suelta las secciones fijadas, deja las tarjetas en su modo inicial y apaga el modo ayuda.", "No toca sesiones, ejecuciones ni datos."]
+  },
+  "shell.customize": {
+    "title": "Personalizar",
+    "hint": "Abre la pantalla para elegir qué se ve.",
+    "more": ["Se puede fijar secciones en la barra, elegir las tarjetas de «Contexto» y dejar la ayuda a la vista.", "Solo cambia lo que se muestra."]
   }
 };
 

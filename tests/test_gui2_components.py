@@ -264,7 +264,7 @@ def test_every_hit_area_is_44px_or_more():
     css = sheet()
     assert "--target: 44px" in css
     for selector in (".btn", ".tool-btn", ".tab", ".side-item", ".views button", ".side-sessions-head button", ".skip-link", ".group > summary",
-                     ".work-fold > details > summary", ".check-inline", ".check label", "details > summary", ".sub-more", ".sub-item"):
+                     ".work-fold > details > summary", ".check-inline", ".check label", "details > summary", ".sub-more", ".sub-item", ".side-search-btn", ".palette-option"):
         body = rule(css + (STATIC_DIR / "subagents-panel.css").read_text(encoding="utf-8"), selector)
         assert re.search(r"min-height:\s*(var\(--target\)|44px)", body), selector
     assert "min-height: var(--target)" in rule(css, 'input:not([type="checkbox"])')

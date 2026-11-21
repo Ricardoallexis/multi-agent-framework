@@ -643,3 +643,50 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .pending-tabs { margin: 8px 0; }
 .pending-all { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .pending-all :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* GUI3-T07 */
+.side-search { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.side-search-btn { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; box-sizing: border-box; min-width: 0; min-height: var(--target);
+  padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--muted); font: inherit;
+  font-size: .875rem; text-align: left; cursor: pointer; }
+.side-search-btn:hover { background: var(--hover); color: var(--text); }
+.side-search-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.side-kbd { margin-left: auto; padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 4px; font: inherit; font-size: .75rem; color: var(--muted); }
+.side-head-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.side-activities[aria-pressed="true"] { font-weight: 600; color: var(--accent); }
+.side-footer-tools { display: flex; flex-direction: column; gap: 4px; }
+.side-footer-tools .panel-tool { min-width: 0; }
+
+.palette { box-sizing: border-box; width: min(36rem, calc(100vw - 24px)); max-height: min(34rem, calc(100vh - 48px)); margin: 12vh auto auto;
+  padding: 0; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); color: var(--text); overflow: hidden; }
+.palette::backdrop { background: rgba(0, 0, 0, .45); }
+.palette-box { display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; max-height: inherit; padding: 12px; overflow-y: auto; }
+.palette-form label { display: block; margin-bottom: 4px; font-size: .75rem; font-weight: 500; color: var(--muted); }
+.palette-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.palette-row input { flex: 1 1 10rem; width: auto; min-width: 0; }
+.palette-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.palette-option { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; box-sizing: border-box;
+  min-height: var(--target); padding: 8px 12px; border-radius: 8px; cursor: pointer; overflow-wrap: anywhere; }
+.palette-option:hover { background: var(--hover); }
+.palette-option[aria-selected="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.palette-kind { font-size: .75rem; color: var(--muted); }
+.palette-detail { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); overflow-wrap: anywhere; }
+.palette-detail p { margin: 0 0 6px; }
+.palette-detail-title { font-weight: 600; }
+
+.customize { display: flex; flex-direction: column; gap: 20px; min-width: 0; max-width: 44rem; }
+.customize-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.customize-title { margin: 0; font-size: 1rem; }
+.customize-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.customize-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--target); }
+.customize-name { min-width: 0; overflow-wrap: anywhere; }
+.customize-row .btn[aria-pressed="true"] { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.customize-card { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.customize-card legend { padding: 0 4px; font-weight: 600; }
+.customize-modes { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.customize-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.customize :focus-visible, .palette :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 599.98px) {
+  .palette { margin-top: 8px; max-height: calc(100vh - 16px); }
+}

@@ -24,6 +24,7 @@ import { Sidebar } from "./sidebar.js";
 import { PendingScreen } from "./pending.js";
 import { WorkMap } from "./work-map.js";
 import { Usage } from "./usage.js";
+import { Customize } from "./customize.js";   // GUI3-T07
 import { Evaluation } from "./evaluation.js";
 import { Teams } from "./teams.js";
 import { Plans } from "./plans.js";
@@ -45,6 +46,7 @@ const SECTIONS = [
   { id: "teams", label: "Equipos", icon: "person" },
   { id: "plans", label: "Planes", icon: "file" },
   { id: "map", label: "Mapa", icon: "map" },
+  { id: "customize", label: "Personalizar", icon: "settings" },   // GUI3-T07: reached from «Más», the gear of the sidebar and Ctrl+K
 ];
 // The built-in screens, then the ones extensions registered (by their `order`).
 const allSections = () => [...SECTIONS, ...registeredViews().map((view) => ({ id: view.id, label: view.label, group: view.group, icon: view.icon }))];
@@ -121,6 +123,7 @@ function App({ token }) {
     ${section === "teams" && html`<${Teams} token=${token} route=${route} />`}
     ${section === "plans" && html`<${Plans} token=${token} route=${route} />`}
     ${section === "map" && html`<${WorkMap} token=${token} />`}
+    ${section === "customize" && html`<${Customize} sections=${allSections()} />`}
     ${inPending && html`<${PendingScreen} views=${pendingViews} route=${route} token=${token} status=${status} mock=${mock} />`}
     ${views.map((view) => !inPending && section === view.id && html`<${view.component} key=${view.id} token=${token} status=${status} mock=${mock} route=${route} />`)}
     ${failed.length > 0 && html`<p class="muted small" role="status">No se pudo cargar: ${failed.map((item) => item.id).join(", ")}.</p>`}

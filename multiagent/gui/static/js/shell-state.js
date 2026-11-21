@@ -60,6 +60,7 @@ export function readHelpMode() {
 
 export function writeHelpMode(on) {
   writeStored(HELP_MODE_KEY, on ? "on" : "off");
+  announceChoice({ help: Boolean(on) });
 }
 
 // F1 toggles help mode and nothing else is captured; the modified combinations keep their browser meaning.
@@ -99,6 +100,7 @@ export function readCardModes() {
 
 export function writeCardModes(modes) {
   writeStored(CONTEXT_CARDS_KEY, JSON.stringify(normalizeModes(modes)));
+  announceChoice({ modes: normalizeModes(modes) });
 }
 
 // GUI3-T06: the entry box starts in the last chosen mode, even when storage is blocked.
@@ -110,4 +112,42 @@ export function readNewSessionMode() {
 
 export function writeNewSessionMode(mode) {
   writeStored(NEW_SESSION_MODE_KEY, mode === "single" ? "single" : "orchestrator");
+}
+
+/* GUI3-T07 */
+// «Personalizar» changes three stored choices (the pinned sections, the modes of the cards, help mode). Whoever draws one of
+// them hears the change through onChoiceChange as { pinned } | { modes } | { help }: the value travels with the message, so the
+// choice applies to the open page even when storage is blocked (it is then just not remembered).
+const choiceListeners = new Set();
+
+function announceChoice(change) {
+  for (const listener of [...choiceListeners]) {
+    try { listener(change); } catch (_) { /* one listener must not stop the others */ }
+  }
+}
+
+export function onChoiceChange(listener) {
+  choiceListeners.add(listener);
+  return () => choiceListeners.delete(listener);
+}
+
+export function writePinnedSections(ids) {
+  const list = [...new Set(Array.isArray(ids) ? ids.filter((id) => typeof id === "string") : [])];
+  writeStored(PINNED_KEY, JSON.stringify(list));
+  announceChoice({ pinned: list });
+}
+
+// «Restablecer»: the sidebar, the cards and help mode go back to their defaults.
+export function resetChoices() {
+  writePinnedSections([]);
+  writeCardModes({});
+  writeHelpMode(false);
+}
+
+// Does this browser remember a choice? It writes and reads back a probe through the same two functions as everything else.
+const PROBE_KEY = "multiagent.gui.storage-probe";
+
+export function storageRemembers() {
+  writeStored(PROBE_KEY, "1");
+  return readStored(PROBE_KEY) === "1";
 }

@@ -27,7 +27,7 @@
 // This file imports nothing, so it loads anywhere (the page, Node tests). The one dynamic import() of the GUI is here:
 // its path is a constant plus an extension id that matched NAME, never a URL taken from elsewhere (see importEntry).
 
-export const RESERVED_SECTIONS = ["sessions", "runs", "usage", "evaluation", "teams", "plans", "tree", "map", "pending", "new"];   // the routes of the built-in screens
+export const RESERVED_SECTIONS = ["sessions", "runs", "usage", "evaluation", "teams", "plans", "tree", "map", "pending", "customize", "new"];   // the routes of the built-in screens
 export const RESERVED_SLOTS = ["changes", "subagents", "tokens", "sources"];            // the sections of the built-in panel
 export const PENDING_TYPES = ["approval", "continuity", "task"];   // the types GET /gui/api/pending counts (pendingType of a view of «Pendientes»)
 const SLOT_MODES = ["auto", "always", "never"];                                         // when a card of the panel is drawn (context-model.js)

@@ -1,16 +1,21 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// Left sidebar (GUI2-T02): "Nueva sesión", search, and sessions and framework runs grouped by project. The
-// «Actividades» filter instead shows open project activities and links to their boards. The shell (shell.js) puts it
+// Left sidebar (GUI2-T02): "Nueva sesión", the «Buscar» row (Ctrl+K, GUI3-T07), and sessions and framework runs grouped by project. The
+// «Actividades» filter (a button of the list header) instead shows open project activities and links to their boards. The shell (shell.js) puts it
 // inside <nav id="sidebar">. Names, titles and folders are untrusted text: they are only ever rendered as text nodes.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet } from "./api.js";
 import { debounce, subscribe } from "./bus.js";
 import { Help, helpFor } from "./help.js";
 import { navigate, routeHref, NEW_SECTION } from "./route.js";
+import { CommandPalette } from "./command-palette.js";
+import { helpEntries, isPaletteKey, itemEntries, sectionEntries } from "./command-palette-model.js";
+import { registeredViews } from "./extensions.js";
+import { HELP } from "./help-text.js";
+import { pendingTabs, tabRoute } from "./pending-model.js";
 import { relativeTime } from "./session-text.js";
 import { activityItems, appLabel, buildGroups, countsOf, isCurrent, navigationSections, runItems, sessionItems } from "./sidebar-model.js";
-import { readMoreNoticeSeen, readPinnedSections, writeMoreNoticeSeen } from "./shell-state.js";
+import { onChoiceChange, readMoreNoticeSeen, readPinnedSections, writeMoreNoticeSeen } from "./shell-state.js";
 import { PendingLink } from "./pending.js";
 import { Icon } from "./ui/icon.js";
 import { StatusChip } from "./ui/status-chip.js";
@@ -57,8 +62,8 @@ export function Sidebar({ token, status, route, sections }) {
   const [data, setData] = useState({ sessions: [], runs: [], hint: null, failed: [], loaded: false });
   const [activityData, setActivityData] = useState({ projects: [], loaded: false, loading: false, failed: false });
   const [activitiesMode, setActivitiesMode] = useState(false);
-  const [query, setQuery] = useState("");
-  const [pinned] = useState(readPinnedSections);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [pinned, setPinned] = useState(readPinnedSections);
   const [noticeSeen, setNoticeSeen] = useState(readMoreNoticeSeen);
   const [moreOpen, setMoreOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -98,6 +103,16 @@ export function Sidebar({ token, status, route, sections }) {
     }
   }
 
+  useEffect(() => onChoiceChange((change) => { if (change.pinned) setPinned(change.pinned); }), []);   // «Personalizar» pins and releases sections
+  useEffect(() => {
+    const onKey = (event) => {
+      if (!isPaletteKey(event)) return;
+      event.preventDefault();
+      setPaletteOpen(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
   useEffect(() => { load(); }, [token]);
   useEffect(() => { if (status === "connected") load(); }, [status]);
   useEffect(() => {
@@ -117,8 +132,7 @@ export function Sidebar({ token, status, route, sections }) {
   const items = activitiesMode
     ? activityItems(activityData.projects)
     : sessionItems(data.sessions).concat(runItems(data.runs));
-  const searching = query.trim() !== "";
-  const groups = buildGroups(items, query);
+  const groups = buildGroups(items);
   const shown = groups.reduce((total, group) => total + group.items.length, 0);
   const navigation = navigationSections(sections.filter((s) => !s.group), sections.filter((s) => s.group), pinned);
   const dismissNotice = () => { setNoticeSeen(true); writeMoreNoticeSeen(); };
@@ -139,8 +153,13 @@ export function Sidebar({ token, status, route, sections }) {
   else if (activitiesMode && items.length === 0) summary = "Todavía no hay actividades abiertas.";
   else if (!activitiesMode && !data.loaded) summary = "Cargando la lista…";
   else if (!activitiesMode && items.length === 0) summary = "Todavía no hay sesiones ni ejecuciones.";
-  else if (shown === 0) summary = "Nada coincide con «" + query.trim() + "».";
   else summary = shown + (shown === 1 ? " elemento" : " elementos") + " en " + groups.length + (groups.length === 1 ? " proyecto." : " proyectos.");
+
+  const paletteEntries = [
+    ...sectionEntries(navigation, pendingTabs(registeredViews(), [], false).map((tab) => ({ ...tab, route: tabRoute(tab.id) }))),
+    ...itemEntries(sessionItems(data.sessions).concat(runItems(data.runs))),
+    ...helpEntries(HELP),
+  ];
 
   return html`<div class="side">
     <div class="side-top">
@@ -149,16 +168,10 @@ export function Sidebar({ token, status, route, sections }) {
           ...${helpFor("shell.new_session")} onClick=${() => navigate(NEW_SECTION)}><span aria-hidden="true">+ </span>Nueva sesión</button>
         <${Help} topic="shell.new_session" compact=${true} />
       </div>
-      <div class="side-search" role="search">
-        <label for="side-search">Buscar</label>
-        <div class="side-search-row">
-          <input id="side-search" type="search" maxlength="100" autocomplete="off" placeholder="Sesión, proyecto, estado…"
-            ...${helpFor("shell.search")} value=${query} onInput=${(event) => setQuery(event.target.value)} />
-          <${Help} topic="shell.search" compact=${true} />
-        </div>
-        <button type="button" class="btn secondary" aria-pressed=${activitiesMode ? "true" : "false"}
-          ...${helpFor("shell.activities")} onClick=${() => setActivitiesMode((enabled) => !enabled)}>Actividades</button>
-        <${Help} topic="shell.activities" compact=${true} />
+      <div class="side-search">
+        <button type="button" class="side-search-btn" aria-keyshortcuts="Control+K" ...${helpFor("shell.search")}
+          onClick=${() => setPaletteOpen(true)}><${Icon} name="search" />Buscar<kbd class="side-kbd">Ctrl K</kbd></button>
+        <${Help} topic="shell.search" compact=${true} />
       </div>
       <div class="views" aria-label="Secciones">
         <div class="side-pending"><${PendingLink} current=${route.section === "pending" || navigation.pending.some((section) => section.id === route.section)} /></div>
@@ -180,8 +193,12 @@ export function Sidebar({ token, status, route, sections }) {
         </div>
       </div>
     </div>
-    <div class="side-sessions-head"><span>Sesiones</span><button type="button" data-nav data-help-exempt="navigation"
-      aria-current=${route.section === "sessions" ? "page" : null} onClick=${() => navigate("sessions")}>Ver todas</button></div>
+    <div class="side-sessions-head"><span>Sesiones</span><span class="side-head-actions">
+      <button type="button" class="side-activities" aria-pressed=${activitiesMode ? "true" : "false"}
+        ...${helpFor("shell.activities")} onClick=${() => setActivitiesMode((enabled) => !enabled)}>Actividades</button>
+      <${Help} topic="shell.activities" compact=${true} />
+      <button type="button" data-nav data-help-exempt="navigation"
+        aria-current=${route.section === "sessions" ? "page" : null} onClick=${() => navigate("sessions")}>Ver todas</button></span></div>
     <p class="muted small side-summary" aria-live="polite"
       aria-busy=${activitiesMode ? (activityData.loaded && !activityData.loading ? "false" : "true") : (data.loaded ? "false" : "true")}>${summary}</p>
     ${activitiesMode && activityData.failed && html`<p class="message error small" role="alert">No se pudieron leer las actividades. Vuelve a activar el filtro para reintentarlo.</p>`}
@@ -189,7 +206,9 @@ export function Sidebar({ token, status, route, sections }) {
     ${!activitiesMode && data.loaded && data.hint && data.sessions.length === 0 && html`<p class="muted small">Las sesiones de Claude, Codex y Copilot necesitan carpetas
       permitidas (gui_session_roots). En «Sesiones» se explica cómo.</p>`}
     <div class="side-groups">
-      ${groups.map((group) => html`<${Group} key=${group.key + (searching ? "|q" : "")} group=${group} route=${route} now=${now} />`)}
+      ${groups.map((group) => html`<${Group} key=${group.key} group=${group} route=${route} now=${now} />`)}
     </div>
+    <${CommandPalette} open=${paletteOpen} entries=${paletteEntries} onClose=${() => setPaletteOpen(false)}
+      onGo=${(target) => navigate(target[0], target[1])} />
   </div>`;
 }

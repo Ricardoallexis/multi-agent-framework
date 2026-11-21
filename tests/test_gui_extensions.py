@@ -232,6 +232,7 @@ def test_reserved_names_match_the_built_in_routes_and_slots():
     route = (JS / "route.js").read_text(encoding="utf-8")
     built_in = re.findall(r'"(\w+)"', re.search(r"const SECTION_IDS = \[(.*?)\]", route)[1])
     assert sorted(sections) == sorted([*built_in, "new"])
+    assert "customize" in sections and "customize" in built_in    # GUI3-T07
     slots = re.findall(r'"(\w+)"', re.search(r"RESERVED_SLOTS = \[(.*?)\]", extensions)[1])
     panel = (JS / "right-panel.js").read_text(encoding="utf-8") + (JS / "panel-slots.js").read_text(encoding="utf-8")
     assert sorted(slots) == sorted(set(re.findall(r'data-slot="(\w+)"', panel)))

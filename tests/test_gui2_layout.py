@@ -161,8 +161,12 @@ def test_both_toggles_are_buttons_with_aria_expanded_and_aria_controls_that_exis
 def test_sidebar_has_new_session_search_groups_and_readable_status():
     sidebar = read("sidebar.js")
     assert "Nueva sesión" in sidebar and "navigate(NEW_SECTION)" in sidebar
-    assert 'role="search"' in sidebar and '<label for="side-search">' in sidebar and 'id="side-search"' in sidebar
-    assert 'type="search"' in sidebar and 'aria-live="polite"' in sidebar
+    # GUI3-T07: the fixed field is a «Buscar» row that opens the Ctrl+K dialog; the field (with its label) and role="search" live there
+    assert 'class="side-search-btn"' in sidebar and "setPaletteOpen(true)" in sidebar and ">Ctrl K<" in sidebar and 'id="side-search"' not in sidebar
+    palette = read("command-palette.js")
+    assert 'role="search"' in palette and '<label for="palette-input">Buscar</label>' in palette and 'id="palette-input"' in palette
+    assert 'type="search"' in palette and "showModal()" in palette and "<dialog" in palette
+    assert 'aria-live="polite"' in sidebar
     assert 'side-summary" role="status"' not in sidebar  # the connection in the sidebar footer is its status landmark
     assert '<${PendingLink} current=' in sidebar and 'class="side-pending"' in sidebar
     assert 'class="side-sessions-head"' in sidebar and 'Ver todas' in sidebar

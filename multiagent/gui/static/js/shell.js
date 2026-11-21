@@ -9,7 +9,8 @@
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { Help, helpFor } from "./help.js";
 import { Icon } from "./ui/icon.js";
-import { NARROW_QUERY, defaultPanelOpen, isHelpKey, readHelpMode, readPanelOpen, writeHelpMode, writePanelOpen } from "./shell-state.js";
+import { navigate } from "./route.js";
+import { NARROW_QUERY, defaultPanelOpen, isHelpKey, onChoiceChange, readHelpMode, readPanelOpen, writeHelpMode, writePanelOpen } from "./shell-state.js";
 
 // True while the media query matches; follows the window when it is resized.
 function useMedia(query) {
@@ -42,13 +43,16 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
   const menuButton = useRef(null);
   const sidebarBox = useRef(null);
   const mainBox = useRef(null);
-  const state = useRef({ open: false, restore: false, was: false });
+  const state = useRef({ open: false, restore: false, was: false, toMain: false });
   state.current.open = drawerOpen;
 
   const closeDrawer = (restoreFocus) => { state.current.restore = restoreFocus; setDrawer(false); };
   const toggleDrawer = () => { if (drawerOpen) closeDrawer(true); else setDrawer(true); };
   const togglePanel = () => { const next = !panelOpen; setPanelOpen(next); writePanelOpen(next); };
   const toggleHelp = () => { const next = !helpRef.current; helpRef.current = next; setHelpOn(next); writeHelpMode(next); };
+
+  // «Personalizar» changes help mode too (GUI3-T07): it is the same state.
+  useEffect(() => onChoiceChange((change) => { if ("help" in change) { helpRef.current = change.help; setHelpOn(change.help); } }), []);
 
   // F1 toggles help mode (the browser's own help is cancelled); no other key is captured. If a browser does not let the
   // page intercept F1, the "Ayuda" button does the same.
@@ -67,7 +71,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
   useEffect(() => {
     const onKey = (event) => {
       if (event.key !== "Escape" || event.isComposing || !state.current.open) return;
-      if (event.target && event.target.closest && event.target.closest(".help-block.open")) return;
+      if (event.target && event.target.closest && event.target.closest(".help-block.open, dialog[open]")) return;   // the Ctrl+K dialog closes itself
       event.preventDefault();
       closeDrawer(true);
     };
@@ -78,15 +82,27 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
   useEffect(() => { if (!narrow) setDrawer(false); }, [narrow]);
 
   // Opening moves the focus into the drawer; closing with Esc, the menu button or the scrim gives it back to the button.
+  // Closing because the address changed with no click (GUI3-T07) moves it to the new view.
   useEffect(() => {
     if (drawerOpen) {
       const first = focusable(sidebarBox.current);
       if (first) first.focus();
+    } else if (state.current.was && state.current.toMain && mainBox.current) {
+      mainBox.current.focus();
     } else if (state.current.was && state.current.restore && menuButton.current) {
       menuButton.current.focus();
     }
+    state.current.toMain = false;
     state.current.was = drawerOpen;
   }, [drawerOpen]);
+
+  // Any change of address while the drawer is open closes it, also a route opened with Intro in the Ctrl+K dialog
+  // (GUI3-T07), which is not a click (a click on a link already closed it in onSidebarClick).
+  useEffect(() => {
+    const onHash = () => { if (state.current.open) { state.current.toMain = true; closeDrawer(false); } };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   // A link or navigation button inside the drawer closes it: the view behind changes.
   const onSidebarClick = (event) => {
@@ -117,10 +133,16 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
       ${sidebar}
       <div class="side-footer">
         <span class=${"side-connection " + status} role="status" aria-live="polite"><span class="side-connection-dot" aria-hidden="true"></span>${statusText}</span>
+        <div class="side-footer-tools">
+        <div class="panel-tool">
+          <button type="button" class="tool-btn" data-nav ...${helpFor("shell.customize")} onClick=${() => navigate("customize")}><${Icon} name="settings" />Personalizar</button>
+          <${Help} topic="shell.customize" compact=${true} />
+        </div>
         <div class="panel-tool help-tool">
           <button type="button" class="tool-btn" aria-pressed=${helpOn ? "true" : "false"}
             ...${helpFor("shell.help_mode")} onClick=${toggleHelp}><${Icon} name="help" />Ayuda</button>
           <${Help} topic="shell.help_mode" compact=${true} />
+        </div>
         </div>
       </div>
     </nav>

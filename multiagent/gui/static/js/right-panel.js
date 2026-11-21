@@ -13,7 +13,7 @@ import { Help } from "./help.js";
 import { usePanelData } from "./panel-data.js";
 import { subjectOf } from "./panel-model.js";
 import { ChangesSlot, SourcesSlot, SubagentsSlot, TokensSlot, registeredSlots } from "./panel-slots.js";
-import { readCardModes } from "./shell-state.js";
+import { onChoiceChange, readCardModes } from "./shell-state.js";
 
 const OWN_CARDS = [{ name: "changes" }, { name: "subagents" }, { name: "tokens" }, { name: "sources" }];
 
@@ -44,7 +44,8 @@ export function RightPanel({ token, route, onDot }) {
   const extra = registeredSlots();
   const cards = OWN_CARDS.concat(extra.map((entry) => ({ name: entry.name, defaultMode: entry.defaultMode })));
   const contents = { ...reported, ...ownContents(subject, data), subagents: subject ? reported.subagents || { has: false } : { has: false } };
-  const modes = readCardModes();
+  const [modes, setModes] = useState(() => readCardModes());   // «Personalizar» changes them (GUI3-T07)
+  useEffect(() => onChoiceChange((change) => { if (change.modes) setModes(change.modes); }), []);
   const shown = shownCards(cards, modes, contents);
   const dot = Boolean(subject) && anyContent(cards, modes, contents);
   useEffect(() => { if (typeof onDot === "function") onDot(dot); }, [dot]);
