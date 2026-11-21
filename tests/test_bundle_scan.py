@@ -255,6 +255,21 @@ def test_zero_or_partial_coverage_is_not_analyzed():
         assert (result.state, result.reason) == ("not_analyzed", "coverage_below_100")
 
 
+@pytest.mark.parametrize("coverage,reason", [((100, 60), "coverage_below_100"),
+                                           ((0,), "coverage_below_100")])
+def test_do_not_install_keeps_partial_coverage(coverage, reason):
+    result = bundle_scan.parse_report(report("DO_NOT_INSTALL", coverage))
+    assert (result.state, result.reason) == ("do_not_install", reason)
+
+
+def test_do_not_install_keeps_unknown_coverage():
+    for report_data in ({"verdict": "DO_NOT_INSTALL"},
+                        {"verdict": "DO_NOT_INSTALL", "skills": [{"path": "a"}]}):
+        result = bundle_scan.parse_report(json.dumps(report_data))
+        assert (result.state, result.reason) == ("do_not_install", "coverage_unknown")
+    assert bundle_scan.parse_report(report("CAUTION", (60,))).state == "not_analyzed"
+
+
 def test_missing_coverage_or_verdict_is_not_analyzed():
     assert bundle_scan.parse_report(json.dumps({"verdict": "SAFE"})).reason == "coverage_unknown"
     assert bundle_scan.parse_report(json.dumps({"verdict": "SAFE", "skills": [{"path": "a"}]})).reason == "coverage_unknown"

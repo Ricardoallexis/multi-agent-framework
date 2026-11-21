@@ -194,7 +194,7 @@ export function approvalErrorInfo(error) {
   };
 }
 
-export async function submitApprovalDecision({ item, decision, post }) {
+export async function submitApprovalDecision({ item, decision, post, riskAck = false }) {
   if (decision !== "approve" && decision !== "reject") {
     throw new Error("Decision must be approve or reject");
   }
@@ -220,7 +220,9 @@ export async function submitApprovalDecision({ item, decision, post }) {
         message: "El contenido de la solicitud cambió; actualiza la lista antes de decidir.",
       };
     }
-    const result = await post(decisionPath(item.id), { code: challenge.code, decision });
+    const body = { code: challenge.code, decision };
+    if (item.kind === "bundle_load" && decision === "approve") body.risk_ack = riskAck === true;
+    const result = await post(decisionPath(item.id), body);
     return { ok: true, result };
   } catch (failure) {
     return { ok: false, ...approvalErrorInfo(failure) };

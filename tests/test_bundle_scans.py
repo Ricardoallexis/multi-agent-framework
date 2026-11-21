@@ -59,7 +59,7 @@ def blocked(services, code):
     return error.value.details
 
 
-def decide(services, details, decision):
+def decide(services, details, decision, *, risk_ack=False):
     token = ensure_token(services.settings.gui_token_file)
     headers = {"Authorization": f"Bearer {token}"}
     app = create_app(services=services)
@@ -72,7 +72,7 @@ def decide(services, details, decision):
         challenge = client.post(path + "/challenge", headers=headers, json={})
         assert challenge.status_code == 200, challenge.text
         result = client.post(path + "/decision", headers=headers,
-                             json={"decision": decision, "code": challenge.json()["code"]})
+                              json={"decision": decision, "code": challenge.json()["code"], "risk_ack": risk_ack})
         assert result.status_code == 200, result.text
         return result.json()
 
@@ -112,7 +112,7 @@ def test_run_api_returns_pending_before_contract_import(setup):
 def test_verdicts_and_fingerprint_change(setup, verdict, needs_click):
     services, bundle, _ = setup
     finding = {"level": "high", "rule": "synthetic", "message": "Review this", "file": "SKILL.md"}
-    fake, calls = runner(verdict, [finding])
+    fake, calls = runner(verdict, [finding], coverage=60 if needs_click else 100)
     services.bundle_scans.runner = fake
     decide(services, blocked(services, "bundle_scan_pending"), "approve")
     blocked(services, "bundle_scan_running")
@@ -120,7 +120,9 @@ def test_verdicts_and_fingerprint_change(setup, verdict, needs_click):
     if needs_click:
         pending = blocked(services, "bundle_scan_blocked")
         assert pending["findings"][0]["rule"] == "synthetic"
-        decide(services, pending, "approve")
+        assert pending["risk_ack_required"] is True
+        assert services.bundle_scans.status("team")["recommendation"] == "do_not_install"
+        decide(services, pending, "approve", risk_ack=True)
     assert services.definitions.validate_bundle("team")["valid"]
     assert len(calls) == 1
     (bundle / "requirements-dev.txt").write_text("example==1\n", encoding="utf-8")
@@ -136,7 +138,68 @@ def test_rejected_osv_requires_bundle_load_click(setup):
     pending = blocked(services, "bundle_scan_blocked")
     assert services.bundle_scans.status("team")["reason"] == "osv_rejected"
     assert not marker.exists() and not calls
-    decide(services, pending, "approve")
+    decide(services, pending, "approve", risk_ack=True)
+    assert services.definitions.validate_bundle("team")["valid"]
+
+
+def test_load_ack_is_required_before_spending_code(setup):
+    services, _, marker = setup
+    decide(services, blocked(services, "bundle_scan_pending"), "reject")
+    pending = blocked(services, "bundle_scan_blocked")
+    assert pending["risk_ack_required"] is True
+    token = ensure_token(services.settings.gui_token_file)
+    headers = {"Authorization": f"Bearer {token}"}
+    app = create_app(services=services)
+    app.state.approval_sessions.bootstrap_code = "synthetic-start-code"
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/gui/api/approvals/session", headers=headers,
+                           json={"code": "synthetic-start-code"}).status_code == 200
+        path = f"/gui/api/approvals/{pending['approval_id']}"
+        code = client.post(path + "/challenge", headers=headers, json={}).json()["code"]
+        rejected = client.post(path + "/decision", headers=headers,
+                               json={"decision": "approve", "code": code})
+        assert rejected.status_code == 422
+        assert rejected.json()["detail"]["code"] == "risk_ack_required"
+        assert services.user_approvals.status(pending["approval_id"])["state"] == "pending"
+        assert not marker.exists()
+        accepted = client.post(path + "/decision", headers=headers,
+                               json={"decision": "approve", "code": code, "risk_ack": True})
+        assert accepted.status_code == 200, accepted.text
+        assert accepted.json()["risk_ack"] is True
+    assert services.definitions.validate_bundle("team")["valid"]
+    assert services.bundle_scans.status("team")["load_approved"] is True
+
+
+def test_rejecting_bundle_load_needs_no_ack(setup):
+    services, _, marker = setup
+    decide(services, blocked(services, "bundle_scan_pending"), "reject")
+    pending = blocked(services, "bundle_scan_blocked")
+    rejected = decide(services, pending, "reject")
+    assert rejected["state"] == "rejected"
+    assert blocked(services, "bundle_scan_blocked")["approval_id"] == pending["approval_id"]
+    assert not marker.exists()
+
+
+def test_old_cache_without_risk_ack_asks_again_once(setup):
+    services, bundle, _ = setup
+    fingerprint = services.bundle_scans.fingerprint(bundle)
+    services.bundle_scans._write_cache("team", fingerprint, {
+        "fingerprint": fingerprint, "scan": {"state": "not_analyzed", "reason": "osv_rejected"},
+        "load_approved": True,
+    })
+    old = services.user_approvals.request(
+        kind="bundle_load", destination={"bundle": "team", "kind": "bundle_load"},
+        location={"bundle": "team", "fingerprint": fingerprint}, sha256=fingerprint)
+    with services.tasks.store.transaction() as conn:
+        services.tasks.store.append_event(conn, "user_approval.decided", actor="user:gui",
+                                          ref=old["id"], payload={"decision": "approved"})
+    assert services.bundle_scans.status("team")["load_approved"] is False
+    first = blocked(services, "bundle_scan_blocked")
+    second = blocked(services, "bundle_scan_blocked")
+    assert first["approval_id"] == second["approval_id"]
+    assert first["approval_id"] != old["id"]
+    assert first["risk_ack_required"] is True
+    decide(services, first, "approve", risk_ack=True)
     assert services.definitions.validate_bundle("team")["valid"]
 
 

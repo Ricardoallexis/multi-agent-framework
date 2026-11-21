@@ -68,6 +68,14 @@ export const HELP = {
       "Usa el código de un solo uso de la sesión abierta en esta pestaña."
     ]
   },
+  "approvals.bundle_risk": {
+    "title": "Asumo los riesgos",
+    "hint": "Confirma que revisaste el resultado antes de cargar este bundle.",
+    "more": [
+      "SkillSpector puede recomendar no instalarlo o no haberlo analizado por completo.",
+      "El servidor exige esta confirmación para cada carga que requiere tu aprobación."
+    ]
+  },
   "approvals.bundle_deny": {
     "title": "No cargar",
     "hint": "Mantiene bloqueada la carga de este bundle para su huella actual.",

@@ -272,3 +272,20 @@
 .approvals-scan-running {
   border-left-color: var(--accent);
 }
+
+/* SKL2-T01: explicit acknowledgement before a reviewed bundle load. */
+.approvals-risk-ack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.approvals-risk-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--target);
+  overflow-wrap: anywhere;
+}

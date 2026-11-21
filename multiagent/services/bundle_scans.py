@@ -83,7 +83,9 @@ class BundleScanServices:
         # A consumed approval belongs to a scan or load already started; an interrupted scan asks again.
         existing = [item for item in approvals._all().values()
                     if item["kind"] == kind and item["sha256"] == fingerprint and item["destination"] == destination
-                    and item["state"] != "consumed"]
+                    and item["state"] != "consumed"
+                    and not (kind == "bundle_load" and item["state"] == "approved"
+                             and item.get("risk_ack") is not True)]
         if existing:
             return existing[-1]
         manifests = self._manifests(folder) if kind == "osv_query" else []
@@ -112,7 +114,8 @@ class BundleScanServices:
         if not external:
             return {"bundle": name, "external": False, "state": "exempt", "verdict": None,
                     "findings": [], "coverage": {}, "fingerprint": None, "reason": None,
-                    "warning": None, "approval": None, "tool_version": None, "load_approved": False}
+                    "warning": None, "approval": None, "tool_version": None, "load_approved": False,
+                    "recommendation": None, "risk_ack_required": False}
         fingerprint = self.fingerprint(folder)
         with self._lock:
             cached = self._cached(name, fingerprint)
@@ -120,10 +123,11 @@ class BundleScanServices:
         scan = cached["scan"] if cached else {}
         state = "running" if running else scan.get("state", "unscanned")
         warning = "Sin escanear: SkillSpector no está" if state in {"off", "not_installed"} else None
+        load_approved = (cached or {}).get("load_approved") is True and (cached or {}).get("risk_ack") is True
         approval = None
         if state == "unscanned":
             kind = "osv_query"
-        elif state not in {"running", "safe", "caution", "off", "not_installed"} and not (cached or {}).get("load_approved"):
+        elif state not in {"running", "safe", "caution", "off", "not_installed"} and not load_approved:
             kind = "bundle_load"
         else:
             kind = None
@@ -131,7 +135,9 @@ class BundleScanServices:
             destination = {"bundle": name, "kind": kind}
             matches = [item for item in self._services.user_approvals._all().values()
                        if item["kind"] == kind and item["sha256"] == fingerprint and item["destination"] == destination
-                       and item["state"] != "consumed"]
+                       and item["state"] != "consumed"
+                       and not (kind == "bundle_load" and item["state"] == "approved"
+                                and item.get("risk_ack") is not True)]
             approval = matches[-1] if matches else None
         if state == "unscanned" and approval is not None:
             state = "pending" if approval["state"] == "pending" else "unscanned"
@@ -139,7 +145,9 @@ class BundleScanServices:
                 "verdict": state if state in {"safe", "caution", "do_not_install"} else None,
                 "findings": scan.get("findings", []), "coverage": scan.get("coverage", {}),
                 "fingerprint": fingerprint, "reason": scan.get("reason"), "warning": warning,
-                "tool_version": scan.get("tool_version"), "load_approved": bool((cached or {}).get("load_approved")),
+                "tool_version": scan.get("tool_version"), "load_approved": load_approved,
+                "recommendation": "do_not_install" if state == "do_not_install" else None,
+                "risk_ack_required": kind == "bundle_load",
                 "approval": {"id": approval["id"], "state": approval["state"],
                              "location": "/gui/"} if approval else None}
 
@@ -199,18 +207,20 @@ class BundleScanServices:
                 raise ServiceError("bundle_scan_running", "Bundle scan is running", status=409,
                                    details={"bundle": name})
             scan = cached["scan"]
-            if scan["state"] in {"safe", "caution", "off", "not_installed"} or cached.get("load_approved"):
+            if (scan["state"] in {"safe", "caution", "off", "not_installed"}
+                    or (cached.get("load_approved") is True and cached.get("risk_ack") is True)):
                 return self.status(name)
             approval = self._approval("bundle_load", name, fingerprint, folder=folder)
-            if approval["state"] == "approved" and self._services.user_approvals.consume(
+            if approval["state"] == "approved" and approval.get("risk_ack") is True and self._services.user_approvals.consume(
                     approval["id"], sha256=fingerprint, destination={"bundle": name, "kind": "bundle_load"}):
                 cached["load_approved"] = True
+                cached["risk_ack"] = True
                 self._write_cache(name, fingerprint, cached)
                 return self.status(name)
             raise ServiceError("bundle_scan_blocked", "Approve loading this bundle in the GUI", status=409,
                                details={"approval_id": approval["id"], "location": "/gui/",
                                         "verdict": scan["state"], "findings": scan.get("findings", []),
-                                        "coverage": scan.get("coverage", {})})
+                                        "coverage": scan.get("coverage", {}), "risk_ack_required": True})
 
     def close(self) -> None:
         with self._lock:

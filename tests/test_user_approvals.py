@@ -17,7 +17,7 @@ from multiagent.config import Settings
 from multiagent.contracts import SocialPostRequest
 from multiagent.gui.security import APPROVAL_COOKIE, APPROVAL_COOKIE_PATH
 from multiagent.gui.token import ensure_token
-from multiagent.services import ApplicationServices
+from multiagent.services import ApplicationServices, ServiceError
 
 SECRET = "synthetic-private-key-DO-NOT-SEND-927361"
 DIGEST = hashlib.sha256(SECRET.encode()).hexdigest()
@@ -126,6 +126,30 @@ def test_rejection_and_events_never_store_secret(env):
     assert SECRET not in str(events)
     assert {e["type"] for e in events if e["ref"] == approval["id"]} == {
         "user_approval.requested", "user_approval.decided"}
+
+
+def test_bundle_load_service_requires_ack_without_writing_event(env):
+    services, _, _, _ = env
+    approval = services.user_approvals.request(
+        kind="bundle_load", destination={"bundle": "synthetic", "kind": "bundle_load"},
+        location={"bundle": "synthetic"}, sha256=DIGEST)
+    with pytest.raises(ServiceError) as error:
+        services.user_approvals.decide(approval["id"], "approve")
+    assert (error.value.status, error.value.code) == (422, "risk_ack_required")
+    assert services.user_approvals.status(approval["id"])["state"] == "pending"
+    assert [e["type"] for e in services.tasks.store.events(limit=500) if e["ref"] == approval["id"]] == [
+        "user_approval.requested"]
+    decided = services.user_approvals.decide(approval["id"], "approve", risk_ack=True)
+    assert decided["risk_ack"] is True
+    assert services.user_approvals.status(approval["id"])["risk_ack"] is True
+
+
+def test_osv_query_does_not_need_ack(env):
+    services, _, _, _ = env
+    approval = services.user_approvals.request(
+        kind="osv_query", destination={"bundle": "synthetic", "kind": "osv_query"},
+        location="synthetic manifests", sha256=DIGEST)
+    assert services.user_approvals.decide(approval["id"], "approve")["state"] == "approved"
 
 
 def test_run_approval_channels_require_click_but_rejection_works(env, monkeypatch):

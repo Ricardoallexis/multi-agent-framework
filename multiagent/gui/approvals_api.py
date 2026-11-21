@@ -23,6 +23,7 @@ class SessionBody(BaseModel):
 class DecisionBody(BaseModel):
     code: str = Field(default="", max_length=256)
     decision: Literal["approve", "reject"]
+    risk_ack: bool = False
 
 
 def add_approval_routes(api: APIRouter, services: Any) -> None:
@@ -53,8 +54,10 @@ def add_approval_routes(api: APIRouter, services: Any) -> None:
     def decision(approval_id: str, body: DecisionBody, request: Request,
                  browser_session: str = Depends(require_approval_session)):
         approval = services.user_approvals.status(approval_id)
+        if approval["kind"] == "bundle_load" and body.decision == "approve" and body.risk_ack is not True:
+            raise ServiceError("risk_ack_required", "Acknowledge the bundle load risk", status=422)
         request.app.state.approval_sessions.verify(approval_id, approval["sha256"], browser_session, body.code)
-        decided = services.user_approvals.decide(approval_id, body.decision)
+        decided = services.user_approvals.decide(approval_id, body.decision, risk_ack=body.risk_ack)
         return _check_task_hold(services, decided)
 
 

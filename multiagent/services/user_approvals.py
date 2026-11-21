@@ -93,6 +93,8 @@ class UserApprovalServices:
             elif approval_id in result:
                 result[approval_id]["state"] = (payload["decision"] if event["type"] == "user_approval.decided"
                                                  else "consumed")
+                if event["type"] == "user_approval.decided":
+                    result[approval_id]["risk_ack"] = payload.get("risk_ack", False)
         return result
 
     def request(self, *, kind: str, destination: str | dict[str, str], location: str | dict[str, str],
@@ -129,7 +131,8 @@ class UserApprovalServices:
         self._sync_run_reviews()
         return [item for item in self._all().values() if item["state"] == "pending"]
 
-    def decide(self, approval_id: str, decision: str, *, actor: str = ACTOR) -> dict[str, Any]:
+    def decide(self, approval_id: str, decision: str, *, actor: str = ACTOR,
+               risk_ack: bool = False) -> dict[str, Any]:
         self._sync_run_reviews()
         if decision not in {"approve", "reject"}:
             raise ServiceError(INVALID_REQUEST, "Decision must be approve or reject", status=422)
@@ -139,8 +142,13 @@ class UserApprovalServices:
                 raise ServiceError(NOT_FOUND, "Approval not found", status=404)
             if item["state"] != "pending":
                 raise _approval_error("already_decided", approval_id)
+            if item["kind"] == "bundle_load" and decision == "approve" and risk_ack is not True:
+                raise ServiceError("risk_ack_required", "Acknowledge the bundle load risk", status=422)
+            payload = {"decision": "approved" if decision == "approve" else "rejected"}
+            if item["kind"] == "bundle_load" and decision == "approve":
+                payload["risk_ack"] = True
             self._store.append_event(conn, "user_approval.decided", actor=actor, ref=approval_id,
-                                     payload={"decision": "approved" if decision == "approve" else "rejected"})
+                                     payload=payload)
             decided = self._all(conn=conn)[approval_id]
         location = decided.get("location")
         if decided.get("kind") == "secret_send" and isinstance(location, dict) and location.get("source") == "run":

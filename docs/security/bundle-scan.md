@@ -63,8 +63,8 @@ be told not to.
 | --- | --- | --- |
 | `safe` | SkillSpector's verdict is `SAFE` and it covered 100 % of every folder. | Loads. |
 | `caution` | Verdict `CAUTION` with full coverage. Review the findings. | Loads. |
-| `do_not_install` | Verdict `DO_NOT_INSTALL` with full coverage. | Needs your click on «Cargar este bundle». |
-| `not_analyzed` | The tool gave no usable full-coverage verdict. See `reason`. | Needs your click on «Cargar este bundle». |
+| `do_not_install` | SkillSpector recommends against installing the bundle, even with partial or unknown coverage. This is a recommendation, not an absolute block. | Check «Asumo los riesgos de cargar este bundle», then click «Cargar este bundle» if you choose to proceed. |
+| `not_analyzed` | The tool gave no usable full-coverage verdict. See `reason`. | Check «Asumo los riesgos de cargar este bundle», then click «Cargar este bundle» if you choose to proceed. |
 | `not_installed` | SkillSpector or its interpreter was not found. | Loads, with a warning. |
 | `off` | `bundle_scan = off`. | Loads, with a warning. |
 
@@ -77,12 +77,14 @@ An interpreter without a valid signature never runs; the bundle shows as `not_an
 `not_analyzed` comes with one of these reasons: `osv_rejected`, `signature_not_valid`, `osv_not_approved`,
 `coverage_below_100`, `coverage_unknown`, `verdict_not_understood`, `report_not_json`, `timeout`,
 `output_truncated`, `exit_code_N`, `launch_failed`, `invalid_folder` or `scan_failed`.
+`do_not_install` can also carry `coverage_below_100` or `coverage_unknown`.
 
 ### Coverage
 
-A verdict only counts when every folder was fully analyzed. If any folder is below 100 %, or its
-coverage is unknown, the whole result becomes `not_analyzed`, whatever verdict the tool gave. The GUI
-lists each folder with its percentage and marks the ones left unanalyzed.
+`SAFE` and `CAUTION` count only when every folder was fully analyzed. Partial or unknown coverage makes
+them `not_analyzed`. `DO_NOT_INSTALL` remains `do_not_install` with the coverage reason, so the GUI shows
+both «No instalar» and «Cobertura parcial». It lists each folder with its percentage and marks the ones
+left unanalyzed.
 
 ### Findings and false positives
 
@@ -100,9 +102,12 @@ When the state needs your click, a request that would load the bundle answers `4
 | --- | --- | --- |
 | `bundle_scan_pending` | The OSV query waits for your approval. | `approval_id`, `location` (`/gui/`) |
 | `bundle_scan_running` | A scan is in progress (one at a time). Retry shortly. | `bundle` |
-| `bundle_scan_blocked` | The verdict needs your approval to load. | `approval_id`, `location`, `verdict`, `findings`, `coverage` |
+| `bundle_scan_blocked` | The verdict needs your approval to load. | `approval_id`, `location`, `verdict`, `findings`, `coverage`, `risk_ack_required: true` |
 
-Open «Aprobaciones» in the GUI, decide, and repeat the request. The load approval is bound to that
+Open «Aprobaciones» in the GUI, check «Asumo los riesgos de cargar este bundle» and decide, then repeat
+the request. The server rejects a `bundle_load` approval without `risk_ack: true` with 422
+`risk_ack_required` before spending the one-use code. Older load approvals without this acknowledgement
+do not count and require a new decision. «No cargar» needs no acknowledgement. The load approval is bound to that
 fingerprint and is used once; an edited bundle is scanned again. Nothing imports the bundle until
 then, and its `contracts.py` always runs from source, never from `__pycache__`.
 

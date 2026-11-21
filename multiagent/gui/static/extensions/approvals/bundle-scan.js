@@ -146,7 +146,7 @@ export function formatVerdict(scan) {
   const coverage = formatCoverage(scan.coverage);
   const raw = cleanText(scan.verdict || scan.state || "not_analyzed").toLowerCase().replace(/[\s-]+/g, "_");
   if (raw === "safe" || raw === "caution" || raw === "do_not_install") {
-    if (coverage.hasEntries && !coverage.allComplete) {
+    if (raw !== "do_not_install" && coverage.hasEntries && !coverage.allComplete) {
       return { key: "not_analyzed", ...VERDICT_LABELS.not_analyzed };
     }
     return { key: raw, ...VERDICT_LABELS[raw] };
@@ -210,6 +210,8 @@ export function describeBundleLoad(item, scan = null) {
     title: "Veredicto de SkillSpector",
     bundle,
     verdict: formatVerdict(scan),
+    recommendationText: scan && (scan.recommendation === "do_not_install" || scan.state === "do_not_install")
+      ? "Recomendación de SkillSpector: no instalar" : "",
     reasonText: formatScanReason(scan && scan.reason),
     coverage: formatCoverage(scan && scan.coverage),
     findings: selectTopFindings(scan && scan.findings),
@@ -221,6 +223,9 @@ export function describeBundleLoad(item, scan = null) {
     rejectLabel: "No cargar",
   };
 }
+
+export const canApproveBundleLoad = (riskAck, busy = false, sessionUnavailable = false) =>
+  riskAck === true && !busy && !sessionUnavailable;
 
 export const isScanningState = (scan) => Boolean(scan && typeof scan === "object" && scan.state === "running");
 export const shouldPollScans = (scans) => Array.isArray(scans) && scans.some(isScanningState);
@@ -306,6 +311,8 @@ function ScanDetails({ view }) {
       <span class="approvals-scan-bundle">Bundle: <strong>${view.bundle}</strong></span>
       <${StatusChip} status=${view.verdict.key} labels=${VERDICT_LABELS} />
     </div>
+    ${view.recommendationText && html`<p class="approvals-reason">${view.recommendationText}</p>`}
+    ${view.verdict.key === "do_not_install" && !view.coverage.allComplete && html`<p class="approvals-reason">Cobertura parcial</p>`}
     ${view.reasonText && html`<p class="approvals-reason">${view.reasonText}</p>`}
     <div class="approvals-scan-section">
       <p class="approvals-scan-label">Cobertura</p>
@@ -342,6 +349,7 @@ function ScanDetails({ view }) {
 
 function BundleLoadCard({ item, token, selected, sessionUnavailable, onSessionUnavailable, onDecided, onStale }) {
   const [busy, setBusy] = useState(false);
+  const [riskAck, setRiskAck] = useState(false);
   const [cardError, setCardError] = useState(null);
   const [scan, setScan] = useState(null);
   const [scanLoading, setScanLoading] = useState(true);
@@ -349,6 +357,8 @@ function BundleLoadCard({ item, token, selected, sessionUnavailable, onSessionUn
   const bundleName = extractBundleName(item);
   const scope = scopeOf(item.id || "bundle");
   const titleId = "approvals-card-" + scope + "-title";
+
+  useEffect(() => { setRiskAck(false); }, [item.id, item.sha256]);
 
   useEffect(() => {
     if (!bundleName) {
@@ -377,14 +387,17 @@ function BundleLoadCard({ item, token, selected, sessionUnavailable, onSessionUn
 
   async function decide(decision) {
     if (busy || sessionUnavailable) return;
+    if (decision === "approve" && !canApproveBundleLoad(riskAck, busy, sessionUnavailable)) return;
     setBusy(true);
     setCardError(null);
     const outcome = await submitApprovalDecision({
       item,
       decision,
+      riskAck: decision === "approve" && riskAck,
       post: (path, body) => apiPost(path, token, body),
     });
     setBusy(false);
+    if (outcome.ok || outcome.stale) setRiskAck(false);
     if (outcome.ok) {
       try {
         window.dispatchEvent(new CustomEvent("multiagent:approval-decided", {
@@ -408,9 +421,18 @@ function BundleLoadCard({ item, token, selected, sessionUnavailable, onSessionUn
     ${scanError && html`<p class="message error">No se pudo leer el estado del escaneo: ${errorText(scanError)}</p>`}
     <${ScanDetails} view=${view} />
     <${CardError} cardError=${cardError} busy=${busy} sessionUnavailable=${sessionUnavailable} scope=${scope} onRetry=${decide} />
+    <div class="approvals-risk-ack">
+      <label class="approvals-risk-label">
+        <input type="checkbox" checked=${riskAck} disabled=${busy || sessionUnavailable}
+          ...${helpFor("approvals.bundle_risk", { scope })}
+          onChange=${(event) => setRiskAck(event.currentTarget.checked)} />
+        <span>Asumo los riesgos de cargar este bundle</span>
+      </label>
+      <${Help} topic="approvals.bundle_risk" compact=${true} scope=${scope} />
+    </div>
     <div class="approvals-actions" role="group" aria-label=${"Decisión para " + view.title}>
       <span class="approvals-action">
-        <button type="button" class="btn approvals-btn" disabled=${busy || sessionUnavailable}
+        <button type="button" class="btn approvals-btn" disabled=${!canApproveBundleLoad(riskAck, busy, sessionUnavailable)}
           ...${helpFor("approvals.bundle_allow", { scope })} onClick=${() => decide("approve")}>
           ${busy ? "Enviando…" : view.approveLabel}
         </button>

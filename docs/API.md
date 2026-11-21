@@ -318,6 +318,7 @@ before its code is imported (see [Bundle scan](security/bundle-scan.md)). `GET /
 | `findings`, `coverage` | The main findings (at most 20, most severe first) and the coverage percent per folder. |
 | `fingerprint`, `tool_version`, `reason`, `warning` | The bundle fingerprint, the tool version, why a result is `not_analyzed`, and the warning shown when there was no scan. |
 | `approval`, `load_approved` | The pending approval (`id`, `state`, `location: "/gui/"`) or `null`, and whether a person already approved the load. |
+| `recommendation`, `risk_ack_required` | `"do_not_install"` when SkillSpector recommends against installing (otherwise `null`), and whether a `bundle_load` decision requires risk acknowledgement. |
 
 Requests that load a bundle's code (`POST /api/v1/bundles/{name}/validate`, `?bundle=<name>` on workflows and
 agents, and `POST /api/v1/runs`) answer `409` until a person decides in the GUI:
@@ -326,9 +327,13 @@ agents, and `POST /api/v1/runs`) answer `409` until a person decides in the GUI:
 | --- | --- | --- |
 | `bundle_scan_pending` | The query to `api.osv.dev` waits for a click. | `approval_id`, `location` |
 | `bundle_scan_running` | A scan is running; only one runs at a time. | `bundle` |
-| `bundle_scan_blocked` | The verdict is `do_not_install`, the bundle was not fully analyzed, or the interpreter is unsigned; loading needs a click. | `approval_id`, `location`, `verdict`, `findings`, `coverage` |
+| `bundle_scan_blocked` | The verdict is `do_not_install`, the bundle was not fully analyzed, or the interpreter is unsigned; loading needs a click. | `approval_id`, `location`, `verdict`, `findings`, `coverage`, `risk_ack_required` |
 
-Only the GUI can grant these approvals. Settings: `bundle_scan`, `skillspector_python` and
+Only the GUI can grant these approvals. The GUI decision body accepts optional `risk_ack` (default
+`false`). Approving `bundle_load` requires `risk_ack: true`, or it returns 422 `risk_ack_required`
+without spending the one-use code; rejecting it and deciding `secret_send` or `osv_query` do not require
+the field. A prior load approval or cache entry without acknowledgement does not authorize loading.
+The CLI and the read-only scan API cannot approve a load. Settings: `bundle_scan`, `skillspector_python` and
 `bundle_scan_timeout_seconds`.
 
 ### Approvals and `user_click_required`

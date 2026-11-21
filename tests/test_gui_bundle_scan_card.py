@@ -130,6 +130,8 @@ def test_every_verdict_label_and_coverage_with_zero_percent():
         not_analyzed: bundleScan.formatVerdict({ state: "not_analyzed", verdict: null, coverage: {} }),
         unscanned: bundleScan.formatVerdict({ state: "unscanned", verdict: null, coverage: {} }),
         partialOverride: bundleScan.formatVerdict({ state: "safe", verdict: "safe", coverage: { a: 100, b: 0 } }),
+        partialDoNotInstall: bundleScan.formatVerdict({ state: "do_not_install", verdict: "do_not_install", coverage: { a: 100, b: 60 } }),
+        unknownDoNotInstall: bundleScan.formatVerdict({ state: "do_not_install", verdict: "do_not_install", coverage: {} }),
       };
       const cov = bundleScan.formatCoverage({ "skills/a": 100, "skills/b": 0, "skills/c": -1 });
       console.log(JSON.stringify({ verdicts, cov }));
@@ -140,6 +142,8 @@ def test_every_verdict_label_and_coverage_with_zero_percent():
     assert out["verdicts"]["not_analyzed"]["text"] == "Sin analizar"
     assert out["verdicts"]["unscanned"]["text"] == "Sin analizar"
     assert out["verdicts"]["partialOverride"]["text"] == "Sin analizar"
+    assert out["verdicts"]["partialDoNotInstall"]["text"] == "No instalar"
+    assert out["verdicts"]["unknownDoNotInstall"]["text"] == "No instalar"
 
     entries = {entry["folder"]: entry for entry in out["cov"]["entries"]}
     assert entries["skills/a"]["unanalyzed"] is False and entries["skills/a"]["text"] == "100 %"
@@ -207,6 +211,47 @@ def test_osv_reject_leads_to_not_analyzed_without_clicking_approve():
     ]
     assert out["resultingCard"]["verdict"]["text"] == "Sin analizar"
     assert "api.osv.dev" in out["resultingCard"]["reasonText"]
+
+
+@needs_node
+def test_bundle_load_ack_body_and_recommendation():
+    out = run_node("""
+      const item = { id: "apr-load", kind: "bundle_load", sha256: "a".repeat(64) };
+      const calls = [];
+      const post = async (path, body) => {
+        calls.push({ path, body });
+        return path.endsWith("/challenge")
+          ? { code: "once-99", sha256: item.sha256 }
+          : { id: item.id, state: "approved" };
+      };
+      const accepted = await approvals.submitApprovalDecision({ item, decision: "approve", riskAck: true, post });
+      const card = bundleScan.describeBundleLoad(item, {
+        state: "do_not_install", recommendation: "do_not_install", reason: "coverage_below_100",
+        coverage: { a: 100, b: 60 }, findings: [{ rule: "<script>", level: "high" }],
+      });
+      console.log(JSON.stringify({
+        accepted, calls, card,
+        allowed: [bundleScan.canApproveBundleLoad(false), bundleScan.canApproveBundleLoad(true),
+          bundleScan.canApproveBundleLoad(true, true), bundleScan.canApproveBundleLoad(true, false, true)],
+      }));
+    """)
+    assert out["accepted"]["ok"] is True
+    assert out["calls"][1]["body"] == {"code": "once-99", "decision": "approve", "risk_ack": True}
+    assert out["card"]["verdict"]["text"] == "No instalar"
+    assert out["card"]["recommendationText"] == "Recomendación de SkillSpector: no instalar"
+    assert out["card"]["coverage"]["allComplete"] is False
+    assert out["card"]["findings"]["items"][0]["rule"] == "<script>"
+    assert out["allowed"] == [False, True, False, False]
+
+
+def test_bundle_ack_control_is_required_and_rejection_stays_available():
+    source = (EXT_DIR / "bundle-scan.js").read_text(encoding="utf-8")
+    assert 'const [riskAck, setRiskAck] = useState(false)' in source
+    assert 'onChange=${(event) => setRiskAck(event.currentTarget.checked)}' in source
+    assert 'disabled=${!canApproveBundleLoad(riskAck, busy, sessionUnavailable)}' in source
+    assert 'disabled=${busy || sessionUnavailable}' in source
+    assert 'if (outcome.ok || outcome.stale) setRiskAck(false)' in source
+    assert 'approvals.bundle_risk' in source
 
 
 def test_bundle_scan_extension_static_rules():

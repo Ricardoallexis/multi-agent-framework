@@ -882,8 +882,10 @@ decisions of a bundle scan as their own cards. Both come from an external bundle
 - **Cargar este bundle** (`bundle_load`). It shows the verdict (Seguro, Con avisos, No instalar or Sin analizar),
   the coverage of each folder with the ones left unanalyzed marked, and the top 10 findings as plain text (level,
   rule, file and line, with the message cut at 200 characters) and how many more there are. A note says that the
-  scan has no language model and that many high findings are false positives. **Cargar este bundle** approves that
-  one load; **No cargar** rejects it.
+  scan has no language model and that many high findings are false positives. A partial «No instalar» report keeps
+  that recommendation and separately says «Cobertura parcial». The unchecked «Asumo los riesgos de cargar este
+  bundle» box keeps **Cargar este bundle** disabled until checked; the server also requires it. **No cargar** stays
+  available without the box. The box clears after a decision or when the card becomes stale.
 - While a scan runs the card says «Escaneando · unos 25 s por carpeta», and the view polls
   `GET /gui/api/bundles/{name}/scan` every 3 s (every 10 s when idle) and refreshes when the scan ends.
 - Each decision is a one-use approval bound to the bundle's fingerprint, like the other approvals of the view: it

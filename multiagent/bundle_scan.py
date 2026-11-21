@@ -11,8 +11,8 @@ A local scan sends package names and versions to ``api.osv.dev`` and the tool ca
 refuses to run unless the caller says the person approved it (``osv_approved=True``).
 
 ``scan(folder, osv_approved=..., settings=...)`` returns a ``ScanResult`` (``as_dict()`` for JSON) whose ``state`` is
-one of ``STATES``. ``safe``, ``caution`` and ``do_not_install`` are the tool's verdict, and only when every folder was
-fully covered; everything else is ``not_analyzed`` with a ``reason``, or ``not_installed``, ``unsigned_interpreter``
+one of ``STATES``. ``safe`` and ``caution`` need full coverage; ``do_not_install`` remains a recommendation even
+with partial or unknown coverage. Other results are ``not_analyzed`` with a ``reason``, or ``not_installed``, ``unsigned_interpreter``
 or ``off``. The pieces (``detect``, ``build_command``, ``run_scan``, ``parse_report``) can be used on their own, with
 a fake signature checker and a fake runner in tests: no test runs the real tool.
 """
@@ -207,9 +207,11 @@ def parse_report(text: str) -> ScanResult:
     if state is None:
         return ScanResult(NOT_ANALYZED, findings, coverage, version, "verdict_not_understood")
     if not coverage or any(value < 0 for value in coverage.values()):
-        return ScanResult(NOT_ANALYZED, findings, coverage, version, "coverage_unknown")
+        return ScanResult(state if state == DO_NOT_INSTALL else NOT_ANALYZED,
+                          findings, coverage, version, "coverage_unknown")
     if any(value < 100 for value in coverage.values()):
-        return ScanResult(NOT_ANALYZED, findings, coverage, version, "coverage_below_100")
+        return ScanResult(state if state == DO_NOT_INSTALL else NOT_ANALYZED,
+                          findings, coverage, version, "coverage_below_100")
     return ScanResult(state, findings, coverage, version, None)
 
 
