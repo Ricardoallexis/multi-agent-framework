@@ -4,7 +4,7 @@
 //   banner   the brand corner: menu button (narrow screens), short title and MOCK badge
 //   nav      the left sidebar with connection and help; below ~900 px it is a drawer (Esc and the scrim close it)
 //   main     the view of the current route
-//   aside    the right panel; it can be collapsed, and the choice is remembered (shell-state.js)
+//   aside    the «Contexto» panel; closed by default, offered only with a session or run open, and the choice is remembered (shell-state.js)
 // The sidebar and the panel content come in as props (sidebar.js, right-panel.js); this file only lays them out.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { Help, helpFor } from "./help.js";
@@ -28,7 +28,9 @@ function useMedia(query) {
 
 const focusable = (root) => (root ? root.querySelector("button:not([disabled]), input:not([disabled]), a[href]") : null);
 
-export function Shell({ status, statusText, mock, sidebar, panel, children }) {
+// GUI3-T04: `hasSubject` is true while a session or a run is open; only then is «Contexto» offered. `contextDot` says that
+// a card of the closed panel has content.
+export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = false, contextDot = false, children }) {
   const narrow = useMedia(NARROW_QUERY);
   const [drawer, setDrawer] = useState(false);
   const [panelOpen, setPanelOpen] = useState(() => readPanelOpen(defaultPanelOpen()));
@@ -36,6 +38,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, children }) {
   const helpRef = useRef(helpOn);
   helpRef.current = helpOn;
   const drawerOpen = drawer && narrow;
+  const panelShown = panelOpen && hasSubject;
   const menuButton = useRef(null);
   const sidebarBox = useRef(null);
   const mainBox = useRef(null);
@@ -98,7 +101,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, children }) {
     if (mainBox.current) mainBox.current.focus();
   };
 
-  return html`<div class="app" data-help=${helpOn ? "on" : "off"} data-drawer=${drawerOpen ? "open" : "closed"} data-panel=${panelOpen ? "open" : "closed"}>
+  return html`<div class="app" data-help=${helpOn ? "on" : "off"} data-drawer=${drawerOpen ? "open" : "closed"} data-panel=${panelShown ? "open" : "closed"}>
     <a class="skip-link" href="#main-content" onClick=${skip}>Saltar al contenido</a>
     <header class="topbar">
       <div class="menu-only">
@@ -122,13 +125,13 @@ export function Shell({ status, statusText, mock, sidebar, panel, children }) {
       </div>
     </nav>
     <main id="main-content" class="content" tabindex="-1" ref=${mainBox} inert=${drawerOpen}>
-      <div class="content-toolbar"><div class="panel-tool">
+      ${hasSubject && html`<div class="content-toolbar"><div class="panel-tool">
         <button type="button" class="tool-btn" aria-expanded=${panelOpen ? "true" : "false"} aria-controls="right-panel"
-          ...${helpFor("shell.panel")} onClick=${togglePanel}><${Icon} name="panel" />Panel</button>
+          ...${helpFor("shell.panel")} onClick=${togglePanel}><${Icon} name="panel" />Contexto${!panelOpen && contextDot && html`<span class="context-dot" aria-hidden="true"></span><span class="sr-only"> (hay contenido)</span>`}</button>
         <${Help} topic="shell.panel" compact=${true} />
-      </div></div>
+      </div></div>`}
       ${children}
     </main>
-    <aside id="right-panel" class="rightpanel" aria-label="Contexto de la sesión" hidden=${!panelOpen} inert=${drawerOpen}>${panel}</aside>
+    <aside id="right-panel" class="rightpanel" aria-label="Contexto de la sesión" hidden=${!panelShown} inert=${drawerOpen}>${panel}</aside>
   </div>`;
 }

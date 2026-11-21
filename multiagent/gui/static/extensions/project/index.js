@@ -6,6 +6,7 @@
 // its result envelope, approve or ask for changes). It only shows what /gui/api/projects answers (the core's own views). The
 // one write is the review of a submitted task, through the token and the services' own rules (multiagent/gui/project_api.py).
 import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
+import { useContentReport } from "../../js/context-report.js";
 import { registerHelp, registerSlot, registerView } from "../../js/extensions.js";
 import { Help, helpFor } from "../../js/help.js";
 import { apiGet, apiPost } from "../../js/api.js";
@@ -196,7 +197,7 @@ export function ProjectView({ token, route }) {
 }
 
 // The card of the right panel: the project open in the screen (or the first one that needs the user), its progress and a link.
-export function ProjectSlot({ token, route }) {
+export function ProjectSlot({ token, route, onContent }) {
   const [state, setState] = useState({ projects: null, failed: false });
   useEffect(() => {
     let alive = true;
@@ -208,6 +209,7 @@ export function ProjectSlot({ token, route }) {
     return () => { alive = false; window.removeEventListener(CHANGED, load); };
   }, [token]);
   const { projects, failed } = state;
+  useContentReport(onContent, projects !== null && !failed && projects.length > 0);   // GUI3-T04
   if (projects === null) return html`<p class="project-empty">Cargando proyectos...</p>`;
   if (failed) return html`<p class="project-empty">No se pudo leer la lista de proyectos.</p>`;
   const chosen = projects.find((p) => p.id === pickProject(projects, route?.section === "project" ? route.id : ""));

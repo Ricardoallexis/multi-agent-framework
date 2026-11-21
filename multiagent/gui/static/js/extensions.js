@@ -14,8 +14,9 @@
 //
 //   registerView({ id, label, component, topic, order, owner, group, icon })   a screen: a button in the sidebar and the route "#<id>" or "#<id>/<item>"
 //                                                   (component props: token, status, mock, route = { section, id }); topic is a help key (optional)
-//   registerSlot(name, component, { title, topic, order, owner })   a section of the right panel (also exported by panel-slots.js);
-//                                                   props: token, route, sessionId; topic is a help key (optional)
+//   registerSlot(name, component, { title, topic, order, owner, defaultMode })   a section of the right panel (also exported by panel-slots.js);
+//                                                   props: token, route, sessionId, onContent; topic is a help key (optional); defaultMode
+//                                                   is "auto" (default), "always" or "never" (GUI3-T04: when the card is drawn)
 //   registerUsageSection({ id, label, component, order, owner })   a tab of the «Uso» screen after Planes, Global and API y presupuesto
 //                                                   (CNT-T06; props: token); the ids of the built-in tabs are reserved
 //   registerHelp(entries, owner)                    help entries { title, hint, more } for <Help topic=...> and helpFor()
@@ -26,6 +27,7 @@
 
 export const RESERVED_SECTIONS = ["sessions", "runs", "usage", "evaluation", "teams", "plans", "tree", "map", "new"];   // the routes of the built-in screens
 export const RESERVED_SLOTS = ["changes", "subagents", "tokens", "sources"];            // the sections of the built-in panel
+const SLOT_MODES = ["auto", "always", "never"];                                         // when a card of the panel is drawn (context-model.js)
 export const RESERVED_USAGE_SECTIONS = ["plans", "global", "costs"];                    // the tabs of the built-in «Uso» screen (usage.js)
 export const LOAD_BUDGET_MS = 3000;   // the most the first render waits for the manifest, the modules and the sheets together
 const ID = /^[a-z][a-z0-9_]{0,39}$/;
@@ -97,14 +99,15 @@ export function registerView({ id, label, component, topic = null, order, owner,
 export function registeredViews() { return [...views.values()].sort(byOrder); }
 export function isRegisteredView(id) { return views.has(id); }
 
-export function registerSlot(name, component, { title, topic = null, order, owner } = {}) {
+export function registerSlot(name, component, { title, topic = null, order, owner, defaultMode = "auto" } = {}) {
   if (typeof name !== "string" || !ID.test(name)) refuse("registerSlot: name must be lowercase letters, digits and _ (got " + String(name) + ")");
   if (RESERVED_SLOTS.includes(name)) refuse("registerSlot: \"" + name + "\" is a section of the built-in panel");
   if (slots.has(name)) refuse("registerSlot: \"" + name + "\" is already registered");
   if (typeof component !== "function") refuse("registerSlot: component must be a function");
   if (typeof title !== "string" || !title.trim() || title.trim().length > 30) refuse("registerSlot: title must be 1 to 30 characters");
   if (topic !== null && (typeof topic !== "string" || !TOPIC.test(topic))) refuse("registerSlot: topic must be a help key like \"name.topic\"");
-  slots.set(name, { name, key: name, title: title.trim(), topic, component, order: orderOf(order) });
+  if (!SLOT_MODES.includes(defaultMode)) refuse("registerSlot: defaultMode must be \"auto\", \"always\" or \"never\"");
+  slots.set(name, { name, key: name, title: title.trim(), topic, component, defaultMode, order: orderOf(order) });
   record(owner, slots, name);
   changed();
 }

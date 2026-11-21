@@ -421,10 +421,17 @@ def test_registries_validate_and_order_what_extensions_register():
         attempt(() => registerSlot("ok_slot", "nope", {{ title: "x" }})),
         attempt(() => registerSlot("ok_slot", View, {{ title: "x", topic: "notatopic" }})),
       ];
+      result.badMode = [
+        attempt(() => registerSlot("modeless", View, {{ title: "x", defaultMode: "sometimes" }})),
+        attempt(() => registerSlot("modeless", View, {{ title: "x", defaultMode: null }})),
+        attempt(() => registerSlot("modeless", View, {{ title: "x", defaultMode: 1 }})),
+      ];
+      registerSlot("quiet", View, {{ title: "Callada", defaultMode: "never", order: 95 }});
       registerSlot("late", View, {{ title: "Tarde", order: 90 }});
       registerSlot("early", View, {{ title: "Pronto", topic: "early.card", order: 5 }});
       result.duplicateSlot = attempt(() => registerSlot("late", View, {{ title: "Otra" }}));
       result.slots = registeredSlots().map((s) => [s.name, s.title, s.topic]);
+      result.modes = registeredSlots().map((s) => [s.name, s.defaultMode]);
       result.badHelp = [
         attempt(() => registerHelp(null)), attempt(() => registerHelp([])),
         attempt(() => registerHelp({{ nodot: {{ title: "a", hint: "b", more: ["c"] }} }})),
@@ -441,7 +448,9 @@ def test_registries_validate_and_order_what_extensions_register():
     assert out["isRegistered"] == [True, False, False]
     assert all(out["badSlot"]) and "built-in panel" in out["badSlot"][0]
     assert "already registered" in out["duplicateSlot"]
-    assert out["slots"] == [["early", "Pronto", "early.card"], ["late", "Tarde", None]]
+    assert out["slots"] == [["early", "Pronto", "early.card"], ["late", "Tarde", None], ["quiet", "Callada", None]]
+    assert all(m and "defaultMode" in m for m in out["badMode"])                # GUI3-T04: an invalid mode is refused
+    assert out["modes"] == [["early", "auto"], ["late", "auto"], ["quiet", "never"]]
     assert all(out["badHelp"]) and "already registered" in out["duplicateHelp"]
     assert out["help"] == ["A", None]
 

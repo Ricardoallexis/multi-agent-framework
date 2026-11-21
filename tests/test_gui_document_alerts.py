@@ -410,9 +410,9 @@ def test_the_page_loads_the_extension_and_registerslot_adds_a_card_without_touch
 
 
 # Walks the virtual tree a component gives (no DOM): the text, the tags and the links. A component without hooks is called; the "?"
-# help (hooks) is skipped, because it needs the browser and adds no text that is checked here.
+# help and the content report of the «Contexto» panel (GUI3-T04) have hooks and are skipped: they need the browser and add no text.
 WALK = r"""
-  const SKIPPED = new Set(["Help"]);
+  const SKIPPED = new Set(["Help", "ContentReport"]);
   const walk = (node, seen) => {
     if (node === null || node === undefined || typeof node === "boolean") return "";
     if (typeof node === "string" || typeof node === "number") return String(node);

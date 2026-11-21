@@ -104,7 +104,7 @@ function Item({ child, sessionId, currentId, now }) {
     : html`<div class="sub-item static" data-source=${child.source}>${body}</div>`}</li>`;
 }
 
-export function SubagentsPanel({ token, sessionId, currentId = null }) {
+export function SubagentsPanel({ token, sessionId, currentId = null, onContent }) {
   const [data, setData] = useState({ children: [], counts: { active: 0, done: 0, total: 0 }, warnings: [], loaded: false });
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("active");
@@ -156,6 +156,9 @@ export function SubagentsPanel({ token, sessionId, currentId = null }) {
     return () => { alive.current = false; stop(); clearInterval(timer); };
   }, [sessionId, token]);
 
+  // GUI3-T04: the «Contexto» panel draws this card by whether the session has subagents.
+  useEffect(() => { if (typeof onContent === "function") onContent({ has: data.loaded && data.children.length > 0 }); },
+    [onContent, data.loaded, data.children.length]);
   const groups = { active: [], done: [] };
   for (const child of data.children) groups[groupOf(child.status)].push(child);
   const counts = data.loaded ? { active: groups.active.length, done: groups.done.length } : data.counts;

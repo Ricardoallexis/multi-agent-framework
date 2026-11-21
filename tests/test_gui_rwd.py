@@ -145,7 +145,7 @@ def test_every_table_and_pre_in_views_has_overflow_x_auto_container():
 def test_right_panel_starts_collapsed_under_phone_and_tablet_breakpoints():
     """Verify the right panel is hidden by default below 900 px (covering both tablet 768 px and phone 360/390 px).
 
-    Manual QA at 390 px and 768 px confirms the panel starts collapsed on first visit and opens via the Panel button."""
+    Manual QA at 390 px and 768 px confirms the panel starts collapsed on first visit and opens via the Contexto button."""
     app = read_sheet(STATIC_DIR / "app.css")
     tablet = all_media(app, TABLET_QUERY)
     assert "position: static" in rule(tablet, ".rightpanel")
@@ -153,7 +153,7 @@ def test_right_panel_starts_collapsed_under_phone_and_tablet_breakpoints():
 
     shell = (JS / "shell.js").read_text(encoding="utf-8")
     assert "readPanelOpen(defaultPanelOpen())" in shell
-    assert "hidden=${!panelOpen}" in shell
+    assert "hidden=${!panelShown}" in shell
 
     state = (JS / "shell-state.js").read_text(encoding="utf-8")
     assert 'WIDE_QUERY = "(min-width: 900px)"' in state
@@ -178,7 +178,13 @@ def test_right_panel_starts_collapsed_under_phone_and_tablet_breakpoints():
                              encoding="utf-8", timeout=60)
         assert run.returncode == 0, run.stderr
         out = json.loads(run.stdout)
-        assert out == {"360": False, "390": False, "768": False, "1200": True}
+        # GUI3-T04: «Contexto» starts closed at every width; a stored choice to open it still wins.
+        assert out == {"360": False, "390": False, "768": False, "1200": False}
+        stored = script.replace("const out = {};", 'const out = {}; store.set("multiagent.gui.right-panel", "open");')
+        run = subprocess.run([NODE, "--input-type=module", "-e", stored], capture_output=True, text=True,
+                             encoding="utf-8", timeout=60)
+        assert run.returncode == 0, run.stderr
+        assert json.loads(run.stdout) == {"360": True, "390": True, "768": True, "1200": True}
 
 
 def test_controls_and_shell_navigation_meet_target_height_and_wrap():

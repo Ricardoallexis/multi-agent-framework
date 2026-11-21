@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Read-only wait badges and the decision inbox, through FLU-T04. No shared shell file or decision endpoint is changed.
 import { html } from "../../vendor/htm-preact-standalone.module.js";
+import { useContentReport } from "../../js/context-report.js";
 import { registerHelp, registerSlot, registerView } from "../../js/extensions.js";
 import { Help, helpFor } from "../../js/help.js";
 import { useTaskWaiting, waitBadge, waitRecipient, waitingForUser, waitDate } from "../../js/task-waiting.js";
@@ -55,10 +56,12 @@ export function TaskWaitingView({ token }) {
   </section>`;
 }
 
-export function TaskWaitingPanel({ token }) {
+export function TaskWaitingPanel({ token, onContent }) {
   const data = useTaskWaiting(token, "panel");
+  useContentReport(onContent, waitingForUser(data.tasks).length > 0);   // GUI3-T04
   return html`<${WaitingContent} data=${data} scope="panel" />`;
 }
 
 registerView({ id: "task_waiting", owner: "task_waiting", group: "pending", icon: "clock", label: "Esperan tu decisión", topic: "task_waiting.view", component: TaskWaitingView, order: 55 });
-registerSlot("task_waiting", TaskWaitingPanel, { title: "Esperan tu decisión", topic: "task_waiting.panel", owner: "task_waiting", order: 55 });
+registerSlot("task_waiting", TaskWaitingPanel, { title: "Esperan tu decisión", topic: "task_waiting.panel", owner: "task_waiting", order: 55,
+  defaultMode: "never" });   // GUI3-T04: the same list is in «Pendientes»; it can be set to «Automática» or «Siempre» (GUI3-T07)

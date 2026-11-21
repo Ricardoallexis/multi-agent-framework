@@ -17,7 +17,9 @@
 //   registerSlot("name", Component, { title: "Título", topic: "name.help_key", order: 100 })
 // from its entry module (static/extensions/<name>/index.js, see extensions.js). right-panel.js draws the registered
 // sections after the four fixed ones, ordered by `order` and then by name, with the same title and "?" help around them,
-// and gives the component the same props as the slots above (token, route, sessionId).
+// and gives the component the same props as the slots above (token, route, sessionId) plus onContent (GUI3-T04): call it with
+// { has, urgent } (useContentReport, context-report.js) and the panel draws the card by its mode; "defaultMode" ("auto",
+// "always" or "never") is the mode a card starts with, and a card that never calls onContent counts as having content.
 import { html } from "../vendor/htm-preact-standalone.module.js";
 import { ChangesPanel } from "./panel-changes.js";
 import { subjectOf } from "./panel-model.js";
@@ -46,8 +48,8 @@ export function ChangesSlot({ token, route, sessionId }) {
 
 // Mount point of the subagents panel (GUI2-T04): id="subagents-slot" and data-slot="subagents". The panel lives inside
 // it; with no session open it says so.
-export function SubagentsSlot({ token, sessionId }) {
-  return html`<div id="subagents-slot" class="slot" data-slot="subagents"><${SubagentsMount} token=${token} openId=${sessionId} /></div>`;
+export function SubagentsSlot({ token, sessionId, onContent }) {
+  return html`<div id="subagents-slot" class="slot" data-slot="subagents"><${SubagentsMount} token=${token} openId=${sessionId} onContent=${onContent} /></div>`;
 }
 
 export function TokensSlot({ token, route, sessionId }) {

@@ -31,10 +31,11 @@ export function useListedSession(token, id) {
   return parents[id] || id;
 }
 
-export function SubagentsMount({ token, openId = null }) {
+export function SubagentsMount({ token, openId = null, onContent }) {
   const listed = useListedSession(token, openId);
+  useEffect(() => { if (!listed && typeof onContent === "function") onContent({ has: false }); }, [listed, onContent]);   // GUI3-T04
   if (!listed) {
     return html`<p class="muted small slot-empty">${openId ? "Buscando la sesión principal…" : "Abre una sesión para ver sus subagentes."}</p>`;
   }
-  return html`<${SubagentsPanel} key=${listed} token=${token} sessionId=${listed} currentId=${openId} />`;
+  return html`<${SubagentsPanel} key=${listed} token=${token} sessionId=${listed} currentId=${openId} onContent=${onContent} />`;
 }

@@ -15,6 +15,7 @@ import { NewSession } from "./new-session.js";
 import { TeamThread } from "./team-thread.js";   // CHT-T05
 import { PlanThread } from "./plan-thread.js";   // CHT-T06
 import { RightPanel } from "./right-panel.js";
+import { subjectOf } from "./panel-model.js";
 import { AgentTree } from "./agent-tree.js";
 import { Runs } from "./runs.js";
 import { Sessions } from "./sessions.js";
@@ -79,6 +80,7 @@ function App({ token }) {
   const [status, setStatus] = useState("reconnecting");
   const [mock, setMock] = useState(false);
   const [lastEvent, setLastEvent] = useState(null);
+  const [contextDot, setContextDot] = useState(false);   // GUI3-T04: a card of «Contexto» has content
 
   useEffect(() => {
     getJSON("/gui/api/session", token).then((s) => setMock(Boolean(s.mock))).catch(() => {});
@@ -99,8 +101,10 @@ function App({ token }) {
   // The sidebar and the right panel treat the tree of a session as the session itself (it stays marked, its panel stays).
   const context = tree ? { section: "sessions", id: route.id } : route;
   const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} sections=${allSections()} />`;
-  const panel = html`<${RightPanel} token=${token} route=${context} />`;
-  return html`<${Shell} status=${status} statusText=${STATUS_TEXT[status]} mock=${mock} sidebar=${sidebar} panel=${panel}>
+  const panel = html`<${RightPanel} token=${token} route=${context} onDot=${setContextDot} />`;
+  const hasSubject = Boolean(subjectOf(context, context.section === "sessions" ? context.id : null));   // a session or a run is open
+  return html`<${Shell} status=${status} statusText=${STATUS_TEXT[status]} mock=${mock} sidebar=${sidebar} panel=${panel}
+    hasSubject=${hasSubject} contextDot=${contextDot}>
     ${section === "usage" ? html`<h2 id="usage-title">Uso</h2>` : html`<h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : current?.label}</h2>`}
     ${entry?.topic && html`<${Help} key=${entry.id} topic=${entry.topic} />`}
     <${Sessions} token=${token} route=${route} active=${section === "sessions"} />

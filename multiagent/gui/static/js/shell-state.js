@@ -9,9 +9,10 @@ const PANEL_KEY = "multiagent.gui.right-panel";
 export const WIDE_QUERY = "(min-width: 900px)";
 export const NARROW_QUERY = "(max-width: 899.98px)";
 
-// Wide screens start with the panel open; narrow ones start with it closed, so the content comes first.
+// GUI3-T04: «Contexto» starts closed at every width, so the content comes first; the person opens it and the choice is
+// remembered (readPanelOpen).
 export function defaultPanelOpen() {
-  try { return window.matchMedia(WIDE_QUERY).matches; } catch (_) { return true; }
+  return false;
 }
 
 // The only two places that touch localStorage; every stored choice goes through them.
@@ -83,4 +84,19 @@ export function readMoreNoticeSeen() {
 
 export function writeMoreNoticeSeen() {
   writeStored(MORE_NOTICE_KEY, "seen");
+}
+
+// GUI3-T04: the mode of each card of the «Contexto» panel ({ card name: "auto" | "always" | "never" }). Without storage, or
+// with a stored value that is not valid, the cards keep the mode they registered (context-model.js). The screen that changes
+// them is GUI3-T07's.
+import { normalizeModes } from "./context-model.js";
+
+const CONTEXT_CARDS_KEY = "multiagent.gui.context-cards";
+
+export function readCardModes() {
+  try { return normalizeModes(JSON.parse(readStored(CONTEXT_CARDS_KEY) || "{}")); } catch (_) { return {}; }
+}
+
+export function writeCardModes(modes) {
+  writeStored(CONTEXT_CARDS_KEY, JSON.stringify(normalizeModes(modes)));
 }

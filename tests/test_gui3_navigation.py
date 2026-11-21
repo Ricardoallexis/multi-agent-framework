@@ -116,6 +116,10 @@ def test_sidebar_footer_and_pending_list_stay_reachable_on_desktop():
     assert ".side-pending .pending-popover { left: auto; right: 12px; }" in narrow
     phone = re.search(r"@media \(max-width: 599\.98px\) \{(.*?)\n\}", t03, re.S).group(1)
     assert ".side-pending .pending-popover { left: 0; right: 0; }" in phone
+    # The thin bar over the content pulls into the 24 px padding of wider screens; below 600 px the padding is 12 px,
+    # so it keeps its sides and «Contexto» does not touch the edge of the screen.
+    assert re.search(r"\n\.content-toolbar \{[^}]*margin: -12px -12px 12px;", t03)
+    assert ".content-toolbar { margin: -4px 0 8px; }" in phone
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")

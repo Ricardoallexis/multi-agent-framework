@@ -1327,11 +1327,12 @@ export const HELP = {
     ]
   },
   "shell.panel": {
-    "title": "Panel de contexto",
-    "hint": "Muestra u oculta el panel de la derecha.",
+    "title": "Contexto",
+    "hint": "Muestra u oculta el panel de contexto de la sesión o la ejecución abierta.",
     "more": [
-      "El panel reúne los cambios, los subagentes, los tokens y las fuentes de la sesión abierta.",
-      "Este navegador recuerda si lo dejaste abierto o cerrado.",
+      "Empieza cerrado y solo aparece con una sesión o una ejecución abierta.",
+      "Reúne los cambios, los subagentes, los tokens y las fuentes, y solo dibuja las tarjetas con contenido.",
+      "Un punto junto al botón avisa de que, con el panel cerrado, hay algo que ver.",
       "En pantallas estrechas aparece debajo del contenido."
     ]
   },

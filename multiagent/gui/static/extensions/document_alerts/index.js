@@ -7,6 +7,7 @@
 // approves, rejects or releases anything: a review is decided in the run itself, by a person.
 import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet } from "../../js/api.js";
+import { ContentReport, useContentReport } from "../../js/context-report.js";
 import { registerHelp, registerView } from "../../js/extensions.js";
 import { Help, helpFor } from "../../js/help.js";
 import { POLL_MS, panelVisible } from "../../js/panel-data.js";
@@ -72,18 +73,20 @@ function Alerts({ data, scope, showRun, labelledBy }) {
   </div>`;
 }
 
-function RunAlerts({ token, runId }) {
+function RunAlerts({ token, runId, onContent }) {
   const data = useAlerts(token, runId);
+  useContentReport(onContent, data.alerts.length > 0, pendingCount(data.alerts) > 0);   // GUI3-T04: alerts that wait for a decision are urgent
   return html`<${Alerts} data=${data} scope="card" showRun=${false} />`;
 }
 
-// A section of the right panel (props: token, route, sessionId): the alerts of the run that is open in the centre.
-export function DocumentAlertsCard({ token, route, sessionId }) {
+// A section of the right panel (props: token, route, sessionId, onContent): the alerts of the run that is open in the centre.
+// With no run open the card has nothing to show (GUI3-T04): ContentReport says so and draws nothing.
+export function DocumentAlertsCard({ token, route, sessionId, onContent }) {
   const subject = subjectOf(route, sessionId);
   const runId = subject && subject.runId;
   return runId
-    ? html`<${RunAlerts} key=${runId} token=${token} runId=${runId} />`
-    : html`<${Empty}>Sin ejecución abierta: abre una ejecución para ver sus alertas de documentos.<//>`;
+    ? html`<${RunAlerts} key=${runId} token=${token} runId=${runId} onContent=${onContent} />`
+    : html`<${ContentReport} onContent=${onContent} has=${false} /><${Empty}>Sin ejecución abierta: abre una ejecución para ver sus alertas de documentos.<//>`;
 }
 
 // The screen of the sidebar (props: token, status, mock, route = { section, id }): #document_alerts or #document_alerts/<run id>.

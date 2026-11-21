@@ -54,7 +54,7 @@ def test_route_is_registered_linked_from_the_session_header_and_mounted_by_main(
     assert "<${AgentTree} key=${route.id" in main            # one tree per session: no state of another one is kept
     # the tree is a view of the session: the sidebar and the right panel keep treating it as that session
     assert 'context = tree ? { section: "sessions", id: route.id } : route' in main
-    assert "<${RightPanel} token=${token} route=${context} />" in main
+    assert "<${RightPanel} token=${token} route=${context} onDot=${setContextDot} />" in main   # GUI3-T04: onDot feeds the dot of «Contexto»
     # the list of sessions stays mounted (its filters and pages survive the trip), as before this task
     assert 'active=${section === "sessions"}' in main
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")

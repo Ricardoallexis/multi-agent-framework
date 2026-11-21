@@ -150,7 +150,8 @@ def test_both_toggles_are_buttons_with_aria_expanded_and_aria_controls_that_exis
     assert 'aria-expanded=${drawerOpen ? "true" : "false"}' in menu and 'aria-controls="sidebar"' in menu
     assert 'aria-expanded=${panelOpen ? "true" : "false"}' in panel and 'aria-controls="right-panel"' in panel
     assert 'id="sidebar"' in shell and 'id="right-panel"' in shell
-    assert "hidden=${!panelOpen}" in shell                                       # collapsed means really gone
+    assert "hidden=${!panelShown}" in shell and "panelOpen && hasSubject" in shell   # collapsed (or nothing open) means really gone
+    assert "/>Contexto" in shell and "${hasSubject && html`<div class=\"content-toolbar\">" in shell   # GUI3-T04: only with a session or run
     assert "readPanelOpen(defaultPanelOpen())" in shell and "writePanelOpen(next)" in shell
     sidebar = read("sidebar.js")
     assert 'aria-expanded=${moreOpen ? "true" : "false"}' in sidebar and 'aria-controls="side-more"' in sidebar
@@ -183,12 +184,12 @@ def test_right_panel_has_the_four_sections_and_a_named_slot_for_subagents():
     titles = re.findall(r'<h3 id="(panel-[a-z]+-title)">([^<]+)</h3>', panel)
     assert titles == [("panel-changes-title", "Cambios"), ("panel-subagents-title", "Subagentes"),
                       ("panel-tokens-title", "Tokens"), ("panel-sources-title", "Fuentes")]
-    assert len(re.findall(r'<section class="rp-section" aria-labelledby="panel-[a-z]+-title">', panel)) == 4
+    assert len(re.findall(r'<section class="rp-section" aria-labelledby="panel-[a-z]+-title" hidden=\$\{!shown\.[a-z]+\}>', panel)) == 4
     slots = read("panel-slots.js")
     assert re.search(r'id="subagents-slot" class="slot" data-slot="subagents"', slots)
     for slot in ("ChangesSlot", "SubagentsSlot", "TokensSlot", "SourcesSlot"):
         assert re.search(rf"export function {slot}\(", slots), slot
-        assert f"<${{{slot}}} ...${{slot}} />" in panel
+        assert f"<${{{slot}}} ...${{slot}}" in panel
     assert slots.count("Sin ") >= 3 and "GUI2-T04" in slots                         # empty states and who plugs in where
     assert re.search(r"const slot = \{ token, route, sessionId \}", panel)
 
@@ -197,8 +198,8 @@ def test_the_subagents_panel_is_inside_its_section_and_there_is_one_right_panel_
     panel, slots, mount = read("right-panel.js"), read("panel-slots.js"), read("subagents-mount.js")
     # the section «Subagentes» holds the slot, the slot holds the mount, the mount holds the T04 panel
     section = panel[panel.index('aria-labelledby="panel-subagents-title"'):panel.index('aria-labelledby="panel-tokens-title"')]
-    assert "<${SubagentsSlot} ...${slot} />" in section and 'topic="subagents.panel"' in section
-    assert "<${SubagentsMount} token=${token} openId=${sessionId} />" in slots
+    assert "<${SubagentsSlot} ...${slot}" in section and 'topic="subagents.panel"' in section
+    assert "<${SubagentsMount} token=${token} openId=${sessionId} onContent=${onContent} />" in slots
     assert "<${SubagentsPanel}" in mount and "export function SubagentsMount" in mount
     # no second column: no dock element, no body class, no side effect when the module loads, no import from main.js
     for name in ("subagents-mount.js", "subagents-panel.js", "panel-slots.js"):
@@ -415,7 +416,7 @@ def test_panel_state_survives_blocked_storage_and_the_router_knows_new():
     """ % (uri("shell-state.js"), uri("route.js")))
     assert out["fresh"] is True and out["closed"] is False and out["opened"] is True and out["garbage"] is False
     assert out["thrown"] == [True, False] and out["getter"] is True        # blocked storage: the fallback, never an exception
-    assert out["narrow"] is False and out["wide"] is True and out["media"] is True
+    assert out["narrow"] is False and out["wide"] is False and out["media"] is False   # GUI3-T04: closed at every width
     assert out["route"] is not None                                         # route.js loads in Node (it needs no DOM at import)
     new, new_slash, run, sessions, legacy, unknown, href = out["route"]
     assert new == {"section": "new", "id": None} and run == {"section": "runs", "id": "abc"}

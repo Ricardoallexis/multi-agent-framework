@@ -626,6 +626,8 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
     clip: auto; white-space: normal; font-size: .8125rem; }
   .topbar .badge.mock { margin-left: 0; }
   .side-pending .pending-popover { left: 0; right: 0; }
+  /* the content padding is 12 px here: the bar keeps it, so «Contexto» does not touch the edge of the screen */
+  .content-toolbar { margin: -4px 0 8px; }
 }
 
 /* GUI3-T02 help mode: with help off, the "?" blocks hide. They stay in the DOM, so aria-describedby still reaches the hint.
@@ -645,3 +647,10 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 /* GUI3-T08 */
 .run-tabs { margin: 12px 0; }
 .run-tabs > .tab-panel > .panel:first-child { margin-top: 8px; }
+
+/* GUI3-T04: the «Contexto» panel. It starts closed; the dot says that a closed panel has something to show, and the cards
+   that are not drawn are hidden (they stay in the DOM so they keep loading), so the rules between sections follow the
+   visible ones. The panel stays below the sidebar (z-index 20 against 30). */
+.context-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.rp-section { padding-bottom: 0; border-bottom: 0; }
+.rp-section:not([hidden]) ~ .rp-section:not([hidden]) { padding-top: 16px; border-top: 1px solid var(--line); }
