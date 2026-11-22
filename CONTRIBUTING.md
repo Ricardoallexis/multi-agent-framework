@@ -58,6 +58,24 @@ python -m pytest -q
 
 The pull request should not knowingly reduce test coverage for changed behavior without explaining why.
 
+### Private terms check
+
+Before pushing, you can check outgoing commits for private or restricted terms using a local term list stored outside git (for example, `.local/privado/terminos-privados.txt`, which is ignored by `.gitignore`):
+
+```bash
+python scripts/check_private_terms.py
+```
+
+The checker scans added diff lines, changed or renamed file names, and commit messages in the revision range (`origin/main..HEAD` by default) using accent- and case-insensitive whole-word matching, and prints only the 1-based term index and location without printing the term itself. CI does not run this check because the private list stays out of the repository.
+
+To run the check automatically on `git push` (including pushed branch and tag names), install the local `pre-push` hook from your active environment:
+
+```bash
+python scripts/install_git_hooks.py --terms /path/to/private-terms.txt
+```
+
+The installer uses the active Python executable and refuses to overwrite an existing `pre-push` hook that does not carry the `# maf-private-terms-hook/1` marker.
+
 ## Language
 
 English is the canonical language for public code identifiers, documentation, prompts, examples, issue discussions, and pull requests. User-generated content may target any language supported by the selected model.
