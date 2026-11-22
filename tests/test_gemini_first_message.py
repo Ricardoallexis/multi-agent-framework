@@ -114,14 +114,15 @@ def test_limit_without_time_and_connection_failure():
     assert row["available"] is False and "SYNTHETIC_SECRET" not in str(row) + str(raised.value)
 
 
-def test_tls_failure_is_no_access_and_does_not_log_provider_text(caplog):
-    adapter, spec, _ = call(ProviderFailure(503))
-    with pytest.raises(ProviderUnavailable):
-        adapter.generate_structured(spec=spec, prompt="hello", output_schema=Answer)
-    adapter, spec, _ = call(OSError("TLS CERTIFICATE_VERIFY_FAILED SYNTHETIC_SECRET"))
+def test_tls_failure_is_tls_certificate_and_does_not_log_provider_text(caplog):
+    adapter, spec, _ = call(ProviderFailure(503))        # a network error stays «no access»
     with pytest.raises(ProviderUnavailable):
         adapter.generate_structured(spec=spec, prompt="hello", output_schema=Answer)
     assert connections().check("gemini")["verification"] == "no_access"
+    adapter, spec, _ = call(OSError("TLS CERTIFICATE_VERIFY_FAILED SYNTHETIC_SECRET"))   # ARR3-T07: a certificate failure is its own state
+    with pytest.raises(ProviderUnavailable):
+        adapter.generate_structured(spec=spec, prompt="hello", output_schema=Answer)
+    assert connections().check("gemini")["verification"] == "tls_certificate"
     assert "SYNTHETIC_SECRET" not in caplog.text
 
 

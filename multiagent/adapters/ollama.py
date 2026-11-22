@@ -12,6 +12,7 @@ from ..config import Settings
 from ..errors import ContextBudgetError, ProviderRequestError, ProviderUnavailable, StructuredOutputError
 from ..routing_policy import EFFORT_LEVELS
 from ..schema_utils import estimate_tokens_conservative, flatten_json_schema
+from .tls import effective_tls_trust, provider_ssl_context
 
 
 class OllamaAdapter(LLMAdapter):
@@ -19,8 +20,24 @@ class OllamaAdapter(LLMAdapter):
 
     def __init__(self, settings: Settings, client: httpx.Client | None = None):
         self.settings = settings
-        self.client = client or httpx.Client(base_url=settings.ollama_base_url, timeout=settings.ollama_timeout_seconds)
+        self._injected = client is not None
+        self.client = client or self._build_client()
         self._digest_cache: dict[str, str] = {}
+
+    def _build_client(self) -> httpx.Client:
+        context = provider_ssl_context(effective_tls_trust(self.settings))
+        extra = {} if context is None else {"verify": context}      # certifi: httpx keeps its own configuration
+        return httpx.Client(base_url=self.settings.ollama_base_url, timeout=self.settings.ollama_timeout_seconds, **extra)
+
+    def reset_client(self) -> None:
+        """Replace the client this adapter built, so the next call reads the trust setting again (ARR3-T07)."""
+        if self._injected:
+            return
+        old, self.client = self.client, self._build_client()
+        try:
+            old.close()
+        except Exception:  # noqa: BLE001 - closing a stale client is best effort
+            pass
 
     def translate_effort(self, spec: ModelSpec, effort: str | None) -> EffortTranslation:
         """Ollama only has an on/off switch: ``none`` -> ``think: false``; any other level -> ``think: true``."""

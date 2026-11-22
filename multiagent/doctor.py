@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from .adapters.tls import effective_tls_trust, is_tls_failure
 from .backends import available_backends
 from .bootstrap import build_system
 from .version import __version__
@@ -80,6 +81,26 @@ def _gemini_model_discovery(adapter) -> dict[str, Any]:
         return {"ok": True, "models": found}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
+
+
+def _tls_report(system, settings: Settings) -> dict[str, dict[str, str]]:
+    """ARR3-T07: per provider, the certificate trust in force and whether its client could verify the server."""
+    trust = effective_tls_trust(settings)
+    report: dict[str, dict[str, str]] = {}
+    for name in ("gemini", "openai", "ollama"):
+        state = "skipped"
+        adapter = system.adapters.get(name)
+        try:
+            if name == "ollama":
+                health = adapter.health()
+                state = "ok" if health.get("available") else "tls_certificate" if is_tls_failure(health.get("error")) else "error"
+            elif (name == "gemini" and settings.gemini_api_key) or (
+                    name == "openai" and settings.openai_api_key and settings.openai_enabled):
+                state = adapter.probe() if callable(getattr(adapter, "probe", None)) else "skipped"
+        except Exception:  # noqa: BLE001 - the report says error, not the provider's text
+            state = "error"
+        report[name] = {"trust": trust, "state": state}
+    return report
 
 
 def run_doctor(settings: Settings, *, deep: bool = False) -> tuple[bool, dict[str, Any]]:
@@ -176,6 +197,12 @@ def run_doctor(settings: Settings, *, deep: bool = False) -> tuple[bool, dict[st
         else:
             report["cloud"]["fast_structured_probe"] = {"ok": False, "skipped": "gemini_api_key_missing"}
             report["cloud"]["grounded_search_probe"] = {"ok": False, "skipped": "gemini_api_key_missing"}
+
+        report["tls"] = _tls_report(system, settings)
+        if any(item["state"] == "tls_certificate" for item in report["tls"].values()):
+            report["recommendations"].append(
+                "A provider failed on its TLS certificate: use the system certificates in «Apps y agentes» "
+                "(or PROVIDER_TLS_TRUST=system, or file:<path> to a PEM file)")
 
     grounded_ok = bool(report["cloud"].get("grounded_search_probe", {}).get("ok"))
     report["cloud"]["research_mode_recommended"] = "gemini_grounded" if grounded_ok else "human_bridge"

@@ -122,3 +122,21 @@ def test_connection_routes_are_mounted_on_real_app_with_fakes(tmp_path):
         headers["Content-Type"] = "application/json"
         assert client.post("/gui/api/connections/ollama/check", headers=headers).json()["available"] is True
         assert client.post("/api/v1/connections/wrong/check").status_code == 404
+
+
+def test_certificate_failure_is_found_in_the_cause_chain_for_ollama():
+    """ARR3-T07: ``_tls_failure`` is ``is_tls_failure``: an SDK error that only wraps the ssl error still counts."""
+    import ssl
+
+    def boom():
+        try:
+            raise ssl.SSLCertVerificationError(1, "[SSL: CERTIFICATE_VERIFY_FAILED] bad")
+        except ssl.SSLCertVerificationError as cause:
+            raise RuntimeError("Connection error.") from cause
+
+    service = fixture()
+    service._services.system.adapters["ollama"].health = boom
+    row = service.check("ollama")
+    assert row["reason"] == "tls_certificate" and "TLS certificate" in row["diagnosis"]
+    assert row["tls_trust"] == "certifi" and row["tls_fix"]["trust"] == "system"   # the stub has no local_dir: certifi
+    assert fixture(health={"available": False, "error": "timed out"}).check("ollama")["reason"] == "unreachable"

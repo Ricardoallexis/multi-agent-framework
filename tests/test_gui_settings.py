@@ -118,3 +118,14 @@ def test_api_v1_unchanged_by_mode(env):
     env.services.gui_settings.set_mode("advanced")
     advanced = env.client.get("/api/v1/workflows", headers=v1)
     assert simple.status_code == advanced.status_code == 200 and simple.json() == advanced.json()
+
+
+def test_provider_tls_trust_is_one_more_entry_of_the_closed_list(service):
+    """ARR3-T07: no logic of its own; ``file:<path>`` is not a value of the GUI (it goes through ``.local/.env``)."""
+    assert service.value("provider_tls_trust") is None
+    assert service.set_value("provider_tls_trust", "system")["provider_tls_trust"] == "system"
+    assert service.mode() == "simple"                                    # the other keys are untouched
+    with pytest.raises(ServiceError) as error:
+        service.set_value("provider_tls_trust", "file:C:/x.pem")
+    assert error.value.status == 422 and service.value("provider_tls_trust") == "system"
+    assert service.set_value("provider_tls_trust", "certifi")["provider_tls_trust"] == "certifi"

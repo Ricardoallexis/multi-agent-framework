@@ -16,7 +16,7 @@ def gemini_verification() -> dict[str, str | None]:
 
 
 def record_gemini_verification(state: str, *, at: datetime, retry_at: datetime | None = None) -> None:
-    if state not in {"verified", "key_invalid", "limit_reached", "no_access"}:
+    if state not in {"verified", "key_invalid", "limit_reached", "no_access", "tls_certificate"}:
         raise ValueError("Unknown Gemini verification state")
     with _lock:
         _gemini.update(verification=state,

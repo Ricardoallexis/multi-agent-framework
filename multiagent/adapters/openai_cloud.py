@@ -10,6 +10,7 @@ from ..catalog import ModelSpec
 from ..config import Settings
 from ..errors import ProviderUnavailable, StructuredOutputError
 from ..routing_policy import EFFORT_LEVELS
+from .tls import effective_tls_trust, is_tls_failure, provider_ssl_context
 
 # Generic effort -> Responses API ``reasoning.effort``. ``max`` has no level above ``high``.
 # ``none`` has no portable value (models differ between "minimal" and "none"), so it is
@@ -29,6 +30,12 @@ class OpenAIAdapter(LLMAdapter):
     def __init__(self, settings: Settings, client: Any | None = None):
         self.settings = settings
         self._client = client
+        self._injected = client is not None
+
+    def reset_client(self) -> None:
+        """Drop the client this adapter built, so the next call reads the trust setting again (ARR3-T07)."""
+        if not self._injected:
+            self._client = None
 
     def _client_or_raise(self):
         if self._client is not None:
@@ -39,8 +46,25 @@ class OpenAIAdapter(LLMAdapter):
             from openai import OpenAI
         except ImportError as exc:
             raise ProviderUnavailable("The openai package is not installed") from exc
-        self._client = OpenAI(api_key=self.settings.openai_api_key)
+        context = provider_ssl_context(effective_tls_trust(self.settings))
+        if context is None:      # certifi: the SDK keeps its own HTTP client
+            self._client = OpenAI(api_key=self.settings.openai_api_key)
+        else:
+            import httpx
+            import openai
+            # The SDK's own default client keeps its timeouts and limits; only the certificates change.
+            factory = getattr(openai, "DefaultHttpxClient", httpx.Client)
+            self._client = OpenAI(api_key=self.settings.openai_api_key, http_client=factory(verify=context))
         return self._client
+
+    def probe(self) -> str:
+        """One request that generates nothing (the model list): ``ok``, ``tls_certificate`` or ``error``. Never raises."""
+        try:
+            for _ in self._client_or_raise().models.list():
+                break
+        except Exception as exc:  # noqa: BLE001 - the outcome is the answer; provider text stays out
+            return "tls_certificate" if is_tls_failure(exc) else "error"
+        return "ok"
 
     @staticmethod
     def _extract_parsed(response: Any) -> BaseModel | None:

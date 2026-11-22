@@ -305,6 +305,10 @@ class Settings(BaseSettings):
     openai_model: str = "configure-me"
     openai_enabled: bool = False
 
+    # ARR3-T07: which certificates the provider clients trust: certifi, system or file:<path> (adapters/tls.py).
+    # The ``provider_tls_trust`` key of gui-settings.json, written by the GUI, wins over this value.
+    provider_tls_trust: str = "certifi"
+
     max_llm_calls: int = Field(default=4, ge=1, le=50)
     max_run_seconds: int = Field(default=300, ge=30)
     approval_timeout_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
@@ -375,6 +379,12 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_budget_alerts(cls, value: Any) -> tuple[float, ...]:
         return _percents(value)
+
+    @field_validator("provider_tls_trust")
+    @classmethod
+    def _validate_provider_tls_trust(cls, value: str) -> str:
+        from .adapters.tls import parse_tls_trust    # lazy: the adapters import this module
+        return parse_tls_trust(value)
 
     @field_validator("continuity_mode")
     @classmethod

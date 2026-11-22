@@ -21,6 +21,7 @@ from ..errors import (
 )
 from ..model_checks import record_gemini_verification
 from ..routing_policy import EFFORT_LEVELS
+from .tls import effective_tls_trust, is_tls_failure, provider_ssl_context
 
 # Generic effort -> ``generation_config.thinking_level`` of the Interactions API, whose levels
 # are minimal, low, medium and high. Gemini 3 models cannot switch thinking off, so ``none``
@@ -85,6 +86,9 @@ def _retry_at(exc: Exception, now: datetime) -> datetime | None:
 
 def _classify_gemini_error(exc: Exception) -> Exception:
     # Provider text can contain a credential. Keep it only for classification, never in our exception.
+    if is_tls_failure(exc):    # the SDK wraps the ssl error: look at its causes, and do not count it as «no access»
+        record_gemini_verification("tls_certificate", at=datetime.now(timezone.utc))
+        return ProviderUnavailable("Gemini certificate could not be verified (TLS)")
     low = str(exc).lower()
     code = str(_field(exc, "code") or _field(exc, "status_code") or
                _field(_field(exc, "response"), "status_code") or "").lower()
@@ -114,6 +118,12 @@ class GeminiAdapter(LLMAdapter):
     def __init__(self, settings: Settings, client: Any | None = None):
         self.settings = settings
         self._client = client
+        self._injected = client is not None
+
+    def reset_client(self) -> None:
+        """Drop the client this adapter built, so the next call reads the trust setting again (ARR3-T07)."""
+        if not self._injected:
+            self._client = None
 
     def _client_or_raise(self):
         if self._client is not None:
@@ -124,8 +134,24 @@ class GeminiAdapter(LLMAdapter):
             from google import genai
         except ImportError as exc:
             raise ProviderUnavailable("The google-genai package is not installed") from exc
-        self._client = genai.Client(api_key=self.settings.gemini_api_key)
+        context = provider_ssl_context(effective_tls_trust(self.settings))
+        if context is None:      # certifi: the client keeps its own configuration
+            self._client = genai.Client(api_key=self.settings.gemini_api_key)
+        else:                    # google-genai 2.13.0: ``HttpOptions.client_args`` goes to the ``httpx.Client``
+            self._client = genai.Client(api_key=self.settings.gemini_api_key,
+                                        http_options={"client_args": {"verify": context}})
         return self._client
+
+    def probe(self) -> str:
+        """One request that generates nothing (the model list): ``ok``, ``tls_certificate`` or ``error``. Never raises."""
+        try:
+            for _ in self._client_or_raise().models.list():
+                break
+        except Exception as exc:  # noqa: BLE001 - the outcome is the answer; provider text stays out
+            _classify_gemini_error(exc)       # records key_invalid, limit_reached, no_access or tls_certificate
+            return "tls_certificate" if is_tls_failure(exc) else "error"
+        record_gemini_verification("verified", at=datetime.now(timezone.utc))
+        return "ok"
 
     def translate_effort(self, spec: ModelSpec, effort: str | None) -> EffortTranslation:
         """See ``GEMINI_THINKING_LEVEL`` for the mapping."""

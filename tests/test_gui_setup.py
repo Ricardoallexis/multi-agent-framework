@@ -491,3 +491,36 @@ def test_apps_pure_model_covers_copilot_cache_gemini_states_and_agy_warning():
     for name in ("model.js", "index.js"):
         checked = subprocess.run([NODE, "--check", str(EXT_APPS / name)], capture_output=True, text=True, timeout=60)
         assert checked.returncode == 0, (name, checked.stderr)
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_apps_card_shows_the_certificate_button_only_with_tls_fix():
+    """ARR3-T07: the server decides (``tls_fix``); the model only reads it, and the view draws the button in either mode."""
+    fix = {"trust": "system", "label": "Usar los certificados de Windows"}
+    revert = {"trust": "certifi", "label": "Volver a los certificados de siempre"}
+    data = {
+        "connections": [
+            {"id": "openai", "kind": "model", "key_configured": True, "available": False, "reason": "tls_certificate",
+             "tls_trust": "certifi", "tls_fix": fix, "tls_revert": None},
+            {"id": "gemini", "kind": "model", "key_configured": True, "available": False, "reason": "tls_certificate",
+             "tls_trust": "system", "tls_fix": None, "tls_revert": revert},
+            {"id": "ollama", "kind": "model", "reachable": True, "available": True, "reason": None,
+             "tls_trust": "certifi", "tls_fix": None, "tls_revert": None},
+            {"id": "codex_cli", "kind": "executor", "installed": True, "available": True},
+        ],
+    }
+    script = f"""
+      import {{ buildAppsView }} from {json.dumps((EXT_APPS / "model.js").as_uri())};
+      console.log(JSON.stringify(buildAppsView(JSON.parse(process.env.DATA), null)));
+    """
+    view = _run_node(script, data)
+    by_id = {item["id"]: item for item in view["models"] + view["executors"]}
+    assert by_id["openai"]["tlsFix"] == fix and by_id["openai"]["tlsRevert"] is None
+    assert by_id["gemini"]["tlsFix"] is None and by_id["gemini"]["tlsRevert"] == revert
+    assert by_id["ollama"]["tlsFix"] is None and by_id["ollama"]["tlsRevert"] is None
+    assert by_id["codex_cli"]["tlsFix"] is None and by_id["codex_cli"]["canProbe"] is False
+    assert by_id["openai"]["canProbe"] is True and by_id["ollama"]["canProbe"] is True
+    assert "certificado" in by_id["openai"]["action"]["detail"] and ".pem" in by_id["openai"]["action"]["detail"]
+    source = (EXT_APPS / "index.js").read_text(encoding="utf-8")
+    assert "item.tlsFix.label" in source and "/tls-trust" in source and "/probe" in source
+    assert 'helpFor("apps.tls_fix"' in source and 'helpFor("apps.probe"' in source

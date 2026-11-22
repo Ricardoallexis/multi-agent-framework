@@ -72,3 +72,22 @@ The worker renews its active leases before recovering expired leases and claimin
 `multiagent worker [--concurrency N]` runs a worker against the configured database. The option overrides `WORKER_CONCURRENCY` for that process; `N` must be from 1 to 256.
 
 This coordination does not cover workers using different databases, external queues, or resource-aware scheduling (S4.D2).
+
+## Provider certificates
+
+On a machine with an antivirus or a proxy that inspects TLS, a provider fails with `CERTIFICATE_VERIFY_FAILED`. `PROVIDER_TLS_TRUST` chooses which certificates the HTTP clients of Gemini, OpenAI and Ollama trust:
+
+| Value | Meaning |
+| --- | --- |
+| `certifi` | The default and today's behaviour: each client keeps its own configuration. |
+| `system` | The certificate store of the operating system (`ssl.create_default_context()`). |
+| `file:<path>` | A PEM file of your own. Only through `.local/.env`; the GUI never writes it. |
+
+The value in force is, in this order: the `provider_tls_trust` key of `gui-settings.json` (written by the GUI; it accepts only `certifi` and `system`), then `PROVIDER_TLS_TRUST` from the environment or `.local/.env`, then `certifi`. A value outside the three is an error at startup.
+
+The setting applies to the clients of the providers, not to the executors. OpenAI gets an `httpx` client with the context, Ollama's `httpx.Client` gets `verify=<context>`, and Gemini gets it through `http_options.client_args` (supported by the pinned `google-genai` 2.13.0). Changing the value drops the cached clients, so it takes effect without a restart.
+
+A certificate failure is recognised by walking the `__cause__` and `__context__` chain of the error (up to 10 links), because the SDKs wrap the `ssl` error. Every provider reports it as `tls_certificate`: in the connection card, in **Probar conexión** (`POST /gui/api/connections/{id}/probe`, which asks the provider for its model list or health and only runs when pressed) and in `multiagent doctor --deep`, whose report has `tls.<provider> = {"trust", "state"}` with `state` one of `ok`, `tls_certificate`, `skipped` or `error`. Gemini no longer counts a certificate failure as `no_access`.
+
+On a `tls_certificate` card the GUI offers **Usar los certificados de Windows** (**Usar los certificados del sistema** outside Windows). Pressing it writes `provider_tls_trust = "system"`, records the event `provider.tls_trust_changed` (`connection_id`, `from`, `to`) and probes again. It is a decision of the person and nothing else presses it. **Volver a los certificados de siempre** writes `certifi`.
+

@@ -207,7 +207,10 @@ export function missingAction(row, kind, setupStatus) {
     return {
       kind: "info",
       title: REASONS.tls_certificate,
-      detail: "No se pudo verificar el certificado TLS; revisa la cadena de confianza local y pulsa «Volver a comprobar».",
+      detail:
+        "No se pudo verificar el certificado TLS. Un antivirus o un proxy puede estar cambiando los certificados. " +
+        "Si confías en este equipo, usa el botón de certificados del sistema. " +
+        "En modo avanzado también puedes elegir tu propio archivo .pem con PROVIDER_TLS_TRUST=file:RUTA en .local/.env.",
     };
   }
   if (row.reason === "unreachable") {
@@ -285,6 +288,12 @@ export function missingSummaryLine(row, action, chip, reasonText) {
   return null;
 }
 
+// ARR3-T07: the server decides when a card may offer the certificate button; here it is only read.
+function tlsButton(button) {
+  if (!button || typeof button.trust !== "string" || typeof button.label !== "string" || !button.label) return null;
+  return { trust: button.trust, label: button.label };
+}
+
 function buildEntry(row, kind, setupStatus) {
   const perm = setupStatus?.permissions?.[row.id] || null;
   const chip = statusChipFor(row);
@@ -310,6 +319,9 @@ function buildEntry(row, kind, setupStatus) {
     permissions: permissionSummary(row.id, perm, kind),
     quota: row.id === "gemini" ? ["La API de Gemini no informa la cuota."] : quotaLines(row.quota),
     warning: quotaWarningText(row.warning),
+    canProbe: kind === "model",
+    tlsFix: tlsButton(row.tls_fix),
+    tlsRevert: tlsButton(row.tls_revert),
     reasonText,
     checkedAt: row.checked_at || null,
     action,

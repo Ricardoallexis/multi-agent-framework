@@ -461,3 +461,13 @@ def check_extensions(static_dir=STATIC_DIR) -> dict:
 
 def test_extension_folders_follow_the_help_rules():
     check_extensions()
+
+
+def test_apps_certificate_help_keys_exist_and_are_used():
+    """ARR3-T07: «Probar conexión» and the certificate button point at their help."""
+    apps = STATIC_DIR / "extensions" / "apps"
+    help_source = (apps / HELP_FILE).read_text(encoding="utf-8")
+    view_source = (apps / "index.js").read_text(encoding="utf-8")
+    for key in ("apps.tls_fix", "apps.probe"):
+        assert f'"{key}": {{' in help_source
+        assert f'helpFor("{key}"' in view_source and f'topic="{key}"' in view_source

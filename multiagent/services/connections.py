@@ -3,10 +3,12 @@
 """Read-only, cached connection facts for model providers and executor apps."""
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from ..adapters.tls import effective_tls_trust, is_tls_failure, provider_ssl_context
 from ..executors.antigravity import LAUNCH_FLOOR_PERCENT, NOTICE_ID, PAUSE_FLOOR_PERCENT
 from ..setup.detect import detect
 from .errors import NOT_FOUND, ServiceError
@@ -16,10 +18,19 @@ IDS = ("gemini", "openai", "ollama", "claude_cli", "codex_cli", "copilot_cli", "
 APPS = {"claude_cli": "claude", "codex_cli": "codex", "copilot_cli": "copilot", "antigravity_cli": "agy"}
 KEYS = {"gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}
 KEY_FILE = ".local/.env"
+PROVIDERS = ("gemini", "openai", "ollama")     # the rows with a model provider: they share the certificates setting
+TLS_EVENT = "provider.tls_trust_changed"
+TLS_SETTING = "provider_tls_trust"
+TLS_FIX_LABELS = {"windows": "Usar los certificados de Windows", "other": "Usar los certificados del sistema"}
+TLS_REVERT_LABEL = "Volver a los certificados de siempre"
+
+
+def _is_windows() -> bool:
+    return sys.platform == "win32"
 
 
 def _tls_failure(error: Any) -> bool:
-    return "CERTIFICATE_VERIFY_FAILED" in str(error).upper() or "CERTIFICATE_VERIFY_FAILED" in repr(error).upper()
+    return is_tls_failure(error)
 
 
 class ConnectionServices:
@@ -32,6 +43,7 @@ class ConnectionServices:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self._last: dict[str, dict[str, Any]] = {}
         self._batch_detection: dict[str, Any] | None = None
+        self._probed: dict[str, str] = {}      # the outcome of the last «Probar conexión» of each provider
 
     def list(self) -> dict[str, Any]:
         if any(identifier not in self._last for identifier in APPS):
@@ -70,6 +82,7 @@ class ConnectionServices:
             self._executor(row)
         else:
             self._model(row)
+            self._tls_fields(row)
         row["available"] = row["reason"] is None
         if row.get("limit") or row.get("reason") in LIMIT_REASONS or any(
             window.get("used_percent") is not None and window["used_percent"] >= 100
@@ -190,13 +203,15 @@ class ConnectionServices:
                 row.update(reason="key_missing", missing_step="key")
             elif not row["enabled"]:
                 row.update(reason="disabled", missing_step="enable")
+            elif identifier == "openai" and self._probed.get("openai") == "tls_certificate":
+                row["reason"] = "tls_certificate"      # the last «Probar conexión» failed on the certificate
             elif identifier == "gemini":
                 from ..model_checks import gemini_verification
                 check = gemini_verification()
                 row["verification"] = check["verification"]
                 row["verified_at"] = check["verified_at"]
                 row["resets_at"] = check["resets_at"]
-                if check["verification"] in {"key_invalid", "limit_reached", "no_access"}:
+                if check["verification"] in {"key_invalid", "limit_reached", "no_access", "tls_certificate"}:
                     row["reason"] = check["verification"]
                 if check["verification"] == "limit_reached" and not check["resets_at"]:
                     row["limit_note"] = "Reset time is unknown."
@@ -206,7 +221,9 @@ class ConnectionServices:
             from ..adapters.ollama import OllamaAdapter
             if isinstance(adapter, OllamaAdapter):
                 import httpx
-                with httpx.Client(base_url=settings.ollama_base_url, timeout=5) as client:
+                context = provider_ssl_context(effective_tls_trust(settings))
+                extra = {} if context is None else {"verify": context}
+                with httpx.Client(base_url=settings.ollama_base_url, timeout=5, **extra) as client:
                     health = OllamaAdapter(settings, client=client).health()
             else:
                 health = adapter.health()
@@ -220,3 +237,56 @@ class ConnectionServices:
             row["reason"] = "tls_certificate" if _tls_failure(exc) else "unreachable"
             row["diagnosis"] = ("The TLS certificate could not be verified; check the local trust chain."
                                 if row["reason"] == "tls_certificate" else "Ollama did not answer its health probe.")
+
+    # -------- ARR3-T07: certificates of the providers --------
+    def _tls_fields(self, row: dict[str, Any]) -> None:
+        """``tls_trust`` and the one button the card may offer: the system store, or the way back to certifi."""
+        trust = effective_tls_trust(self._services.settings)
+        row["tls_trust"] = trust
+        row["tls_fix"] = None
+        row["tls_revert"] = None
+        if row["id"] in PROVIDERS and row.get("reason") == "tls_certificate" and trust != "system":
+            label = TLS_FIX_LABELS["windows" if _is_windows() else "other"]
+            row["tls_fix"] = {"trust": "system", "label": label}
+        elif row["id"] in PROVIDERS and trust == "system":
+            row["tls_revert"] = {"trust": "certifi", "label": TLS_REVERT_LABEL}
+
+    def probe(self, identifier: str) -> dict[str, Any]:
+        """«Probar conexión»: one request that generates nothing (the model list, or Ollama's health). Only on request."""
+        if identifier not in PROVIDERS:
+            raise ServiceError(NOT_FOUND, "Connection not found", status=404, details={"id": identifier})
+        row = self.check(identifier)
+        if row["reason"] in {"key_missing", "disabled"}:
+            outcome = "skipped"                       # nothing to try yet: the key or the switch is missing
+        elif identifier == "ollama":
+            outcome = "tls_certificate" if row["reason"] == "tls_certificate" else "ok" if row["reachable"] else "error"
+        else:
+            adapter = self._services.system.adapters.get(identifier)
+            probe = getattr(adapter, "probe", None)
+            try:
+                outcome = probe() if callable(probe) else "skipped"
+            except Exception:  # noqa: BLE001 - a probe never fails the route
+                outcome = "error"
+        self._probed[identifier] = outcome
+        row = self.check(identifier)
+        row["probe"] = outcome
+        return row
+
+    def set_tls_trust(self, identifier: str, trust: str, *, actor: str = "user:gui", channel: str = "gui") -> dict[str, Any]:
+        """Write ``provider_tls_trust`` (``system`` or ``certifi``), record the change, drop the cached clients and probe again."""
+        if identifier not in PROVIDERS:
+            raise ServiceError(NOT_FOUND, "Connection not found", status=404, details={"id": identifier})
+        before = effective_tls_trust(self._services.settings)
+        self._services.gui_settings.set_value(TLS_SETTING, trust, actor=actor, channel=channel)    # 422 for anything else
+        if before != trust:
+            store = self._services.tasks.store
+            with store.transaction() as conn:
+                store.append_event(conn, TLS_EVENT, actor=actor, ref=identifier,
+                                   cause=f"{identifier}: {before} -> {trust}",
+                                   payload={"connection_id": identifier, "from": before, "to": trust})
+        for adapter in getattr(self._services.system, "adapters", {}).values():
+            reset = getattr(adapter, "reset_client", None)
+            if callable(reset):
+                reset()
+        self._probed.clear()
+        return self.probe(identifier)

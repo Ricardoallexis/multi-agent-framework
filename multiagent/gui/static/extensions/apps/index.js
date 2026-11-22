@@ -225,6 +225,33 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, bu
     }
   }
 
+  async function probe() {
+    if (checking) return;
+    setChecking(true);
+    setCheckError(null);
+    try {
+      onRowUpdated(await apiPost(`/gui/api/connections/${encodeURIComponent(item.id)}/probe`, token, {}));
+    } catch (failure) {
+      setCheckError(asError(failure));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  // ARR3-T07: a trust decision of the person. The server writes it, records it and tries the connection again.
+  async function setTrust(button) {
+    if (checking) return;
+    setChecking(true);
+    setCheckError(null);
+    try {
+      onRowUpdated(await apiPost(`/gui/api/connections/${encodeURIComponent(item.id)}/tls-trust`, token, { trust: button.trust }));
+    } catch (failure) {
+      setCheckError(asError(failure));
+    } finally {
+      setChecking(false);
+    }
+  }
+
   return html`<li class="apps-card">
     <details class="apps-card-details" open=${open} onToggle=${(event) => setOpen(event.currentTarget.open)}>
       <summary class="apps-card-summary">
@@ -248,11 +275,26 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, bu
         ${item.warning && html`<p class="apps-notice" role="status">${item.warning}</p>`}
         <${MissingStep} item=${item} allowLaunch=${allowLaunch} consoleSupported=${consoleSupported} token=${token}
           onRecheck=${recheck} busyAny=${busyAny} onBusyChange=${onBusyChange} />
+        ${(item.tlsFix || item.tlsRevert) && html`<div class="apps-step apps-tls">
+          <p class="apps-step-text">${item.tlsFix
+            ? "Si confías en este equipo, los clientes de los proveedores pueden usar el almacén de certificados del sistema. El cambio queda registrado."
+            : "Esta herramienta usa los certificados del sistema, por decisión tuya. Puedes volver a los de siempre."}</p>
+          <div class="apps-actions">
+            ${item.tlsFix && html`<button type="button" class="btn" disabled=${checking} ...${helpFor("apps.tls_fix", { scope: item.id })}
+              onClick=${() => setTrust(item.tlsFix)}>${item.tlsFix.label}</button>`}
+            ${item.tlsRevert && html`<button type="button" class="btn secondary" disabled=${checking} ...${helpFor("apps.tls_fix", { scope: item.id + "-revert" })}
+              onClick=${() => setTrust(item.tlsRevert)}>${item.tlsRevert.label}</button>`}
+            <${Help} topic="apps.tls_fix" compact=${true} scope=${item.id} />
+          </div>
+        </div>`}
         ${checkError && html`<p class="message error apps-status-line" role="alert">${errorText(checkError)}</p>`}
         <div class="apps-card-foot">
           <button type="button" class="btn secondary" disabled=${checking} ...${helpFor("apps.recheck", { scope: item.id })}
             onClick=${recheck}>${checking ? "Comprobando…" : "Volver a comprobar"}</button>
           <${Help} topic="apps.recheck" compact=${true} scope=${item.id} />
+          ${item.canProbe && html`<button type="button" class="btn secondary" disabled=${checking} ...${helpFor("apps.probe", { scope: item.id })}
+            onClick=${probe}>${checking ? "Probando…" : "Probar conexión"}</button>
+          <${Help} topic="apps.probe" compact=${true} scope=${item.id} />`}
         </div>
       </div>
     </details>

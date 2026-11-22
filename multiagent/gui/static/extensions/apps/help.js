@@ -53,6 +53,24 @@ export const HELP = {
       "La página no se queda esperando: dice «Consola abierta…» y consulta el estado cada pocos segundos. Al cerrar la consola, vuelve a medir y actualiza la fila."
     ]
   },
+  "apps.probe": {
+    "title": "Probar conexión",
+    "hint": "Hace una consulta que no genera texto para ver si el proveedor responde.",
+    "more": [
+      "Pide la lista de modelos de Gemini u OpenAI, o la salud de Ollama. No gasta cuota de generación.",
+      "Solo corre cuando la pulsas: «Volver a comprobar» no sale a internet para Gemini ni OpenAI.",
+      "Si falla por el certificado, la tarjeta ofrece el botón de certificados del sistema."
+    ]
+  },
+  "apps.tls_fix": {
+    "title": "Certificados de los proveedores",
+    "hint": "Elige qué certificados usan Gemini, OpenAI y Ollama para verificar la conexión.",
+    "more": [
+      "Un antivirus o un proxy que inspecciona TLS hace fallar la verificación. Con los certificados del sistema, la conexión usa el almacén de este equipo.",
+      "Es una decisión tuya y queda registrada. Vale para todos los proveedores; no cambia a los ejecutores.",
+      "«Volver a los certificados de siempre» deja los que traen los clientes. Elegir un archivo .pem propio es del modo avanzado, en .local/.env."
+    ]
+  },
   "apps.copy": {
     "title": "Copiar líneas",
     "hint": "Copia estas líneas al portapapeles para pegarlas tú mismo.",

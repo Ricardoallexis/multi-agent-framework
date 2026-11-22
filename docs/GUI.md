@@ -450,6 +450,24 @@ answers. The templates line is read only: it says whether the template of Claude
 (`.claude/settings.json`, `.codex/config.toml`), and that Copilot uses options for each
 run and agy its supervised modes. See [Permission profiles](PERMISSIONS.md#what-the-gui-shows).
 
+*Probar conexión and the provider certificates.* A model card has **Probar conexión**
+(`POST /gui/api/connections/{id}/probe`). It makes one request that generates no text:
+the model list of Gemini or OpenAI, or Ollama's health. It runs only when the person
+presses it; **Volver a comprobar** and the list still make no call to Gemini or OpenAI.
+An antivirus or a proxy that inspects TLS makes a provider fail with a certificate error
+(`reason: tls_certificate`, for every provider). The row then carries
+`tls_fix: {"trust": "system", "label": ...}` and the card shows **Usar los certificados de
+Windows** (**Usar los certificados del sistema** outside Windows), in both modes.
+Pressing it sends `POST /gui/api/connections/{id}/tls-trust` with `{"trust": "system"}`:
+the server writes `provider_tls_trust` in `gui-settings.json`, records the event
+`provider.tls_trust_changed` (`connection_id`, `from`, `to`), drops the cached provider
+clients and probes again. It is the person's decision about whom to trust; nothing in the
+framework presses it. **Volver a los certificados de siempre** writes `certifi`. The GUI
+never takes a file: `file:<path>` (a PEM of your own) goes in `.local/.env`, in the
+advanced mode, and the server answers `422` to it. The setting covers the HTTP clients of
+Gemini, OpenAI and Ollama, not the executors; see
+[Provider certificates](BACKENDS.md#provider-certificates).
+
 *The step that is missing.* Each card gives one step, never the whole list:
 
 - **Install or sign in.** **Abrir consola** asks for confirmation first. The

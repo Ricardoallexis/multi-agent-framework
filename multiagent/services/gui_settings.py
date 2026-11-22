@@ -27,7 +27,7 @@ GUI_SETTINGS_SCHEMA = "maf.gui-settings/1"
 MODES = ("simple", "advanced")
 DEFAULT_MODE = "simple"
 # The closed list: a new setting is one more entry here (ARR3-T07 adds provider_tls_trust, INI-T01 adds models).
-ALLOWED_VALUES: dict[str, tuple[str, ...]] = {"mode": MODES}
+ALLOWED_VALUES: dict[str, tuple[str, ...]] = {"mode": MODES, "provider_tls_trust": ("certifi", "system")}
 _DEFAULTS = {"mode": DEFAULT_MODE}
 _META_KEYS = ("schema", "updated_at", "updated_by")
 
