@@ -1016,6 +1016,36 @@ mode. It holds the result of the run as Markdown and a «Guardar como Markdown»
 | API | `GET /api/v1/runs/{run_id}/document.md`: the Markdown, with `Content-Disposition: attachment` |
 | CLI | `multiagent run-document RUN_ID [--output FILE.md]`: prints the Markdown, or writes it and refuses to overwrite an existing file |
 
+## Plan from Nueva sesión
+
+When the free text of «Nueva sesión» needs more than one workflow (for example «Resume este texto
+y luego redacta un correo»), the server answers `plan_suggested` and the chat shows a **Borrador
+del plan** card instead of one workflow. It is built from `plan_draft` of `POST
+/gui/api/new-session/interpret` (see [Planning](PLANNING.md#gui)).
+
+- **What the card shows.** The tasks in order, each with its title, what its workflow does (the
+  description), the inputs it would receive as plain text and the tasks it goes after. If a bundle
+  has `role:` steps and no approved team, the card says which team will be proposed. Every text is a
+  text node: no `innerHTML`, so a title such as `<img onerror>` is shown as characters.
+- **Simple and advanced mode.** Simple mode shows no workflow ids and no JSON. Advanced mode adds
+  each task's `workflow` and `bundle`.
+- **«Guardar el plan».** Sends `POST /gui/api/new-session/plan/save` with `{draft, confirmed:
+  true}` and goes to the `href` the server returns (`#new/plan/<id>`), the plan thread, where
+  **Aprobar** and **Rechazar** are. Saving approves nothing, creates no task or run, and proposes
+  (never approves) the team versions the plan lacks. Approving the plan before its team still
+  answers `team_not_approved`, and the thread says so.
+- **«Cancelar».** Drops the draft in the browser; the server is not called.
+- **Cloud and secrets.** The same confirmations as any message of the chat: `interpret` asks
+  `cloud_confirmation_required` (`confirm_cloud`) and `secret_review_required` (with its
+  `approval_id`) before the draft is made, and the chat resends after the person decides.
+
+| File | Role |
+| --- | --- |
+| `js/plan-draft-model.js` | `planDraftRows`, `teamRows`, `planSaveBody`, `PLAN_SAVE_LABEL`: pure, tested with Node |
+| `js/plan-draft.js` | `PlanDraftCard({ token, draft, catalog, onSaved, onCancel })` |
+| `js/new-session.js` | Mounts the card for an answer with `reason: "plan_suggested"` |
+| Help | `chat.plan_draft`, `chat.plan_save` |
+
 ## Continuity in the GUI
 
 A task that hits a usage limit waits (`continuity.hold`, `docs/EXECUTORS.md`). The extension

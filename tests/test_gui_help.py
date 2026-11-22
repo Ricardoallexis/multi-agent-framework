@@ -47,6 +47,7 @@ VIEW_FILES += ["command-palette.js", "customize.js"]   # GUI3-T07: Ctrl+K and «
 VIEW_FILES += ["plan-thread.js"]   # CHT-T06: the chat thread of a plan proposal, its decision and its messages
 VIEW_FILES += ["document-card.js"]   # ARR3-T06: the «Documento» card of a completed run
 VIEW_FILES += ["packages.js"]      # PAQ-T02: the «Paquetes» view; packages-model.js draws nothing
+VIEW_FILES += ["plan-draft.js"]   # ARR3-T02: the plan draft card of «Nueva sesión»
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
 ALLOWED_EXEMPT = {

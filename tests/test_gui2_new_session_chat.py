@@ -198,12 +198,14 @@ def test_composer_keyboard_focus_and_labels():
 
 def test_every_chat_control_is_covered_by_the_help_rules_and_its_topics_exist():
     assert "new-session.js" in VIEW_FILES                               # test_gui_help checks helpFor on every control
+    assert "plan-draft.js" in VIEW_FILES                                # ARR3-T02: the plan draft card keeps the chat.* topics of its controls
     chat = source("new-session.js")
-    used = set(re.findall(r'topic="(chat\.[a-z_]+)"', chat)) | set(re.findall(r'helpFor\("(chat\.[a-z_]+)"', chat))
+    chat_topics = chat + source("plan-draft.js")
+    used = set(re.findall(r'topic="(chat\.[a-z_]+)"', chat_topics)) | set(re.findall(r'helpFor\("(chat\.[a-z_]+)"', chat_topics))
     assert used == {key for key in HELP if key.startswith("chat.")}, used ^ {k for k in HELP if k.startswith("chat.")}
     assert {"create.mode", "create.sensitive", "create.confirm_real"} <= set(re.findall(r'"(create\.[a-z_]+)"', chat))
     for key in sorted(used):
-        assert re.search(rf'topic="{re.escape(key)}"', chat), key        # every topic that guides a control also draws its hint
+        assert re.search(rf'topic="{re.escape(key)}"', chat_topics), key        # every topic that guides a control also draws its hint
     assert "data-help-exempt" not in chat                               # no control of the chat is exempt
     assert "Por ahora abre el formulario" not in read_js("help-text.js")          # «Nueva sesión» no longer opens the form
     assert "Lanzar" in " ".join(HELP["shell.new_session"]["more"])

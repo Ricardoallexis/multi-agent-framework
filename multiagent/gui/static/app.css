@@ -746,3 +746,15 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .package-reinstall:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .package-confirm { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .package-confirm p { margin: 0; flex: 1 1 100%; }
+/* ARR3-T02 */
+/* The plan draft card of «Nueva sesión»: tasks with their inputs as text, the teams that will be proposed, and the two buttons. Page tokens only. */
+.plan-draft { min-width: 0; overflow-wrap: anywhere; }
+.plan-draft-tasks { margin: 8px 0; padding-left: 20px; }
+.plan-draft-task { margin-bottom: 12px; }
+.plan-draft-task p { margin: 4px 0; }
+.plan-draft-inputs { margin: 4px 0 0; }
+.plan-draft-inputs dt { font-weight: 600; }
+.plan-draft-inputs dd { margin: 0 0 4px; max-height: 12rem; overflow: auto; white-space: pre-wrap; }
+.plan-draft-teams h5 { margin: 8px 0 4px; }
+.plan-draft .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+@media (max-width: 599.98px) { .plan-draft .actions .btn { width: 100%; min-height: var(--target); } }

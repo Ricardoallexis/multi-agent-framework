@@ -2058,6 +2058,16 @@ export const HELP = {
     "title": "Paquete que cambió o falta",
     "hint": "Su copia ya no coincide con la que se instaló, y no se carga.",
     "more": ["Se vuelve a cargar al reinstalarlo desde un archivo .zip, que reemplaza la copia por una versión nueva.", "Si lo prefieres, quítalo de la lista: sus datos se conservan."]
+  },
+  "chat.plan_draft": {
+    "title": "Borrador del plan",
+    "hint": "Tu pedido necesita varios pasos: esto es lo que se guardaría. Todavía no se guardó nada.",
+    "more": ["Cada tarea muestra su paso y los textos que recibiría. Si un paquete necesita un equipo que nadie aprobó, aquí se dice cuál se propondrá.", "Mientras no pulses «Guardar el plan», no se crea nada y no se llama al servidor.", "En el modo avanzado cada tarea muestra además su workflow y su paquete."]
+  },
+  "chat.plan_save": {
+    "title": "Guardar el plan",
+    "hint": "«Guardar el plan» lo guarda para que lo revises. «Cancelar» lo descarta.",
+    "more": ["Guardar no aprueba nada: abre el hilo del plan, donde están «Aprobar» y «Rechazar».", "Cuando guardas, los equipos que faltan quedan propuestos, no aprobados. Aprobar el plan antes que el equipo da un aviso en el hilo.", "«Cancelar» solo cierra el borrador: no se guarda ni se pierde nada más."]
   }
 };
 

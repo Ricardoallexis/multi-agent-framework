@@ -23,6 +23,8 @@ import {
   quotaRemainingLines, reduce, runBody, secretResendRequest, selectOrchestratorSuggestion,
   selectSingleExecutorSuggestion, selectSingleModelSuggestion, singleSessionBody, singleSessionModels, suggestedEntries,
 } from "./new-session-model.js";
+import { PlanDraftCard } from "./plan-draft.js";   // ARR3-T02
+import { PLAN_NOTICE, isPlanSuggested } from "./plan-draft-model.js";
 import { navigate, routeHref, threadHref, useRoute } from "./route.js";
 import { readNewSessionMode, writeNewSessionMode } from "./shell-state.js";
 import { RunThread } from "./thread.js";
@@ -658,6 +660,7 @@ export function NewSession({ token, mock }) {
   const [pendingCloud, setPendingCloud] = useState(null);
   const [pendingSecret, setPendingSecret] = useState(restored ? restored.pendingSecret : null);
   const [limitNotice, setLimitNotice] = useState(null);
+  const [planDraft, setPlanDraft] = useState(null);                  // ARR3-T02: the draft of a plan_suggested answer
   const [singleExecutorId, setSingleExecutorId] = useState("");
   const [singleProvider, setSingleProvider] = useState("");
   const [runs, setRuns] = useState(null);
@@ -809,6 +812,13 @@ export function NewSession({ token, mock }) {
   }
 
   function finishInterpretation(text, entries, interpretation, keptDraft) {
+    if (isPlanSuggested(interpretation)) {       // ARR3-T02: the draft card asks to confirm before anything is saved
+      setLimitNotice(null);
+      setPlanDraft(interpretation.plan_draft);
+      dispatch({ type: "notice", text: PLAN_NOTICE }, { keepDraft: true });
+      setDraft(keptDraft);
+      return;
+    }
     if (interpretation && (interpretation.reason === "limit_reached" || interpretation.limit)) {
       const notice = buildLimitNotice(
         interpretation.limit || { code: "limit_reached", resets_at: null, target: "", suggestions: [] },
@@ -1022,6 +1032,7 @@ export function NewSession({ token, mock }) {
     store.current = createConversation();
     setPendingCloud(null);
     setLimitNotice(null);
+    setPlanDraft(null);
     clearSecret();
     setRoutingOverrides({});
     setConv(store.current);
@@ -1112,6 +1123,8 @@ export function NewSession({ token, mock }) {
       <button type="button" class="btn secondary" ...${helpFor("chat.retry")} onClick=${() => { startCatalog(); if (composer.current) composer.current.focus(); }}>Reintentar</button>
       <${Help} topic="chat.retry" compact=${true} /></div>`}
     <${Messages} messages=${conv.messages} />
+    ${planDraft && html`<${PlanDraftCard} token=${token} draft=${planDraft} catalog=${catalog.entries}
+      onSaved=${(href) => { setPlanDraft(null); location.hash = href; }} onCancel=${() => setPlanDraft(null)} />`}
     ${pendingCloud && html`<div class="ns-msg ns-bot" role="group" aria-label="Confirmación de envío a la nube">
       <p>¿Enviar este texto a ${pendingCloud.interpretation.model} (nube)?</p>
       <div class="actions">
