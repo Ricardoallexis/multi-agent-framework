@@ -21,14 +21,18 @@ import json
 import hashlib
 import re
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
+from ..adapters.fake import best_catalog_match
 from ..budget_cut import policy_from_settings
 from ..call_guards import SCOPE_RUN_STEP, CallContext, GuardEnvironment, Pause, Stop, build_call_guards
 from ..contracts import ModelTier, NewSessionProposal, TaskRequirements
 from ..document_trust import FIXED_CLAUSE, Provenance, wrap_untrusted
 from ..model_router import ModelBinding
 from ..observability import TokenUsageRecord, estimate_call_cost
+from ..planning import validate_proposal as validate_plan_proposal
+from ..planning.chat import split_request
 from .errors import INVALID_REQUEST, ServiceError, service_errors
 from .usage import NEW_SESSION_USAGE_ID
 
@@ -40,15 +44,20 @@ DESCRIPTION_MAX = 240
 LABEL_MAX = 80
 VALUE_MAX = 4000
 CATALOG_MARKER = "CATALOG_JSON:"
+PLAN_DRAFT_SCHEMA = "maf.new-session-plan/1"
+PLAN_GROUP_PREFIX = "chat-"
+PLAN_TASK_PREFIX = "plan"
+PLAN_NOTE = "Prepared from «Nueva sesión»"
 PROVENANCE = Provenance(kind="gui_free_text", label="free text typed in the new session chat")
 
 INSTRUCTIONS = (
     "You help an operator start a workflow of a framework. Choose the workflow from the catalog that best fits the "
     "request and fill its inputs from the request. Reply with one JSON object and nothing else: "
     '{"workflow_id": "<id from the catalog or empty>", "bundle": "<bundle of that entry or null>", '
-    '"inputs": {"<input name>": "<text>"}, "project_name": "<short name or empty>", "reason": "<one sentence>"}. '
+    '"inputs": {"<input name>": "<text>"}, "project_name": "<short name or empty>", "reason": "<one sentence>", "needs_plan": false}. '
     "Use only ids and input names that appear in the catalog. For an input with choices use exactly one of them. "
     "Leave an input out when the request does not give it. If nothing fits, leave workflow_id empty. "
+    "Set needs_plan to true only when the request needs more than one workflow, one after the other. "
     "Nothing runs until the operator confirms what you propose."
 )
 
@@ -176,11 +185,7 @@ class NewSessionServices:
         that exists; ``source`` ``keywords`` means the caller must use its own word matching, and ``reason`` says why
         (``disabled``, ``no_workflows``, ``model_error``, ``refused``, ``invalid_output`` or ``no_match``).
         """
-        clean = str(text or "").strip()
-        if not clean:
-            raise ServiceError(INVALID_REQUEST, "text must not be empty", status=422, details={"field": "text"})
-        if len(clean) > TEXT_MAX:
-            raise ServiceError(INVALID_REQUEST, f"text admits up to {TEXT_MAX} characters", status=422, details={"field": "text"})
+        clean = self._clean(text)
         if not self.enabled:
             return _fallback("disabled")
         catalog = self._catalog()
@@ -206,10 +211,133 @@ class NewSessionServices:
                         "limit": limit_notice(self._services, self._services.settings.gui_new_session_model,
                                               retry_at=exc.retry_at)}
             return _fallback("invalid_output" if isinstance(exc, StructuredOutputError) else "model_error")
+        if proposed.needs_plan:
+            suggested = self._plan_suggested(clean, proposed, catalog, confirm_cloud, approval_id)
+            if suggested is not None:
+                return suggested
         if not proposed.workflow_id.strip():
             return _fallback("no_match")
         checked = validate_proposal(proposed, catalog)
         return _fallback("invalid_output") if checked is None else {"source": SOURCE_MODEL, "reason": "", "proposal": checked}
+
+    def _plan_suggested(self, text: str, proposed: NewSessionProposal, catalog: list[dict[str, Any]],
+                        confirm_cloud: bool, approval_id: str | None) -> dict[str, Any] | None:
+        """The answer for a request that needs more than one workflow, or ``None`` to answer with one workflow as before
+        (the plan could not be drafted: the single-workflow proposal is still a valid answer)."""
+        try:
+            draft = self.draft_plan(text, confirm_cloud=confirm_cloud, approval_id=approval_id)
+        except ServiceError:
+            return None
+        if draft.get("reason") == "secret_review_required":
+            return {**_fallback("secret_review_required"), "approval_id": draft["approval_id"]}
+        if "proposal" not in draft:
+            return None
+        checked = validate_proposal(proposed, catalog) if proposed.workflow_id.strip() else None
+        return {"source": SOURCE_MODEL, "reason": "plan_suggested", "proposal": checked, "plan_draft": draft}
+
+    # --- a plan from the same text (ARR3-T01) ------------------------------------------------------------------
+
+    @service_errors
+    def draft_plan(self, text: str, *, confirm_cloud: bool = False, approval_id: str | None = None) -> dict[str, Any]:
+        """Draft a plan of several workflows for ``text``. Nothing is saved, approved or started.
+
+        Returns ``{schema, goal, group_id, planner, tasks, teams, proposal}``: ``planner`` is ``model`` (a real model
+        plans) or ``deterministic`` (Mock: one stage for each part of the request, each after the previous one),
+        ``tasks`` the readable list, ``teams`` the bundles with ``role:`` steps and no approved team (``action``
+        ``propose``) and ``proposal`` the ``multiagent.plan_proposal/1`` document. When the draft cannot be made the
+        answer has no ``proposal`` and says why in ``reason``: ``disabled``, ``no_workflows``, ``no_match``,
+        ``cloud_confirmation_required`` (the same confirmation as ``interpret``) or ``secret_review_required``
+        (with its ``approval_id``)."""
+        clean = self._clean(text)
+        if not self.enabled:
+            return {"reason": "disabled"}
+        catalog = self._catalog()
+        if not catalog:
+            return {"reason": "no_workflows"}
+        tier = self._model_tier()
+        if tier != ModelTier.LOCAL and not confirm_cloud:
+            return {"reason": "cloud_confirmation_required",
+                    "model": self._services.settings.gui_new_session_model, "tier": tier.value}
+        group_id = PLAN_GROUP_PREFIX + uuid.uuid4().hex[:12]
+        if self._services.system.engine.router.dry_run:
+            template = self._template(clean, catalog)
+            if template is None:
+                return {"reason": "no_match"}
+            planner = "deterministic"
+            request = {"group_id": group_id, "goal": clean, "template": template}
+        else:
+            planner = "model"
+            request = {"group_id": group_id, "goal": clean, "prefix": PLAN_TASK_PREFIX, "approval_id": approval_id}
+        try:
+            proposal = self._services.planning.propose(planner, request, confirm_cloud=confirm_cloud)
+        except ServiceError as exc:
+            if (exc.details or {}).get("reason") == "secret_review_required":
+                return {"reason": "secret_review_required", "approval_id": exc.details["approval_id"]}
+            raise
+        teams = [{"bundle": item["bundle"], "roles": item["roles"], "action": "propose"}
+                 for item in self._services.plan_proposals.team_blockers(proposal) if item["bundle"] is not None]
+        tasks = [{"id": task["id"], "title": task["title"], "workflow": task["workflow"], "bundle": task.get("bundle"),
+                  "inputs": dict(task.get("inputs") or {}), "depends_on": list(task["depends_on"])}
+                 for task in proposal["tasks"]]
+        return {"schema": PLAN_DRAFT_SCHEMA, "goal": proposal["goal"], "group_id": proposal["group_id"],
+                "planner": planner, "tasks": tasks, "teams": teams, "proposal": proposal}
+
+    @staticmethod
+    def _clean(text: str) -> str:
+        clean = str(text or "").strip()
+        if not clean:
+            raise ServiceError(INVALID_REQUEST, "text must not be empty", status=422, details={"field": "text"})
+        if len(clean) > TEXT_MAX:
+            raise ServiceError(INVALID_REQUEST, f"text admits up to {TEXT_MAX} characters", status=422, details={"field": "text"})
+        return clean
+
+    @staticmethod
+    def _template(text: str, catalog: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """One stage for each part of ``text`` (each after the previous one); the part is the first required text input
+        of the workflow it shares the most words with. ``None`` when a part matches no workflow."""
+        stages = []
+        for index, part in enumerate(split_request(text), start=1):
+            entry, _ = best_catalog_match(part, catalog)
+            if entry is None:
+                return None
+            target = next((item for item in entry["inputs"] if item["required"] and not item["choices"]), None)
+            stages.append({"id": f"s{index}", "title": part[:120], "workflow": entry["id"], "bundle": entry["bundle"],
+                           "inputs": {target["name"]: part} if target else {}})
+        return {"prefix": PLAN_TASK_PREFIX, "stages": stages} if stages else None
+
+    @service_errors
+    def save_plan(self, draft: Any, *, actor: str = "user:operator", channel: str = "gui") -> dict[str, Any]:
+        """Save a drafted plan as a plan proposal (``proposed``) and, for each bundle that lacks an approved team, propose
+        its team version. Approves nothing and creates no run or task.
+
+        The proposal is validated again, and the teams come from that check, not from the draft. Returns
+        ``{proposal_id, revision, team_versions, team_errors, href}``; ``href`` opens the proposal as a thread, where
+        **Aprobar** and **Rechazar** are."""
+        if not isinstance(draft, Mapping) or draft.get("schema") != PLAN_DRAFT_SCHEMA:
+            raise ServiceError(INVALID_REQUEST, f"draft schema must be {PLAN_DRAFT_SCHEMA}", status=422,
+                               details={"field": "draft"})
+        try:
+            proposal = validate_plan_proposal(self._services, draft.get("proposal"))
+        except ServiceError as exc:
+            if exc.status == 404:       # a workflow the draft names does not exist: the draft is not valid
+                raise ServiceError(INVALID_REQUEST, exc.message, status=422, details={"field": "draft"}) from exc
+            raise
+        blockers = [item for item in self._services.plan_proposals.team_blockers(proposal) if item["bundle"] is not None]
+        saved = self._services.plan_proposals.save(proposal, actor=actor, channel=channel, note=PLAN_NOTE)
+        versions: list[str] = []
+        errors: list[dict[str, str]] = []
+        for item in blockers:
+            bundle = item["bundle"]
+            try:
+                waiting = self._services.teams.list(bundle, status="proposed")["versions"]
+                version = waiting[-1] if waiting else self._services.teams.propose(
+                    bundle, actor=actor, channel=channel, draft=False)
+            except ServiceError as exc:     # the plan stays saved; Aprobar keeps asking for the team
+                errors.append({"bundle": bundle, "code": exc.code})
+                continue
+            versions.append(version["id"])
+        return {"proposal_id": saved["id"], "revision": saved["revision"], "team_versions": versions,
+                "team_errors": errors, "href": "#new/plan/" + saved["id"]}
 
 
 class _Refused(Exception):

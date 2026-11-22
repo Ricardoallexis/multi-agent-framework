@@ -26,10 +26,24 @@ def _words(text: str) -> set[str]:
             if word not in _STOPWORDS}
 
 
+def best_catalog_match(text: str, catalog: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, int]:
+    """The catalog entry that shares the most words with ``text`` (ties: first id) and how many it shares."""
+    wanted = _words(text)
+    best, best_score = None, 0
+    for entry in sorted(catalog, key=lambda item: (item["id"], item.get("bundle") or "")):
+        score = len(wanted & _words(entry["id"].replace("_", " ") + " " + entry.get("description", "")))
+        if score > best_score:
+            best, best_score = entry, score
+    return best, best_score
+
+
 def _new_session_fixture(prompt: str) -> dict[str, Any]:
     """Deterministic stand-in for the «Nueva sesión» interpreter (GUI2-T17): the catalog entry that shares the most
     words with the quoted request (ties: first id), with the request as its first required text input. No match,
-    no workflow. It reads only the catalog line and the quoted lines (``| ``) of the prompt."""
+    no workflow. It reads only the catalog line and the quoted lines (``| ``) of the prompt. When the request has two
+    or more parts (``split_request``) and every part matches a workflow, it also says ``needs_plan``."""
+    from ..planning.chat import split_request     # lazy: the planning package imports the services
+
     catalog: list[dict[str, Any]] = []
     quoted: list[str] = []
     for line in prompt.splitlines():
@@ -38,17 +52,18 @@ def _new_session_fixture(prompt: str) -> dict[str, Any]:
         elif line.startswith("| "):
             quoted.append(line[2:])
     request = " ".join(quoted).strip()
-    wanted = _words(request)
-    best, best_score = None, 0
-    for entry in sorted(catalog, key=lambda item: (item["id"], item.get("bundle") or "")):
-        score = len(wanted & _words(entry["id"].replace("_", " ") + " " + entry.get("description", "")))
-        if score > best_score:
-            best, best_score = entry, score
+    best, best_score = best_catalog_match(request, catalog)
+    parts = split_request(request)
+    needs_plan = len(parts) >= 2 and all(best_catalog_match(part, catalog)[0] is not None for part in parts)
     if best is None:
         return {"reason": "Simulated: no workflow shares words with the request."}
     target = next((item for item in best["inputs"] if item["required"] and not item["choices"]), None)
-    return {"workflow_id": best["id"], "bundle": best.get("bundle"), "inputs": {target["name"]: request[:500]} if target else {},
-            "project_name": "", "reason": f"Simulated: {best_score} shared word(s) with the request."}
+    answer = {"workflow_id": best["id"], "bundle": best.get("bundle"),
+              "inputs": {target["name"]: request[:500]} if target else {},
+              "project_name": "", "reason": f"Simulated: {best_score} shared word(s) with the request."}
+    if needs_plan:
+        answer["needs_plan"] = True
+    return answer
 
 
 class FakeAdapter(LLMAdapter):

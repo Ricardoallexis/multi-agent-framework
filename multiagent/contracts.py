@@ -371,3 +371,4 @@ class NewSessionProposal(StrictModel):
     inputs: dict[str, str] = Field(default_factory=dict)
     project_name: str = Field(default="", max_length=120)
     reason: str = Field(default="", max_length=400)
+    needs_plan: bool = False

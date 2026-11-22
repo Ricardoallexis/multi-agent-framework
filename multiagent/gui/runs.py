@@ -57,6 +57,17 @@ class InterpretBody(_Body):
     approval_id: str | None = None
 
 
+class PlanDraftBody(_Body):
+    text: str = Field(min_length=1, max_length=2000)
+    confirm_cloud: bool = False
+    approval_id: str | None = None
+
+
+class PlanSaveBody(_Body):
+    draft: dict[str, Any]
+    confirmed: bool = False
+
+
 class CreateBody(PreviewBody):
     project_name: str = Field(min_length=2, max_length=120)
     idempotency_key: str = Field(default="", max_length=120)
@@ -487,6 +498,25 @@ def build_router(services) -> APIRouter:
         (the client then matches words itself). Nothing is created: the operator confirms in the chat."""
         return services.new_session.interpret(body.text, confirm_cloud=body.confirm_cloud,
                                               approval_id=body.approval_id)
+
+    @router.post("/new-session/plan")
+    def draft_new_session_plan(body: PlanDraftBody):
+        """ARR3-T01: draft a plan of several workflows for the free text of «Nueva sesión». Saves nothing.
+
+        The draft (``{schema, goal, group_id, planner, tasks, teams, proposal}``) or, with no ``proposal``, a
+        ``reason`` such as ``cloud_confirmation_required`` or ``secret_review_required`` (same as ``interpret``)."""
+        return services.new_session.draft_plan(body.text, confirm_cloud=body.confirm_cloud,
+                                               approval_id=body.approval_id)
+
+    @router.post("/new-session/plan/save")
+    def save_new_session_plan(body: PlanSaveBody):
+        """ARR3-T01: save a drafted plan as a proposal that nobody approved, and propose the teams it lacks.
+
+        Needs ``confirmed: true``. Approves nothing and creates no run or task; the answer's ``href`` opens it."""
+        if body.confirmed is not True:
+            raise ServiceError("invalid_state", "Confirm saving this plan before it is stored.", status=409,
+                               details={"reason": "confirmation_required"})
+        return services.new_session.save_plan(body.draft)
 
     @router.post("/runs/preview")
     def preview(body: PreviewBody):

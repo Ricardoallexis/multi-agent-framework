@@ -171,8 +171,20 @@ task, or approve or reject it; the view asks for confirmation and an optional
 note. The server records actor `user:operator` and channel `gui`. A stale
 revision reloads the proposal. An approved proposal shows **Avanzar el plan**:
 after a confirmation it advances the plan once and says which tasks moved, or
-that there was nothing to advance. The GUI reviews saved proposals; use Python,
-CLI, or the HTTP API to propose and save one first.
+that there was nothing to advance. The GUI reviews saved proposals; besides Python, the CLI and
+the HTTP API, **Nueva sesión** can prepare one (next paragraph).
+
+**Nueva sesión** can prepare a plan. When the request needs more than one workflow
+("summarize the report, then draft an email"), the chat suggests a plan instead of a
+single workflow and shows its tasks and the teams it lacks. In Mock the plan comes from the
+parts of the request: it is split at `y luego`, `y después`, `después` and `luego`, each
+part takes the workflow that shares the most words with it, and each task depends on the
+previous one. With a real model the `model` planner drafts it, after the same cloud
+confirmation and secret review as the chat. Drafting saves nothing. Saving needs a
+confirmation and stores a plan proposal in `proposed` status and, for each bundle whose
+`role:` steps have no approved team, a proposed team version. It approves nothing and
+creates no task or run: **Aprobar** and **Rechazar** in the proposal's thread are the same
+as for any proposal, and approval still needs a `user:` actor and the approved team.
 
 A proposal also opens as a thread of the chat at `#new/plan/<id>` (read only,
 `GET /gui/api/threads/plans/{proposal_id}`). Its card lists each task with its

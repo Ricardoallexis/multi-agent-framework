@@ -96,6 +96,10 @@ class PlanProposalServices:
             blockers.append({"bundle": bundle, "roles": sorted(roles)})
         return blockers
 
+    def team_blockers(self, proposal: dict[str, Any]) -> list[dict[str, Any]]:
+        """The bundles whose ``role:`` steps have no approved team, as ``[{"bundle", "roles"}]`` (the check approval makes)."""
+        return self._blockers(proposal)
+
     def _view_blockers(self, row: dict[str, Any]) -> list[dict[str, Any]]:
         """The warning a view shows; a workflow that can no longer be read never breaks a listing (approve still refuses)."""
         if row["status"] != "proposed":
