@@ -27,6 +27,7 @@ as a :class:`WorkflowIssue` with a stable ``code``:
 ``duplicate_step_id``     Two steps share an id.
 ``duplicate_input``       Two declared ``inputs`` share a name.
 ``unsupported_condition`` ``when`` is not null, ``requires_web`` or ``not_requires_web``.
+``unknown_result_step``   ``result_step`` names a step id not declared in ``steps``.
 ``invalid_reference``     A prompt or skill reference is not a relative ``a/b`` path.
 ``unknown_agent``         The agent is not in the catalog.
 ``inactive_agent``        The agent is marked ``active: false`` in the catalog.
@@ -76,7 +77,7 @@ IDENTIFIER = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*")
 RESOURCE_REFERENCE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*(?:/[A-Za-z0-9_][A-Za-z0-9_-]*)*")
 
 DEFAULT_MAX_ITERATIONS = 2
-ROOT_FIELDS = ("id", "description", "max_iterations", "inputs", "steps", "project_memory")
+ROOT_FIELDS = ("id", "description", "max_iterations", "inputs", "steps", "project_memory", "result_step")
 REQUIRED_ROOT_FIELDS = ("id", "steps")
 STEP_FIELDS = tuple(field.name for field in fields(WorkflowStep))
 # Fields with a default (``kind``, ``effort``, ``description``) may be omitted from a document.
@@ -294,6 +295,7 @@ def parse_workflow_document(document: bytes | str, *, workflow_id: str, source: 
         }) for step in steps],
         description=raw.get("description"),
         project_memory=raw.get("project_memory"),
+        result_step=raw.get("result_step"),
         inputs=[
             WorkflowInput(**{
                 name: ([] if name == "choices" and entry[name] is None else entry[name])
@@ -360,6 +362,10 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
     memory_issue = setting_issue(getattr(definition, "project_memory", None))
     if memory_issue:
         issues.append(WorkflowIssue("invalid_value", "project_memory", memory_issue))
+
+    result_step = getattr(definition, "result_step", None)
+    if result_step is not None and not isinstance(result_step, str):
+        issues.append(WorkflowIssue("invalid_type", "result_step", f"Expected a string; got {_kind(result_step)}"))
 
     steps = definition.steps
     if not isinstance(steps, list) or not steps:
@@ -487,6 +493,15 @@ def structural_issues(definition: WorkflowDefinition) -> list[WorkflowIssue]:
             elif step.effort not in EFFORT_LEVELS:
                 add("invalid_value", "effort",
                     f"Unknown effort {step.effort!r}; use one of {', '.join(EFFORT_LEVELS)}")
+
+    if isinstance(result_step, str):
+        step_ids = {step.id for step in steps if isinstance(step, WorkflowStep) and isinstance(step.id, str)}
+        if result_step not in step_ids:
+            known = ", ".join(step.id for step in steps if isinstance(step, WorkflowStep) and isinstance(step.id, str)) or "(none)"
+            issues.append(WorkflowIssue(
+                "unknown_result_step", "result_step",
+                f"Unknown result_step {result_step!r}; known steps: {known}",
+            ))
     return issues
 
 

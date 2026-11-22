@@ -80,6 +80,8 @@ class WorkflowDefinition:
     inputs: list[WorkflowInput] = field(default_factory=list)
     # Optional, off by default: give every step the project's memory entries (a step may override it).
     project_memory: bool | dict[str, Any] | None = None
+    # Optional id of the step whose completed output provides the run's result document (S10.A2).
+    result_step: str | None = None
 
 
 class WorkflowCatalog:

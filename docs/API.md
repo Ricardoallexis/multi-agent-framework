@@ -228,6 +228,25 @@ approved `team.yaml` if one is set. When either sets a mode, creation emits an
 See [`TELEMETRY.md`](TELEMETRY.md) for the local-only usage model, CLI
 export, nullable token semantics, and the future OpenTelemetry mapping.
 
+### Workflow `result_step` and result document
+
+A workflow definition accepts the optional root key `result_step` naming the
+`id` of the step whose completed output provides the run's result document
+(validation fails with `unknown_result_step` at `result_step` when the id is
+not in `steps`). When `result_step` is set and that step did not complete (for
+example, it was skipped by `when`), the run has no result document; when
+`result_step` is omitted, the result defaults to the last completed step in
+workflow order.
+
+The document title is the first line of the workflow's `description` (up to 120
+characters), or `id` when `description` is absent. `multiagent.documents`
+renders the step output deterministically to Markdown from its Pydantic JSON
+Schema in `properties` order (resolving local `$defs`/`$ref` up to 6 levels,
+omitting empty or `null` fields, using field `description`, `title`, or name as
+headings, and escaping `&`, `<`, and `>` in headings and values). When a schema
+property sets `"x-maf-document": true`, that field's escaped text is used as the
+document body directly under the title and all other fields are omitted.
+
 ### Step attempts and comparison
 
 When a model step declares a role, its `step_started` event payload, each

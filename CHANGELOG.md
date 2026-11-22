@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- A workflow can name the step that holds its result with the optional `result_step` key (an unknown id is the validation issue `unknown_result_step`; without the key, the last completed step counts). `multiagent.documents` renders that result to Markdown deterministically from its contract, escaping `&`, `<` and `>`, and uses a field marked `x-maf-document` as the whole body.
 - An approved plan now advances by itself: when one of its runs ends (in the worker, or by approving, rejecting or cancelling it), when a person accepts one of its tasks or when a task's gate passes, the tasks that were waiting start, with the actor `system:worker`. The team events `plan.advanced` and `plan.advance_failed` show in the plan thread, which offers «Avanzar el plan», with a confirmation, after a failure.
 - A function step that raises now says why: `function_failed` carries the exception message, without the traceback, secret-redacted and cut to 300 characters, in the run error, the `workflow_failed` event and the run thread.
 - «Nueva sesión» can prepare a plan: a request with several steps ("…y luego…") is suggested as a plan, drafted without saving anything (`POST /gui/api/new-session/plan`) and saved, after a confirmation, as a plan proposal nobody approved, with a proposed team version for each bundle that lacks one (`POST /gui/api/new-session/plan/save`).
