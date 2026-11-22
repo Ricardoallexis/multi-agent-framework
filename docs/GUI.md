@@ -933,6 +933,32 @@ registerSlot("projects", ProjectCard, { title: "Proyecto", topic: "projects.card
 
 The built-in screens still list their stylesheets in `index.html`; new views do not.
 
+## Result document
+
+A completed run shows a «Documento» card under its thread, in the simple and in the advanced
+mode. It holds the result of the run as Markdown and a «Guardar como Markdown» button.
+
+- **What the document is.** The title is the first line of the workflow's `description`
+  (120 characters at most), or its `id`. The body is the output of the result step
+  (`result_step`, or the last completed step) rendered by `multiagent/documents.py`
+  from the step's contract: `<`, `>` and `&` in values are escaped.
+- **How it is shown.** As plain text in a `<pre>`. The Markdown is not drawn and no HTML is
+  injected, so the card works under the GUI's CSP and Trusted Types.
+- **How it is saved.** The browser builds the file: a `Blob` of type
+  `text/markdown;charset=utf-8` and a temporary link with `download`. The server writes to no
+  path. The file name is the title as a slug (lowercase, no accents, `-` between words, 60
+  characters at most), the first 8 characters of the run id and `.md`, for example
+  `resumen-de-documento-3f2a9c1b.md`.
+- **When there is no document.** A run that has not completed answers 409 `invalid_state` with
+  `details.reason` `run_not_completed`; a completed run with no step output answers `no_result`.
+  The card is not shown and the thread shows no error.
+
+| Where | Route or command |
+| --- | --- |
+| Thread card | `GET /gui/api/runs/{run_id}/document` (token): `{schema: "maf.run-document/1", run_id, title, step_id, filename, markdown}` |
+| API | `GET /api/v1/runs/{run_id}/document.md`: the Markdown, with `Content-Disposition: attachment` |
+| CLI | `multiagent run-document RUN_ID [--output FILE.md]`: prints the Markdown, or writes it and refuses to overwrite an existing file |
+
 ## Continuity in the GUI
 
 A task that hits a usage limit waits (`continuity.hold`, `docs/EXECUTORS.md`). The extension

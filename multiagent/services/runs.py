@@ -751,3 +751,44 @@ class RunServices:
             raise ServiceError(INVALID_REQUEST, "format must be json or markdown", status=422)
         report = build_run_report(self.get(run_id), self.usage(run_id), include_raw=include_raw)
         return report if format == "json" else render_run_report_markdown(report)
+
+    @service_errors
+    def document(self, run_id: str) -> dict[str, Any]:
+        """The result of a completed run as a Markdown document (ARR3-T06).
+
+        ``{schema: "maf.run-document/1", run_id, title, step_id, filename, markdown}``. The result step and the
+        title come from the run's workflow and the contract of that step from the runtime that owns the run
+        (a registered bundle uses its own). Errors: ``not_found`` (unknown run) and ``invalid_state`` with
+        ``details.reason`` ``run_not_completed`` or ``no_result``.
+        """
+        from ..documents import document_filename, document_title, render_markdown, result_step_id
+        from ..workflow_validation import WorkflowDefinitionError
+
+        runtime = self._find(run_id)
+        run = runtime.store.get_run(run_id)
+        if run.get("status") != "completed":
+            raise ServiceError(INVALID_STATE, "The run has not completed, so it has no document yet.", status=409,
+                               details={"reason": "run_not_completed", "run_id": run_id})
+        engine = runtime.service.engine
+
+        def no_result() -> ServiceError:
+            return ServiceError(INVALID_STATE, "The run has no step with an output to show as a document.", status=409,
+                                details={"reason": "no_result", "run_id": run_id})
+
+        if engine is None:
+            raise no_result()
+        try:
+            definition = engine.workflows.load(run["workflow_id"])
+        except (KeyError, WorkflowDefinitionError):
+            raise no_result() from None
+        outputs = {step.id: runtime.store.latest_step_output(run_id, step.id) for step in definition.steps}
+        step_id = result_step_id(definition, [sid for sid, output in outputs.items() if output is not None])
+        if step_id is None:
+            raise no_result()
+        step = next(item for item in definition.steps if item.id == step_id)
+        contract = getattr(engine, "output_schemas", {}).get(step.contract)
+        schema = contract.model_json_schema() if contract is not None else {}
+        title = document_title(definition)
+        return {"schema": "maf.run-document/1", "run_id": run_id, "title": title, "step_id": step_id,
+                "filename": document_filename(title, run_id),
+                "markdown": render_markdown(title, outputs[step_id] or {}, schema)}

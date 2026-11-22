@@ -3,6 +3,8 @@
 """Deterministic Markdown rendering and result-step selection for workflow runs."""
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections.abc import Collection, Mapping
 from typing import Any
 
@@ -27,6 +29,14 @@ def document_title(definition: WorkflowDefinition) -> str:
     if not first_line:
         return definition.id
     return first_line[:TITLE_MAX]
+
+
+def document_filename(title: str, run_id: str) -> str:
+    """File name of a run's document: the title as a slug (60 chars max), the first 8 chars of the run id, ``.md``."""
+    folded = unicodedata.normalize("NFKD", str(title)).encode("ascii", "ignore").decode("ascii").lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", folded).strip("-")[:60].strip("-")
+    short = re.sub(r"[^a-z0-9]", "", str(run_id).lower())[:8]
+    return "-".join(part for part in (slug, short) if part) + ".md" if (slug or short) else "documento.md"
 
 
 def result_step_id(definition: WorkflowDefinition, completed: Collection[str]) -> str | None:

@@ -45,6 +45,7 @@ VIEW_FILES += ["pending.js"]           # RWD-T03: the «Pendientes» inbox of th
 VIEW_FILES += ["team-thread.js", "team-card.js"]   # CHT-T05: the chat thread of a team version and its card
 VIEW_FILES += ["command-palette.js", "customize.js"]   # GUI3-T07: Ctrl+K and «Personalizar»
 VIEW_FILES += ["plan-thread.js"]   # CHT-T06: the chat thread of a plan proposal, its decision and its messages
+VIEW_FILES += ["document-card.js"]   # ARR3-T06: the «Documento» card of a completed run
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
 ALLOWED_EXEMPT = {

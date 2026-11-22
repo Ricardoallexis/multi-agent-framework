@@ -974,6 +974,23 @@ def cmd_run_report(args) -> None:
         pretty(result)
 
 
+def cmd_run_document(args) -> None:
+    run_id = quote(args.run_id, safe="")
+    response = _api_response("GET", f"/api/v1/runs/{run_id}/document.md")
+    if response.status_code >= 400:
+        raise RuntimeError(f"HTTP {response.status_code}: {_detail(response)}")
+    if args.output:
+        target = Path(args.output)
+        try:
+            with open(target, "x", encoding="utf-8", newline="") as handle:  # "x": never overwrite a file
+                handle.write(response.text)
+        except FileExistsError:
+            raise RuntimeError(f"{target} already exists; choose another --output") from None
+        print(f"Wrote {target}")
+    else:
+        sys.stdout.write(response.text)
+
+
 def cmd_attempts(args) -> None:
     run_id = _segment(args.run_id)
     step_id = _segment(args.step_id)
@@ -1479,6 +1496,9 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("run_id"); x.add_argument("--format", choices=("json", "markdown"), default="json")
     x.add_argument("--include-raw", action="store_true", help="Include complete run and event payloads")
     x.set_defaults(func=cmd_run_report)
+    x = sub.add_parser("run-document", help="Print a completed run's result as Markdown, or save it with --output")
+    x.add_argument("run_id"); x.add_argument("--output", help="Write the Markdown to this file; an existing file is never overwritten")
+    x.set_defaults(func=cmd_run_document)
     x = sub.add_parser("attempts", help="List completed attempts of a step, or compare two attempts")
     x.add_argument("run_id"); x.add_argument("step_id")
     x.add_argument("--compare", nargs=2, type=int, metavar=("A", "B"),

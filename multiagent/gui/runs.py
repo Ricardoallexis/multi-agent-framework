@@ -563,6 +563,11 @@ def build_router(services) -> APIRouter:
     def get_run(run_id: str):
         return run_view(services, services.runs.get(run_id))
 
+    @router.get("/runs/{run_id}/document")
+    def run_document(run_id: str):
+        """ARR3-T06: the same document as ``/api/v1/runs/{run_id}/document.md``, as JSON for the thread card."""
+        return services.runs.document(run_id)
+
     @router.get("/runs/{run_id}/usage")
     def get_run_usage(run_id: str):
         """Provider usage of the run for the Tokens panel (GUI2-T05): the same read-only answer as

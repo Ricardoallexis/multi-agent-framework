@@ -87,6 +87,29 @@ def test_run_report_cli_matches_http(monkeypatch, capsys, tmp_path):
     services.runs.close()
 
 
+def test_run_document_cli_matches_http(monkeypatch, capsys, tmp_path):
+    services = make_services(tmp_path / "local")
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
+        run = client.post("/api/v1/runs", params={"bundle": "team"}, json={
+            "project_name": "Document", "workflow_id": "spec_review",
+            "inputs": {"spec_text": "Synthetic private fixture"},
+        })
+        assert run.status_code == 202
+        run_id = run.json()["id"]
+        process_bundle_run(services)
+        assert client.get(f"/api/v1/runs/{run_id}/document.md").status_code == 409  # waiting for a review
+        for _ in range(6):  # approve each review checkpoint as the service does, until the run completes
+            if services.runs.get(run_id)["status"] == "completed":
+                break
+            services.runs.approve(run_id, recorded_only=True, channel="api")
+            if services.runs.get(run_id)["status"] == "queued":
+                process_bundle_run(services)
+        expected = client.get(f"/api/v1/runs/{run_id}/document.md")
+        assert expected.status_code == 200, expected.text
+        assert invoke_cli(monkeypatch, capsys, client, ["run-document", run_id]) == expected.text
+    services.runs.close()
+
+
 def test_cli_workflow_listing_matches_http(monkeypatch, capsys, tmp_path):
     services = make_services(tmp_path / "local")
     with TestClient(create_app(services=services), base_url="http://localhost") as client:

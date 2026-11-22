@@ -1637,6 +1637,16 @@ export const HELP = {
     "hint": "Abre la salida original con todos sus campos.",
     "more": ["Está plegada para que puedas leer primero el resumen.", "No interpreta Markdown ni HTML."]
   },
+  "thread.document": {
+    "title": "Documento",
+    "hint": "Es el resultado de esta ejecución escrito como un documento en Markdown.",
+    "more": ["Se muestra como texto plano, sin dibujar el formato.", "Aparece cuando la ejecución terminó y tiene un resultado."]
+  },
+  "thread.document_save": {
+    "title": "Guardar como Markdown",
+    "hint": "Descarga el documento como un archivo .md desde tu navegador.",
+    "more": ["El archivo lo arma tu navegador; el servidor no escribe nada en tu equipo.", "El nombre lleva el título y el principio del id de la ejecución."]
+  },
   "thread.previous": {
     "title": "Ver pasos anteriores",
     "hint": "Carga las salidas guardadas de los pasos anteriores de esta ejecución.",

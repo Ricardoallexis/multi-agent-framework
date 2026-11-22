@@ -748,6 +748,15 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         result = services.runs.report(run_id, format=format, include_raw=include_raw)
         return PlainTextResponse(result, media_type="text/markdown") if format == "markdown" else result
 
+    @app.get("/api/v1/runs/{run_id}/document.md")
+    def run_document(run_id: str):
+        """The result of a completed run as Markdown, to save as a file (ARR3-T06). 409 ``invalid_state`` until then."""
+        from fastapi.responses import PlainTextResponse
+
+        document = services.runs.document(run_id)
+        return PlainTextResponse(document["markdown"], media_type="text/markdown; charset=utf-8",
+                                 headers={"Content-Disposition": f'attachment; filename="{document["filename"]}"'})
+
     @app.get("/api/v1/runs/{run_id}/steps/{step_id}/attempts")
     def step_attempts(run_id: str, step_id: str):
         """Completed attempts of one step with producer, input, output, review and tokens."""

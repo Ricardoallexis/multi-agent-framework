@@ -712,3 +712,9 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .advanced-only-text { margin: 0; overflow-wrap: anywhere; }
 .advanced-only .btn { min-height: var(--target); }
 .side .views .side-more-list .side-help-row { text-align: left; }
+
+/* ARR3-T06: the result document card in the run thread (plain text in a <pre>, never drawn). */
+.document-card { margin-top: 16px; }
+.document-text { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
+.document-card .document-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+@media (max-width: 599.98px) { .document-card .document-actions .btn { width: 100%; } }
