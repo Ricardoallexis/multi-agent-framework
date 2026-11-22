@@ -21,8 +21,8 @@ function Truncated({ item }) {
   return item.truncated ? html`<p class="note small">El texto estaba recortado en el origen: aquí se ve solo el principio.</p>` : null;
 }
 
-function Message({ item, who }) {
-  const usage = item.usage ? tokensText(item.usage, { brief: true }) : "";
+function Message({ item, who, mode = "advanced" }) {
+  const usage = item.usage && mode !== "simple" ? tokensText(item.usage, { brief: true }) : "";   // SIM-T03: no tokens in simple mode
   return html`<li class=${"item msg " + item.kind}>
     <div class="item-head"><strong>${who}</strong>${item.model && html`<span class="muted small"> · ${item.model}</span>`}
       <${When} item=${item} /></div>
@@ -77,10 +77,10 @@ function Subagent({ item }) {
   </li>`;
 }
 
-export function Item({ item }) {
+export function Item({ item, mode = "advanced" }) {
   switch (item.kind) {
-    case "user_message": return html`<${Message} item=${item} who="Usuario" />`;
-    case "assistant_message": return html`<${Message} item=${item} who="Asistente" />`;
+    case "user_message": return html`<${Message} item=${item} who="Usuario" mode=${mode} />`;
+    case "assistant_message": return html`<${Message} item=${item} who="Asistente" mode=${mode} />`;
     case "tool_call": return html`<${ToolCall} item=${item} />`;
     case "tool_result": return html`<${ToolResult} item=${item} />`;
     case "reasoning_omitted":
@@ -96,21 +96,21 @@ export function Item({ item }) {
 }
 
 // A folded run of work (GUI2-T02): closed by default, it opens to show every tool call and result inside.
-function WorkBlock({ block }) {
+function WorkBlock({ block, mode }) {
   return html`<li class="item work-fold">
     <details>
       <summary>${workLabel(block)}</summary>
       <ol class="items work-items" aria-label="Trabajo realizado">
-        ${block.entries.map((entry) => html`<${Item} key=${entry.index} item=${entry.item} />`)}
+        ${block.entries.map((entry) => html`<${Item} key=${entry.index} item=${entry.item} mode=${mode} />`)}
       </ol>
     </details>
   </li>`;
 }
 
-export function Items({ items }) {
+export function Items({ items, mode = "advanced" }) {
   return html`<ol class="items" aria-label="Contenido de la sesión">
     ${foldWork(items).map((block) => (block.fold
-      ? html`<${WorkBlock} key=${"w" + block.start} block=${block} />`
-      : html`<${Item} key=${block.index} item=${block.item} />`))}
+      ? html`<${WorkBlock} key=${"w" + block.start} block=${block} mode=${mode} />`
+      : html`<${Item} key=${block.index} item=${block.item} mode=${mode} />`))}
   </ol>`;
 }

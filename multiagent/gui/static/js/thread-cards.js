@@ -6,7 +6,7 @@ import { apiGet, runPath } from "./api.js";
 import { Help, helpFor } from "./help.js";
 import { errorText, fmtJson } from "./text.js";
 import { readable } from "./readable.js";
-import { actionsFor, detailHref, previousStepIds, reviewArtifact } from "./thread-model.js";
+import { actionsFor, detailHref, previousStepIds, reviewArtifact, showRawOutput, threadLinksFor } from "./thread-model.js";
 
 const LABELS = { launched: "Inicio", step: "Paso terminado", user_message: "Tu mensaje",
   message_consumed: "Mensaje leído", waiting: "Se necesita tu decisión", final: "Final" };
@@ -29,7 +29,7 @@ export function ReadableValue({ node }) {   // CHT-T06: also used by plan-thread
   return html`<span>${node.text}</span>`;
 }
 
-function ReviewOutput({ entry, view, runId, token }) {
+function ReviewOutput({ entry, view, runId, token, mode }) {
   const [earlier, setEarlier] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -53,19 +53,27 @@ function ReviewOutput({ entry, view, runId, token }) {
     } catch (_) { if (ticket === request.current) setLoadError(true); }
     finally { if (ticket === request.current) setLoading(false); }
   }
+  return html`<${ReviewBody} artifact=${artifact} counters=${counters} steps=${steps} earlier=${earlier} loading=${loading}
+    loadError=${loadError} showEarlier=${showEarlier} mode=${mode} />`;
+}
+
+// SIM-T03: the review section as a pure function of its data, so Node can draw it. Simple mode keeps the readable output and drops
+// the raw JSON, the model calls and the earlier steps; advanced mode draws all of it, as before.
+export function ReviewBody({ artifact, counters, steps, earlier, loading, loadError, showEarlier, mode = "advanced" }) {
+  const raw = showRawOutput(mode);
   return html`<section class="thread-review" aria-label="Salida para revisar">
     <h4>Salida para revisar</h4><${Help} topic="thread.output" compact=${true} />
     ${artifact ? html`<${ReadableValue} node=${readable(artifact.data)} />
-      <details class="thread-json"><summary ...${helpFor("thread.json")}>JSON completo</summary>
-        <${Help} topic="thread.json" compact=${true} /><pre class="thread-readable-text">${fmtJson(artifact.data)}</pre></details>`
+      ${raw && html`<details class="thread-json"><summary ...${helpFor("thread.json")}>JSON completo</summary>
+        <${Help} topic="thread.json" compact=${true} /><pre class="thread-readable-text">${fmtJson(artifact.data)}</pre></details>`}`
       : html`<p class="muted">No se encontró la salida de este intento.</p>`}
-    ${counters && html`<p class="thread-calls">Llamadas a modelo: ${counters.model_calls} de ${counters.max_model_calls} máximo.
+    ${raw && counters && html`<p class="thread-calls">Llamadas a modelo: ${counters.model_calls} de ${counters.max_model_calls} máximo.
       <${Help} topic="thread.calls" compact=${true} /></p>`}
-    ${steps.length > 0 && html`<button type="button" class="btn secondary" disabled=${loading}
+    ${raw && steps.length > 0 && html`<button type="button" class="btn secondary" disabled=${loading}
       ...${helpFor("thread.previous")} onClick=${showEarlier}>${loading ? "Cargando…" : "Ver pasos anteriores"}</button>`}
-    ${steps.length > 0 && html`<${Help} topic="thread.previous" compact=${true} />`}
-    ${loadError && html`<p class="message error" role="alert">No se pudieron leer los pasos anteriores.</p>`}
-    ${earlier && html`<div class="thread-earlier">${earlier.map(({ stepId, attempts }) => html`<section key=${stepId}>
+    ${raw && steps.length > 0 && html`<${Help} topic="thread.previous" compact=${true} />`}
+    ${raw && loadError && html`<p class="message error" role="alert">No se pudieron leer los pasos anteriores.</p>`}
+    ${raw && earlier && html`<div class="thread-earlier">${earlier.map(({ stepId, attempts }) => html`<section key=${stepId}>
       <h5>Paso ${stepId}</h5>${attempts.length ? attempts.map((attempt) => html`<details key=${attempt.attempt}>
         <summary ...${helpFor("thread.previous")}>Intento ${attempt.attempt}</summary><${ReadableValue} node=${readable(attempt.output)} />
         <details class="thread-json"><summary ...${helpFor("thread.json")}>JSON completo</summary>
@@ -121,7 +129,7 @@ export function ToolApprovalPreview({ runId, token, permissionRequestId }) {
   </section>`;
 }
 
-function Decision({ entry, busy, onAction, runId, token }) {
+function Decision({ entry, busy, onAction, runId, token, mode }) {
   const [pending, setPending] = useState("");
   const [feedback, setFeedback] = useState("");
   const [comments, setComments] = useState([]);
@@ -144,7 +152,7 @@ function Decision({ entry, busy, onAction, runId, token }) {
     onAction(pending, body);
   };
   return html`<div class="thread-decision">
-    <p class="muted">${REASONS[entry.reason] || entry.reason || "Parada"} · paso ${entry.step_id || "sin indicar"}${entry.attempt ? " · intento " + entry.attempt : ""}</p>
+    <p class="muted">${REASONS[entry.reason] || entry.reason || "Parada"} · paso ${entry.step_id || "sin indicar"}${entry.attempt && showRawOutput(mode) ? " · intento " + entry.attempt : ""}</p>
     ${tool && html`<${ToolApprovalPreview} runId=${runId} token=${token}
       permissionRequestId=${entry.decision.permission_request_id} />`}
     ${!pending && html`<div class="thread-actions">
@@ -190,27 +198,32 @@ function Decision({ entry, busy, onAction, runId, token }) {
   </div>`;
 }
 
-export function ThreadCard({ entry, status, runId, token, reviewView, busy, onAction }) {
+export function ThreadCard({ entry, status, runId, token, reviewView, busy, onAction, mode = "advanced" }) {
+  const links = threadLinksFor(entry, mode);
   const details = detailHref(runId);
+  const raw = showRawOutput(mode);
+  // SIM-T03: in simple mode an object output is drawn with ReadableValue; the JSON text stays in advanced mode.
+  const objectOutput = entry.kind === "final" && !entry.error && entry.output != null && typeof entry.output === "object";
   const output = entry.kind === "final" ? entry.error || (entry.output == null ? "" :
-    typeof entry.output === "string" ? entry.output : JSON.stringify(entry.output, null, 2)) : "";
+    typeof entry.output === "string" ? entry.output : raw ? JSON.stringify(entry.output, null, 2) : "") : "";
   return html`<li class=${"thread-card thread-" + entry.kind}>
     <div class="thread-card-head"><strong>${LABELS[entry.kind] || "Evento"}</strong>
-      <a href=${details} ...${helpFor("thread.detail")}>Ver detalle</a><${Help} topic="thread.detail" compact=${true} /></div>
+      ${links.detail && html`<a href=${details} ...${helpFor("thread.detail")}>Ver detalle</a><${Help} topic="thread.detail" compact=${true} />`}</div>
     <p>${entry.text || ""}</p>
     ${entry.kind === "launched" && html`<p class="muted">${entry.workflow_id} · ${entry.project_name || "sin proyecto"}
       ${entry.execution_mode ? " · " + entry.execution_mode : ""}${entry.operating_mode ? " · " + entry.operating_mode : ""}</p>`}
     ${entry.kind === "launched" && entry.task_id && html`<p>Tarea ${entry.task_id}
-      ${entry.task_href && html` · <a href=${entry.task_href} ...${helpFor("thread.related")}>Ver plan</a>`}</p>`}
+      ${links.related && entry.task_href && html` · <a href=${entry.task_href} ...${helpFor("thread.related")}>Ver plan</a>`}</p>`}
     ${entry.kind === "launched" && entry.team && html`<p>Equipo ${entry.team.team_id || entry.team.bundle || "vinculado"}
-      ${entry.team_href && html` · <a href=${entry.team_href} ...${helpFor("thread.related")}>Ver equipo</a>`}</p>`}
-    ${entry.kind === "launched" && (entry.task_href || entry.team_href) && html`<${Help} topic="thread.related" compact=${true} />`}
-    ${entry.kind === "step" && html`<p class="muted">${entry.step_id}${entry.executor ? " · " + (entry.executor.model || entry.executor.function || entry.executor.provider || entry.executor.kind || "") : ""}</p>`}
+      ${links.related && entry.team_href && html` · <a href=${entry.team_href} ...${helpFor("thread.related")}>Ver equipo</a>`}</p>`}
+    ${entry.kind === "launched" && links.related && html`<${Help} topic="thread.related" compact=${true} />`}
+    ${entry.kind === "step" && html`<p class="muted">${entry.step_id}${raw && entry.executor ? " · " + (entry.executor.model || entry.executor.function || entry.executor.provider || entry.executor.kind || "") : ""}</p>`}
     ${entry.kind === "waiting" && status === "waiting_human" && entry.decision &&
       ["review", "content_review", "budget_exhausted"].includes(entry.reason) && reviewView && html`
-        <${ReviewOutput} entry=${entry} view=${reviewView} runId=${runId} token=${token} />`}
+        <${ReviewOutput} entry=${entry} view=${reviewView} runId=${runId} token=${token} mode=${mode} />`}
     ${entry.kind === "waiting" && status === "waiting_human" && entry.decision && html`<${Decision} entry=${entry} busy=${busy}
-      onAction=${onAction} runId=${runId} token=${token} />`}
+      onAction=${onAction} runId=${runId} token=${token} mode=${mode} />`}
+    ${objectOutput && !raw && html`<div class="thread-final-readable"><${ReadableValue} node=${readable(entry.output)} /></div>`}
     ${output && html`<pre class="thread-output">${output}</pre>`}
   </li>`;
 }

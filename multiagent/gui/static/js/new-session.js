@@ -12,13 +12,14 @@ import { ApiError, apiGet, apiPost } from "./api.js";
 import { CreateRun, PreviewPanel } from "./create-run.js";
 import { isRegisteredView } from "./extensions.js";
 import { Help, helpFor } from "./help.js";
+import { currentMode } from "./gui-mode.js";   // SIM-T03
 import { modeHelpEntry } from "./help-text.js";
 import { ModelPicker } from "./model-picker.js";
 import { buildModelPicker } from "./model-picker-model.js";
 import {
   PROJECT_KEY, SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_NOTICE, SECRET_REVIEW_REASON, answerRows, buildLimitNotice,
   cardDescription, connectionLabel, createConversation, createSecretReview, currentQuestion, executorLaunchBody, formSeed, inputsPath,
-  interpretBody, isSecretReviewRequired, loadCatalog, originLabel, parseCommand, pickRuns, progress,
+  cardOrigin, interpretBody, isSecretReviewRequired, loadCatalog, parseCommand, plusMenuEntries, pickRuns, progress,
   quotaRemainingLines, reduce, runBody, secretResendRequest, selectOrchestratorSuggestion,
   selectSingleExecutorSuggestion, selectSingleModelSuggestion, singleSessionBody, singleSessionModels, suggestedEntries,
 } from "./new-session-model.js";
@@ -75,7 +76,7 @@ function Cards({ items, source, disabled, canShowAll, onPick, onShowAll }) {
         ...${helpFor("chat.suggestion")} onClick=${() => onPick(entry)}>
         <span class="ns-card-name">${entry.id}</span>
         <span class="ns-card-desc">${cardDescription(entry)}</span>
-        <span class="ns-card-meta">Origen: ${originLabel(entry)}</span>
+        ${cardOrigin(entry, currentMode()) && html`<span class="ns-card-meta">Origen: ${cardOrigin(entry, currentMode())}</span>`}
         ${source === SOURCE_MODEL && html`<span class="ns-card-meta">Propuesto por: un modelo</span>`}
         ${source === SOURCE_KEYWORDS && html`<span class="ns-card-meta">Propuesto por: comparación de palabras</span>`}
         ${matched.length > 0 && html`<span class="ns-card-meta">Coincide con: ${matched.join(", ")}</span>`}
@@ -146,7 +147,7 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
     });
   };
   return html`<section class="ns-confirm panel" aria-label="Resumen antes de lanzar" tabindex="-1" ref=${boxRef}>
-    <p class="ns-confirm-title"><strong>Listo para lanzar: ${conv.workflow.id}</strong> <span class="muted">· ${originLabel(conv.workflow)}</span></p>
+    <p class="ns-confirm-title"><strong>Listo para lanzar: ${conv.workflow.id}</strong> ${cardOrigin(conv.workflow, currentMode()) && html`<span class="muted">· ${cardOrigin(conv.workflow, currentMode())}</span>`}</p>
     <${Help} topic="chat.confirm" />
     <dl class="ns-answers">
       ${answerRows(conv).map((row) => html`<div key=${row.key} class="ns-answer"><dt>${row.label}</dt>
@@ -269,8 +270,8 @@ function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows
         ${menuOpen && html`<div class="ns-plus-menu" role="group" aria-label="Opciones de inicio">
           <button type="button" disabled=${executorActive} ...${helpFor("chat.executor_launch")}
             onClick=${() => { setMenuOpen(false); onExecutor(); }}>Usar un ejecutor</button>
-          <button type="button" ...${helpFor("chat.form")} onClick=${() => { setMenuOpen(false); onForm(); }}>Ver como formulario</button>
-          <${Help} topic="chat.executor_launch" compact=${true} /><${Help} topic="chat.form" compact=${true} />
+          ${plusMenuEntries(currentMode()).includes("form") && html`<button type="button" ...${helpFor("chat.form")} onClick=${() => { setMenuOpen(false); onForm(); }}>Ver como formulario</button>`}
+          <${Help} topic="chat.executor_launch" compact=${true} />${plusMenuEntries(currentMode()).includes("form") && html`<${Help} topic="chat.form" compact=${true} />`}
         </div>`}
       </div>
       <div class="ns-box-select"><label for="ns-mode-select">Modo</label><select id="ns-mode-select" aria-label="Modo de sesión" value=${mode} ...${helpFor("chat.session_mode")}

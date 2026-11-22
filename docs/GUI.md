@@ -854,6 +854,20 @@ new view stays out of simple mode until it says `mode: "simple"`; any other valu
 sections declare it in `SECTIONS` (`js/main.js`): `sessions`, `usage` and `customize` are simple, and
 `runs`, `evaluation`, `teams`, `plans`, `map` and `tree` are advanced.
 
+**What each screen hides in simple mode** (SIM-T03). Each screen reads `currentMode()` when it draws. Advanced mode
+draws what it always drew; the pure decisions live in `js/thread-model.js` (`showRawOutput`, `threadLinksFor`),
+`js/new-session-model.js` (`plusMenuEntries`, `cardOrigin`) and `extensions/apps/model.js` (`missingAction`).
+
+| Screen | Simple mode hides | Simple mode keeps |
+| --- | --- | --- |
+| Run thread | «JSON completo», «Llamadas a modelo», «Ver pasos anteriores» and the earlier attempts, «Ver detalle» (`#runs/<id>`), the links «Ver plan» and «Ver equipo», the model or function of a step, the attempt number of a stop, and the JSON text of a final object output | the readable output of a review, the final object output as readable fields, the decision buttons |
+| Session | «Tokens de este mensaje»; a run event with no known text shows its type, not its JSON | the messages, tools and the rest of the items |
+| «Nueva sesión» | the line «Origen: …» of the suggested cards and of the summary, and «Ver como formulario» in the «＋» menu | «Usar un ejecutor» |
+| «Apps y agentes» | the lines to paste (`enabled: true`, `OPENAI_ENABLED=true`, the key name), «Copiar» and the command text of the console steps | the console buttons (install, sign in), «Volver a comprobar», «Probar conexión» and the certificate buttons |
+
+In «Apps y agentes» a step that edits a file (enable an executor or a model, an API key) is one line,
+«Este paso se hace en modo avanzado» (help key `apps.advanced_step`). API keys stay in advanced mode.
+
 ## Adding a view, a panel section or help texts
 
 Tasks that add to the GUI in parallel do not edit shared files (`index.html`,

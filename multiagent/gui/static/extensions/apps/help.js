@@ -71,6 +71,14 @@ export const HELP = {
       "«Volver a los certificados de siempre» deja los que traen los clientes. Elegir un archivo .pem propio es del modo avanzado, en .local/.env."
     ]
   },
+  "apps.advanced_step": {
+    "title": "Pasos del modo avanzado",
+    "hint": "Este paso edita un archivo de configuración, y eso se hace en modo avanzado.",
+    "more": [
+      "Habilitar un ejecutor o un modelo y poner una clave de API son cambios en archivos de este equipo.",
+      "Activa el modo avanzado en «Personalizar» para ver las líneas exactas. El visor nunca edita esos archivos por ti."
+    ]
+  },
   "apps.copy": {
     "title": "Copiar líneas",
     "hint": "Copia estas líneas al portapapeles para pegarlas tú mismo.",

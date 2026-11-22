@@ -6,6 +6,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet } from "./api.js";
 import { debounce } from "./bus.js";
+import { currentMode } from "./gui-mode.js";   // SIM-T03
 import { Help, helpFor } from "./help.js";
 import { OpenInApp } from "./open-in-app.js";
 import { routeHref } from "./route.js";
@@ -26,10 +27,11 @@ const asApiError = (failure) => (failure instanceof ApiError ? failure : new Api
 const isCursorReset = (warnings) => (warnings || []).some((w) => String(w).startsWith("cursor_reset"));
 
 // A framework run streams its raw events; the items endpoint turns each into a "system" item with this text.
-function frameworkItem(event) {
+// SIM-T03: in simple mode an event without a known text shows its type, never its JSON.
+export function frameworkItem(event, mode = "advanced") {
   const payload = event && typeof event.payload === "object" && event.payload ? event.payload : {};
   const text = contextEventText(event && event.type, payload)
-    || String(event.type || "evento") + (Object.keys(payload).length ? " " + JSON.stringify(payload) : "");
+    || String(event.type || "evento") + (mode !== "simple" && Object.keys(payload).length ? " " + JSON.stringify(payload) : "");
   return { cursor: String(event.id), timestamp: event.ts || null, kind: "system", model: payload.model || null,
     text: text.slice(0, 20000), truncated: text.length > 20000, tool: null, files: [], usage: null, child_id: null };
 }
@@ -176,7 +178,7 @@ export function SessionDetail({ token, sessionId, onBack }) {
         if (!data || typeof data !== "object") return;
         if (isRun) {
           if (data.id === undefined || data.id === null) return;
-          const item = frameworkItem(data);
+          const item = frameworkItem(data, currentMode());
           cursor.current = item.cursor;
           push([item], false);
         } else if (event.type === "item") {
@@ -242,7 +244,7 @@ export function SessionDetail({ token, sessionId, onBack }) {
         <${Help} topic="session.items_retry" compact=${true} /></div>`}
       ${!page.loaded && !itemsError && html`<p class="muted" aria-busy="true">Cargando el contenido…</p>`}
       ${page.loaded && items.length === 0 && html`<p class="muted">Esta sesión no tiene mensajes que mostrar todavía.</p>`}
-      ${items.length > 0 && html`<${Items} items=${items} />`}
+      ${items.length > 0 && html`<${Items} items=${items} mode=${currentMode()} />`}
       ${page.loaded && !page.done && html`<div><button type="button" class="btn secondary" disabled=${loadingMore} ...${helpFor("session.more")}
         onClick=${() => loadPage(cursor.current)}>${loadingMore ? "Cargando…" : "Cargar más"}</button>
         <span class="muted small"> Mostrando ${items.length} elementos; hay más.</span>

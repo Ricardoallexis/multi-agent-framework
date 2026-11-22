@@ -718,3 +718,8 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .document-text { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
 .document-card .document-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 @media (max-width: 599.98px) { .document-card .document-actions .btn { width: 100%; } }
+
+/* SIM-T03 */
+/* The final object output of a run thread in simple mode: the readable fields, not a block of JSON. Page tokens only. */
+.thread-final-readable { min-width: 0; max-height: 20rem; overflow: auto; overflow-wrap: anywhere; margin-top: 8px; }
+.thread-final-readable .thread-fields { margin: 0; }

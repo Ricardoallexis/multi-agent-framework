@@ -4,6 +4,7 @@
 import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost } from "../../js/api.js";
 import { registerHelp, registerView } from "../../js/extensions.js";
+import { currentMode } from "../../js/gui-mode.js";   // SIM-T03
 import { Help, helpFor } from "../../js/help.js";
 import { errorText, fmtDate } from "../../js/text.js";
 import { StatusChip } from "../../js/ui/status-chip.js";
@@ -135,11 +136,11 @@ function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDon
   return html`<div class="apps-step">
     <p class="apps-step-title">${action.title}</p>
     <p class="apps-step-text">${action.detail}</p>
-    ${!canOpen && action.commandText && html`
+    ${!canOpen && html`
       <p class="apps-status-line muted">${!allowLaunch
         ? "El visor tiene desactivado abrir consolas (gui_allow_launch)."
         : "Abrir consola visible solo está disponible en Windows."}</p>
-      <${CopyBlock} label="Comando oficial para ejecutar en tu terminal:" text=${action.commandText} scope=${item.id + "-cmd"} />
+      ${action.commandText && html`<${CopyBlock} label="Comando oficial para ejecutar en tu terminal:" text=${action.commandText} scope=${item.id + "-cmd"} />`}
     `}
     ${canOpen && phase === "idle" && html`<div class="apps-actions">
       <button type="button" class="btn" disabled=${busyAny} ...${helpFor("apps.open_console", { scope: item.id })}
@@ -176,6 +177,12 @@ function MissingStep({ item, allowLaunch, consoleSupported, token, onRecheck, bu
   if (action.kind === "console") {
     return html`<${ConsoleStep} item=${item} action=${action} allowLaunch=${allowLaunch} consoleSupported=${consoleSupported}
       token=${token} onDone=${onRecheck} busyAny=${busyAny} onBusyChange=${onBusyChange} />`;
+  }
+  if (action.kind === "advanced_only") {   // SIM-T03: simple mode, no lines to paste and no «Copiar»
+    return html`<div class="apps-step">
+      <p class="apps-step-title">${action.title}</p>
+      <p class="apps-step-text apps-advanced-step">${action.text}<${Help} topic="apps.advanced_step" compact=${true} scope=${item.id} /></p>
+    </div>`;
   }
   if (action.kind === "key") {
     return html`<div class="apps-step">
@@ -343,7 +350,7 @@ export function AppsView({ token }) {
     apiGet("/gui/api/setup/status", token).then(setSetupStatus).catch(() => {});
   }
 
-  const view = buildAppsView(connections, setupStatus);
+  const view = buildAppsView(connections, setupStatus, currentMode());
 
   return html`<section class="apps-view" aria-label="Apps y agentes" aria-busy=${loading ? "true" : "false"}>
     <div class="apps-head">

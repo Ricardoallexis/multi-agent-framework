@@ -702,3 +702,7 @@ export async function loadCatalog({ get, onUpdate = () => {}, concurrency = 4 })
   await Promise.all(Array.from({ length: Math.min(concurrency, entries.length) }, worker));
   return entries;
 }
+
+// SIM-T03: the «＋» menu and the origin line, by mode. Simple has no «Ver como formulario» (it shows workflow ids) and no origin.
+export const plusMenuEntries = (mode) => (mode === "simple" ? ["executor"] : ["executor", "form"]);
+export const cardOrigin = (entry, mode) => (mode === "simple" ? "" : originLabel(entry));

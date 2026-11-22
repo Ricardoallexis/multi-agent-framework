@@ -114,7 +114,23 @@ function consoleAction(row, step, title, detail, setupStatus, { optional = false
   };
 }
 
-export function missingAction(row, kind, setupStatus) {
+// SIM-T03: simple mode never shows a line to paste or a command to copy. The steps that edit a file (enable an executor or a model,
+// an API key) say that they belong to advanced mode; the console steps keep their button and lose the command text.
+export const ADVANCED_STEP_TEXT = "Este paso se hace en modo avanzado";
+const ADVANCED_STEP_KINDS = ["enable_executor", "enable_model", "key"];
+
+export function missingAction(row, kind, setupStatus, mode = "advanced") {
+  const action = advancedAction(row, kind, setupStatus);
+  if (mode !== "simple" || !action) return action;
+  if (ADVANCED_STEP_KINDS.includes(action.kind)) return { kind: "advanced_only", title: action.title, text: ADVANCED_STEP_TEXT };
+  if (action.kind === "console") {
+    const { commandText, ...rest } = action;
+    return rest;
+  }
+  return action;
+}
+
+function advancedAction(row, kind, setupStatus) {
   if (row.available === true) return null;
   const step = row.missing_step;
   if (step === "install") {
@@ -294,7 +310,7 @@ function tlsButton(button) {
   return { trust: button.trust, label: button.label };
 }
 
-function buildEntry(row, kind, setupStatus) {
+function buildEntry(row, kind, setupStatus, mode) {
   const perm = setupStatus?.permissions?.[row.id] || null;
   const chip = statusChipFor(row);
   const limited = row.available !== true && (Boolean(row.limit) || row.reason === "limit_reached" || row.reason === "quota_paused");
@@ -303,7 +319,7 @@ function buildEntry(row, kind, setupStatus) {
     : limited
       ? limitReachedText(row.limit || row.resets_at || row.paused_until)
       : (REASONS[row.reason] || row.reason || "No disponible.");
-  const action = missingAction(row, kind, setupStatus);
+  const action = missingAction(row, kind, setupStatus, mode);
   return {
     id: row.id,
     kind,
@@ -328,11 +344,11 @@ function buildEntry(row, kind, setupStatus) {
   };
 }
 
-export function buildAppsView(connectionsPayload, setupStatus = null) {
+export function buildAppsView(connectionsPayload, setupStatus = null, mode = "advanced") {
   const rows = Array.isArray(connectionsPayload?.connections) ? connectionsPayload.connections : [];
   const byId = new Map(rows.map((row) => [row.id, row]));
-  const executors = EXECUTOR_IDS.map((id) => byId.get(id)).filter(Boolean).map((row) => buildEntry(row, "executor", setupStatus));
-  const models = MODEL_IDS.map((id) => byId.get(id)).filter(Boolean).map((row) => buildEntry(row, "model", setupStatus));
+  const executors = EXECUTOR_IDS.map((id) => byId.get(id)).filter(Boolean).map((row) => buildEntry(row, "executor", setupStatus, mode));
+  const models = MODEL_IDS.map((id) => byId.get(id)).filter(Boolean).map((row) => buildEntry(row, "model", setupStatus, mode));
   return {
     executors,
     models,

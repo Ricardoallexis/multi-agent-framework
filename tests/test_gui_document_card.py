@@ -100,6 +100,9 @@ def test_card_in_both_modes():
     # The card depends on the run alone: the thread mounts it for a completed run whatever the simple or advanced mode is.
     thread = (JS / "thread.js").read_text(encoding="utf-8")
     assert 'thread.status === "completed" && html`<${DocumentCard} token=${token} runId=${runId} />`' in thread
-    for name in ("thread.js", "document-card.js", "document-model.js"):
+    for name in ("document-card.js", "document-model.js"):
         assert not re.search(r"\bmode\b|showRawOutput|data-mode", (JS / name).read_text(encoding="utf-8")), name
+    # SIM-T03 passes the mode to ThreadCard in thread.js; the line that mounts DocumentCard stays free of it.
+    mount = next(line for line in thread.splitlines() if "<${DocumentCard}" in line)
+    assert not re.search(r"\bmode\b|showRawOutput|data-mode", mount), mount
     assert '"/gui/api/runs/"' not in (JS / "document-card.js").read_text(encoding="utf-8")  # the path comes from runPath

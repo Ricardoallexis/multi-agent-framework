@@ -7,6 +7,7 @@ import { Help, helpFor } from "./help.js";
 import { errorText } from "./text.js";
 import { ThreadCard } from "./thread-cards.js";
 import { DocumentCard } from "./document-card.js";
+import { currentMode } from "./gui-mode.js";   // SIM-T03
 import { POLL_MS, createThread, entryKey, isTerminal, mergeThread, pollAfter } from "./thread-model.js";
 import { MESSAGE_KINDS, NEEDS_CONFIRMATION, messageError, messageId, messagePath } from "./inbox-model.js";
 
@@ -75,7 +76,7 @@ export function RunThread({ token, runId }) {
     ${!thread.loaded && !error && html`<p class="muted" aria-busy="true">Cargando el hilo…</p>`}
     <ol class="thread-list" role="log" aria-label="Mensajes de la ejecución">
       ${thread.entries.map((entry) => html`<${ThreadCard} key=${entryKey(entry)} entry=${entry} status=${thread.status}
-        runId=${runId} token=${token} reviewView=${reviewView} busy=${busy} onAction=${act} />`)}
+        runId=${runId} token=${token} reviewView=${reviewView} busy=${busy} onAction=${act} mode=${currentMode()} />`)}
     </ol>
     ${thread.status === "completed" && html`<${DocumentCard} token=${token} runId=${runId} />`}
     <${RunInbox} runId=${runId} token=${token} status=${thread.status} onSent=${() => load(true)} />
