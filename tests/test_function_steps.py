@@ -153,4 +153,10 @@ def test_function_failure_has_stable_code_and_no_trace(system, tmp_path, functio
     assert not usage(system, run["id"])
     failure = events(final, "workflow_failed")[0]["payload"]
     assert failure["issues"][0]["code"] == code
-    assert "private exception detail" not in str(failure)
+    if code == "function_failed":
+        assert "private exception detail" in failure["detail"]
+    else:
+        assert "detail" not in failure
+        assert "private exception detail" not in str(failure)
+    assert "Traceback" not in str(failure)
+    assert 'File "' not in str(failure)

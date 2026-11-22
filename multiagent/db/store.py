@@ -489,6 +489,9 @@ class Store:
             payload["code"] = "egress_blocked"
         if issues is not None:
             payload["issues"] = issues
+        detail = getattr(error, "detail", "")
+        if isinstance(detail, str) and detail:
+            payload["detail"] = detail
         with self.db.tx() as conn:
             changed = conn.execute(
                 """UPDATE runs SET status=?,error=?,waiting_reason='',waiting_step='',

@@ -13,15 +13,36 @@ from typing import Any
 from pydantic import ValidationError
 
 from .capabilities import validate_capability_id
+from .egress_guard import redact
+from .secret_gate import scan_text
 
 
+FAILURE_DETAIL_LIMIT = 300
 _FUNCTIONS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any]], dict[str, Any]]] = {}
 
 
+def failure_detail(exc: BaseException, *, limit: int = FAILURE_DETAIL_LIMIT) -> str:
+    """Return a bounded, secret-redacted exception summary without a traceback."""
+    text = f"{type(exc).__name__}: {exc}".replace("\r\n", " ").replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    redacted = redact(text, scan_text(text))
+    if limit <= 0:
+        return ""
+    if limit == 1:
+        return "…" if len(redacted) > 1 else redacted
+    if len(redacted) > limit:
+        return redacted[:limit - 1] + "…"
+    return redacted
+
+
 class FunctionStepError(ValueError):
-    def __init__(self, code: str, step_id: str):
+    def __init__(self, code: str, step_id: str, detail: str = ""):
         self.code = code
-        super().__init__(f"{code}: function step {step_id!r}")
+        self.step_id = step_id
+        self.detail = detail
+        message = f"{code}: function step {step_id!r}"
+        if detail:
+            message = f"{message} — {detail}"
+        super().__init__(message)
 
 
 def register_function(function_id: str, fn: Callable, *, description: str) -> None:
@@ -77,7 +98,7 @@ def execute_function_step(*, store, artifacts, settings, output_schemas, run_id:
     try:
         result = fn(_readonly(context), _readonly(step.arguments or {}))
     except Exception as exc:
-        raise FunctionStepError("function_failed", step.id) from exc
+        raise FunctionStepError("function_failed", step.id, failure_detail(exc)) from exc
     if not isinstance(result, dict):
         raise FunctionStepError("function_output_invalid", step.id)
     try:
