@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- The GUI mode (simple or advanced) now lives on the server, in `<local_dir>/gui-settings.json`: it starts as simple, is the same in every browser and is written atomically. `GET /gui/api/settings` and `POST /gui/api/settings/mode` read and change it, `GET /gui/api/session` reports it, and `require_advanced_mode` answers 409 `advanced_mode_required` for the actions that need it. `/api/v1` is the same in both modes.
 - A workflow can name the step that holds its result with the optional `result_step` key (an unknown id is the validation issue `unknown_result_step`; without the key, the last completed step counts). `multiagent.documents` renders that result to Markdown deterministically from its contract, escaping `&`, `<` and `>`, and uses a field marked `x-maf-document` as the whole body.
 - An approved plan now advances by itself: when one of its runs ends (in the worker, or by approving, rejecting or cancelling it), when a person accepts one of its tasks or when a task's gate passes, the tasks that were waiting start, with the actor `system:worker`. The team events `plan.advanced` and `plan.advance_failed` show in the plan thread, which offers «Avanzar el plan», with a confirmation, after a failure.
 - A function step that raises now says why: `function_failed` carries the exception message, without the traceback, secret-redacted and cut to 300 characters, in the run error, the `workflow_failed` event and the run thread.

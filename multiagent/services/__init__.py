@@ -42,6 +42,7 @@ from .evaluation import EvaluationServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
 from .executors import ExecutorServices
 from .gates import GateServices
+from .gui_settings import GuiSettingsServices
 from .inbox import InboxServices
 from .memory import MemoryServices
 from .new_session import NewSessionServices
@@ -132,6 +133,7 @@ class ApplicationServices:
         self.new_session = NewSessionServices(self)
         self.user_approvals = UserApprovalServices(self)
         self.bundle_scans = BundleScanServices(self)
+        self.gui_settings = GuiSettingsServices(self)
         # The engine of the system reads the availability policy from the inbox, the same place that accepts the messages.
         engine = getattr(system, "engine", None)
         if engine is not None:

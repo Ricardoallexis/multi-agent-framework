@@ -746,6 +746,39 @@ under «Más», the new-session mode or the notification switch. A value that is
 is ignored, and an unknown palette reads as «Neutro». None of these keys holds a secret
 or any run content.
 
+## Simple and advanced mode
+
+The GUI has a simple mode and an advanced mode. The mode belongs to the installation, not
+to a browser: it lives on the server, in `<local_dir>/gui-settings.json`, and it is the
+same in every browser. It starts as `simple`.
+
+```json
+{"schema": "maf.gui-settings/1", "mode": "simple", "updated_at": "…", "updated_by": "user:gui@gui"}
+```
+
+- A missing or broken file reads as `simple` and is not rewritten until the first change.
+- The file is written atomically (a temporary file in the same folder, then `os.replace`),
+  so a crash never leaves a half-written file or a `.tmp` behind.
+- The keys are a closed list (`ALLOWED_VALUES` in `multiagent/services/gui_settings.py`).
+  A key or a value outside it is a 422 `invalid_request`. A key that was never written
+  does not appear in the answer.
+- Each change keeps `updated_at` and `updated_by` in the same file. There is no event.
+
+| Route | What it does |
+| --- | --- |
+| `GET /gui/api/settings` | the settings: `schema`, `mode`, the keys written, `updated_at`, `updated_by` |
+| `POST /gui/api/settings/mode` | body `{"mode": "simple" \| "advanced"}`; answers like the route above |
+| `GET /gui/api/session` | `{"mock", "version", "mode"}` |
+
+Both `/gui/api/settings` routes need the local token, and the `POST` needs `application/json`.
+
+**What the server enforces.** Only two things depend on the mode, installing code and
+trusting a package's functions. They call `services.gui_settings.require_advanced_mode(action)`,
+which in simple mode answers 409 `invalid_state` with
+`details = {"reason": "advanced_mode_required", "action": …}`. The actions are
+`install_code`, `install_folder` and `trust_functions`. No other route changes, and
+`/api/v1` is the same in both modes. What each mode shows is decided by the browser.
+
 ## Adding a view, a panel section or help texts
 
 Tasks that add to the GUI in parallel do not edit shared files (`index.html`,

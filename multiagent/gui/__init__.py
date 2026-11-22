@@ -48,6 +48,7 @@ from .project_api import add_project_routes
 from .runs import build_router as build_runs_router
 from .security import ApprovalSessions, GUISecurityHeadersMiddleware, require_json, require_token
 from .sessions_api import add_session_routes
+from .settings_api import add_settings_routes
 from .setup_api import add_setup_routes
 from .teams_api import add_teams_routes
 from .threads_api import add_thread_routes
@@ -75,7 +76,7 @@ def mount_gui(app: FastAPI) -> None:
 
     @api.get("/session")
     def session():
-        return {"mock": bool(settings.mock_mode), "version": __version__}
+        return {"mock": bool(settings.mock_mode), "version": __version__, "mode": services.gui_settings.mode()}
 
     @api.get("/stream")
     async def stream(request: Request, after: str | None = Query(None, max_length=64),
@@ -134,6 +135,7 @@ def mount_gui(app: FastAPI) -> None:
     add_pending_routes(api, services)  # /gui/api/pending (RWD-T03)
     add_approval_routes(api, services)
     add_bundle_scan_routes(api, services)
+    add_settings_routes(api, services)  # /gui/api/settings (SIM-T01)
     add_thread_routes(api, services)  # /gui/api/threads/runs/{run_id} (CHT-T01)
     add_inbox_routes(api, services)  # AVA-T05: run and task messages
     api.include_router(build_runs_router(services))
