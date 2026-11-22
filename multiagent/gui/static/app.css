@@ -705,3 +705,10 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .accent-option { display: inline-flex; align-items: center; gap: 8px; min-height: var(--target); }
 .accent-swatch { display: inline-block; flex: none; width: 16px; height: 16px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--accent); }
 .accent-swatch[data-accent="neutral"] { background: var(--text); }   /* Neutro: the action colour is the text colour */
+
+/* SIM-T02 */
+/* The line that replaces an advanced view in simple mode, and the «Ayuda» row of «Más». Only tokens of the page, no colour of its own. */
+.advanced-only { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 60ch; min-width: 0; padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--accent-soft); }
+.advanced-only-text { margin: 0; overflow-wrap: anywhere; }
+.advanced-only .btn { min-height: var(--target); }
+.side .views .side-more-list .side-help-row { text-align: left; }

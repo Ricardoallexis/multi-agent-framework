@@ -3,19 +3,21 @@
 // What «Personalizar» lists and how a choice changes (GUI3-T07). Pure functions: no DOM, no Preact, no storage. customize.js
 // draws them and shell-state.js remembers the result.
 import { CARD_MODES, modeOf, normalizeModes } from "./context-model.js";
+import { visibleIn } from "./gui-mode.js";
 
 export const CUSTOMIZE_SECTION = "customize";
 export const MODE_LABELS = { auto: "Automática", always: "Siempre", never: "Nunca" };
 
 // The sections a person can pin: the ones that are not already fixed and not this screen. A section is pinned when its id is in `pinned`.
-export function pinnableSections(sections, pinned) {
+// SIM-T02: in simple mode the advanced sections are not offered; a pin already made stays in `pinned` untouched.
+export function pinnableSections(sections, pinned, mode = "advanced") {
   const ids = new Set(Array.isArray(pinned) ? pinned : []);
   const seen = new Set();
   const rows = [];
   for (const section of Array.isArray(sections) ? sections : []) {
     if (!section || typeof section.id !== "string" || seen.has(section.id)) continue;
     seen.add(section.id);
-    if (section.group === "primary" || section.id === CUSTOMIZE_SECTION) continue;
+    if (section.group === "primary" || section.id === CUSTOMIZE_SECTION || !visibleIn(section, mode)) continue;
     rows.push({ id: section.id, label: section.label, pinned: ids.has(section.id) });
   }
   return rows;

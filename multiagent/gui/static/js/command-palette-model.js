@@ -4,6 +4,7 @@
 // navigates and explains: an entry is a screen (a route), a session or run (a route) or a help text (shown as plain text). There
 // is no entry that approves, allows or launches anything, and nothing here talks to the server.
 import { matches as itemMatches } from "./sidebar-model.js";
+import { visibleIn } from "./gui-mode.js";
 
 export const MAX_RESULTS = 30;
 export const KINDS = { section: "Sección", tab: "Pestaña", session: "Sesión", run: "Ejecución", help: "Ayuda" };
@@ -19,7 +20,9 @@ export function isPaletteKey(event) {
 
 // The screens: every navigation section (the rows of the sidebar and of «Más») plus the tabs of «Pendientes». `tabs` are the
 // tabs of pending-model.js (pendingTabs) with their route already resolved by `tabRoute`; «Todo» is the section itself.
-export function sectionEntries(navigation, tabs = []) {
+// SIM-T02: only what the mode shows. The «Ayuda» row of simple mode is not a screen (it has an `action`), and a tab with no mode (the
+// whole list, «Todo») is in both modes.
+export function sectionEntries(navigation, tabs = [], mode = "advanced") {
   const entries = [];
   const seen = new Set();
   const add = (entry) => {
@@ -29,17 +32,19 @@ export function sectionEntries(navigation, tabs = []) {
     entries.push(entry);
   };
   for (const section of [...navigation.primary, ...navigation.more]) {
+    if (section.action || !visibleIn(section, mode)) continue;
     add({ key: "section:" + section.id, kind: "section", label: section.label, route: [section.id, null] });
   }
   for (const tab of tabs) {
+    if (tab.mode !== undefined && !visibleIn(tab, mode)) continue;
     add({ key: "tab:" + tab.id, kind: "tab", label: "Pendientes › " + tab.label, route: tab.route });
   }
   return entries;
 }
 
 // Sessions and runs, from sidebar-model.js items; the match is the one the sidebar used.
-export function itemEntries(items) {
-  return (Array.isArray(items) ? items : []).map((item) => ({
+export function itemEntries(items, mode = "advanced") {
+  return (Array.isArray(items) ? items : []).filter((item) => item.mode === undefined || visibleIn(item, mode)).map((item) => ({
     key: "item:" + item.key, kind: item.kind === "run" ? "run" : "session", label: item.title, route: item.route, item,
     hint: item.project,
   }));

@@ -12,10 +12,12 @@
 // failed (extensionFailures(), the notice in main.js) and, if it finishes later, it registers late: subscribeRegistry() tells
 // the page, which draws again.
 //
-//   registerView({ id, label, component, topic, order, owner, group, icon, pendingType })   a screen: a button in the sidebar and the route "#<id>" or "#<id>/<item>"
+//   registerView({ id, label, component, topic, order, owner, group, icon, pendingType, mode })   a screen: a button in the sidebar and the route "#<id>" or "#<id>/<item>"
 //                                                   (component props: token, status, mock, route = { section, id }); topic is a help key (optional).
 //                                                   group "pending" makes it a tab of «Pendientes» (GUI3-T05); pendingType (optional: "approval",
-//                                                   "continuity" or "task") says which items of GET /gui/api/pending its tab counts
+//                                                   "continuity" or "task") says which items of GET /gui/api/pending its tab counts;
+//                                                   mode (SIM-T02) is "simple" or "advanced": simple mode shows only the views that say "simple",
+//                                                   and a view with no mode is advanced (L4)
 //   registerSlot(name, component, { title, topic, order, owner, defaultMode })   a section of the right panel (also exported by panel-slots.js);
 //                                                   props: token, route, sessionId, onContent; topic is a help key (optional); defaultMode
 //                                                   is "auto" (default), "always" or "never" (GUI3-T04: when the card is drawn)
@@ -30,6 +32,7 @@
 export const RESERVED_SECTIONS = ["sessions", "runs", "usage", "evaluation", "teams", "plans", "tree", "map", "pending", "customize", "new"];   // the routes of the built-in screens
 export const RESERVED_SLOTS = ["changes", "subagents", "tokens", "sources"];            // the sections of the built-in panel
 export const PENDING_TYPES = ["approval", "continuity", "task"];   // the types GET /gui/api/pending counts (pendingType of a view of «Pendientes»)
+const VIEW_MODES = ["simple", "advanced"];                                              // SIM-T02: the modes of the GUI (js/gui-mode.js)
 const SLOT_MODES = ["auto", "always", "never"];                                         // when a card of the panel is drawn (context-model.js)
 export const RESERVED_USAGE_SECTIONS = ["plans", "global", "costs"];                    // the tabs of the built-in «Uso» screen (usage.js)
 export const LOAD_BUDGET_MS = 3000;   // the most the first render waits for the manifest, the modules and the sheets together
@@ -85,7 +88,7 @@ function rollback(owner) {
   if (registrations.length) changed();
 }
 
-export function registerView({ id, label, component, topic = null, order, owner, group = "more", icon = "dot", pendingType = null } = {}) {
+export function registerView({ id, label, component, topic = null, order, owner, group = "more", icon = "dot", pendingType = null, mode = "advanced" } = {}) {
   if (typeof id !== "string" || !ID.test(id)) refuse("registerView: id must be lowercase letters, digits and _ (got " + String(id) + ")");
   if (RESERVED_SECTIONS.includes(id)) refuse("registerView: \"" + id + "\" is the route of a built-in screen");
   if (views.has(id)) refuse("registerView: \"" + id + "\" is already registered");
@@ -95,7 +98,8 @@ export function registerView({ id, label, component, topic = null, order, owner,
   if (!["primary", "pending", "more"].includes(group)) refuse("registerView: group must be primary, pending or more");
   if (pendingType !== null && !PENDING_TYPES.includes(pendingType)) refuse("registerView: pendingType must be approval, continuity or task");
   if (!VIEW_ICONS.has(icon)) refuse("registerView: icon must be an icon name");
-  views.set(id, { id, key: id, label: label.trim(), component, topic, order: orderOf(order), group, icon, pendingType });
+  if (!VIEW_MODES.includes(mode)) refuse("registerView: mode must be \"simple\" or \"advanced\"");
+  views.set(id, { id, key: id, label: label.trim(), component, topic, order: orderOf(order), group, icon, pendingType, mode });
   record(owner, views, id);
   changed();
 }

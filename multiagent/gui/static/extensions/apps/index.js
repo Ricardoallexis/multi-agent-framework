@@ -339,4 +339,4 @@ export function AppsView({ token }) {
   </section>`;
 }
 
-registerView({ id: "apps", label: "Apps y agentes", topic: "apps.view", component: AppsView, order: 70, owner: "apps", group: "primary", icon: "apps" });
+registerView({ id: "apps", label: "Apps y agentes", topic: "apps.view", component: AppsView, order: 70, owner: "apps", group: "primary", icon: "apps", mode: "simple" });

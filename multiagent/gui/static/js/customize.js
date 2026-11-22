@@ -9,24 +9,38 @@ import { ACCENTS, MODE_LABELS, cardRows, pinnableSections, togglePinned, withCar
 import { CARD_MODES } from "./context-model.js";
 import { Help, helpFor } from "./help.js";
 import { registeredSlots } from "./extensions.js";
+import { saveMode } from "./gui-mode.js";   // SIM-T02
 import { onChoiceChange, readAccent, readCardModes, readHelpMode, readPinnedSections, resetChoices, storageRemembers, writeAccent, writeCardModes, writeHelpMode, writePinnedSections } from "./shell-state.js";
 
-export function Customize({ sections }) {
+export function Customize({ token, sections, mode = "advanced" }) {
   const [remembers] = useState(storageRemembers);
   const [pinned, setPinned] = useState(readPinnedSections);
   const [modes, setModes] = useState(readCardModes);
   const [helpOn, setHelpOn] = useState(readHelpMode);
   const [accent, setAccent] = useState(readAccent);
+  const [modeError, setModeError] = useState(false);   // SIM-T02: the server did not take the new mode
   useEffect(() => onChoiceChange((change) => {   // the change carries its value, so it shows even when nothing is stored
     if (change.pinned) setPinned(change.pinned);
     if (change.modes) setModes(change.modes);
     if ("help" in change) setHelpOn(change.help);
     if (change.accent) setAccent(change.accent);
   }), []);
-  const rows = pinnableSections(sections, pinned);
+  const rows = pinnableSections(sections, pinned, mode);
+  const toggleMode = (event) => {   // the server keeps the mode (POST /gui/api/settings/mode); the page redraws without reloading
+    setModeError(false);
+    saveMode(token, event.target.checked ? "advanced" : "simple").catch(() => setModeError(true));
+  };
   const cards = cardRows(registeredSlots(), modes);
   return html`<div class="customize">
     ${!remembers && html`<p class="message small" role="status">Este navegador no guarda las preferencias: se aplican mientras esta página siga abierta.</p>`}
+    <section class="customize-block" aria-label="Modo">
+      <h3 class="customize-title">Modo</h3>
+      <label class="check-inline">
+        <input type="checkbox" checked=${mode === "advanced"} ...${helpFor("customize.advanced_mode")} onChange=${toggleMode} />
+        Modo avanzado</label>
+      <${Help} topic="customize.advanced_mode" compact=${true} />
+      ${modeError && html`<p class="message error small" role="alert">No se pudo cambiar el modo. Inténtalo de nuevo.</p>`}
+    </section>
     <section class="customize-block" aria-label="Barra lateral">
       <h3 class="customize-title">Barra lateral</h3>
       <p class="muted small">Las secciones fijadas salen en la barra, junto a las fijas. Las demás siguen en «Más» y en Ctrl K.</p>

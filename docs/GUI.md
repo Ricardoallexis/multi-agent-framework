@@ -810,6 +810,27 @@ which in simple mode answers 409 `invalid_state` with
 `install_code`, `install_folder` and `trust_functions`. No other route changes, and
 `/api/v1` is the same in both modes. What each mode shows is decided by the browser.
 
+**What each mode shows** (SIM-T02). The browser decides it, from the `mode` of `GET /gui/api/session`;
+nothing about the mode is kept in `localStorage`. `js/gui-mode.js` holds the value of the page
+(`currentMode`, `setCurrentMode`, `onModeChange`, `visibleIn`) and `saveMode(token, mode)` posts the change.
+The switch **Modo avanzado** in «Personalizar» changes it and the GUI draws again without reloading.
+
+- **Advanced** shows everything, as it always did.
+- **Simple** shows only a closed list. The sidebar has «Nueva sesión», «Buscar», «Pendientes»,
+  «Proyectos», «Apps y agentes» and the list of sessions. «Más» has «Uso», «Personalizar» and
+  «Ayuda» (a row that turns help mode on, not a view). The panel «Contexto» stays in both modes.
+- Ctrl+K searches only what the mode shows: sections, the tabs of «Pendientes», sessions and help texts.
+- In simple mode a run of the list opens its thread (`#new/run/<id>`), not `#runs/<id>`.
+- A section you pinned that is advanced is hidden in simple mode, not released: it is pinned again
+  when you go back to advanced.
+- A route of an advanced view in simple mode (for example `#runs` from a link) shows the line
+  «Esta vista es del modo avanzado» with the button «Activar modo avanzado». The address does not change.
+
+`registerView` has a `mode` key, `"simple"` or `"advanced"`. **A view with no `mode` is advanced**, so a
+new view stays out of simple mode until it says `mode: "simple"`; any other value is refused. The built-in
+sections declare it in `SECTIONS` (`js/main.js`): `sessions`, `usage` and `customize` are simple, and
+`runs`, `evaluation`, `teams`, `plans`, `map` and `tree` are advanced.
+
 ## Adding a view, a panel section or help texts
 
 Tasks that add to the GUI in parallel do not edit shared files (`index.html`,
@@ -840,13 +861,13 @@ registerView({ id: "projects", owner: "projects", label: "Proyectos", component:
 registerSlot("projects", ProjectCard, { title: "Proyecto", topic: "projects.card", owner: "projects", order: 40 });
 ```
 
-- `registerView({ id, owner, label, component, topic, order, group, icon, pendingType })` adds
+- `registerView({ id, owner, label, component, topic, order, group, icon, pendingType, mode })` adds
   a sidebar row and the route `#<id>` or `#<id>/<item>`. The ids of the built-in screens are reserved.
   `topic` is optional and is a help key of the extension (`"projects.view"`, in the same
   `name.topic` form as the slot topics). `main.js` draws the page heading from `label` and
   places the «?» button of `topic` beside it, so the view must not draw a heading of its
   own: the name would show twice. A `topic` that is not a help key is refused.
-  The last three fields are optional and are checked at registration:
+  The last four fields are optional and are checked at registration:
   - `group`: `"primary"` (a fixed row of the sidebar), `"pending"` (a tab of «Pendientes»,
     not a row) or `"more"` (under «Más»; the default).
   - `icon`: the name of one of the drawn icons of `js/ui/icon.js` (`folder`, `apps`,
@@ -854,6 +875,8 @@ registerSlot("projects", ProjectCard, { title: "Proyecto", topic: "projects.card
   - `pendingType`: `"approval"`, `"continuity"` or `"task"`, for a view of `group: "pending"`;
     it says which items of `GET /gui/api/pending` the tab counts. Without it the tab has no
     count.
+  - `mode`: `"simple"` or `"advanced"` (SIM-T02). Simple mode shows only the views that say
+    `"simple"`; without it the view is advanced. Any other value is refused.
 - `registerSlot(name, component, { title, topic, owner, order, defaultMode })` adds a section
   after the four fixed ones of the «Contexto» panel, with its title and its «?» help
   (`topic` is a key of the extension's own help). The names of the fixed sections are

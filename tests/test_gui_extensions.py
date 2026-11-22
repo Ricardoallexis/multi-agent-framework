@@ -798,3 +798,10 @@ def test_real_extension_views_have_a_single_title_and_reachable_help():
         assert info["label"] == label
         assert info["topic"] == f"{ext_id}.view"
         assert info["help"] and info["help"]["title"] and info["help"]["hint"] and info["help"]["more"]
+
+
+def test_the_six_extensions_declare_simple_mode():   # SIM-T02: a view with no mode is advanced (L4)
+    for name in ("approvals", "apps", "continuity", "document_alerts", "project", "task_waiting"):
+        source = (STATIC_DIR / "extensions" / name / "index.js").read_text(encoding="utf-8")
+        call = re.search(r"registerView\(\{(.*?)\}\);", source, re.S)[1]
+        assert re.search(r'\bmode:\s*"simple"', call), name

@@ -11,11 +11,12 @@ import { navigate, routeHref, NEW_SECTION } from "./route.js";
 import { CommandPalette } from "./command-palette.js";
 import { helpEntries, isPaletteKey, itemEntries, sectionEntries } from "./command-palette-model.js";
 import { registeredViews } from "./extensions.js";
+import { visibleIn } from "./gui-mode.js";
 import { HELP } from "./help-text.js";
 import { pendingTabs, tabRoute } from "./pending-model.js";
 import { relativeTime } from "./session-text.js";
 import { activityItems, appLabel, buildGroups, countsOf, isCurrent, navigationSections, runItems, sessionItems } from "./sidebar-model.js";
-import { onChoiceChange, readMoreNoticeSeen, readPinnedSections, writeMoreNoticeSeen } from "./shell-state.js";
+import { onChoiceChange, readMoreNoticeSeen, readPinnedSections, writeHelpMode, writeMoreNoticeSeen } from "./shell-state.js";
 import { PendingLink } from "./pending.js";
 import { Icon } from "./ui/icon.js";
 import { StatusChip } from "./ui/status-chip.js";
@@ -58,7 +59,7 @@ function Group({ group, route, now }) {
   </details>`;
 }
 
-export function Sidebar({ token, status, route, sections }) {
+export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
   const [data, setData] = useState({ sessions: [], runs: [], hint: null, failed: [], loaded: false });
   const [activityData, setActivityData] = useState({ projects: [], loaded: false, loading: false, failed: false });
   const [activitiesMode, setActivitiesMode] = useState(false);
@@ -131,10 +132,10 @@ export function Sidebar({ token, status, route, sections }) {
 
   const items = activitiesMode
     ? activityItems(activityData.projects)
-    : sessionItems(data.sessions).concat(runItems(data.runs));
+    : sessionItems(data.sessions).concat(runItems(data.runs, mode));
   const groups = buildGroups(items);
   const shown = groups.reduce((total, group) => total + group.items.length, 0);
-  const navigation = navigationSections(sections.filter((s) => !s.group), sections.filter((s) => s.group), pinned);
+  const navigation = navigationSections(sections.filter((s) => !s.group), sections.filter((s) => s.group), pinned, mode);
   const dismissNotice = () => { setNoticeSeen(true); writeMoreNoticeSeen(); };
   useEffect(() => {
     if (route.section !== "sessions" && navigation.more.some((section) => section.id === route.section)) {
@@ -156,8 +157,9 @@ export function Sidebar({ token, status, route, sections }) {
   else summary = shown + (shown === 1 ? " elemento" : " elementos") + " en " + groups.length + (groups.length === 1 ? " proyecto." : " proyectos.");
 
   const paletteEntries = [
-    ...sectionEntries(navigation, pendingTabs(registeredViews(), [], false).map((tab) => ({ ...tab, route: tabRoute(tab.id) }))),
-    ...itemEntries(sessionItems(data.sessions).concat(runItems(data.runs))),
+    ...sectionEntries(navigation, pendingTabs(registeredViews().filter((view) => visibleIn(view, mode)), [], false)
+      .map((tab) => ({ ...tab, route: tabRoute(tab.id) })), mode),
+    ...itemEntries(sessionItems(data.sessions).concat(runItems(data.runs, mode)), mode),
     ...helpEntries(HELP),
   ];
 
@@ -187,9 +189,12 @@ export function Sidebar({ token, status, route, sections }) {
           <${Help} topic="shell.more_notice" compact=${true} />
         </div>`}
         <div id="side-more" class="side-more-list" hidden=${!moreOpen}>
-          ${navigation.more.map((s) => html`<button key=${s.id} type="button" data-nav data-help-exempt="navigation"
+          ${navigation.more.filter((s) => !s.action).map((s) => html`<button key=${s.id} type="button" data-nav data-help-exempt="navigation"
             aria-current=${s.id === route.section ? "page" : null} onClick=${() => navigate(s.id)}>
             <${Icon} name=${s.icon} />${s.label}</button>`)}
+          ${navigation.more.some((s) => s.action === "help") && html`<button type="button" class="side-help-row" data-nav
+            ...${helpFor("shell.help_mode", { scope: "more" })} onClick=${() => writeHelpMode(true)}><${Icon} name="help" />Ayuda</button>
+          <${Help} topic="shell.help_mode" scope="more" compact=${true} />`}
         </div>
       </div>
     </div>

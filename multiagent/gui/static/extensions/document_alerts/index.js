@@ -100,5 +100,5 @@ export function DocumentAlertsView({ token, route }) {
   </section>`;
 }
 
-registerView({ id: "document_alerts", owner: "document_alerts", group: "pending", icon: "file", label: "Alertas de documentos", topic: "document_alerts.view", component: DocumentAlertsView, order: 50 });
+registerView({ id: "document_alerts", owner: "document_alerts", group: "pending", icon: "file", label: "Alertas de documentos", topic: "document_alerts.view", component: DocumentAlertsView, order: 50, mode: "simple" });
 registerSlot("document_alerts", DocumentAlertsCard, { title: "Alertas de documentos", topic: "document_alerts.card", owner: "document_alerts", order: 50 });

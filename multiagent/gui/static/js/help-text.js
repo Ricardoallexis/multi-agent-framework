@@ -2013,6 +2013,16 @@ export const HELP = {
     "title": "El plan avanza solo",
     "hint": "Cuando termina un run del plan o aceptas una de sus tareas, las que esperaban arrancan solas.",
     "more": ["Lo hace el sistema (actor system:worker) cada vez que termina un run del plan o se acepta una de sus tareas, y lo deja anotado aquí.", "Si no pudo avanzar, el mensaje dice por qué y aparece «Avanzar el plan» para hacerlo a mano.", "Un run que se recuperó al arrancar no avanza solo: usa «Avanzar el plan»."]
+  },
+  "customize.advanced_mode": {
+    "title": "Modo avanzado",
+    "hint": "Muestra todas las secciones. Apagado, la barra solo trae lo esencial.",
+    "more": ["Es un ajuste de esta instalación: vale en todos los navegadores y se guarda en el servidor.", "Apagarlo esconde las secciones avanzadas, no las borra: las que fijaste siguen fijadas para cuando lo vuelvas a encender.", "La GUI se redibuja al cambiarlo, sin recargar la página."]
+  },
+  "shell.advanced_only": {
+    "title": "Vista del modo avanzado",
+    "hint": "Esta pantalla solo se muestra en el modo avanzado.",
+    "more": ["Pulsa «Activar modo avanzado» para verla. Puedes volver al modo simple desde «Personalizar».", "No se pierde nada: la dirección sigue igual."]
   }
 };
 

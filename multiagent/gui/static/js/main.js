@@ -10,7 +10,7 @@ import { loadToken, clearToken, getJSON } from "./auth.js";
 import { startStream } from "./stream.js";
 import { publishEvent } from "./bus.js";
 import { useRoute, NEW_SECTION } from "./route.js";
-import { Help } from "./help.js";
+import { Help, helpFor } from "./help.js";
 import { NewSession } from "./new-session.js";
 import { TeamThread } from "./team-thread.js";   // CHT-T05
 import { PlanThread } from "./plan-thread.js";   // CHT-T06
@@ -28,6 +28,7 @@ import { Customize } from "./customize.js";   // GUI3-T07
 import { Evaluation } from "./evaluation.js";
 import { Teams } from "./teams.js";
 import { Plans } from "./plans.js";
+import { ADVANCED_ONLY_TEXT, currentMode, onModeChange, saveMode, setCurrentMode, visibleIn } from "./gui-mode.js";   // SIM-T02
 import { extensionFailures, loadExtensions, registeredViews, registryVersion, subscribeRegistry } from "./extensions.js";
 
 const STATUS_TEXT = {
@@ -39,17 +40,17 @@ const STATUS_TEXT = {
 
 // "Sesiones" is the main screen and the default one.
 const SECTIONS = [
-  { id: "sessions", label: "Sesiones", icon: "inbox" },
-  { id: "runs", label: "Ejecuciones", icon: "run" },
-  { id: "usage", label: "Uso", icon: "chart" },
-  { id: "evaluation", label: "Evaluación", icon: "check" },
-  { id: "teams", label: "Equipos", icon: "person" },
-  { id: "plans", label: "Planes", icon: "file" },
-  { id: "map", label: "Mapa", icon: "map" },
-  { id: "customize", label: "Personalizar", icon: "settings" },   // GUI3-T07: reached from «Más», the gear of the sidebar and Ctrl+K
+  { id: "sessions", label: "Sesiones", icon: "inbox", mode: "simple" },
+  { id: "runs", label: "Ejecuciones", icon: "run", mode: "advanced" },
+  { id: "usage", label: "Uso", icon: "chart", mode: "simple" },
+  { id: "evaluation", label: "Evaluación", icon: "check", mode: "advanced" },
+  { id: "teams", label: "Equipos", icon: "person", mode: "advanced" },
+  { id: "plans", label: "Planes", icon: "file", mode: "advanced" },
+  { id: "map", label: "Mapa", icon: "map", mode: "advanced" },
+  { id: "customize", label: "Personalizar", icon: "settings", mode: "simple" },   // GUI3-T07: reached from «Más», the gear of the sidebar and Ctrl+K
 ];
 // The built-in screens, then the ones extensions registered (by their `order`).
-const allSections = () => [...SECTIONS, ...registeredViews().map((view) => ({ id: view.id, label: view.label, group: view.group, icon: view.icon }))];
+const allSections = () => [...SECTIONS, ...registeredViews().map((view) => ({ id: view.id, label: view.label, group: view.group, icon: view.icon, mode: view.mode }))];
 
 // "#new" is not a section of its own: it shows the guided chat of a new session (new-session.js), which falls back to the
 // create-run form on request.
@@ -57,6 +58,18 @@ const NEW_TITLE = "Nueva sesión";
 // "#tree/<session id>" (GUI2-T08) is a second view of one session: it has no entry in the sidebar of its own.
 const TREE_SECTION = "tree";
 const TREE_TITLE = "Árbol de agentes";
+
+// SIM-T02: in simple mode a route of an advanced view shows one line instead of the view (the address does not change).
+function AdvancedOnly({ token }) {
+  const [failed, setFailed] = useState(false);
+  const enable = () => { setFailed(false); saveMode(token, "advanced").catch(() => setFailed(true)); };
+  return html`<div class="advanced-only">
+    <p class="advanced-only-text">${ADVANCED_ONLY_TEXT}</p>
+    <button type="button" class="btn" ...${helpFor("shell.advanced_only")} onClick=${enable}>Activar modo avanzado</button>
+    <${Help} topic="shell.advanced_only" compact=${true} />
+    ${failed && html`<p class="message error small" role="alert">No se pudo cambiar el modo. Inténtalo de nuevo.</p>`}
+  </div>`;
+}
 
 function NoToken() {
   return html`<main class="notice">
@@ -84,9 +97,13 @@ function App({ token }) {
   const [mock, setMock] = useState(false);
   const [lastEvent, setLastEvent] = useState(null);
   const [contextDot, setContextDot] = useState(false);   // GUI3-T04: a card of «Contexto» has content
+  const [mode, setMode] = useState(currentMode);          // SIM-T02: the server's mode, shared by the whole page
+  const [modeKnown, setModeKnown] = useState(false);      // the line of an advanced route waits for the server's answer
 
+  useEffect(() => onModeChange(setMode), []);
   useEffect(() => {
-    getJSON("/gui/api/session", token).then((s) => setMock(Boolean(s.mock))).catch(() => {});
+    getJSON("/gui/api/session", token).then((s) => { setMock(Boolean(s.mock)); setCurrentMode(s.mode); setModeKnown(true); })
+      .catch(() => setModeKnown(true));
     return startStream({
       token,
       onStatus: (value) => { if (value === "unauthorized") clearToken(); setStatus(value); },
@@ -103,29 +120,31 @@ function App({ token }) {
   const pendingViews = views.filter((view) => view.group === "pending");
   const inPending = section === "pending" || pendingViews.some((view) => view.id === section);   // GUI3-T05: one screen, a tab per view
   const entry = !creating && !tree && !inPending ? views.find((view) => view.id === section) : null;
+  const blocked = modeKnown && !creating && !inPending && !visibleIn(tree ? { mode: "advanced" } : current, mode);   // SIM-T02
   // The sidebar and the right panel treat the tree of a session as the session itself (it stays marked, its panel stays).
   const context = tree ? { section: "sessions", id: route.id } : route;
-  const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} sections=${allSections()} />`;
+  const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} sections=${allSections()} mode=${mode} />`;
   const panel = html`<${RightPanel} token=${token} route=${context} onDot=${setContextDot} />`;
   const hasSubject = Boolean(subjectOf(context, context.section === "sessions" ? context.id : null));   // a session or a run is open
   return html`<${Shell} status=${status} statusText=${STATUS_TEXT[status]} mock=${mock} sidebar=${sidebar} panel=${panel}
     hasSubject=${hasSubject} contextDot=${contextDot}>
     ${section === "usage" ? html`<h2 id="usage-title">Uso</h2>` : html`<h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : inPending ? "Pendientes" : current?.label}</h2>`}
-    ${entry?.topic && html`<${Help} key=${entry.id} topic=${entry.topic} />`}
-    <${Sessions} token=${token} route=${route} active=${section === "sessions"} />
-    ${tree && html`<${AgentTree} key=${route.id || ""} token=${token} sessionId=${route.id} />`}
+    ${blocked && html`<${AdvancedOnly} token=${token} />`}
+    ${!blocked && entry?.topic && html`<${Help} key=${entry.id} topic=${entry.topic} />`}
+    <${Sessions} token=${token} route=${route} active=${section === "sessions" && !blocked} />
+    ${!blocked && tree && html`<${AgentTree} key=${route.id || ""} token=${token} sessionId=${route.id} />`}
     ${creating && route.kind === "team" && html`<${TeamThread} key=${route.id} token=${token} versionId=${route.id} />`}
     ${creating && route.kind === "plan" && html`<${PlanThread} key=${route.id} token=${token} proposalId=${route.id} />`}
     ${creating && route.kind !== "team" && route.kind !== "plan" && html`<${NewSession} token=${token} mock=${mock} />`}
-    ${section === "runs" && html`<${Runs} token=${token} status=${status} mock=${mock} initialRunId=${route.id} />`}
-    ${section === "usage" && html`<${Usage} token=${token} />`}
-    ${section === "evaluation" && html`<${Evaluation} token=${token} route=${route} />`}
-    ${section === "teams" && html`<${Teams} token=${token} route=${route} />`}
-    ${section === "plans" && html`<${Plans} token=${token} route=${route} />`}
-    ${section === "map" && html`<${WorkMap} token=${token} />`}
-    ${section === "customize" && html`<${Customize} sections=${allSections()} />`}
+    ${!blocked && section === "runs" && html`<${Runs} token=${token} status=${status} mock=${mock} initialRunId=${route.id} />`}
+    ${!blocked && section === "usage" && html`<${Usage} token=${token} />`}
+    ${!blocked && section === "evaluation" && html`<${Evaluation} token=${token} route=${route} />`}
+    ${!blocked && section === "teams" && html`<${Teams} token=${token} route=${route} />`}
+    ${!blocked && section === "plans" && html`<${Plans} token=${token} route=${route} />`}
+    ${!blocked && section === "map" && html`<${WorkMap} token=${token} />`}
+    ${section === "customize" && html`<${Customize} token=${token} sections=${allSections()} mode=${mode} />`}
     ${inPending && html`<${PendingScreen} views=${pendingViews} route=${route} token=${token} status=${status} mock=${mock} />`}
-    ${views.map((view) => !inPending && section === view.id && html`<${view.component} key=${view.id} token=${token} status=${status} mock=${mock} route=${route} />`)}
+    ${views.map((view) => !blocked && !inPending && section === view.id && html`<${view.component} key=${view.id} token=${token} status=${status} mock=${mock} route=${route} />`)}
     ${failed.length > 0 && html`<p class="muted small" role="status">No se pudo cargar: ${failed.map((item) => item.id).join(", ")}.</p>`}
     ${lastEvent && html`<p class="muted small">Último evento recibido: ${lastEvent}</p>`}
   <//>`;

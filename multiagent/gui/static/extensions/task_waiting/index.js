@@ -62,6 +62,6 @@ export function TaskWaitingPanel({ token, onContent }) {
   return html`<${WaitingContent} data=${data} scope="panel" />`;
 }
 
-registerView({ id: "task_waiting", owner: "task_waiting", group: "pending", pendingType: "task", icon: "clock", label: "Esperan tu decisión", topic: "task_waiting.view", component: TaskWaitingView, order: 55 });
+registerView({ id: "task_waiting", owner: "task_waiting", group: "pending", pendingType: "task", icon: "clock", label: "Esperan tu decisión", topic: "task_waiting.view", component: TaskWaitingView, order: 55, mode: "simple" });
 registerSlot("task_waiting", TaskWaitingPanel, { title: "Esperan tu decisión", topic: "task_waiting.panel", owner: "task_waiting", order: 55,
   defaultMode: "never" });   // GUI3-T04: the same list is in «Pendientes»; it can be set to «Automática» or «Siempre» (GUI3-T07)

@@ -194,4 +194,5 @@ registerView({
   group: "pending",
   icon: "shield",
   pendingType: "approval",
+  mode: "simple",
 });

@@ -5,9 +5,14 @@
 import { sessionTitle, statusInfo as sessionStatus } from "./session-text.js";
 import { statusInfo as runStatus } from "./text.js";
 import { DEFAULT_LABELS, labelEntry, labelSet, statusText } from "./ui/labels.js";
+import { visibleIn } from "./gui-mode.js";
 
 // GUI3-T03: one route per navigation section. Extensions with no group remain reachable in Más.
-export function navigationSections(builtins, extensions, pinned = []) {
+// SIM-T02: in simple mode only the sections that say `mode: "simple"` are listed (a pinned advanced one stays pinned, it just is
+// not shown), «Más» ends with the «Ayuda» row (it turns help mode on, it is not a view), and every row carries its mode.
+export const HELP_ROW = { id: "help", label: "Ayuda", icon: "help", mode: "simple", action: "help" };
+
+export function navigationSections(builtins, extensions, pinned = [], mode = "advanced") {
   const pinnedIds = new Set(Array.isArray(pinned) ? pinned : []);
   const primary = [];
   const more = [];
@@ -16,10 +21,12 @@ export function navigationSections(builtins, extensions, pinned = []) {
   for (const section of [...builtins, ...extensions]) {
     if (!section || typeof section.id !== "string" || seen.has(section.id)) continue;
     seen.add(section.id);
-    const item = { id: section.id, label: section.label, icon: section.icon || "dots" };
+    if (!visibleIn(section, mode)) continue;
+    const item = { id: section.id, label: section.label, icon: section.icon || "dots", mode: section.mode || "advanced" };
     if (section.group === "pending" && !pinnedIds.has(section.id)) pending.push(item);
     else (section.group === "primary" || pinnedIds.has(section.id) ? primary : more).push(item);
   }
+  if (mode === "simple") more.push({ ...HELP_ROW });
   return { primary, more, pending };
 }
 
@@ -74,15 +81,16 @@ export function sessionItems(sessions) {
     });
 }
 
-// runs: the array of GET /gui/api/runs.
-export function runItems(runs) {
+// runs: the array of GET /gui/api/runs. In simple mode a run opens its thread (#new/run/<id>), not the advanced list.
+export function runItems(runs, mode = "advanced") {
+  const section = mode === "simple" ? "new/run" : "runs";
   return (runs || []).map((run) => {
     const dot = runDot(run.status);
     return {
       key: "run:" + run.id, kind: "run", app: "workflow", title: run.workflow_id || run.id,
       project: String(run.project_name || "").trim() || NO_PROJECT, folder: "",
       dot, detail: runStatus(run.status).label, updatedAt: run.updated_at || run.created_at || null,
-      route: ["runs", run.id],
+      route: [section, run.id],
     };
   });
 }
@@ -144,7 +152,10 @@ export function buildGroups(items, query = "") {
 }
 
 // Is this item the one the address points at?
-export const isCurrent = (item, route) => route.section === item.route[0] && route.id === item.route[1];
+// A thread of simple mode ("new/run") is the route {section: "new", id} that is not a team or a plan.
+export const isCurrent = (item, route) => (item.route[0] === "new/run"
+  ? route.section === "new" && !route.kind && route.id === item.route[1]
+  : route.section === item.route[0] && route.id === item.route[1]);
 
 // Counts of one group in display order, only the apps that have items: [{ app, label, count }].
 export function countsOf(group) {
