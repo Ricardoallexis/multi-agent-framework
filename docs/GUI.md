@@ -800,6 +800,49 @@ under «Más», the new-session mode or the notification switch. A value that is
 is ignored, and an unknown palette reads as «Neutro». None of these keys holds a secret
 or any run content.
 
+## Packages
+
+«Paquetes» (`#packages`, in «Más», available in simple mode) lists the installed packages and installs
+new ones without a console. Each row shows the package name, its level (`data` or `code`), its version,
+its origin and its state. The origin is the `source_label`, the name of the file you picked, never a path.
+
+- **Install from a `.zip`.** Pick the file in the file selector and press «Instalar». The browser sends the
+  file as JSON with the bytes in base64 (`POST /gui/api/packages/zip`, `{name, filename, zip_base64,
+  trust_functions}`), so `application/json` stays the only body the GUI routes accept. The name is taken
+  from the file name (without `.zip`, any character outside letters, digits, `_` and `-` becomes `-`, at
+  most 120) and you can change it.
+- **Limits.** The `.zip` may be 25 MB at most. The server reads `content-length` before the body and answers
+  `413` with `details.reason = "zip_too_large"` above the limit. Extracted it may hold 50 MB and 2000 files;
+  the real bytes are counted while writing, not the sizes the archive declares.
+- **What is refused** (`422`, `details.reason`): `zip_unsafe_entry` for an absolute path, a drive letter, `..`,
+  a backslash in a name, a symbolic link and a repeated name (also one that differs only by case);
+  `zip_invalid` for a file that is not a `.zip`, a damaged or encrypted one, or one whose content does not
+  match what it declares; `zip_too_large` for too many files or too many bytes. A `.zip` with one folder on
+  top, like the one Windows makes with «Enviar a › Carpeta comprimida», is unwrapped. The `__MACOSX` entries
+  are ignored. The archive is extracted into `installed/.staging/<id>/`, copied and checked like a folder
+  install, and the staging folder is removed whether it works or not.
+- **Simple mode.** A package of level `code` answers `409 advanced_mode_required` with
+  `action: "install_code"`; a package of data only installs. The folder route
+  (`POST /gui/api/packages/folder`, `{name, folder, trust_functions}`) and `trust_functions: true` also need
+  the advanced mode (`install_folder`, `trust_functions`), checked in the order `trust_functions`,
+  `install_folder`, `install_code`. In advanced mode the view also offers «Instalar desde una carpeta» and
+  the box «Confiar en las funciones de este paquete»; a package whose copy is new is never trusted
+  unless you tick it at that moment.
+- **The example package.** «Instalar el paquete de ejemplo» (`POST /gui/api/packages/example`) registers
+  `examples/bundles/general` by reference: `source: "shipped"`, name `general`, no copy. It stays exempt
+  from the scan because it is code of the product, and it is only offered in a checkout of the product
+  (`409 example_not_available` otherwise). It works in simple mode.
+- **A package that changed or is missing** is shown degraded, with «Reinstalar desde un archivo»
+  (`POST /gui/api/packages/NAME/reinstall-zip`, `{filename, zip_base64}`) and «Quitar». Reinstalling builds
+  a new version and switches only if it validates; it is never trusted again by itself.
+- **«Quitar»** asks first: «Se quita de la lista. Se conservan sus datos». It takes the package out of the
+  registry and out of the running process (`POST /gui/api/packages/NAME/remove`); the installed copy and the
+  data of its runs stay on disk, and a package with runs in progress answers `409 bundle_busy`.
+
+`GET /gui/api/packages` answers `{packages, example_available, mode}`. Every route needs the local token and
+`application/json`; the actor is `user:gui` and the channel `gui`. `/api/v1/installed` is unchanged and
+still takes no `trust_functions`.
+
 ## Simple and advanced mode
 
 The GUI has a simple mode and an advanced mode. The mode belongs to the installation, not
@@ -851,7 +894,7 @@ The switch **Modo avanzado** in «Personalizar» changes it and the GUI draws ag
 
 `registerView` has a `mode` key, `"simple"` or `"advanced"`. **A view with no `mode` is advanced**, so a
 new view stays out of simple mode until it says `mode: "simple"`; any other value is refused. The built-in
-sections declare it in `SECTIONS` (`js/main.js`): `sessions`, `usage` and `customize` are simple, and
+sections declare it in `SECTIONS` (`js/main.js`): `sessions`, `usage`, `customize` and `packages` are simple, and
 `runs`, `evaluation`, `teams`, `plans`, `map` and `tree` are advanced.
 
 **What each screen hides in simple mode** (SIM-T03). Each screen reads `currentMode()` when it draws. Advanced mode

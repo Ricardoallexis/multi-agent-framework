@@ -2033,6 +2033,31 @@ export const HELP = {
     "title": "Vista del modo avanzado",
     "hint": "Esta pantalla solo se muestra en el modo avanzado.",
     "more": ["Pulsa «Activar modo avanzado» para verla. Puedes volver al modo simple desde «Personalizar».", "No se pierde nada: la dirección sigue igual."]
+  },
+  "packages.install_zip": {
+    "title": "Instalar un paquete",
+    "hint": "Elige un archivo .zip con el paquete. En modo avanzado también puedes indicar una carpeta.",
+    "more": ["El archivo se revisa antes de instalarse: se rechaza si trae rutas que se salen de la carpeta, enlaces o demasiados archivos.", "Admite hasta 25 MB, y 50 MB o 2000 archivos al descomprimirse.", "Un paquete que trae código solo se instala en modo avanzado, y su primera carga pide tu aprobación."]
+  },
+  "packages.example": {
+    "title": "Paquete de ejemplo",
+    "hint": "Registra el paquete de ejemplo que trae el producto, sin copiarlo.",
+    "more": ["Sirve para probar el producto con un equipo ya armado. Solo se ofrece cuando el producto trae sus carpetas de ejemplo.", "Al quitarlo no se borra nada de la carpeta del producto."]
+  },
+  "packages.trust_functions": {
+    "title": "Confiar en las funciones del paquete",
+    "hint": "Permite que el código de funciones de este paquete se ejecute en tu equipo.",
+    "more": ["Solo aplica a paquetes con funciones propias, y es una decisión de modo avanzado.", "La confianza queda atada a esta copia: si el paquete cambia o se reinstala, hay que confiar de nuevo.", "Si dudas, déjala apagada: el paquete se instala igual y sus funciones no se cargan."]
+  },
+  "packages.remove": {
+    "title": "Quitar un paquete",
+    "hint": "Lo saca de la lista. Sus datos y sus ejecuciones se conservan.",
+    "more": ["Quitar no borra la copia instalada ni lo que guardó el paquete.", "No se puede quitar mientras tenga ejecuciones en curso.", "Puedes instalar otro paquete con el mismo nombre cuando quieras."]
+  },
+  "packages.degraded": {
+    "title": "Paquete que cambió o falta",
+    "hint": "Su copia ya no coincide con la que se instaló, y no se carga.",
+    "more": ["Se vuelve a cargar al reinstalarlo desde un archivo .zip, que reemplaza la copia por una versión nueva.", "Si lo prefieres, quítalo de la lista: sus datos se conservan."]
   }
 };
 

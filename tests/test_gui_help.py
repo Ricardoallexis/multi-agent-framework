@@ -46,6 +46,7 @@ VIEW_FILES += ["team-thread.js", "team-card.js"]   # CHT-T05: the chat thread of
 VIEW_FILES += ["command-palette.js", "customize.js"]   # GUI3-T07: Ctrl+K and «Personalizar»
 VIEW_FILES += ["plan-thread.js"]   # CHT-T06: the chat thread of a plan proposal, its decision and its messages
 VIEW_FILES += ["document-card.js"]   # ARR3-T06: the «Documento» card of a completed run
+VIEW_FILES += ["packages.js"]      # PAQ-T02: the «Paquetes» view; packages-model.js draws nothing
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
 ALLOWED_EXEMPT = {
@@ -472,3 +473,11 @@ def test_apps_certificate_help_keys_exist_and_are_used():
     for key in ("apps.tls_fix", "apps.probe"):
         assert f'"{key}": {{' in help_source
         assert f'helpFor("{key}"' in view_source and f'topic="{key}"' in view_source
+
+
+def test_packages_help_keys_exist_and_are_used():
+    """PAQ-T02: the five keys of «Paquetes» exist and the view uses each one as a hint and on a control."""
+    source = read("packages.js")
+    for key in ("packages.install_zip", "packages.example", "packages.trust_functions", "packages.remove", "packages.degraded"):
+        assert key in HELP, key
+        assert f'helpFor("{key}"' in source and f'topic="{key}"' in source, key

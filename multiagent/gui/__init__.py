@@ -42,6 +42,7 @@ from .executor_launch_api import add_executor_launch_routes
 from .evaluation_api import add_evaluation_routes
 from .extensions import discover_extensions
 from .inbox_api import add_inbox_routes
+from .packages_api import add_package_routes
 from .plans_api import add_plans_routes
 from .pending_api import add_pending_routes
 from .project_api import add_project_routes
@@ -136,6 +137,7 @@ def mount_gui(app: FastAPI) -> None:
     add_approval_routes(api, services)
     add_bundle_scan_routes(api, services)
     add_settings_routes(api, services)  # /gui/api/settings (SIM-T01)
+    add_package_routes(api, services)  # /gui/api/packages/* (PAQ-T02)
     add_thread_routes(api, services)  # /gui/api/threads/runs/{run_id} (CHT-T01)
     add_inbox_routes(api, services)  # AVA-T05: run and task messages
     api.include_router(build_runs_router(services))

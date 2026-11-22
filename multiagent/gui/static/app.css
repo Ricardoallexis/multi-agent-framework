@@ -723,3 +723,26 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 /* The final object output of a run thread in simple mode: the readable fields, not a block of JSON. Page tokens only. */
 .thread-final-readable { min-width: 0; max-height: 20rem; overflow: auto; overflow-wrap: anywhere; margin-top: 8px; }
 .thread-final-readable .thread-fields { margin: 0; }
+
+/* PAQ-T02 */
+/* «Paquetes»: the install form and the list. Only tokens of the page, no colour of its own; one column on a phone. */
+.packages { display: flex; flex-direction: column; gap: 16px; min-width: 0; max-width: 72ch; }
+.packages-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.packages-title { margin: 0; font-size: 1rem; }
+.packages-form { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.packages-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; font-weight: 400; }
+.packages-field input[type="text"] { width: min(32rem, 100%); min-height: var(--target); box-sizing: border-box; }
+.packages-example, .packages-folder { padding-top: 8px; border-top: 1px solid var(--line); }
+.packages-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.package-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); min-width: 0; }
+.package-row.degraded { border-color: var(--warn); background: var(--warn-soft); }
+.package-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 16rem; min-width: 0; }
+.package-name, .package-meta { overflow-wrap: anywhere; }
+.package-name { font-weight: 600; }
+.package-state.degraded { color: var(--warn); font-weight: 600; }
+.package-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.package-reinstall { position: relative; display: inline-flex; align-items: center; min-height: var(--target); cursor: pointer; }
+.package-file { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); opacity: 0; }
+.package-reinstall:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.package-confirm { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.package-confirm p { margin: 0; flex: 1 1 100%; }

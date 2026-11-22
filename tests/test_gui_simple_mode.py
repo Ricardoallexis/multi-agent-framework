@@ -39,7 +39,7 @@ def real_sections() -> list[dict]:
     """The built-in sections of main.js, as {id, label, icon, mode}."""
     block = re.search(r"const SECTIONS = \[(.*?)\n\];", read("main.js"), re.S)[1]
     rows = re.findall(r'\{ id: "(\w+)", label: "([^"]+)", icon: "(\w+)", mode: "(\w+)" \}', block)
-    assert len(rows) == 8, rows   # every built-in section declares its mode
+    assert len(rows) == 9, rows   # every built-in section declares its mode
     return [{"id": a, "label": b, "icon": c, "mode": d} for a, b, c, d in rows]
 
 
@@ -248,7 +248,7 @@ def test_the_six_extensions_declare_simple_and_the_built_ins_say_their_mode():
         call = re.search(r"registerView\(\{(.*?)\}\);", source, re.S)[1]
         assert re.search(r'\bmode:\s*"simple"', call), name
     modes = {section["id"]: section["mode"] for section in real_sections()}
-    assert {key for key, value in modes.items() if value == "simple"} == {"sessions", "usage", "customize"}
+    assert {key for key, value in modes.items() if value == "simple"} == {"sessions", "usage", "customize", "packages"}
     assert {key for key, value in modes.items() if value == "advanced"} == {"runs", "evaluation", "teams", "plans", "map"}
     assert 'mode: view.mode' in read("main.js")   # the registered views carry their mode into the sections
 

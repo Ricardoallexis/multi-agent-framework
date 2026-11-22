@@ -10,14 +10,21 @@ Removing keeps the copy and the run data. Nothing here returns an absolute path.
 """
 from __future__ import annotations
 
+import io
 import json
 import os
+import re
 import shutil
+import stat
+import struct
 import threading
 import uuid
+import zipfile
+import zlib
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
 
+from ..config import IN_CHECKOUT, PROJECT_ROOT
 from ..db.database import utcnow
 from ..teams import validate_team_workflows
 from ..tools.files import _is_link_or_junction
@@ -40,8 +47,19 @@ REASON_CHANGED = "installed_bundle_changed"
 FUNCTIONS_FIX_TEXT = "Este paquete trae funciones; confía en ellas en la ficha del paquete"
 SOURCE_COPY, SOURCE_SHIPPED = "copy", "shipped"
 
+# PAQ-T02: the .zip a person picks in the GUI. The route checks the upload cap before it reads the body.
+ZIP_UPLOAD_MAX_BYTES = 25 * 2**20
+ZIP_EXTRACT_MAX_BYTES = 50 * 2**20
+ZIP_MAX_FILES = 2000
+SHIPPED_EXAMPLES = {"general": "examples/bundles/general"}   # name -> folder of the product, registered by reference
+SHIPPED_LABEL = "Paquete de ejemplo del producto"
+
 _REGISTRY_FILE = "registry.json"
 _STAGING = ".staging"
+_DRIVE = re.compile(r"^[A-Za-z]:")
+_ZIP_CHUNK = 64 * 1024
+_ZIP_LOCAL_HEADER = struct.Struct("<4s5H3L2H")   # signature, version, flags, method, time, date, crc, sizes, name and extra lengths
+_ZIP_IGNORED_TOP = "__MACOSX"                     # the resource forks that macOS adds to a .zip
 
 
 def _skipped(relative: Path) -> bool:
@@ -56,6 +74,153 @@ def package_level(folder: Path) -> Literal["data", "code"]:
         if path.is_file() and not _skipped(path.relative_to(folder)) and path.suffix.lower() not in CODE_FREE_SUFFIXES:
             return "code"
     return "data"
+
+
+# --- .zip extraction (PAQ-T02) ------------------------------------------------
+
+def _zip_error(reason: str, message: str, **details: Any) -> ServiceError:
+    return ServiceError(INVALID_REQUEST, message, status=422, details={"reason": reason, **details})
+
+
+def _unsafe_entry(name: str) -> ServiceError:
+    return _zip_error("zip_unsafe_entry", "The .zip has an entry that is not allowed", entry=name[:120])
+
+
+def _too_large(message: str, **details: Any) -> ServiceError:
+    return _zip_error("zip_too_large", message, **details)
+
+
+def _checked_entries(infos: list[zipfile.ZipInfo], max_bytes: int, max_files: int
+                     ) -> list[tuple[zipfile.ZipInfo, tuple[str, ...], bool]]:
+    """Validate every name before anything is written: ``(info, path parts, is a folder)`` of each entry to extract."""
+    checked, seen, files = [], set(), set()
+    declared = 0
+    for info in infos:
+        name = info.orig_filename  # ZipInfo.filename turns "\" into "/" on Windows: the name as stored is the one to judge
+        if not name or "\x00" in name or "\\" in name or name.startswith("/") or _DRIVE.match(name):
+            raise _unsafe_entry(name)
+        folder = name.endswith("/")
+        parts = tuple(part for part in name.split("/") if part not in ("", "."))
+        if "//" in name.rstrip("/") or any(part == ".." or ":" in part for part in parts):
+            raise _unsafe_entry(name)
+        mode = info.external_attr >> 16
+        if stat.S_ISLNK(mode) or (mode and stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR)):
+            raise _unsafe_entry(name)  # a symbolic link or a device: never extracted
+        if not parts or parts[0] == _ZIP_IGNORED_TOP:
+            continue
+        key = "/".join(parts).casefold()
+        if key in seen:
+            raise _unsafe_entry(name)
+        seen.add(key)
+        if info.flag_bits & 0x1:
+            raise _zip_error("zip_invalid", "The .zip is encrypted")
+        if not folder:
+            files.add(parts)
+            declared += info.file_size
+        checked.append((info, parts, folder))
+    if len(files) > max_files:
+        raise _too_large(f"The .zip has more than {max_files} files", limit=max_files, field="files")
+    if declared > max_bytes:
+        raise _too_large(f"The .zip is larger than {max_bytes} bytes when extracted", limit=max_bytes, field="bytes")
+    for parts in files:  # a file that is also a folder of another entry
+        if any(parts[:end] in files for end in range(1, len(parts))):
+            raise _unsafe_entry("/".join(parts))
+    if not files:
+        raise _zip_error("zip_invalid", "The .zip has no files")
+    return checked
+
+
+def _entry_chunks(buffer: io.BytesIO, info: zipfile.ZipInfo) -> Iterator[bytes]:
+    """The real content of one entry, in chunks. The size the .zip declares is not trusted: the caller counts the bytes."""
+    buffer.seek(info.header_offset)
+    header = buffer.read(_ZIP_LOCAL_HEADER.size)
+    if len(header) < _ZIP_LOCAL_HEADER.size or header[:4] != b"PK\x03\x04":
+        raise _zip_error("zip_invalid", "The .zip is damaged")
+    name_length, extra_length = _ZIP_LOCAL_HEADER.unpack(header)[-2:]
+    buffer.seek(info.header_offset + _ZIP_LOCAL_HEADER.size + name_length + extra_length)
+    remaining = info.compress_size
+    if info.compress_type == zipfile.ZIP_STORED:
+        while remaining > 0:
+            chunk = buffer.read(min(_ZIP_CHUNK, remaining))
+            if not chunk:
+                raise _zip_error("zip_invalid", "The .zip is damaged")
+            remaining -= len(chunk)
+            yield chunk
+        return
+    if info.compress_type != zipfile.ZIP_DEFLATED:
+        raise _zip_error("zip_invalid", "The .zip uses a compression that is not supported")
+    inflater, pending = zlib.decompressobj(-15), b""
+    try:
+        while True:
+            if not pending and remaining > 0:
+                pending = buffer.read(min(_ZIP_CHUNK, remaining))
+                if not pending:
+                    raise _zip_error("zip_invalid", "The .zip is damaged")
+                remaining -= len(pending)
+            out = inflater.decompress(pending, _ZIP_CHUNK)  # one chunk of output at a time: a bomb cannot swell here
+            pending = inflater.unconsumed_tail
+            if out:
+                yield out
+            if inflater.eof or (not out and not pending and remaining <= 0):
+                break
+    except zlib.error:
+        raise _zip_error("zip_invalid", "The .zip is damaged") from None
+    if not inflater.eof:
+        raise _zip_error("zip_invalid", "The .zip is damaged")
+
+
+def extract_zip_safely(data: bytes, dest: Path, *, max_bytes: int = ZIP_EXTRACT_MAX_BYTES,
+                       max_files: int = ZIP_MAX_FILES) -> Path:
+    """Extract a ``.zip`` into the new folder ``dest`` and return the root folder of the package.
+
+    Every name is checked before anything is written: an absolute path, a drive letter, ``..``, a backslash, a symbolic
+    link and a repeated name give ``zip_unsafe_entry`` (422); a damaged or encrypted file gives ``zip_invalid``; more than
+    ``max_files`` files or ``max_bytes`` bytes give ``zip_too_large``. The bytes are counted as they are written, so a
+    ``.zip`` that declares less than it holds stops at the limit. A single top folder (what Windows makes with
+    «Enviar a › Carpeta comprimida») is unwrapped: the returned folder is that one. If anything fails, ``dest`` is removed.
+    """
+    dest = Path(dest)
+    if len(data) > ZIP_UPLOAD_MAX_BYTES:
+        raise _too_large(f"The .zip is larger than {ZIP_UPLOAD_MAX_BYTES} bytes", limit=ZIP_UPLOAD_MAX_BYTES, field="zip")
+    buffer = io.BytesIO(data)
+    try:
+        with zipfile.ZipFile(buffer) as archive:
+            entries = _checked_entries(archive.infolist(), max_bytes, max_files)
+    except (zipfile.BadZipFile, OSError, ValueError, EOFError, zlib.error):
+        raise _zip_error("zip_invalid", "The file is not a valid .zip") from None
+    tops = {parts[0] for _, parts, _ in entries}
+    wrapped = len(tops) == 1 and all(len(parts) > 1 for _, parts, folder in entries if not folder)
+    dest.mkdir(parents=True, exist_ok=False)
+    root, total, current = dest.resolve(), 0, ""
+    try:
+        for info, parts, folder in entries:
+            current = "/".join(parts)
+            target = root.joinpath(*parts)
+            if not target.resolve().is_relative_to(root):
+                raise _unsafe_entry(current)
+            if folder:
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            crc = size = 0
+            with target.open("wb") as stream:
+                for chunk in _entry_chunks(buffer, info):
+                    total += len(chunk)
+                    size += len(chunk)
+                    if total > max_bytes:
+                        raise _too_large(f"The .zip is larger than {max_bytes} bytes when extracted", limit=max_bytes,
+                                         field="bytes")
+                    crc = zlib.crc32(chunk, crc)
+                    stream.write(chunk)
+            if crc != info.CRC or size != info.file_size:  # what it holds must be what it says it holds
+                raise _zip_error("zip_invalid", "The .zip is damaged")
+    except OSError:  # a name the file system refuses (a reserved name, a file that is also a folder)
+        shutil.rmtree(dest, ignore_errors=True)
+        raise _unsafe_entry(current) from None
+    except BaseException:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+    return dest / next(iter(tops)) if wrapped else dest
 
 
 def _conflict(message: str, reason: str, **details: Any) -> ServiceError:
@@ -184,10 +349,32 @@ class InstalledServices:
     def _not_installed(name: str) -> ServiceError:
         return _conflict(f"Package not installed: {name}", "bundle_not_installed", bundle=name)
 
+    @staticmethod
+    def _shipped_folder(name: str) -> Path | None:
+        """The folder of a package of the product (``SHIPPED_EXAMPLES``), or ``None`` outside a checkout (no examples)."""
+        relative = SHIPPED_EXAMPLES.get(name)
+        if relative is None or not IN_CHECKOUT:
+            return None
+        folder = (PROJECT_ROOT / relative).resolve()
+        return folder if folder.is_dir() else None
+
+    def example_available(self, name: str = "general") -> bool:
+        """Whether «Instalar el paquete de ejemplo» is offered: a checkout, and the name not taken."""
+        if self._shipped_folder(name) is None:
+            return False
+        with self._lock:
+            try:
+                taken = name in self._read()
+            except ValueError:
+                return False
+            return not taken and name not in self._services._bundles
+
     def _folder_of(self, entry: dict[str, Any]) -> Path:
         return (self._root / entry["path"]).resolve()
 
     def _state_of(self, entry: dict[str, Any]) -> str:
+        if entry.get("source") == SOURCE_SHIPPED:
+            return STATE_OK if self._shipped_folder(entry["name"]) is not None else STATE_MISSING
         if entry.get("source", SOURCE_COPY) != SOURCE_COPY:
             return STATE_OK
         folder = self._folder_of(entry)
@@ -219,11 +406,16 @@ class InstalledServices:
                         or not isinstance(entry.get("path"), str)):
                     raise ValueError(f"The installed packages registry ({_REGISTRY_FILE}) has an invalid entry: {name!r}")
             for name, entry in sorted(entries.items()):
-                if entry.get("source", SOURCE_COPY) != SOURCE_COPY:
-                    continue  # PAQ-T02: the shipped entries point at the product's own folder
-                folder = self._folder_of(entry)
+                if entry.get("source", SOURCE_COPY) not in (SOURCE_COPY, SOURCE_SHIPPED):
+                    continue
+                # PAQ-T02: a shipped entry points at the product's own folder, found by its name in SHIPPED_EXAMPLES
+                # (the ``path`` of a hand-edited registry is never followed), and only inside a checkout.
+                shipped = entry.get("source") == SOURCE_SHIPPED
+                folder = self._shipped_folder(name) if shipped else self._folder_of(entry)
                 state = self._state_of(entry)
                 self._states[name] = state
+                if folder is None:
+                    continue  # the product's folder is not here (not a checkout): the row shows «missing»
                 if name in services._bundles:
                     if services._bundles[name] == folder:
                         continue  # the same folder under the same name: nothing to replace
@@ -246,9 +438,10 @@ class InstalledServices:
                 raise self._not_installed(name)
             state = self._state_of(entry)
             self._states[name] = state
-            if entry.get("source", SOURCE_COPY) == SOURCE_COPY:
-                if state == STATE_OK:
-                    self._services.register_bundle(name, self._folder_of(entry))
+            if entry.get("source", SOURCE_COPY) in (SOURCE_COPY, SOURCE_SHIPPED):
+                folder = self._shipped_folder(name) if entry.get("source") == SOURCE_SHIPPED else self._folder_of(entry)
+                if state == STATE_OK and folder is not None:
+                    self._services.register_bundle(name, folder)
                 else:
                     unregister_owner(name)
                     self._services.unregister_bundle(name)
@@ -317,14 +510,19 @@ class InstalledServices:
             numbers += [int(p.name[1:]) for p in base.iterdir() if p.name[:1] == "v" and p.name[1:].isdigit()]
         return max(numbers, default=0) + 1
 
-    def _stage_and_place(self, name: str, folder: Path, entries: dict[str, dict[str, Any]]
+    def _stage_and_place(self, name: str, folder: Path, entries: dict[str, dict[str, Any]], *,
+                         extracted: bool = False, code_gate: Callable[[str], None] | None = None
                          ) -> tuple[int, str, str, Path]:
-        """Copy ``folder``, prove the copy equal to it, validate a data package and move it to ``v<n>``."""
+        """Copy ``folder``, prove the copy equal to it, validate a data package and move it to ``v<n>``.
+
+        ``extracted``: the folder is what ``extract_zip_safely`` left under ``.staging/`` (the only place inside
+        ``installed/`` that may be a source). ``code_gate(level)`` runs once the level is known, before anything is placed.
+        """
         source = Path(folder).expanduser()
         if not source.is_dir():
             raise _invalid("The package folder does not exist", field="folder")
         source = source.resolve()
-        if source.is_relative_to(self._root.resolve()):
+        if not extracted and source.is_relative_to(self._root.resolve()):
             raise _invalid("The package folder is already inside the installed packages", field="folder")
         fingerprint = BundleScanServices.fingerprint(source)
         staging = self._copy_to_staging(source)
@@ -332,6 +530,8 @@ class InstalledServices:
             if BundleScanServices.fingerprint(staging) != fingerprint:
                 raise _conflict("The copy does not match the folder; nothing was installed", "copy_fingerprint_mismatch")
             level = package_level(staging)
+            if code_gate is not None:
+                code_gate(level)
             if level == "data":
                 self._validate(staging)
             version = self._next_version(name, entries)
@@ -350,6 +550,11 @@ class InstalledServices:
     @service_errors
     def install_folder(self, name: str, folder: Path, *, actor: str, channel: str = "python",
                        trust_functions: bool = False, source_label: str = "") -> dict[str, Any]:
+        return self._install(name, folder, actor=actor, channel=channel, trust_functions=trust_functions,
+                             source_label=source_label)
+
+    def _install(self, name: str, folder: Path, *, actor: str, channel: str, trust_functions: bool, source_label: str,
+                 extracted: bool = False, code_gate: Callable[[str], None] | None = None) -> dict[str, Any]:
         from .projects import _user_actor
 
         name = self._check_name(name)
@@ -358,7 +563,8 @@ class InstalledServices:
             entries = self._read()
             if name in entries or name in self._services._bundles:
                 raise _conflict(f"Bundle name in use: {name}", "bundle_name_in_use", bundle=name)
-            version, fingerprint, level, destination = self._stage_and_place(name, folder, entries)
+            version, fingerprint, level, destination = self._stage_and_place(
+                name, folder, entries, extracted=extracted, code_gate=code_gate)
             entry = {"name": name, "fingerprint": fingerprint, "level": level,
                      "trust_functions": bool(trust_functions), "source_label": str(source_label or "")[:120],
                      "version": version, "installed_at": utcnow(), "installed_by": actor, "channel": channel,
@@ -371,6 +577,10 @@ class InstalledServices:
 
     @service_errors
     def reinstall(self, name: str, folder: Path, *, actor: str, channel: str = "python") -> dict[str, Any]:
+        return self._reinstall(name, folder, actor=actor, channel=channel)
+
+    def _reinstall(self, name: str, folder: Path, *, actor: str, channel: str, extracted: bool = False,
+                   code_gate: Callable[[str], None] | None = None) -> dict[str, Any]:
         from .projects import _user_actor
 
         name = self._check_name(name)
@@ -382,7 +592,8 @@ class InstalledServices:
                 raise self._not_installed(name)
             self._assert_idle(name)
             # The new version is built and validated first: if it fails, the registry still points at the old one.
-            version, fingerprint, level, destination = self._stage_and_place(name, folder, entries)
+            version, fingerprint, level, destination = self._stage_and_place(
+                name, folder, entries, extracted=extracted, code_gate=code_gate)
             entry = {**old, "fingerprint": fingerprint, "level": level, "trust_functions": False,
                      "version": version, "installed_at": utcnow(), "installed_by": actor, "channel": channel,
                      "path": f"{name}/v{version}"}
@@ -402,7 +613,7 @@ class InstalledServices:
         with self._lock:
             entries = self._read()
             entry = entries.get(name)
-            if entry is None or entry.get("source", SOURCE_COPY) != SOURCE_COPY:
+            if entry is None or entry.get("source", SOURCE_COPY) not in (SOURCE_COPY, SOURCE_SHIPPED):
                 raise self._not_installed(name)
             self._assert_idle(name)
             del entries[name]
@@ -411,4 +622,81 @@ class InstalledServices:
             unregister_owner(name)
             self._services.unregister_bundle(name)
             # The copy under installed/<name>/ and the run data under bundles/<name>/ stay: nothing is deleted.
+            # A shipped entry has no copy: the product's folder is never touched.
             return {"name": name, "removed": True, "kept_data": True, "removed_by": actor, "channel": channel}
+
+    # --- .zip and the example (PAQ-T02) -------------------------------------
+
+    def _code_gate(self, require_advanced: bool) -> Callable[[str], None] | None:
+        """A package that has code is an «install_code» of the advanced mode (L3); a data package is not."""
+        if not require_advanced:
+            return None
+
+        def gate(level: str) -> None:
+            if level == "code":
+                self._services.gui_settings.require_advanced_mode("install_code")
+        return gate
+
+    def _extract_to_staging(self, data: bytes) -> tuple[Path, Path]:
+        """``(staging folder, package root)``: the ``.zip`` extracted under ``installed/.staging/<uuid>/``."""
+        staging = self._root / _STAGING / uuid.uuid4().hex
+        staging.parent.mkdir(parents=True, exist_ok=True)
+        return staging, extract_zip_safely(data, staging)  # removes the folder itself if it fails
+
+    @service_errors
+    def install_zip(self, name: str, data: bytes, *, actor: str, channel: str = "python",
+                    trust_functions: bool = False, filename: str = "", require_advanced_for_code: bool = False
+                    ) -> dict[str, Any]:
+        """Install the package inside a ``.zip``. ``require_advanced_for_code``: the GUI asks the advanced mode for code."""
+        name = self._check_name(name)
+        with self._lock:
+            if name in self._read() or name in self._services._bundles:
+                raise _conflict(f"Bundle name in use: {name}", "bundle_name_in_use", bundle=name)
+        staging, root = self._extract_to_staging(data)
+        try:
+            return self._install(name, root, actor=actor, channel=channel, trust_functions=trust_functions,
+                                 source_label=filename, extracted=True,
+                                 code_gate=self._code_gate(require_advanced_for_code))
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+    @service_errors
+    def reinstall_zip(self, name: str, data: bytes, *, actor: str, channel: str = "python",
+                      require_advanced_for_code: bool = False) -> dict[str, Any]:
+        name = self._check_name(name)
+        with self._lock:
+            old = self._read().get(name)
+            if old is None or old.get("source", SOURCE_COPY) != SOURCE_COPY:
+                raise self._not_installed(name)
+        staging, root = self._extract_to_staging(data)
+        try:
+            return self._reinstall(name, root, actor=actor, channel=channel, extracted=True,
+                                   code_gate=self._code_gate(require_advanced_for_code))
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+    @service_errors
+    def install_shipped(self, name: str = "general", *, actor: str, channel: str = "python") -> dict[str, Any]:
+        """Register a package of the product by reference: no copy, and exempt from the scan because it is product code."""
+        from .projects import _user_actor
+
+        name = self._check_name(name)
+        actor = _user_actor(actor)
+        if name not in SHIPPED_EXAMPLES:
+            raise _invalid("There is no example package with that name", field="name")
+        folder = self._shipped_folder(name)
+        if folder is None:
+            raise _conflict("The example package is only available in a checkout of the product", "example_not_available",
+                            bundle=name)
+        with self._lock:
+            entries = self._read()
+            if name in entries or name in self._services._bundles:
+                raise _conflict(f"Bundle name in use: {name}", "bundle_name_in_use", bundle=name)
+            entry = {"name": name, "fingerprint": None, "level": package_level(folder), "trust_functions": False,
+                     "source_label": SHIPPED_LABEL, "version": None, "installed_at": utcnow(), "installed_by": actor,
+                     "channel": channel, "source": SOURCE_SHIPPED, "path": SHIPPED_EXAMPLES[name]}
+            entries[name] = entry
+            self._write(entries)
+            self._states[name] = STATE_OK
+            self._services.register_bundle(name, folder)
+            return self._public(entry)

@@ -28,6 +28,7 @@ import { Customize } from "./customize.js";   // GUI3-T07
 import { Evaluation } from "./evaluation.js";
 import { Teams } from "./teams.js";
 import { Plans } from "./plans.js";
+import { Packages } from "./packages.js";   // PAQ-T02
 import { ADVANCED_ONLY_TEXT, currentMode, onModeChange, saveMode, setCurrentMode, visibleIn } from "./gui-mode.js";   // SIM-T02
 import { extensionFailures, loadExtensions, registeredViews, registryVersion, subscribeRegistry } from "./extensions.js";
 
@@ -48,6 +49,7 @@ const SECTIONS = [
   { id: "plans", label: "Planes", icon: "file", mode: "advanced" },
   { id: "map", label: "Mapa", icon: "map", mode: "advanced" },
   { id: "customize", label: "Personalizar", icon: "settings", mode: "simple" },   // GUI3-T07: reached from «Más», the gear of the sidebar and Ctrl+K
+  { id: "packages", label: "Paquetes", icon: "file", mode: "simple" },   // PAQ-T02: reached from «Más»
 ];
 // The built-in screens, then the ones extensions registered (by their `order`).
 const allSections = () => [...SECTIONS, ...registeredViews().map((view) => ({ id: view.id, label: view.label, group: view.group, icon: view.icon, mode: view.mode }))];
@@ -143,6 +145,7 @@ function App({ token }) {
     ${!blocked && section === "plans" && html`<${Plans} token=${token} route=${route} />`}
     ${!blocked && section === "map" && html`<${WorkMap} token=${token} />`}
     ${section === "customize" && html`<${Customize} token=${token} sections=${allSections()} mode=${mode} />`}
+    ${!blocked && section === "packages" && html`<${Packages} token=${token} />`}
     ${inPending && html`<${PendingScreen} views=${pendingViews} route=${route} token=${token} status=${status} mock=${mock} />`}
     ${views.map((view) => !blocked && !inPending && section === view.id && html`<${view.component} key=${view.id} token=${token} status=${status} mock=${mock} route=${route} />`)}
     ${failed.length > 0 && html`<p class="muted small" role="status">No se pudo cargar: ${failed.map((item) => item.id).join(", ")}.</p>`}
