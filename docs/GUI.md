@@ -1268,6 +1268,7 @@ a JSON list or as values separated by `;`.
 | `GUI_NEW_SESSION_MODEL` | `local_default` | Catalog model that reads that text (a local model sends nothing out). |
 | `GUI_TOKEN_FILE` | `~/.multiagent/gui-token` | GUI access-token file. |
 | `GUI_TOKEN_OUTSIDE_HOME` | `false` | Allow the token file outside the user's home folder. |
+| `INSTANCE_LABEL` | empty | Short plain-text name of this instance, shown in the header and the tab title. See «Instance label». |
 | `GUI_HEARTBEAT_SECONDS` | `20.0` | SSE heartbeat interval. |
 | `GUI_POLL_SECONDS` | `0.5` | Poll interval for GUI run/session updates. |
 | `GUI_STREAM_MAX_SECONDS` | `0.0` | Maximum SSE connection duration; zero keeps it open until the client leaves. |
@@ -1275,6 +1276,22 @@ a JSON list or as values separated by `;`.
 When `GUI_SESSION_ROOTS` is empty, the GUI explains how to configure it rather
 than listing sessions. The store-location overrides are optional; unset values
 use the readers' normal locations.
+
+## Instance label
+
+`INSTANCE_LABEL` names the instance you have open, for example `Prueba A`. When it is set:
+
+- the header shows a badge with the label next to «Multi-Agent» and the MOCK badge;
+- the browser tab title becomes `Prueba A · Multi-Agent Framework`, or `(3) Prueba A · Multiagent` while three items wait in «Pendientes».
+
+Empty, the default, leaves the header and the title as they were.
+
+The label is at most 40 characters and cannot contain control characters (a newline, a tab). Anything else stops the
+start with an `ERROR:` line. It is plain text: it is never used in a path, a file name or a log, and the GUI shows it as
+text even if it looks like HTML. A long label is cut with an ellipsis in a narrow header.
+
+The label only names an instance. To run two instances side by side, give each its own `LOCAL_DIR` and `APP_PORT`; the
+label then tells their windows apart. The GUI reads the label from `GET /gui/api/session` (`instance_label`).
 
 ## Security model
 

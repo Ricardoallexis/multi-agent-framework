@@ -10,6 +10,7 @@ import { ALL_TAB, PENDING_SECTION, countPending, createPendingStore, newlyPendin
 import { messageId, messagePath } from "./inbox-model.js";
 import { navigate } from "./route.js";
 import { Icon } from "./ui/icon.js";
+import { instanceLabel, onInstanceLabelChange, pageTitle } from "./instance.js";   // PRV-T01
 import { Tabs } from "./ui/tabs.js";
 
 const PENDING_PATH = "/gui/api/pending";
@@ -91,9 +92,11 @@ export function usePendingInbox() {
 // The fixed «Pendientes» row of the sidebar: a link to #pending with the count. It also keeps the number in the page title.
 export function PendingLink({ current = false }) {
   const { count } = usePendingInbox();
+  const [label, setLabel] = useState(instanceLabel);
+  useEffect(() => onInstanceLabelChange(setLabel), []);
   useEffect(() => {
-    document.title = count ? `(${count}) Multiagent` : "Multi-Agent Framework";
-  }, [count]);
+    document.title = pageTitle(count);
+  }, [count, label]);
   return html`<a class="side-link" href=${"#" + PENDING_SECTION} aria-current=${current ? "page" : null}>
     <${Icon} name="inbox" />Pendientes
     <span class="pending-count" aria-label=${count + (count === 1 ? " pendiente" : " pendientes")}>${count}</span>

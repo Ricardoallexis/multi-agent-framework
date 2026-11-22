@@ -29,6 +29,7 @@ import { Evaluation } from "./evaluation.js";
 import { Teams } from "./teams.js";
 import { Plans } from "./plans.js";
 import { Packages } from "./packages.js";   // PAQ-T02
+import { setInstanceLabel } from "./instance.js";   // PRV-T01
 import { ADVANCED_ONLY_TEXT, currentMode, onModeChange, saveMode, setCurrentMode, visibleIn } from "./gui-mode.js";   // SIM-T02
 import { extensionFailures, loadExtensions, registeredViews, registryVersion, subscribeRegistry } from "./extensions.js";
 
@@ -104,7 +105,7 @@ function App({ token }) {
 
   useEffect(() => onModeChange(setMode), []);
   useEffect(() => {
-    getJSON("/gui/api/session", token).then((s) => { setMock(Boolean(s.mock)); setCurrentMode(s.mode); setModeKnown(true); })
+    getJSON("/gui/api/session", token).then((s) => { setMock(Boolean(s.mock)); setCurrentMode(s.mode); setModeKnown(true); setInstanceLabel(s.instance_label); })
       .catch(() => setModeKnown(true));
     return startStream({
       token,

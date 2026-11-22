@@ -131,7 +131,7 @@ def test_constant_time_compare_used(env, monkeypatch):
 
 
 def test_session_endpoint(env):
-    assert env.client.get("/gui/api/session", headers=auth(env)).json() == {"mock": True, "version": __version__, "mode": "simple"}
+    assert env.client.get("/gui/api/session", headers=auth(env)).json() == {"mock": True, "version": __version__, "mode": "simple", "instance_label": ""}
 
 
 def test_non_json_post_is_415(env):

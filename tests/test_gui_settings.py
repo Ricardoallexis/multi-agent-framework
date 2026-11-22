@@ -87,7 +87,7 @@ def test_session_reports_mode(env):
     answer = env.client.post("/gui/api/settings/mode", json={"mode": "advanced"}, headers=env.auth)
     assert answer.status_code == 200 and answer.json()["mode"] == "advanced"
     session = env.client.get("/gui/api/session", headers=env.auth).json()
-    assert session["mode"] == "advanced" and set(session) == {"mock", "version", "mode"}
+    assert session["mode"] == "advanced" and set(session) == {"mock", "version", "mode", "instance_label"}
     assert env.client.get("/gui/api/settings", headers=env.auth).json()["mode"] == "advanced"
     bad = env.client.post("/gui/api/settings/mode", json={"mode": "expert"}, headers=env.auth)
     assert bad.status_code == 422 and bad.json()["detail"]["code"] == "invalid_request"

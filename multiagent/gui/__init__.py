@@ -77,7 +77,8 @@ def mount_gui(app: FastAPI) -> None:
 
     @api.get("/session")
     def session():
-        return {"mock": bool(settings.mock_mode), "version": __version__, "mode": services.gui_settings.mode()}
+        return {"mock": bool(settings.mock_mode), "version": __version__, "mode": services.gui_settings.mode(),
+                "instance_label": settings.instance_label}
 
     @api.get("/stream")
     async def stream(request: Request, after: str | None = Query(None, max_length=64),

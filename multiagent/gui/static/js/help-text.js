@@ -2068,6 +2068,11 @@ export const HELP = {
     "title": "Guardar el plan",
     "hint": "«Guardar el plan» lo guarda para que lo revises. «Cancelar» lo descarta.",
     "more": ["Guardar no aprueba nada: abre el hilo del plan, donde están «Aprobar» y «Rechazar».", "Cuando guardas, los equipos que faltan quedan propuestos, no aprobados. Aprobar el plan antes que el equipo da un aviso en el hilo.", "«Cancelar» solo cierra el borrador: no se guarda ni se pierde nada más."]
+  },
+  "shell.instance_label": {
+    "title": "Etiqueta de esta instancia",
+    "hint": "Es el nombre que se puso a esta instancia. También aparece en el título de la pestaña.",
+    "more": ["Se cambia con el ajuste INSTANCE_LABEL y el servidor se reinicia para que la tome.", "Sirve para distinguir dos instancias abiertas a la vez. Es solo texto: no cambia dónde se guardan los datos."]
   }
 };
 

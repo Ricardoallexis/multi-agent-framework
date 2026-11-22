@@ -482,3 +482,10 @@ def test_packages_help_keys_exist_and_are_used():
     for key in ("packages.install_zip", "packages.example", "packages.trust_functions", "packages.remove", "packages.degraded"):
         assert key in HELP, key
         assert f'helpFor("{key}"' in source and f'topic="{key}"' in source, key
+
+
+def test_instance_label_help_key_exists_and_is_used():
+    """PRV-T01: the badge of the instance label in the header points at its help."""
+    source = read("shell.js")
+    assert "shell.instance_label" in HELP
+    assert 'topic="shell.instance_label"' in source

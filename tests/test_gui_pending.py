@@ -156,7 +156,7 @@ def test_shell_wires_help_and_requests_notifications_only_from_an_opt_in_click()
     # one title per screen: the title is the <h2> of main.js, the tab panel has no second one
     assert "<h2" not in pending
     # the title count stays in the page title
-    assert "document.title = count ? `(${count}) Multiagent` : \"Multi-Agent Framework\"" in pending
+    assert "document.title = pageTitle(count);" in pending   # PRV-T01: the text comes from instance.js
     assert "/* RWD-T03 */" in style and "/* GUI3-T05 */" in style and ".pending-popover" not in style
     assert set(re.findall(r"@media\s*\(max-width:\s*([\d.]+px)\s*\)", style)) <= {"899.98px", "599.98px"}
 

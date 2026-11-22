@@ -4,6 +4,7 @@ import ipaddress
 import json
 import os
 import re
+import unicodedata
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Optional, Literal
@@ -20,6 +21,7 @@ CONTINUITY_MODES = ("manual", "semi_auto")    # CNT-T05; ``auto`` (CNT-T07) is o
 CONTINUITY_CANDIDATE_POLICIES = ("no_ask", "ask", "never")   # per executor: delegate without asking / ask first / never
 CONTINUITY_WAIT_THRESHOLDS = (1, 3, 5, 24)    # hours: a reset that far away or less is waited for, not delegated
 DEFAULT_CONTINUITY_CANDIDATES = {"claude_cli": "no_ask", "codex_cli": "no_ask", "copilot_cli": "ask"}
+INSTANCE_LABEL_MAX = 40                       # PRV-T01: characters of the instance label
 _BUDGET_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _EXECUTOR_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _CURRENCY = re.compile(r"^[A-Za-z][A-Za-z0-9]{1,15}$")
@@ -197,6 +199,9 @@ class Settings(BaseSettings):
     gui_token_file: Optional[Path] = None
     # The launcher refuses a token file outside the user's home folder unless this is set (see gui/token.py).
     gui_token_outside_home: bool = False
+    # PRV-T01: a short plain-text name of this instance, shown in the GUI header and in the tab title. Empty shows
+    # nothing. At most 40 characters and no control character; it is never used in a path, a file name or a log.
+    instance_label: str = ""
     gui_heartbeat_seconds: float = Field(default=20.0, gt=0)
     gui_poll_seconds: float = Field(default=0.5, gt=0)
     # 0 keeps each SSE connection open until the client leaves; tests set a small bound.
@@ -332,6 +337,15 @@ class Settings(BaseSettings):
     # A case regresses when its score drops by more than this (0 to 1); 0 flags any drop.
     eval_regression_threshold: float = Field(default=0.0, ge=0, le=1, allow_inf_nan=False)
     mock_mode: bool = False
+
+    @field_validator("instance_label")
+    @classmethod
+    def _validate_instance_label(cls, value: str) -> str:
+        if len(value) > INSTANCE_LABEL_MAX:
+            raise ValueError(f"INSTANCE_LABEL has {len(value)} characters; the limit is {INSTANCE_LABEL_MAX}")
+        if any(unicodedata.category(char) == "Cc" for char in value):
+            raise ValueError("INSTANCE_LABEL must not contain control characters")
+        return value
 
     @field_validator("gui_session_roots", "gui_session_sources", mode="before")
     @classmethod

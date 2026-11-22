@@ -9,6 +9,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { Help, helpFor } from "./help.js";
 import { Icon } from "./ui/icon.js";
+import { instanceLabel, onInstanceLabelChange } from "./instance.js";   // PRV-T01
 import { navigate } from "./route.js";
 import { NARROW_QUERY, defaultPanelOpen, isHelpKey, onChoiceChange, readAccent, readHelpMode, readPanelOpen, writeHelpMode, writePanelOpen } from "./shell-state.js";
 
@@ -32,6 +33,8 @@ const focusable = (root) => (root ? root.querySelector("button:not([disabled]), 
 // GUI3-T04: `hasSubject` is true while a session or a run is open; only then is «Contexto» offered. `contextDot` says that
 // a card of the closed panel has content.
 export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = false, contextDot = false, children }) {
+  const [label, setLabel] = useState(instanceLabel);   // PRV-T01: the instance label follows the session read of main.js
+  useEffect(() => onInstanceLabelChange(setLabel), []);
   const narrow = useMedia(NARROW_QUERY);
   const [drawer, setDrawer] = useState(false);
   const [panelOpen, setPanelOpen] = useState(() => readPanelOpen(defaultPanelOpen()));
@@ -129,6 +132,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
         <${Help} topic="shell.menu" compact=${true} />
       </div>
       <h1>Multi-Agent</h1>
+      ${label && html`<span class="badge instance" title=${label}>${label}</span><${Help} topic="shell.instance_label" compact=${true} />`}
       ${mock && html`<span class="badge mock" title="Resultados sintéticos, sin llamadas a modelos">MOCK</span>`}
     </header>
     <div class="scrim" hidden=${!drawerOpen} onClick=${() => closeDrawer(true)}></div>

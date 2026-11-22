@@ -758,3 +758,9 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .plan-draft-teams h5 { margin: 8px 0 4px; }
 .plan-draft .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 @media (max-width: 599.98px) { .plan-draft .actions .btn { width: 100%; min-height: var(--target); } }
+/* PRV-T01 */
+.badge.instance { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; flex: 0 1 auto; min-width: 0; }
+@media (max-width: 599.98px) {
+  .topbar .badge.instance { max-width: 7rem; margin-left: 0; }
+  .topbar h1 ~ .badge.instance { margin-left: 0; }
+}
