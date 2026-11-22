@@ -266,3 +266,24 @@ def test_startup_does_not_take_live_run(tmp_path):
 def test_worker_cli_exposes_concurrency():
     args = build_parser().parse_args(["worker", "--concurrency", "3"])
     assert args.concurrency == 3
+
+
+def test_worker_without_on_finished_does_what_it_did_and_a_hook_failure_changes_nothing(tmp_path):
+    """ARR3-T03: no hook is the default; a hook runs after the claim is released and its failure is only logged."""
+    store, _ = stores(tmp_path)
+    first = queued(store)
+    plain = LocalWorker(store, BlockingEngine(store), 0.06)
+    assert plain.on_finished is None
+    plain.engine.release.set()
+    assert plain.process_once() and store.get_run(first)["status"] == "completed"
+
+    seen = []
+
+    def hook(run_id):
+        seen.append((run_id, store.get_run(run_id)["status"]))
+        raise RuntimeError("hook down")
+    second = queued(store, project="two")
+    hooked = LocalWorker(store, BlockingEngine(store), 0.06, on_finished=hook)
+    hooked.engine.release.set()
+    assert hooked.process_once()
+    assert seen == [(second, "completed")] and store.get_run(second)["status"] == "completed"

@@ -7,6 +7,7 @@
 import { html, useEffect, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost } from "./api.js";
 import { Help, helpFor } from "./help.js";
+import { Confirm } from "./human-actions.js";
 import { errorText } from "./text.js";
 import { readable } from "./readable.js";
 import { ReadableValue } from "./thread-cards.js";
@@ -98,6 +99,40 @@ function PlanCard({ entry, token, onDone }) {
   </li>`;
 }
 
+// ARR3-T03: what the plan did by itself. After a failure it offers the manual advance, the route «Planes» uses.
+function PlanEventCard({ entry }) {
+  const failed = entry.event === "plan.advance_failed";
+  return html`<li class=${"thread-card" + (failed ? " thread-waiting" : "")}>
+    <p role=${failed ? "alert" : "status"}>${entry.text}</p>
+    <${Help} topic="plan.auto_advance" compact=${true} />
+  </li>`;
+}
+
+function PlanAdvance({ token, proposalId, onDone }) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+  const send = async () => {
+    if (busy) return;
+    setBusy(true); setMessage(null);
+    try {
+      const result = await apiPost(PLAN_ROUTES + encodeURIComponent(proposalId) + "/advance", token, {});
+      setMessage({ kind: "ok", text: result && result.nothing_to_advance ? "No había nada que avanzar." : "El plan avanzó." });
+    } catch (failure) {
+      setMessage({ kind: "error", text: errorText(failure) });
+    } finally { setConfirm(false); setBusy(false); onDone(); }
+  };
+  return html`<li class="thread-card thread-waiting"><div class="thread-actions">
+    <button type="button" class="btn" disabled=${busy} ...${helpFor("plan.auto_advance")} onClick=${() => setConfirm(true)}>Avanzar el plan</button>
+    <${Help} topic="plan.auto_advance" compact=${true} /></div>
+    ${confirm && html`<${Confirm} title="¿Avanzar el plan una vez?" confirmLabel="Sí, avanzar"
+      keepLabel="Cancelar" danger=${false} busy=${busy} onKeep=${() => setConfirm(false)} onConfirm=${send}>
+      <p class="muted">Se pasan a revisión las tareas cuyo run terminó y arrancan las que ya pueden empezar, a nombre del operador.</p>
+    <//>`}
+    ${message && html`<p class=${"message " + message.kind} role=${message.kind === "error" ? "alert" : "status"}>${message.text}</p>`}
+  </li>`;
+}
+
 function MissingTeamCard({ entry }) {
   const shown = missingTeam(entry);
   return html`<li class="thread-card thread-waiting">
@@ -117,21 +152,23 @@ function TaskRunCard({ entry }) {
 }
 
 export function PlanThread({ token, proposalId }) {
-  const [state, setState] = useState({ loaded: false, entries: [], error: null });
+  const [state, setState] = useState({ loaded: false, entries: [], error: null, canAdvance: false });
   const ticket = useRef(0);
   const load = async () => {
     const mine = ++ticket.current;
     try {
       const page = await apiGet("/gui/api/threads/plans/" + encodeURIComponent(proposalId), token);
-      if (mine === ticket.current) setState({ loaded: true, entries: page.entries || [], error: null });
+      if (mine === ticket.current) setState({ loaded: true, entries: page.entries || [], error: null, canAdvance: Boolean(page.can_advance) });
     } catch (error) {
       if (mine === ticket.current) setState((previous) => ({ ...previous, loaded: true, error }));
     }
   };
   useEffect(() => {
-    setState({ loaded: false, entries: [], error: null });
+    setState({ loaded: false, entries: [], error: null, canAdvance: false });
     load();
-    return () => { ticket.current += 1; };
+    // ARR3-T03: the plan moves by itself when a run ends, so the thread reads again every 4 s while it is open.
+    const timer = setInterval(load, 4000);
+    return () => { ticket.current += 1; clearInterval(timer); };
   }, [proposalId, token]);
   return html`<section class="ns thread-view" aria-label="Hilo de una propuesta de plan">
     <div class="thread-head"><h3>Propuesta de plan</h3><span class="muted">${proposalId}</span>
@@ -142,7 +179,9 @@ export function PlanThread({ token, proposalId }) {
     <ol class="thread-list" aria-label="Propuesta de plan">
       ${state.entries.map((entry) => entry.kind === "plan" ? html`<${PlanCard} key=${entry.seq} entry=${entry} token=${token} onDone=${load} />`
         : entry.kind === "team_missing" ? html`<${MissingTeamCard} key=${entry.seq} entry=${entry} />`
-        : entry.kind === "task_run" ? html`<${TaskRunCard} key=${entry.seq} entry=${entry} />` : null)}
+        : entry.kind === "task_run" ? html`<${TaskRunCard} key=${entry.seq} entry=${entry} />`
+        : entry.kind === "plan_event" ? html`<${PlanEventCard} key=${entry.seq} entry=${entry} />` : null)}
+      ${state.canAdvance && html`<${PlanAdvance} token=${token} proposalId=${proposalId} onDone=${load} />`}
     </ol>
   </section>`;
 }

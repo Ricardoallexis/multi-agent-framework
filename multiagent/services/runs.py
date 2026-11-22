@@ -47,6 +47,7 @@ from ..tools.contracts import PermissionRequest, ToolExecutionError
 from ..tools.files import preview_file_write
 from ..tools.registry import ToolLookupError
 from ..worker import LocalWorker
+from .plan_autoadvance import notify_run_finished
 from ..workflow_engine import WorkflowEngine
 from .errors import HUMAN_STEP_UNAVAILABLE, HUMAN_SUBMISSION_INVALID, INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
 
@@ -171,6 +172,7 @@ class RunServices:
                                    max_active_per_project=settings.worker_max_active_per_project,
                                    lease_seconds=settings.worker_lease_seconds,
                                    shutdown_wait_seconds=settings.worker_shutdown_wait_seconds,
+                                   on_finished=lambda finished_id: notify_run_finished(self._services, finished_id),
                                ))
             if settings.worker_enabled:
                 runtime.worker.start()
@@ -337,6 +339,7 @@ class RunServices:
                                                                  permission_request_id=permission_request_id,
                                                                  person=person))
             self._record_decision(runtime, before, "approve", by=by)
+            notify_run_finished(self._services, run_id)   # ARR3-T03: the last approved step ends the run outside the worker
             return result
         except ToolApprovalMismatch as exc:
             raise ServiceError(INVALID_STATE, str(exc), status=409,
@@ -469,13 +472,16 @@ class RunServices:
         before = runtime.store.get_run(run_id)
         result = self._tag(runtime, runtime.service.reject(run_id, feedback, by=by, channel=channel))
         self._record_decision(runtime, before, "reject", by=by)
+        notify_run_finished(self._services, run_id)   # ARR3-T03
         return result
 
     @service_errors
     def cancel(self, run_id: str, *, force: bool = False) -> dict[str, Any]:
         """Cancel the run (or request cancellation if it is running and not forced)."""
         runtime = self._find(run_id)
-        return self._tag(runtime, runtime.service.cancel(run_id, force=force))
+        result = self._tag(runtime, runtime.service.cancel(run_id, force=force))
+        notify_run_finished(self._services, run_id)   # ARR3-T03
+        return result
 
     @service_errors
     def human_next(self, run_id: str) -> dict[str, Any]:

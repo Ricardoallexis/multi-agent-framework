@@ -1757,8 +1757,12 @@ class TaskServices:
         with self.store.transaction() as conn:
             if actor_domain is not None:
                 actor_domain = _text("actor_domain", actor_domain, maximum=200)
-            return self._apply(conn, task_id, action, actor=actor, cause=cause,
-                               expected_revision=expected_revision, actor_domain=actor_domain, continuity=changes)
+            result = self._apply(conn, task_id, action, actor=actor, cause=cause,
+                                 expected_revision=expected_revision, actor_domain=actor_domain, continuity=changes)
+        if action == "accept":
+            from .plan_autoadvance import notify_task_accepted   # ARR3-T03: after the commit, never inside it
+            notify_task_accepted(self._services, task_id)
+        return result
 
     @service_errors
     def _hand_over(self, conn: sqlite3.Connection, task_id: str, to_assignee: str, *, actor: str, cause: str = "",

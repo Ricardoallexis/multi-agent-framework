@@ -96,9 +96,26 @@ actor=..., channel=...)` advances the plan saved in the proposal, so the plan
 document does not have to be kept in a file. It returns the plan status, the
 tasks that moved under `advanced`, and `nothing_to_advance`. When nothing
 moved, `nothing_to_advance` is true and the call is not an error. A proposal
-that is not approved is a conflict (`not_approved`). A task that finished is
-moved on by the next call, not by a background worker. The call does not add
-an entry to the proposal's history.
+that is not approved is a conflict (`not_approved`).
+
+The plan also advances by itself. When a run linked to a task of an approved
+plan ends, the plan advances once, with the actor `system:worker` and the
+channel `worker` (the only non-user actor `advance` accepts; approving and
+rejecting still need a `user:` actor). This happens when the worker finishes a
+run, when `approve`, `reject` or `cancel` end it (the normal case in supervised
+mode), and when a task of the plan is accepted (the `accept` action or a passed
+gate). The next task starts when its dependency is satisfied: with
+`requires="accepted"` (the default) once the person accepts the previous task or
+it passes its gate; with `requires="submitted"`, once its run ends. The advance
+itself never triggers another one. A lock per group stops two runs that end together from
+advancing the plan twice, and a conflict is retried once. Each advance that
+moved something leaves the team event `plan.advanced` with
+`{proposal_id, run_id, advanced}`; if it still fails, the team event
+`plan.advance_failed` carries the `reason` and the run keeps its status. The
+events carry the plan's group and the task of the run, and the plan thread in
+the GUI shows them. Runs recovered when the server starts do not advance the
+plan; use "Advance the plan" (or the call above) for them, and after a
+`plan.advance_failed`. The proposal's history is not changed.
 
 ## CLI
 

@@ -46,6 +46,7 @@ from .inbox import InboxServices
 from .memory import MemoryServices
 from .new_session import NewSessionServices
 from .plans import PlanServices
+from .plan_autoadvance import PlanAutoAdvance
 from .plan_proposals import PlanProposalServices
 from ..planning import PlanningServices
 from .projects import ProjectServices
@@ -111,6 +112,7 @@ class ApplicationServices:
         self.tasks = TaskServices(self)
         self.plans = PlanServices(self)
         self.plan_proposals = PlanProposalServices(self)
+        self.plan_autoadvance = PlanAutoAdvance(self)
         self.planning = PlanningServices(self)
         self.gates = GateServices(self)
         self.envelopes = EnvelopeServices(self)

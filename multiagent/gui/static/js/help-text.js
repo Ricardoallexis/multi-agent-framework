@@ -2008,6 +2008,11 @@ export const HELP = {
     "title": "Paleta de colores",
     "hint": "Elige el color de los botones principales, los enlaces y la selección.",
     "more": ["Neutro es el de siempre. Los fondos, el texto y los avisos no cambian con la paleta.", "Se recuerda en este navegador."]
+  },
+  "plan.auto_advance": {
+    "title": "El plan avanza solo",
+    "hint": "Cuando termina un run del plan o aceptas una de sus tareas, las que esperaban arrancan solas.",
+    "more": ["Lo hace el sistema (actor system:worker) cada vez que termina un run del plan o se acepta una de sus tareas, y lo deja anotado aquí.", "Si no pudo avanzar, el mensaje dice por qué y aparece «Avanzar el plan» para hacerlo a mano.", "Un run que se recuperó al arrancar no avanza solo: usa «Avanzar el plan»."]
   }
 };
 

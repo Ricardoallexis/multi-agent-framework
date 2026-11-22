@@ -194,8 +194,36 @@ def build_plan_thread(services: Any, proposal_id: str) -> dict[str, Any]:
                             "text": f"Task {task['id']}", "task_id": task["id"], "title": task["title"],
                             "state": view.get("state"), "run_id": run["id"] if run else None,
                             "run_status": run["status"] if run else None})
+    can_advance = False
+    if proposal["status"] == "approved":
+        events = _plan_events(services, proposal["group_id"], proposal["id"])
+        for item in events:
+            entries.append({"seq": len(entries) + 2, **item})
+        can_advance = bool(events) and events[-1]["event"] == "plan.advance_failed"   # ARR3-T03
     return {"proposal_id": proposal["id"], "status": proposal["status"], "revision": proposal["revision"],
-            "cursor": entries[-1]["seq"], "entries": entries}
+            "can_advance": can_advance, "cursor": entries[-1]["seq"], "entries": entries}
+
+
+def _plan_events(services: Any, group_id: str, proposal_id: str) -> list[dict[str, Any]]:
+    """ARR3-T03: what the plan did by itself (team events ``plan.advanced`` and ``plan.advance_failed``), oldest first."""
+    try:
+        raw = services.tasks.events(group_id=group_id, limit=1000)
+    except Exception:   # noqa: BLE001 - the thread still shows the plan when its events cannot be read
+        return []
+    out = []
+    for event in raw:
+        payload = event.get("payload") or {}
+        if event.get("type") not in ("plan.advanced", "plan.advance_failed") or payload.get("proposal_id") != proposal_id:
+            continue
+        if event["type"] == "plan.advanced":
+            started = [item.get("task_id") for item in payload.get("advanced") or [] if item.get("run_id")]
+            moved = [str(item.get("task_id")) for item in payload.get("advanced") or []]
+            text = ("El plan avanzó: arrancó " + ", ".join(map(str, started)) + "." if started
+                    else "El plan avanzó: se actualizó " + (", ".join(moved) or "una tarea") + ".")
+        else:
+            text = "No se pudo avanzar el plan: " + str(payload.get("reason") or "error desconocido") + "."
+        out.append({"kind": "plan_event", "event": event["type"], "text": text, "ts": event.get("created_at")})
+    return out
 
 
 def add_thread_routes(api: APIRouter, services: Any) -> None:

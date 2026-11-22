@@ -35,6 +35,7 @@ def env(tmp_path):
                         execution_backend="mock", mock_mode=True, gemini_api_key="",
                         openai_api_key="", openai_enabled=False, gui_token_file=tmp_path / "gui-token")
     services = ApplicationServices.create(settings, bundles={"general": general})
+    services.plan_autoadvance = None      # ARR3-T03: these tests move the plan by hand; the automatic advance has its own file
     token = ensure_token(settings.gui_token_file)
     with TestClient(create_app(services=services), base_url="http://localhost") as client:
         yield SimpleNamespace(client=client, services=services, token=token, tmp=tmp_path)

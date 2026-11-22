@@ -338,6 +338,9 @@ class GateServices:
             # Raise after committing the discard event, without reporting a
             # passing outcome or returning results from an invalidated run.
             raise _conflict("Gate execution is no longer current", task_id=task_id, attempt=attempt, run=run)
+        if outcome == "passed":
+            from .plan_autoadvance import notify_task_accepted   # ARR3-T03: the passed gate accepted the task; after the commit
+            notify_task_accepted(self._services, task_id)
         return {"outcome": outcome, "run": run, "results": rows, "task": view}
 
     @service_errors

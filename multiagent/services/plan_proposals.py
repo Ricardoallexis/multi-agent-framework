@@ -23,6 +23,9 @@ if TYPE_CHECKING:
     from . import ApplicationServices
 
 
+SYSTEM_ACTOR = "system:worker"   # ARR3-T03: the only non-user actor, and only for ``advance``
+
+
 def _actor(value: Any, *, human: bool = False) -> str:
     actor = _text("actor", value, maximum=100)
     if actor_kind(actor) is None:
@@ -263,7 +266,7 @@ class PlanProposalServices:
         Answers the plan status that ``services.plans.advance`` gives, plus ``advanced`` (each task whose state or
         run moved) and ``nothing_to_advance`` (true when nothing moved, which is not an error).
         """
-        actor, _channel_name = _actor(actor), _channel(channel)
+        actor, _channel_name = (actor if actor == SYSTEM_ACTOR else _actor(actor)), _channel(channel)
         with self.store.db.connect() as conn:
             row = self._row(proposal_id, conn)
         if row["status"] != "approved":

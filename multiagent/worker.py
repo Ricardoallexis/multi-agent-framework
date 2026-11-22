@@ -18,7 +18,7 @@ class LocalWorker:
     def __init__(self, store, engine, poll_seconds: float = 0.75, *,
                  concurrency: int = 1, max_active_total: int | None = None,
                  max_active_per_project: int | None = None, lease_seconds: float = 30,
-                 shutdown_wait_seconds: float = 30, clock=utcnow):
+                 shutdown_wait_seconds: float = 30, clock=utcnow, on_finished=None):
         if concurrency < 1 or lease_seconds <= 0 or shutdown_wait_seconds < 0:
             raise ValueError("Invalid worker concurrency, lease or shutdown wait")
         self.store = store
@@ -30,6 +30,8 @@ class LocalWorker:
         self.lease_seconds = lease_seconds
         self.shutdown_wait_seconds = shutdown_wait_seconds
         self.clock = clock
+        # ARR3-T03: called with the run id after the claim is released; a failure is logged and changes nothing.
+        self.on_finished = on_finished
         self.worker_id = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -59,6 +61,12 @@ class LocalWorker:
             logger.exception("Run %s raised an unhandled execution error", run["id"])
         finally:
             self.store.release_claim(run["id"], self.worker_id)
+        hook = self.on_finished
+        if hook is not None:
+            try:
+                hook(run["id"])
+            except Exception:
+                logger.exception("The finish hook failed for run %s", run["id"])
 
     def _loop(self) -> None:
         interval = min(self.poll_seconds, self.lease_seconds / 3)

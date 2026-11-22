@@ -165,6 +165,45 @@ def test_the_pending_inbox_opens_a_plan_in_its_thread(env):
     assert [item["href"] for item in items if item["type"] == "plan"] == ["#new/plan/" + saved["id"]]
 
 
+def append_plan_event(env, proposal_id, event, **payload):
+    store = env.services.tasks.store
+    with store.transaction() as conn:
+        store.append_event(conn, event, actor="system:worker", group_id="launch", task_id="review",
+                           payload={"proposal_id": proposal_id, "run_id": "run-1", **payload})
+
+
+def test_the_thread_shows_what_the_plan_did_by_itself_and_offers_the_advance_after_a_failure(env):
+    """ARR3-T03: plan_event entries from the team events, and ``can_advance`` only after a plan.advance_failed."""
+    saved = save(env, "review_checklist", inputs={"checklist": "Check it."})
+    assert thread(env, saved["id"]).json()["can_advance"] is False
+    decide(env, saved["id"], "approve", {"expected_revision": 1})
+    assert thread(env, saved["id"]).json()["can_advance"] is False
+    append_plan_event(env, saved["id"], "plan.advanced", advanced=[{"task_id": "review", "state": "running", "run_id": "r2"}])
+    page = thread(env, saved["id"]).json()
+    events = [entry for entry in page["entries"] if entry["kind"] == "plan_event"]
+    assert [entry["event"] for entry in events] == ["plan.advanced"] and events[0]["text"].startswith("El plan avanzó: arrancó review")
+    assert page["can_advance"] is False and events[0]["ts"]
+    append_plan_event(env, saved["id"], "plan.advance_failed", reason="invalid_state: busy")
+    page = thread(env, saved["id"]).json()
+    events = [entry for entry in page["entries"] if entry["kind"] == "plan_event"]
+    assert [entry["event"] for entry in events] == ["plan.advanced", "plan.advance_failed"]
+    assert events[1]["text"] == "No se pudo avanzar el plan: invalid_state: busy." and page["can_advance"] is True
+    assert page["cursor"] == page["entries"][-1]["seq"]
+    append_plan_event(env, saved["id"], "plan.advanced", advanced=[])       # a later advance clears the offer
+    assert thread(env, saved["id"]).json()["can_advance"] is False
+
+
+def test_the_thread_view_has_the_plan_events_the_advance_and_its_help():
+    view = (JS / "plan-thread.js").read_text(encoding="utf-8")
+    help_text = (JS / "help-text.js").read_text(encoding="utf-8")
+    for expected in ('entry.kind === "plan_event"', "Avanzar el plan", '"/advance"', 'topic="plan.auto_advance"',
+                     'helpFor("plan.auto_advance")', "setInterval(load, 4000)", "clearInterval(timer)", "<${Confirm}", "Sí, avanzar"):
+        assert expected in view, expected
+    assert '"plan.auto_advance"' in help_text
+    for bad in ("innerHTML", "__html", "style="):
+        assert bad not in view, bad
+
+
 # --- the pure model, the route and the wiring (Node) -----------------------------------------------------------------
 
 @pytest.fixture(scope="module")
