@@ -14,8 +14,8 @@ From an installed project environment, run either command, or use
 working copy, when you have one:
 
 ```console
-multiagent gui [--port N] [--real] [--no-browser] [--bundle NAME=FOLDER]...
-python -m multiagent.gui [--port N] [--real] [--no-browser] [--bundle NAME=FOLDER]...
+multiagent gui [--port N] [--real] [--no-browser] [--bundle NAME=FOLDER]... [--trust-functions NAME]...
+python -m multiagent.gui [--port N] [--real] [--no-browser] [--bundle NAME=FOLDER]... [--trust-functions NAME]...
 ```
 
 The GUI defaults to Mock mode. Use `--real` to leave the configured provider
@@ -58,6 +58,11 @@ python -m multiagent.gui --bundle general=examples/bundles/general
   `ERROR: Bundle folder not found: ...`.
 - Register only bundles you trust: the bundle's `contracts.py` is imported and
   runs as code.
+- A bundle may also bring a `functions.py` that registers [function steps](FUNCTION_STEPS.md). It is never
+  imported just for being in the folder. `--trust-functions NAME` (repeatable, for a `--bundle` or an installed
+  package) lets it load, after the scan and the approval below, once per package and fingerprint. A name that is
+  not registered stops the launch: `ERROR: unknown bundle for --trust-functions: NAME`. The API and the MCP server
+  never grant this trust, and reinstalling a package asks for it again.
 - A bundle from outside the framework is scanned before its code loads when SkillSpector is installed, and
   the risky cases wait for your click in «Aprobaciones» (see [Bundle scans in Approvals](#bundle-scans-in-approvals)).
 

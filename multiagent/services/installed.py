@@ -22,6 +22,8 @@ from ..db.database import utcnow
 from ..teams import validate_team_workflows
 from ..tools.files import _is_link_or_junction
 from ..bundles import load_bundle
+from ..functions import (FunctionConflictError, FunctionsImportError, load_trusted_functions, loaded_functions,
+                         unregister_owner)
 from ..workflow_validation import WorkflowDefinitionError, require_safe_workflow_id
 from .bundle_scans import BundleScanServices
 from .errors import INVALID_DEFINITION, INVALID_REQUEST, INVALID_STATE, ServiceError, service_errors
@@ -35,6 +37,7 @@ BUSY_STATUSES = ("queued", "running", "waiting_human", "paused")
 
 STATE_OK, STATE_CHANGED, STATE_MISSING = "ok", "changed", "missing"
 REASON_CHANGED = "installed_bundle_changed"
+FUNCTIONS_FIX_TEXT = "Este paquete trae funciones; confía en ellas en la ficha del paquete"
 SOURCE_COPY, SOURCE_SHIPPED = "copy", "shipped"
 
 _REGISTRY_FILE = "registry.json"
@@ -106,6 +109,7 @@ class InstalledServices:
         state = self._states.get(entry["name"], STATE_OK)
         return {"name": entry["name"], "fingerprint": entry.get("fingerprint"), "level": entry.get("level"),
                 "trust_functions": bool(entry.get("trust_functions", False)),
+                "functions": self.functions_status(entry["name"]),
                 "source_label": entry.get("source_label", ""), "version": entry.get("version"),
                 "installed_at": entry.get("installed_at"), "installed_by": entry.get("installed_by"),
                 "channel": entry.get("channel"), "source": entry.get("source", SOURCE_COPY),
@@ -123,6 +127,58 @@ class InstalledServices:
             if entry is None:
                 raise self._not_installed(name)
             return self._public(entry)
+
+    # --- trusted functions (PAQ-T03) ----------------------------------------
+
+    def _is_trusted(self, name: str) -> bool:
+        """Trusted by ``--trust-functions`` (this start only) or by the registry entry (tied to its fingerprint)."""
+        if name in self._services._trust_functions:
+            return True
+        try:
+            entry = self._read().get(name)
+        except ValueError:
+            return False
+        return bool(entry and entry.get("source", SOURCE_COPY) == SOURCE_COPY and entry.get("trust_functions") is True)
+
+    def functions_status(self, name: str) -> dict[str, Any]:
+        """``{"present", "trusted", "loaded"}``: does the package bring ``functions.py``, may it load, what is loaded."""
+        folder = self._services._bundles.get(name)
+        present = bool(folder is not None and (folder / "functions.py").is_file())
+        return {"present": present, "trusted": self._is_trusted(name), "loaded": loaded_functions(name)}
+
+    def check_trusted_names(self) -> None:
+        """``ValueError`` for a ``--trust-functions`` name that is neither a ``--bundle`` nor an installed package."""
+        if not self._services._trust_functions:
+            return
+        known = set(self._services._bundles) | set(self._read())
+        for name in sorted(self._services._trust_functions):
+            if name not in known:
+                raise ValueError(f"unknown bundle for --trust-functions: {name}")
+
+    def has_untrusted_functions(self, name: str) -> bool:
+        status = self.functions_status(name)
+        return status["present"] and not status["trusted"]
+
+    def load_functions(self, name: str) -> None:
+        """Import the ``functions.py`` of a trusted package. Call it right after ``require_load`` and before loading.
+
+        Without trust nothing is imported. Errors: 409 ``invalid_state`` with ``reason`` ``function_conflict``
+        (``function_id``, ``owner``) and 422 ``invalid_definition`` with ``reason`` ``functions_import_failed``
+        (``error_type`` only: no message and no trace).
+        """
+        folder = self._services._bundles.get(name)
+        if folder is None or not (folder / "functions.py").is_file() or not self._is_trusted(name):
+            return
+        fingerprint = BundleScanServices.fingerprint(folder)
+        try:
+            load_trusted_functions(name, folder, fingerprint)
+        except FunctionConflictError as exc:
+            raise _conflict(f"A function of {name} is already registered: {exc.function_id}", "function_conflict",
+                            bundle=name, function_id=exc.function_id, owner=exc.owner) from None
+        except FunctionsImportError as exc:
+            raise ServiceError(INVALID_DEFINITION, f"functions.py of {name} could not be imported: {exc.error_type}",
+                               status=422, details={"reason": "functions_import_failed", "bundle": name,
+                                                    "error_type": exc.error_type}) from None
 
     @staticmethod
     def _not_installed(name: str) -> ServiceError:
@@ -194,6 +250,7 @@ class InstalledServices:
                 if state == STATE_OK:
                     self._services.register_bundle(name, self._folder_of(entry))
                 else:
+                    unregister_owner(name)
                     self._services.unregister_bundle(name)
             return self._public(entry)
 
@@ -332,6 +389,7 @@ class InstalledServices:
             entries[name] = entry
             self._write(entries)
             self._states[name] = STATE_OK
+            unregister_owner(name)  # the new fingerprint is not trusted yet: the old functions go
             self._services.register_bundle(name, destination)
             return self._public(entry)
 
@@ -350,6 +408,7 @@ class InstalledServices:
             del entries[name]
             self._write(entries)
             self._states.pop(name, None)
+            unregister_owner(name)
             self._services.unregister_bundle(name)
             # The copy under installed/<name>/ and the run data under bundles/<name>/ stay: nothing is deleted.
             return {"name": name, "removed": True, "kept_data": True, "removed_by": actor, "channel": channel}

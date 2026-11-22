@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Mapping
 
 from .activities import ActivityServices
@@ -103,8 +104,10 @@ class ApplicationServices:
     """Facade over one ``System``: ``definitions``, ``runs``, ``tasks``, ``gates``, ``envelopes``, ``assignment``,
     ``executors``, ``sessions``, ``projects``, ``activities``, ``usage``, ``inbox``, ``memory`` and ``new_session``."""
 
-    def __init__(self, system: System, *, bundles: Mapping[str, str | Path] | None = None):
+    def __init__(self, system: System, *, bundles: Mapping[str, str | Path] | None = None,
+                 trust_functions: Iterable[str] = ()):
         self.system = system
+        self._trust_functions = frozenset(trust_functions)  # PAQ-T03: names whose functions.py may load, this start only
         self._bundles: dict[str, Path] = {}
         for name, path in (bundles or {}).items():
             if not _BUNDLE_NAME.fullmatch(name):
@@ -113,6 +116,7 @@ class ApplicationServices:
         # PAQ-T01: what was installed starts by itself, after the --bundle options (a repeated name stops the start).
         self.installed = InstalledServices(self)
         self.installed.load_registry()
+        self.installed.check_trusted_names()
         self.definitions = DefinitionServices(self)
         self.runs = RunServices(self)
         self.tasks = TaskServices(self)
@@ -150,11 +154,12 @@ class ApplicationServices:
 
     @classmethod
     def create(cls, settings: Settings | None = None, *,
-               bundles: Mapping[str, str | Path] | None = None, **system_options: Any) -> ApplicationServices:
+               bundles: Mapping[str, str | Path] | None = None, trust_functions: Iterable[str] = (),
+               **system_options: Any) -> ApplicationServices:
         """Build the runtime (``build_system``) and wrap it."""
         from ..bootstrap import build_system
 
-        return cls(build_system(settings, **system_options), bundles=bundles)
+        return cls(build_system(settings, **system_options), bundles=bundles, trust_functions=trust_functions)
 
     @property
     def settings(self) -> Settings:

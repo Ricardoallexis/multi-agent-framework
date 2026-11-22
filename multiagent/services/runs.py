@@ -136,6 +136,7 @@ class RunServices:
         if not create and not self._bundle_settings(name).db_path.exists():
             return None
         self._services.bundle_scans.require_load(name)
+        self._services.installed.load_functions(name)  # PAQ-T03: the functions of a trusted package, after the scan
         with self._lock:
             runtime = self._bundle_runtimes.get(name)
             if runtime is not None:

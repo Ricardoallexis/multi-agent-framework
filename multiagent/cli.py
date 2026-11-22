@@ -1261,13 +1261,16 @@ def add_gui_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--real", action="store_true", help="Use real models (default: Mock mode)")
     parser.add_argument("--no-browser", action="store_true", help="Print the URL without opening the browser")
     _add_bundle_argument(parser)
+    parser.add_argument("--trust-functions", action="append", metavar="NAME", default=None,
+                        help="Import the functions.py of a registered bundle, after its scan (PAQ-T03); repeatable")
 
 
 def cmd_gui(args) -> None:
     """Start the local server with the new GUI; same as ``python -m multiagent.gui``."""
     from .gui import __main__ as gui_main
 
-    gui_main.run(port=args.port, real=args.real, no_browser=args.no_browser, bundles=_parse_ui_bundles(args.bundle))
+    gui_main.run(port=args.port, real=args.real, no_browser=args.no_browser, bundles=_parse_ui_bundles(args.bundle),
+                 trust_functions=tuple(args.trust_functions or ()))
 
 
 def _session_services():

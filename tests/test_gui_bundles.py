@@ -174,7 +174,7 @@ def test_gui_registers_repeated_bundles(launched):
     gui_main.main(argv)  # `python -m multiagent.gui` takes the same option
     expected = cli._parse_ui_bundles([f"general={GENERAL}", f"team={TEAM}"])
     assert expected == {"general": GENERAL, "team": TEAM}
-    assert launched == [{"port": 0, "real": False, "no_browser": True, "bundles": expected}] * 2
+    assert launched == [{"port": 0, "real": False, "no_browser": True, "bundles": expected, "trust_functions": ()}] * 2
 
 
 def test_without_bundles_the_gui_registers_none(launched):

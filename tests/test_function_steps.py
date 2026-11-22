@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from multiagent.bundles import load_bundle
-from multiagent.functions import register_function
+from multiagent.functions import function_owner, register_function
 from multiagent.workflow_validation import WorkflowDefinitionError, parse_workflow_document
 
 from backends.conformance import FIXTURES, advance, backend_system, create_run, events, usage
@@ -63,6 +63,11 @@ def test_unknown_function_in_bundle(system):
     with pytest.raises(WorkflowDefinitionError) as caught:
         bundle.load_workflow("function_steps")
     assert [issue.code for issue in caught.value.issues] == ["unknown_function"]
+
+
+def test_builtin_function_has_the_core_owner():
+    assert function_owner("core.merge_outputs") == "core"
+    assert function_owner("nothing.here") is None
 
 
 def test_example_bundle_loads(system):

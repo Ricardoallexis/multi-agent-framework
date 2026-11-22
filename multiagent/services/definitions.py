@@ -20,6 +20,7 @@ from ..workflow_validation import WorkflowDefinitionError, require_safe_workflow
 from ..workflows import WorkflowCatalog, WorkflowDefinition
 from . import workflow_inputs
 from .errors import INVALID_DEFINITION, ServiceError, service_errors
+from .installed import FUNCTIONS_FIX_TEXT
 
 if TYPE_CHECKING:
     from . import ApplicationServices
@@ -39,6 +40,7 @@ class DefinitionServices:
 
     def _bundle(self, name: str) -> DefinitionBundle:
         self._services.bundle_scans.require_load(name)
+        self._services.installed.load_functions(name)  # PAQ-T03: after the scan and the approval, before loading
         return load_bundle(self._services.bundle_path(name), self._services.settings)
 
     def _workflow_ids(self, bundle: str | None) -> list[str]:
@@ -183,6 +185,11 @@ class DefinitionServices:
                 definitions.append(loaded.load_workflow(workflow_id))
             except WorkflowDefinitionError as exc:
                 problems.append(exc.to_payload())
+        if problems and self._services.installed.has_untrusted_functions(name):
+            for problem in problems:  # PAQ-T03: say how to fix an unknown function that the package would bring
+                for issue in problem["issues"]:
+                    if issue.get("code") == "unknown_function":
+                        issue["fix"] = FUNCTIONS_FIX_TEXT
         if loaded.team is None:
             if problems:
                 count = sum(len(problem["issues"]) for problem in problems)

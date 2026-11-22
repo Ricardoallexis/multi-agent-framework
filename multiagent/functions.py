@@ -6,7 +6,13 @@ Only trusted host code registers functions. Workflow documents name them by id.
 """
 from __future__ import annotations
 
+import contextvars
+import importlib.util
+import sys
+import threading
+import uuid
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -18,7 +24,13 @@ from .secret_gate import scan_text
 
 
 FAILURE_DETAIL_LIMIT = 300
+CORE_OWNER = "core"
 _FUNCTIONS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any]], dict[str, Any]]] = {}
+_OWNERS: dict[str, str] = {}
+# PAQ-T03: bundle -> (fingerprint, ids) of the ``functions.py`` imported for it; one import per package and fingerprint.
+_LOADED: dict[str, tuple[str, list[str]]] = {}
+_IMPORTING: contextvars.ContextVar[str | None] = contextvars.ContextVar("functions_importing", default=None)
+_LOAD_LOCK = threading.RLock()
 
 
 def failure_detail(exc: BaseException, *, limit: int = FAILURE_DETAIL_LIMIT) -> str:
@@ -45,14 +57,105 @@ class FunctionStepError(ValueError):
         super().__init__(message)
 
 
-def register_function(function_id: str, fn: Callable, *, description: str) -> None:
-    """Register trusted host code before workflows start."""
+class FunctionConflictError(ValueError):
+    """A function id that is already registered; ``owner`` is who has it."""
+
+    def __init__(self, function_id: str, owner: str):
+        self.function_id = function_id
+        self.owner = owner
+        super().__init__(f"Function already registered: {function_id} (owner: {owner})")
+
+
+class FunctionsImportError(RuntimeError):
+    """A trusted ``functions.py`` that failed to import; only the exception type is kept, never its text or trace."""
+
+    def __init__(self, bundle: str, error_type: str):
+        self.bundle = bundle
+        self.error_type = error_type
+        super().__init__(f"functions.py of {bundle} could not be imported: {error_type}")
+
+
+def register_function(function_id: str, fn: Callable, *, description: str, owner: str = CORE_OWNER) -> None:
+    """Register trusted host code before workflows start.
+
+    While a package's ``functions.py`` is being imported (``load_trusted_functions``) the owner is always that
+    package, whatever ``owner`` says, so a package can never register a function as ``core``.
+    """
     validate_capability_id(function_id)
     if not callable(fn) or not isinstance(description, str) or not description.strip():
         raise ValueError("A function needs a callable and a description")
+    if not isinstance(owner, str) or not owner:
+        raise ValueError("A function needs an owner")
+    importing = _IMPORTING.get()
+    if importing is not None:
+        owner = importing
     if function_id in _FUNCTIONS:
-        raise ValueError(f"Function already registered: {function_id}")
+        raise FunctionConflictError(function_id, _OWNERS.get(function_id, CORE_OWNER))
     _FUNCTIONS[function_id] = fn
+    _OWNERS[function_id] = owner
+
+
+def function_owner(function_id: str) -> str | None:
+    return _OWNERS.get(function_id) if function_id in _FUNCTIONS else None
+
+
+def unregister_owner(owner: str) -> list[str]:
+    """Remove every function of ``owner`` and return their ids. The functions of ``core`` are never removed."""
+    if owner == CORE_OWNER:
+        return []
+    with _LOAD_LOCK:
+        removed = sorted(key for key, who in _OWNERS.items() if who == owner)
+        for key in removed:
+            _FUNCTIONS.pop(key, None)
+            _OWNERS.pop(key, None)
+        _LOADED.pop(owner, None)
+        return removed
+
+
+def loaded_functions(bundle: str) -> list[str]:
+    """Ids the ``functions.py`` of ``bundle`` has registered now."""
+    return sorted(key for key, who in _OWNERS.items() if who == bundle and key in _FUNCTIONS)
+
+
+def load_trusted_functions(bundle: str, root: Path, fingerprint: str) -> list[str]:
+    """Import ``root / "functions.py"`` with ``bundle`` as owner and return the ids it registered.
+
+    Call it only for a package the person trusted, after the scan and approval. A second call with the same
+    fingerprint does nothing; with another one the old functions go first. A function that already exists raises
+    ``FunctionConflictError`` and an import that fails raises ``FunctionsImportError``; both leave nothing of this
+    import registered.
+    """
+    path = Path(root) / "functions.py"
+    with _LOAD_LOCK:
+        loaded = _LOADED.get(bundle)
+        if loaded is not None and loaded[0] == fingerprint:
+            return list(loaded[1])
+        unregister_owner(bundle)
+        if not path.is_file():
+            return []
+        module_name = f"_maf_functions_{uuid.uuid4().hex}"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        token = _IMPORTING.set(bundle)
+        try:
+            # Run the source that was scanned, never a __pycache__ file (as ``bundles._load_contracts`` does).
+            exec(compile(path.read_bytes(), str(path), "exec", dont_inherit=True), module.__dict__)
+        except FunctionConflictError:
+            unregister_owner(bundle)
+            raise
+        except Exception as exc:  # noqa: BLE001 - any failure of the package's code
+            unregister_owner(bundle)
+            raise FunctionsImportError(bundle, type(exc).__name__) from None
+        except BaseException:
+            unregister_owner(bundle)
+            raise
+        finally:
+            _IMPORTING.reset(token)
+            sys.modules.pop(module_name, None)
+        ids = loaded_functions(bundle)
+        _LOADED[bundle] = (fingerprint, ids)
+        return list(ids)
 
 
 def get_function(function_id: str) -> Callable | None:

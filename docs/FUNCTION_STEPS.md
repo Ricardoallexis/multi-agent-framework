@@ -1,6 +1,6 @@
 # Function steps
 
-A workflow step can name a synchronous function registered by trusted host code. The bundle supplies only the id and literal arguments; it does not supply Python code. The id follows the capability pattern: two to four dot-separated lowercase segments, such as `core.merge_outputs`.
+A workflow step can name a synchronous function registered by trusted host code. The workflow supplies only the id and literal arguments; it does not supply Python code. A package of level `code` may bring a `functions.py` that registers functions with `register_function(function_id, fn, description=...)`. It is never imported just because it sits in the folder: it loads only with explicit trust (`multiagent gui --trust-functions NAME`, repeatable, or the checkbox in advanced mode), after the bundle scan and approval, once per package and fingerprint. A new fingerprint (a reinstall) drops the old functions and asks for trust again. An id is never redefined: one that already exists (`core.merge_outputs`, or another package's) gives `function_conflict`, and a `functions.py` that fails to import gives `functions_import_failed` with the exception type only. Without trust, validation reports `unknown_function` with the fix «Este paquete trae funciones; confía en ellas en la ficha del paquete». The API and the MCP server never grant trust. The id follows the capability pattern: two to four dot-separated lowercase segments, such as `core.merge_outputs`.
 
 ```yaml
 - id: collect

@@ -8,7 +8,7 @@ import os
 import secrets
 import threading
 import webbrowser
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
@@ -40,12 +40,17 @@ def serve(app, *, host: str, port: int, stopped: str) -> None:
 
 
 def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
-        bundles: Mapping[str, str | Path] | None = None) -> None:
-    """Start the server; ``bundles`` maps a name to a trusted definition-bundle folder."""
+        bundles: Mapping[str, str | Path] | None = None, trust_functions: Iterable[str] = ()) -> None:
+    """Start the server; ``bundles`` maps a name to a trusted definition-bundle folder.
+
+    ``trust_functions`` names the registered or installed bundles whose ``functions.py`` may be imported after the
+    scan (PAQ-T03). An unknown name stops the start with ``ValueError``.
+    """
     from ..api import create_app
     from ..bootstrap import build_system
     from ..cli import _check_port_free
     from ..config import Settings
+    from ..services import ApplicationServices
     from .token import check_token_location, ensure_token
 
     if not real:
@@ -61,7 +66,8 @@ def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
     port = port or settings.app_port
     _check_port_free(host, port)
     token = ensure_token(settings.gui_token_file)
-    app = create_app(build_system(settings), bundles=bundles)
+    services = ApplicationServices(build_system(settings), bundles=bundles, trust_functions=tuple(trust_functions))
+    app = create_app(services=services)
     approval_code = secrets.token_urlsafe(32)
     app.state.approval_sessions.bootstrap_code = approval_code
 
@@ -88,7 +94,8 @@ def main(argv: list[str] | None = None) -> None:
     add_gui_arguments(parser)
     args = parser.parse_args(argv)
     try:
-        run(port=args.port, real=args.real, no_browser=args.no_browser, bundles=_parse_ui_bundles(args.bundle))
+        run(port=args.port, real=args.real, no_browser=args.no_browser, bundles=_parse_ui_bundles(args.bundle),
+            trust_functions=tuple(args.trust_functions or ()))
     except (RuntimeError, ValueError) as exc:  # a refused launch (host, token folder, busy port, bad --bundle): no traceback
         raise SystemExit(f"ERROR: {exc}") from None
 
