@@ -1,5 +1,5 @@
 # ALCANCE · Fuente Única de Alcance y Ola Actual
-Versión: 1.2 · 2026-11-21 · Editado únicamente por el usuario (esta versión la redactó Claude-Opus a su pedido: «Actualiza el scope») · Tope: 120 líneas
+Versión: 1.3 · 2026-11-21 · Editado únicamente por el usuario (la 1.2 la redactó Claude-Opus a su pedido: «Actualiza el scope»; la 1.3, con su sí: «Sí, los dos (Recommended)») · Tope: 120 líneas
 Se lee al empezar junto a REGLAS.md. Manda sobre ROADMAP.md, PROPUESTAS.md, ETAPA.md e ideas.
 
 ## 0. Dónde se trabaja
@@ -57,7 +57,7 @@ Se lee al empezar junto a REGLAS.md. Manda sobre ROADMAP.md, PROPUESTAS.md, ETAP
   - **Sprint 7 · Trabajar sin consola:** modo simple con interruptor, oficina instalada (con quitar y reimportar), primer recorrido guiado, el botón «Activar» de §2 y los arreglos que el piloto mostró;
   - **Sprint 8 · Oficinas, y release:** `office.yaml`, importar en dos niveles con una sola aprobación por oficina, la vista «Oficinas», nivel de sensibilidad por área y «Solo local», el orquestador con «Planes» (con aprobación) y dos plantillas de oficios distintos;
   - **Sprint 9 · Ver:** plano 2D sobre el mismo modelo de escena.
-- Éxito del release: el primer recorrido sin consola, medido en tres tiempos (probar en Mock, conectar un agente, obtener un resultado real), también por una segunda persona; y la misma oficina corre con dos agentes de tipo distinto.
+- Éxito del release: el primer recorrido sin consola, medido en tres tiempos (probar en Mock, conectar un agente, obtener un resultado real) por el usuario con el piloto privado al cerrar el sprint 8; y la misma oficina corre con dos agentes de tipo distinto. La prueba de una segunda persona queda para una etapa más avanzada.
 - Sprints anteriores, cerrados y publicados: Sprints 2, 3, 4 y 5 (2026-11-18 a 2026-11-20).
 
 ## 5. Definition of Done Global y Regla de Corte
