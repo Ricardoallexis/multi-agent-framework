@@ -221,8 +221,14 @@ def test_trust_flag_for_an_unregistered_name_stops_the_start(world):
 
 
 def test_cli_trust_functions_unknown_name(tmp_path, monkeypatch, capsys):
+    # The token goes under a fake home: on Linux tmp_path sits in /tmp, outside the real home, and the
+    # token check would stop the start before the trust check this test is about.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.delenv("GUI_TOKEN_OUTSIDE_HOME", raising=False)
     monkeypatch.setenv("LOCAL_DIR", str(tmp_path / "local"))
-    monkeypatch.setenv("GUI_TOKEN_FILE", str(tmp_path / "gui-token"))
+    monkeypatch.setenv("GUI_TOKEN_FILE", str(home / ".multiagent" / "gui-token"))
     monkeypatch.setenv("MOCK_MODE", "true")
     monkeypatch.setattr(cli, "_check_port_free", lambda host, port: None)
     monkeypatch.setattr(gui_main, "serve", lambda *args, **kwargs: pytest.fail("the server must not start"))
