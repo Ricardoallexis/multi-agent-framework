@@ -816,3 +816,13 @@ def test_under_the_pause_floor_the_service_pauses_agy_until_the_window_resets(fa
 def test_the_third_party_notice_id_is_documented_in_each_visible_place(relative):
     text = (Path(__file__).resolve().parents[1] / relative).read_text(encoding="utf-8")
     assert NOTICE_ID in text
+
+
+def test_the_env_notice_still_accepts_the_notice_without_the_activation_setting(tmp_path):
+    """EJE-T01: ``ANTIGRAVITY_NOTICE_ACCEPTED`` in ``.env`` keeps working next to the notice saved by «Activar»."""
+    plain = Settings(_env_file=None, local_dir=tmp_path / "local")
+    settings = Settings(_env_file=None, local_dir=tmp_path / "local", antigravity_notice_accepted=NOTICE_ID)
+    assert antigravity_adapter(settings).notice_accepted is True
+    assert antigravity_adapter(settings, notice_accepted=None).notice_accepted is True
+    assert antigravity_adapter(plain).notice_accepted is False
+    assert antigravity_adapter(plain, notice_accepted=NOTICE_ID).notice_accepted is True

@@ -24,21 +24,26 @@ from .codex import CodexExecutorAdapter
 from .copilot import CopilotAdapter
 
 
-def antigravity_adapter(settings: Any = None) -> AntigravityAdapter:
-    """The agy adapter configured from ``settings`` (the ``antigravity_*`` fields); off when there are none."""
+def antigravity_adapter(settings: Any = None, *, notice_accepted: str | None = None) -> AntigravityAdapter:
+    """The agy adapter configured from ``settings`` (the ``antigravity_*`` fields); off when there are none.
+
+    ``notice_accepted`` is the notice the person accepted in «Activar» (EJE-T01); it counts like
+    ``ANTIGRAVITY_NOTICE_ACCEPTED`` in ``.env``, which keeps working.
+    """
     if settings is None:
-        return AntigravityAdapter()
+        return AntigravityAdapter(notice_accepted=notice_accepted or "")
     add_dirs = list(dict.fromkeys((sys.prefix, sys.base_prefix,
                                    *(getattr(settings, "antigravity_add_dirs", ()) or ()))))
     return AntigravityAdapter(
-        notice_accepted=getattr(settings, "antigravity_notice_accepted", "") or "",
+        notice_accepted=(getattr(settings, "antigravity_notice_accepted", "") or "") or notice_accepted or "",
         kill_switch=getattr(settings, "antigravity_kill_switch", None),
         lock_path=getattr(settings, "antigravity_lock_file", None),
         add_dirs=add_dirs)
 
 
-def default_adapters(*, session_guard: Callable[[str], bool] | None = None, settings: Any = None) -> list:
+def default_adapters(*, session_guard: Callable[[str], bool] | None = None, settings: Any = None,
+                     antigravity_notice: str | None = None) -> list:
     """Fresh instances of the Codex, Claude, Copilot and Antigravity adapters (``adapter_id`` ``codex_cli``,
     ``claude_cli``, ``copilot_cli``, ``antigravity_cli``)."""
     return [CodexExecutorAdapter(), ClaudeAdapter(), CopilotAdapter(session_guard=session_guard),
-            antigravity_adapter(settings)]
+            antigravity_adapter(settings, notice_accepted=antigravity_notice)]

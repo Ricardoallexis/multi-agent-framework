@@ -10,7 +10,9 @@ from typing import Any
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
-KINDS = frozenset({"secret_send", "osv_query", "bundle_load"})
+KINDS = frozenset({"secret_send", "osv_query", "bundle_load", "executor_activate"})
+# EJE-T01: decided only by the fixed note of «Activar», never listed in «Aprobaciones» or «Pendientes» (Decision 20)
+HIDDEN_KINDS = frozenset({"executor_activate"})
 EVENTS = frozenset({"user_approval.requested", "user_approval.decided", "user_approval.consumed"})
 ACTOR = "user:gui"
 
@@ -129,7 +131,17 @@ class UserApprovalServices:
 
     def pending(self) -> list[dict[str, Any]]:
         self._sync_run_reviews()
-        return [item for item in self._all().values() if item["state"] == "pending"]
+        return [item for item in self._all().values()
+                if item["state"] == "pending" and item["kind"] not in HIDDEN_KINDS]
+
+    def pending_like(self, kind: str, *, sha256: str, destination: str | dict[str, str]) -> dict[str, Any] | None:
+        """The newest pending approval of ``kind`` for this exact digest and destination, hidden kinds included (EJE-T01)."""
+        found = None
+        for item in self._all().values():
+            if (item["state"] == "pending" and item["kind"] == kind and item["sha256"] == sha256
+                    and item["destination"] == destination):
+                found = item
+        return found
 
     def decide(self, approval_id: str, decision: str, *, actor: str = ACTOR,
                risk_ack: bool = False) -> dict[str, Any]:

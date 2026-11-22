@@ -667,7 +667,10 @@ class ExecutorServices:
         ``default_adapters``)."""
         from ..executors.defaults import default_adapters
 
-        return default_adapters(session_guard=self.session_guard, settings=getattr(self._services, "settings", None))
+        activations = getattr(self._services, "executor_activations", None)    # EJE-T01: the notice accepted in «Activar»
+        notice = activations.notice_accepted("antigravity_cli") if activations is not None else None
+        return default_adapters(session_guard=self.session_guard, settings=getattr(self._services, "settings", None),
+                                antigravity_notice=notice)
 
     # -------- effects (BDI-T04) --------
     @property
@@ -970,6 +973,9 @@ class ExecutorServices:
         if adapter is None or not isinstance(adapter, ExecutorApplicationAdapter):
             raise _conflict("executor_without_adapter", f"{executor_id} has no executor adapter registered",
                             executor_id=executor_id)
+        activations = getattr(self._services, "executor_activations", None)
+        if activations is not None:
+            activations.check_launch(executor_id)       # EJE-T01: a changed application pauses the activation (rule 5)
         with self._store.db.connect() as conn:
             pause = self._pause_of(conn, executor_id)
         if pause is not None:

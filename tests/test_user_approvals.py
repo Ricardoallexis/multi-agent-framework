@@ -176,3 +176,19 @@ def test_run_approval_channels_require_click_but_rejection_works(env, monkeypatc
     rejected = client.post(f"/api/v1/runs/{run_id}/reject", json={"feedback": "No permitir"})
     assert rejected.status_code == 200, rejected.text
     assert services.system.store.get_run(run_id)["status"] == "rejected"
+
+
+def test_executor_activate_is_a_kind_but_never_listed(env):
+    """EJE-T01: the fixed note of «Activar» decides it; «Aprobaciones» and «Pendientes» never show it."""
+    from multiagent.services import user_approvals as module
+
+    services, client, headers, _ = env
+    assert "executor_activate" in module.KINDS and module.HIDDEN_KINDS == frozenset({"executor_activate"})
+    hidden = services.user_approvals.request(kind="executor_activate", destination={"executor": "claude_cli"},
+                                             location={"source": "executor_activation"}, sha256="c" * 64)
+    shown = request(services)
+    assert [item["id"] for item in services.user_approvals.pending()] == [shown["id"]]
+    assert [item["id"] for item in client.get("/gui/api/approvals", headers=headers).json()["items"]] == [shown["id"]]
+    assert services.user_approvals.status(hidden["id"])["state"] == "pending"       # still decidable by id
+    assert services.user_approvals.pending_like("executor_activate", sha256="c" * 64,
+                                                destination={"executor": "claude_cli"})["id"] == hidden["id"]

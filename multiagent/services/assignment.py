@@ -73,6 +73,7 @@ class AssignmentServices:
         self._catalog = None
         self._registry = registry
         self._registry_loaded = registry is not None
+        self._injected = registry is not None
         self._adapters = adapters
         self._config_valid = True
 
@@ -83,6 +84,9 @@ class AssignmentServices:
         if self._registry_loaded:
             return
         raw_config = getattr(self._catalog, "executor_routing", {})
+        activations = getattr(self._services, "executor_activations", None)
+        if activations is not None:     # EJE-T01: the executors the person turned on (a local file; the catalog is not changed)
+            raw_config = activations.apply_to_config(raw_config)
         try:
             validated = validate_executor_config(raw_config)
             self._registry = ExecutorRegistry(validated, list(self._adapters() or ()) if self._adapters else ())
@@ -91,6 +95,15 @@ class AssignmentServices:
             self._registry = ExecutorRegistry({"version": 1, "profiles": {}, "executors": {},
                                                "requirement_map": {}, "operator_boundary": {}})
         self._registry_loaded = True
+
+    def reset_registry(self) -> None:
+        """Load the registry again on the next use (EJE-T01), so a change in the activations takes effect at once.
+
+        A registry given to the constructor (tests) is not lost: only a registry built from the catalog is dropped.
+        """
+        if not self._injected:
+            self._registry_loaded = False
+            self._config_valid = True
 
     @property
     def registry(self) -> ExecutorRegistry:

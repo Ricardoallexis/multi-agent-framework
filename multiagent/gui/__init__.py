@@ -38,6 +38,7 @@ from .approvals_api import add_approval_routes
 from .bundle_scans_api import add_bundle_scan_routes
 from .connections_api import add_connection_routes
 from .document_alerts_api import add_document_alerts_routes
+from .executor_activations_api import add_executor_activation_routes
 from .executor_launch_api import add_executor_launch_routes
 from .evaluation_api import add_evaluation_routes
 from .extensions import discover_extensions
@@ -127,6 +128,7 @@ def mount_gui(app: FastAPI) -> None:
     add_usage_routes(api, usage)  # /gui/api/usage/{plans,tokens,costs} (USO-T02)
     add_connection_routes(api, services)  # SES-T01
     add_executor_launch_routes(api, services)  # SES-T04
+    add_executor_activation_routes(api, services)  # /gui/api/executors/* «Activar» (EJE-T01)
     add_setup_routes(api, services)  # /gui/api/setup/* (INS-T05)
     add_project_routes(api, services)  # /gui/api/projects (PRY-T03)
     add_document_alerts_routes(api, services)
