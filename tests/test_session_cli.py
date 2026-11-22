@@ -145,10 +145,10 @@ def test_gui_subcommand_runs_the_same_server_as_the_module(monkeypatch):
     gui_main.main(["--port", "9124", "--no-browser"])  # `python -m multiagent.gui` keeps working
     gui_main.main([])
     assert calls == [
-        {"port": 9123, "real": True, "no_browser": True, "bundles": {}, "trust_functions": ()},
-        {"port": 0, "real": False, "no_browser": False, "bundles": {}, "trust_functions": ()},
-        {"port": 9124, "real": False, "no_browser": True, "bundles": {}, "trust_functions": ()},
-        {"port": 0, "real": False, "no_browser": False, "bundles": {}, "trust_functions": ()},
+        {"port": 9123, "real": True, "no_browser": True, "bundles": {}, "trust_functions": (), "launcher": False},
+        {"port": 0, "real": False, "no_browser": False, "bundles": {}, "trust_functions": (), "launcher": False},
+        {"port": 9124, "real": False, "no_browser": True, "bundles": {}, "trust_functions": (), "launcher": False},
+        {"port": 0, "real": False, "no_browser": False, "bundles": {}, "trust_functions": (), "launcher": False},
     ]
 
 

@@ -69,7 +69,22 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for more detail.
 
 ## Installation
 
-### Windows quick start
+### Double-click start
+
+You need Python 3.12, 3.13 or 3.14. If it is missing, the launcher opens the download page and tells you what to pick.
+
+- **Windows:** double-click `Iniciar.cmd`.
+- **Linux and macOS:** double-click `iniciar.sh`, or run `sh iniciar.sh`.
+
+The first time, the launcher creates `.venv`, installs the pinned dependencies from `requirements.txt` (this needs the network), prepares the database and opens the interface in your browser, in Mock mode. Later starts only open the interface; the dependencies are installed again only when `requirements.txt` changes. It always runs `python -m ...` from `.venv` and touches nothing outside this folder and `.local/`. If a step fails, it says which one and waits for a key before closing.
+
+The first start writes the time to `.local/primer-recorrido-inicio.txt` (or to `%LOCAL_DIR%`, when that variable is set). To use real models, use Home > Pass to real models in the interface; the choice is kept in `.local/gui-settings.json`.
+
+### Advanced mode
+
+The steps below are the developer setup: the command line, the editable package and the development tools.
+
+#### Windows quick start
 
 ```powershell
 setup_windows.bat
@@ -90,7 +105,7 @@ In another terminal:
 .venv\Scripts\multiagent.exe doctor
 ```
 
-### Linux / macOS manual setup
+#### Linux / macOS manual setup
 
 The core project uses standard Python tooling. Ubuntu is covered by CI; macOS is not currently part of the automated test matrix.
 

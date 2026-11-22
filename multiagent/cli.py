@@ -1280,6 +1280,8 @@ def add_gui_arguments(parser: argparse.ArgumentParser) -> None:
     _add_bundle_argument(parser)
     parser.add_argument("--trust-functions", action="append", metavar="NAME", default=None,
                         help="Import the functions.py of a registered bundle, after its scan (PAQ-T03); repeatable")
+    parser.add_argument("--launcher", action="store_true",
+                        help="Double-click start (Iniciar.cmd): read the models setting of gui-settings.json; --real still wins")
 
 
 def cmd_gui(args) -> None:
@@ -1287,7 +1289,7 @@ def cmd_gui(args) -> None:
     from .gui import __main__ as gui_main
 
     gui_main.run(port=args.port, real=args.real, no_browser=args.no_browser, bundles=_parse_ui_bundles(args.bundle),
-                 trust_functions=tuple(args.trust_functions or ()))
+                 trust_functions=tuple(args.trust_functions or ()), launcher=args.launcher)
 
 
 def _session_services():

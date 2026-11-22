@@ -40,8 +40,12 @@ def serve(app, *, host: str, port: int, stopped: str) -> None:
 
 
 def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
-        bundles: Mapping[str, str | Path] | None = None, trust_functions: Iterable[str] = ()) -> None:
+        bundles: Mapping[str, str | Path] | None = None, trust_functions: Iterable[str] = (),
+        launcher: bool = False) -> None:
     """Start the server; ``bundles`` maps a name to a trusted definition-bundle folder.
+
+    ``launcher`` is the double-click start (INI-T01): the ``models`` key of ``gui-settings.json`` picks Mock
+    (``mock``, or no file) or real models (``real``). ``real=True`` still wins.
 
     ``trust_functions`` names the registered or installed bundles whose ``functions.py`` may be imported after the
     scan (PAQ-T03). An unknown name stops the start with ``ValueError``.
@@ -53,6 +57,10 @@ def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
     from ..services import ApplicationServices
     from .token import check_token_location, ensure_token
 
+    if launcher and not real:
+        from ..services.gui_settings import load_file
+
+        real = load_file(Settings().local_dir).get("models") == "real"
     if not real:
         os.environ["MOCK_MODE"] = "true"  # synthetic fixtures, no model calls or API keys
     settings = Settings()
@@ -76,6 +84,8 @@ def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
     print(f"Multi-Agent Framework GUI: {url if no_browser else base_url}")
     print(f"Token file: {settings.gui_token_file}")
     print("Mode: " + ("REAL models (provider calls may cost money)" if real else "Mock (synthetic results)"))
+    if launcher and not real:
+        print("Para usar modelos reales: Inicio › Pasar a modelos reales")
     registered = app.state.services.bundle_names()  # the --bundle options and the installed packages (PAQ-T01)
     if registered:
         print(f"Bundles: {', '.join(registered)}")
@@ -95,7 +105,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     try:
         run(port=args.port, real=args.real, no_browser=args.no_browser, bundles=_parse_ui_bundles(args.bundle),
-            trust_functions=tuple(args.trust_functions or ()))
+            trust_functions=tuple(args.trust_functions or ()), launcher=args.launcher)
     except (RuntimeError, ValueError) as exc:  # a refused launch (host, token folder, busy port, bad --bundle): no traceback
         raise SystemExit(f"ERROR: {exc}") from None
 

@@ -1,2 +1,4 @@
 # Vendored third-party files stay byte-exact in every checkout (their hash is in vendor/README.md).
 multiagent/gui/static/vendor/** -text
+*.cmd text eol=crlf
+*.sh text eol=lf
