@@ -179,6 +179,29 @@ class RunServices:
             self._bundle_runtimes[name] = runtime
             return runtime
 
+    def release_bundle(self, name: str) -> None:
+        """Drop the cached runtime of a bundle (PAQ-T01) and stop its worker, as ``close`` does.
+
+        The next use builds a new runtime from the folder the bundle has by then; that one gets the same
+        ``on_finished`` hook, because ``_bundle_runtime`` builds every runtime. Stored runs are not touched.
+        """
+        with self._lock:
+            runtime = self._bundle_runtimes.pop(name, None)
+        if runtime is not None and runtime.worker is not None:
+            runtime.worker.stop()
+
+    def has_runs_in(self, name: str, statuses: tuple[str, ...]) -> bool:
+        """Whether the bundle has a stored run in one of ``statuses``. Read only: it opens no runtime and gates nothing."""
+        settings = self._bundle_settings(name)
+        if not settings.db_path.exists():
+            return False
+        with self._lock:
+            runtime = self._bundle_runtimes.get(name)
+        store = runtime.store if runtime is not None else Store(Database(settings))
+        marks = ",".join("?" for _ in statuses)
+        with store.db.connect() as conn:
+            return conn.execute(f"SELECT 1 FROM runs WHERE status IN ({marks}) LIMIT 1", tuple(statuses)).fetchone() is not None
+
     def _runtimes(self):
         """System runtime, then every bundle that has runs (opening each store on demand)."""
         yield self._system_runtime

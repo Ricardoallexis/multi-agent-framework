@@ -355,6 +355,30 @@ the field. A prior load approval or cache entry without acknowledgement does not
 The CLI and the read-only scan API cannot approve a load. Settings: `bundle_scan`, `skillspector_python` and
 `bundle_scan_timeout_seconds`.
 
+### Installed packages
+
+An installed package is a bundle copied under `<data_dir>/installed/NAME/v<n>/` and registered at every start
+(see [Installed packages](GUI.md#installed-packages)). The same operations exist as `multiagent bundle install|list|remove|reinstall`.
+
+| Endpoint | Body | Result |
+| --- | --- | --- |
+| `GET /api/v1/installed` | | The entries, sorted by name. |
+| `GET /api/v1/installed/{name}` | | One entry; `409 bundle_not_installed` if the name is not in the registry. |
+| `POST /api/v1/installed` | `{name, folder, actor, source_label?}` | `201` with the new entry (`v1`, or the next version of a name that was removed before). |
+| `POST /api/v1/installed/{name}/reinstall` | `{folder, actor}` | The entry of the new version. The old one stays if the new one fails. |
+| `POST /api/v1/installed/{name}/remove` | `{actor}` | `{name, removed: true, kept_data: true, ...}`. The copy and the run data are kept. |
+
+An entry has `name`, `fingerprint`, `level` (`data` or `code`), `trust_functions`, `source_label`, `version`,
+`installed_at`, `installed_by`, `channel`, `source` (`copy`), `state` (`ok`, `changed` or `missing`) and `reason`
+(`null` or `installed_bundle_changed`). It never has a path. The body is strict: an unknown field, such as
+`trust_functions`, gives `422 invalid_request`. `actor` must be a `user:` actor.
+
+Errors: `409 invalid_state` with `details.reason` `bundle_name_in_use` (the name is a `--bundle` or an installed package),
+`bundle_busy` (a run of the package is `queued`, `running`, `waiting_human` or `paused`), `installed_bundle_changed`
+or `bundle_not_installed`; `copy_fingerprint_mismatch` when the copy does not match the folder. An invalid name, a
+missing folder or a folder with symbolic links is `422 invalid_request`; a data package that does not validate is
+`422 invalid_definition`. An installed copy is always scanned (see [Bundle scan](security/bundle-scan.md)).
+
 ### Approvals and `user_click_required`
 
 Some approvals can only be given by a click in the GUI. Today they are a send that carries a secret

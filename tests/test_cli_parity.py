@@ -192,3 +192,16 @@ def test_every_cli_help_text_renders():
                     walk(sub)
 
     walk(cli.build_parser())
+
+
+def test_bundle_group_has_its_four_commands():
+    parser = cli.build_parser()
+    for argv, command in ((["bundle", "install", "demo", "folder"], "install"), (["bundle", "list"], "list"),
+                          (["bundle", "remove", "demo"], "remove"),
+                          (["bundle", "reinstall", "demo", "folder"], "reinstall")):
+        args = parser.parse_args(argv)
+        assert args.func is cli.cmd_bundle and args.bundle_command == command
+        if command != "list":
+            assert args.actor == "user:local"
+    assert parser.parse_args(["bundle-scan", "demo"]).func is cli.cmd_bundle_scan
+    assert parser.parse_args(["bundle-validate", "demo"]).func is cli.cmd_bundle_validate

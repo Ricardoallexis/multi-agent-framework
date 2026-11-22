@@ -47,6 +47,10 @@ class BundleScanServices:
         return digest.hexdigest()
 
     def _external(self, folder: Path) -> bool:
+        # An installed copy is always scanned, even when data_dir sits inside the checkout (PAQ-T01, L23). The
+        # ``shipped`` entries point at the product's own folder, not under installed/, so they stay exempt.
+        if folder.is_relative_to((self._services.settings.data_dir / "installed").resolve()):
+            return True
         return not folder.is_relative_to(Path(__file__).resolve().parents[2])
 
     def _cache_path(self, name: str, fingerprint: str) -> Path:

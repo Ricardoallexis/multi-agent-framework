@@ -8,8 +8,11 @@ code loads. It is not a sandbox: a bundle you decide to load still runs with you
 ## What is scanned
 
 - Only **external** bundles: folders registered with `--bundle NAME=FOLDER` that are not inside the
-  framework's own checkout. The bundles shipped with the repository are not scanned
-  (`state: "exempt"`).
+  framework's own checkout, and every **installed package** (the copies under
+  `<data_dir>/installed/`). The bundles shipped with the repository are not scanned
+  (`state: "exempt"`). An installed copy is always scanned, even when the data folder sits inside the
+  checkout. Installing copies the folder and checks that the copy has the same fingerprint as the
+  origin, so the scan result and your approval belong to what actually runs.
 - Each result is tied to a **fingerprint**: a SHA-256 over the bundle's relative paths, sizes and
   contents (`__pycache__` is left out). Any edit gives a new fingerprint and the bundle is scanned
   again. Results are cached in `.local/bundle-scans/` under the fingerprint.

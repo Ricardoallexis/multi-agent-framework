@@ -280,6 +280,23 @@ def cmd_bundle_scan(args) -> None:
     pretty(_api_json("GET", f"/api/v1/bundles/{quote(args.name, safe='')}/scan"))
 
 
+# --- installed packages (PAQ-T01): the same HTTP API as the GUI, the folder is resolved here ---
+
+def cmd_bundle(args) -> None:
+    action, name = args.bundle_command, getattr(args, "name", "")
+    quoted = quote(name, safe="")
+    if action == "list":
+        pretty(_api_json("GET", "/api/v1/installed"))
+        return
+    folder = str(Path(args.folder).expanduser().resolve()) if getattr(args, "folder", None) else ""
+    if action == "install":
+        pretty(_api_json("POST", "/api/v1/installed", json_body={"name": name, "folder": folder, "actor": args.actor}))
+    elif action == "reinstall":
+        pretty(_api_json("POST", f"/api/v1/installed/{quoted}/reinstall", json_body={"folder": folder, "actor": args.actor}))
+    else:
+        pretty(_api_json("POST", f"/api/v1/installed/{quoted}/remove", json_body={"actor": args.actor}))
+
+
 def cmd_bundle_validate(args) -> None:
     name = quote(args.name, safe="")
     response = _api_response("POST", f"/api/v1/bundles/{name}/validate")
@@ -1201,14 +1218,22 @@ def cmd_worker(args) -> None:
 
 def _parse_ui_bundles(values: list[str] | None) -> dict[str, Path]:
     bundles: dict[str, Path] = {}
+    parsed: list[tuple[str, Path]] = []
     for value in values or []:
         name, separator, folder = value.partition("=")
         if not separator or not name.strip() or not folder.strip():
             raise ValueError("--bundle uses the format name=folder")
-        path = Path(folder.strip()).expanduser()
+        parsed.append((name.strip(), Path(folder.strip()).expanduser()))
+    # PAQ-T01: a repeated name stops the start (it used to be last-wins), unless it is the same folder.
+    seen: dict[str, Path] = {}
+    for name, path in parsed:
+        if name in seen and seen[name].resolve() != path.resolve():
+            raise ValueError(f"bundle name in use: {name}")
+        seen[name] = path
+    for name, path in parsed:
         if not path.is_dir():
             raise ValueError(f"Bundle folder not found: {path}")
-        bundles[name.strip()] = path
+        bundles[name] = path
     return bundles
 
 
@@ -1424,6 +1449,17 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("workflow_id", nargs="?"); x.add_argument("--bundle"); x.set_defaults(func=cmd_workflows)
     x = sub.add_parser("agents", help="List agent definitions")
     x.add_argument("--bundle"); x.set_defaults(func=cmd_agents)
+    bundle = sub.add_parser("bundle", help="Install, list, remove or reinstall packages on the server").add_subparsers(
+        dest="bundle_command", required=True)
+    x = bundle.add_parser("install", help="Copy a bundle folder into the installed packages")
+    x.add_argument("name"); x.add_argument("folder"); x.add_argument("--actor", default="user:local")
+    x.set_defaults(func=cmd_bundle)
+    x = bundle.add_parser("list", help="List the installed packages"); x.set_defaults(func=cmd_bundle)
+    x = bundle.add_parser("remove", help="Take a package out of the registry (its copy and run data stay)")
+    x.add_argument("name"); x.add_argument("--actor", default="user:local"); x.set_defaults(func=cmd_bundle)
+    x = bundle.add_parser("reinstall", help="Install a new version of a package; the old one stays if it fails")
+    x.add_argument("name"); x.add_argument("folder"); x.add_argument("--actor", default="user:local")
+    x.set_defaults(func=cmd_bundle)
     x = sub.add_parser("bundle-validate", help="Validate a bundle registered on the server")
     x.add_argument("name"); x.set_defaults(func=cmd_bundle_validate)
     x = sub.add_parser("bundle-scan", help="Show the scan status of a registered bundle")

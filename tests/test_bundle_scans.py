@@ -374,3 +374,16 @@ def test_missing_tool_is_not_remembered_once_installed(setup):
     assert not list((services.settings.local_dir / "bundle-scans").glob("*.json"))
     # The fixture's facade has the tool: the same bundle is now scanned, not loaded unscanned.
     blocked(services, "bundle_scan_pending")
+
+
+# ---- PAQ-T01: an installed copy is always scanned, even when data_dir sits inside the checkout
+
+def test_installed_copy_inside_checkout_is_scanned():
+    from multiagent.services.bundle_scans import BundleScanServices
+
+    checkout = Path(__file__).resolve().parents[1]
+    data_dir = checkout / "synthetic-data-dir"  # only a path: nothing is created
+    scans = BundleScanServices(SimpleNamespace(settings=SimpleNamespace(data_dir=data_dir)))
+    assert scans._external(data_dir / "installed" / "demo" / "v1") is True
+    assert scans._external(data_dir / "bundles" / "demo") is False  # the rest of the checkout stays exempt
+    assert scans._external(checkout / "examples" / "bundles" / "general") is False

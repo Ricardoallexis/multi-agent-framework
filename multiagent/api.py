@@ -108,6 +108,23 @@ class _Body(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class InstalledInstallRequest(_Body):
+    # No ``trust_functions`` here: only the GUI sets it (PAQ-T03).
+    name: str
+    folder: str
+    actor: str
+    source_label: str = ""
+
+
+class InstalledReinstallRequest(_Body):
+    folder: str
+    actor: str
+
+
+class InstalledRemoveRequest(_Body):
+    actor: str
+
+
 class PlanStatusRequest(_Body):
     document: dict[str, Any]
 
@@ -630,6 +647,29 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.get("/api/v1/bundles/{name}/scan")
     def bundle_scan_status(name: str):
         return services.bundle_scans.status(name)
+
+    # --- installed packages (PAQ-T01) ------------------------------------------
+
+    @app.get("/api/v1/installed")
+    def list_installed():
+        return services.installed.list()
+
+    @app.get("/api/v1/installed/{name}")
+    def get_installed(name: str):
+        return services.installed.get(name)
+
+    @app.post("/api/v1/installed", status_code=201)
+    def install_package(body: InstalledInstallRequest):
+        return services.installed.install_folder(body.name, Path(body.folder), actor=body.actor, channel="api",
+                                                 source_label=body.source_label)
+
+    @app.post("/api/v1/installed/{name}/reinstall")
+    def reinstall_package(name: str, body: InstalledReinstallRequest):
+        return services.installed.reinstall(name, Path(body.folder), actor=body.actor, channel="api")
+
+    @app.post("/api/v1/installed/{name}/remove")
+    def remove_package(name: str, body: InstalledRemoveRequest):
+        return services.installed.remove(name, actor=body.actor, channel="api")
 
     # --- evaluation sets (EVA-T01) ------------------------------------------
 

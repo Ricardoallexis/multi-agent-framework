@@ -48,8 +48,11 @@ python -m multiagent.gui --bundle general=examples/bundles/general
   `-`, starts with a letter or digit, and has at most 120 characters.
 - `FOLDER` must exist; a relative path is read from the folder where you run
   the command, and `~` is expanded. The GUI never shows folder paths.
-- Registration lasts for that start only. There is no environment variable or
-  settings entry for it, so pass the option each time.
+- `--bundle` lasts for that start only: pass the option each time. To keep a bundle, install it
+  (see [Installed packages](#installed-packages) below).
+- A repeated name stops the launch: `ERROR: bundle name in use: NAME`. That covers two `--bundle`
+  options with the same name and a `--bundle` whose name an installed package already has. The same
+  name with the same folder is not a clash.
 - A wrong option stops the launch before the server starts and prints one line,
   for example `ERROR: --bundle uses the format name=folder` or
   `ERROR: Bundle folder not found: ...`.
@@ -57,6 +60,34 @@ python -m multiagent.gui --bundle general=examples/bundles/general
   runs as code.
 - A bundle from outside the framework is scanned before its code loads when SkillSpector is installed, and
   the risky cases wait for your click in «Aprobaciones» (see [Bundle scans in Approvals](#bundle-scans-in-approvals)).
+
+### Installed packages
+
+An installed package is a bundle that stays registered across starts. Use the CLI against a running
+server (`multiagent gui`):
+
+```console
+multiagent bundle install NAME FOLDER [--actor user:local]
+multiagent bundle list
+multiagent bundle remove NAME [--actor user:local]
+multiagent bundle reinstall NAME FOLDER [--actor user:local]
+```
+
+- **Install copies the folder** to `<data_dir>/installed/NAME/v1/`. The copy and the origin must have
+  the same fingerprint, and symbolic links or junctions are refused. After that the origin is not read
+  again: edit the copy's source and run `reinstall` to change what runs.
+- **Data and code.** A package whose files are all `.yaml`, `.yml`, `.md`, `.txt`, `.json` or `.csv` has
+  level `data` and is validated whole before it is registered. Anything else (a `.py` file, or a file
+  without a suffix) makes it level `code`: its first load goes through the bundle scan and the approval
+  in «Aprobaciones», as for a `--bundle` folder. Installed copies are always scanned.
+- **At every start** the framework recomputes the fingerprint of each copy. A copy that was edited or
+  deleted does not load and shows `state: "changed"` or `"missing"` (`reason: "installed_bundle_changed"`);
+  the other packages load.
+- **Remove** takes the package out of the registry and out of the running process. The copy and the
+  package's runs are kept (`kept_data: true`); nothing is deleted. **Reinstall** builds `v2`, validates
+  it and only then switches; if it fails, the previous version stays. Both answer `409 bundle_busy`
+  while the package has a queued, running, waiting or paused run.
+- The paths are never shown. See [Installed packages](API.md#installed-packages) for the HTTP API.
 
 The repository ships two bundles to try. Both run in Mock mode (the default),
 with synthetic results, no model calls and no API keys.

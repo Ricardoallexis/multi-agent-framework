@@ -70,8 +70,9 @@ def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
     print(f"Multi-Agent Framework GUI: {url if no_browser else base_url}")
     print(f"Token file: {settings.gui_token_file}")
     print("Mode: " + ("REAL models (provider calls may cost money)" if real else "Mock (synthetic results)"))
-    if bundles:
-        print(f"Bundles: {', '.join(sorted(bundles))}")
+    registered = app.state.services.bundle_names()  # the --bundle options and the installed packages (PAQ-T01)
+    if registered:
+        print(f"Bundles: {', '.join(registered)}")
     if not settings.gui_session_roots:
         print("Sessions: no folder is allowed yet; set GUI_SESSION_ROOTS to choose which sessions the viewer shows.")
     print("Press Ctrl+C to stop.")

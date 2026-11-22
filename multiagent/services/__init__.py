@@ -47,6 +47,7 @@ from .inbox import InboxServices
 from .memory import MemoryServices
 from .new_session import NewSessionServices
 from .plans import PlanServices
+from .installed import InstalledServices
 from .plan_autoadvance import PlanAutoAdvance
 from .plan_proposals import PlanProposalServices
 from ..planning import PlanningServices
@@ -75,6 +76,7 @@ __all__ = [
     "ExecutorServices",
     "GateServices",
     "InboxServices",
+    "InstalledServices",
     "MemoryServices",
     "NewSessionServices",
     "PlanServices",
@@ -108,6 +110,9 @@ class ApplicationServices:
             if not _BUNDLE_NAME.fullmatch(name):
                 raise ValueError(f"Invalid bundle name: {name!r}")
             self._bundles[name] = Path(path).resolve()
+        # PAQ-T01: what was installed starts by itself, after the --bundle options (a repeated name stops the start).
+        self.installed = InstalledServices(self)
+        self.installed.load_registry()
         self.definitions = DefinitionServices(self)
         self.runs = RunServices(self)
         self.tasks = TaskServices(self)
@@ -158,6 +163,18 @@ class ApplicationServices:
     def bundle_names(self) -> list[str]:
         return sorted(self._bundles)
 
+    def register_bundle(self, name: str, folder: Path) -> None:
+        """Register a bundle in the running process and drop its cached runtime, so the next run reads ``folder``."""
+        if not _BUNDLE_NAME.fullmatch(name):
+            raise ValueError(f"Invalid bundle name: {name!r}")
+        self._bundles[name] = Path(folder).resolve()
+        self.runs.release_bundle(name)
+
+    def unregister_bundle(self, name: str) -> None:
+        """Take a bundle out of the running process and stop its worker; its stored runs are kept."""
+        self._bundles.pop(name, None)
+        self.runs.release_bundle(name)
+
     def bundle_path(self, name: str) -> Path:
         """Folder of a registered bundle; ``ServiceError(not_found)`` otherwise.
 
@@ -166,4 +183,7 @@ class ApplicationServices:
         try:
             return self._bundles[name]
         except KeyError:
+            installed = getattr(self, "installed", None)
+            if installed is not None:
+                installed.raise_if_unloadable(name)  # a changed or missing copy: 409 installed_bundle_changed
             raise ServiceError(NOT_FOUND, f"Bundle not found: {name}", status=404) from None
