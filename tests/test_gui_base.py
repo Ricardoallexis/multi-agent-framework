@@ -41,7 +41,8 @@ def env(tmp_path):
     store = Store(database)
     token = ensure_token(settings.gui_token_file)
     services = SimpleNamespace(system=SimpleNamespace(settings=settings, worker=Mock(), store=store),
-                               runs=Mock(), definitions=Mock())
+                               runs=Mock(), definitions=Mock(),
+                               gui_settings=SimpleNamespace(mode=lambda: "simple"))   # SIM-T01: /gui/api/session says the mode
     app = create_app(services=services)
 
     @app.post("/gui/api/_echo", dependencies=[Depends(require_token), Depends(require_json)])
@@ -130,7 +131,7 @@ def test_constant_time_compare_used(env, monkeypatch):
 
 
 def test_session_endpoint(env):
-    assert env.client.get("/gui/api/session", headers=auth(env)).json() == {"mock": True, "version": __version__}
+    assert env.client.get("/gui/api/session", headers=auth(env)).json() == {"mock": True, "version": __version__, "mode": "simple"}
 
 
 def test_non_json_post_is_415(env):

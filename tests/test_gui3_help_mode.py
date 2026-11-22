@@ -25,7 +25,9 @@ def read(path) -> str:
 
 def help_mode_block() -> str:
     css = read(STATIC_DIR / "app.css")
-    return css[css.index("GUI3-T02 help mode"):]
+    start = css.index("GUI3-T02 help mode")
+    following = re.search(r"/\* [A-Z0-9]+-T\d+[ :*]", css[start + 1:])       # the next block marker: later cards add their own rules
+    return css[start:start + 1 + following.start()] if following else css[start:]
 
 
 def run_node(script: str):
@@ -130,7 +132,8 @@ def test_own_views_mark_the_help_of_their_title_as_always_visible(file, topic):
 
 def test_extension_views_get_their_title_help_right_after_the_h2():
     main = read(JS / "main.js")
-    assert re.search(r"</h2>`\}\s*\n\s*\$\{entry\?\.topic && html`<\$\{Help\} key=\$\{entry\.id\} topic=\$\{entry\.topic\} />`\}", main)
+    # SIM-T02 put the «only in advanced» notice between the title and the help, and the help is not drawn while it shows
+    assert re.search(r"</h2>`\}\s*\n\s*\$\{blocked && html`<\$\{AdvancedOnly\} token=\$\{token\} />`\}\s*\n\s*\$\{!blocked && entry\?\.topic && html`<\$\{Help\} key=\$\{entry\.id\} topic=\$\{entry\.topic\} />`\}", main)
     topics = set()
     for path in sorted((STATIC_DIR / "extensions").glob("*/index.js")):
         topics.update(m.group(1) for m in re.finditer(r'topic: "([a-z_]+\.view)"', read(path)))

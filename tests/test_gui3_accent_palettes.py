@@ -20,7 +20,9 @@ PALETTES = ("azul", "verde", "violeta")
 TOKENS = ("accent", "on-accent", "accent-soft")
 BACKGROUNDS = ("bg", "panel", "chrome", "hover", "accent-soft", "warn-soft")
 CSS = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
-BLOCK = CSS[CSS.index("/* GUI3-T09 */"):]
+_START = CSS.index("/* GUI3-T09 */")
+_NEXT = re.search(r"/\* [A-Z0-9]+-T\d+[ :*]", CSS[_START + 1:])   # the block ends at the next marker: later cards add theirs
+BLOCK = CSS[_START:_START + 1 + _NEXT.start()] if _NEXT else CSS[_START:]
 DARK_AT = BLOCK.index("@media (prefers-color-scheme: dark)")
 LIGHT, DARK = BLOCK[:DARK_AT], BLOCK[DARK_AT:]
 RULE = re.compile(r'\.app\[data-accent="([a-z]+)"\][^{}]*\{([^{}]*)\}')

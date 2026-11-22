@@ -181,9 +181,9 @@ def test_apps_collapsible_card_markup_targets_and_copy_console_untouched():
     assert "navigator.clipboard.writeText(text)" in apps_js
     assert 'apiGet("/gui/api/setup/console", token)' in apps_js
     assert 'apiPost("/gui/api/setup/console", token' in apps_js
-    # The registration keeps its route, label, help and order; GUI3-T03 added `group` and `icon` at its end.
+    # The registration keeps its route, label, help and order; GUI3-T03 added `group` and `icon` at its end, SIM-T02 `mode`.
     assert ('registerView({ id: "apps", label: "Apps y agentes", topic: "apps.view", component: AppsView, order: 70, '
-            'owner: "apps", group: "primary", icon: "apps" });') in apps_js
+            'owner: "apps", group: "primary", icon: "apps", mode: "simple" });') in apps_js
 
     summary_rule = rule(apps_css, ".apps-card-summary")
     assert "min-height: var(--target)" in summary_rule

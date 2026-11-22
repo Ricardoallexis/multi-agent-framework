@@ -56,7 +56,7 @@ def test_route_is_registered_linked_from_the_session_header_and_mounted_by_main(
     assert 'context = tree ? { section: "sessions", id: route.id } : route' in main
     assert "<${RightPanel} token=${token} route=${context} onDot=${setContextDot} />" in main   # GUI3-T04: onDot feeds the dot of «Contexto»
     # the list of sessions stays mounted (its filters and pages survive the trip), as before this task
-    assert 'active=${section === "sessions"}' in main
+    assert 'active=${section === "sessions" && !blocked}' in main   # SIM-T02: only the advanced-only screen shown in simple mode unmounts it
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     assert '<link rel="stylesheet" href="/gui/static/agent-tree.css">' in html
 

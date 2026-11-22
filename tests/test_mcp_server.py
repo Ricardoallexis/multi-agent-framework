@@ -500,7 +500,7 @@ def test_the_total_budget_counts_the_final_wrapped_length_not_the_source_length(
 
 def test_a_relative_bundle_path_is_rejected_even_when_it_points_to_a_real_bundle(monkeypatch, capsys):
     monkeypatch.chdir(ROOT)
-    relative = BUNDLE.relative_to(ROOT).as_posix()
+    relative = BUNDLE.resolve().relative_to(ROOT).as_posix()
     assert (Path(relative) / "workflows").is_dir() and not Path(relative).is_absolute()
     monkeypatch.setattr(mcp_server.ApplicationServices, "create",
                         staticmethod(lambda *a, **k: pytest.fail("services were built")))

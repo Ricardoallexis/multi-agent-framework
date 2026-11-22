@@ -170,7 +170,7 @@ def test_sidebar_has_new_session_search_groups_and_readable_status():
     assert 'side-summary" role="status"' not in sidebar  # the connection in the sidebar footer is its status landmark
     assert '<${PendingLink} current=' in sidebar and 'class="side-pending"' in sidebar
     assert 'class="side-sessions-head"' in sidebar and 'Ver todas' in sidebar
-    assert 'navigation.primary.map' in sidebar and 'navigation.more.map' in sidebar
+    assert 'navigation.primary.map' in sidebar and 'navigation.more.filter(' in sidebar
     # the status is text too: the dot is a StatusChip (GUI2-T11) whose component says the words for screen readers
     chip = (JS / "ui" / "status-chip.js").read_text(encoding="utf-8")
     assert '<${StatusChip} status=${item.dot} labels="dot" variant="dot"' in sidebar
