@@ -39,7 +39,7 @@ def real_sections() -> list[dict]:
     """The built-in sections of main.js, as {id, label, icon, mode}."""
     block = re.search(r"const SECTIONS = \[(.*?)\n\];", read("main.js"), re.S)[1]
     rows = re.findall(r'\{ id: "(\w+)", label: "([^"]+)", icon: "(\w+)", mode: "(\w+)" \}', block)
-    assert len(rows) == 9, rows   # every built-in section declares its mode
+    assert len(rows) == 10, rows   # every built-in section declares its mode
     return [{"id": a, "label": b, "icon": c, "mode": d} for a, b, c, d in rows]
 
 
@@ -102,6 +102,18 @@ def test_simple_navigation_is_the_closed_list():
     assert sorted(out["pending"]) == sorted(["approvals", "continuity", "document_alerts", "task_waiting"])   # the four views of today
     help_row = next(row for row in out["more"] if row["id"] == "help")
     assert help_row["action"] == "help"   # a row that turns help mode on, not a view
+
+
+@needs_node
+def test_simple_bar_has_inicio_while_steps_are_missing():
+    """INI-T03: with the real sections, «Inicio» leads the simple bar while a step is missing and waits in «Más» otherwise."""
+    out = run_node(SETUP + """
+      const waiting = navigationSections(builtins, extensions, [], "simple", true);
+      const done = navigationSections(builtins, extensions, [], "simple", false);
+      console.log(JSON.stringify({ waiting: ids(waiting.primary), waitingMore: ids(waiting.more), done: ids(done.primary), doneMore: ids(done.more) }));
+    """)
+    assert out["waiting"][0] == "start" and "start" not in out["waitingMore"]
+    assert "start" not in out["done"] and "start" in out["doneMore"]
 
 
 @needs_node
@@ -248,7 +260,7 @@ def test_the_six_extensions_declare_simple_and_the_built_ins_say_their_mode():
         call = re.search(r"registerView\(\{(.*?)\}\);", source, re.S)[1]
         assert re.search(r'\bmode:\s*"simple"', call), name
     modes = {section["id"]: section["mode"] for section in real_sections()}
-    assert {key for key, value in modes.items() if value == "simple"} == {"sessions", "usage", "customize", "packages"}
+    assert {key for key, value in modes.items() if value == "simple"} == {"sessions", "usage", "customize", "packages", "start"}
     assert {key for key, value in modes.items() if value == "advanced"} == {"runs", "evaluation", "teams", "plans", "map"}
     assert 'mode: view.mode' in read("main.js")   # the registered views carry their mode into the sections
 
@@ -259,7 +271,7 @@ def test_the_wiring_reads_the_mode_from_the_server_and_follows_it():
     assert "mode=${mode}" in main
     sidebar = read("sidebar.js")
     assert "writeHelpMode(true)" in sidebar and 'helpFor("shell.help_mode", { scope: "more" })' in sidebar
-    assert "runItems(data.runs, mode)" in sidebar and "navigationSections(" in sidebar and "pinned, mode)" in sidebar
+    assert "runItems(data.runs, mode)" in sidebar and "navigationSections(" in sidebar and "pinned, mode, inStartSidebar(start.status))" in sidebar
     customize = read("customize.js")
     assert 'helpFor("customize.advanced_mode")' in customize and 'topic="customize.advanced_mode"' in customize
     assert 'saveMode(token, event.target.checked ? "advanced" : "simple")' in customize

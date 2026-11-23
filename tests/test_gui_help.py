@@ -48,6 +48,7 @@ VIEW_FILES += ["plan-thread.js"]   # CHT-T06: the chat thread of a plan proposal
 VIEW_FILES += ["document-card.js"]   # ARR3-T06: the «Documento» card of a completed run
 VIEW_FILES += ["packages.js"]      # PAQ-T02: the «Paquetes» view; packages-model.js draws nothing
 VIEW_FILES += ["plan-draft.js"]   # ARR3-T02: the plan draft card of «Nueva sesión»
+VIEW_FILES += ["start.js"]         # INI-T03: «Inicio»; start-model.js draws nothing
 
 # The only controls without help, and why. A new exemption must be added here on purpose.
 ALLOWED_EXEMPT = {
@@ -492,6 +493,14 @@ def test_packages_help_keys_exist_and_are_used():
     """PAQ-T02: the five keys of «Paquetes» exist and the view uses each one as a hint and on a control."""
     source = read("packages.js")
     for key in ("packages.install_zip", "packages.example", "packages.trust_functions", "packages.remove", "packages.degraded"):
+        assert key in HELP, key
+        assert f'helpFor("{key}"' in source and f'topic="{key}"' in source, key
+
+
+def test_start_help_keys_exist_and_are_used():
+    """INI-T03: «Inicio» uses its three keys: the steps, «Tiempos» and the step to real models."""
+    source = read("start.js")
+    for key in ("start.steps", "start.times", "start.real_models"):
         assert key in HELP, key
         assert f'helpFor("{key}"' in source and f'topic="{key}"' in source, key
 

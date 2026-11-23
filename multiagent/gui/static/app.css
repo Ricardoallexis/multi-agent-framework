@@ -764,3 +764,18 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
   .topbar .badge.instance { max-width: 7rem; margin-left: 0; }
   .topbar h1 ~ .badge.instance { margin-left: 0; }
 }
+/* INI-T03 */
+/* «Inicio»: the pending steps, their buttons and «Tiempos». Only tokens of the page, no colour of its own; one column on a phone. */
+.start { display: flex; flex-direction: column; gap: 16px; min-width: 0; max-width: 72ch; }
+.start-steps { list-style: decimal; margin: 0; padding-left: 24px; display: flex; flex-direction: column; gap: 12px; }
+.start-step { display: flex; flex-direction: column; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.start-step-title { font-weight: 600; }
+.start-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.start-actions a.btn { display: inline-flex; align-items: center; min-height: var(--target); }
+.start-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--warn); border-radius: 8px; background: var(--warn-soft); }
+.start-confirm p { margin: 0; flex: 1 1 100%; }
+.start-back { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.start-times { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; padding-top: 8px; border-top: 1px solid var(--line); }
+.start-times-title { margin: 0; font-size: 1rem; }
+.start-times-text { margin: 0; max-width: 100%; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+@media (max-width: 599.98px) { .start-actions .btn, .start-confirm .btn, .start-times .btn, .start-back .btn { width: 100%; min-height: var(--target); } }

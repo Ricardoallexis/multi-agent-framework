@@ -16,6 +16,8 @@ import { HELP } from "./help-text.js";
 import { pendingTabs, tabRoute } from "./pending-model.js";
 import { relativeTime } from "./session-text.js";
 import { activityItems, appLabel, buildGroups, countsOf, isCurrent, navigationSections, runItems, sessionItems } from "./sidebar-model.js";
+import { inStartSidebar } from "./start-model.js";   // INI-T03
+import { refreshStart, useStartStatus } from "./start.js";   // INI-T03
 import { onChoiceChange, readMoreNoticeSeen, readPinnedSections, writeHelpMode, writeMoreNoticeSeen } from "./shell-state.js";
 import { PendingLink } from "./pending.js";
 import { Icon } from "./ui/icon.js";
@@ -70,6 +72,8 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
   const [now, setNow] = useState(Date.now());
   const ticket = useRef(0);
   const activityTicket = useRef(0);
+  const start = useStartStatus(token);   // INI-T03: one shared request; «Inicio» leads the list while a step is missing
+  useEffect(() => { refreshStart(token); }, [route.section]);
 
   async function load() {
     const mine = ++ticket.current;
@@ -135,7 +139,7 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
     : sessionItems(data.sessions).concat(runItems(data.runs, mode));
   const groups = buildGroups(items);
   const shown = groups.reduce((total, group) => total + group.items.length, 0);
-  const navigation = navigationSections(sections.filter((s) => !s.group), sections.filter((s) => s.group), pinned, mode);
+  const navigation = navigationSections(sections.filter((s) => !s.group), sections.filter((s) => s.group), pinned, mode, inStartSidebar(start.status));
   const dismissNotice = () => { setNoticeSeen(true); writeMoreNoticeSeen(); };
   useEffect(() => {
     if (route.section !== "sessions" && navigation.more.some((section) => section.id === route.section)) {

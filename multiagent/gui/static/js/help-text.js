@@ -2069,6 +2069,21 @@ export const HELP = {
     "hint": "«Guardar el plan» lo guarda para que lo revises. «Cancelar» lo descarta.",
     "more": ["Guardar no aprueba nada: abre el hilo del plan, donde están «Aprobar» y «Rechazar».", "Cuando guardas, los equipos que faltan quedan propuestos, no aprobados. Aprobar el plan antes que el equipo da un aviso en el hilo.", "«Cancelar» solo cierra el borrador: no se guarda ni se pierde nada más."]
   },
+  "start.steps": {
+    "title": "Pasos de Inicio",
+    "hint": "Solo se muestran los pasos que faltan, en orden. Cada uno trae su botón.",
+    "more": ["El producto comprueba cada paso por lo que hay de verdad en tu equipo; no hay nada que marcar a mano.", "Un paso hecho no vuelve a aparecer. «Conectar» y «Activar» te llevan a «Apps y agentes»: aquí no se activa nada.", "Esta lista se actualiza sola cada pocos segundos."]
+  },
+  "start.times": {
+    "title": "Tiempos de Inicio",
+    "hint": "La hora de cada paso hecho y los minutos desde el inicio.",
+    "more": ["«Copiar» pone este texto tal cual en el portapapeles. No copia ninguna configuración.", "Quien observa la prueba descuenta las descargas con su propio cronómetro."]
+  },
+  "start.real_models": {
+    "title": "Pasar a modelos reales",
+    "hint": "Cambia el ajuste de modelos a reales. Se aplica al abrir Iniciar de nuevo.",
+    "more": ["Los modelos reales pueden costar dinero o usar tu cuota. Antes de cambiar, esta pantalla te pide confirmar.", "Se ofrece cuando ya probaste en Mock y ves el documento en el hilo.", "Puedes volver a Mock aquí mismo cuando quieras."]
+  },
   "shell.instance_label": {
     "title": "Etiqueta de esta instancia",
     "hint": "Es el nombre que se puso a esta instancia. También aparece en el título de la pestaña.",

@@ -1044,6 +1044,30 @@ from a click: `GET /gui/api/start` returns them, and the screen only draws them.
   `{models, restart_required: true, text}`: the change applies the next time the person opens Iniciar. Any other value
   is a 422.
 
+### Start screen
+
+**Inicio** (`#start`, simple mode, `js/start.js` and `js/start-model.js`) draws only the steps that are still missing, in
+order. It sits in the sidebar, right after «Buscar», while a step is missing; when none is left it moves to «Más».
+Done steps never come back: the server keeps them, and the screen reads `pending` and `steps`.
+
+| Step | Actions |
+| --- | --- |
+| `install` | «Instalar el paquete de ejemplo» (`POST /gui/api/packages/example`, only when the packages answer says `example_available`) and «Instalar desde un archivo» (link to `#packages`) |
+| `try_mock` | «Probar en Mock» (link to `#new`), with the line «Cuando termine, verás el documento en el hilo» |
+| `connect` | «Conectar un agente» (link to «Apps y agentes») |
+| `activate` | «Activar un agente» (link to «Apps y agentes»; the activation itself is there, never here) |
+| `real_run` | «Pasar a modelos reales», only with `offer_real`; then «Correr con tus datos» (link to `#new`) |
+
+- **«Pasar a modelos reales»** first shows the fixed note «Los modelos reales pueden costar dinero o usar tu cuota.
+  Puedes volver a Mock aquí mismo» and waits for a second click. It then posts `{"models": "real"}` and shows the
+  server's text («Cierra esta ventana y vuelve a abrir Iniciar»). «Volver a Mock» posts `{"models": "mock"}`.
+- **Tiempos** shows `times_text` as plain text, and «Copiar» writes exactly that text to the clipboard. It is the only
+  «Copiar» of the screen, and it copies the hours, never a setting.
+- **Refresh.** The screen asks again every 4 seconds while it is open and when it is opened again. It never sends a
+  request while the previous one is still running (the first answer of a process can take several seconds, and the
+  screen says «Comprobando…» meanwhile). The sidebar shares the same request.
+- **Plain text.** Titles, hours and `times_text` are printed as text, never as HTML.
+
 ## Result document
 
 A completed run shows a «Documento» card under its thread, in the simple and in the advanced

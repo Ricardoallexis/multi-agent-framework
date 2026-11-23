@@ -12,7 +12,8 @@ import { visibleIn } from "./gui-mode.js";
 // not shown), «Más» ends with the «Ayuda» row (it turns help mode on, it is not a view), and every row carries its mode.
 export const HELP_ROW = { id: "help", label: "Ayuda", icon: "help", mode: "simple", action: "help" };
 
-export function navigationSections(builtins, extensions, pinned = [], mode = "advanced") {
+// INI-T03: while a step of «Inicio» is missing (startPending), `start` leads the primary list, right after «Buscar»; otherwise it is in «Más».
+export function navigationSections(builtins, extensions, pinned = [], mode = "advanced", startPending = false) {
   const pinnedIds = new Set(Array.isArray(pinned) ? pinned : []);
   const primary = [];
   const more = [];
@@ -24,7 +25,11 @@ export function navigationSections(builtins, extensions, pinned = [], mode = "ad
     if (!visibleIn(section, mode)) continue;
     const item = { id: section.id, label: section.label, icon: section.icon || "dots", mode: section.mode || "advanced" };
     if (section.group === "pending" && !pinnedIds.has(section.id)) pending.push(item);
-    else (section.group === "primary" || pinnedIds.has(section.id) ? primary : more).push(item);
+    else (section.group === "primary" || pinnedIds.has(section.id) || (startPending && section.id === "start") ? primary : more).push(item);
+  }
+  if (startPending) {
+    const at = primary.findIndex((item) => item.id === "start");
+    if (at > 0) primary.unshift(...primary.splice(at, 1));
   }
   if (mode === "simple") more.push({ ...HELP_ROW });
   return { primary, more, pending };
