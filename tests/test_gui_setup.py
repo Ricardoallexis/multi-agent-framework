@@ -348,13 +348,13 @@ def test_apps_pure_model_shows_only_the_missing_step_and_never_uses_network():
     assert execs["codex_cli"]["action"]["step"] == "login"
     assert "Activa en .codex/config.toml" in execs["codex_cli"]["permissions"]
 
-    assert execs["copilot_cli"]["action"]["kind"] == "enable_executor"
-    assert "enabled: true" in execs["copilot_cli"]["action"]["catalogLines"]
-    assert execs["copilot_cli"]["action"]["envLines"] is None
-
-    assert execs["antigravity_cli"]["action"]["kind"] == "enable_executor"
-    assert "enabled: true" in execs["antigravity_cli"]["action"]["catalogLines"]
-    assert execs["antigravity_cli"]["action"]["envLines"] == "ANTIGRAVITY_NOTICE_ACCEPTED=agy-third-party-notice/1"
+    # EJE-T02: «Activar» replaces the lines to paste; the manual way is one sentence of advanced mode
+    for executor in ("copilot_cli", "antigravity_cli"):
+        action = execs[executor]["action"]
+        assert action["kind"] == "enable_executor" and action["title"] == "Listo para activar"
+        assert not {"catalogLines", "envLines", "copyText"} & set(action)
+        assert action["manualText"] == "También puedes encenderlo a mano en catalog/models.yaml"
+    assert "agy" in execs["antigravity_cli"]["action"]["notice"] and "créditos de IA" in execs["antigravity_cli"]["action"]["notice"]
 
     assert models["gemini"]["action"] == {
         "kind": "key",

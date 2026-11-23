@@ -3,8 +3,9 @@
 The framework can run tasks through the Claude, Codex, and Copilot command-line adapters, and through the Antigravity
 CLI (agy) under supervision (see [Antigravity (agy), supervised](#antigravity-agy-supervised)). These adapters share the
 executor service and process runner, but each adapter builds its own command and reads that app's structured output.
-They are declared **disabled by default**. An operator must enable an executor in the catalog before the service can
-launch it.
+They are declared **disabled by default**. A person turns one on with **Activar** in the GUI
+(see [Choosing and launching from the GUI](#choosing-and-launching-from-the-gui)), or by hand in the advanced mode
+(see [Turning an executor on by hand](#turning-an-executor-on-by-hand)). The catalog keeps every executor off.
 
 ## Configuration and launch
 
@@ -54,11 +55,37 @@ one launch at a time.
   launch below. A refused launch cancels the task the route created. `GET /gui/api/executors/launch/{task_id}` follows the
   task.
 
-Enabling an executor is done by the person on their PC, and the GUI never does it. For agy that means two steps (see
-[Controls and launch](#controls-and-launch)): the catalog declaration `enabled: true` and
-`ANTIGRAVITY_NOTICE_ACCEPTED`. Until both hold, the row says «Falta habilitarlo» or «Falta aceptar el aviso de agy».
-The GUI shows the notice with each agy launch but does not accept it, and it does not read or change agy's own settings
-or the Google account.
+### Only a person turns an executor on
+
+Turning an executor on is the person's decision, made in the GUI, one executor at a time. The rules:
+
+- **Only the person, one by one.** «Apps y agentes» shows **Activar** on a card that is installed and signed in
+  (`ready`). There is no «Activar todos». The command line, the HTTP API (`/api/v1`), MCP, the plans and the agents
+  cannot activate: the routes are browser-only, and anything else answers that a person is needed
+  (`409`, `details.reason: person_required`).
+- **A fixed note first.** **Activar** opens a note the server writes. It says which application and which account will
+  be used, that every launch spends the person's own subscription and quota, that the agent reads and writes in the
+  working folder of each task, and that the terms of the provider apply. For agy it adds the third-party notice
+  (`agy-third-party-notice/1`) and says that AI credits are never used. The button of the note, for example
+  **Activar Codex**, is the one-use approval (the code lasts 120 s; if it expires the note says so and the person tries
+  again). **Cancelar** closes the note without deciding.
+- **A local setting.** The activation is saved in `executors-activados.json` in the local folder (`.local/`, outside the
+  repository), with who, when, the executor, its version and the account when the CLI reports it. The record is an event
+  of the team (`executor.activated`, `executor.deactivated`). `catalog/models.yaml` is not edited and stays all off.
+  Accepting agy's notice goes with its activation; the GUI does not read or change agy's own settings or the Google
+  account.
+- **When it asks again.** Only after a change of substance: another path of the application, another major version of
+  the CLI, or another account. A new minor version, or an account the CLI stops reporting, changes nothing. Until the
+  person reviews it, the executor is `paused` and shows what changed (**Revisar y activar**). A provider that changes
+  where it keeps data cannot be detected.
+- **Turning off is immediate.** **Desactivar** turns one executor off at once, without a note. **Apagar todos**, above the
+  list, asks for confirmation («Detiene lo que esté corriendo y pone todos en pausa»), stops what is running, pauses
+  every activation and, for agy, writes its kill switch file. A kill switch file that a person made by hand is never
+  touched: the card says agy is off because of a file the app did not write, and the person removes it.
+- **The limits do not change.** The quotas, the permissions, the privacy classes and the secret gate apply as before.
+
+The routes are `GET /gui/api/executors/activations`, `POST /gui/api/executors/{id}/activation`, `.../activate`,
+`.../deactivate` and `POST /gui/api/executors/stop-all` (see [Operator GUI](GUI.md#views)).
 
 ## The secret gate before a launch
 
@@ -107,10 +134,18 @@ only) or with **Abrir consola** in «Apps y agentes» of the [operator GUI](GUI.
   yourself.
 - agy has no `install` step, and its `login` has no command: the person signs in from their own terminal.
 
-The framework installs nothing in the background and never types credentials. «Apps y agentes» also shows, for an
-executor that is not enabled, the exact lines to add (`enabled: true` in `catalog/models.yaml` and, for agy, the notice
-line in `.local/.env`) with a **Copiar** button; copying writes nothing. Enabling stays the person's step, as in
-[Choosing and launching from the GUI](#choosing-and-launching-from-the-gui).
+The framework installs nothing in the background and never types credentials. When an executor is installed and
+signed in, «Apps y agentes» offers **Activar**
+([Only a person turns an executor on](#only-a-person-turns-an-executor-on)); it no longer shows lines to copy.
+
+### Turning an executor on by hand
+
+The manual way stays in the advanced mode, for another system or when the GUI is not at hand. It is the person's step,
+as before: the declaration `enabled: true` in `catalog/models.yaml`
+(`executor_routing: executors: <id>: enabled: true`) and, for agy, the notice line
+`ANTIGRAVITY_NOTICE_ACCEPTED=agy-third-party-notice/1` in `.local/.env`. The card says only «También puedes encenderlo a
+mano en `catalog/models.yaml`». An executor enabled this way is not paused by a change of version or account, because it
+has no activation record; **Apagar todos** does not turn it off either.
 
 ## Results, sessions, and limits
 

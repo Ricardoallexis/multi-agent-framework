@@ -298,3 +298,27 @@
     width: 100%;
   }
 }
+
+/* EJE-T02: «Activar», its note and «Apagar todos». */
+.apps-activation {
+  min-width: 0;
+}
+
+.apps-activation-detail {
+  font-weight: 600;
+}
+
+.apps-activation-note {
+  max-width: 100%;
+}
+
+.apps-activation-note .apps-step-text {
+  overflow-wrap: anywhere;
+}
+
+.apps-stop-all {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}

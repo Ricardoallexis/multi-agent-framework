@@ -3,6 +3,7 @@
 // Pure view-model for «Apps y agentes» (#apps): transforms /gui/api/connections and /gui/api/setup/status without DOM or network.
 import { formatQuotaLines } from "../../js/quota-text.js";
 import { limitReachedText, quotaWarningText } from "../../js/new-session-model.js";
+import { MANUAL_ENABLE_TEXT, activationView } from "./activation-model.js";   // EJE-T02
 
 export const EXECUTOR_IDS = ["claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"];
 export const MODEL_IDS = ["gemini", "openai", "ollama"];
@@ -41,9 +42,10 @@ export const AGY_NOTICE =
   "Usa tu suscripción de agy. Revisa las condiciones de tu plan y mantén desactivados los créditos de IA. " +
   "Respeta la cuota que muestra agy /usage; no uses cuentas compartidas o de terceros.";
 
+// EJE-T02: the person turns an executor on with «Activar» (one by one, after the fixed note of the server).
 export const EXECUTOR_ENABLE_NOTICE =
-  "Habilitar un ejecutor permite que el framework lance esta app bajo tu supervisión y usando tu suscripción. " +
-  "El visor nunca modifica estos archivos por ti.";
+  "Activar un ejecutor permite que el framework lance esta app bajo tu supervisión y usando tu suscripción. " +
+  "Solo lo activas tú, desde aquí y de uno en uno.";
 
 export function quotaLines(quota) {
   return formatQuotaLines(quota, { emptyWhenMissing: true });
@@ -117,7 +119,8 @@ function consoleAction(row, step, title, detail, setupStatus, { optional = false
 // SIM-T03: simple mode never shows a line to paste or a command to copy. The steps that edit a file (enable an executor or a model,
 // an API key) say that they belong to advanced mode; the console steps keep their button and lose the command text.
 export const ADVANCED_STEP_TEXT = "Este paso se hace en modo avanzado";
-const ADVANCED_STEP_KINDS = ["enable_executor", "enable_model", "key"];
+// EJE-T02: «Activar» is not a file edit, so an executor keeps its button in both modes.
+const ADVANCED_STEP_KINDS = ["enable_model", "key"];
 
 export function missingAction(row, kind, setupStatus, mode = "advanced") {
   const action = advancedAction(row, kind, setupStatus);
@@ -125,6 +128,10 @@ export function missingAction(row, kind, setupStatus, mode = "advanced") {
   if (ADVANCED_STEP_KINDS.includes(action.kind)) return { kind: "advanced_only", title: action.title, text: ADVANCED_STEP_TEXT };
   if (action.kind === "console") {
     const { commandText, ...rest } = action;
+    return rest;
+  }
+  if (action.kind === "enable_executor") {
+    const { manualText, ...rest } = action;
     return rest;
   }
   return action;
@@ -152,18 +159,12 @@ function advancedAction(row, kind, setupStatus) {
   if (step === "enable") {
     if (kind === "executor") {
       const isAgy = row.id === "antigravity_cli";
-      const catalogLines = `executor_routing:\n  executors:\n    ${row.id}:\n      enabled: true`;
-      const envLines = isAgy ? "ANTIGRAVITY_NOTICE_ACCEPTED=agy-third-party-notice/1" : null;
-      const copyText = envLines ? `${catalogLines}\n\n# En .local/.env:\n${envLines}` : catalogLines;
+      // EJE-T02: no line to paste and no «Copiar»; the button «Activar» (activation.js) does it. The manual way is a sentence.
       return {
         kind: "enable_executor",
-        title: isAgy && !row.notice_accepted ? "Falta habilitarlo y aceptar el aviso" : "Falta habilitarlo",
+        title: "Listo para activar",
         notice: isAgy ? AGY_NOTICE : EXECUTOR_ENABLE_NOTICE,
-        catalogFile: "catalog/models.yaml",
-        catalogLines,
-        envFile: envLines ? ".local/.env" : null,
-        envLines,
-        copyText,
+        manualText: MANUAL_ENABLE_TEXT,
       };
     }
     return {
@@ -271,7 +272,16 @@ function advancedAction(row, kind, setupStatus) {
   };
 }
 
-function statusChipFor(row) {
+// EJE-T02: the chip of an executor card is the state of «Activar» (the five states of activationView).
+const ACTIVATION_CHIPS = {
+  not_installed: "not_installed",
+  no_session: "no_session",
+  ready: "ready",
+  active: "active",
+  paused: "paused",
+};
+
+function statusChipFor(row, view = null) {
   if (row.id === "gemini") {
     if (row.available === true) {
       return row.verification === "verified"
@@ -284,6 +294,9 @@ function statusChipFor(row) {
   }
   if (row.available !== true && (row.limit || row.reason === "limit_reached" || row.reason === "quota_paused")) {
     return { status: "limit_reached", label: "Límite alcanzado" };
+  }
+  if (view && ACTIVATION_CHIPS[view.state]) {
+    return { status: ACTIVATION_CHIPS[view.state], label: view.label };
   }
   if (row.available === true) return { status: "ok", label: "Listo" };
   if (row.missing_step) return { status: "waiting", label: "Falta un paso" };
@@ -310,9 +323,12 @@ function tlsButton(button) {
   return { trust: button.trust, label: button.label };
 }
 
-function buildEntry(row, kind, setupStatus, mode) {
+function buildEntry(row, kind, setupStatus, mode, activation = null) {
   const perm = setupStatus?.permissions?.[row.id] || null;
-  const chip = statusChipFor(row);
+  const activationRow = kind === "executor" ? activation : null;
+  const view = kind === "executor" ? activationView(row, activationRow) : null;
+  // Without the answer of the server the chip stays what it was: an executor enabled by hand is «Listo», not «Listo para activar».
+  const chip = statusChipFor(row, activationRow ? view : null);
   const limited = row.available !== true && (Boolean(row.limit) || row.reason === "limit_reached" || row.reason === "quota_paused");
   const reasonText = row.available
     ? null
@@ -336,6 +352,7 @@ function buildEntry(row, kind, setupStatus, mode) {
     quota: row.id === "gemini" ? ["La API de Gemini no informa la cuota."] : quotaLines(row.quota),
     warning: quotaWarningText(row.warning),
     canProbe: kind === "model",
+    activation: view,
     tlsFix: tlsButton(row.tls_fix),
     tlsRevert: tlsButton(row.tls_revert),
     reasonText,
@@ -344,10 +361,13 @@ function buildEntry(row, kind, setupStatus, mode) {
   };
 }
 
-export function buildAppsView(connectionsPayload, setupStatus = null, mode = "advanced") {
+export function buildAppsView(connectionsPayload, setupStatus = null, mode = "advanced", activationsPayload = null) {
   const rows = Array.isArray(connectionsPayload?.connections) ? connectionsPayload.connections : [];
   const byId = new Map(rows.map((row) => [row.id, row]));
-  const executors = EXECUTOR_IDS.map((id) => byId.get(id)).filter(Boolean).map((row) => buildEntry(row, "executor", setupStatus, mode));
+  const activationRows = Array.isArray(activationsPayload?.executors) ? activationsPayload.executors : [];
+  const activationById = new Map(activationRows.map((item) => [item.id, item]));
+  const executors = EXECUTOR_IDS.map((id) => byId.get(id)).filter(Boolean)
+    .map((row) => buildEntry(row, "executor", setupStatus, mode, activationById.get(row.id) || null));
   const models = MODEL_IDS.map((id) => byId.get(id)).filter(Boolean).map((row) => buildEntry(row, "model", setupStatus, mode));
   return {
     executors,
@@ -355,5 +375,6 @@ export function buildAppsView(connectionsPayload, setupStatus = null, mode = "ad
     allowLaunch: setupStatus ? Boolean(setupStatus.allow_launch) : true,
     consoleSupported: setupStatus ? Boolean(setupStatus.console_supported) : true,
     empty: executors.length === 0 && models.length === 0,
+    canStopAll: activationRows.length > 0,
   };
 }

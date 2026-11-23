@@ -442,7 +442,7 @@ and opens nothing.
 
 Each tool in the list is a fold: its 44 px summary shows the name, the state in words and,
 while folded, the missing step in one line. A tool with a pending step starts open; the
-others start folded. The console step and the copyable commands are unchanged.
+others start folded. The console steps are unchanged; the lines to copy for an executor are gone, see **Activar** below.
 *What each card shows.* Whether the app is installed and its version, its session, its
 state (enabled, disabled, or for agy also whether the notice is accepted), the
 permission templates, the quota the usage plans report, the reason it is not ready, and
@@ -454,6 +454,31 @@ answers. The templates line is read only: it says whether the template of Claude
 (`docs/permissions/codex-config.template.toml`) is present and whether it is active
 (`.claude/settings.json`, `.codex/config.toml`), and that Copilot uses options for each
 run and agy its supervised modes. See [Permission profiles](PERMISSIONS.md#what-the-gui-shows).
+
+*Activar (executors).* The card of an executor has one of five states, read from
+`GET /gui/api/executors/activations`, and its chip says it:
+
+| State | Chip | What the card offers |
+| --- | --- | --- |
+| `not_installed` | No instalado | the official instructions, as before |
+| `no_session` | Instalado, sin sesión | the guided console to sign in (Windows) |
+| `ready` | Listo para activar | **Activar** |
+| `active` | Activo | «Activado por ti el …» and **Desactivar** |
+| `paused` | En pausa | what changed («Cambió la versión 2 → 3», or «En pausa: la apagaste con "Apagar todos"») and **Revisar y activar** |
+
+**Activar** (and **Revisar y activar**) asks the server for the activation (`POST /gui/api/executors/{id}/activation`) and
+shows its fixed note as text; the note is never HTML. The button of the note, **Activar Codex** (or the name of that
+executor), is the approval: the page asks for the one-use code (`POST /gui/api/approvals/{id}/challenge`), decides it
+(`.../decision`) and then calls `POST /gui/api/executors/{id}/activate`. The page takes the approvals session when it
+loads, as the approvals view does; `extensions/apps/activation.js` calls the approval routes itself and does not import
+the approvals extension. An expired code, an application that changed between the note and the click, or a page without
+the approvals session each give a message that says what to do; **Cancelar** closes the note without deciding.
+**Desactivar** turns one executor off at once. **Apagar todos**, above the list, asks «Detiene lo que esté corriendo y
+pone todos en pausa» and then calls `POST /gui/api/executors/stop-all`. If agy was switched off by a file the app did
+not write, the card says «agy está apagado por un archivo que no puso la app; quítalo tú para activarlo» and offers no
+**Activar**. Both modes show these buttons; the manual line, «También puedes encenderlo a mano en `catalog/models.yaml`»,
+is only in the advanced mode. Help keys: `apps.activate`, `apps.activation_note`, `apps.deactivate`, `apps.stop_all` and
+`apps.paused`. The rules are in [Only a person turns an executor on](EXECUTORS.md#only-a-person-turns-an-executor-on).
 
 *Probar conexión and the provider certificates.* A model card has **Probar conexión**
 (`POST /gui/api/connections/{id}/probe`). It makes one request that generates no text:
@@ -510,8 +535,9 @@ card rechecks that tool by itself; a path added to `PATH` by an install can show
 consoles opened afterwards.
 
 *Limits.* The GUI installs nothing by itself and signs in to nothing: it opens a console
-for the person, who presses Enter. It does not enable an executor, accept agy's notice,
-write a key or token, or touch the apps' own settings or the Google account. The console
+for the person, who presses Enter. The consoles enable no executor; only the person turns
+one on, with **Activar**, and that is the only way agy's notice is accepted by the app. The GUI
+never writes a key or token, or touches the apps' own settings or the Google account. The console
 exists only on Windows. The reasons and the quota text come as the services report them,
 so one can appear in English. See [Install and sign in](EXECUTORS.md#installing-and-signing-in-to-an-executor)
 for the command line.
@@ -906,9 +932,9 @@ draws what it always drew; the pure decisions live in `js/thread-model.js` (`sho
 | Run thread | «JSON completo», «Llamadas a modelo», «Ver pasos anteriores» and the earlier attempts, «Ver detalle» (`#runs/<id>`), the links «Ver plan» and «Ver equipo», the model or function of a step, the attempt number of a stop, and the JSON text of a final object output | the readable output of a review, the final object output as readable fields, the decision buttons |
 | Session | «Tokens de este mensaje»; a run event with no known text shows its type, not its JSON | the messages, tools and the rest of the items |
 | «Nueva sesión» | the line «Origen: …» of the suggested cards and of the summary, and «Ver como formulario» in the «＋» menu | «Usar un ejecutor» |
-| «Apps y agentes» | the lines to paste (`enabled: true`, `OPENAI_ENABLED=true`, the key name), «Copiar» and the command text of the console steps | the console buttons (install, sign in), «Volver a comprobar», «Probar conexión» and the certificate buttons |
+| «Apps y agentes» | the lines to paste (`OPENAI_ENABLED=true`, the key name), «Copiar», the command text of the console steps and the manual way to enable an executor | the console buttons (install, sign in), **Activar**, **Desactivar**, **Apagar todos**, «Volver a comprobar», «Probar conexión» and the certificate buttons |
 
-In «Apps y agentes» a step that edits a file (enable an executor or a model, an API key) is one line,
+In «Apps y agentes» a step that edits a file (enable a model, an API key) is one line,
 «Este paso se hace en modo avanzado» (help key `apps.advanced_step`). API keys stay in advanced mode.
 
 ## Adding a view, a panel section or help texts

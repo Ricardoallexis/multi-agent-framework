@@ -476,6 +476,18 @@ def test_apps_certificate_help_keys_exist_and_are_used():
         assert f'helpFor("{key}"' in view_source and f'topic="{key}"' in view_source
 
 
+def test_apps_activation_help_keys_exist_and_are_used():
+    """EJE-T02: «Activar», its note, «Desactivar», «Apagar todos» and the paused state point at their help."""
+    apps = STATIC_DIR / "extensions" / "apps"
+    help_source = (apps / HELP_FILE).read_text(encoding="utf-8")
+    view_source = (apps / "index.js").read_text(encoding="utf-8")
+    for key in ("apps.activate", "apps.activation_note", "apps.deactivate", "apps.stop_all", "apps.paused"):
+        assert f'"{key}": {{' in help_source, key
+        assert f'topic="{key}"' in view_source, key          # the "?" of the control or the note
+    for key in ("apps.activate", "apps.deactivate", "apps.stop_all", "apps.paused"):
+        assert f'helpFor("{key}"' in view_source, key        # and the button points at it
+
+
 def test_packages_help_keys_exist_and_are_used():
     """PAQ-T02: the five keys of «Paquetes» exist and the view uses each one as a hint and on a control."""
     source = read("packages.js")

@@ -195,6 +195,10 @@ def test_apps_simple_hides_copy_lines():
     """ % (json.dumps(_row(missing_step="enable")), json.dumps(_row(id="antigravity_cli", missing_step="enable"))))
     assert result["text"] == "Este paso se hace en modo avanzado"
     for name, action in result["cases"].items():
+        if name in ("executor", "agy"):   # EJE-T02: «Activar» is not a file edit, so an executor keeps its button in simple mode
+            assert action["kind"] == "enable_executor", name
+            assert not {"copyText", "catalogLines", "envLines", "manualText"} & set(action), name
+            continue
         assert action["kind"] == "advanced_only", name
         assert action["text"] == result["text"] and action["title"], name
         assert set(action) == {"kind", "title", "text"}, name   # no copyText, catalogLines, envLines, line, setting or detail
@@ -240,8 +244,9 @@ def test_apps_advanced_unchanged():
         assert default == advanced
     kinds = [pair[0] and pair[0]["kind"] for pair in result]
     assert kinds == ["enable_executor", "enable_executor", "enable_model", "key", "key", "console", "info", None]
-    assert result[0][0]["catalogLines"].endswith("enabled: true") and result[0][0]["copyText"] == result[0][0]["catalogLines"]
-    assert result[1][0]["envLines"] == "ANTIGRAVITY_NOTICE_ACCEPTED=agy-third-party-notice/1"
+    # EJE-T02: an executor has no lines to paste any more (its manual way is one sentence)
+    assert not {"catalogLines", "copyText", "envLines"} & set(result[0][0]) and "manualText" in result[0][0]
+    assert not {"catalogLines", "copyText", "envLines"} & set(result[1][0])
     assert result[2][0]["copyText"] == "OPENAI_ENABLED=true" and result[3][0]["setting"] == "GEMINI_API_KEY"
     assert result[5][0]["commandText"] == "npm i -g x" and result[5][0]["sourceDate"] == "2026-01-01"
 
@@ -258,15 +263,14 @@ def test_apps_view_passes_the_mode_and_keeps_certificate_and_probe_in_both():
       console.log(JSON.stringify({simple: brief("simple"), advanced: brief("advanced"),
         none: m0.buildAppsView(payload).executors[0].action.kind}));
     """)
-    assert result["simple"]["action"] == "advanced_only"
-    assert result["advanced"]["action"] == result["none"] == "enable_executor"
+    assert result["simple"]["action"] == result["advanced"]["action"] == result["none"] == "enable_executor"   # EJE-T02
     for mode in ("simple", "advanced"):
         assert result[mode]["canProbe"] is True and result[mode]["tls"] == {"trust": "system", "label": "Usar los certificados de Windows"}
 
 
 def test_apps_view_reads_the_mode_and_draws_the_advanced_step():
     index = read(APPS / "index.js")
-    assert "buildAppsView(connections, setupStatus, currentMode())" in index
+    assert "buildAppsView(connections, setupStatus, currentMode(), activations)" in index
     assert 'action.kind === "advanced_only"' in index and 'topic="apps.advanced_step"' in index
     assert '"apps.advanced_step": {' in read(APPS / "help.js")
 

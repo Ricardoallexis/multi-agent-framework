@@ -9,7 +9,7 @@ export const HELP = {
     "more": [
       "Muestra si cada herramienta está instalada, con sesión o clave, habilitada y sus plantillas de permisos.",
       "Las filas con un paso pendiente empiezan abiertas y las demás se despliegan al pulsarlas.",
-      "Nunca pide ni escribe claves secretas ni habilita ejecutores por ti."
+      "Nunca pide ni escribe claves secretas. Un ejecutor solo se activa cuando lo pulsas tú."
     ]
   },
   "apps.refresh": {
@@ -75,7 +75,7 @@ export const HELP = {
     "title": "Pasos del modo avanzado",
     "hint": "Este paso edita un archivo de configuración, y eso se hace en modo avanzado.",
     "more": [
-      "Habilitar un ejecutor o un modelo y poner una clave de API son cambios en archivos de este equipo.",
+      "Habilitar un modelo y poner una clave de API son cambios en archivos de este equipo.",
       "Activa el modo avanzado en «Personalizar» para ver las líneas exactas. El visor nunca edita esos archivos por ti."
     ]
   },
@@ -84,7 +84,49 @@ export const HELP = {
     "hint": "Copia estas líneas al portapapeles para pegarlas tú mismo.",
     "more": [
       "El servidor nunca edita el catálogo ni el archivo local por su cuenta.",
-      "Pégalas donde corresponda si decides habilitar esta herramienta, luego reinicia la aplicación."
+      "Pégalas donde corresponda si decides habilitar esta herramienta, luego reinicia la aplicación. Un ejecutor se activa con «Activar»."
+    ]
+  },
+  "apps.activate": {
+    "title": "Activar un ejecutor",
+    "hint": "Lee una nota fija y, si la aceptas, deja que el framework lance esta app.",
+    "more": [
+      "Solo lo activas tú, desde aquí y de uno en uno. Ni la línea de comandos, ni la API, ni los planes, ni los agentes pueden hacerlo.",
+      "La activación se guarda en un ajuste local fuera del repositorio. El catálogo sigue con todo apagado.",
+      "Puedes desactivarla cuando quieras."
+    ]
+  },
+  "apps.activation_note": {
+    "title": "Nota de activación",
+    "hint": "Dice qué aplicación y qué cuenta se usan, y qué implica activarla.",
+    "more": [
+      "Cada lanzamiento gasta tu suscripción y tu cuota. El agente lee y escribe en la carpeta de trabajo, y rigen las condiciones del proveedor.",
+      "El botón de la nota es la aprobación: el código de un solo uso dura dos minutos. Si vence, pulsa «Activar» otra vez.",
+      "«Cancelar» cierra la nota sin activar nada."
+    ]
+  },
+  "apps.deactivate": {
+    "title": "Desactivar",
+    "hint": "Apaga este ejecutor al momento, sin nota.",
+    "more": [
+      "El framework deja de poder lanzarlo hasta que lo actives otra vez.",
+      "Lo que ya esté corriendo no se detiene con este botón: para eso está «Apagar todos»."
+    ]
+  },
+  "apps.stop_all": {
+    "title": "Apagar todos",
+    "hint": "Detiene lo que esté corriendo y pone todos los ejecutores en pausa.",
+    "more": [
+      "Pide confirmación antes. Después, cada ejecutor se vuelve a activar a mano, uno por uno.",
+      "Para agy también escribe un archivo de apagado. Si ese archivo no lo puso la app, no lo toca."
+    ]
+  },
+  "apps.paused": {
+    "title": "Ejecutor en pausa",
+    "hint": "Quedó en pausa y hay que revisar y activarlo otra vez.",
+    "more": [
+      "Pasa si cambió la ruta de la aplicación, su versión principal o la cuenta, o si pulsaste «Apagar todos».",
+      "«Revisar y activar» muestra la nota otra vez. Una versión menor nueva no pausa nada."
     ]
   }
 };

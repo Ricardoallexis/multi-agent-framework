@@ -10,6 +10,8 @@ import { errorText, fmtDate } from "../../js/text.js";
 import { StatusChip } from "../../js/ui/status-chip.js";
 import { HELP } from "./help.js";
 import { buildAppsView } from "./model.js";
+import { STOP_ALL_CONFIRM, activationNote } from "./activation-model.js";   // EJE-T02
+import { activateExecutor, deactivateExecutor, requestActivation, stopAllExecutors } from "./activation.js";
 
 registerHelp(HELP, "apps");
 
@@ -23,6 +25,12 @@ const CHIP_LABELS = {
   key_invalid: { text: "Clave inválida", tone: "danger", shape: "square", explanation: "El proveedor rechazó la clave configurada." },
   no_access: { text: "Sin acceso", tone: "danger", shape: "square", explanation: "No se pudo conectar con el proveedor." },
   limit_reached: { text: "Límite alcanzado", tone: "danger", shape: "square", explanation: "Se alcanzó el límite de uso." },
+  // EJE-T02: the five states of an executor («Activar»).
+  not_installed: { text: "No instalado", tone: "danger", shape: "square", explanation: "La aplicación no está instalada." },
+  no_session: { text: "Instalado, sin sesión", tone: "warning", shape: "diamond", explanation: "Falta iniciar sesión en la aplicación." },
+  ready: { text: "Listo para activar", tone: "warning", shape: "diamond", explanation: "Instalado y con sesión; falta que lo actives tú." },
+  active: { text: "Activo", tone: "success", shape: "disc", explanation: "Lo activaste tú y el framework puede lanzarlo." },
+  paused: { text: "En pausa", tone: "warning", shape: "diamond", explanation: "Quedó en pausa; hay que revisar y activarlo otra vez." },
 };
 
 const CONSOLE_POLL_MS = 4000;
@@ -191,13 +199,11 @@ function MissingStep({ item, allowLaunch, consoleSupported, token, onRecheck, bu
       <${CopyBlock} label=${`Nombre del ajuste para ${action.file}:`} text=${`${action.setting}=`} scope=${item.id + "-key"} />
     </div>`;
   }
-  if (action.kind === "enable_executor") {
+  if (action.kind === "enable_executor") {   // EJE-T02: the button is in the activation panel of the card
     return html`<div class="apps-step">
-      <p class="apps-step-title">${action.title}</p>
+      <p class="apps-step-title">${item.activation && item.activation.state === "paused" ? item.activation.label : action.title}</p>
       <p class="apps-notice">${action.notice}</p>
-      <${CopyBlock} label=${`En ${action.catalogFile}:`} text=${action.catalogLines} scope=${item.id + "-cat"} />
-      ${action.envLines && html`<${CopyBlock} label=${`En ${action.envFile}:`} text=${action.envLines} scope=${item.id + "-env"} />`}
-      <p class="apps-step-text muted">Si decides habilitarlo, pega estas líneas, reinicia la aplicación y pulsa «Volver a comprobar».</p>
+      ${action.manualText && html`<p class="apps-step-text muted">${action.manualText}</p>`}
     </div>`;
   }
   if (action.kind === "enable_model") {
@@ -213,7 +219,125 @@ function MissingStep({ item, allowLaunch, consoleSupported, token, onRecheck, bu
   </div>`;
 }
 
-function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, busyAny, onBusyChange }) {
+// EJE-T02: «Activar» / «Desactivar» / «Revisar y activar» of one executor card. The note comes from the server and is drawn as text.
+const postWith = (token) => (path, body) => apiPost(path, token, body);
+
+function ActivationPanel({ item, token, onChanged }) {
+  const view = item.activation;
+  const [phase, setPhase] = useState("idle"); // idle | requesting | note | working
+  const [note, setNote] = useState(null);
+  const [request, setRequest] = useState(null);
+  const [message, setMessage] = useState(null); // {ok, text}
+  const confirmRef = useRef(null);
+  const scope = item.id;
+
+  useEffect(() => {
+    if (phase === "note" && confirmRef.current) confirmRef.current.focus();
+  }, [phase]);
+
+  async function openNote() {
+    if (phase !== "idle") return;
+    setMessage(null);
+    setPhase("requesting");
+    const outcome = await requestActivation({ executorId: item.id, post: postWith(token) });
+    if (!outcome.ok) {
+      setMessage({ ok: false, text: outcome.message });
+      setPhase("idle");
+      return;
+    }
+    setRequest(outcome.request);
+    setNote(activationNote(outcome.request, item.id));
+    setPhase("note");
+  }
+
+  function cancelNote() {
+    setNote(null);
+    setRequest(null);
+    setPhase("idle");
+  }
+
+  async function accept() {
+    if (phase !== "note") return;
+    setPhase("working");
+    const outcome = await activateExecutor({ token, executorId: item.id, post: postWith(token), request });
+    setNote(null);
+    setRequest(null);
+    setPhase("idle");
+    setMessage({ ok: outcome.ok, text: outcome.message });
+    if (outcome.ok) onChanged(item.id);
+  }
+
+  async function turnOff() {
+    if (phase !== "idle") return;
+    setMessage(null);
+    setPhase("working");
+    const outcome = await deactivateExecutor({ token, executorId: item.id, post: postWith(token) });
+    setPhase("idle");
+    setMessage({ ok: outcome.ok, text: outcome.message });
+    if (outcome.ok || outcome.refresh) onChanged(item.id);
+  }
+
+  const busy = phase !== "idle";
+  const can = (action) => view.actions.includes(action);
+  return html`<div class="apps-step apps-activation">
+    ${view.detail && html`<p class="apps-step-text apps-activation-detail">${view.detail}${view.state === "paused"
+      ? html`<${Help} topic="apps.paused" compact=${true} scope=${scope} />` : ""}</p>`}
+    ${phase !== "note" && (can("activate") || can("review") || can("deactivate")) && html`<div class="apps-actions">
+      ${can("activate") && html`<button type="button" class="btn" disabled=${busy} ...${helpFor("apps.activate", { scope })}
+        onClick=${openNote}>${phase === "requesting" ? "Preparando…" : "Activar"}</button>
+      <${Help} topic="apps.activate" compact=${true} scope=${scope} />`}
+      ${can("review") && html`<button type="button" class="btn" disabled=${busy} ...${helpFor("apps.paused", { scope: scope + "-review" })}
+        onClick=${openNote}>${phase === "requesting" ? "Preparando…" : "Revisar y activar"}</button>`}
+      ${can("deactivate") && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("apps.deactivate", { scope })}
+        onClick=${turnOff}>${phase === "working" ? "Desactivando…" : "Desactivar"}</button>
+      <${Help} topic="apps.deactivate" compact=${true} scope=${scope} />`}
+    </div>`}
+    ${phase === "note" && note && html`<div class="apps-confirm apps-activation-note" role="group" aria-label=${note.title}>
+      <p class="apps-step-title">${note.title}<${Help} topic="apps.activation_note" compact=${true} scope=${scope} /></p>
+      ${note.lines.map((line, index) => html`<p key=${index} class="apps-step-text">${line}</p>`)}
+      <div class="apps-actions">
+        <button type="button" class="btn" ref=${confirmRef} data-help-exempt="confirm" onClick=${accept}>${note.confirmLabel}</button>
+        <button type="button" class="btn secondary" data-help-exempt="confirm" onClick=${cancelNote}>Cancelar</button>
+      </div>
+    </div>`}
+    ${phase === "working" && html`<p class="apps-status-line muted" role="status">Un momento…</p>`}
+    ${message && html`<p class=${"message apps-status-line " + (message.ok ? "ok" : "error")} role=${message.ok ? "status" : "alert"}>${message.text}</p>`}
+  </div>`;
+}
+
+// «Apagar todos»: above the list of executors, with its confirmation.
+function StopAll({ token, onChanged }) {
+  const [phase, setPhase] = useState("idle"); // idle | confirm | working
+  const [message, setMessage] = useState(null);
+
+  async function stop() {
+    setPhase("working");
+    const outcome = await stopAllExecutors({ token, post: postWith(token), confirm: async () => true });
+    setPhase("idle");
+    setMessage({ ok: outcome.ok, text: outcome.message });
+    if (outcome.ok) onChanged();
+  }
+
+  return html`<div class="apps-stop-all">
+    ${phase === "idle" && html`<div class="apps-actions">
+      <button type="button" class="btn secondary" ...${helpFor("apps.stop_all")}
+        onClick=${() => { setMessage(null); setPhase("confirm"); }}>Apagar todos</button>
+      <${Help} topic="apps.stop_all" compact=${true} />
+    </div>`}
+    ${phase !== "idle" && html`<div class="apps-confirm" role="group" aria-label="Confirmar Apagar todos">
+      <p>${STOP_ALL_CONFIRM}.</p>
+      <div class="apps-actions">
+        <button type="button" class="btn" data-help-exempt="confirm" disabled=${phase === "working"} onClick=${stop}>
+          ${phase === "working" ? "Apagando…" : "Sí, apagar todos"}</button>
+        <button type="button" class="btn secondary" data-help-exempt="confirm" disabled=${phase === "working"}
+          onClick=${() => setPhase("idle")}>Cancelar</button>
+      </div>
+    </div>`}
+    ${message && html`<p class=${"message apps-status-line " + (message.ok ? "ok" : "error")} role=${message.ok ? "status" : "alert"}>${message.text}</p>`}
+  </div>`;
+}
+
+function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, onActivationChanged, busyAny, onBusyChange }) {
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState(null);
   const [open, setOpen] = useState(Boolean(item.defaultOpen));
@@ -280,8 +404,10 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, bu
           <dt>Comprobado</dt><dd>${item.checkedAt ? fmtDate(item.checkedAt) : "Sin fecha"}</dd>
         </dl>
         ${item.warning && html`<p class="apps-notice" role="status">${item.warning}</p>`}
-        <${MissingStep} item=${item} allowLaunch=${allowLaunch} consoleSupported=${consoleSupported} token=${token}
-          onRecheck=${recheck} busyAny=${busyAny} onBusyChange=${onBusyChange} />
+        ${!(item.activation && item.activation.state === "active") && html`<${MissingStep} item=${item} allowLaunch=${allowLaunch}
+          consoleSupported=${consoleSupported} token=${token} onRecheck=${recheck} busyAny=${busyAny} onBusyChange=${onBusyChange} />`}
+        ${item.activation && ["ready", "active", "paused"].includes(item.activation.state) && html`<${ActivationPanel} item=${item}
+          token=${token} onChanged=${onActivationChanged} />`}
         ${(item.tlsFix || item.tlsRevert) && html`<div class="apps-step apps-tls">
           <p class="apps-step-text">${item.tlsFix
             ? "Si confías en este equipo, los clientes de los proveedores pueden usar el almacén de certificados del sistema. El cambio queda registrado."
@@ -315,15 +441,18 @@ export function AppsView({ token }) {
   const [error, setError] = useState(null);
   const [setupWarning, setSetupWarning] = useState(null);
   const [consoleBusy, setConsoleBusy] = useState(false);
+  const [activations, setActivations] = useState(null);
 
   async function loadAll() {
     setLoading(true);
     setError(null);
     setSetupWarning(null);
-    const [connRes, setupRes] = await Promise.allSettled([
+    const [connRes, setupRes, activationRes] = await Promise.allSettled([
       apiGet("/gui/api/connections", token),
       apiGet("/gui/api/setup/status", token),
+      apiGet("/gui/api/executors/activations", token),   // EJE-T02
     ]);
+    setActivations(activationRes.status === "fulfilled" ? activationRes.value : null);
     if (connRes.status === "fulfilled") {
       setConnections(connRes.value);
     } else {
@@ -350,7 +479,21 @@ export function AppsView({ token }) {
     apiGet("/gui/api/setup/status", token).then(setSetupStatus).catch(() => {});
   }
 
-  const view = buildAppsView(connections, setupStatus, currentMode());
+  // EJE-T02: after «Activar», «Desactivar» or «Apagar todos» the states are read again and the connection is measured again.
+  async function handleActivationChanged(executorId) {
+    try {
+      setActivations(await apiGet("/gui/api/executors/activations", token));
+    } catch (_) { /* the next «Actualizar» reads it again */ }
+    if (!executorId) {
+      loadAll();
+      return;
+    }
+    try {
+      handleRowUpdated(await apiPost(`/gui/api/connections/${encodeURIComponent(executorId)}/check`, token, {}));
+    } catch (_) { /* the card keeps its last row */ }
+  }
+
+  const view = buildAppsView(connections, setupStatus, currentMode(), activations);
 
   return html`<section class="apps-view" aria-label="Apps y agentes" aria-busy=${loading ? "true" : "false"}>
     <div class="apps-head">
@@ -369,10 +512,11 @@ export function AppsView({ token }) {
       <div class="apps-section-head">
         <h4 id="apps-executors-title">Apps y ejecutores</h4><${Help} topic="apps.executors" />
       </div>
+      ${view.canStopAll && html`<${StopAll} token=${token} onChanged=${() => handleActivationChanged(null)} />`}
       <ul class="apps-grid">
         ${view.executors.map((item) => html`<${ToolCard} key=${item.id} item=${item}
           allowLaunch=${view.allowLaunch} consoleSupported=${view.consoleSupported} token=${token}
-          onRowUpdated=${handleRowUpdated} busyAny=${consoleBusy} onBusyChange=${setConsoleBusy} />`)}
+          onRowUpdated=${handleRowUpdated} onActivationChanged=${handleActivationChanged} busyAny=${consoleBusy} onBusyChange=${setConsoleBusy} />`)}
       </ul>
     </section>`}
     ${view.models.length > 0 && html`<section class="apps-section" aria-labelledby="apps-models-title">
