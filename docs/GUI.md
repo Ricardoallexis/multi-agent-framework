@@ -990,6 +990,34 @@ registerSlot("projects", ProjectCard, { title: "Proyecto", topic: "projects.card
 
 The built-in screens still list their stylesheets in `index.html`; new views do not.
 
+## Start screen steps (server)
+
+The **Inicio** screen follows five steps. The server computes each one from the real state of the installation, never
+from a click: `GET /gui/api/start` returns them, and the screen only draws them.
+
+| Step | Done when |
+| --- | --- |
+| `install` | `installed.list()` has an entry with `state: "ok"` (the `shipped` example counts) |
+| `try_mock` | A `completed` run created by this process, in Mock, whose document renders |
+| `connect` | `connections.list()` has an available row that is not a stand-in (only the rows are read, never a token) |
+| `activate` | `executor_activations.active_ids()` is not empty |
+| `real_run` | A `completed` run created by this process with real models, whose document renders |
+
+- **Only the runs of this process count.** `try_mock` and `real_run` look at `completed` runs whose `created_at` is not
+  before the start of the process (`FirstRunServices.started_at`), and at the mode of the process
+  (`settings.mock_mode`). A Mock run never marks `real_run`.
+- **A done step stays done.** The first time a step is seen done, its hour is written to
+  `<local_dir>/primer-recorrido.json` (`maf.first-run/1`, atomic write). That file stays on the computer: it is not an
+  `/api/v1` resource and no export carries it.
+- **Times.** The clock starts at `primer-recorrido-inicio.txt`, written by the launcher, or at the first
+  `status()` when that file is missing. `status().times` gives each done step with its hour and the minutes since the
+  start, and `times_text` (in the `GET /gui/api/start` answer) gives the same as plain text to copy. The person who
+  watches the test subtracts the downloads with their own stopwatch.
+- **Models.** `offer_real` is `true` when `try_mock` is done and the process is in Mock. `POST /gui/api/settings/models`
+  with `{"models": "mock" | "real"}` writes the `models` key of the server-side settings and answers
+  `{models, restart_required: true, text}`: the change applies the next time the person opens Iniciar. Any other value
+  is a 422.
+
 ## Result document
 
 A completed run shows a «Documento» card under its thread, in the simple and in the advanced

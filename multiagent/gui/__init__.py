@@ -51,6 +51,7 @@ from .runs import build_router as build_runs_router
 from .security import ApprovalSessions, GUISecurityHeadersMiddleware, require_json, require_token
 from .sessions_api import add_session_routes
 from .settings_api import add_settings_routes
+from .start_api import add_start_routes
 from .setup_api import add_setup_routes
 from .teams_api import add_teams_routes
 from .threads_api import add_thread_routes
@@ -140,6 +141,7 @@ def mount_gui(app: FastAPI) -> None:
     add_approval_routes(api, services)
     add_bundle_scan_routes(api, services)
     add_settings_routes(api, services)  # /gui/api/settings (SIM-T01)
+    add_start_routes(api, services)  # /gui/api/start and /gui/api/settings/models (INI-T02)
     add_package_routes(api, services)  # /gui/api/packages/* (PAQ-T02)
     add_thread_routes(api, services)  # /gui/api/threads/runs/{run_id} (CHT-T01)
     add_inbox_routes(api, services)  # AVA-T05: run and task messages
