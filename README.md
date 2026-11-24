@@ -78,7 +78,7 @@ You need Python 3.12, 3.13 or 3.14. If it is missing, the launcher opens the dow
 
 The first time, the launcher creates `.venv`, installs the pinned dependencies from `requirements.txt` (this needs the network), prepares the database and opens the interface in your browser, in Mock mode. Later starts only open the interface; the dependencies are installed again only when `requirements.txt` changes. It always runs `python -m ...` from `.venv` and touches nothing outside this folder and `.local/`. If a step fails, it says which one and waits for a key before closing.
 
-The first start writes the time to `.local/primer-recorrido-inicio.txt` (or to `%LOCAL_DIR%`, when that variable is set). To use real models, use Home > Pass to real models in the interface; the choice is kept in `.local/gui-settings.json`.
+The first start writes the time to `.local/primer-recorrido-inicio.txt` (or to `%LOCAL_DIR%`, when that variable is set). To use real models, use «Inicio» > «Pasar a modelos reales» in the interface; the choice is kept in `.local/gui-settings.json`.
 
 ### Advanced mode
 
