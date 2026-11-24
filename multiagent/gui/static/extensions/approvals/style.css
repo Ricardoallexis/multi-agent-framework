@@ -289,3 +289,14 @@
   min-height: var(--target);
   overflow-wrap: anywhere;
 }
+
+/* MEM-T02: the two texts of a clash between a new apunte and one the person confirmed */
+.approvals-clash-title {
+  display: block;
+}
+
+.approvals-clash-body {
+  display: block;
+  white-space: pre-wrap;
+  color: var(--muted);
+}

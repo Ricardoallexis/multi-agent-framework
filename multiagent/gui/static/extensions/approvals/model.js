@@ -50,6 +50,27 @@ export function memoryEntryTitle(location) {
   return clean || "Apunte sin título";
 }
 
+// MEM-T02: a memory_trust that clashes with an entry the person confirmed carries both texts, already cut by the server.
+// They are data written by someone else: only ever shown as text, and cut again here so a large answer cannot flood the card.
+export const CLASH_REASON =
+  "Este apunte contradice uno que confirmaste. Si lo apruebas, el nuevo pasa a fiable y el tuyo queda en Pendientes para que lo borres.";
+const CLASH_TITLE_MAX = 80;
+const CLASH_BODY_MAX = 240;
+const cutText = (value, max) => {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text.length > max ? text.slice(0, max - 1).trimEnd() + "…" : text;
+};
+export function memoryClash(row) {
+  const pair = row && typeof row === "object" ? row.conflict : null;
+  if (!pair || typeof pair !== "object" || Array.isArray(pair)) return null;
+  const side = (entry) => entry && typeof entry === "object" && !Array.isArray(entry)
+    ? { title: cutText(entry.title, CLASH_TITLE_MAX) || "Apunte sin título", body: cutText(entry.body, CLASH_BODY_MAX) }
+    : null;
+  const fresh = side(pair.new);
+  const existing = side(pair.existing);
+  return fresh && existing ? { new: fresh, existing } : null;
+}
+
 const SECRET_TYPE_LABELS = {
   private_key: "Clave privada",
   secret_key: "Clave secreta",
@@ -139,13 +160,15 @@ export function describeApproval(item) {
   };
   const types = formatSecretTypes(row.secret_types, kind);
   const memory = MEMORY_KINDS.includes(kind);
+  const conflict = kind === "memory_trust" ? memoryClash(row) : null;
   return {
     memory,
+    conflict,
     entryTitle: memory ? memoryEntryTitle(row.location) : "",
     id: String(row.id || ""),
     kind,
     title: info.label,
-    reason: info.reason,
+    reason: conflict ? CLASH_REASON : info.reason,
     destination: formatDestination(row.destination),
     location: formatLocation(row.location),
     types,

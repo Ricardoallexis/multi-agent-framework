@@ -31,7 +31,7 @@ def add_approval_routes(api: APIRouter, services: Any) -> None:
 
     @api.get("/approvals")
     def pending():
-        return {"items": services.user_approvals.pending()}
+        return {"items": [_with_clash(services, item) for item in services.user_approvals.pending()]}
 
     @api.post("/approvals/session")
     def session(body: SessionBody, request: Request, response: Response):
@@ -59,6 +59,17 @@ def add_approval_routes(api: APIRouter, services: Any) -> None:
         request.app.state.approval_sessions.verify(approval_id, approval["sha256"], browser_session, body.code)
         decided = services.user_approvals.decide(approval_id, body.decision, risk_ack=body.risk_ack)
         return _check_task_hold(services, decided)
+
+
+# MEM-T02: the card of a memory_trust that clashes with an entry the person confirmed shows both, read by id
+# (cut to a fixed size; the approval itself holds only the ids). The texts are data: the browser shows them as text.
+def _with_clash(services: Any, item: dict[str, Any]) -> dict[str, Any]:
+    location, destination = item.get("location"), item.get("destination")
+    if (item.get("kind") != "memory_trust" or not isinstance(location, dict) or not isinstance(destination, dict)
+            or not location.get("conflicts_with")):
+        return item
+    pair = services.memory.conflict_pair(str(destination.get("memory")), str(location["conflicts_with"]))
+    return {**item, "conflict": pair} if pair else item
 
 
 # SEC-T03: after the click, the task the gate held is checked at once instead of waiting for a watcher.

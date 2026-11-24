@@ -22,6 +22,12 @@ Nothing else turns an entry ``trusted`` or removes one on a ``user`` label. Ther
 holds at most ``MAX_ENTRIES`` entries. A project is named by its id or its name. No embeddings and no search: reading
 is by project and, optionally, by kind.
 
+MEM-T02: an untrusted entry that contradicts one the person confirmed (same project and kind, same normalized title,
+a different body) is never quoted in a prompt (``context.project_memory.select_entries``). Writing one adds
+``conflicts_with`` (the id of the confirmed entry) to the view, and keeping the new one takes its ``memory_trust`` approval
+(for an ``agent:`` or ``executor:`` author too, opened only when it clashes). Approving it trusts the new entry and
+opens a ``memory_delete`` for the old one, which waits for its own click: until then both are trusted and quoted.
+
 Every method returns JSON-ready data and raises only ``ServiceError``: ``not_found`` (project or entry),
 ``invalid_request`` (malformed data) or ``invalid_state`` (a non-user deletion, a full project).
 """
@@ -31,10 +37,10 @@ import re
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from ..context.project_memory import CONFIDENCES, KINDS, entry_sha256
+from ..context.project_memory import CONFIDENCES, KINDS, contradicted_by, entry_sha256
 from ..db.memory_store import MemoryStore
 from ..document_trust import Provenance, SourceKind
-from .errors import service_errors
+from .errors import ServiceError, service_errors
 from .projects import actor_kind
 from .tasks import _conflict, _invalid, _missing, _text
 
@@ -50,7 +56,10 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")      # tabs and newlines stay
 TRUST_KIND = "memory_trust"
 DELETE_KIND = "memory_delete"
 PENDING_REASON = "user_confirmation_pending"
+CONFLICT_REASON = "contradicts_confirmed_entry"
 _LOCATION_TITLE = 80            # an approval description holds at most 300 characters
+PAIR_TITLE_CHARS = 80           # what «Pendientes» shows of each entry of a clash: fixed sizes
+PAIR_BODY_CHARS = 240
 _SOURCE_KIND_BY_ACTOR = {"user": SourceKind.USER.value, "agent": SourceKind.MODEL_OUTPUT.value,
                          "executor": SourceKind.EXECUTOR_RESULT.value}
 
@@ -60,6 +69,12 @@ def _view(row: dict[str, Any]) -> dict[str, Any]:
             "body": row["body"], "confidence": row["confidence"], "trust": row["trust"],
             "source": {"kind": row["source_kind"], "actor": row["source_actor"], "ref": row["source_ref"]},
             "sha256": row["sha256"], "created_at": row["created_at"]}
+
+
+def _cut(row: dict[str, Any]) -> dict[str, str]:
+    def cut(text: str, size: int) -> str:
+        return text if len(text) <= size else text[:size - 1].rstrip() + "…"
+    return {"id": row["id"], "title": cut(row["title"], PAIR_TITLE_CHARS), "body": cut(row["body"], PAIR_BODY_CHARS)}
 
 
 class MemoryServices:
@@ -136,15 +151,40 @@ class MemoryServices:
                 body=body, confidence=confidence, source_kind=source_kind, source_actor=actor,
                 source_ref=source_ref, trust=trust, sha256=entry_sha256(title, body))
         view = _view(row)
-        if wants_trust:
+        confirmed = self._contradicted(row)
+        if confirmed:
+            view = {**view, "conflicts_with": confirmed[-1]["id"]}
+        if wants_trust or confirmed:
             location = {"source": "memory", "entry": row["id"], "title": title[:_LOCATION_TITLE]}
-            if requested == "high":
+            if requested == "high" and wants_trust:
                 location["confidence"] = "high"
-            approval = self._services.user_approvals.request(
-                kind=TRUST_KIND, destination={"memory": row["id"], "action": "trust"}, location=location,
-                sha256=row["sha256"])
-            view = {**view, "pending_approval": approval["id"], "details": {"reason": PENDING_REASON}}
+            if confirmed:
+                location["conflicts_with"] = confirmed[-1]["id"]
+            destination = {"memory": row["id"], "action": "trust"}
+            approval = None if wants_trust else self._services.user_approvals.pending_like(
+                TRUST_KIND, sha256=row["sha256"], destination=destination)
+            if approval is None:
+                approval = self._services.user_approvals.request(
+                    kind=TRUST_KIND, destination=destination, location=location, sha256=row["sha256"])
+            reason = PENDING_REASON if wants_trust else CONFLICT_REASON
+            view = {**view, "pending_approval": approval["id"], "details": {"reason": reason}}
         return view
+
+    def _contradicted(self, row: dict[str, Any]) -> list[dict[str, Any]]:
+        """The confirmed entries of the project that the untrusted ``row`` contradicts, oldest first."""
+        return contradicted_by(row, self.store.list(row["project_id"]))
+
+    def conflict_pair(self, entry_id: str, other_id: str) -> dict[str, Any] | None:
+        """The two entries of a clash as «Pendientes» shows them: ``{new, existing}``, each ``{id, title, body}`` cut to
+        a fixed size and read from the entries by their ids (nothing is copied into the approval). ``None`` when
+        either is gone or ``other_id`` is not a confirmed entry that ``entry_id`` contradicts."""
+        try:
+            new, old = self.store.get(self._entry_id(entry_id)), self.store.get(self._entry_id(other_id))
+        except ServiceError:
+            return None
+        if new is None or old is None or not contradicted_by(new, [old]):
+            return None
+        return {"new": _cut(new), "existing": _cut(old)}
 
     @service_errors
     def list(self, project: str, *, kind: str | None = None) -> dict[str, Any]:
@@ -178,13 +218,7 @@ class MemoryServices:
         row = self.store.get(entry_id)
         if row is None:
             raise _missing("Memory entry", entry_id)
-        approvals = self._services.user_approvals
-        destination = {"memory": entry_id, "action": "delete"}
-        found = approvals.pending_like(DELETE_KIND, sha256=row["sha256"], destination=destination)
-        if found is None:
-            found = approvals.request(
-                kind=DELETE_KIND, destination=destination, sha256=row["sha256"],
-                location={"source": "memory", "entry": entry_id, "title": row["title"][:_LOCATION_TITLE]})
+        found = self._ask_delete(row)
         return {"deleted": False, "id": entry_id, "pending_approval": found["id"],
                 "details": {"reason": PENDING_REASON}}
 
@@ -209,12 +243,31 @@ class MemoryServices:
                 return False
             if kind == DELETE_KIND:
                 return self.store.delete(conn, entry_id)
-            if row["trust"] == "trusted" or actor_kind(row["source_actor"]) != "user":
+            if row["trust"] == "trusted":
                 return False
             location = approval.get("location")
-            wanted = location.get("confidence") if isinstance(location, dict) else None
-            return self.store.set_trust(conn, entry_id, "trusted",
-                                        confidence=wanted if wanted in CONFIDENCES else None)
+            location = location if isinstance(location, dict) else {}
+            old = self._contradicted(row)
+            if actor_kind(row["source_actor"]) != "user" and not any(
+                    item["id"] == location.get("conflicts_with") for item in old):
+                return False                    # only a clash makes a non-user entry confirmable (MEM-T02)
+            wanted = location.get("confidence")
+            if not self.store.set_trust(conn, entry_id, "trusted", confidence=wanted if wanted in CONFIDENCES else None):
+                return False
+        for item in old:                        # the old one waits for its own click; nothing is deleted here
+            self._ask_delete(item)
+        return True
+
+    def _ask_delete(self, row: dict[str, Any]) -> dict[str, Any]:
+        """Open (or reuse) the ``memory_delete`` approval of an entry."""
+        approvals = self._services.user_approvals
+        destination = {"memory": row["id"], "action": "delete"}
+        found = approvals.pending_like(DELETE_KIND, sha256=row["sha256"], destination=destination)
+        if found is None:
+            found = approvals.request(
+                kind=DELETE_KIND, destination=destination, sha256=row["sha256"],
+                location={"source": "memory", "entry": row["id"], "title": row["title"][:_LOCATION_TITLE]})
+        return found
 
     @staticmethod
     def _entry_id(value: Any) -> str:

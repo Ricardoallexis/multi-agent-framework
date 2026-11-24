@@ -309,3 +309,34 @@ def test_memory_cards_show_the_entry_title_as_text_and_the_plain_words():
     assert 'helpFor("approvals.memory_trust"' in index_src and 'helpFor("approvals.memory_delete"' in index_src
     assert index_src.count('helpFor("approvals.approve"') == 1 and "!view.memory &&" in index_src
     assert "view.entryTitle" in index_src and "innerHTML" not in index_src and "style=" not in index_src
+
+
+# MEM-T02: a memory_trust that clashes with an entry the person confirmed shows both texts, as text, and says what Aprobar does
+@needs_node
+def test_a_clashing_memory_card_shows_the_pair_as_text_and_the_plain_words():
+    out = run_node("""
+      const hostile = "<img src=x onerror=alert(1)>";
+      const base = { id: "t", kind: "memory_trust", destination: { memory: "mem-1", action: "trust" },
+        location: { source: "memory", entry: "mem-1", title: "Plazo", conflicts_with: "mem-2" }, sha256: "a".repeat(64) };
+      const clash = approvals.describeApproval({ ...base, conflict: {
+        new: { id: "mem-1", title: hostile, body: "x".repeat(900) }, existing: { id: "mem-2", title: "Plazo", body: "31 de marzo" } } });
+      const plain = approvals.describeApproval(base);
+      const broken = approvals.describeApproval({ ...base, conflict: { new: "x", existing: null } });
+      const foreign = approvals.describeApproval({ id: "s", kind: "secret_send", conflict: { new: {}, existing: {} } });
+      console.log(JSON.stringify({ clash, plain: plain.conflict, broken: broken.conflict, foreign: foreign.conflict }));
+    """)
+    clash = out["clash"]
+    assert clash["conflict"]["new"]["title"] == "<img src=x onerror=alert(1)>"
+    assert len(clash["conflict"]["new"]["body"]) == 240 and clash["conflict"]["new"]["body"].endswith("…")
+    assert clash["conflict"]["existing"] == {"title": "Plazo", "body": "31 de marzo"}
+    for word in ("contradice", "apunte", "fiable", "Pendientes", "borres"):
+        assert word in clash["reason"]
+    assert out["plain"] is None and out["broken"] is None and out["foreign"] is None
+    index_src = (EXT_DIR / "index.js").read_text(encoding="utf-8")
+    help_src = (EXT_DIR / "help.js").read_text(encoding="utf-8")
+    topic = help_src[help_src.index('"approvals.memory_clash"'):]
+    topic = topic[:topic.index("},")]
+    for words in ("El apunte nuevo pasa a fiable", "Pendientes", "Nada se borra con este clic"):
+        assert words in topic
+    assert 'helpFor("approvals.memory_clash"' in index_src and "view.conflict.new.title" in index_src
+    assert "view.conflict.existing.body" in index_src and "innerHTML" not in index_src and "style=" not in index_src

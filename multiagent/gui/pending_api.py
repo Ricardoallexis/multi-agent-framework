@@ -29,6 +29,9 @@ def _item(kind: str, source_id: str, title: str, reason: str, since: Any, href: 
 # MEM-T01: what a person reads in «Pendientes» for the two memory approvals (the entry title is data, shown as text)
 _MEMORY_REASONS = {"memory_trust": "Confirma que este apunte es tuyo para que se trate como fiable",
                    "memory_delete": "Confirma que se borre este apunte; no se puede deshacer"}
+# MEM-T02: a new apunte that contradicts one the person confirmed
+_MEMORY_CLASH_REASON = ("Este apunte contradice uno que confirmaste. Si lo apruebas pasa a fiable "
+                        "y el tuyo queda en Pendientes para borrarlo")
 
 
 def _approval_item(approval: dict[str, Any]) -> dict[str, Any]:
@@ -40,6 +43,8 @@ def _approval_item(approval: dict[str, Any]) -> dict[str, Any]:
         entry = location.get("title") if isinstance(location, dict) else None
         title = "Apunte del proyecto" + (": " + entry if isinstance(entry, str) and entry.strip() else "")
         reason = _MEMORY_REASONS[kind]
+        if kind == "memory_trust" and isinstance(location, dict) and location.get("conflicts_with"):
+            reason = _MEMORY_CLASH_REASON
     return _item("approval", approval_id, title, reason, approval.get("created_at"),
                  "#approvals/" + quote(approval_id, safe=""))
 

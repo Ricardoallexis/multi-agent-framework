@@ -64,7 +64,12 @@ function ApprovalCard({ item, token, selected, sessionUnavailable, onSessionUnav
       <time class="approvals-time muted small" dateTime=${view.createdAt || null}>${fmtDate(view.createdAt)}</time>
     </div>
     <p class="approvals-reason">${view.reason}</p>
-    ${view.memory ? html`<dl class="approvals-facts">
+    ${view.conflict ? html`<dl class="approvals-facts approvals-clash">
+      <dt>Apunte nuevo</dt><dd><strong class="approvals-clash-title">${view.conflict.new.title}</strong>
+        <span class="approvals-clash-body">${view.conflict.new.body}</span></dd>
+      <dt>Tu apunte</dt><dd><strong class="approvals-clash-title">${view.conflict.existing.title}</strong>
+        <span class="approvals-clash-body">${view.conflict.existing.body}</span></dd>
+    </dl>` : view.memory ? html`<dl class="approvals-facts">
       <dt>Apunte</dt><dd>${view.entryTitle}</dd>
     </dl>` : html`<dl class="approvals-facts">
       <dt>Destino</dt><dd>${view.destination}</dd>
@@ -81,7 +86,14 @@ function ApprovalCard({ item, token, selected, sessionUnavailable, onSessionUnav
       </div>`}
     </div>`}
     <div class="approvals-actions" role="group" aria-label=${"Decisión para " + view.title}>
-      ${view.kind === "memory_trust" && html`<span class="approvals-action">
+      ${view.kind === "memory_trust" && view.conflict && html`<span class="approvals-action">
+        <button type="button" class="btn approvals-btn" disabled=${busy || sessionUnavailable}
+          ...${helpFor("approvals.memory_clash", { scope })} onClick=${() => decide("approve")}>
+          ${busy ? "Enviando…" : view.approveLabel}
+        </button>
+        <${Help} topic="approvals.memory_clash" compact=${true} scope=${scope} />
+      </span>`}
+      ${view.kind === "memory_trust" && !view.conflict && html`<span class="approvals-action">
         <button type="button" class="btn approvals-btn" disabled=${busy || sessionUnavailable}
           ...${helpFor("approvals.memory_trust", { scope })} onClick=${() => decide("approve")}>
           ${busy ? "Enviando…" : view.approveLabel}

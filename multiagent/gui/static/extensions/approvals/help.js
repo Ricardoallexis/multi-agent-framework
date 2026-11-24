@@ -36,6 +36,15 @@ export const HELP = {
       "Si no lo escribiste tú, pulsa Rechazar: el apunte se queda como no fiable."
     ]
   },
+  "approvals.memory_clash": {
+    "title": "Aprobar el apunte nuevo",
+    "hint": "El apunte nuevo pasa a fiable y el tuyo queda en Pendientes para que decidas si lo borras.",
+    "more": [
+      "Mientras no decidas, los dos apuntes se tratan como fiables. Nada se borra con este clic.",
+      "Usa un código de un solo uso y vale solo para este apunte, con este texto.",
+      "Si el apunte nuevo no es cierto, pulsa Rechazar: sigue como no fiable y no se usa."
+    ]
+  },
   "approvals.memory_delete": {
     "title": "Aprobar el borrado",
     "hint": "El apunte se borra y no se puede deshacer.",

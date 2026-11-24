@@ -9,10 +9,15 @@ the prompt it always got. The entries of the project are chosen under a size cap
 the more confident, then the newer; an entry that does not fit is left out whole and counted) and each one is
 quoted in the untrusted-data envelope of ``document_trust`` with its provenance in the header: they are
 data about the project, never instructions, whoever wrote them.
+
+An untrusted entry that contradicts one the person confirmed (MEM-T02: same project and kind, the same title once
+normalized, a different body) is not chosen at all and is counted apart in the note. Two untrusted entries that
+clash are both quoted: only what a person wrote is protected.
 """
 from __future__ import annotations
 
 import hashlib
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
@@ -98,9 +103,52 @@ class MemorySelection:
     chars: int
 
 
+def title_key(title: str) -> str:
+    """A title as the contradiction check compares it: NFKD without marks, ``casefold`` and single spaces."""
+    plain = "".join(char for char in unicodedata.normalize("NFKD", str(title)) if not unicodedata.combining(char))
+    return " ".join(plain.casefold().split())
+
+
+def contradicts(entry: Mapping[str, Any], confirmed: Mapping[str, Any]) -> bool:
+    """Whether the untrusted ``entry`` contradicts the person's ``confirmed`` one: same project and kind, same
+    normalized title and a different body (the same body is a repeat, not a clash)."""
+    return (entry["trust"] != "trusted" and confirmed["trust"] == "trusted" and entry["id"] != confirmed["id"]
+            and entry.get("project_id") == confirmed.get("project_id") and entry["kind"] == confirmed["kind"]
+            and title_key(entry["title"]) == title_key(confirmed["title"])
+            and str(entry["body"]).strip() != str(confirmed["body"]).strip())
+
+
+def contradicted_by(entry: Mapping[str, Any], entries: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The confirmed entries of ``entries`` that the untrusted ``entry`` contradicts (empty for a trusted one)."""
+    return [other for other in entries if contradicts(entry, other)]
+
+
+class OmittedCount(int):
+    """How many entries were left out, as the plain integer the engine records, that also knows how many of them
+    were left out for contradicting an entry the person confirmed (``conflicts``; the rest fell to the size cap)."""
+
+    conflicts: int
+
+    def __new__(cls, total: int, conflicts: int = 0):
+        value = super().__new__(cls, total)
+        value.conflicts = conflicts
+        return value
+
+
+@dataclass(frozen=True)
+class MemorySelection:
+    entries: tuple[Mapping[str, Any], ...]
+    omitted: int            # an ``OmittedCount``: the size cap plus the contradictions
+    chars: int
+
+
 def select_entries(entries: Sequence[Mapping[str, Any]], setting: MemorySetting) -> MemorySelection:
-    """The entries that fit ``setting``: trusted first, then confidence, then newest; whole entries only."""
-    wanted = [item for item in entries if item["kind"] in setting.kinds]
+    """The entries that fit ``setting``: trusted first, then confidence, then newest; whole entries only.
+
+    An untrusted entry that contradicts a confirmed one is never chosen, however much room there is."""
+    asked = [item for item in entries if item["kind"] in setting.kinds]
+    clashing = [item for item in asked if contradicted_by(item, asked)]
+    wanted = [item for item in asked if not any(item is other for other in clashing)]
     ranked = sorted(range(len(wanted)), key=lambda index: (
         wanted[index]["trust"] != "trusted", -_RANK.get(wanted[index]["confidence"], 0), -index))
     chosen: list[Mapping[str, Any]] = []
@@ -110,7 +158,7 @@ def select_entries(entries: Sequence[Mapping[str, Any]], setting: MemorySetting)
         if used + size <= setting.max_chars:
             chosen.append(wanted[index])
             used += size
-    return MemorySelection(tuple(chosen), len(wanted) - len(chosen), used)
+    return MemorySelection(tuple(chosen), OmittedCount(len(asked) - len(chosen), len(clashing)), used)
 
 
 def render_entry(entry: Mapping[str, Any], text: str | None = None) -> str:
@@ -119,4 +167,14 @@ def render_entry(entry: Mapping[str, Any], text: str | None = None) -> str:
 
 
 def omitted_note(omitted: int) -> str:
-    return f"({omitted} more project memory entries left out by the size cap.)" if omitted else ""
+    """The note after the entries: how many were left out by the size cap and how many for contradicting an entry
+    the person confirmed (an ``OmittedCount`` tells them apart; a plain integer is all size cap)."""
+    clashes = min(int(getattr(omitted, "conflicts", 0)), int(omitted))
+    capped = int(omitted) - clashes
+    notes = []
+    if capped:
+        notes.append(f"({capped} more project memory entries left out by the size cap.)")
+    if clashes:
+        notes.append("(1 project memory entry left out: it contradicts an entry the person confirmed.)" if clashes == 1
+                     else f"({clashes} project memory entries left out: they contradict entries the person confirmed.)")
+    return " ".join(notes)
