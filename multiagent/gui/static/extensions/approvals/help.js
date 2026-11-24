@@ -28,6 +28,22 @@ export const HELP = {
       "No recuerda la decisión ni autoriza futuros envíos o cambios en el texto."
     ]
   },
+  "approvals.memory_trust": {
+    "title": "Aprobar este apunte",
+    "hint": "El apunte pasa a fiable: se tratará como un apunte que tú confirmaste.",
+    "more": [
+      "Usa un código de un solo uso y vale solo para este apunte, con este texto.",
+      "Si no lo escribiste tú, pulsa Rechazar: el apunte se queda como no fiable."
+    ]
+  },
+  "approvals.memory_delete": {
+    "title": "Aprobar el borrado",
+    "hint": "El apunte se borra y no se puede deshacer.",
+    "more": [
+      "Usa un código de un solo uso y vale solo para este apunte.",
+      "Si no pediste borrarlo, pulsa Rechazar: el apunte se queda como está."
+    ]
+  },
   "approvals.reject": {
     "title": "Rechazar solicitud",
     "hint": "Niega esta solicitud para que nada reservado salga ni se cargue.",

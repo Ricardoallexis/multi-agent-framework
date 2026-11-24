@@ -26,6 +26,8 @@ from multiagent import cli
 from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.context import project_memory as pm
+from multiagent.gui.security import APPROVAL_COOKIE
+from multiagent.gui.token import ensure_token
 from multiagent.db.database import Database
 from multiagent.db.memory_store import MemoryStore
 from multiagent.document_trust import ENVELOPE_OPEN, resolve_policy
@@ -70,7 +72,7 @@ def test_migration_adds_the_table_to_an_existing_database_and_keeps_rows(tmp_pat
 
 def make_services(root: Path) -> ApplicationServices:
     settings = Settings(_env_file=None, local_dir=root, worker_enabled=False, mock_mode=True, gemini_api_key="",
-                        openai_api_key="", openai_enabled=False)
+                        openai_api_key="", openai_enabled=False, gui_token_file=root.parent / "gui-token")
     return ApplicationServices.create(settings)
 
 
@@ -82,18 +84,32 @@ def services(tmp_path):
     services.runs.close()
 
 
-def test_create_list_read_and_delete_with_provenance(services):
+def stored(entry):
+    """The entry as ``get`` and ``list`` show it: the answer of ``create`` also carries the pending approval."""
+    return {key: value for key, value in entry.items() if key not in ("pending_approval", "details")}
+
+
+def test_create_list_read_and_delete_with_provenance(services, gui):
     entry = services.memory.create("memo", kind="decision", title="Tone", body="Plain and warm.",
                                    actor="user:ana", confidence="high", source_ref="run:abc")
-    assert entry["id"].startswith("mem-") and entry["trust"] == "trusted" and entry["confidence"] == "high"
+    # MEM-T01: a user label is a claim; the entry waits for a person (and a requested ``high`` waits with it)
+    assert entry["id"].startswith("mem-") and entry["trust"] == "untrusted" and entry["confidence"] == "medium"
+    assert entry["details"] == {"reason": "user_confirmation_pending"} and entry["pending_approval"]
     assert entry["source"] == {"kind": "user", "actor": "user:ana", "ref": "run:abc"}
-    assert services.memory.get(entry["id"]) == entry
+    assert services.memory.get(entry["id"]) == stored(entry)
     listed = services.memory.list("memo")
-    assert listed["count"] == 1 and listed["entries"] == [entry]
-    assert services.memory.list(entry["project_id"])["entries"] == [entry]      # by id as well as by name
+    assert listed["count"] == 1 and listed["entries"] == [stored(entry)]
+    assert services.memory.list(entry["project_id"])["entries"] == [stored(entry)]      # by id as well as by name
     assert services.memory.list("memo", kind="fact")["entries"] == []
 
-    assert services.memory.delete(entry["id"], actor="user:ana") == {"deleted": True, "id": entry["id"]}
+    decide_with_code(gui, entry["pending_approval"])
+    confirmed = services.memory.get(entry["id"])
+    assert confirmed["trust"] == "trusted" and confirmed["confidence"] == "high"
+
+    asked = services.memory.delete(entry["id"], actor="user:ana")
+    assert asked["deleted"] is False and asked["details"] == {"reason": "user_confirmation_pending"}
+    assert services.memory.list("memo")["count"] == 1                    # nothing goes without the person
+    decide_with_code(gui, asked["pending_approval"])
     assert services.memory.list("memo")["count"] == 0
     with pytest.raises(ServiceError) as error:
         services.memory.get(entry["id"])
@@ -120,6 +136,8 @@ def test_only_the_user_deletes_and_bad_requests_are_refused(services):
         services.memory.delete(entry["id"], actor="agent:codex")
     assert error.value.code == "invalid_state" and error.value.details["reason"] == "confirmation_required"
     assert services.memory.get(entry["id"])["id"] == entry["id"]
+    assert not services.user_approvals.pending_like(
+        "memory_delete", sha256=entry["sha256"], destination={"memory": entry["id"], "action": "delete"})
     for bad in ({"kind": "opinion"}, {"title": "two\nlines"}, {"title": " "}, {"body": "x" * 2001},
                 {"confidence": "certain"}, {"source_ref": "has blank"}):
         arguments = {"kind": "fact", "title": "t", "body": "b", "actor": "user:ana", **bad}
@@ -173,27 +191,160 @@ def test_cli_and_api_manage_the_memory_the_same_way(monkeypatch, capsys, service
         created = json.loads(invoke_cli(monkeypatch, capsys, client, [
             "memory", "add", "memo", "--kind", "decision", "--title", "Tone", "--text", "Plain and warm.",
             "--actor", "user:ana", "--confidence", "high", "--source-ref", "run:1"]))
-        assert created["trust"] == "trusted" and created["source"]["actor"] == "user:ana"
+        assert created["trust"] == "untrusted" and created["source"]["actor"] == "user:ana"
+        assert created["details"] == {"reason": "user_confirmation_pending"} and created["pending_approval"]
+        assert created["confidence"] == "medium"
+        via_api = client.post("/api/v1/projects/memo/memory", json={
+            "kind": "fact", "title": "Same", "body": "Same.", "actor": "user:ana", "confidence": "high"})
+        assert via_api.status_code == 201 and via_api.json()["trust"] == "untrusted"
+        assert via_api.json()["details"]["reason"] == "user_confirmation_pending"
+        assert via_api.json()["pending_approval"] and via_api.json()["confidence"] == "medium"
         posted = client.post("/api/v1/projects/memo/memory", json={
             "kind": "fact", "title": "Stack", "body": "SQLite.", "actor": "agent:codex"})
         assert posted.status_code == 201 and posted.json()["trust"] == "untrusted"
 
         listed_cli = json.loads(invoke_cli(monkeypatch, capsys, client, ["memory", "list", "memo"]))
         assert listed_cli == client.get("/api/v1/projects/memo/memory").json() == services.memory.list("memo")
-        assert listed_cli["count"] == 2
+        assert listed_cli["count"] == 3
         only_facts = json.loads(invoke_cli(monkeypatch, capsys, client, ["memory", "list", "memo", "--kind", "fact"]))
         assert only_facts == client.get("/api/v1/projects/memo/memory", params={"kind": "fact"}).json()
         assert json.loads(invoke_cli(monkeypatch, capsys, client, ["memory", "show", created["id"]])) \
-            == client.get(f"/api/v1/memory/{created['id']}").json() == created
+            == client.get(f"/api/v1/memory/{created['id']}").json() == stored(created)
 
         refused = client.delete(f"/api/v1/memory/{created['id']}", params={"actor": "agent:codex"})
         assert refused.status_code == 409 and refused.json()["detail"]["code"] == "invalid_state"
-        gone = json.loads(invoke_cli(monkeypatch, capsys, client, ["memory", "delete", created["id"], "--actor", "user:ana"]))
-        assert gone == {"deleted": True, "id": created["id"]}
-        assert client.get(f"/api/v1/memory/{created['id']}").status_code == 404
-        assert client.delete(f"/api/v1/memory/{posted.json()['id']}", params={"actor": "user:ana"}).json()["deleted"]
-        assert client.get("/api/v1/projects/memo/memory").json()["count"] == 0
+        asked = json.loads(invoke_cli(monkeypatch, capsys, client, ["memory", "delete", created["id"], "--actor", "user:ana"]))
+        assert asked["deleted"] is False and asked["id"] == created["id"] and asked["pending_approval"]
+        assert asked["details"] == {"reason": "user_confirmation_pending"}
+        assert client.get(f"/api/v1/memory/{created['id']}").status_code == 200       # still there: no person yet
+        again = client.delete(f"/api/v1/memory/{created['id']}", params={"actor": "user:ana"}).json()
+        assert again["pending_approval"] == asked["pending_approval"]              # the open request is reused
+        assert client.get("/api/v1/projects/memo/memory").json()["count"] == 3
         assert client.get("/api/v1/projects/ghost/memory").status_code == 404
+
+
+# --- MEM-T01: a person confirms trust and deletion ----------------------------------------------------
+
+@pytest.fixture
+def gui(services, tmp_path):
+    """The GUI over the same services; ``decide_with_code`` is the double of the person's click."""
+    token = ensure_token(tmp_path / "gui-token")
+    app = create_app(services=services)
+    app.state.approval_sessions.bootstrap_code = "synthetic-start-code"
+    clock = [1000.0]
+    app.state.approval_sessions.clock = lambda: clock[0]
+    with TestClient(app, base_url="http://localhost") as client:
+        yield SimpleNamespace(client=client, headers={"Authorization": f"Bearer {token}"}, clock=clock)
+
+
+def gui_post(gui, path, body=None):
+    return gui.client.post("/gui/api" + path, headers=gui.headers, json=body if body is not None else {})
+
+
+def decide_with_code(gui, approval_id, decision="approve", code=None):
+    if gui.client.cookies.get(APPROVAL_COOKIE) is None:
+        assert gui_post(gui, "/approvals/session", {"code": "synthetic-start-code"}).status_code == 200
+    code = code or gui_post(gui, f"/approvals/{approval_id}/challenge").json()["code"]
+    done = gui_post(gui, f"/approvals/{approval_id}/decision", {"decision": decision, "code": code})
+    assert done.status_code == 200, done.text
+    return done.json()
+
+
+def test_a_user_entry_stays_untrusted_until_the_one_use_code_is_spent_on_it(services, gui):
+    mine = services.memory.create("memo", kind="fact", title="Mine", body="One.", actor="user:ana", confidence="high")
+    other = services.memory.create("memo", kind="fact", title="Other", body="Two.", actor="user:ana")
+    assert mine["trust"] == other["trust"] == "untrusted"
+    assert services.user_approvals.status(mine["pending_approval"])["kind"] == "memory_trust"
+    # no code, a code of another approval, a spent code and an expired one: nothing is trusted
+    assert gui_post(gui, "/approvals/session", {"code": "synthetic-start-code"}).status_code == 200
+    path = f"/approvals/{mine['pending_approval']}/decision"
+    assert gui_post(gui, path, {"decision": "approve"}).status_code == 409
+    foreign = gui_post(gui, f"/approvals/{other['pending_approval']}/challenge").json()["code"]
+    assert gui_post(gui, path, {"decision": "approve", "code": foreign}).status_code == 409
+    expiring = gui_post(gui, f"/approvals/{mine['pending_approval']}/challenge").json()["code"]
+    gui.clock[0] += 120
+    assert gui_post(gui, path, {"decision": "approve", "code": expiring}).status_code == 409
+    assert services.memory.get(mine["id"])["trust"] == services.memory.get(other["id"])["trust"] == "untrusted"
+    assert services.user_approvals.status(mine["pending_approval"])["state"] == "pending"
+    # the person's click on one entry trusts that entry, once, and not the other
+    code = gui_post(gui, f"/approvals/{mine['pending_approval']}/challenge").json()["code"]
+    assert gui_post(gui, path, {"decision": "approve", "code": code}).json()["state"] == "consumed"
+    assert gui_post(gui, path, {"decision": "approve", "code": code}).status_code == 409
+    assert services.memory.get(mine["id"])["trust"] == "trusted"
+    assert services.memory.get(mine["id"])["confidence"] == "high"          # what the person asked for, now confirmed
+    assert services.memory.get(other["id"])["trust"] == "untrusted"
+
+
+def test_rejecting_keeps_the_entry_untrusted_and_deleting_needs_its_own_code(services, gui):
+    entry = services.memory.create("memo", kind="fact", title="Doubt", body="Maybe.", actor="user:ana")
+    assert decide_with_code(gui, entry["pending_approval"], "reject")["state"] == "rejected"
+    assert services.memory.get(entry["id"])["trust"] == "untrusted"
+    # the old trust approval cannot delete, and the delete request is a different, hidden-free approval
+    asked = services.memory.delete(entry["id"], actor="user:ana")
+    assert asked["pending_approval"] != entry["pending_approval"]
+    assert services.user_approvals.status(asked["pending_approval"])["kind"] == "memory_delete"
+    assert services.memory.get(entry["id"])["id"] == entry["id"]
+    assert decide_with_code(gui, asked["pending_approval"], "reject")["state"] == "rejected"
+    assert services.memory.get(entry["id"])["id"] == entry["id"]
+    # a rejected request does not block a new one
+    again = services.memory.delete(entry["id"], actor="user:ana")
+    assert again["pending_approval"] != asked["pending_approval"]
+
+
+def test_the_other_authors_keep_working_as_before_and_ask_nobody(services):
+    for actor in ("agent:codex/gpt", "executor:codex_cli", "person:luz"):
+        written = services.memory.create("memo", kind="fact", title=actor, body="b", actor=actor, confidence="high")
+        assert written["trust"] == "untrusted" and written["confidence"] == "medium"
+        assert "pending_approval" not in written and "details" not in written
+    assert services.user_approvals.pending() == []
+
+
+def test_a_memory_approval_cannot_trust_or_delete_a_changed_or_foreign_entry(services, gui):
+    entry = services.memory.create("memo", kind="fact", title="Real", body="Real.", actor="user:ana")
+    agent = services.memory.create("memo", kind="fact", title="Agent", body="Agent says so.", actor="agent:codex")
+    approval = services.user_approvals.status(entry["pending_approval"])
+    forged = services.user_approvals.request(
+        kind="memory_trust", destination={"memory": agent["id"], "action": "trust"},
+        location={"source": "memory", "entry": agent["id"]}, sha256=agent["sha256"])
+    decide_with_code(gui, forged["id"])
+    assert services.memory.get(agent["id"])["trust"] == "untrusted"             # only a user label can be confirmed
+    mismatched = services.user_approvals.request(
+        kind="memory_trust", destination={"memory": entry["id"], "action": "trust"},
+        location={"source": "memory", "entry": entry["id"]}, sha256="0" * 64)
+    decide_with_code(gui, mismatched["id"])
+    assert services.memory.get(entry["id"])["trust"] == "untrusted"             # another digest than the entry's
+    assert approval["state"] == "pending"
+
+
+def test_a_pending_entry_is_quoted_as_untrusted_and_goes_after_the_trusted_ones(services, gui):
+    first = services.memory.create("memo", kind="fact", title="Confirmed", body="Kept.", actor="user:ana")
+    decide_with_code(gui, first["pending_approval"])
+    waiting = services.memory.create("memo", kind="fact", title="Waiting", body="Not yet.", actor="user:ana")
+    rows = services.memory.store.list(first["project_id"])
+    assert {row["title"]: row["trust"] for row in rows} == {"Confirmed": "trusted", "Waiting": "untrusted"}
+    room = len(pm.entry_text(rows[0]))
+    chosen = pm.select_entries(rows, pm.MemorySetting(max_chars=room))
+    assert [row["title"] for row in chosen.entries] == ["Confirmed"] and chosen.omitted == 1
+    both = pm.select_entries(rows, pm.MemorySetting())
+    assert [row["title"] for row in both.entries] == ["Confirmed", "Waiting"]
+    text = pm.render_entry(next(row for row in rows if row["id"] == waiting["id"]))
+    assert text.startswith(ENVELOPE_OPEN) and "trust=untrusted" in text
+
+
+def test_pending_shows_the_memory_approvals_with_the_title_as_plain_text(services, gui):
+    title = "<img src=x onerror=alert(1)>"
+    entry = services.memory.create("memo", kind="fact", title=title, body="b", actor="user:ana")
+    asked = services.memory.delete(entry["id"], actor="user:ana")
+    body = gui.client.get("/gui/api/pending", headers=gui.headers).json()
+    items = {item["id"]: item for item in body["items"]}
+    trust_item = items["approval:" + entry["pending_approval"]]
+    delete_item = items["approval:" + asked["pending_approval"]]
+    assert trust_item["title"] == "Apunte del proyecto: " + title and "apunte" in trust_item["reason"] and "fiable" in trust_item["reason"]
+    assert delete_item["title"] == "Apunte del proyecto: " + title and "apunte" in delete_item["reason"] and "borre" in delete_item["reason"]
+    assert trust_item["href"] == "#approvals/" + entry["pending_approval"]
+    listed = gui.client.get("/gui/api/approvals", headers=gui.headers).json()["items"]
+    assert {item["kind"] for item in listed} == {"memory_trust", "memory_delete"}
+    assert all(item["location"]["title"] == title for item in listed)
 
 
 # --- the pure part -------------------------------------------------------------------------------------

@@ -27,7 +27,28 @@ const KIND_INFO = {
     approveLabel: "Aprobar este envío",
     rejectLabel: "Rechazar",
   },
+  memory_trust: {
+    label: "Marcar un apunte del proyecto como fiable",
+    reason: "Alguien escribió este apunte diciendo que es tuyo. Si lo apruebas, se tratará como fiable.",
+    approveLabel: "Aprobar",
+    rejectLabel: "Rechazar",
+  },
+  memory_delete: {
+    label: "Borrar un apunte del proyecto",
+    reason: "Se pidió borrar este apunte. Si lo apruebas, se borra y no se puede deshacer.",
+    approveLabel: "Aprobar",
+    rejectLabel: "Rechazar",
+  },
 };
+
+export const MEMORY_KINDS = Object.freeze(["memory_trust", "memory_delete"]);
+
+// The title of a memory entry is data written by someone else: it is only ever used as text.
+export function memoryEntryTitle(location) {
+  const title = location && typeof location === "object" && !Array.isArray(location) ? location.title : "";
+  const clean = typeof title === "string" ? title.trim() : "";
+  return clean || "Apunte sin título";
+}
 
 const SECRET_TYPE_LABELS = {
   private_key: "Clave privada",
@@ -117,7 +138,10 @@ export function describeApproval(item) {
     rejectLabel: "Rechazar",
   };
   const types = formatSecretTypes(row.secret_types, kind);
+  const memory = MEMORY_KINDS.includes(kind);
   return {
+    memory,
+    entryTitle: memory ? memoryEntryTitle(row.location) : "",
     id: String(row.id || ""),
     kind,
     title: info.label,

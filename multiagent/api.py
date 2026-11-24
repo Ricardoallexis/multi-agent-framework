@@ -1151,7 +1151,10 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
 
     @app.post("/api/v1/projects/{project_id}/memory", status_code=201)
     def create_memory(project_id: str, body: MemoryCreate):
-        """Write a memory entry (a fact, decision or convention) with its author as provenance."""
+        """Write a memory entry (a fact, decision or convention) with its author as provenance.
+
+        A ``user:`` author is stored ``untrusted`` and the answer carries ``pending_approval`` and
+        ``details.reason = "user_confirmation_pending"``: a person confirms it in the GUI (MEM-T01)."""
         return services.memory.create(project_id, kind=body.kind, title=body.title, body=body.body, actor=body.actor,
                                       confidence=body.confidence, source_ref=body.source_ref)
 
@@ -1165,7 +1168,7 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
 
     @app.delete("/api/v1/memory/{entry_id}")
     def delete_memory(entry_id: str, actor: str = Query(...)):
-        """Only a ``user:`` actor may delete an entry."""
+        """Only a ``user:`` actor may ask to delete an entry; it goes when a person approves ``pending_approval`` in the GUI."""
         return services.memory.delete(entry_id, actor=actor)
 
     # --- decision register (S13.B2) -----------------------------------------------

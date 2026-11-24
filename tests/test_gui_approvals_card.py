@@ -281,3 +281,31 @@ def test_all_touched_scripts_pass_node_check():
     ):
         run = subprocess.run([NODE, "--check", str(path)], capture_output=True, text=True, timeout=60)
         assert run.returncode == 0, (path.name, run.stderr)
+
+
+# MEM-T01: the two memory approvals show the entry title as text and only offer «Aprobar» and «Rechazar»
+@needs_node
+def test_memory_cards_show_the_entry_title_as_text_and_the_plain_words():
+    out = run_node("""
+      const hostile = "<img src=x onerror=alert(1)>";
+      const trust = approvals.describeApproval({ id: "t", kind: "memory_trust", destination: { memory: "mem-1", action: "trust" },
+        location: { source: "memory", entry: "mem-1", title: hostile }, sha256: "a".repeat(64) });
+      const del = approvals.describeApproval({ id: "d", kind: "memory_delete", location: { title: "  " } });
+      const plain = approvals.describeApproval({ id: "s", kind: "secret_send" });
+      console.log(JSON.stringify({ trust, del, plain: [plain.memory, plain.entryTitle] }));
+    """)
+    trust, delete = out["trust"], out["del"]
+    assert trust["memory"] is True and trust["entryTitle"] == "<img src=x onerror=alert(1)>"
+    assert "apunte del proyecto" in trust["title"] and "fiable" in trust["reason"] and "apunte" in trust["reason"]
+    assert (trust["approveLabel"], trust["rejectLabel"]) == ("Aprobar", "Rechazar")
+    assert "apunte" in delete["reason"] and "borra" in delete["reason"] and delete["entryTitle"] == "Apunte sin título"
+    assert out["plain"] == [False, ""]
+    index_src = (EXT_DIR / "index.js").read_text(encoding="utf-8")
+    help_src = (EXT_DIR / "help.js").read_text(encoding="utf-8")
+    for kind, words in (("memory_trust", "apunte"), ("memory_delete", "El apunte se borra")):
+        topic = help_src[help_src.index(f'"approvals.{kind}"'):]
+        topic = topic[:topic.index("},")]
+        assert words in topic and "envío" not in topic and "nota" not in topic.lower()
+    assert 'helpFor("approvals.memory_trust"' in index_src and 'helpFor("approvals.memory_delete"' in index_src
+    assert index_src.count('helpFor("approvals.approve"') == 1 and "!view.memory &&" in index_src
+    assert "view.entryTitle" in index_src and "innerHTML" not in index_src and "style=" not in index_src

@@ -1266,10 +1266,13 @@ server answers `422 cloud_confirmation_required` without it.
 «Aprobaciones» (`#approvals`, an extension) is a tab of «Pendientes» (`#approvals` and
 `#approvals/<id>` still open it); its cards and the click that decides are unchanged. It
 lists the decisions that only a click in the GUI can give, each
-as a card. Three kinds exist: a send that carries a secret (`secret_send`), the OSV.dev query of a bundle scan
-(`osv_query`) and the load of a flagged bundle (`bundle_load`). The last two are described in
-[Bundle scans in Approvals](#bundle-scans-in-approvals); the first is stopped by the
-[secret gate](security/secret-gate.md), which is always on.
+as a card. Five kinds exist: a send that carries a secret (`secret_send`), the OSV.dev query of a bundle scan
+(`osv_query`), the load of a flagged bundle (`bundle_load`), and the confirmation (`memory_trust`) or the
+deletion (`memory_delete`) of a project memory note written as `user:`. The two bundle kinds are described in
+[Bundle scans in Approvals](#bundle-scans-in-approvals); the secret send is stopped by the
+[secret gate](security/secret-gate.md), which is always on. A memory card shows only the note's title, as
+text: **Aprobar** makes the note trusted, or deletes it, which cannot be undone, and **Rechazar** leaves it as
+it is. The note stays untrusted, or stays in place, until that click.
 
 A secret card shows why the send was held, the destination (a model, or an executor and its model), where it
 came from (a run, a task, «Nueva sesión» or the planner), the secret types and a masked sample. It never

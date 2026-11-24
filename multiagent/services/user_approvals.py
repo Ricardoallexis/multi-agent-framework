@@ -10,9 +10,11 @@ from typing import Any
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
-KINDS = frozenset({"secret_send", "osv_query", "bundle_load", "executor_activate"})
+KINDS = frozenset({"secret_send", "osv_query", "bundle_load", "executor_activate", "memory_trust", "memory_delete"})
 # EJE-T01: decided only by the fixed note of «Activar», never listed in «Aprobaciones» or «Pendientes» (Decision 20)
 HIDDEN_KINDS = frozenset({"executor_activate"})
+# MEM-T01: a person confirms the trust and the deletion of a memory entry; both show in «Pendientes»
+MEMORY_KINDS = frozenset({"memory_trust", "memory_delete"})
 EVENTS = frozenset({"user_approval.requested", "user_approval.decided", "user_approval.consumed"})
 ACTOR = "user:gui"
 
@@ -162,6 +164,9 @@ class UserApprovalServices:
             self._store.append_event(conn, "user_approval.decided", actor=actor, ref=approval_id,
                                      payload=payload)
             decided = self._all(conn=conn)[approval_id]
+        if decision == "approve" and decided.get("kind") in MEMORY_KINDS:
+            self._services.memory.apply_approval(decided)       # MEM-T01: the person's click is what trusts or deletes
+            return self._all()[approval_id]
         location = decided.get("location")
         if decided.get("kind") == "secret_send" and isinstance(location, dict) and location.get("source") == "run":
             run = self._run_store.get_run(location["run_id"])

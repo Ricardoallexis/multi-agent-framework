@@ -1804,10 +1804,10 @@ def build_parser() -> argparse.ArgumentParser:
     # Project memory: facts, decisions and conventions of a project, with who wrote them (S12.A1).
     memory = sub.add_parser("memory", help="Add, list, show or delete the memory entries of a project").add_subparsers(
         dest="memory_command", required=True)
-    x = memory.add_parser("add", help="Write an entry; its trust comes from --actor (only user:... is trusted)")
+    x = memory.add_parser("add", help="Write an entry; a user:... entry stays untrusted until a person confirms it in the GUI (Pending)")
     x.add_argument("project_id"); x.add_argument("--kind", required=True, choices=["fact", "decision", "convention"])
     x.add_argument("--title", required=True); x.add_argument("--text", required=True); x.add_argument("--actor", required=True)
-    x.add_argument("--confidence", choices=["low", "medium", "high"], help="Default medium; high needs a user actor")
+    x.add_argument("--confidence", choices=["low", "medium", "high"], help="Default medium; high waits for a person's confirmation")
     x.add_argument("--source-ref", dest="source_ref", help="The run, task or document it came from")
     x.set_defaults(func=cmd_memory)
     x = memory.add_parser("list", help="The entries of a project, oldest first")
@@ -1815,7 +1815,7 @@ def build_parser() -> argparse.ArgumentParser:
     x.set_defaults(func=cmd_memory)
     x = memory.add_parser("show", help="One entry with its provenance")
     x.add_argument("entry_id"); x.set_defaults(func=cmd_memory)
-    x = memory.add_parser("delete", help="Delete an entry (only a user:... actor may)")
+    x = memory.add_parser("delete", help="Ask to delete an entry (only a user:... actor may); a person confirms it in the GUI (Pending)")
     x.add_argument("entry_id"); x.add_argument("--actor", required=True); x.set_defaults(func=cmd_memory)
 
     # Proposals and decisions (S13.B2).

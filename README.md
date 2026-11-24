@@ -221,7 +221,9 @@ the standalone `dry-run` command below, which does not need the HTTP server.
 
 ### Project memory and decisions
 
-Use `multiagent memory add|list|show|delete` for project facts and conventions. Use
+Use `multiagent memory add|list|show|delete` for project facts and conventions. An entry
+written with `memory add --actor user:...` stays untrusted, and `memory delete` deletes nothing,
+until a person confirms it in «Pendientes» in the GUI with the one-use code. Use
 `multiagent decision propose|list|show|accept|reject|supersede` for proposals with a human
 decision and a validity period. For example:
 

@@ -64,12 +64,14 @@ function ApprovalCard({ item, token, selected, sessionUnavailable, onSessionUnav
       <time class="approvals-time muted small" dateTime=${view.createdAt || null}>${fmtDate(view.createdAt)}</time>
     </div>
     <p class="approvals-reason">${view.reason}</p>
-    <dl class="approvals-facts">
+    ${view.memory ? html`<dl class="approvals-facts">
+      <dt>Apunte</dt><dd>${view.entryTitle}</dd>
+    </dl>` : html`<dl class="approvals-facts">
       <dt>Destino</dt><dd>${view.destination}</dd>
       <dt>Origen</dt><dd>${view.location}</dd>
       <dt>Tipos</dt><dd>${view.typesText}</dd>
       <dt>Muestra enmascarada</dt><dd><code class="approvals-sample">${view.maskedSample}</code></dd>
-    </dl>
+    </dl>`}
     ${cardError && html`<div class="approvals-card-error" role="alert">
       <p class="message error">${cardError.message}</p>
       ${cardError.retryable && html`<div class="approvals-retry">
@@ -79,13 +81,27 @@ function ApprovalCard({ item, token, selected, sessionUnavailable, onSessionUnav
       </div>`}
     </div>`}
     <div class="approvals-actions" role="group" aria-label=${"Decisión para " + view.title}>
-      <span class="approvals-action">
+      ${view.kind === "memory_trust" && html`<span class="approvals-action">
+        <button type="button" class="btn approvals-btn" disabled=${busy || sessionUnavailable}
+          ...${helpFor("approvals.memory_trust", { scope })} onClick=${() => decide("approve")}>
+          ${busy ? "Enviando…" : view.approveLabel}
+        </button>
+        <${Help} topic="approvals.memory_trust" compact=${true} scope=${scope} />
+      </span>`}
+      ${view.kind === "memory_delete" && html`<span class="approvals-action">
+        <button type="button" class="btn approvals-btn" disabled=${busy || sessionUnavailable}
+          ...${helpFor("approvals.memory_delete", { scope })} onClick=${() => decide("approve")}>
+          ${busy ? "Enviando…" : view.approveLabel}
+        </button>
+        <${Help} topic="approvals.memory_delete" compact=${true} scope=${scope} />
+      </span>`}
+      ${!view.memory && html`<span class="approvals-action">
         <button type="button" class="btn approvals-btn" disabled=${busy || sessionUnavailable}
           ...${helpFor("approvals.approve", { scope })} onClick=${() => decide("approve")}>
           ${busy ? "Enviando…" : view.approveLabel}
         </button>
         <${Help} topic="approvals.approve" compact=${true} scope=${scope} />
-      </span>
+      </span>`}
       <span class="approvals-action">
         <button type="button" class="btn secondary approvals-btn" disabled=${busy || sessionUnavailable}
           ...${helpFor("approvals.reject", { scope })} onClick=${() => decide("reject")}>

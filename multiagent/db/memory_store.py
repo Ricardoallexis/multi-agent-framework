@@ -64,6 +64,13 @@ class MemoryStore:
     def delete(self, conn: sqlite3.Connection, entry_id: str) -> bool:
         return bool(conn.execute("DELETE FROM project_memory WHERE id=?", (entry_id,)).rowcount)
 
+    def set_trust(self, conn: sqlite3.Connection, entry_id: str, trust: str, *, confidence: str | None = None) -> bool:
+        """Rewrite the trust of one entry (and its confidence when given): MEM-T01, after a person's approval."""
+        if confidence is None:
+            return bool(conn.execute("UPDATE project_memory SET trust=? WHERE id=?", (trust, entry_id)).rowcount)
+        return bool(conn.execute("UPDATE project_memory SET trust=?, confidence=? WHERE id=?",
+                                 (trust, confidence, entry_id)).rowcount)
+
     def project_id(self, project: str, *, conn: sqlite3.Connection | None = None) -> str | None:
         """The id of the project that has this id or this name, or ``None``."""
         with self._reader(conn) as c:

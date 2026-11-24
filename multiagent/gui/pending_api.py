@@ -26,6 +26,24 @@ def _item(kind: str, source_id: str, title: str, reason: str, since: Any, href: 
             "reason": _short(reason, ""), "since": since if isinstance(since, str) else None, "href": href}
 
 
+# MEM-T01: what a person reads in «Pendientes» for the two memory approvals (the entry title is data, shown as text)
+_MEMORY_REASONS = {"memory_trust": "Confirma que este apunte es tuyo para que se trate como fiable",
+                   "memory_delete": "Confirma que se borre este apunte; no se puede deshacer"}
+
+
+def _approval_item(approval: dict[str, Any]) -> dict[str, Any]:
+    approval_id = str(approval["id"])
+    kind = str(approval["kind"])
+    title, reason = "Aprobación requerida", kind
+    if kind in _MEMORY_REASONS:
+        location = approval.get("location")
+        entry = location.get("title") if isinstance(location, dict) else None
+        title = "Apunte del proyecto" + (": " + entry if isinstance(entry, str) and entry.strip() else "")
+        reason = _MEMORY_REASONS[kind]
+    return _item("approval", approval_id, title, reason, approval.get("created_at"),
+                 "#approvals/" + quote(approval_id, safe=""))
+
+
 def _team_bundles(services: Any) -> list[str]:
     names = []
     for bundle in services.definitions.list_bundles():
@@ -43,10 +61,7 @@ def pending_items(services: Any) -> list[dict[str, Any]]:
     """Project existing read services into the compact shape used by the inbox."""
     items = []
     for approval in services.user_approvals.pending():
-        approval_id = str(approval["id"])
-        items.append(_item("approval", approval_id, "Aprobación requerida",
-                           str(approval["kind"]), approval.get("created_at"),
-                           "#approvals/" + quote(approval_id, safe="")))
+        items.append(_approval_item(approval))
     for run in services.runs.list(limit=MAX_ITEMS, status="waiting_human"):
         if run.get("status") != "waiting_human":
             continue
