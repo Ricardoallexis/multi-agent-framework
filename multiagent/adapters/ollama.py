@@ -21,8 +21,16 @@ class OllamaAdapter(LLMAdapter):
     def __init__(self, settings: Settings, client: httpx.Client | None = None):
         self.settings = settings
         self._injected = client is not None
-        self.client = client or self._build_client()
+        self._client = client
         self._digest_cache: dict[str, str] = {}
+
+    @property
+    def client(self) -> httpx.Client:
+        client = self._client
+        if client is None:
+            client = self._build_client()
+            self._client = client
+        return client
 
     def _build_client(self) -> httpx.Client:
         context = provider_ssl_context(effective_tls_trust(self.settings))
@@ -33,7 +41,10 @@ class OllamaAdapter(LLMAdapter):
         """Replace the client this adapter built, so the next call reads the trust setting again (ARR3-T07)."""
         if self._injected:
             return
-        old, self.client = self.client, self._build_client()
+        old = self._client
+        if old is None:
+            return
+        self._client = self._build_client()
         try:
             old.close()
         except Exception:  # noqa: BLE001 - closing a stale client is best effort

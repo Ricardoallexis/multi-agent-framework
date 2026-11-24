@@ -104,7 +104,7 @@ def test_certifi_keeps_clients_unchanged(tmp_path, fake_openai, monkeypatch):
     assert fake_openai.calls == [{"api_key": SECRET}]                                   # no http_client
     seen = []
     monkeypatch.setattr(ollama_module.httpx, "Client", lambda **kw: seen.append(kw) or REAL_HTTPX_CLIENT(**kw))
-    OllamaAdapter(_settings(tmp_path))
+    OllamaAdapter(_settings(tmp_path)).client                                           # built on first use (PRR-T02)
     assert "verify" not in seen[0]
 
 
