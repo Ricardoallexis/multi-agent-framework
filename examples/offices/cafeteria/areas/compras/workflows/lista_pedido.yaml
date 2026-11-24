@@ -1,0 +1,23 @@
+id: lista_pedido
+description: Organiza la lista de pedido a partir del inventario y la deja pendiente de revisión.
+max_iterations: 1
+inputs:
+  - name: inventario
+    label: Inventario actual
+    description: Describe lo que queda disponible y lo que hace falta reponer.
+    example: Queda 1 kg de café y 2 litros de leche; faltan barras de pan integral.
+    required: true
+    type: long_text
+steps:
+  - id: armar_lista
+    description: Arma la lista de compras estructurada para revisión de la persona responsable.
+    agent: encargado_compras
+    prompt_id: compras/lista_pedido
+    prompt_version: 1
+    skills: []
+    contract: ListaPedido
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

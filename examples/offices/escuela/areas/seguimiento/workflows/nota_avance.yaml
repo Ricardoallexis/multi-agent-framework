@@ -1,0 +1,29 @@
+id: nota_avance
+description: Redacta una nota de avance en modo solo local y la deja pendiente de revisión.
+max_iterations: 1
+inputs:
+  - name: observaciones
+    label: Observaciones
+    description: Anota lo observado en clase o en las actividades recientes.
+    example: Participó con atención en lectura y necesita practicar sumas con llevadas.
+    required: true
+    type: long_text
+  - name: alumno
+    label: Alumno
+    description: Referencia breve opcional del estudiante (sin datos reales en ejemplos).
+    example: Alumno A
+    required: false
+    type: text
+steps:
+  - id: redactar_nota
+    description: Redacta la nota de avance para revisión de la persona responsable.
+    agent: tutor_seguimiento
+    prompt_id: seguimiento/nota_avance
+    prompt_version: 1
+    skills: []
+    contract: NotaAvance
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

@@ -1,0 +1,23 @@
+id: responder_mensaje
+description: Prepara un borrador de respuesta a un mensaje recibido y lo deja pendiente de revisión.
+max_iterations: 1
+inputs:
+  - name: mensaje
+    label: Mensaje recibido
+    description: Pega el mensaje o consulta que hay que responder.
+    example: Hola, ¿podrían confirmarme el horario de atención de esta semana?
+    required: true
+    type: long_text
+steps:
+  - id: redactar_respuesta
+    description: Redacta el borrador de respuesta para revisión de la persona responsable.
+    agent: redactor_avisos
+    prompt_id: avisos/responder_mensaje
+    prompt_version: 1
+    skills: []
+    contract: Respuesta
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

@@ -1,0 +1,47 @@
+schema_version: 1
+id: escuela_seguimiento_team
+description: Equipo de ejemplo encargado de redactar y revisar notas de avance en modo solo local.
+
+roles:
+  - id: redaccion
+    purpose: Organiza las observaciones recibidas en una nota clara de avance.
+    rules:
+      - Basarse solo en las observaciones escritas, con tono respetuoso y concreto.
+    skills: []
+    contracts:
+      - NotaAvance
+    capabilities:
+      - model.text
+      - model.local
+    permissions: []
+
+  - id: revision
+    purpose: Revisa cada nota de avance antes de aprobarla.
+    rules:
+      - Comprobar privacidad, exactitud y tono antes de dar el visto bueno.
+    skills: []
+    contracts:
+      - NotaAvance
+    capabilities:
+      - doc.review
+    permissions: []
+
+members:
+  - id: agente_seguimiento
+    kind: agent
+    agent: tutor_seguimiento
+
+  - id: responsable
+    kind: person
+    name: Responsable
+
+assignments:
+  - role: redaccion
+    member: agente_seguimiento
+  - role: revision
+    member: responsable
+
+relationships:
+  - type: reviews
+    from: revision
+    to: redaccion

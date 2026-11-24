@@ -1,0 +1,27 @@
+schema: maf.contracts/1
+contracts:
+  PlanClase:
+    description: Propuesta de plan de clase para revisar antes de usar en el aula.
+    fields:
+      objetivo:
+        type: string
+      actividades:
+        type: list
+        min_items: 1
+        items:
+          type: string
+      plan:
+        type: string
+        document: true
+samples:
+  PlanClase:
+    objetivo: Comprender el ciclo básico del agua mediante observación y dibujo.
+    actividades:
+      - Conversación inicial sobre dónde vemos agua en la vida diaria.
+      - Dibujo guiado de evaporación, nubes y lluvia.
+      - Puesta en común con tres preguntas breves.
+    plan: |
+      Objetivo: Comprender el ciclo básico del agua mediante observación y dibujo.
+      Inicio (10 min): conversación grupal sobre ejemplos cotidianos.
+      Desarrollo (25 min): esquema ilustrado en cuaderno paso a paso.
+      Cierre (10 min): repaso oral de los tres momentos del ciclo.

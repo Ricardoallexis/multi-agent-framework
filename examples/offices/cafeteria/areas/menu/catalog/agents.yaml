@@ -1,0 +1,6 @@
+agents:
+  redactor_menu:
+    role: Redacta el menú de la semana en lenguaje claro a partir del pedido recibido
+    active: true
+    capabilities:
+      - model.text

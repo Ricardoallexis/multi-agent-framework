@@ -166,3 +166,27 @@ Candidates are saved connections' catalog models, active executors and, in Mock,
 An area that is «Sensible» (`sensitivity: sensitive`) or «Solo local» (`local_only`, on the area or the office) counts only local candidates, and carries the note «Esta área es Sensible: hoy solo puede usar agentes de tu equipo» or «Esta área es Solo local: nunca sale de tu equipo» («Solo local» wins when both apply).
 
 Code: `multiagent/offices/requirements.py` (pure: `coverage`, `office_requirements`, `model_capabilities`, `executor_capabilities`); `services.offices.requirements` gathers the candidates.
+
+## Templates
+
+Two level-1 (data-only) office templates live in `examples/offices/` with synthetic Spanish data, `preferred_model: local_default`, `checkpoint_after: true`, and teams whose `revision` role assigns a `Responsable` person to review outputs from `redaccion`:
+
+- **`examples/offices/cafeteria`** (`cafeteria` — *Cafetería de ejemplo*):
+  - `menu` (`normal`, `[model.text]`): `menu_semana` workflow producing `MenuSemana`.
+  - `compras` (`normal`, `[model.structured]`): `lista_pedido` workflow producing `ListaPedido`.
+  - `avisos` (`normal`, `[model.text]`): `escribir_aviso` (`Aviso`) and `responder_mensaje` (`Respuesta`).
+  - Default plan: `menu` (`menu_semana`), then `avisos` (`escribir_aviso`).
+- **`examples/offices/escuela`** (`escuela` — *Escuela de ejemplo*):
+  - `planeacion` (`normal`, `[model.text]`): `plan_clase` workflow producing `PlanClase`.
+  - `seguimiento` (`sensitive`, `local_only: true`, `[model.text, model.local]`): `nota_avance` workflow producing `NotaAvance`.
+  - `avisos` (`normal`, `[model.text]`): byte-identical copy of `cafeteria/areas/avisos`.
+  - Default plan: `planeacion` (`plan_clase`), then `avisos` (`escribir_aviso`).
+
+Import a template from a repository checkout (teams stay `proposed` until approved in the GUI):
+
+```text
+multiagent office import examples/offices/cafeteria
+multiagent office import examples/offices/escuela
+```
+
+The `examples/` directory is only present in a repository checkout; it is not included in the built wheel (`pyproject.toml`).

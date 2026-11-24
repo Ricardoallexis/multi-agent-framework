@@ -1,0 +1,23 @@
+id: escribir_aviso
+description: Redacta un aviso corto sobre un tema y lo deja pendiente de revisión.
+max_iterations: 1
+inputs:
+  - name: tema
+    label: Tema del aviso
+    description: Resume qué quieres anunciar, con fechas u horarios si aplican.
+    example: Este viernes atenderemos en horario continuo de 9:00 a 14:00.
+    required: true
+    type: long_text
+steps:
+  - id: redactar_aviso
+    description: Redacta el aviso para revisión de la persona responsable.
+    agent: redactor_avisos
+    prompt_id: avisos/escribir_aviso
+    prompt_version: 1
+    skills: []
+    contract: Aviso
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

@@ -1,0 +1,40 @@
+schema: maf.office/1
+id: cafeteria
+name: Cafetería de ejemplo
+description: Oficina de ejemplo con datos ficticios para preparar menús, listas de compras y avisos en modo de prueba (sin gasto).
+local_only: false
+orchestrator:
+  enabled: true
+  name: Coordinación
+  default_plan:
+    - area: menu
+      workflow: menu_semana
+    - area: avisos
+      workflow: escribir_aviso
+      after: [menu]
+areas:
+  - id: menu
+    name: Menú
+    path: areas/menu
+    sensitivity: normal
+    local_only: false
+    requires: [model.text]
+  - id: compras
+    name: Compras
+    path: areas/compras
+    sensitivity: normal
+    local_only: false
+    requires: [model.structured]
+  - id: avisos
+    name: Avisos y respuestas
+    path: areas/avisos
+    sensitivity: normal
+    local_only: false
+    requires: [model.text]
+relations:
+  - from: menu
+    to: avisos
+    kind: hands_off
+  - from: compras
+    to: menu
+    kind: consults

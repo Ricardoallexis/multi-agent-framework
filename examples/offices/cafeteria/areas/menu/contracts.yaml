@@ -1,0 +1,20 @@
+schema: maf.contracts/1
+contracts:
+  MenuSemana:
+    description: Propuesta de menú semanal para revisar antes de publicar.
+    fields:
+      titulo:
+        type: string
+        max_length: 120
+      menu:
+        type: string
+        document: true
+samples:
+  MenuSemana:
+    titulo: Menú semanal de ejemplo (lunes a viernes)
+    menu: |
+      Lunes: crema de verduras, pollo a la plancha con arroz y fruta fresca.
+      Martes: lentejas caseras, merluza al horno y yogur natural.
+      Miércoles: ensalada tibia, pasta con tomate natural y manzana asada.
+      Jueves: sopa de fideos, tortilla de patatas y naranja.
+      Viernes: verduras salteadas, filete de ternera y natillas caseras.

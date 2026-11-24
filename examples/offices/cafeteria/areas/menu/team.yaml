@@ -1,0 +1,46 @@
+schema_version: 1
+id: cafeteria_menu_team
+description: Equipo de ejemplo encargado de redactar y revisar el menú semanal.
+
+roles:
+  - id: redaccion
+    purpose: Redacta la propuesta de menú semanal según las indicaciones recibidas.
+    rules:
+      - Usar lenguaje sencillo y respetar los platos o restricciones del pedido.
+    skills: []
+    contracts:
+      - MenuSemana
+    capabilities:
+      - model.text
+    permissions: []
+
+  - id: revision
+    purpose: Revisa el menú semanal antes de publicarlo.
+    rules:
+      - Comprobar que los días, platos y notas estén completos.
+    skills: []
+    contracts:
+      - MenuSemana
+    capabilities:
+      - doc.review
+    permissions: []
+
+members:
+  - id: agente_menu
+    kind: agent
+    agent: redactor_menu
+
+  - id: responsable
+    kind: person
+    name: Responsable
+
+assignments:
+  - role: redaccion
+    member: agente_menu
+  - role: revision
+    member: responsable
+
+relationships:
+  - type: reviews
+    from: revision
+    to: redaccion

@@ -1,0 +1,13 @@
+schema: maf.contracts/1
+contracts:
+  NotaAvance:
+    description: Nota breve de avance para revisar antes de guardar o compartir.
+    fields:
+      nota:
+        type: string
+        document: true
+samples:
+  NotaAvance:
+    nota: |
+      Alumno A participa con interés en lectura grupal y completa los ejercicios con orden.
+      Conviene reforzar el repaso de sumas con llevadas durante la próxima semana.

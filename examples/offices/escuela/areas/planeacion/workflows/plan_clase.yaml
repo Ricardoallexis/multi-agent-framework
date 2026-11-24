@@ -1,0 +1,23 @@
+id: plan_clase
+description: Prepara un plan de clase sobre un tema y lo deja pendiente de revisión.
+max_iterations: 1
+inputs:
+  - name: tema
+    label: Tema de la clase
+    description: Describe el tema, el nivel aproximado y el tiempo disponible.
+    example: El ciclo del agua para primaria en una sesión de 45 minutos.
+    required: true
+    type: long_text
+steps:
+  - id: armar_plan
+    description: Redacta el plan de clase para revisión de la persona responsable.
+    agent: docente_planeacion
+    prompt_id: planeacion/plan_clase
+    prompt_version: 1
+    skills: []
+    contract: PlanClase
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

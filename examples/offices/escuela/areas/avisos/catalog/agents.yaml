@@ -1,0 +1,6 @@
+agents:
+  redactor_avisos:
+    role: Redacta avisos breves y borradores de respuesta a mensajes con lenguaje amable y claro
+    active: true
+    capabilities:
+      - model.text
