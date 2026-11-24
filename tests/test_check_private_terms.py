@@ -14,6 +14,7 @@ import io
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -32,8 +33,20 @@ def _load_checker():
     return module
 
 
+def _run_git(command: list[str]) -> subprocess.CompletedProcess[str]:
+    for attempt in range(6):
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
+        # Windows: a virus scanner or an indexer may hold a new object file for a moment ("Permission denied").
+        if result.returncode == 0 or "Permission denied" not in result.stderr:
+            break
+        time.sleep(0.4 * (attempt + 1))
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, command, output=result.stdout, stderr=result.stderr)
+    return result
+
+
 def _git(repo: Path, *args: str) -> str:
-    result = subprocess.run(
+    result = _run_git(
         [
             "git",
             "-C",
@@ -43,11 +56,7 @@ def _git(repo: Path, *args: str) -> str:
             "-c",
             "user.email=prueba@example.invalid",
             *args,
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=True,
+        ]
     )
     return result.stdout.strip()
 
@@ -57,12 +66,7 @@ def _init_repo(tmp_path: Path, name: str = "repo") -> Path:
         pytest.skip("git is required for private terms tests")
     repo = tmp_path / name
     repo.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["git", "init", "-b", "main", str(repo)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    _run_git(["git", "init", "-b", "main", str(repo)])
     return repo
 
 
