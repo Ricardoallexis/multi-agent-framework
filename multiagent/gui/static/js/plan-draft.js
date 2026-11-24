@@ -9,7 +9,8 @@ import { ApiError, apiPost } from "./api.js";
 import { currentMode, onModeChange } from "./gui-mode.js";
 import { Help, helpFor } from "./help.js";
 import {
-  PLAN_CANCEL_LABEL, PLAN_SAVED_NOTE, PLAN_SAVE_LABEL, PLAN_SAVE_PATH, planDraftRows, planSaveBody, planSaveFailure, teamRows,
+  FALLBACK_TEXT, PLAN_CANCEL_LABEL, PLAN_SAVED_NOTE, PLAN_SAVE_LABEL, PLAN_SAVE_PATH,
+  planDraftRows, planSaveBody, planSaveFailure, teamRows,
 } from "./plan-draft-model.js";
 
 // No hooks: the body of the card for a mode.
@@ -18,6 +19,8 @@ export function PlanDraftBody({ draft, mode, catalog }) {
   const teams = teamRows(draft);
   return html`<div class="plan-draft-body">
     ${draft.goal && html`<p class="plan-draft-goal"><strong>${draft.goal}</strong></p>`}
+    ${FALLBACK_TEXT[draft.fallback_reason] && html`<p class="muted small plan-draft-fallback" role="status">
+      ${FALLBACK_TEXT[draft.fallback_reason]} <${Help} topic="chat.office_plan" compact=${true} /></p>`}
     <ol class="plan-draft-tasks">${rows.map((row) => html`<li key=${row.id} class="plan-draft-task">
       <strong>${row.title}</strong>
       ${row.workflowText && html`<p class="muted small plan-draft-workflow">${row.workflowText}</p>`}

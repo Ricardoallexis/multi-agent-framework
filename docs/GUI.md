@@ -272,6 +272,16 @@ model is pure (`js/new-session-model.js`) and is tested with Node. The proposal 
 `POST /gui/api/new-session/interpret` (`{"text"}`; it answers `source` `model` with a
 `proposal`, or `source` `keywords` with a `reason`) and creates nothing.
 
+**Using an office.** The selector at the top of «Nueva sesión» lists «Ninguna» and the
+installed offices. Choosing an office opens `#new/office/<id>` in Orquestador; its
+interpretation and plan requests include that office. «Pídele algo a la oficina» opens
+the same route. «Pedir a esta área» opens `#new/office/<id>/<area>` in Sesión única,
+where workflows are grouped by area and only the selected area's workflows are listed.
+The office label shows its highest data level. If any area is not Normal, this flow
+offers no cloud models or cloud executors. If the office is no longer installed, the
+GUI says so and returns to `#new`. An office plan fallback explains why the default
+plan was prepared.
+
 **One task box.** «Nueva sesión» starts from a single box (`js/new-session.js`): the task
 text and, in one row of 44 px controls, «＋», «Modo», «Modelo», «Proyecto» and «Enviar».
 The same box serves the three flows. **Modo** is a selector: **Orquestador** is the guided
@@ -823,6 +833,9 @@ the person can allow one OSV query and then install the office; installation app
 Reimport shows only added, changed or removed areas, and an individual area can be added to an installed office. Offices
 and individual areas can be exported as `.zip` files or removed from the list; removal keeps their data. Code export is
 available only in advanced mode.
+
+Each office card links to «Nueva sesión» with «Pídele algo a la oficina». Each area also has «Pedir a esta área»,
+which opens that office's area-scoped, single-session workflow list.
 
 ## What this browser remembers
 

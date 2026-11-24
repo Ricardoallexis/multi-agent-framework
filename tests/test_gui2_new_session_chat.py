@@ -156,7 +156,8 @@ def test_messages_are_rendered_as_text_and_the_log_is_announced():
 def test_only_the_launch_button_of_the_summary_creates_a_run():
     chat = source("new-session.js")
     posts = re.findall(r'apiPost\("(/gui/api/[a-z/-]+)"', chat)
-    assert sorted(posts) == ["/gui/api/new-session/interpret", "/gui/api/runs", "/gui/api/runs/preview"]     # the first one only proposes
+    assert sorted(posts) == ["/gui/api/new-session/interpret", "/gui/api/new-session/plan", "/gui/api/runs",
+                            "/gui/api/runs/preview"]     # interpret and plan (an office in Mock, VOF-T03) only propose
     start = chat.index("async function launch()")
     end = chat.index("function openForm()")
     body = chat[start:end]

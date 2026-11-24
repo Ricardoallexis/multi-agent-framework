@@ -145,6 +145,24 @@ def test_draft_text_is_plain(node_root):
 
 
 @needs_node
+def test_draft_without_fallback_keeps_the_existing_card_text(node_root):
+    result = run_node(node_root, f"""
+      import {{ PlanDraftBody }} from "./js/plan-draft.js";
+      const texts = [];
+      const walk = (n) => {{
+        if (n === null || n === undefined || n === false || n === true) return;
+        if (Array.isArray(n)) {{ n.forEach(walk); return; }}
+        if (typeof n !== "object") {{ texts.push(String(n)); return; }}
+        walk(n.props && n.props.children);
+      }};
+      walk(PlanDraftBody({{ draft: {json.dumps(DRAFT)}, mode: "simple", catalog: {json.dumps(CATALOG)} }}));
+      console.log(JSON.stringify(texts));
+    """)
+    assert "Resume este texto y luego redacta un correo" in result
+    assert not any("plan por defecto" in text for text in result)
+
+
+@needs_node
 def test_plan_suggested_answer_is_recognized(node_root):
     result = run_node(node_root, f"""
       import {{ isPlanSuggested }} from "./js/plan-draft-model.js";
@@ -157,9 +175,14 @@ def test_plan_suggested_answer_is_recognized(node_root):
 
 @needs_node
 def test_every_script_passes_node_check():
-    for name in ("plan-draft-model.js", "plan-draft.js", "new-session.js", "help-text.js"):
-        result = subprocess.run([NODE, "--check", str(JS / name)], capture_output=True, text=True, timeout=60)
-        assert result.returncode == 0, (name, result.stderr)
+    paths = [
+        JS / "route.js", JS / "new-session-model.js", JS / "new-session.js",
+        JS / "plan-draft-model.js", JS / "plan-draft.js", JS / "help-text.js",
+        STATIC_DIR / "extensions" / "offices" / "index.js", STATIC_DIR / "extensions" / "offices" / "help.js",
+    ]
+    for path in paths:
+        result = subprocess.run([NODE, "--check", str(path)], capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0, (path, result.stderr)
 
 
 def test_wiring_and_help():

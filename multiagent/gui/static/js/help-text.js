@@ -1355,6 +1355,15 @@ export const HELP = {
       "La ejecución solo se crea cuando pulsas «Lanzar»."
     ]
   },
+  "chat.office": {
+    "title": "Oficina",
+    "hint": "Elige la oficina o una opción de sus áreas.",
+    "more": [
+      "El selector muestra solo las oficinas instaladas.",
+      "En Sesión única, las opciones aparecen agrupadas por área; al elegir una, te preguntaré sus datos.",
+      "Al pedir algo a la oficina, el coordinador puede preparar un plan."
+    ]
+  },
   "chat.starters": {
     "title": "Opciones de inicio",
     "hint": "Atajos para empezar sin escribir.",
@@ -2063,6 +2072,14 @@ export const HELP = {
     "title": "Borrador del plan",
     "hint": "Tu pedido necesita varios pasos: esto es lo que se guardaría. Todavía no se guardó nada.",
     "more": ["Cada tarea muestra su paso y los textos que recibiría. Si un paquete necesita un equipo que nadie aprobó, aquí se dice cuál se propondrá.", "Mientras no pulses «Guardar el plan», no se crea nada y no se llama al servidor.", "En el modo avanzado cada tarea muestra además su workflow y su paquete."]
+  },
+  "chat.office_plan": {
+    "title": "Plan por defecto de la oficina",
+    "hint": "El aviso explica por qué se preparó este plan.",
+    "more": [
+      "El borrador solo muestra lo que se guardaría; no aprueba ni ejecuta nada.",
+      "«Guardar el plan» lo conserva para que lo revises después."
+    ]
   },
   "chat.plan_save": {
     "title": "Guardar el plan",

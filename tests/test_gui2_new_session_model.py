@@ -486,8 +486,8 @@ def test_the_screen_asks_the_server_and_never_launches_from_the_answer():
     text = source("new-session.js")
     assert '"/gui/api/new-session/interpret"' in text and "SOURCE_KEYWORDS" in text and "Propuesto por" in text
     assert '(!command || (command.name === "workflow" && command.rest))' in text
-    assert 'askModel(command ? command.rest : trimmed)' in text
-    assert "askModel(requestText, true)" in text and "No enviar" in text
+    assert 'interpretText(command ? command.rest : trimmed)' in text      # VOF-T03: askModel, plus the office plan in Mock
+    assert "interpretText(requestText, true)" in text and "No enviar" in text
     assert text.count('apiPost("/gui/api/runs"') == 1                          # the only launch is «Lanzar»
     assert "fetch(" not in source("new-session-model.js")
 

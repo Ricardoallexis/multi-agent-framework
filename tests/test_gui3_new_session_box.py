@@ -97,7 +97,7 @@ def test_one_box_menu_and_limit_banners_stay_visible_in_each_mode():
     assert 'value="connect"' in picker and "Conectar otro… (" in picker
     assert 'Modo MOCK: respuestas sintéticas, sin modelos.' in view
     assert view.count("<${LimitBanner} notice=${activeLimit}") == 2
-    assert view.count("<${LimitBanner} notice=${limitNotice}") == 1
+    assert view.count("<${LimitBanner} notice=${activeLimitNotice}") == 1      # VOF-T03: the office filters the notice
     assert "ns-box-controls" in css and "ns-plus-menu" in css
     assert 'onClick=${launch}>${busy ? "Lanzando…" : "Aprobar y lanzar"}' in view
 

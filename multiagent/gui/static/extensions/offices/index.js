@@ -6,7 +6,7 @@ import { apiGet, apiPost } from "../../js/api.js";
 import { currentMode } from "../../js/gui-mode.js";
 import { registerHelp, registerView } from "../../js/extensions.js";
 import { Help, helpFor } from "../../js/help.js";
-import { planThreadHref, teamThreadHref } from "../../js/route.js";
+import { officeHref, planThreadHref, teamThreadHref } from "../../js/route.js";
 import { HELP } from "./help.js";
 import { ImportOffice, exportOffice } from "./import.js";
 import { errorText, exportFileName, exportWarningText, includeCodeVisible, REMOVE_NOTICE } from "./import-model.js";
@@ -47,6 +47,15 @@ function DegradedLine({ entry }) {
       : action.action === "reimport" ? html`<span class="muted small">${action.label}</span>` : null}
     <${Help} topic="offices.degraded" compact=${true} />
   </li>`;
+}
+
+function OfficeAskButton({ officeId, area = null }) {
+  const scope = area ? "area-" + officeId + "-" + area : "office-" + officeId;
+  return html`<div class="offices-session-action">
+    <a class="btn secondary small" href=${officeHref(officeId, area)} ...${helpFor("offices.ask", { scope })}>
+      ${area ? "Pedir a esta área" : "Pídele algo a la oficina"}</a>
+    <${Help} topic="offices.ask" compact=${true} scope=${scope} />
+  </div>`;
 }
 
 function OfficeCard({ office, detail, detailError, scene, offline, token, onImport, onChanged }) {
@@ -111,6 +120,7 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
         ${officeWorks(office, scene) ? "Lista" : "Funciona a medias"}
       </span>
     </div>
+    <${OfficeAskButton} officeId=${office.id} />
     ${detailError && html`<p class="message error small" role="alert">${detailError}</p>`}
     ${offline && html`<p class="message error small" role="status">${OFFLINE_TEXT}</p>`}
     ${!scene && !offline && !detailError && html`<p class="muted small" role="status">Leyendo el estado de la oficina…</p>`}
@@ -133,6 +143,7 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
               <p class="offices-meta">Nivel: ${row.level}</p>
               <${Help} topic="offices.levels" compact=${true} />
               ${row.requirementText && html`<p class="offices-meta">${row.requirementText}</p>`}
+              <${OfficeAskButton} officeId=${office.id} area=${row.id} />
               ${row.permissions && html`<p class="offices-meta">${row.permissions}</p><${Help} topic="offices.declared" compact=${true} />`}
               <div class="offices-actions">
                 <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.export", { scope: officeScope + "-" + row.id })}

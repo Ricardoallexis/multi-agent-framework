@@ -19,13 +19,16 @@ import { buildModelPicker } from "./model-picker-model.js";
 import {
   PROJECT_KEY, SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_NOTICE, SECRET_REVIEW_REASON, answerRows, buildLimitNotice,
   cardDescription, connectionLabel, createConversation, createSecretReview, currentQuestion, executorLaunchBody, formSeed, inputsPath,
-  cardOrigin, interpretBody, isSecretReviewRequired, loadCatalog, parseCommand, plusMenuEntries, pickRuns, progress,
+  cardOrigin, interpretBody, isSecretReviewRequired, loadCatalog, officeAllowsCloud, officeConnectionData,
+  officeExecutionModes, officeLevelRequiredText, officeLimitNotice, officeModelOptions, officeModelValue, officeOptions,
+  officeRequestBody,
+  officeLevelText, officeWorkflowGroups, parseCommand, plusMenuEntries, pickRuns, progress,
   quotaRemainingLines, reduce, runBody, secretResendRequest, selectOrchestratorSuggestion,
   selectSingleExecutorSuggestion, selectSingleModelSuggestion, singleSessionBody, singleSessionModels, suggestedEntries,
 } from "./new-session-model.js";
 import { PlanDraftCard } from "./plan-draft.js";   // ARR3-T02
 import { PLAN_NOTICE, isPlanSuggested } from "./plan-draft-model.js";
-import { navigate, routeHref, threadHref, useRoute } from "./route.js";
+import { navigate, officeHref, routeHref, threadHref, useRoute } from "./route.js";
 import { readNewSessionMode, writeNewSessionMode } from "./shell-state.js";
 import { RunThread } from "./thread.js";
 import { MODE_LABELS, errorText, exampleText, fmtDate, statusInfo } from "./text.js";
@@ -36,12 +39,27 @@ const SINGLE_PREVIEW_PATH = "/gui/api/runs/preview";
 const SINGLE_RUN_PATH = "/gui/api/runs";
 const EXECUTOR_LAUNCH_PATH = "/gui/api/executors/launch";
 const EXECUTOR_STATUS_PATH = "/gui/api/executors/launch/";
-
+const OFFICE_LIST_PATH = "/gui/api/offices";
 const newKey = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 const asError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
 // A touch screen does not get the soft keyboard pushed up just by opening the screen.
 const finePointer = () => { try { return window.matchMedia("(pointer: fine)").matches; } catch (_) { return true; } };
 const prefillOf = (state) => { const question = currentQuestion(state); return question ? state.answers[question.key] || "" : ""; };
+
+function OfficeWorkflowPicker({ groups, areas, disabled, onPick }) {
+  const names = new Map((areas || []).map((area) => [area.id, area.name || area.id]));
+  return html`<section class="ns-office-workflows" aria-label="Lo que sabe hacer la oficina">
+    ${groups.map((group) => html`<div key=${group.area} class="ns-office-area">
+      <h4>${names.get(group.area) || group.area}</h4>
+      <div class="ns-office-workflow-list">
+        ${group.items.map((item) => html`<button key=${group.area + "|" + item.id} type="button" class="ns-card"
+          disabled=${disabled} ...${helpFor("chat.office", { scope: "office-workflows" })}
+          onClick=${() => onPick(group.area, item.id)}>${item.label}</button>`)}
+      </div>
+    </div>`)}
+    <${Help} topic="chat.office" compact=${true} scope="office-workflows" />
+  </section>`;
+}
 
 // SEC-T04: keep held secret-review state in memory while the user visits #approvals/<id> and returns to #new.
 let heldSecretState = null;
@@ -131,6 +149,7 @@ function QuestionCard({ question, n, total, disabled, onChoose }) {
 function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef }) {
   const { mode, setMode, sensitive, setSensitive, confirmReal, setConfirmReal, preview, previewError, previewing,
     routing, routingError, routingLoading, launchError, routingOverrides, setRoutingOverrides } = state;
+  const cloudAllowed = state.cloudAllowed !== false;
   const blockers = [];
   if (!mock && !confirmReal) blockers.push("Confirma que entiendes que el servidor no está en modo Mock.");
   const routingSteps = routing && Array.isArray(routing.steps) ? routing.steps : [];
@@ -178,13 +197,12 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
             </label>`)}
           <label class="ns-route-chip">Modelo
             <select class="ns-chip" aria-label=${"Modelo del paso " + step.step_id} disabled=${busy || routingLoading ||
-              !step.profile_id || !Array.isArray(step.model_options) || step.model_options.length === 0}
-              ...${helpFor("chat.routing")} value=${routingOverrides[step.step_id] &&
-                Object.prototype.hasOwnProperty.call(routingOverrides[step.step_id], "model")
-                ? routingOverrides[step.step_id].model || "" : step.model || ""}
+              !step.profile_id || officeModelOptions(step, routing, cloudAllowed).length === 0}
+              ...${helpFor("chat.routing")} value=${officeModelValue(step, routingOverrides, routing, cloudAllowed)}
               onChange=${(event) => setRouteOverride(step, "model", event.target.value)}>
-              <option value="">Predeterminado${step.model ? " (" + step.model + ")" : ""}</option>
-              ${(step.model_options || []).map((model) => html`<option key=${model} value=${model}>${model}</option>`)}
+              <option value="">Predeterminado${officeModelOptions(step, routing, cloudAllowed).includes(step.model)
+                ? " (" + step.model + ")" : ""}</option>
+              ${officeModelOptions(step, routing, cloudAllowed).map((model) => html`<option key=${model} value=${model}>${model}</option>`)}
             </select>
           </label>
           <label class="ns-route-chip">Esfuerzo
@@ -206,7 +224,7 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
       <div><label for="ns-mode">Cómo se ejecuta</label>
         <${Help} topic="create.mode" entry=${modeHelpEntry(mode)} />
         <select id="ns-mode" ...${helpFor("create.mode")} value=${mode} disabled=${busy || changedRoutes.length > 0} onChange=${(event) => setMode(event.target.value)}>
-          ${MODES.map((value) => html`<option key=${value} value=${value}>${MODE_LABELS[value]}</option>`)}
+          ${officeExecutionModes(MODES, cloudAllowed).map((value) => html`<option key=${value} value=${value}>${MODE_LABELS[value]}</option>`)}
         </select></div>
       <div class="check"><label><input type="checkbox" checked=${sensitive} disabled=${busy || changedRoutes.length > 0} ...${helpFor("create.sensitive")}
         onChange=${(event) => setSensitive(event.target.checked)} /> Contenido sensible (no se enviará a la nube)</label>
@@ -248,7 +266,7 @@ function LimitBanner({ notice, connections, busy, onSelectSuggestion }) {
 // GUI3-T06: the same task box is used by all three flows; its controls only choose or navigate.
 function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows = 2, mode, onMode,
   modelControl, project, projects, onProject, onExecutor, onForm, error, describedBy = "", onBack, onSkip, inputRef,
-  executorActive = false, maxLength }) {
+  executorActive = false, maxLength, allowExecutor = true, allowForm = true }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef(null);
   return html`<form class="ns-composer" onSubmit=${(event) => { event.preventDefault(); onSubmit(task); }} aria-busy=${disabled ? "true" : "false"}>
@@ -262,7 +280,7 @@ function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows
       }}></textarea>
     ${error && html`<p id="ns-composer-error" class="field-error" role="alert">${error}</p>`}
     <div class="ns-box-controls">
-      <div class="ns-plus-wrap" onKeyDown=${(event) => {
+      <div class="ns-plus-wrap" hidden=${!allowExecutor && !allowForm} onKeyDown=${(event) => {
         // Esc closes the menu from «＋» as well as from inside it, and the focus goes back to «＋». An open help text
         // inside the wrap closes first (it prevents the default).
         if (event.key === "Escape" && menuOpen && !event.defaultPrevented) { event.preventDefault(); setMenuOpen(false); menuButton.current?.focus(); }
@@ -270,10 +288,11 @@ function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows
         ...${helpFor("chat.box_menu")} onClick=${() => setMenuOpen(!menuOpen)}>＋</button>
         <${Help} topic="chat.box_menu" compact=${true} />
         ${menuOpen && html`<div class="ns-plus-menu" role="group" aria-label="Opciones de inicio">
-          <button type="button" disabled=${executorActive} ...${helpFor("chat.executor_launch")}
+          ${allowExecutor && html`<button type="button" disabled=${executorActive} ...${helpFor("chat.executor_launch")}
             onClick=${() => { setMenuOpen(false); onExecutor(); }}>Usar un ejecutor</button>
-          ${plusMenuEntries(currentMode()).includes("form") && html`<button type="button" ...${helpFor("chat.form")} onClick=${() => { setMenuOpen(false); onForm(); }}>Ver como formulario</button>`}
-          <${Help} topic="chat.executor_launch" compact=${true} />${plusMenuEntries(currentMode()).includes("form") && html`<${Help} topic="chat.form" compact=${true} />`}
+          <${Help} topic="chat.executor_launch" compact=${true} />`}
+          ${allowForm && plusMenuEntries(currentMode()).includes("form") && html`<button type="button" ...${helpFor("chat.form")} onClick=${() => { setMenuOpen(false); onForm(); }}>Ver como formulario</button>
+            <${Help} topic="chat.form" compact=${true} />`}
         </div>`}
       </div>
       <div class="ns-box-select"><label for="ns-mode-select">Modo</label><select id="ns-mode-select" aria-label="Modo de sesión" value=${mode} ...${helpFor("chat.session_mode")}
@@ -643,6 +662,8 @@ function SingleExecutorSession({
 
 export function NewSession({ token, mock }) {
   const route = useRoute();
+  const officeId = route.kind === "office" ? route.office : "";
+  const officeArea = route.kind === "office" ? route.area : null;
   const runId = route.section === "new" ? route.id : null;
   const restored = !runId ? heldSecretState : null;
   const store = useRef(restored ? restored.conv : createConversation());
@@ -650,9 +671,18 @@ export function NewSession({ token, mock }) {
   const [view, setView] = useState("chat");                        // "chat" or "form" (the existing create-run form)
   const [formInitial, setFormInitial] = useState(null);
   const [catalog, setCatalog] = useState({ entries: [], loading: true, error: null });
+  const [officeCatalog, setOfficeCatalog] = useState({ entries: [], loading: false, error: null });
+  const [officeCatalogVersion, setOfficeCatalogVersion] = useState(0);
+  const [officeList, setOfficeList] = useState({ offices: [], loading: true, error: null });
+  const [officeDetail, setOfficeDetail] = useState(null);
+  const [officeScene, setOfficeScene] = useState(null);
+  const [officeLoading, setOfficeLoading] = useState(false);
+  const [officeError, setOfficeError] = useState(null);
+  const [unknownOfficeNotice, setUnknownOfficeNotice] = useState(false);
   const [connections, setConnections] = useState({ data: null, loading: true, error: null });
   const [selectedConnection, setSelectedConnection] = useState(null);
-  const [sessionKind, setSessionKind] = useState(restored ? restored.sessionKind : readNewSessionMode());
+  const [sessionKind, setSessionKind] = useState(restored ? restored.sessionKind
+    : officeId ? (officeArea ? "single" : "orchestrator") : readNewSessionMode());
   const [draft, setDraft] = useState(restored ? restored.draft : "");
   const [project, setProject] = useState("");
   const [projects, setProjects] = useState([]);
@@ -674,6 +704,13 @@ export function NewSession({ token, mock }) {
   const [routingOverrides, setRoutingOverrides] = useState({});
   const alive = useRef(true);
   const catalogRun = useRef(null);
+  const officeCatalogRun = useRef(null);
+  const officeRouteKey = useRef([route.kind, officeId, officeArea].join("|"));
+  const routeKey = [route.kind, officeId, officeArea].join("|");
+  const routeChanged = officeRouteKey.current !== routeKey;
+  // A reply that comes back after the route changed (another office, another area or plain #new) belongs to the old
+  // screen, and its handler still holds the old office: nothing it brings back is shown or confirmed here.
+  const replyIsStale = (startKey) => !alive.current || officeRouteKey.current !== startKey;
   const ticket = useRef(0);
   const attempt = useRef({ fingerprint: "", key: "" });
   const composer = useRef(null);
@@ -684,6 +721,11 @@ export function NewSession({ token, mock }) {
   function chooseMode(value) {
     const next = value === "single" ? "single" : "orchestrator";
     writeNewSessionMode(next);
+    if (officeId && officeArea && next === "orchestrator") {
+      setSessionKind(next);
+      location.hash = officeHref(officeId);
+      return;
+    }
     setSessionKind(next);
   }
 
@@ -717,11 +759,139 @@ export function NewSession({ token, mock }) {
     );
   }
 
+  function retryCatalog() {
+    if (officeId) setOfficeCatalogVersion((value) => value + 1);
+    else startCatalog();
+  }
+
+  useEffect(() => {
+    let active = true;
+    if (runId) {
+      setOfficeList({ offices: [], loading: false, error: null });
+      return () => { active = false; };
+    }
+    setOfficeList({ offices: [], loading: true, error: null });
+    apiGet(OFFICE_LIST_PATH, token).then(
+      (payload) => {
+        if (active) setOfficeList({
+          offices: Array.isArray(payload?.offices) ? payload.offices : [],
+          loading: false,
+          error: null,
+        });
+      },
+      (failure) => {
+        if (active) setOfficeList({ offices: [], loading: false, error: asError(failure) });
+      },
+    );
+    return () => { active = false; };
+  }, [runId, token]);
+
   useEffect(() => {
     alive.current = true;
-    startCatalog();
+    if (!officeId) startCatalog();
+    else setCatalog({ entries: [], loading: false, error: null });
     return () => { alive.current = false; };
-  }, [token]);
+  }, [token, officeId]);
+
+  useEffect(() => {
+    if (!officeId) {
+      setOfficeDetail(null);
+      setOfficeScene(null);
+      setOfficeLoading(false);
+      setOfficeError(null);
+      setOfficeCatalog({ entries: [], loading: false, error: null });
+      officeCatalogRun.current = null;
+      return undefined;
+    }
+    if (officeList.loading) return undefined;
+    if (officeList.error) {
+      setOfficeError(officeList.error);
+      setOfficeLoading(false);
+      return undefined;
+    }
+    if (!officeList.offices.some((office) => office.id === officeId)) {
+      setUnknownOfficeNotice(true);
+      navigate("new");
+      return undefined;
+    }
+    let active = true;
+    setOfficeLoading(true);
+    setOfficeError(null);
+    setOfficeDetail(null);
+    setOfficeScene(null);
+    setOfficeCatalog({ entries: [], loading: false, error: null });
+    officeCatalogRun.current = null;
+    const path = OFFICE_LIST_PATH + "/" + encodeURIComponent(officeId);
+    Promise.all([apiGet(path, token), apiGet(path + "/scene", token)]).then(
+      ([detail, scene]) => {
+        if (!active) return;
+        setOfficeDetail(detail);
+        setOfficeScene(scene);
+        setOfficeLoading(false);
+      },
+      (failure) => {
+        if (!active) return;
+        if (failure?.status === 404 || failure?.details?.reason === "office_not_installed") {
+          setUnknownOfficeNotice(true);
+          navigate("new");
+          return;
+        }
+        setOfficeError(asError(failure));
+        setOfficeLoading(false);
+      },
+    );
+    return () => { active = false; };
+  }, [officeId, officeList, token]);
+
+  useEffect(() => {
+    if (!officeId || !officeDetail || officeDetail.id !== officeId) return undefined;
+    let active = true;
+    const bundles = (Array.isArray(officeDetail.areas) ? officeDetail.areas : [])
+      .map((area) => officeId + "__" + area.id);
+    setOfficeCatalog({ entries: [], loading: true, error: null });
+    officeCatalogRun.current = loadCatalog({
+      get: (path) => apiGet(path, token),
+      bundles,
+      onUpdate: (entries) => {
+        if (active) setOfficeCatalog({ entries, loading: true, error: null });
+      },
+    }).then(
+      (entries) => {
+        if (active) setOfficeCatalog({ entries, loading: false, error: null });
+        return { entries, error: null };
+      },
+      (failure) => {
+        const error = asError(failure);
+        if (active) setOfficeCatalog({ entries: [], loading: false, error });
+        return { entries: [], error };
+      },
+    );
+    return () => { active = false; };
+  }, [officeId, officeDetail, officeCatalogVersion, token]);
+
+  useEffect(() => {
+    const nextKey = [route.kind, officeId, officeArea].join("|");
+    if (officeRouteKey.current === nextKey) return;
+    officeRouteKey.current = nextKey;
+    store.current = createConversation();
+    setConv(store.current);
+    setDraft("");
+    setPlanDraft(null);
+    setPendingCloud(null);
+    setLimitNotice(null);
+    setSelectedConnection(null);
+    setRoutingOverrides({});
+    setLaunchError(null);
+    setView("chat");
+    setFormInitial(null);
+    setSessionKind(route.kind === "office" ? (officeArea ? "single" : "orchestrator") : readNewSessionMode());
+    if (route.kind === "office") setUnknownOfficeNotice(false);
+  }, [route.kind, officeId, officeArea]);
+
+  useEffect(() => {
+    if (officeId && mode === "cloud" &&
+        !(officeScene?.office?.id === officeId && officeAllowsCloud(officeScene))) setMode("auto");
+  }, [officeId, officeScene, mode]);
 
   // SES-T02: connection checks only read status; choosing a row never launches it.
   function refreshConnections() {
@@ -785,9 +955,37 @@ export function NewSession({ token, mock }) {
     return () => { ticket.current += 1; };
   }, [conv.phase, conv.workflow, conv.answers, mode, sensitive, routingOverrides, token]);
 
-  const settledCatalog = async () => (catalogRun.current ? catalogRun.current : { entries: catalog.entries, error: catalog.error });
+  const currentOfficeDetail = officeDetail?.id === officeId ? officeDetail : null;
+  const currentOfficeScene = officeScene?.office?.id === officeId ? officeScene : null;
+  const activeCatalog = officeId
+    ? (currentOfficeDetail ? officeCatalog : { entries: [], loading: officeLoading, error: null })
+    : catalog;
+  const officeSingle = Boolean(officeId && (officeArea || (!routeChanged && sessionKind === "single")));
+  const cloudAllowed = !officeId || officeAllowsCloud(currentOfficeScene);
+  const officeGroups = officeWorkflowGroups(
+    officeArea || (currentOfficeDetail?.areas || []),
+    activeCatalog.entries,
+  );
+  const settledCatalog = async () => {
+    const pending = officeId ? officeCatalogRun.current : catalogRun.current;
+    return pending || { entries: activeCatalog.entries, error: activeCatalog.error };
+  };
+  const requestBody = (text, confirmCloud = false, approvalId = "") => {
+    if (!officeId) return interpretBody(text, { confirmCloud, approvalId });
+    const body = officeRequestBody(text, officeId, confirmCloud);
+    if (approvalId) body.approval_id = approvalId;
+    return body;
+  };
   const askModel = (text, confirm_cloud = false, approval_id = "") =>
-    apiPost("/gui/api/new-session/interpret", token, interpretBody(text, { confirmCloud: confirm_cloud, approvalId: approval_id }));
+    apiPost("/gui/api/new-session/interpret", token, requestBody(text, confirm_cloud, approval_id));
+  async function interpretText(text, confirmCloud = false, approvalId = "") {
+    const interpretation = await askModel(text, confirmCloud, approvalId);
+    if (officeId && mock && interpretation?.reason === "disabled") {
+      const plan = await apiPost("/gui/api/new-session/plan", token, requestBody(text, confirmCloud, approvalId));
+      if (plan && plan.proposal) return { ...interpretation, reason: "plan_suggested", plan_draft: plan };
+    }
+    return interpretation;
+  }
 
   function holdSecret(held, keptDraft) {
     heldSecretState = { sessionKind: "orchestrator", conv: store.current, draft: keptDraft, pendingSecret: held, decision: "" };
@@ -811,6 +1009,13 @@ export function NewSession({ token, mock }) {
     return { source: SOURCE_KEYWORDS, reason: "model_error", proposal: null };
   }
 
+  function showOfficeLevelRequired(failure) {
+    const text = officeLevelRequiredText(failure);
+    if (!text) return false;
+    dispatch({ type: "notice", text }, { keepDraft: true });
+    return true;
+  }
+
   function finishInterpretation(text, entries, interpretation, keptDraft) {
     if (isPlanSuggested(interpretation)) {       // ARR3-T02: the draft card asks to confirm before anything is saved
       setLimitNotice(null);
@@ -822,9 +1027,9 @@ export function NewSession({ token, mock }) {
     if (interpretation && (interpretation.reason === "limit_reached" || interpretation.limit)) {
       const notice = buildLimitNotice(
         interpretation.limit || { code: "limit_reached", resets_at: null, target: "", suggestions: [] },
-        connections.data,
+        officeId ? officeConnectionData(connections.data, currentOfficeScene) : connections.data,
       );
-      setLimitNotice(notice);
+      setLimitNotice(officeId ? officeLimitNotice(notice, currentOfficeScene) : notice);
       dispatch({ type: "send", text, catalog: entries, interpretation }, { keepDraft: true });
       setDraft(keptDraft);
       return;
@@ -840,30 +1045,37 @@ export function NewSession({ token, mock }) {
     const trimmed = String(text).trim();
     const asking = store.current.phase === "ask";
     if (busy || pendingCloud || pendingSecret || (!asking && !trimmed)) return;
+    const startKey = officeRouteKey.current;
     const command = parseCommand(trimmed);
-    let entries = catalog.entries;
+    let entries = activeCatalog.entries;
     if (!asking && (!command || command.name === "workflow")) {
       setBusy(true);
       try {
         const loaded = await settledCatalog();
+        if (replyIsStale(startKey)) return;
         entries = loaded.entries;
         if (entries.length === 0 && loaded.error) {
-          dispatch({ type: "notice", text: "No se pudo leer la lista de workflows: " + errorText(loaded.error) }, { keepDraft: true });
+          const label = officeId ? "No se pudieron leer las opciones de la oficina: " : "No se pudo leer la lista de workflows: ";
+          dispatch({ type: "notice", text: label + errorText(loaded.error) }, { keepDraft: true });
           return;
         }
       } finally { setBusy(false); }
     }
     let interpretation = null;
-    if (!asking && (!command || (command.name === "workflow" && command.rest)) &&
-        !["confirm", "launched"].includes(store.current.phase) && entries.length > 0) {
+    if (!officeSingle && !asking && (!command || (command.name === "workflow" && command.rest)) &&
+        !["confirm", "launched"].includes(store.current.phase) && (entries.length > 0 || officeId)) {
       setBusy(true);
       try {
-        interpretation = await askModel(command ? command.rest : trimmed);
+        interpretation = await interpretText(command ? command.rest : trimmed);
       } catch (failure) {
+        if (replyIsStale(startKey)) return;
+        if (showOfficeLevelRequired(failure)) return;
         interpretation = secretInterpretationFromError(failure);     // the words are compared instead on model error
       } finally { setBusy(false); }
+      if (replyIsStale(startKey)) return;
       if (interpretation && interpretation.reason === "cloud_confirmation_required") {
-        setPendingCloud({ text: trimmed, requestText: command ? command.rest : trimmed, entries, interpretation });
+        setPendingCloud({ text: trimmed, requestText: command ? command.rest : trimmed, entries, interpretation,
+                          routeKey: startKey });
         return;
       }
       if (isSecretReviewRequired(interpretation)) {
@@ -876,23 +1088,27 @@ export function NewSession({ token, mock }) {
         return;
       }
     }
-    if (!alive.current) return;
+    if (replyIsStale(startKey)) return;
     finishInterpretation(trimmed, entries, interpretation, String(text));
   }
 
   async function answerCloud(send) {
     if (!pendingCloud || busy) return;
-    const { text, requestText, entries, interpretation: declined } = pendingCloud;
+    const { text, requestText, entries, interpretation: declined, routeKey: askedFor } = pendingCloud;
     setPendingCloud(null);
+    const startKey = officeRouteKey.current;
+    if (askedFor !== startKey) return;      // asked for another office, area or #new: never confirmed here
     let interpretation = declined;
     if (send) {
       setBusy(true);
       try {
-        interpretation = await askModel(requestText, true);
+        interpretation = await interpretText(requestText, true);
       } catch (failure) {
+        if (replyIsStale(startKey)) return;
+        if (showOfficeLevelRequired(failure)) return;
         interpretation = secretInterpretationFromError(failure);
       } finally { setBusy(false); }
-      if (!alive.current) return;
+      if (replyIsStale(startKey)) return;
       if (isSecretReviewRequired(interpretation)) {
         holdSecret(createSecretReview({
           text,
@@ -903,15 +1119,16 @@ export function NewSession({ token, mock }) {
         return;
       }
     }
-    if (!alive.current) return;
+    if (replyIsStale(startKey)) return;
     finishInterpretation(text, entries, interpretation, draft);
   }
 
   async function resendSecret() {
     if (!pendingSecret || busy) return;
     const current = pendingSecret;
+    const startKey = officeRouteKey.current;
     setBusy(true);
-    let entries = catalog.entries;
+    let entries = activeCatalog.entries;
     let interpretation = null;
     try {
       const loaded = await settledCatalog();
@@ -920,17 +1137,24 @@ export function NewSession({ token, mock }) {
         dispatch({ type: "notice", text: "No se pudo leer la lista de workflows: " + errorText(loaded.error) }, { keepDraft: true });
         return;
       }
+      if (replyIsStale(startKey)) return;
       const req = secretResendRequest(current);
-      interpretation = await askModel(req.text, req.confirmCloud, req.approvalId);
+      interpretation = await interpretText(req.text, req.confirmCloud, req.approvalId);
     } catch (failure) {
+      if (replyIsStale(startKey)) return;
+      if (showOfficeLevelRequired(failure)) {
+        clearSecret();
+        return;
+      }
       interpretation = secretInterpretationFromError(failure);
     } finally {
       setBusy(false);
     }
-    if (!alive.current) return;
+    if (replyIsStale(startKey)) return;
     if (interpretation && interpretation.reason === "cloud_confirmation_required") {
       clearSecret();
-      setPendingCloud({ text: current.text, requestText: current.requestText, entries, interpretation });
+      setPendingCloud({ text: current.text, requestText: current.requestText, entries, interpretation,
+                        routeKey: startKey });
       return;
     }
     if (isSecretReviewRequired(interpretation)) {
@@ -964,7 +1188,7 @@ export function NewSession({ token, mock }) {
 
   async function chooseStarter(starter) {
     if (busy) return;
-    let entries = catalog.entries;
+    let entries = activeCatalog.entries;
     if (starter.id === "workflow") {
       setBusy(true);
       try {
@@ -1041,6 +1265,7 @@ export function NewSession({ token, mock }) {
   }
 
   function pickOrchestratorSuggestion(item) {
+    if (officeId && item?.kind === "executor") return;
     const next = selectOrchestratorSuggestion(item, draft);
     if (item?.kind === "executor") {
       setSingleExecutorId(item.id);
@@ -1057,19 +1282,30 @@ export function NewSession({ token, mock }) {
     if (store.current.error) dispatch({ type: "typing" }, { keepDraft: true });      // the message was about the old text
   };
 
+  function selectOffice(value) {
+    setUnknownOfficeNotice(false);
+    location.hash = value ? officeHref(value) : "#new";
+  }
+
+  function pickOfficeWorkflow(area, workflowId) {
+    const entry = officeCatalog.entries.find((item) =>
+      item.id === workflowId && item.bundle === officeId + "__" + area);
+    if (entry) pick(entry);
+  }
+
   if (runId) return html`<${RunThread} key=${runId} token=${token} runId=${runId} />`;
 
   if (view === "form") {
     return html`<${CreateRun} token=${token} mock=${mock} initial=${formInitial}
       onClose=${() => setView("chat")} onCreated=${(run) => navigate("runs", run.id)} />`;
   }
-  if (sessionKind === "single") return html`<${SingleSession} token=${token} mock=${mock} connections=${connections.data}
+  if (sessionKind === "single" && !officeId) return html`<${SingleSession} token=${token} mock=${mock} connections=${connections.data}
     task=${draft} onTaskChange=${setDraft} project=${project} projects=${projects} onProject=${chooseProject}
     onMode=${chooseMode} onForm=${openForm} initialProvider=${singleProvider}
     onSwitchExecutor=${(executorId, keptTask) => {
       setDraft(keptTask); setSingleExecutorId(executorId); setSessionKind("single-executor");
     }} />`;
-  if (sessionKind === "single-executor") return html`<${SingleExecutorSession} token=${token} mock=${mock}
+  if (sessionKind === "single-executor" && !officeId) return html`<${SingleExecutorSession} token=${token} mock=${mock}
     connections=${connections.data} connectionLoading=${connections.loading} connectionError=${connections.error}
     task=${draft} onTaskChange=${setDraft} project=${project} projects=${projects} onProject=${chooseProject}
     onMode=${chooseMode} onForm=${openForm} initialExecutorId=${singleExecutorId}
@@ -1078,15 +1314,19 @@ export function NewSession({ token, mock }) {
     }} onRetry=${refreshConnections} onBack=${() => setSessionKind("single")} />`;
 
   const { n, total } = progress(conv);
-  const suggestions = suggestedEntries(conv, catalog.entries);
+  const suggestions = suggestedEntries(conv, activeCatalog.entries);
   const describedBy = question ? "ns-q-desc" + (question.example ? " ns-q-example" : "") : "";
   const canSkip = question !== null && !question.required;
   const canBack = question !== null && conv.index > 0;
   const rows = question ? (question.kind === "long_text" ? 5 : 2) : 2;
   const placeholder = question ? exampleText({ example: question.example, type: question.kind }) || "" : FREE_PLACEHOLDER;
   const label = question ? "Tu respuesta: " + question.label : "Escribe qué quieres hacer";
-  const status = catalog.error ? "" : catalog.loading ? "Leyendo los workflows disponibles…"
-    : catalog.entries.length + (catalog.entries.length === 1 ? " workflow disponible." : " workflows disponibles.");
+  const officeOptionCount = officeGroups.reduce((count, group) => count + group.items.length, 0);
+  const status = activeCatalog.error ? "" : officeId && (officeList.loading || officeLoading || activeCatalog.loading) ? "Leyendo las opciones de la oficina…"
+    : officeId ? officeOptionCount + (officeOptionCount === 1
+      ? " opción de la oficina disponible." : " opciones de la oficina disponibles.")
+      : activeCatalog.loading ? "Leyendo los workflows disponibles…"
+        : activeCatalog.entries.length + (activeCatalog.entries.length === 1 ? " workflow disponible." : " workflows disponibles.");
   const pickerHelp = {
     picker: html`<${Help} topic="chat.model_picker" compact=${true} />`,
     choice: html`<${Help} topic="chat.model_choice" compact=${true} />`,
@@ -1094,36 +1334,58 @@ export function NewSession({ token, mock }) {
     retry: html`<${Help} topic="chat.model_retry" compact=${true} />`,
     connect: html`<${Help} topic="chat.connect_other" compact=${true} />`,
   };
-  const modelControl = html`<${ModelPicker} connections=${connections.data} selectedId=${selectedConnection}
+  const connectionData = officeId ? officeConnectionData(connections.data, currentOfficeScene) : connections.data;
+  const activeLimitNotice = officeId ? officeLimitNotice(limitNotice, currentOfficeScene) : limitNotice;
+  const modelControl = officeSingle ? null : html`<${ModelPicker} connections=${connectionData} selectedId=${selectedConnection}
     onSelect=${setSelectedConnection} loading=${connections.loading} error=${connections.error}
     onRetry=${refreshConnections} onConnect=${() => { location.hash = routeHref("apps"); }} help=${pickerHelp} />`;
-  const noConnectedModels = !connections.loading && buildModelPicker(connections.data).models.length === 0;
+  const noConnectedModels = !officeId && !connections.loading && buildModelPicker(connectionData).models.length === 0;
+  const officeChoices = officeOptions(officeList);
 
   return html`<div class="ns">
+    ${officeList.offices.length > 0 && html`<div class="ns-office-select">
+      <label for="ns-office-select">Oficina</label>
+      <select id="ns-office-select" value=${officeId} ...${helpFor("chat.office", { scope: "office-select" })}
+        onChange=${(event) => selectOffice(event.target.value)}>
+        ${officeChoices.map((item) => html`<option key=${item.value || "none"} value=${item.value}>${item.label}</option>`)}
+      </select>
+      <${Help} topic="chat.office" compact=${true} scope="office-select" />
+      ${officeId && currentOfficeScene && html`<p class="muted small" role="status">Privacidad más alta: ${officeLevelText(currentOfficeScene)}.</p>`}
+    </div>`}
+    ${officeList.error && html`<p class="message error small" role="alert">No se pudo leer la lista de oficinas: ${errorText(officeList.error)}</p>`}
+    ${unknownOfficeNotice && html`<p class="message error small" role="alert">Esa oficina ya no está.</p>`}
+    ${officeError && html`<p class="message error small" role="alert">No se pudo leer la oficina: ${errorText(officeError)}</p>`}
     <div class="ns-intro">
       <h3 class="ns-title">¿Qué quieres hacer?</h3>
-      <p class="ns-lead">Escribe en tus palabras lo que necesitas, o elige una opción. Te guío paso a paso y nada se ejecuta sin que lo confirmes.</p>
+      <p class="ns-lead">${officeSingle
+        ? "Elige lo que sabe hacer la oficina o describe lo que necesitas. Te guío paso a paso y nada se ejecuta sin que lo confirmes."
+        : "Escribe en tus palabras lo que necesitas, o elige una opción. Te guío paso a paso y nada se ejecuta sin que lo confirmes."}</p>
       <${Help} topic="chat.welcome" />
     </div>
     <${SessionBox} task=${draft} onTask=${typing} onSubmit=${submit}
       disabled=${busy || pendingCloud || pendingSecret || conv.phase === "launched"} label=${label}
-      placeholder=${placeholder} rows=${rows} mode="orchestrator" onMode=${chooseMode}
+      placeholder=${placeholder} rows=${rows} mode=${officeSingle ? "single" : "orchestrator"} onMode=${chooseMode}
       modelControl=${modelControl} project=${project} projects=${projects} onProject=${chooseProject}
       onExecutor=${() => { writeNewSessionMode("single"); setSingleExecutorId(""); setSessionKind("single-executor"); }} onForm=${openForm}
+      allowExecutor=${!officeId} allowForm=${!officeId}
       error=${conv.error} describedBy=${describedBy} inputRef=${composer}
       onBack=${canBack ? () => dispatch({ type: "back" }) : null}
       onSkip=${canSkip ? () => dispatch({ type: "skip" }) : null} />
     ${noConnectedModels && html`${isRegisteredView("apps") && html`<a class="btn secondary small" href=${routeHref("apps")}
       ...${helpFor("chat.connect_other")}>Conectar otro</a>`}`}
-    <${LimitBanner} notice=${limitNotice} connections=${connections.data} busy=${busy} onSelectSuggestion=${pickOrchestratorSuggestion} />
+    <${LimitBanner} notice=${activeLimitNotice} connections=${connectionData} busy=${busy} onSelectSuggestion=${pickOrchestratorSuggestion} />
     ${mock && html`<p class="muted small ns-mock-note">Modo MOCK: respuestas sintéticas, sin modelos.</p>`}
-    ${conv.phase === "welcome" && html`<${Starters} disabled=${busy} onPick=${chooseStarter} />`}
+    ${conv.phase === "welcome" && !officeSingle && html`<${Starters} disabled=${busy} onPick=${chooseStarter} />`}
     ${(conv.phase === "welcome" || conv.phase === "choose") && html`<p class="muted small" role="status" aria-live="polite">${status}</p>`}
-    ${catalog.error && html`<div class="ns-row"><p class="message error" role="alert">No se pudo leer la lista de workflows: ${errorText(catalog.error)}</p>
-      <button type="button" class="btn secondary" ...${helpFor("chat.retry")} onClick=${() => { startCatalog(); if (composer.current) composer.current.focus(); }}>Reintentar</button>
+    ${officeSingle && currentOfficeDetail && conv.phase === "welcome" && !activeCatalog.loading && !activeCatalog.error && html`<${OfficeWorkflowPicker}
+      groups=${officeGroups} areas=${currentOfficeDetail?.areas || []} disabled=${busy || officeLoading}
+      onPick=${pickOfficeWorkflow} />`}
+    ${activeCatalog.error && html`<div class="ns-row"><p class="message error" role="alert">
+      ${officeId ? "No se pudieron leer las opciones de la oficina" : "No se pudo leer la lista de workflows"}: ${errorText(activeCatalog.error)}</p>
+      <button type="button" class="btn secondary" ...${helpFor("chat.retry")} onClick=${() => { retryCatalog(); if (composer.current) composer.current.focus(); }}>Reintentar</button>
       <${Help} topic="chat.retry" compact=${true} /></div>`}
     <${Messages} messages=${conv.messages} />
-    ${planDraft && html`<${PlanDraftCard} token=${token} draft=${planDraft} catalog=${catalog.entries}
+    ${planDraft && html`<${PlanDraftCard} token=${token} draft=${planDraft} catalog=${activeCatalog.entries}
       onSaved=${(href) => { setPlanDraft(null); location.hash = href; }} onCancel=${() => setPlanDraft(null)} />`}
     ${pendingCloud && html`<div class="ns-msg ns-bot" role="group" aria-label="Confirmación de envío a la nube">
       <p>¿Enviar este texto a ${pendingCloud.interpretation.model} (nube)?</p>
@@ -1148,13 +1410,13 @@ export function NewSession({ token, mock }) {
       </div>
     </div>`}
     ${conv.phase === "choose" && suggestions.length > 0 && html`<${Cards} items=${suggestions} source=${conv.source} disabled=${busy}
-      canShowAll=${!conv.showAll && catalog.entries.length > suggestions.length} onPick=${pick} onShowAll=${showAll} />`}
+      canShowAll=${!conv.showAll && activeCatalog.entries.length > suggestions.length} onPick=${pick} onShowAll=${showAll} />`}
     ${conv.phase === "continue" && html`<${RunsList} runs=${runs} />`}
     ${question && html`<${QuestionCard} question=${question} n=${n} total=${total} disabled=${busy} onChoose=${(choice) => submit(choice)} />`}
     ${conv.phase === "confirm" && html`<${ConfirmCard} conv=${conv} mock=${mock} busy=${busy} boxRef=${confirmBox}
       state=${{ mode, setMode, sensitive, setSensitive, confirmReal, setConfirmReal, preview, previewError, previewing,
         routing: preview && preview.routing, routingError: previewError, routingLoading: previewing, launchError,
-        routingOverrides, setRoutingOverrides }}
+        routingOverrides, setRoutingOverrides, cloudAllowed }}
       onLaunch=${launch} onEdit=${() => dispatch({ type: "edit" })} onForm=${openForm} />`}
     <div class="ns-end" ref=${endMark}></div>
     <div class="ns-tools">

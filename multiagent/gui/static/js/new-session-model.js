@@ -216,6 +216,117 @@ export function interpretBody(text, { confirmCloud = false, approvalId = "" } = 
   return body;
 }
 
+export function officeOptions(payload) {
+  const offices = Array.isArray(payload?.offices) ? payload.offices : [];
+  return [{ value: "", label: "Ninguna" }, ...offices
+    .filter((office) => office && typeof office.id === "string" && office.id)
+    .map((office) => ({ value: office.id, label: String(office.name || office.id) }))];
+}
+
+export function officeRequestBody(text, office, confirmCloud = false) {
+  return {
+    text: String(text || ""),
+    confirm_cloud: Boolean(confirmCloud),
+    approval_id: null,
+    office: String(office || ""),
+  };
+}
+
+export function officeWorkflowGroups(area, workflows) {
+  const definitions = Array.isArray(area) ? area : area && typeof area === "object" ? [area] : [];
+  const areaIds = definitions.map((item) => String(item.id || "")).filter(Boolean);
+  const selected = typeof area === "string" ? area : area && !Array.isArray(area) ? String(area.id || "") : "";
+  const grouped = new Map();
+  for (const workflow of Array.isArray(workflows) ? workflows : []) {
+    const bundle = String(workflow?.bundle || "");
+    const id = String(workflow?.id || "");
+    const areaId = String(workflow?.area || bundle.split("__").pop() || "");
+    if (!areaId || !id || (selected && areaId !== selected)) continue;
+    if (!grouped.has(areaId)) grouped.set(areaId, []);
+    grouped.get(areaId).push({
+      id,
+      label: String(workflow.label || workflow.title || id.replace(/[_-]+/g, " ")),
+    });
+  }
+  const order = areaIds.length ? areaIds : [...grouped.keys()].sort();
+  if (selected && !order.includes(selected)) order.unshift(selected);
+  return order.filter((id) => grouped.has(id)).map((id) => ({
+    area: id,
+    items: grouped.get(id),
+  }));
+}
+
+// The words of the «Oficinas» view (extensions/offices/model.js, LEVEL_TEXT); shared code cannot import a view.
+export const OFFICE_LEVEL_TEXT = Object.freeze({
+  non_sensitive: "Normal",
+  sensitive: "Sensible",
+  restricted: "Solo local",
+  none: "Sin nivel",
+});
+
+// The strictest level among the areas of the scene.
+export function officeLevelText(scene) {
+  const classes = Array.isArray(scene?.areas) ? scene.areas.map((area) => area?.data_class) : [];
+  for (const level of ["restricted", "sensitive", "non_sensitive"]) {
+    if (classes.includes(level)) return OFFICE_LEVEL_TEXT[level];
+  }
+  return OFFICE_LEVEL_TEXT.none;
+}
+
+export function officeAllowsCloud(scene) {
+  const areas = Array.isArray(scene?.areas) ? scene.areas : [];
+  return areas.length > 0 && areas.every((area) => area?.data_class === "non_sensitive");
+}
+
+export function officeConnectionData(payload, scene) {
+  if (!payload || typeof payload !== "object") return payload;
+  const cloudAllowed = officeAllowsCloud(scene);
+  const connections = Array.isArray(payload.connections) ? payload.connections : [];
+  return {
+    ...payload,
+    connections: connections.filter((item) =>
+      item?.id === "ollama" || (cloudAllowed && MODEL_PROVIDER_IDS.has(item?.id))),
+  };
+}
+
+export function officeLimitNotice(notice, scene) {
+  if (!notice || typeof notice !== "object") return notice;
+  const cloudAllowed = officeAllowsCloud(scene);
+  return {
+    ...notice,
+    suggestions: (Array.isArray(notice.suggestions) ? notice.suggestions : []).filter((item) =>
+      item?.kind === "model" && (cloudAllowed || item.id === "ollama")),
+  };
+}
+
+export function officeModelOptions(step, routing, cloudAllowed = true) {
+  const options = Array.isArray(step?.model_options) ? step.model_options : [];
+  if (cloudAllowed) return options;
+  const local = new Set((Array.isArray(routing?.catalog_models) ? routing.catalog_models : [])
+    .filter((model) => model?.provider === "ollama")
+    .map((model) => model.id));
+  return options.filter((model) => local.has(model));
+}
+
+export function officeModelValue(step, overrides, routing, cloudAllowed = true) {
+  const override = overrides && overrides[step?.step_id];
+  const selected = override && Object.prototype.hasOwnProperty.call(override, "model")
+    ? override.model || ""
+    : step?.model || "";
+  return officeModelOptions(step, routing, cloudAllowed).includes(selected) ? selected : "";
+}
+
+export function officeExecutionModes(modes, cloudAllowed = true) {
+  const choices = Array.isArray(modes) ? modes : [];
+  return cloudAllowed ? choices : choices.filter((value) => value !== "cloud");
+}
+
+export const OFFICE_LEVEL_REQUIRED_TEXT = "Esta área todavía no tiene nivel de privacidad: elígelo en «Privacidad»";
+
+export function officeLevelRequiredText(failure) {
+  return failure?.details?.reason === "office_level_required" ? OFFICE_LEVEL_REQUIRED_TEXT : "";
+}
+
 export function createSecretReview({ text, requestText, confirmCloud = false, approvalId = "" }) {
   return {
     text: String(text || ""),
@@ -673,9 +784,14 @@ export const inputsPath = (entry) =>
 // only the ids, so the description comes from the inputs endpoint of each one (a few at a time). `get(path)` is the GET
 // call (injected, so a test needs no server); `onUpdate(entries)` is called with the names first and again as the
 // descriptions arrive. A workflow whose description cannot be read stays in the catalog and still matches by name.
-export async function loadCatalog({ get, onUpdate = () => {}, concurrency = 4 }) {
-  const bundles = await get("/gui/api/bundles");
-  const origins = [null].concat((bundles || []).map((item) => item.name));
+export async function loadCatalog({ get, onUpdate = () => {}, concurrency = 4, bundles = null }) {
+  const origins = Array.isArray(bundles)
+    ? bundles.filter((bundle) => typeof bundle === "string" && bundle)
+    : [null].concat((await get("/gui/api/bundles") || []).map((item) => item.name));
+  if (!origins.length) {
+    onUpdate([]);
+    return [];
+  }
   const results = await Promise.all(origins.map((origin) => get(workflowsPath(origin)).then((list) => ({ list }), (error) => ({ error }))));
   if (results.every((result) => result.error)) throw results[0].error;
   let entries = [];

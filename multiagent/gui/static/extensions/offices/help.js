@@ -99,5 +99,14 @@ export const HELP = {
       "Se conservan sus datos y las copias guardadas.",
       "La confirmación aparece antes de quitarla."
     ]
+  },
+  "offices.ask": {
+    "title": "Pedir a la oficina",
+    "hint": "Abre «Nueva sesión» con esta oficina elegida.",
+    "more": [
+      "«Pídele algo a la oficina» deja que el coordinador prepare un borrador del plan.",
+      "«Pedir a esta área» abre sus opciones en Sesión única.",
+      "Abrir esta pantalla no guarda ni ejecuta nada."
+    ]
   }
 };

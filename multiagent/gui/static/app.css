@@ -779,3 +779,20 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .start-times-title { margin: 0; font-size: 1rem; }
 .start-times-text { margin: 0; max-width: 100%; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 @media (max-width: 599.98px) { .start-actions .btn, .start-confirm .btn, .start-times .btn, .start-back .btn { width: 100%; min-height: var(--target); } }
+/* VOF-T03 */
+.ns-office-select { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; min-width: 0; margin-bottom: 12px; }
+.ns-office-select label { flex: 0 0 100%; }
+.ns-office-select select { flex: 1 1 14rem; max-width: 100%; min-width: 0; min-height: var(--target); }
+.ns-office-select .help-block { max-width: 100%; }
+.ns-office-select > p { flex: 1 1 100%; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.ns-office-workflows { display: flex; flex-direction: column; gap: 8px; max-width: 100%; min-width: 0; }
+.ns-office-area { max-width: 100%; min-width: 0; }
+.ns-office-area h4 { margin: 8px 0 4px; overflow-wrap: anywhere; }
+.ns-office-workflow-list { display: flex; flex-wrap: wrap; gap: 8px; max-width: 100%; min-width: 0; }
+.ns-office-workflow-list .ns-card { flex: 1 1 15rem; max-width: 100%; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.offices-session-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; min-width: 0; }
+.offices-session-action .btn { flex: 0 1 auto; max-width: 100%; min-height: var(--target); overflow-wrap: anywhere; white-space: normal; }
+@media (max-width: 599.98px) {
+  .ns-office-workflow-list .ns-card { flex-basis: 100%; width: 100%; }
+  .offices-session-action .btn { flex-basis: 100%; width: 100%; }
+}

@@ -208,8 +208,10 @@ def test_controls_and_shell_navigation_meet_target_height_and_wrap():
 def test_view_new_session_rwd():
     """Nueva sesión: one box, selectors, chat and classic create-run form adapt down to 360 px.
 
-    Manual QA at 390 px and 768 px: open #new, step through workflow cards, routing selects, and 'Ver como formulario'."""
+    Manual QA at 375 px, 390 px and 768 px: open #new and an office route; check the office selector and grouped choices
+    wrap without horizontal scrolling, then step through workflow cards and routing selects."""
     ns_css = read_sheet(STATIC_DIR / "new-session.css")
+    app = read_sheet(STATIC_DIR / "app.css")
     assert "min-width: 0" in rule(ns_css, ".ns")
     assert "minmax(min(100%, 15rem), 1fr)" in rule(ns_css, ".ns-cards")
     assert "min-width: 0" in rule(ns_css, ".ns-question")
@@ -224,6 +226,11 @@ def test_view_new_session_rwd():
         assert "flex-basis: calc(50% - 8px)" in rule(phone, selector)
     assert "width: 100%" in rule(phone, ".ns-route-chip")
     assert "max-width: 100%" in rule(phone, ".ns-route-chip select")
+    office_select = rule(app, ".ns-office-select")
+    assert "flex-wrap: wrap" in office_select and "min-width: 0" in office_select
+    assert "min-height: var(--target)" in rule(app, ".ns-office-select select")
+    office_phone = all_media(app, PHONE_QUERY)
+    assert "width: 100%" in rule(office_phone, ".ns-office-workflow-list .ns-card")
 
 
 def test_view_teams_rwd():
@@ -359,7 +366,7 @@ def test_extensions_project_and_decisions_rwd():
 def test_view_offices_rwd():
     """Oficinas stays in one shrinkable column and wraps long names at 375 px and 390 px.
 
-    Manual QA at both widths confirms the office, area and member rows do not create page-level horizontal scrolling."""
+    Manual QA at both widths confirms the office actions, area and member rows do not create page-level horizontal scrolling."""
     offices = read_sheet(EXT / "offices" / "style.css")
     assert "min-width: 0" in rule(offices, ".offices-view")
     assert "grid-template-columns: minmax(0, 1fr)" in rule(offices, ".offices-list")
@@ -367,6 +374,9 @@ def test_view_offices_rwd():
     assert "overflow-wrap: anywhere" in rule(offices, ".offices-row-main > *")
     assert "overflow-wrap: anywhere" in rule(offices, ".offices-title")
     assert "overflow-wrap: anywhere" in rule(offices, ".offices-meta")
+    app = read_sheet(STATIC_DIR / "app.css")
+    assert "min-width: 0" in rule(app, ".offices-session-action")
+    assert "width: 100%" in rule(all_media(app, PHONE_QUERY), ".offices-session-action .btn")
 
 
 def test_apps_key_names_break_at_underscores_without_changing_copied_text():

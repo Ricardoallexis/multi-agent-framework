@@ -9,6 +9,10 @@ export const PLAN_SAVE_PATH = "/gui/api/new-session/plan/save";
 export const PLAN_SUGGESTED_REASON = "plan_suggested";
 export const PLAN_NOTICE = "Tu pedido necesita varios pasos, así que preparé un plan. Revísalo: no se guarda ni se aprueba nada hasta que lo confirmes.";
 export const PLAN_SAVED_NOTE = "Guardar no aprueba el plan: la decisión de aprobarlo o rechazarlo la tomas después, en el hilo del plan.";
+export const FALLBACK_TEXT = {
+  office_not_normal: "Esta oficina tiene áreas que no salen de tu equipo: preparé su plan por defecto",
+  mock: "En modo de prueba (sin gasto) uso el plan por defecto de la oficina",
+};
 
 const MAX_VALUE_CHARS = 2000;
 
