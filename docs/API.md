@@ -400,6 +400,7 @@ An office of level 1 is an `office.yaml` and its areas, with data files only (se
 | `GET /api/v1/offices/{id}/requirements` | | `{office, areas: [{id, requires, covered, by, missing, text, note, action}]}`, one entry per area; `409 office_not_installed` if it is not in the registry. See below. |
 | `POST /api/v1/offices/{id}/export` | `{area?, include_code?}` | `{filename, zip_base64, manifest, warnings}`; exports an office or one area as an allow-listed `.zip`. |
 | `POST /api/v1/offices/{id}/plan-draft` | `{text, confirm_cloud: false, approval_id: null}` | An unsaved plan draft scoped to the office's areas; it never creates or approves tasks. |
+| `GET /api/v1/offices/{id}/scene` | | The current `maf.office-scene/1` snapshot. |
 | `POST /api/v1/offices/{id}/reimport` | `{actor, folder}` or `{actor, zip_base64, filename?}` | `{office, teams, warnings, changes}`; only what differs changes. |
 | `POST /api/v1/offices/{id}/remove` | `{actor}` | `{id, removed: true, kept_data: true, areas, ...}`. Copies and run data are kept. |
 | `POST /api/v1/offices/{id}/areas/{area}/remove` | `{actor}` | `{office, removed: true, kept_data: true, area, warnings, ...}`. |

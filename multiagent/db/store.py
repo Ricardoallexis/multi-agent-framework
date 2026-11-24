@@ -329,6 +329,31 @@ class Store:
                 item["attention"] = self._approval_attention(item, events)
             return results
 
+    def scene_runs(self, *, since: str, limit: int = 500) -> list[dict[str, Any]]:
+        """Read the scene-safe fields of active runs and runs updated since ``since`` in one query."""
+        limit = max(1, min(int(limit), 500))
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """SELECT r.id,r.workflow_id,r.status,r.current_step,r.waiting_step,r.waiting_reason,
+                          CASE WHEN r.revision_feedback<>'' THEN 1 ELSE 0 END AS revised,r.updated_at,
+                          json_extract(e.payload_json,'$.role') AS step_role,
+                          json_extract(e.payload_json,'$.member') AS step_member,
+                          COALESCE((SELECT s.model_id FROM run_steps s
+                                    WHERE s.run_id=r.id
+                                      AND s.step_id=json_extract(e.payload_json,'$.step_id')
+                                    ORDER BY s.attempt DESC LIMIT 1),'') AS step_model_id
+                   FROM runs r
+                   LEFT JOIN run_events e ON e.id=(
+                       SELECT MAX(event.id) FROM run_events event
+                       WHERE event.run_id=r.id AND event.event_type='step_started'
+                   )
+                   WHERE r.status IN ('queued','running','waiting_human','paused') OR r.updated_at>=?
+                   ORDER BY r.updated_at DESC,r.id
+                   LIMIT ?""",
+                (since, limit),
+            ).fetchall()
+        return [{**dict(row), "revised": bool(row["revised"])} for row in rows]
+
     @staticmethod
     def _approval_attention(run: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any] | None:
         if (run["status"] != RunStatus.WAITING_HUMAN.value

@@ -307,9 +307,45 @@ separate decision.
 The service methods are `stage_zip`, `stage_folder`, `card`, `install_staged` and `discard_stage` on
 `OfficeServices`. OFI-T04 does not add `/api/v1` routes or CLI commands; the GUI routes are supplied by VOF-T02.
 
+## Scene
+
+`GET /api/v1/offices/{id}/scene` and `multiagent office scene ID` return a read-only `maf.office-scene/1` snapshot. The
+same document is available with `--json`. It contains the office id, name and state; the coordinator state and its
+current plan; each area's data class, degraded fixes, state, label and members; labelled office relations; and whether
+the run list was truncated. It deliberately omits machine paths, run inputs and outputs, and step text.
+
+The scene never checks connections: it uses the latest result checked in «Apps y agentes» or the installation detail;
+without a prior check, it does not mark `requirement_missing`.
+
+Runs in `queued`, `running`, `waiting_human` or `paused` remain visible. Other runs are included only when updated in
+the last 24 hours. Each area is read with one database query, capped at 500 runs; `truncated` is true when an area
+reaches that cap. An area with no database returns an empty run list. The scene reads persisted step-role, member and
+model data; it does not load an area package.
+
+| Source state | Scene state |
+| --- | --- |
+| `running` or `paused` | `doing` |
+| `queued` after a request for changes | `changes` |
+| `queued` without a request for changes | `ready` |
+| `waiting_human` | `review` |
+| `failed` or `interrupted` | `failed` |
+| `completed` in the window | `done` |
+| `cancelled` or `rejected` in the window | `cancelled` |
+
+When multiple sources apply, the scene uses the L17 priority order:
+`review` > `changes` > `failed` > `doing` > `blocked` > `ready` > `todo` > `done` > `cancelled`. With no source, the
+state is `idle` and its label is `Libre`. Labels come from the shared task-label map. A member's `worker` is the model
+id of the latest attempt of the winning step, or `—` when there is none.
+An area's state, label and since are the L17 winner across its own candidates and all member candidates; a member's
+worker is not promoted to the area.
+
+The coordinator follows open office plan proposals and approved plans with unfinished tasks. `proposed` is `review`;
+an approved plan is `doing` until every task is `done` or `cancelled`, then `done`. Rejected proposals do not count.
+The sprint 9 office view draws on this schema without changing it.
+
 ## Templates
 
-Two level-1 (data-only) office templates live in `examples/offices/` with synthetic Spanish data, `preferred_model: local_default`, `checkpoint_after: true`, and teams whose `revision` role assigns a `Responsable` person to review outputs from `redaccion`:
+Two level-1 (data-only) office templates live in `examples/offices/` with synthetic Spanish data, `preferred_model: local_default`, `checkpoint_after: true`, and teams whose `revision` role assigns a `Responsable` person to review outputs from `redaccion`: They are examples to import, not defaults: they are not part of the installed package, nothing loads them at startup, and the framework ships no default offices.
 
 - **`examples/offices/cafeteria`** (`cafeteria` — *Cafetería de ejemplo*):
   - `menu` (`normal`, `[model.text]`): `menu_semana` workflow producing `MenuSemana`.

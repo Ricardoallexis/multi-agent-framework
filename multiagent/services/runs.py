@@ -383,6 +383,20 @@ class RunServices:
         return runs[:max(1, min(int(limit), 500))]
 
     @service_errors
+    def recent_runs(self, bundle: str, *, since: str, limit: int = 500) -> list[dict[str, Any]]:
+        """Read scene fields without creating a runtime, loading a bundle or migrating its database."""
+        settings = self._bundle_settings(bundle)
+        with self._lock:
+            runtime = self._bundle_runtimes.get(bundle)
+        if runtime is not None:
+            store = runtime.store
+        elif not settings.db_path.is_file():
+            return []
+        else:
+            store = Store(Database(settings))
+        return store.scene_runs(since=since, limit=limit)
+
+    @service_errors
     def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None,
                 recorded_only: bool = False, permission_request_id: str | None = None,
                 person: bool = False) -> dict[str, Any]:

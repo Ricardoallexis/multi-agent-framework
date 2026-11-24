@@ -335,6 +335,15 @@ def cmd_office(args) -> None:
     elif action == "plan-draft":
         pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/plan-draft",
                          json_body={"text": args.text, "confirm_cloud": args.confirm_cloud}))
+    elif action == "scene":
+        scene = _api_json("GET", f"/api/v1/offices/{_segment(args.office_id)}/scene")
+        if args.json:
+            pretty(scene)
+        else:
+            for area in scene["areas"]:
+                print(f"{area['name']}: {area['label']}")
+                for member in area["members"]:
+                    print(f"  {member['name']}: {member['label']} ({member['worker']})")
     elif action == "reimport":
         pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/reimport",
                          json_body={**_office_source(args.path), "actor": args.actor}))
@@ -1566,6 +1575,9 @@ def build_parser() -> argparse.ArgumentParser:
     x = office.add_parser("plan-draft", help="Draft a plan for an installed office without saving it")
     x.add_argument("office_id"); x.add_argument("text"); x.add_argument("--confirm-cloud", action="store_true")
     x.add_argument("--json", action="store_true", help="Print the draft as JSON")
+    x.set_defaults(func=cmd_office)
+    x = office.add_parser("scene", help="Show the current state of an office's areas and members")
+    x.add_argument("office_id"); x.add_argument("--json", action="store_true", help="Print the scene as JSON")
     x.set_defaults(func=cmd_office)
     x = sub.add_parser("bundle-validate", help="Validate a bundle registered on the server")
     x.add_argument("name"); x.set_defaults(func=cmd_bundle_validate)

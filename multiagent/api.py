@@ -766,6 +766,10 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         return services.offices.plan_draft(
             office_id, body.text, confirm_cloud=body.confirm_cloud, approval_id=body.approval_id)
 
+    @app.get("/api/v1/offices/{office_id}/scene")
+    def office_scene(office_id: str):
+        return services.offices.scene(office_id)
+
     @app.post("/api/v1/offices/{office_id}/reimport")
     def reimport_office(office_id: str, body: OfficeReimportRequest):
         folder, data = _office_source(body.folder, body.zip_base64)

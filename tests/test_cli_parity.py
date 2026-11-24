@@ -269,3 +269,24 @@ def test_office_plan_draft_cli_requests_api(monkeypatch, capsys):
     assert requests == [("POST", "/api/v1/offices/demo/plan-draft",
                          {"text": "Plan de prueba", "confirm_cloud": True})]
     assert json.loads(capsys.readouterr().out) == {"schema": "maf.new-session-plan/1"}
+
+
+def test_office_scene_cli_requests_api_and_renders_members(monkeypatch, capsys):
+    parser = cli.build_parser()
+    args = parser.parse_args(["office", "scene", "demo"])
+    assert args.func is cli.cmd_office and args.office_command == "scene" and args.json is False
+    requests = []
+
+    def fake_api_json(method, path, *, json_body=None, **_kwargs):
+        requests.append((method, path, json_body))
+        return {"areas": [{"name": "Reception", "label": "En curso",
+                           "members": [{"name": "Writer", "label": "Espera tu revisión",
+                                        "worker": "local_default"}]}]}
+
+    monkeypatch.setattr(cli, "_api_json", fake_api_json)
+    cli.main(["office", "scene", "demo"])
+    assert requests == [("GET", "/api/v1/offices/demo/scene", None)]
+    assert capsys.readouterr().out.splitlines() == [
+        "Reception: En curso",
+        "  Writer: Espera tu revisión (local_default)",
+    ]

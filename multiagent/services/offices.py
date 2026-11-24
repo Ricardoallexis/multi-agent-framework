@@ -21,6 +21,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
 
@@ -30,14 +31,17 @@ from ..bundles import load_bundle
 from ..db.database import utcnow
 from ..external_output import canonical_json, sha256
 from ..offices.export import build_export, check_manifest
+from ..offices.plan import is_office_group, office_group_id
 from ..offices.requirements import (executor_capabilities, mock_capabilities, model_capabilities,
                                     office_requirements)
+from ..offices.scene import SCENE_RUNS_MAX, SCENE_WINDOW_HOURS, build_scene
 from ..offices.schema import (OFFICE_ID_PATTERN, OFFICE_SCHEMA, OfficeDefinition, OfficeDefinitionError,
                               area_bundle_name, load_office)
 from ..tools.files import _is_link_or_junction
 from ..teams.digest import team_sha256
 from .bundle_scans import BundleScanServices
-from .errors import INVALID_DEFINITION, INVALID_REQUEST, INVALID_STATE, ServiceError, service_errors, translate
+from .errors import (INVALID_DEFINITION, INVALID_REQUEST, INVALID_STATE, NOT_FOUND as SERVICE_NOT_FOUND, ServiceError,
+                     service_errors, translate)
 from .installed import (CODE_FREE_SUFFIXES, SOURCE_OFFICE, STATE_MISSING, STATE_OK, ZIP_EXTRACT_MAX_BYTES,
                         ZIP_MAX_FILES, ZIP_UPLOAD_MAX_BYTES, _conflict, _invalid, extract_zip_safely)
 from .installed import package_level
@@ -795,14 +799,15 @@ class OfficeServices:
 
     # --- requirements by capability (OFI-T06) ---------------------------------
 
-    def requirements_candidates(self) -> list[dict[str, Any]]:
+    def requirements_candidates(self, *, rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         """Who could cover an area: catalog models of a connected provider, active executors and, in Mock, ``mock``.
 
-        It reads the saved connection state and the local activation file; it calls no model and no provider. ``local``
+        When rows are omitted, ``connections.list()`` checks connections (including CLI detection, quota files and
+        Ollama). Callers can pass saved rows to avoid those checks. It also reads the local activation file. ``local``
         is explicit: ``True`` for ``mock`` and for a model of ``tier: local``, ``False`` for executors and cloud models.
         """
         services = self._services
-        rows = services.connections.list()["connections"]
+        rows = rows if rows is not None else services.connections.list()["connections"]
         ready = {row["id"] for row in rows if row.get("kind") == "model" and row.get("available")}
         found: list[dict[str, Any]] = []
         for spec in services.system.catalog.models.values():
@@ -1949,3 +1954,91 @@ class OfficeServices:
             return
         self._reject_stage_approval(metadata)
         shutil.rmtree(stage, ignore_errors=True)
+
+    # --- office scene (ESC-T01) ----------------------------------------------
+
+    @service_errors
+    def scene(self, office_id: str, *, now: datetime | None = None) -> dict[str, Any]:
+        """Return the versioned scene without loading bundle code or creating an area runtime."""
+        office_id = self._check_id(office_id, "office_id")
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        else:
+            current = current.astimezone(timezone.utc)
+        since = (current - timedelta(hours=SCENE_WINDOW_HOURS)).isoformat()
+        with self._lock:
+            entry = self._read().get(office_id)
+            if entry is None:
+                raise ServiceError(SERVICE_NOT_FOUND, f"Office not found: {office_id}", status=404,
+                                   details={"office": office_id})
+            definition = _office_of_record(entry["definition"])
+            registered = self._services.installed._read()
+            office = self._public(entry, registered)
+
+        rows = list(getattr(self._services.connections, "_last", {}).values())
+        requirements: dict[str, dict[str, Any]] = {}
+        if rows:
+            requirements = {
+                item["id"]: item
+                for item in office_requirements(definition, self.requirements_candidates(rows=rows))["areas"]
+            }
+        scene_areas = []
+        for area in office["areas"]:
+            bundle = area["bundle"]
+            package_state = area["package_state"]
+            team = None
+            if package_state == STATE_OK:
+                version = self._services.teams.approved(bundle)
+                if version is None:
+                    versions = self._services.teams.list(bundle)["versions"]
+                    version = versions[-1] if versions else None
+                if version is not None:
+                    team = version["team"]
+
+            degraded = []
+            if package_state == "changed":
+                degraded.append({"code": "installed_bundle_changed",
+                                 "fix": {"label": "Reimportar la oficina", "href": None, "action": "reimport"}})
+            elif package_state == STATE_MISSING:
+                degraded.append({"code": "bundle_not_installed",
+                                 "fix": {"label": "Reimportar la oficina", "href": None, "action": "reimport"}})
+
+            team_state = area.get("team") or {}
+            if team_state.get("status") is not None and team_state.get("status") != "approved":
+                version_id = team_state.get("version_id")
+                degraded.append({"code": "team_not_approved",
+                                 "fix": {"label": "Aprobar equipo",
+                                         "href": f"#new/team/{version_id}" if version_id else None,
+                                         "action": None}})
+            requirement = requirements.get(area["id"], {})
+            if requirement.get("missing"):
+                degraded.append({"code": "requirement_missing",
+                                 "fix": {"label": "Conectar un agente", "href": "#apps", "action": None}})
+
+            runs = self._services.runs.recent_runs(bundle, since=since, limit=SCENE_RUNS_MAX)
+            scene_areas.append({
+                **area,
+                "data_class": self.area_class(bundle),
+                "degraded": degraded,
+                "team": team,
+                "runs": runs,
+                "truncated": len(runs) >= SCENE_RUNS_MAX,
+            })
+
+        office_group = office_group_id(office_id)
+        proposals = self._services.plan_proposals.list(group_id=office_group)
+        scene_proposals = []
+        for proposal in proposals:
+            if not is_office_group(proposal["group_id"], office_id):
+                continue
+            task_views = {}
+            if proposal["status"] == "approved":
+                task_views = {
+                    task["id"]: task
+                    for task in self._services.tasks.list_tasks(group_id=proposal["group_id"])
+                }
+            # PlanServices.status reads every run runtime; the scene uses task records directly to stay read-only.
+            scene_proposals.append({**proposal, "scene_tasks": task_views})
+
+        return build_scene(office, scene_areas, scene_proposals, now=current)
