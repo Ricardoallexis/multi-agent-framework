@@ -417,10 +417,15 @@ def test_max_active_per_project_serializes_same_project_and_allows_other_project
     finally:
         stop_workers(system, worker_a, worker_b)
 
+    # The engine marks a run completed in one commit and only then logs ``workflow_completed``
+    # (workflow_engine.py:877-878, mock.py:483-490). The slot is freed by the status change, so the
+    # other worker may claim the waiting Alpha before ``workflow_completed`` reaches the gate's
+    # list. What the product orders is the first Alpha's last step event, which its thread logs
+    # before it sets the status, and the claim of the waiting Alpha only follows that status.
     recorded = system.gate.recorded_events()
-    idx_first_done = next(
-        i for i, (rid, kind, _) in enumerate(recorded)
-        if rid == alpha_first and kind == "workflow_completed"
+    idx_first_last_step = next(
+        i for i, (rid, kind, payload) in enumerate(recorded)
+        if rid == alpha_first and kind == "step_completed" and payload.get("step_id") == "second"
     )
     idx_second_start = next(
         i for i, (rid, kind, _) in enumerate(recorded)
@@ -430,7 +435,7 @@ def test_max_active_per_project_serializes_same_project_and_allows_other_project
         i for i, (rid, kind, _) in enumerate(recorded)
         if rid == beta["id"] and kind == "run_started"
     )
-    assert idx_beta_start < idx_first_done < idx_second_start
+    assert idx_beta_start < idx_first_last_step < idx_second_start
     for rid in (alpha_1["id"], alpha_2["id"], beta["id"]):
         final = system.store.get_run(rid)
         assert final["status"] == "completed"
