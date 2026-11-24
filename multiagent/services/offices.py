@@ -12,11 +12,13 @@ offices nothing is created and nothing new is read. Nothing here returns an abso
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
 import shutil
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -32,11 +34,13 @@ from ..offices.requirements import (executor_capabilities, mock_capabilities, mo
                                     office_requirements)
 from ..offices.schema import (OFFICE_ID_PATTERN, OFFICE_SCHEMA, OfficeDefinition, OfficeDefinitionError,
                               area_bundle_name, load_office)
+from ..tools.files import _is_link_or_junction
 from ..teams.digest import team_sha256
 from .bundle_scans import BundleScanServices
 from .errors import INVALID_DEFINITION, INVALID_REQUEST, INVALID_STATE, ServiceError, service_errors, translate
 from .installed import (CODE_FREE_SUFFIXES, SOURCE_OFFICE, STATE_MISSING, STATE_OK, ZIP_EXTRACT_MAX_BYTES,
                         ZIP_MAX_FILES, ZIP_UPLOAD_MAX_BYTES, _conflict, _invalid, extract_zip_safely)
+from .installed import package_level
 
 if TYPE_CHECKING:
     from . import ApplicationServices
@@ -139,6 +143,12 @@ def _parse_label(label: Any) -> tuple[str | None, bool] | None:
 
 def _privacy_digest(office_id: str, area_id: str | None, before: str, after: str) -> str:
     return sha256(canonical_json({"office": office_id, "area": area_id, "from": before, "to": after}))
+
+
+OFFICE_NOTICE = ("Las instrucciones de esta oficina las escribió otra persona. Un ejecutor activado las sigue dentro "
+                 "de su carpeta de trabajo")
+STAGE_TTL_SECONDS = 3600
+_STAGE_ID = re.compile(r"[0-9a-f]{32}\Z")
 
 
 class OfficeServices:
@@ -380,14 +390,15 @@ class OfficeServices:
         infos: dict[str, dict[str, Any]] = {}
         for area in areas if areas is not None else office.areas:
             folder = root.joinpath(*area.path.split("/"))
-            self._services.installed._validate(folder)   # load_bundle and every workflow and the team, as bundle-validate
+            validation = self._services.installed._validate(folder)
             team = load_bundle(folder, settings).team
             digest = team_sha256(team) if team is not None else None
             if area.team_sha256 is not None and area.team_sha256 != digest:
                 raise _conflict(f"The team of the area {area.id} is not the one the office declares",
                                 "office_team_mismatch", area=area.id)
             infos[area.id] = {"folder": folder, "fingerprint": BundleScanServices.fingerprint(folder),
-                              "team_digest": digest, "has_team": team is not None}
+                              "team_digest": digest, "has_team": team is not None, "team": team,
+                              "validation": validation}
         return infos
 
     def _taken(self, bundle: str, registered: dict[str, dict[str, Any]]) -> bool:
@@ -396,7 +407,8 @@ class OfficeServices:
     # --- teams, version copies and events -----------------------------------
 
     def _propose(self, bundle: str, digest: str | None, *, actor: str, channel: str,
-                 warnings: list[dict[str, str]]) -> dict[str, Any] | None:
+                 warnings: list[dict[str, str]], validated: dict[str, Any] | None = None
+                 ) -> dict[str, Any] | None:
         """Propose the team of a package (never approve it). ``no_changes`` is not an error: the approved one stays."""
         if digest is None:
             return None
@@ -405,7 +417,11 @@ class OfficeServices:
         if rows and rows[-1]["sha256"] == digest and rows[-1]["status"] in ("proposed", "approved"):
             return {"bundle": bundle, "version_id": rows[-1]["id"], "status": rows[-1]["status"]}
         try:
-            version = teams.propose(bundle, actor=actor, channel=channel)
+            if validated is None:
+                version = teams.propose(bundle, actor=actor, channel=channel)
+            else:
+                version = teams._propose_validated(bundle, validated["team"], validated["validation"],
+                                                   actor=actor, channel=channel)
         except ServiceError as exc:
             if exc.details.get("reason") == "no_changes":
                 return {"bundle": bundle, "version_id": exc.details.get("approved_version_id"), "status": "approved"}
@@ -498,12 +514,15 @@ class OfficeServices:
         infos = self._check_areas(root, office)
         installed.apply_batch([{"op": "install", "name": bundles[area.id], "folder": str(infos[area.id]["folder"])}
                                for area in office.areas],
-                              actor=actor, channel=channel, source=SOURCE_OFFICE, office=office.id)
+                              actor=actor, channel=channel, source=SOURCE_OFFICE, office=office.id,
+                              expected_fingerprints={bundles[area.id]: infos[area.id]["fingerprint"]
+                                                     for area in office.areas})
         copy: Path | None = None
         try:
             warnings = list(office.warnings)
             teams = [state for area in office.areas for state in [self._propose(
-                bundles[area.id], infos[area.id]["team_digest"], actor=actor, channel=channel, warnings=warnings)] if state]
+                bundles[area.id], infos[area.id]["team_digest"], actor=actor, channel=channel, warnings=warnings,
+                validated=infos[area.id])] if state]
             version = self._next_version(office.id, offices)
             copy = self._save_copy(office.id, version, content)
             entry = self._entry(office, _record_of(office), version=version, actor=actor, channel=channel,
@@ -555,11 +574,13 @@ class OfficeServices:
                 extra.append(_warning("office_relation_unknown_area", f"relations[{relation['from']}->{relation['to']}]",
                                       f"Relation references an area that {into} does not have; it was not added"))
         installed.apply_batch([{"op": "install", "name": bundle, "folder": str(infos[area.id]["folder"])}],
-                              actor=actor, channel=channel, source=SOURCE_OFFICE, office=into)
+                              actor=actor, channel=channel, source=SOURCE_OFFICE, office=into,
+                              expected_fingerprints={bundle: infos[area.id]["fingerprint"]})
         copy: Path | None = None
         try:
             warnings: list[dict[str, str]] = []
-            team = self._propose(bundle, infos[area.id]["team_digest"], actor=actor, channel=channel, warnings=warnings)
+            team = self._propose(bundle, infos[area.id]["team_digest"], actor=actor, channel=channel,
+                                 warnings=warnings, validated=infos[area.id])
             definition = _office_of_record(record)
             version = self._next_version(into, offices)
             copy = self._save_copy(into, version, _yaml_of_record(record))
@@ -636,7 +657,10 @@ class OfficeServices:
                      + [{"op": "remove", "name": area_bundle_name(office_id, a)} for a in removed
                         if area_bundle_name(office_id, a) in registered])
             if batch:   # a run in progress of a changed or removed area stops the whole change (bundle_busy)
-                installed.apply_batch(batch, actor=actor, channel=channel, source=SOURCE_OFFICE, office=office_id)
+                installed.apply_batch(
+                    batch, actor=actor, channel=channel, source=SOURCE_OFFICE, office=office_id,
+                    expected_fingerprints={area_bundle_name(office_id, area_id): infos[area_id]["fingerprint"]
+                                           for area_id in [*added, *changed]})
             copy: Path | None = None
             try:
                 warnings = list(office.warnings)
@@ -648,7 +672,7 @@ class OfficeServices:
                         state = {"bundle": bundle, **state} if state["version_id"] else None
                     else:
                         state = self._propose(bundle, infos[area.id]["team_digest"], actor=actor, channel=channel,
-                                              warnings=warnings)
+                                              warnings=warnings, validated=infos[area.id])
                     if state:
                         teams.append(state)
                 record = _record_of(office)
@@ -1147,3 +1171,781 @@ class OfficeServices:
         """Draft an office plan without saving, approving or starting it."""
         return self._services.new_session.draft_plan(
             text, confirm_cloud=confirm_cloud, approval_id=approval_id, office=office_id)
+
+    # --- install card (OFI-T04) ----------------------------------------------
+
+    clock = staticmethod(time.time)
+
+    @staticmethod
+    def _install_error(reason: str, message: str, **details: Any) -> ServiceError:
+        return ServiceError(INVALID_STATE, message, status=409, details={"reason": reason, **details})
+
+    def _stage_folder(self, stage_id: str) -> Path:
+        if not isinstance(stage_id, str) or _STAGE_ID.fullmatch(stage_id) is None:
+            raise self._install_error("office_stage_not_found", "Office preparation not found")
+        return self._root / _STAGING / stage_id
+
+    def _stage_record(self, stage_id: str) -> tuple[Path, dict[str, Any]]:
+        stage = self._stage_folder(stage_id)
+        metadata_path = stage / "stage.json"
+        try:
+            if _is_link_or_junction(stage) or _is_link_or_junction(metadata_path):
+                raise OSError
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise self._install_error("office_stage_not_found", "Office preparation not found") from None
+        if not isinstance(metadata, dict) or metadata.get("stage_id") != stage_id:
+            raise self._install_error("office_stage_not_found", "Office preparation not found")
+        if (metadata.get("kind") not in {"install", "reimport", "area"}
+                or not isinstance(metadata.get("office_id"), str) or not _ID.fullmatch(metadata["office_id"])
+                or not isinstance(metadata.get("fingerprint"), str)
+                or re.fullmatch(r"[0-9a-f]{64}", metadata["fingerprint"]) is None
+                or metadata.get("into") is not None and
+                (not isinstance(metadata["into"], str) or not _ID.fullmatch(metadata["into"]))
+                or metadata.get("reimport") is not None and
+                (not isinstance(metadata["reimport"], str) or not _ID.fullmatch(metadata["reimport"]))):
+            raise self._install_error("office_stage_not_found", "Office preparation not found")
+        created_at = metadata.get("created_at")
+        if isinstance(created_at, bool) or not isinstance(created_at, (int, float)):
+            raise self._install_error("office_stage_not_found", "Office preparation not found")
+        if self.clock() - created_at > STAGE_TTL_SECONDS:
+            self._reject_stage_approval(metadata)
+            shutil.rmtree(stage, ignore_errors=True)
+            raise self._install_error("office_stage_expired", "Office preparation expired", stage_id=stage_id)
+        content = stage / "source"
+        if (_is_link_or_junction(content) or not content.is_dir()
+                or not content.resolve().is_relative_to(stage.resolve())):
+            raise self._install_error("office_stage_not_found", "Office preparation not found")
+        for current, directories, files in os.walk(content, followlinks=False):
+            if any(_is_link_or_junction(Path(current) / name) for name in (*directories, *files)):
+                raise self._install_error("office_changed_since_card", "The office contains a linked file",
+                                          stage_id=stage_id)
+        return content, metadata
+
+    def _reject_stage_approval(self, metadata: dict[str, Any]) -> None:
+        approval_id = metadata.get("approval_id")
+        if not isinstance(approval_id, str):
+            return
+        approval = self._services.user_approvals.peek(approval_id)
+        if approval is not None and approval.get("state") == "pending":
+            self._services.user_approvals.decide(approval_id, "reject", actor="system:office")
+
+    def _definition_for_stage(self, root: Path) -> OfficeDefinition:
+        try:
+            definition = load_office(root)
+        except OfficeDefinitionError as exc:
+            raise self._office_error(exc) from None
+        if len(definition.areas) > OFFICE_MAX_AREAS:
+            raise _too_large(f"The office has more than {OFFICE_MAX_AREAS} areas", field="areas",
+                             limit=OFFICE_MAX_AREAS)
+        return definition
+
+    def _stage_targets(self, definition: OfficeDefinition, *, into: str | None,
+                       reimport: str | None) -> tuple[str, str]:
+        if into is not None and reimport is not None:
+            raise _invalid("Choose either an office to add an area to or an office to reimport", field="into")
+        offices = self._read()
+        if into is not None:
+            target = offices.get(into)
+            if target is None:
+                raise self._not_installed(into)
+            if len(definition.areas) != 1:
+                raise ServiceError(INVALID_REQUEST, "To add to an office, the office.yaml must hold exactly one area",
+                                   status=422, details={"reason": "office_single_area_required",
+                                                        "areas": len(definition.areas)})
+            area_id = definition.areas[0].id
+            if any(area["id"] == area_id for area in target["definition"]["areas"]):
+                raise _conflict(f"The office {into} already has the area {area_id}", "office_area_exists",
+                                office=into, area=area_id)
+            bundle = area_bundle_name(into, area_id)
+            if self._taken(bundle, self._services.installed._read()):
+                raise _conflict(f"Bundle name in use: {bundle}", "bundle_name_in_use", bundle=bundle)
+            if len(target["definition"]["areas"]) + 1 > OFFICE_MAX_AREAS:
+                raise _too_large(f"The office would have more than {OFFICE_MAX_AREAS} areas", field="areas",
+                                 limit=OFFICE_MAX_AREAS)
+            return "area", into
+        if reimport is not None:
+            previous = offices.get(reimport)
+            if previous is None:
+                raise self._not_installed(reimport)
+            if definition.id != reimport:
+                raise _conflict(f"The office.yaml is the office {definition.id}, not {reimport}", "office_id_mismatch",
+                                office=reimport, found=definition.id)
+            return "reimport", reimport
+        if definition.id in offices:
+            raise _conflict(f"Office already installed: {definition.id}", "office_exists", office=definition.id)
+        return "install", definition.id
+
+    @staticmethod
+    def _code_files(root: Path, definition: OfficeDefinition) -> list[str]:
+        found = []
+        for area in definition.areas:
+            folder = root.joinpath(*area.path.split("/"))
+            for path in folder.rglob("*"):
+                if (path.is_file() and "__pycache__" not in path.relative_to(folder).parts
+                        and path.suffix.lower() not in CODE_FREE_SUFFIXES):
+                    found.append(path.relative_to(root).as_posix())
+        return sorted(found)
+
+    def _require_stage_mode(self, root: Path, definition: OfficeDefinition) -> tuple[str, bool]:
+        code_files = self._code_files(root, definition)
+        level = "code" if code_files else "data"
+        has_functions = any(Path(name).name == "functions.py" for name in code_files)
+        if level == "code":
+            self._services.gui_settings.require_advanced_mode("install_code")
+            if has_functions:
+                self._services.gui_settings.require_advanced_mode("trust_functions")
+        return level, has_functions
+
+    def _create_stage(self, *, folder: Path | None, data: bytes | None, filename: str,
+                      into: str | None, reimport: str | None) -> dict[str, Any]:
+        into = self._check_id(into, "into") if into is not None else None
+        reimport = self._check_id(reimport, "reimport") if reimport is not None else None
+        stage_id = uuid.uuid4().hex
+        stage = self._stage_folder(stage_id)
+        content = stage / "source"
+        stage.mkdir(parents=True, exist_ok=False)
+        roots = [str(stage), str(stage.resolve()), stage.as_posix(), stage.resolve().as_posix()]
+        try:
+            with self._staged(folder=folder, data=data) as prepared:
+                definition = self._definition_for_stage(prepared)
+                kind, office_id = self._stage_targets(definition, into=into, reimport=reimport)
+                level, _ = self._require_stage_mode(prepared, definition)
+                if level == "data":
+                    self._check_areas(prepared, definition)
+                shutil.copytree(prepared, content)
+            fingerprint = BundleScanServices.fingerprint(content)
+            metadata = {"stage_id": stage_id, "created_at": self.clock(), "kind": kind, "office_id": office_id,
+                        "into": into, "reimport": reimport, "filename": str(filename or "")[:80],
+                        "fingerprint": fingerprint, "approval_id": None}
+            (stage / "stage.json").write_text(json.dumps(metadata, sort_keys=True), encoding="utf-8")
+        except Exception as exc:
+            shutil.rmtree(stage, ignore_errors=True)
+            translated = translate(exc)
+            if translated is None:
+                raise
+            translated.message = _scrub(translated.message, roots)
+            translated.details = _scrub(translated.details, roots)
+            if translated is exc:
+                raise
+            raise translated from exc
+        return self.card(stage_id)
+
+    @service_errors
+    def stage_zip(self, data: bytes, *, filename: str = "", into: str | None = None,
+                  reimport: str | None = None) -> dict[str, Any]:
+        return self._create_stage(folder=None, data=data, filename=filename, into=into, reimport=reimport)
+
+    @service_errors
+    def stage_folder(self, folder: Path, *, into: str | None = None,
+                     reimport: str | None = None) -> dict[str, Any]:
+        return self._create_stage(folder=folder, data=None, filename="", into=into, reimport=reimport)
+
+    def _stage_changes(self, root: Path, definition: OfficeDefinition,
+                       metadata: dict[str, Any]) -> dict[str, list[str]]:
+        kind, office_id = metadata["kind"], metadata["office_id"]
+        if kind == "install":
+            return {"added": [area.id for area in definition.areas], "changed": [], "removed": [], "unchanged": []}
+        if kind == "area":
+            existing = self._read()[office_id]["definition"]["areas"]
+            return {"added": [definition.areas[0].id], "changed": [], "removed": [],
+                    "unchanged": [area["id"] for area in existing]}
+
+        previous = self._read()[office_id]
+        old_areas = {area["id"]: area for area in previous["definition"]["areas"]}
+        registered = self._services.installed._read()
+        added, changed, unchanged = [], [], []
+        for area in definition.areas:
+            bundle = area_bundle_name(office_id, area.id)
+            package = registered.get(bundle)
+            digest = BundleScanServices.fingerprint(root.joinpath(*area.path.split("/")))
+            if area.id not in old_areas:
+                added.append(area.id)
+            elif (package is None or package.get("fingerprint") != digest
+                  or self._services.installed._states.get(bundle, STATE_OK) != STATE_OK):
+                changed.append(area.id)
+            else:
+                unchanged.append(area.id)
+        kept = {area.id for area in definition.areas}
+        removed = [area_id for area_id in old_areas if area_id not in kept]
+        return {"added": added, "changed": changed, "removed": removed, "unchanged": unchanged}
+
+    def _stage_scan_inputs(self, root: Path, definition: OfficeDefinition,
+                           metadata: dict[str, Any]) -> tuple[str, dict[str, Path]]:
+        kind, office_id = metadata["kind"], metadata["office_id"]
+        staged = {area.id: root.joinpath(*area.path.split("/")) for area in definition.areas}
+        if kind != "area":
+            return metadata["fingerprint"], staged
+        current = self._read()[office_id]
+        registered = self._services.installed._read()
+        folders = {}
+        fingerprints = {}
+        for area in current["definition"]["areas"]:
+            bundle = area_bundle_name(office_id, area["id"])
+            package = registered.get(bundle)
+            if package is None or package.get("source") != SOURCE_OFFICE or package.get("office") != office_id:
+                continue
+            folder = self._services.bundle_path(bundle)
+            if folder.is_dir():
+                folders[area["id"]] = folder
+                fingerprints[bundle] = BundleScanServices.fingerprint(folder)
+        folders.update(staged)
+        fingerprint = sha256(canonical_json({"office": current["fingerprint"],
+                                             "areas": fingerprints,
+                                             "staged": metadata["fingerprint"]}))
+        return fingerprint, folders
+
+    @staticmethod
+    def _python_declarations(path: Path, label: str) -> list[str]:
+        if not path.is_file():
+            return []
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=label)
+        except (OSError, SyntaxError):
+            raise ServiceError(INVALID_DEFINITION, f"Invalid Python file in office: {label}", status=422,
+                               details={"reason": "office_code_invalid", "file": label}) from None
+        names = []
+        for statement in tree.body:
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.append(statement.name)
+            if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+                if any(isinstance(target, ast.Name) and target.id == "OUTPUT_SCHEMAS" for target in targets):
+                    value = statement.value
+                    if isinstance(value, ast.Dict):
+                        names.extend(key.value for key in value.keys if isinstance(key, ast.Constant)
+                                     and isinstance(key.value, str))
+        return sorted(set(names))
+
+    @staticmethod
+    def _area_members(folder: Path) -> list[dict[str, Any]]:
+        team_path = folder / "team.yaml"
+        if not team_path.is_file():
+            return []
+        raw = yaml.safe_load(team_path.read_text(encoding="utf-8")) or {}
+        if not isinstance(raw, dict):
+            return []
+        assignments: dict[str, list[str]] = {}
+        for assignment in raw.get("assignments") or []:
+            if isinstance(assignment, dict) and isinstance(assignment.get("member"), str):
+                role = assignment.get("role")
+                if isinstance(role, str):
+                    assignments.setdefault(assignment["member"], []).append(role)
+        members = []
+        for member in raw.get("members") or []:
+            if not isinstance(member, dict):
+                continue
+            member_id = member.get("id")
+            if not isinstance(member_id, str):
+                continue
+            roles = sorted(assignments.get(member_id, []))
+            members.append({"id": member_id, "kind": member.get("kind"), "name": member.get("name") or
+                            member.get("agent") or member_id, "role": ", ".join(roles) or None})
+        return members
+
+    def _area_declares(self, folder: Path, root: Path) -> dict[str, list[str]]:
+        workflows = sorted(path.stem for path in (folder / "workflows").glob("*.yaml"))
+        contracts: set[str] = set()
+        data_contracts = folder / "contracts.yaml"
+        if data_contracts.is_file():
+            raw = yaml.safe_load(data_contracts.read_text(encoding="utf-8")) or {}
+            if isinstance(raw, dict) and isinstance(raw.get("contracts"), dict):
+                contracts.update(str(name) for name in raw["contracts"])
+        contracts.update(self._python_declarations(folder / "contracts.py",
+                                                   (folder / "contracts.py").relative_to(root).as_posix()))
+        team = yaml.safe_load((folder / "team.yaml").read_text(encoding="utf-8")) if (folder / "team.yaml").is_file() else {}
+        role_rows = team.get("roles", []) if isinstance(team, dict) else []
+        roles = sorted(str(role["id"]) for role in role_rows
+                       if isinstance(role, dict) and isinstance(role.get("id"), str))
+        return {"workflows": workflows, "contracts": sorted(contracts), "roles": roles}
+
+    def _stage_approval(self, stage_id: str, metadata: dict[str, Any], fingerprint: str, level: str,
+                        risk_ack_required: bool) -> str:
+        office_id = metadata["office_id"]
+        destination = {"office": office_id, "kind": "office_install"}
+        approvals = self._services.user_approvals
+        current_id = metadata.get("approval_id")
+        if isinstance(current_id, str):
+            current = approvals.peek(current_id)
+            current_location = current.get("location") if current is not None else None
+            if (current is not None and current["state"] in {"pending", "approved"}
+                    and current["kind"] == "office_install" and current["sha256"] == fingerprint
+                    and current["destination"] == destination and isinstance(current_location, dict)
+                    and current_location.get("stage_id") == stage_id):
+                return current_id
+        matches = [item for item in approvals._all().values()
+                   if item["kind"] == "office_install" and item["sha256"] == fingerprint
+                   and item["destination"] == destination
+                   and isinstance(item.get("location"), dict)
+                   and item["location"].get("stage_id") == stage_id
+                   and item["state"] in {"pending", "approved"}]
+        if matches:
+            approval_id = matches[-1]["id"]
+        else:
+            approval = approvals.request(
+                kind="office_install", destination=destination,
+                location={"stage_id": stage_id, "level": level, "risk_ack_required": risk_ack_required},
+                sha256=fingerprint)
+            approval_id = approval["id"]
+        metadata["approval_id"] = approval_id
+        stage = self._stage_folder(stage_id)
+        (stage / "stage.json").write_text(json.dumps(metadata, sort_keys=True), encoding="utf-8")
+        return approval_id
+
+    @service_errors
+    def card(self, stage_id: str) -> dict[str, Any]:
+        root, metadata = self._stage_record(stage_id)
+        definition = self._definition_for_stage(root)
+        if BundleScanServices.fingerprint(root) != metadata.get("fingerprint"):
+            raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",
+                                      stage_id=stage_id)
+        kind, office_id = self._stage_targets(definition, into=metadata.get("into"),
+                                              reimport=metadata.get("reimport"))
+        if kind != metadata.get("kind") or office_id != metadata.get("office_id"):
+            raise self._install_error("office_changed_since_card", "The office preparation no longer matches its card",
+                                      stage_id=stage_id)
+        level, _ = self._require_stage_mode(root, definition)
+        changes = self._stage_changes(root, definition, metadata)
+        requirements = {item["id"]: item for item in self.requirements_for(definition)["areas"]}
+        if kind == "reimport":
+            old = _office_of_record(self._read()[office_id]["definition"])
+            previous_requirements = {item["id"]: item for item in self.requirements_for(old)["areas"]}
+            requirements.update({area_id: previous_requirements[area_id] for area_id in changes["removed"]})
+        visible_ids = [*changes["added"], *changes["changed"], *changes["removed"]]
+        staged_areas = {area.id: area for area in definition.areas}
+        folders: dict[str, Path] = {}
+        for area in definition.areas:
+            folders[area.id] = root.joinpath(*area.path.split("/"))
+        scan_fingerprint, scan_folders = self._stage_scan_inputs(root, definition, metadata)
+        scan = self._services.bundle_scans.scan_office(office_id, scan_fingerprint, scan_folders)
+        areas = []
+        for area_id in visible_ids:
+            area = staged_areas.get(area_id)
+            change = ("added" if area_id in changes["added"] else "changed"
+                      if area_id in changes["changed"] else "removed")
+            if area is not None:
+                folder = folders[area_id]
+                data = {"id": area.id, "name": area.name, "sensitivity": area.sensitivity,
+                        "local_only": area.local_only, "requires": requirements.get(area_id, {}),
+                        "members": self._area_members(folder), "declares": self._area_declares(folder, root)}
+            else:
+                old_record = self._read()[office_id]["definition"]
+                record = next(item for item in old_record["areas"] if item["id"] == area_id)
+                bundle = area_bundle_name(office_id, area_id)
+                folder = self._services._bundles.get(bundle)
+                data = {"id": area_id, "name": record["name"], "sensitivity": record.get("sensitivity"),
+                        "local_only": bool(record.get("local_only")), "requires": requirements.get(area_id, {}),
+                        "members": self._area_members(folder) if folder is not None else [],
+                        "declares": self._area_declares(folder, folder) if folder is not None else
+                        {"workflows": [], "contracts": [], "roles": []}}
+            areas.append({"id": area_id, "name": data["name"], "change": change, "members": data["members"],
+                          "requires": data["requires"], "sensitivity": data["sensitivity"],
+                          "local_only": data["local_only"], "declares": data["declares"]})
+        code_files = self._code_files(root, definition)
+        functions = sorted({name for area in definition.areas
+                            for name in self._python_declarations(
+                                root.joinpath(*area.path.split("/")) / "functions.py",
+                                (root.joinpath(*area.path.split("/")) / "functions.py").relative_to(root).as_posix())})
+        code = {"present": level == "code", "files": code_files[:OFFICE_CODE_FILES_SHOWN], "functions": functions}
+        allowed = {"safe", "caution", "off", "not_installed"}
+        current_approval = (self._services.user_approvals.peek(metadata["approval_id"])
+                            if isinstance(metadata.get("approval_id"), str) else None)
+        current_location = current_approval.get("location") if current_approval is not None else None
+        risk_ack_required = (level == "code" or any(item["state"] not in allowed for item in scan["areas"].values())
+                             or isinstance(current_location, dict)
+                             and current_location.get("risk_ack_required") is True)
+        approval_id = self._stage_approval(stage_id, metadata, metadata["fingerprint"], level, risk_ack_required)
+        target = self._read().get(office_id) if kind in {"area", "reimport"} else None
+        shown_office = ({"id": office_id, "name": target["definition"]["name"],
+                         "description": target["definition"].get("description")}
+                        if target is not None else {"id": definition.id, "name": definition.name,
+                                                    "description": definition.description})
+        return {"stage_id": stage_id, "kind": kind, "office": shown_office, "into": metadata.get("into"),
+                "level": level, "fingerprint": metadata["fingerprint"], "notice": OFFICE_NOTICE, "areas": areas,
+                "code": code, "scan": scan, "approval_id": approval_id,
+                "risk_ack_required": risk_ack_required}
+
+    def _approve_stage_teams(self, office_id: str, area_ids: list[str], infos: dict[str, dict[str, Any]], *,
+                             actor: str, channel: str, fingerprint: str, approval_id: str,
+                             warnings: list[dict[str, str]]) -> list[dict[str, Any]]:
+        note = f"aprobado al instalar la oficina {office_id} {fingerprint} (aprobación {approval_id})"
+        result = []
+        for area_id in area_ids:
+            bundle = area_bundle_name(office_id, area_id)
+            state = self._propose(bundle, infos[area_id]["team_digest"], actor=actor, channel=channel,
+                                  warnings=warnings)
+            if state is None:
+                continue
+            if state["status"] == "proposed":
+                approved = self._services.teams.approve(state["version_id"], actor=actor, channel=channel, note=note)
+                state = {"bundle": bundle, "version_id": approved["id"], "status": approved["status"]}
+            result.append(state)
+        return result
+
+    def _seed_office_scan_cache(self, office_id: str, folders: dict[str, Path], scan: dict[str, Any], *,
+                                approved_area_ids: set[str], risk_ack: bool) -> None:
+        for area_id, folder in folders.items():
+            bundle = area_bundle_name(office_id, area_id)
+            fingerprint = BundleScanServices.fingerprint(folder)
+            area_scan = scan["areas"][area_id]
+            previous = self._services.bundle_scans._cached(bundle, fingerprint) or {}
+            approved = area_id in approved_area_ids
+            cached = {"fingerprint": fingerprint,
+                      "scan": {"state": area_scan["state"], "findings": area_scan.get("findings", []),
+                               "coverage": area_scan.get("coverage", {})},
+                      "load_approved": approved or previous.get("load_approved") is True}
+            if previous.get("risk_ack") is True or approved and risk_ack:
+                cached["risk_ack"] = True
+            if area_scan["state"] in {"off", "not_installed"}:
+                self._services.bundle_scans._unscanned[(bundle, fingerprint)] = cached
+            else:
+                self._services.bundle_scans._write_cache(bundle, fingerprint, cached)
+
+    @staticmethod
+    def _scan_wait_error(scan: dict[str, Any]) -> ServiceError | None:
+        if scan["state"] == "pending":
+            return ServiceError("bundle_scan_pending", "Approve the office OSV query in the GUI", status=409,
+                                details={"approval_id": scan.get("approval_id"), "location": "/gui/"})
+        if scan["state"] in {"running", "unscanned"}:
+            return ServiceError("bundle_scan_running", "The office scan is not finished", status=409,
+                                details={"office": scan.get("office")})
+        return None
+
+    def _validate_stage_areas(self, root: Path, definition: OfficeDefinition) -> dict[str, dict[str, Any]]:
+        roots = [str(root), str(root.resolve()), root.as_posix(), root.resolve().as_posix()]
+        try:
+            return self._check_areas(root, definition)
+        except Exception as exc:
+            translated = translate(exc)
+            if translated is None:
+                raise
+            translated.message = _scrub(translated.message, roots)
+            translated.details = _scrub(translated.details, roots)
+            if translated is exc:
+                raise
+            raise translated from exc
+
+    def _stage_area_infos(self, root: Path, definition: OfficeDefinition, *, level: str
+                          ) -> dict[str, dict[str, Any]]:
+        if level == "data":
+            return self._validate_stage_areas(root, definition)
+        roots = [str(root), str(root.resolve()), root.as_posix(), root.resolve().as_posix()]
+        try:
+            infos = {}
+            for area in definition.areas:
+                folder = root.joinpath(*area.path.split("/"))
+                loaded = load_bundle(folder, self._services.settings)
+                digest = team_sha256(loaded.team) if loaded.team is not None else None
+                if area.team_sha256 is not None and area.team_sha256 != digest:
+                    raise _conflict(f"The team of the area {area.id} is not the one the office declares",
+                                    "office_team_mismatch", area=area.id)
+                infos[area.id] = {"folder": folder, "fingerprint": BundleScanServices.fingerprint(folder),
+                                  "team_digest": digest, "has_team": loaded.team is not None}
+            return infos
+        except Exception as exc:
+            translated = translate(exc)
+            if translated is None:
+                raise
+            translated.message = _scrub(translated.message, roots)
+            translated.details = _scrub(translated.details, roots)
+            if translated is exc:
+                raise
+            raise translated from exc
+
+    def _validate_installed_code(self, definition: OfficeDefinition, office_id: str) -> None:
+        for area in definition.areas:
+            folder = self._services.bundle_path(area_bundle_name(office_id, area.id))
+            if package_level(folder) == "code":
+                self._services.definitions.validate_bundle(area_bundle_name(office_id, area.id))
+
+    def _install_new_stage(self, root: Path, definition: OfficeDefinition, metadata: dict[str, Any],
+                           infos: dict[str, dict[str, Any]], card: dict[str, Any], *, actor: str,
+                           channel: str, approval_id: str) -> dict[str, Any]:
+        office_id = definition.id
+        offices = self._read()
+        if office_id in offices:
+            raise _conflict(f"Office already installed: {office_id}", "office_exists", office=office_id)
+        installed = self._services.installed
+        registered = installed._read()
+        bundles = {area.id: area_bundle_name(office_id, area.id) for area in definition.areas}
+        for bundle in bundles.values():
+            if self._taken(bundle, registered):
+                raise _conflict(f"Bundle name in use: {bundle}", "bundle_name_in_use", bundle=bundle)
+        trusted = {bundles[area.id] for area in definition.areas
+                   if (root.joinpath(*area.path.split("/")) / "functions.py").is_file()}
+        changes = [{"op": "install", "name": bundles[area.id],
+                    "folder": str(root.joinpath(*area.path.split("/")))} for area in definition.areas]
+        installed.apply_batch(changes, actor=actor, channel=channel, source=SOURCE_OFFICE, office=office_id,
+                              allow_code=card["level"] == "code", trusted_functions=trusted,
+                              expected_fingerprints={bundles[area.id]: infos[area.id]["fingerprint"]
+                                                     for area in definition.areas})
+        scan_folders = {area.id: root.joinpath(*area.path.split("/")) for area in definition.areas}
+        self._seed_office_scan_cache(office_id, scan_folders, card["scan"],
+                                     approved_area_ids={area.id for area in definition.areas},
+                                     risk_ack=card["risk_ack_required"])
+        for bundle in trusted:
+            installed.load_functions(bundle)
+        if card["level"] == "code":
+            self._validate_installed_code(definition, office_id)
+        warnings = list(definition.warnings)
+        teams = self._approve_stage_teams(office_id, [area.id for area in definition.areas], infos,
+                                          actor=actor, channel=channel, fingerprint=card["fingerprint"],
+                                          approval_id=approval_id, warnings=warnings)
+        version = self._next_version(office_id, offices)
+        copy = self._save_copy(office_id, version, (root / "office.yaml").read_bytes())
+        entry = self._entry(definition, _record_of(definition), version=version, actor=actor, channel=channel,
+                            registered=installed._read())
+        offices[office_id] = entry
+        self._write(offices)
+        self._event("office.installed", office_id, actor=actor, channel=channel, version=version,
+                    areas=[area.id for area in definition.areas], approval_id=approval_id)
+        return {"office": self._public(entry, installed._read()), "teams": teams, "warnings": warnings,
+                "changes": {"added": [area.id for area in definition.areas], "changed": [], "removed": [],
+                            "unchanged": []}}
+
+    def _install_reimport_stage(self, root: Path, definition: OfficeDefinition, metadata: dict[str, Any],
+                                infos: dict[str, dict[str, Any]], card: dict[str, Any], *, actor: str,
+                                channel: str, approval_id: str) -> dict[str, Any]:
+        office_id = metadata["office_id"]
+        offices = self._read()
+        previous = offices.get(office_id)
+        if previous is None:
+            raise self._not_installed(office_id)
+        installed = self._services.installed
+        registered = installed._read()
+        old_areas = {area["id"]: area for area in previous["definition"]["areas"]}
+        added, changed, unchanged = [], [], []
+        for area in definition.areas:
+            bundle = area_bundle_name(office_id, area.id)
+            package = registered.get(bundle)
+            if area.id not in old_areas:
+                if self._taken(bundle, registered):
+                    raise _conflict(f"Bundle name in use: {bundle}", "bundle_name_in_use", bundle=bundle)
+                added.append(area.id)
+            elif (package is None or package.get("fingerprint") != infos[area.id]["fingerprint"]
+                  or installed._states.get(bundle, STATE_OK) != STATE_OK):
+                changed.append(area.id)
+            else:
+                unchanged.append(area.id)
+        kept = {area.id for area in definition.areas}
+        removed = [area_id for area_id in old_areas if area_id not in kept]
+        batch = ([{"op": "install", "name": area_bundle_name(office_id, area_id),
+                   "folder": str(root.joinpath(*next(area.path for area in definition.areas
+                                                     if area.id == area_id).split("/")))} for area_id in added]
+                 + [{"op": "reinstall", "name": area_bundle_name(office_id, area_id),
+                     "folder": str(root.joinpath(*next(area.path for area in definition.areas
+                                                       if area.id == area_id).split("/")))} for area_id in changed]
+                 + [{"op": "remove", "name": area_bundle_name(office_id, area_id)} for area_id in removed
+                    if area_bundle_name(office_id, area_id) in registered])
+        changed_areas = set(added) | set(changed)
+        trusted = {area_bundle_name(office_id, area.id) for area in definition.areas
+                   if area.id in changed_areas
+                   and (root.joinpath(*area.path.split("/")) / "functions.py").is_file()}
+        if batch:
+            installed.apply_batch(batch, actor=actor, channel=channel, source=SOURCE_OFFICE, office=office_id,
+                                  allow_code=card["level"] == "code", trusted_functions=trusted,
+                                  expected_fingerprints={area_bundle_name(office_id, area_id):
+                                                         infos[area_id]["fingerprint"]
+                                                         for area_id in changed_areas})
+        scan_folders = {area.id: root.joinpath(*area.path.split("/")) for area in definition.areas}
+        self._seed_office_scan_cache(office_id, scan_folders, card["scan"],
+                                     approved_area_ids={area.id for area in definition.areas},
+                                     risk_ack=card["risk_ack_required"])
+        for bundle in trusted:
+            installed.load_functions(bundle)
+        if card["level"] == "code":
+            self._validate_installed_code(definition, office_id)
+        warnings = list(definition.warnings)
+        teams = []
+        for area in definition.areas:
+            bundle = area_bundle_name(office_id, area.id)
+            if area.id in unchanged:
+                state = self._team_state(bundle)
+                state = {"bundle": bundle, **state} if state["version_id"] else None
+            else:
+                state = self._approve_stage_teams(office_id, [area.id], infos, actor=actor, channel=channel,
+                                                  fingerprint=card["fingerprint"], approval_id=approval_id,
+                                                  warnings=warnings)
+                state = state[0] if state else None
+            if state:
+                teams.append(state)
+        record = _record_of(definition)
+        levels = self._highest_levels(previous, record)
+        entry = previous
+        if batch or record != previous["definition"] or levels != previous.get("privacy"):
+            version = self._next_version(office_id, offices)
+            self._save_copy(office_id, version, (root / "office.yaml").read_bytes())
+            entry = self._entry(definition, record, version=version, actor=actor, channel=channel,
+                                registered=installed._read())
+            if levels:
+                entry["privacy"] = levels
+            offices[office_id] = entry
+            self._write(offices)
+            self._event("office.reimported", office_id, actor=actor, channel=channel, version=version,
+                        added=added, changed=changed, removed=removed, approval_id=approval_id)
+        return {"office": self._public(entry, installed._read()), "teams": teams, "warnings": warnings,
+                "changes": {"added": added, "changed": changed, "removed": removed, "unchanged": unchanged}}
+
+    def _install_area_stage(self, root: Path, definition: OfficeDefinition, metadata: dict[str, Any],
+                            infos: dict[str, dict[str, Any]], card: dict[str, Any], *, actor: str,
+                            channel: str, approval_id: str) -> dict[str, Any]:
+        office_id = metadata["office_id"]
+        offices = self._read()
+        previous = offices.get(office_id)
+        if previous is None:
+            raise self._not_installed(office_id)
+        if len(definition.areas) != 1:
+            raise ServiceError(INVALID_REQUEST, "To add to an office, the office.yaml must hold exactly one area",
+                               status=422, details={"reason": "office_single_area_required",
+                                                    "areas": len(definition.areas)})
+        area = definition.areas[0]
+        area_id = area.id
+        record = json.loads(json.dumps(previous["definition"]))
+        if any(item["id"] == area_id for item in record["areas"]):
+            raise _conflict(f"The office {office_id} already has the area {area_id}", "office_area_exists",
+                            office=office_id, area=area_id)
+        if len(record["areas"]) + 1 > OFFICE_MAX_AREAS:
+            raise _too_large(f"The office would have more than {OFFICE_MAX_AREAS} areas", field="areas",
+                             limit=OFFICE_MAX_AREAS)
+        installed = self._services.installed
+        bundle = area_bundle_name(office_id, area_id)
+        if self._taken(bundle, installed._read()):
+            raise _conflict(f"Bundle name in use: {bundle}", "bundle_name_in_use", bundle=bundle)
+        incoming = _record_of(definition)
+        known = {item["id"] for item in record["areas"]} | {area_id}
+        record["areas"].append(incoming["areas"][0])
+        extra: list[dict[str, str]] = []
+        for relation in incoming["relations"]:
+            if relation["from"] in known and relation["to"] in known:
+                if relation not in record["relations"]:
+                    record["relations"].append(relation)
+            else:
+                extra.append(_warning("office_relation_unknown_area", f"relations[{relation['from']}->{relation['to']}]",
+                                      f"Relation references an area that {office_id} does not have; it was not added"))
+        installed.apply_batch([{"op": "install", "name": bundle,
+                                "folder": str(root.joinpath(*area.path.split("/")))}],
+                              actor=actor, channel=channel, source=SOURCE_OFFICE, office=office_id,
+                              allow_code=card["level"] == "code",
+                              trusted_functions={bundle} if (root.joinpath(*area.path.split("/")) /
+                                                             "functions.py").is_file() else set(),
+                              expected_fingerprints={bundle: infos[area_id]["fingerprint"]})
+        _, scan_folders = self._stage_scan_inputs(root, definition, metadata)
+        self._seed_office_scan_cache(office_id, scan_folders, card["scan"],
+                                     approved_area_ids=set(scan_folders),
+                                     risk_ack=card["risk_ack_required"])
+        if (root.joinpath(*area.path.split("/")) / "functions.py").is_file():
+            installed.load_functions(bundle)
+        if card["level"] == "code":
+            self._validate_installed_code(definition, office_id)
+        merged = _office_of_record(record)
+        warnings: list[dict[str, str]] = list(merged.warnings)
+        team_list = self._approve_stage_teams(office_id, [area_id], infos, actor=actor, channel=channel,
+                                              fingerprint=card["fingerprint"], approval_id=approval_id,
+                                              warnings=warnings)
+        version = self._next_version(office_id, offices)
+        self._save_copy(office_id, version, _yaml_of_record(record))
+        entry = self._entry(merged, record, version=version, actor=actor, channel=channel,
+                            registered=installed._read())
+        self._carry_privacy(entry, previous)
+        offices[office_id] = entry
+        self._write(offices)
+        self._event("office.reimported", office_id, actor=actor, channel=channel, version=version, added=[area_id],
+                    changed=[], removed=[], approval_id=approval_id)
+        unchanged = [item["id"] for item in record["areas"] if item["id"] != area_id]
+        return {"office": self._public(entry, installed._read()), "teams": team_list,
+                "warnings": [*merged.warnings, *extra, *warnings],
+                "changes": {"added": [area_id], "changed": [], "removed": [], "unchanged": unchanged}}
+
+    @service_errors
+    def install_staged(self, stage_id: str, *, approval_id: str, actor: str = "user:operator",
+                       channel: str = "gui") -> dict[str, Any]:
+        from .projects import _user_actor
+
+        actor = _user_actor(actor)
+        if not isinstance(approval_id, str) or not approval_id:
+            raise self._install_error("office_install_not_approved", "An approved, unused office card is required")
+        try:
+            root, metadata = self._stage_record(stage_id)
+        except ServiceError as exc:
+            approval = self._services.user_approvals.peek(approval_id) if isinstance(approval_id, str) else None
+            if (exc.details.get("reason") == "office_stage_not_found" and approval is not None
+                    and approval.get("kind") == "office_install" and approval.get("state") == "consumed"):
+                raise self._install_error("office_install_not_approved",
+                                          "The office install approval is already used", approval_id=approval_id) from None
+            raise exc
+        if BundleScanServices.fingerprint(root) != metadata.get("fingerprint"):
+            raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",
+                                      stage_id=stage_id)
+        existing = self._services.user_approvals.peek(approval_id)
+        destination = {"office": metadata.get("office_id"), "kind": "office_install"}
+        location = existing.get("location") if existing is not None else None
+        if (existing is None or existing.get("kind") != "office_install" or existing.get("state") != "approved"
+                or existing.get("sha256") != metadata.get("fingerprint")
+                or existing.get("destination") != destination or not isinstance(location, dict)
+                or location.get("stage_id") != stage_id):
+            raise self._install_error("office_install_not_approved", "An approved, unused office card is required",
+                                      approval_id=approval_id)
+        definition = self._definition_for_stage(root)
+        level, has_functions = self._require_stage_mode(root, definition)
+        card = self.card(stage_id)
+        if card["approval_id"] != approval_id:
+            raise self._install_error("office_install_not_approved", "An approved, unused office card is required",
+                                      approval_id=approval_id)
+        scan = card["scan"]
+        wait_error = self._scan_wait_error(scan)
+        if wait_error is not None:
+            raise wait_error
+        if BundleScanServices.fingerprint(root) != metadata.get("fingerprint"):
+            raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",
+                                      stage_id=stage_id)
+        if location.get("risk_ack_required") is True and existing.get("risk_ack") is not True:
+            raise ServiceError("risk_ack_required", "Acknowledge the office install risk", status=422)
+        if not self._services.user_approvals.consume(approval_id, sha256=metadata["fingerprint"],
+                                                     destination=destination):
+            raise self._install_error("office_install_not_approved", "An approved, unused office card is required",
+                                      approval_id=approval_id)
+        snapshot = self._services.installed._copy_to_staging(root)
+        try:
+            if BundleScanServices.fingerprint(snapshot) != metadata["fingerprint"]:
+                raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",
+                                          stage_id=stage_id)
+            verified_level, has_functions = self._require_stage_mode(snapshot, definition)
+            if card["level"] != level or verified_level != level:
+                raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",
+                                          stage_id=stage_id)
+            infos = self._stage_area_infos(snapshot, definition, level=level)
+            if level == "code" and has_functions:
+                for area in definition.areas:
+                    folder = snapshot.joinpath(*area.path.split("/"))
+                    if (folder / "functions.py").is_file():
+                        self._services.gui_settings.require_advanced_mode("trust_functions")
+            kind = metadata["kind"]
+            if kind == "install":
+                result = self._install_new_stage(snapshot, definition, metadata, infos, card, actor=actor,
+                                                 channel=channel, approval_id=approval_id)
+            elif kind == "reimport":
+                result = self._install_reimport_stage(snapshot, definition, metadata, infos, card, actor=actor,
+                                                      channel=channel, approval_id=approval_id)
+            elif kind == "area":
+                result = self._install_area_stage(snapshot, definition, metadata, infos, card, actor=actor,
+                                                  channel=channel, approval_id=approval_id)
+            else:
+                raise self._install_error("office_stage_not_found", "Office preparation not found")
+        finally:
+            shutil.rmtree(snapshot, ignore_errors=True)
+        shutil.rmtree(self._stage_folder(stage_id), ignore_errors=True)
+        return result
+
+    @service_errors
+    def discard_stage(self, stage_id: str) -> None:
+        stage = self._stage_folder(stage_id)
+        if not stage.exists():
+            return
+        try:
+            _, metadata = self._stage_record(stage_id)
+        except ServiceError as exc:
+            if exc.details.get("reason") != "office_stage_expired":
+                raise
+            return
+        self._reject_stage_approval(metadata)
+        shutil.rmtree(stage, ignore_errors=True)

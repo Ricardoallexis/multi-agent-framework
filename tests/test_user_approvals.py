@@ -200,10 +200,40 @@ def test_office_privacy_change_is_a_kind_but_never_listed(env):
 
     services, client, headers, _ = env
     assert "office_privacy_change" in module.KINDS and "office_privacy_change" in module.HIDDEN_KINDS
-    assert module.HIDDEN_KINDS == frozenset({"executor_activate", "office_privacy_change"})
+    assert module.HIDDEN_KINDS == frozenset({"executor_activate", "office_privacy_change", "office_install"})
     hidden = services.user_approvals.request(kind="office_privacy_change", destination={"office": "demo", "area": "recepcion"},
                                              location={"source": "office_privacy"}, sha256="d" * 64)
     shown = request(services)
     assert [item["id"] for item in services.user_approvals.pending()] == [shown["id"]]
     assert [item["id"] for item in client.get("/gui/api/approvals", headers=headers).json()["items"]] == [shown["id"]]
     assert services.user_approvals.status(hidden["id"])["state"] == "pending"
+
+
+def test_office_install_requires_ack_when_the_card_asks(env):
+    services, client, headers, _ = env
+    required = services.user_approvals.request(
+        kind="office_install", destination={"office": "demo", "kind": "office_install"},
+        location={"stage_id": "a" * 32, "level": "code", "risk_ack_required": True}, sha256=DIGEST)
+    with pytest.raises(ServiceError) as service_error:
+        services.user_approvals.decide(required["id"], "approve")
+    assert (service_error.value.status, service_error.value.code) == (422, "risk_ack_required")
+    assert services.user_approvals.status(required["id"])["state"] == "pending"
+
+    session(client, headers)
+    challenge = post(client, headers, f"/{required['id']}/challenge", {}).json()["code"]
+    rejected_attempt = post(client, headers, f"/{required['id']}/decision",
+                            {"decision": "approve", "code": challenge, "risk_ack": False})
+    assert rejected_attempt.status_code == 422
+    assert rejected_attempt.json()["detail"]["code"] == "risk_ack_required"
+    approved = post(client, headers, f"/{required['id']}/decision",
+                    {"decision": "approve", "code": challenge, "risk_ack": True})
+    assert approved.status_code == 200 and approved.json()["risk_ack"] is True
+
+    optional = services.user_approvals.request(
+        kind="office_install", destination={"office": "data", "kind": "office_install"},
+        location={"stage_id": "b" * 32, "level": "data", "risk_ack_required": False}, sha256="e" * 64)
+    challenge = post(client, headers, f"/{optional['id']}/challenge", {}).json()["code"]
+    approved_without_ack = post(client, headers, f"/{optional['id']}/decision",
+                                {"decision": "approve", "code": challenge})
+    assert approved_without_ack.status_code == 200
+    assert approved_without_ack.json()["state"] == "approved"

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .. import bundle_scan
+from ..external_output import canonical_json, sha256
 from .errors import ServiceError
 
 if TYPE_CHECKING:
@@ -155,10 +156,81 @@ class BundleScanServices:
                 "approval": {"id": approval["id"], "state": approval["state"],
                              "location": "/gui/"} if approval else None}
 
+    def _office_registry_incomplete(self, name: str,
+                                    registered: dict[str, dict[str, Any]]) -> bool:
+        package = registered.get(name)
+        if not isinstance(package, dict) or package.get("source") != "office":
+            return False
+        office_id = package.get("office")
+        if not isinstance(office_id, str):
+            return True
+        office = self._services.offices._read().get(office_id)
+        if not isinstance(office, dict) or not isinstance(office.get("fingerprint"), str):
+            return True
+        definition = office.get("definition")
+        areas = definition.get("areas") if isinstance(definition, dict) else None
+        if not isinstance(areas, list):
+            return True
+        expected = {f"{office_id}__{area['id']}" for area in areas
+                    if isinstance(area, dict) and isinstance(area.get("id"), str)}
+        actual = {bundle for bundle, entry in registered.items()
+                  if entry.get("source") == "office" and entry.get("office") == office_id}
+        if expected != actual or name not in expected:
+            return True
+        fingerprints = {bundle: registered[bundle].get("fingerprint") for bundle in sorted(expected)}
+        return sha256(canonical_json({"definition": definition, "areas": fingerprints})) != office["fingerprint"]
+
+    def _office_scan_context(self, name: str, registered: dict[str, dict[str, Any]]
+                             ) -> tuple[str, str, dict[str, Path]] | None:
+        package = registered.get(name)
+        if not isinstance(package, dict) or package.get("source") != "office":
+            return None
+        office_id = package.get("office")
+        if not isinstance(office_id, str) or self._office_registry_incomplete(name, registered):
+            return None
+        office = self._services.offices._read().get(office_id)
+        if not isinstance(office, dict):
+            return None
+        definition = office.get("definition")
+        areas = definition.get("areas") if isinstance(definition, dict) else None
+        if not isinstance(areas, list):
+            return None
+        folders: dict[str, Path] = {}
+        fingerprints: dict[str, str] = {}
+        for area in areas:
+            if not isinstance(area, dict) or not isinstance(area.get("id"), str):
+                continue
+            area_id = area["id"]
+            bundle = f"{office_id}__{area_id}"
+            entry = registered.get(bundle)
+            if (isinstance(entry, dict) and entry.get("source") == "office"
+                    and entry.get("office") == office_id):
+                folder = self._services.bundle_path(bundle)
+                if not folder.is_dir():
+                    return None
+                folders[area_id] = folder
+                fingerprints[bundle] = self.fingerprint(folder)
+        if not folders or name not in {f"{office_id}__{area_id}" for area_id in folders}:
+            return None
+        office_fingerprint = sha256(canonical_json({"definition": definition, "areas": fingerprints}))
+        return office_id, office_fingerprint, folders
+
     def require_load(self, name: str) -> dict[str, Any]:
         folder = self._services.bundle_path(name)
         if not self._external(folder):
             return self.status(name)
+        registered = self._services.installed._read()
+        office_context = self._office_scan_context(name, registered)
+        if office_context is not None:
+            office_id, office_fingerprint, folders = office_context
+            office_scan = self.scan_office(office_id, office_fingerprint, folders)
+            if office_scan["state"] == "pending":
+                raise ServiceError("bundle_scan_pending", "Approve the office OSV query in the GUI", status=409,
+                                   details={"approval_id": office_scan.get("approval_id"), "location": "/gui/",
+                                            "office": office_id})
+            if office_scan["state"] in {"running", "unscanned"}:
+                raise ServiceError("bundle_scan_running", "The office scan is not finished", status=409,
+                                   details={"office": office_id})
         fingerprint = self.fingerprint(folder)
         with self._lock:
             cached = self._cached(name, fingerprint)
@@ -225,6 +297,143 @@ class BundleScanServices:
                                details={"approval_id": approval["id"], "location": "/gui/",
                                         "verdict": scan["state"], "findings": scan.get("findings", []),
                                         "coverage": scan.get("coverage", {}), "risk_ack_required": True})
+
+    def _office_scan_result(self, office_id: str, folders: dict[str, Path], fingerprints: dict[str, str], *,
+                            approval_id: str | None = None, pending: bool = False,
+                            running: bool = False) -> dict[str, Any]:
+        areas: dict[str, dict[str, Any]] = {}
+        states = []
+        for area_id, folder in folders.items():
+            bundle = f"{office_id}__{area_id}"
+            cached = self._cached(bundle, fingerprints[area_id])
+            scan = (cached or {}).get("scan") or {}
+            state = "pending" if pending and cached is None else "running" if running and cached is None else scan.get(
+                "state", "unscanned")
+            areas[area_id] = {"state": state, "findings": scan.get("findings", []),
+                              "coverage": scan.get("coverage", {})}
+            states.append(state)
+        if pending:
+            state = "pending"
+        elif running:
+            state = "running"
+        else:
+            priority = ("do_not_install", "not_analyzed", "unscanned", "caution", "safe", "off", "not_installed")
+            state = next((candidate for candidate in priority if candidate in states), "safe")
+        return {"state": state, "approval_id": approval_id, "areas": areas}
+
+    def _office_scan_worker(self, office_id: str, office_fingerprint: str, folders: dict[str, Path],
+                            fingerprints: dict[str, str]) -> None:
+        try:
+            for area_id, folder in folders.items():
+                bundle = f"{office_id}__{area_id}"
+                fingerprint = fingerprints[area_id]
+                with self._lock:
+                    if self._cached(bundle, fingerprint) is not None:
+                        continue
+                try:
+                    result = bundle_scan.scan(folder, osv_approved=True, settings=self._services.settings,
+                                              env=self.env, verifier=self.verifier, runner=self.runner)
+                except Exception as exc:  # a failed worker must leave a reviewable result
+                    result = bundle_scan.ScanResult(bundle_scan.NOT_ANALYZED,
+                                                    reason=f"scan_failed: {type(exc).__name__}")
+                with self._lock:
+                    self._write_cache(bundle, fingerprint, {"fingerprint": fingerprint, "scan": result.as_dict(),
+                                                            "load_approved": False})
+        finally:
+            with self._lock:
+                if self._running == (f"office:{office_id}", office_fingerprint):
+                    self._running = None
+
+    def _office_approval_id(self, office_id: str, fingerprint: str) -> str | None:
+        destination = {"office": office_id, "kind": "osv_query"}
+        matches = [item for item in self._services.user_approvals._all().values()
+                   if item["kind"] == "osv_query" and item["sha256"] == fingerprint
+                   and item["destination"] == destination]
+        return matches[-1]["id"] if matches else None
+
+    def scan_office(self, office_id: str, fingerprint: str, folders: dict[str, Path]) -> dict[str, Any]:
+        """Request one OSV approval for an office, then scan its areas in order and cache each area by its fingerprint."""
+        folders = dict(folders)
+        fingerprints = {area_id: self.fingerprint(folder) for area_id, folder in folders.items()}
+        key = (f"office:{office_id}", fingerprint)
+        with self._lock:
+            cached_areas = {area_id: self._cached(f"{office_id}__{area_id}", area_fp)
+                            for area_id, area_fp in fingerprints.items()}
+            if all(item is not None for item in cached_areas.values()):
+                return self._office_scan_result(office_id, folders, fingerprints,
+                                                approval_id=self._office_approval_id(office_id, fingerprint))
+            if self._running == key:
+                return self._office_scan_result(office_id, folders, fingerprints,
+                                                approval_id=self._office_approval_id(office_id, fingerprint),
+                                                running=True)
+
+            settings = self._services.settings
+            if settings.bundle_scan == "off":
+                detection = bundle_scan.ScanResult(bundle_scan.OFF, reason="bundle_scan_off")
+            elif settings.mock_mode and not settings.skillspector_python:
+                detection = bundle_scan.ScanResult(bundle_scan.NOT_INSTALLED, reason="mock_mode")
+            else:
+                detection = bundle_scan.detect(settings, env=self.env, verifier=self.verifier)
+            if detection.state in {"off", "not_installed"}:
+                for area_id, area_fp in fingerprints.items():
+                    if cached_areas[area_id] is None:
+                        self._unscanned[(f"{office_id}__{area_id}", area_fp)] = {
+                            "fingerprint": area_fp,
+                            "scan": {"state": detection.state, "findings": [], "coverage": {},
+                                     "reason": detection.reason},
+                            "load_approved": False,
+                        }
+                return self._office_scan_result(office_id, folders, fingerprints)
+            if detection.state == "unsigned_interpreter":
+                for area_id, area_fp in fingerprints.items():
+                    if cached_areas[area_id] is None:
+                        self._write_cache(f"{office_id}__{area_id}", area_fp, {
+                            "fingerprint": area_fp,
+                            "scan": bundle_scan.ScanResult(bundle_scan.NOT_ANALYZED,
+                                                           reason=detection.reason).as_dict(),
+                            "load_approved": False,
+                        })
+                return self._office_scan_result(office_id, folders, fingerprints)
+
+            destination = {"office": office_id, "kind": "osv_query"}
+            approvals = self._services.user_approvals
+            matches = [item for item in approvals._all().values()
+                       if item["kind"] == "osv_query" and item["sha256"] == fingerprint
+                       and item["destination"] == destination and item["state"] != "consumed"]
+            if matches:
+                approval = matches[-1]
+            else:
+                manifests = sorted({f"{area_id}/{manifest}" for area_id, folder in folders.items()
+                                    for manifest in self._manifests(folder)})
+                location = ("api.osv.dev receives package names and versions from: "
+                            f"{', '.join(manifests) or 'no manifests found'}")[:300]
+                approval = approvals.request(kind="osv_query", destination=destination, location=location,
+                                             sha256=fingerprint)
+            if approval["state"] == "rejected":
+                for area_id, area_fp in fingerprints.items():
+                    if cached_areas[area_id] is None:
+                        self._write_cache(f"{office_id}__{area_id}", area_fp, {
+                            "fingerprint": area_fp,
+                            "scan": bundle_scan.ScanResult(bundle_scan.NOT_ANALYZED,
+                                                           reason="osv_rejected").as_dict(),
+                            "load_approved": False,
+                        })
+                return self._office_scan_result(office_id, folders, fingerprints, approval_id=approval["id"])
+            if approval["state"] != "approved":
+                return self._office_scan_result(office_id, folders, fingerprints, approval_id=approval["id"],
+                                                pending=True)
+            if self._running is not None and self._running != key:
+                raise ServiceError("bundle_scan_running", "Another bundle scan is running", status=409,
+                                   details={"bundle": office_id})
+            if not approvals.consume(approval["id"], sha256=fingerprint, destination=destination):
+                return self._office_scan_result(office_id, folders, fingerprints, approval_id=approval["id"],
+                                                running=self._running == key)
+            self._running = key
+            self._worker = threading.Thread(target=self._office_scan_worker,
+                                            args=(office_id, fingerprint, folders, fingerprints),
+                                            name="office-bundle-scan")
+            self._worker.start()
+            return self._office_scan_result(office_id, folders, fingerprints, approval_id=approval["id"], running=True)
 
     def close(self) -> None:
         with self._lock:

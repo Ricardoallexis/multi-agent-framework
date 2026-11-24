@@ -14,7 +14,7 @@ from ..db.database import utcnow
 from ..db.team_store import TeamStore
 from ..teams.digest import team_canonical_bytes, team_sha256
 from ..teams.org_chart import build_org_chart, render_mermaid
-from ..teams.schema import TeamDefinitionError
+from ..teams.schema import Team, TeamDefinitionError
 from .errors import INVALID_DEFINITION, ServiceError, service_errors
 from .memory import MAX_BODY_CHARS, MAX_TITLE_CHARS, _CONTROL
 from .projects import actor_kind
@@ -298,8 +298,17 @@ class TeamServices:
         validation = self._services.definitions.validate_bundle(bundle)
         loaded = self._services.definitions._bundle(bundle)
         assert loaded.team is not None
-        team = loaded.team
+        return self._persist_proposal(bundle, loaded.team, validation, actor=actor, channel=channel, draft=draft)
 
+    def _propose_validated(self, bundle: str, team: Team, validation: dict[str, Any], *,
+                           actor: str, channel: str) -> dict[str, Any]:
+        """Persist a team already validated from an office import's staged data-only area."""
+        actor = _actor(actor)
+        channel = _channel(channel)
+        return self._persist_proposal(bundle, team, validation, actor=actor, channel=channel, draft=False)
+
+    def _persist_proposal(self, bundle: str, team: Team, validation: dict[str, Any], *,
+                          actor: str, channel: str, draft: bool) -> dict[str, Any]:
         canonical_bytes = team_canonical_bytes(team)
         team_json_str = canonical_bytes.decode("utf-8")
         digest = team_sha256(team)

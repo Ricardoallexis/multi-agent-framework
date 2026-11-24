@@ -92,6 +92,15 @@ Team definitions in a bundle follow a versioned approval lifecycle (`tmv-<12 hex
 
 When a new run is queued for a bundle that has an approved team version, `services.runs.create` logs a `team_version_bound` event with `id`, `version_id`, `bundle`, `team_id`, `version`, `sha256`, and `team` (the approved team itself). The event is written in the same transaction as the run, so no worker can take the run before it is bound. Bundles without `team.yaml` or without an approved version do not emit this event.
 
+### Teams included in an office install
+
+The office install card proposes and approves the team of every new or changed area as part of the one office decision.
+By default, the decision is recorded as `user:operator` on channel `gui`, with the note
+`aprobado al instalar la oficina <office_id> <fingerprint> (aprobación <approval_id>)`. Each area's approved version
+remains in its normal team history. An unchanged area keeps its currently approved version; an area without
+`team.yaml` has no team version to approve. The install result lists the team versions, and the office event includes
+the approval ID.
+
 ## Roles in workflow steps
 
 A model step declares `role` beside `agent` in its workflow YAML. For example, the

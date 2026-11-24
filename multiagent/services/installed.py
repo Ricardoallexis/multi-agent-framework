@@ -306,7 +306,8 @@ class InstalledServices:
             entry = self._read().get(name)
         except ValueError:
             return False
-        return bool(entry and entry.get("source", SOURCE_COPY) == SOURCE_COPY and entry.get("trust_functions") is True)
+        return bool(entry and entry.get("source", SOURCE_COPY) in (SOURCE_COPY, SOURCE_OFFICE)
+                    and entry.get("trust_functions") is True)
 
     def functions_status(self, name: str) -> dict[str, Any]:
         """``{"present", "trusted", "loaded"}``: does the package bring ``functions.py``, may it load, what is loaded."""
@@ -481,7 +482,7 @@ class InstalledServices:
             raise
         return staging
 
-    def _validate(self, folder: Path) -> None:
+    def _validate(self, folder: Path) -> dict[str, Any]:
         """Load the copy and every workflow of it (and its team): the ``bundle-validate`` check, on a data package."""
         settings = self._services.settings
         loaded = load_bundle(folder, settings)
@@ -496,15 +497,16 @@ class InstalledServices:
         team_issues = []
         if loaded.team is not None:
             system = self._services.system
-            team_issues = [issue.to_dict() for issue in validate_team_workflows(
+            team_issues = list(validate_team_workflows(
                 loaded.team, definitions, output_schemas=loaded.output_schemas,
                 skills_dir=loaded.prompts.skills_dir, tool_registry=getattr(system, "tool_registry", None),
-                tool_selection=getattr(getattr(system, "engine", None), "tool_selection", None))
-                if issue.severity == "error"]
-        if problems or team_issues:
-            count = sum(len(p["issues"]) for p in problems) + len(team_issues)
+                tool_selection=getattr(getattr(system, "engine", None), "tool_selection", None)))
+        team_errors = [issue.to_dict() for issue in team_issues if issue.severity == "error"]
+        if problems or team_errors:
+            count = sum(len(p["issues"]) for p in problems) + len(team_errors)
             raise ServiceError(INVALID_DEFINITION, f"Invalid package: {count} problem{'' if count == 1 else 's'}",
-                               status=422, details={"workflows": problems, "team": team_issues})
+                               status=422, details={"workflows": problems, "team": team_errors})
+        return {"warnings": [issue.to_dict() for issue in team_issues if issue.severity == "warning"]}
 
     def _next_version(self, name: str, entries: dict[str, dict[str, Any]]) -> int:
         numbers = [int(entry.get("version") or 0) for key, entry in entries.items() if key == name]
@@ -642,16 +644,20 @@ class InstalledServices:
 
     @service_errors
     def apply_batch(self, changes: list[dict[str, Any]], *, actor: str, channel: str = "python",
-                    source: str = SOURCE_COPY, office: str | None = None) -> list[dict[str, Any]]:
+                    source: str = SOURCE_COPY, office: str | None = None, allow_code: bool = False,
+                    trusted_functions: set[str] | frozenset[str] = frozenset(),
+                    expected_fingerprints: dict[str, str] | None = None) -> list[dict[str, Any]]:
         """Install, reinstall and remove several packages as one change: all of them, or none.
 
         Each change is ``{"op": "install" | "reinstall" | "remove", "name", "folder"?}``; ``folder`` is the new
         content of an install or a reinstall. Everything is checked before the registry is written (names, runs in
         progress, the copy and the validation of every data package), and the registry is written once. If a
         change fails, no copy stays under ``installed/`` and the registry is as it was. ``source="office"`` with the
-        office id registers areas of an office: their level must be ``data`` (``office_has_code`` otherwise). The
-        answer has one item per change, in order: the entry of an install or reinstall, and the removal summary of a
-        remove. Copies and run data of a removed package stay, as in ``remove``.
+        office id registers areas of an office. Code is rejected unless ``allow_code`` is explicitly set by the
+        one-card office installer after approval; names in ``trusted_functions`` are trusted for this copy only.
+        ``expected_fingerprints`` binds office package copies to the fingerprints reviewed on that card. The answer
+        has one item per change, in order: the entry of an install or reinstall, and the removal summary of a remove.
+        Copies and run data of a removed package stay, as in ``remove``.
         """
         from .projects import _user_actor
 
@@ -660,6 +666,12 @@ class InstalledServices:
             raise _invalid("Unknown package source", field="source")
         if (source == SOURCE_OFFICE) != (office is not None):
             raise _invalid("source 'office' goes with an office id, and only with it", field="office")
+        if type(allow_code) is not bool or (allow_code and source != SOURCE_OFFICE):
+            raise _invalid("Code installs are available only for an approved office install", field="allow_code")
+        if (not isinstance(trusted_functions, (set, frozenset))
+                or any(not isinstance(name, str) for name in trusted_functions)
+                or trusted_functions and (not allow_code or source != SOURCE_OFFICE)):
+            raise _invalid("Trusted functions must belong to an approved office install", field="trusted_functions")
         plan: list[tuple[str, str, Path | None]] = []
         names: set[str] = set()
         for change in changes if isinstance(changes, list) else [None]:
@@ -673,6 +685,15 @@ class InstalledServices:
             if op != "remove" and not isinstance(folder, (str, Path)):
                 raise _invalid("An install or a reinstall needs its folder", field="folder", name=name)
             plan.append((op, name, Path(folder) if op != "remove" else None))
+        if not trusted_functions <= names:
+            raise _invalid("Trusted functions must name an area in this batch", field="trusted_functions")
+        if expected_fingerprints is not None:
+            if (source != SOURCE_OFFICE or not isinstance(expected_fingerprints, dict)
+                    or any(name not in names or not isinstance(fingerprint, str)
+                           or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+                           for name, fingerprint in expected_fingerprints.items())):
+                raise _invalid("Expected fingerprints must name office packages in this batch",
+                               field="expected_fingerprints")
         if not plan:
             return []
         with self._lock:
@@ -705,15 +726,21 @@ class InstalledServices:
                     inside = folder.exists() and folder.resolve().is_relative_to(staging_root)
                     version, fingerprint, level, destination = self._stage_and_place(
                         name, folder, entries, extracted=inside,
-                        code_gate=self._office_gate(name) if source == SOURCE_OFFICE else None)
+                        code_gate=self._office_gate(name) if source == SOURCE_OFFICE and not allow_code else None)
                     placed.append(destination)
+                    expected = expected_fingerprints.get(name) if expected_fingerprints is not None else None
+                    if expected is not None and fingerprint != expected:
+                        raise _conflict("The office changed after its card was prepared",
+                                        "office_changed_since_card", bundle=name)
                     if op == "install":
-                        entry = {"name": name, "fingerprint": fingerprint, "level": level, "trust_functions": False,
+                        entry = {"name": name, "fingerprint": fingerprint, "level": level,
+                                 "trust_functions": name in trusted_functions,
                                  "source_label": "", "version": version, "installed_at": utcnow(),
                                  "installed_by": actor, "channel": channel, "source": source,
                                  "path": f"{name}/v{version}"}
                     else:
-                        entry = {**entries[name], "fingerprint": fingerprint, "level": level, "trust_functions": False,
+                        entry = {**entries[name], "fingerprint": fingerprint, "level": level,
+                                 "trust_functions": name in trusted_functions,
                                  "version": version, "installed_at": utcnow(), "installed_by": actor,
                                  "channel": channel, "path": f"{name}/v{version}"}
                     if office is not None:

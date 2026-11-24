@@ -60,6 +60,24 @@ be told not to.
 - No framework test, worker or CI job runs SkillSpector or contacts OSV.dev. They use a fake runner
   and synthetic reports.
 
+## Offices use one OSV query
+
+An office prepared with the install card asks for one `osv_query` approval bound to the office ID and the fingerprint
+of the prepared office. The approval lists dependency manifests across its areas. Once approved, the existing scan
+worker scans areas in sequence and writes a cache entry for each `<office>__<area>` package, keyed by that area's
+fingerprint. The card's office approval is separate and approves the install; it is hidden from the general approvals
+list and uses the GUI's one-use code. When adding an area, the scan includes the office's existing areas and the new
+area; the office decision seeds the cache for every scanned area, while only the new package is added to the office
+registry.
+
+The install seeds each area's cache with its verdict. Areas covered by the install approval are marked load-approved
+for this fingerprint, so the first run does not repeat the scan or ask again. When an area is added to an existing
+office, the scan and office decision cover the existing areas and the new area; only the new package is added to the
+office registry. An office area installed through the existing API or CLI without a cache instead asks for its
+office's single OSV query; the `bundle_scan_pending` response includes `details.office` and the shared `approval_id`.
+A request for another area in that office reuses the same pending approval. Standalone bundles keep their existing
+per-bundle OSV approval flow.
+
 ## What the result means
 
 | State | Meaning | Loading |

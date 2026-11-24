@@ -11,10 +11,11 @@ from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 KINDS = frozenset({"secret_send", "osv_query", "bundle_load", "executor_activate", "memory_trust", "memory_delete",
-                   "office_privacy_change"})
+                   "office_privacy_change", "office_install"})
 # EJE-T01: decided only by the fixed note of «Activar», never listed in «Aprobaciones» or «Pendientes» (Decision 20).
 # SEN-T01: lowering the privacy level of an office area is decided only in «Privacidad» (Decision 14), also hidden.
-HIDDEN_KINDS = frozenset({"executor_activate", "office_privacy_change"})
+# OFI-T04: an office install is decided on its card, not in the general approval list.
+HIDDEN_KINDS = frozenset({"executor_activate", "office_privacy_change", "office_install"})
 # MEM-T01: a person confirms the trust and the deletion of a memory entry; both show in «Pendientes»
 MEMORY_KINDS = frozenset({"memory_trust", "memory_delete"})
 EVENTS = frozenset({"user_approval.requested", "user_approval.decided", "user_approval.consumed"})
@@ -158,10 +159,15 @@ class UserApprovalServices:
                 raise ServiceError(NOT_FOUND, "Approval not found", status=404)
             if item["state"] != "pending":
                 raise _approval_error("already_decided", approval_id)
-            if item["kind"] == "bundle_load" and decision == "approve" and risk_ack is not True:
-                raise ServiceError("risk_ack_required", "Acknowledge the bundle load risk", status=422)
+            location = item.get("location")
+            office_ack = (item["kind"] == "office_install" and isinstance(location, dict)
+                          and location.get("risk_ack_required") is True)
+            if ((item["kind"] == "bundle_load" or office_ack) and decision == "approve"
+                    and risk_ack is not True):
+                message = "Acknowledge the office install risk" if office_ack else "Acknowledge the bundle load risk"
+                raise ServiceError("risk_ack_required", message, status=422)
             payload = {"decision": "approved" if decision == "approve" else "rejected"}
-            if item["kind"] == "bundle_load" and decision == "approve":
+            if (item["kind"] == "bundle_load" or office_ack) and decision == "approve":
                 payload["risk_ack"] = True
             self._store.append_event(conn, "user_approval.decided", actor=actor, ref=approval_id,
                                      payload=payload)

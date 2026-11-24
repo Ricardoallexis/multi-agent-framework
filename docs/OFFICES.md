@@ -256,6 +256,57 @@ it makes no model call and returns keyword mode with
 `reason = "office_not_normal"`. With no selected office, planning and
 interpretation keep their existing behavior.
 
+## The install card
+
+The install card reviews an office before it is added to the installed packages. Preparing an office validates and
+copies it under `installed/.staging/<stage_id>/`; it does not register its areas or load its code. The card is bound to
+the prepared folder's SHA-256 fingerprint. If its content changes, installation stops and the office must be prepared
+again.
+
+The card shows the office name, each area that is new, changed or removed, its members and role assignments,
+requirements, sensitivity, local-only setting, and declared workflows, contracts and roles. A reimport omits areas
+that have not changed. Adding one area shows the office it will join. The fixed notice is:
+
+> Las instrucciones de esta oficina las escribió otra persona. Un ejecutor activado las sigue dentro de su carpeta de trabajo
+
+### Data-only and code offices
+
+A data-only office can be prepared in either GUI mode. An office containing code (including `contracts.py`,
+`functions.py`, or scripts in a skill) needs advanced mode with the `install_code` action. If it contains
+`functions.py`, it also needs the `trust_functions` action. In simple mode the preparation fails with
+`advanced_mode_required`; no code is run.
+
+After the one-use office approval, code is installed only through the office batch path. A `functions.py` file is
+trusted and loaded only for its installed area. The existing API and CLI office import paths remain data-only and
+continue to reject code with `office_has_code`.
+
+### Scan and approvals
+
+When SkillSpector is available, the office uses one `osv_query` approval for its whole fingerprint. The approval lists
+the dependency manifests across its areas. After approval, SkillSpector scans each area in sequence and stores the
+result under that area's package name and fingerprint. Without SkillSpector in Mock, or when scanning is off, the
+office is marked `not_installed` or `off` and no OSV approval is created. See [Bundle scan](security/bundle-scan.md)
+for the scan states and the data sent to OSV.dev.
+
+The card also creates one hidden `office_install` approval, bound to the same fingerprint and the office. Its location
+records the stage ID, level and whether the person must acknowledge risk. It is not listed under general pending
+approvals; the office card decides it using the GUI's existing one-use code. A decision is usable once. The server
+requires `risk_ack: true` when the office contains code or a scan state needs review. If the query is still pending
+when the card is first assembled, that acknowledgement remains attached to the same approval while the scan finishes.
+
+Approving the card installs or updates all affected areas together, proposes and approves each changed area's team,
+and seeds every scanned area's cache so the first run does not ask for the same scan again. Unchanged areas retain
+their approved team versions. When adding an area, the scan covers the existing areas and the new area as one office;
+the office decision covers the scan results for all of them. The event is `office.installed` for a new office or
+`office.reimported` for an update and includes the approval ID.
+
+Choose **Cancel** to reject the pending office approval and discard the stage. A stage expires after one hour and
+cannot be installed afterward. Passwords, keys and tokens still require their own approvals, and each plan remains a
+separate decision.
+
+The service methods are `stage_zip`, `stage_folder`, `card`, `install_staged` and `discard_stage` on
+`OfficeServices`. OFI-T04 does not add `/api/v1` routes or CLI commands; the GUI routes are supplied by VOF-T02.
+
 ## Templates
 
 Two level-1 (data-only) office templates live in `examples/offices/` with synthetic Spanish data, `preferred_model: local_default`, `checkpoint_after: true`, and teams whose `revision` role assigns a `Responsable` person to review outputs from `redaccion`:

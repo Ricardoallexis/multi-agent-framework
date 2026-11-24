@@ -17,6 +17,7 @@ from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices, ServiceError
+from test_offices_install import ACTOR, write_office
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "bundles" / "spec_review"
@@ -387,3 +388,56 @@ def test_installed_copy_inside_checkout_is_scanned():
     assert scans._external(data_dir / "installed" / "demo" / "v1") is True
     assert scans._external(data_dir / "bundles" / "demo") is False  # the rest of the checkout stays exempt
     assert scans._external(checkout / "examples" / "bundles" / "general") is False
+
+
+def test_incomplete_office_registry_uses_bundle_scan(setup, tmp_path):
+    services, _, _ = setup
+    services.offices.import_folder(write_office(tmp_path / "office"), actor=ACTOR)
+    services.offices._write({})
+    fake, _ = runner()
+    services.bundle_scans.runner = fake
+
+    with pytest.raises(ServiceError) as error:
+        services.definitions.validate_bundle("demo__recepcion")
+
+    assert error.value.code == "bundle_scan_pending"
+    approval = services.user_approvals._all()[error.value.details["approval_id"]]
+    assert approval["destination"] == {"bundle": "demo__recepcion", "kind": "osv_query"}
+
+
+def test_office_cache_seeds_each_area(setup, tmp_path):
+    services, bundle, _ = setup
+    first = shutil.copytree(bundle, tmp_path / "area-one")
+    second = shutil.copytree(bundle, tmp_path / "area-two")
+    (first / "requirements.txt").write_text("first==1\n", encoding="utf-8")
+    (second / "requirements.txt").write_text("second==2\n", encoding="utf-8")
+    calls = []
+
+    def fake(argv, **kwargs):
+        areas = {first.resolve(): first.name, second.resolve(): second.name}
+        area = next(areas[Path(argument).resolve()] for argument in argv if Path(argument).resolve() in areas)
+        calls.append(area)
+        verdict = "SAFE" if area == "area-one" else "CAUTION"
+        report = {"verdict": verdict, "skills": [{"path": ".", "coverage_percent": 100}], "findings": []}
+        return SimpleNamespace(exit_code=0, stdout_tail=json.dumps(report), stdout_truncated=False, timed_out=False)
+
+    services.bundle_scans.runner = fake
+    folders = {"uno": first, "dos": second}
+    office_fingerprint = services.bundle_scans.fingerprint(first)
+    pending = services.bundle_scans.scan_office("demo", office_fingerprint, folders)
+    assert pending["state"] == "pending" and pending["approval_id"]
+    decide(services, {"approval_id": pending["approval_id"]}, "approve")
+    assert services.bundle_scans.scan_office("demo", office_fingerprint, folders)["state"] == "running"
+    services.bundle_scans.close()
+
+    result = services.bundle_scans.scan_office("demo", office_fingerprint, folders)
+    assert result["approval_id"] == pending["approval_id"]
+    assert result["state"] == "caution"
+    assert {area: row["state"] for area, row in result["areas"].items()} == {"uno": "safe", "dos": "caution"}
+    assert calls == ["area-one", "area-two"]
+    for area_id, folder in folders.items():
+        fingerprint = services.bundle_scans.fingerprint(folder)
+        path = services.bundle_scans._cache_path(f"demo__{area_id}", fingerprint)
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        assert cached["fingerprint"] == fingerprint
+        assert cached["scan"]["state"] == result["areas"][area_id]["state"]
