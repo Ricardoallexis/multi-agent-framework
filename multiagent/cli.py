@@ -323,6 +323,14 @@ def cmd_office(args) -> None:
     elif action == "reimport":
         pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/reimport",
                          json_body={**_office_source(args.path), "actor": args.actor}))
+    elif action == "privacy":    # SEN-T01: without options it shows the levels; with them it raises one
+        raised = {"sensitivity": "sensitive"} if args.sensitive else {}
+        raised.update({"local_only": True} if args.local_only else {})
+        if not raised:
+            pretty(_api_json("GET", f"/api/v1/offices/{_segment(args.office_id)}/privacy"))
+        else:
+            body = {**raised, "actor": args.actor, **({"area": args.area} if args.area else {})}
+            pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/privacy/raise", json_body=body))
     elif args.area:  # remove --area
         pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/areas/{_segment(args.area)}/remove",
                          json_body={"actor": args.actor}))
@@ -1530,6 +1538,12 @@ def build_parser() -> argparse.ArgumentParser:
     x = office.add_parser("reimport", help="Compare PATH with the installed office and change only what differs")
     x.add_argument("office_id"); x.add_argument("path"); x.add_argument("--actor", default="user:local")
     x.set_defaults(func=cmd_office)
+    x = office.add_parser("privacy", help="Show the privacy level of each area, or raise one (lowering is done in the GUI)")
+    x.add_argument("office_id"); x.add_argument("--area", default=None)
+    x.add_argument("--sensitive", action="store_true", help="Raise the area to sensitive")
+    x.add_argument("--local-only", dest="local_only", action="store_true",
+                   help="Make the area, or without --area the whole office, local only")
+    x.add_argument("--actor", default="user:local"); x.set_defaults(func=cmd_office)
     x = sub.add_parser("bundle-validate", help="Validate a bundle registered on the server")
     x.add_argument("name"); x.set_defaults(func=cmd_bundle_validate)
     x = sub.add_parser("bundle-scan", help="Show the scan status of a registered bundle")

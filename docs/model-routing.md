@@ -180,6 +180,12 @@ A limit (`QuotaExceeded` or `RateLimitExceeded`) is handled by the kind of entry
 - **Cloud needs a confirmation.** A generic run that chooses `--mode cloud` or a cloud model preference is refused with
   `422 cloud_confirmation_required` unless the request carries `confirm_cloud` (`--confirm-cloud` in the CLI). The confirmation grants only
   `provider:cloud` for non-sensitive data; a run marked sensitive can never confirm it.
+- **Areas of an office.** A run of an area of an installed office takes the class of its area (`RunServices.create`; the engine and the
+  router are unchanged). A `sensitive` or «Solo local» area stores the request with `sensitive: true`, so it never confirms the cloud,
+  and the route preview of the GUI treats it as a `sensitive` run and offers no cloud model. «Solo local» (`restricted`) also refuses
+  `confirm_cloud`, `execution_mode: human_guided` and `human_guided` steps (`422 area_local_only`), because a guided run could be copied
+  out of the machine. An area without a level asks before the cloud (`409 office_level_required`). The tasks of a plan carry the class of
+  their own area, and when a task starts to read the output of another the highest class wins. See [Sensitivity](OFFICES.md#sensitivity).
 
 ## The chain of checks before a call
 

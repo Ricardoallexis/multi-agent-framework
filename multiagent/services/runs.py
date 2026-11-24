@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..artifacts import ArtifactWriter
 from ..bundles import load_bundle
-from ..contracts import HumanStepSubmission, SocialPostRequest
+from ..contracts import ExecutionMode, HumanStepSubmission, SocialPostRequest
 from ..db.database import Database
 from ..db.store import Store
 from ..errors import HumanSubmissionError, InvalidStateTransition, ValidationFailed
@@ -233,9 +233,40 @@ class RunServices:
             return runtime
         raise ServiceError(NOT_FOUND, f"Run not found: {run_id}", status=404)
 
-    @staticmethod
-    def _tag(runtime: _Runtime, run: dict[str, Any]) -> dict[str, Any]:
-        return {**run, "bundle": runtime.bundle}
+    def _tag(self, runtime: _Runtime, run: dict[str, Any]) -> dict[str, Any]:
+        tagged = {**run, "bundle": runtime.bundle}
+        data_class = self._area_class(runtime.bundle)
+        if data_class is not None:                  # SEN-T01: a run of an office area carries the class of its area
+            tagged["data_class"] = data_class
+        return tagged
+
+    def _area_class(self, bundle: str | None) -> str | None:
+        offices = getattr(self._services, "offices", None)
+        return offices.area_class(bundle) if offices is not None and bundle is not None else None
+
+    def _apply_area_class(self, request: Any, bundle: str | None) -> Any:
+        """SEN-T01 (design 8.6, Decision 10): a run of an office area takes the class of the area, and the engine learns
+        nothing new. ``sensitive`` and ``restricted`` make the request ``sensitive``, so the cloud cannot be confirmed;
+        ``restricted`` also refuses ``confirm_cloud`` and the human-guided mode, which would copy the prompt out of
+        the machine; an area without a level asks before the cloud (Decision 15). A package that is not an area is unchanged."""
+        offices = getattr(self._services, "offices", None)
+        located = offices.office_of(bundle) if offices is not None and bundle is not None else None
+        if located is None or not isinstance(request, RunRequest):
+            return request
+        office_id, area_id = located
+        data_class = offices.area_class(bundle)
+        where = {"office": office_id, "area": area_id}
+        if data_class is None:
+            if request.confirm_cloud:
+                raise ServiceError(INVALID_STATE, "This area has no privacy level yet: choose one before using the cloud",
+                                   status=409, details={"reason": "office_level_required", **where})
+            return request
+        if data_class == "restricted":
+            guided = ExecutionMode.HUMAN_GUIDED
+            if request.confirm_cloud or request.execution_mode is guided or guided in request.step_modes.values():
+                raise ServiceError(INVALID_REQUEST, "This area is «Solo local»: its work never leaves this computer",
+                                   status=422, details={"reason": "area_local_only", **where})
+        return request if request.sensitive or data_class == "non_sensitive" else request.model_copy(update={"sensitive": True})
 
     def close(self) -> None:
         """Stop the workers of bundle runtimes and wait for their run threads; then refuse to build new ones.
@@ -300,6 +331,7 @@ class RunServices:
         task_id = getattr(request, "task_id", None)
         if task_id is not None and self._services.tasks.store.get_task(task_id) is None:
             raise ServiceError(NOT_FOUND, f"Task not found: {task_id}", status=404, details={"task": task_id})
+        request = self._apply_area_class(request, bundle)
         runtime = self._system_runtime if bundle is None else self._bundle_runtime(bundle)
         # The approved team travels with the run (its runs live in the bundle's database, the versions in the
         # system's): the binding is stored in the same transaction as the run, before any worker can take it.

@@ -183,7 +183,7 @@ def test_executor_activate_is_a_kind_but_never_listed(env):
     from multiagent.services import user_approvals as module
 
     services, client, headers, _ = env
-    assert "executor_activate" in module.KINDS and module.HIDDEN_KINDS == frozenset({"executor_activate"})
+    assert "executor_activate" in module.KINDS and "executor_activate" in module.HIDDEN_KINDS
     hidden = services.user_approvals.request(kind="executor_activate", destination={"executor": "claude_cli"},
                                              location={"source": "executor_activation"}, sha256="c" * 64)
     shown = request(services)
@@ -192,3 +192,18 @@ def test_executor_activate_is_a_kind_but_never_listed(env):
     assert services.user_approvals.status(hidden["id"])["state"] == "pending"       # still decidable by id
     assert services.user_approvals.pending_like("executor_activate", sha256="c" * 64,
                                                 destination={"executor": "claude_cli"})["id"] == hidden["id"]
+
+
+def test_office_privacy_change_is_a_kind_but_never_listed(env):
+    """SEN-T01: lowering the level of an area is decided only in «Privacidad»; «Aprobaciones» and «Pendientes» never show it."""
+    from multiagent.services import user_approvals as module
+
+    services, client, headers, _ = env
+    assert "office_privacy_change" in module.KINDS and "office_privacy_change" in module.HIDDEN_KINDS
+    assert module.HIDDEN_KINDS == frozenset({"executor_activate", "office_privacy_change"})
+    hidden = services.user_approvals.request(kind="office_privacy_change", destination={"office": "demo", "area": "recepcion"},
+                                             location={"source": "office_privacy"}, sha256="d" * 64)
+    shown = request(services)
+    assert [item["id"] for item in services.user_approvals.pending()] == [shown["id"]]
+    assert [item["id"] for item in client.get("/gui/api/approvals", headers=headers).json()["items"]] == [shown["id"]]
+    assert services.user_approvals.status(hidden["id"])["state"] == "pending"

@@ -33,7 +33,7 @@ from ..offices.schema import (OFFICE_ID_PATTERN, OFFICE_SCHEMA, OfficeDefinition
                               area_bundle_name, load_office)
 from ..teams.digest import team_sha256
 from .bundle_scans import BundleScanServices
-from .errors import INVALID_DEFINITION, INVALID_REQUEST, ServiceError, service_errors, translate
+from .errors import INVALID_DEFINITION, INVALID_REQUEST, INVALID_STATE, ServiceError, service_errors, translate
 from .installed import (CODE_FREE_SUFFIXES, SOURCE_OFFICE, STATE_MISSING, STATE_OK, ZIP_EXTRACT_MAX_BYTES, ZIP_MAX_FILES,
                         _conflict, _invalid, extract_zip_safely)
 
@@ -105,6 +105,39 @@ def _office_of_record(record: dict[str, Any]) -> OfficeDefinition:
 def _yaml_of_record(record: dict[str, Any]) -> bytes:
     document = {"schema": OFFICE_SCHEMA, **_drop_none(record)}
     return yaml.safe_dump(document, sort_keys=False, allow_unicode=True).encode("utf-8")
+
+
+# --- sensitivity of the areas (SEN-T01): level -> data class, and the fixed note of «Privacidad» ----------------------
+
+LEVELS = ("normal", "sensitive")
+DATA_CLASS_OF = {"normal": "non_sensitive", "sensitive": "sensitive"}
+_LEVEL_RANK = {None: 0, "normal": 1, "sensitive": 2}     # an area without a level is the lowest (Decision 15)
+LOCAL_ONLY_LABEL = "local_only"
+PRIVACY_APPROVAL_KIND = "office_privacy_change"
+PRIVACY_NOTE: tuple[str, ...] = (
+    "Contraseñas, claves y tokens: siempre te pregunto, uno por uno.",
+    "Las áreas marcadas «Solo local».",
+    "Con un ejecutor (Claude, Codex, Copilot, agy), el agente puede leer toda la carpeta de trabajo de la oficina, "
+    "no solo la tarea.",
+)
+
+
+def _level_label(sensitivity: str | None, local_only: bool) -> str:
+    """``unset``, ``normal`` or ``sensitive``, plus ``+local_only``: the short text of one level in an approval or an event."""
+    return f"{sensitivity or 'unset'}{'+' + LOCAL_ONLY_LABEL if local_only else ''}"
+
+
+def _parse_label(label: Any) -> tuple[str | None, bool] | None:
+    if not isinstance(label, str):
+        return None
+    base, _, flag = label.partition("+")
+    if base not in ("unset", *LEVELS) or flag not in ("", LOCAL_ONLY_LABEL):
+        return None
+    return (None if base == "unset" else base), flag == LOCAL_ONLY_LABEL
+
+
+def _privacy_digest(office_id: str, area_id: str | None, before: str, after: str) -> str:
+    return sha256(canonical_json({"office": office_id, "area": area_id, "from": before, "to": after}))
 
 
 class OfficeServices:
@@ -188,13 +221,14 @@ class OfficeServices:
             if package_state != STATE_OK:
                 issues.append({"code": f"area_{package_state}", "area": area["id"],
                                "message": f"The package of the area {area['id']} is {package_state}; reimport the office"})
-            areas.append({"id": area["id"], "name": area["name"], "bundle": bundle, "sensitivity": area.get("sensitivity"),
-                          "local_only": bool(area.get("local_only")), "requires": list(area.get("requires") or []),
+            level = self._own_level(entry, area["id"])      # SEN-T01: what applies, not only what the office.yaml declares
+            areas.append({"id": area["id"], "name": area["name"], "bundle": bundle, "sensitivity": level["sensitivity"],
+                          "local_only": level["local_only"], "requires": list(area.get("requires") or []),
                           "package_state": package_state, "team": self._team_state(bundle)})
         return {"id": office_id, "name": definition["name"], "description": definition.get("description"),
                 "version": entry.get("version"), "fingerprint": entry.get("fingerprint"),
                 "installed_at": entry.get("installed_at"), "installed_by": entry.get("installed_by"),
-                "channel": entry.get("channel"), "level": "data", "local_only": bool(definition.get("local_only")),
+                "channel": entry.get("channel"), "level": "data", "local_only": self._office_local(entry)[0],
                 "state": "degraded" if issues else "ok", "issues": issues,
                 "warnings": list(entry.get("warnings") or []), "areas": areas,
                 "orchestrator": definition.get("orchestrator"), "relations": list(definition.get("relations") or [])}
@@ -529,6 +563,7 @@ class OfficeServices:
             copy = self._save_copy(into, version, _yaml_of_record(record))
             entry = self._entry(definition, record, version=version, actor=actor, channel=channel,
                                 registered=installed._read())
+            self._carry_privacy(entry, target)
             offices[into] = entry
             self._write(offices)
             self._event("office.reimported", into, actor=actor, channel=channel, version=version, added=[area.id],
@@ -616,11 +651,14 @@ class OfficeServices:
                         teams.append(state)
                 record = _record_of(office)
                 entry = previous
-                if batch or record != previous["definition"]:
+                levels = self._highest_levels(previous, record)    # SEN-T01: a reimport never lowers a level
+                if batch or record != previous["definition"] or levels != previous.get("privacy"):
                     version = self._next_version(office_id, offices)
                     copy = self._save_copy(office_id, version, (root / "office.yaml").read_bytes())
                     entry = self._entry(office, record, version=version, actor=actor, channel=channel,
                                         registered=installed._read())
+                    if levels:
+                        entry["privacy"] = levels
                     offices[office_id] = entry
                     self._write(offices)
                     self._event("office.reimported", office_id, actor=actor, channel=channel, version=version,
@@ -717,6 +755,7 @@ class OfficeServices:
             try:
                 new = self._entry(definition, record, version=version, actor=actor, channel=channel,
                                   registered=installed._read())
+                self._carry_privacy(new, entry, drop=area_id)
                 offices[office_id] = new
                 self._write(offices)
                 self._event("office.reimported", office_id, actor=actor, channel=channel, version=version, added=[],
@@ -766,3 +805,233 @@ class OfficeServices:
                 raise self._not_installed(office_id)
             definition = _office_of_record(entry["definition"])
         return self.requirements_for(definition)
+
+    # --- sensitivity of the areas (SEN-T01) ---------------------------------
+    #
+    # What the office.yaml declares (``sensitivity`` and ``local_only`` of each area, ``local_only`` of the office) is
+    # the starting level. What a person sets lives beside it in the entry of the office, under ``privacy`` (new,
+    # optional keys; a registry without them reads as before): ``{"areas": {id: {sensitivity, local_only, set_by, set_at,
+    # source}}, "office": {local_only, set_by, set_at, source}}``. A record holds the whole level that applies to its
+    # area, so lowering is a new record and a reimport keeps the highest of the old and the new level (Decision 14).
+
+    @staticmethod
+    def _own_level(entry: dict[str, Any], area_id: str) -> dict[str, Any]:
+        """``{sensitivity, local_only, set_by, set_at, source}`` of the area itself (not of the office as a whole)."""
+        declared = next((area for area in entry["definition"]["areas"] if area["id"] == area_id), {})
+        record = ((entry.get("privacy") or {}).get("areas") or {}).get(area_id)
+        if isinstance(record, dict):
+            return {"sensitivity": record.get("sensitivity"), "local_only": bool(record.get("local_only")),
+                    "set_by": record.get("set_by"), "set_at": record.get("set_at"), "source": record.get("source", "person")}
+        return {"sensitivity": declared.get("sensitivity"), "local_only": bool(declared.get("local_only")),
+                "set_by": entry.get("installed_by"), "set_at": entry.get("installed_at"), "source": "office"}
+
+    @staticmethod
+    def _office_local(entry: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+        """Whether the whole office is «Solo local», and who said so."""
+        record = (entry.get("privacy") or {}).get("office")
+        if isinstance(record, dict) and record.get("local_only"):
+            return True, {"set_by": record.get("set_by"), "set_at": record.get("set_at"), "source": record.get("source", "person")}
+        declared = bool(entry["definition"].get("local_only"))
+        return declared, {"set_by": entry.get("installed_by"), "set_at": entry.get("installed_at"), "source": "office"}
+
+    @staticmethod
+    def _class_of(level: dict[str, Any], office_local: bool) -> str | None:
+        """The data class of an area (design 8.6): «Solo local» is ``restricted``; no level is ``None``."""
+        if level["local_only"] or office_local:
+            return "restricted"
+        return DATA_CLASS_OF.get(level["sensitivity"])
+
+    def area_class(self, bundle: str) -> str | None:
+        """``non_sensitive``, ``sensitive`` or ``restricted`` for an installed area; ``None`` for an area without a level
+        and for a package that is not an area of an office."""
+        located = self.office_of(bundle)
+        if located is None:
+            return None
+        entry = self._read().get(located[0])
+        if entry is None:
+            return None
+        return self._class_of(self._own_level(entry, located[1]), self._office_local(entry)[0])
+
+    @service_errors
+    def privacy(self, office_id: str) -> dict[str, Any]:
+        """The levels of an office, area by area, with who set each one and the fixed note of «Privacidad»."""
+        office_id = self._check_id(office_id, "office_id")
+        with self._lock:
+            entry = self._read().get(office_id)
+            if entry is None:
+                raise self._not_installed(office_id)
+            office_local, _ = self._office_local(entry)
+            areas = []
+            for area in entry["definition"]["areas"]:
+                level = self._own_level(entry, area["id"])
+                local_only = level["local_only"] or office_local
+                areas.append({"id": area["id"], "sensitivity": level["sensitivity"], "local_only": local_only,
+                              "data_class": self._class_of(level, office_local), "set_by": level["set_by"],
+                              "set_at": level["set_at"], "source": level["source"]})
+            return {"office": office_id, "local_only": office_local, "areas": areas, "note": PRIVACY_NOTE}
+
+    def _check_levels(self, office_id: str, area_id: str | None, sensitivity: Any, local_only: Any) -> dict[str, Any]:
+        """The entry of the office, after validating the request; the area must exist and one level must be named."""
+        office_id = self._check_id(office_id, "office_id")
+        area_id = self._check_id(area_id, "area") if area_id is not None else None
+        if sensitivity is not None and sensitivity not in LEVELS:
+            raise _invalid("The sensitivity must be normal or sensitive", field="sensitivity", allowed=list(LEVELS))
+        if local_only is not None and not isinstance(local_only, bool):
+            raise _invalid("local_only must be true or false", field="local_only")
+        if sensitivity is None and local_only is None:
+            raise _invalid("Name a sensitivity or local_only", reason="office_privacy_nothing_to_change")
+        if area_id is None and sensitivity is not None:
+            raise _invalid("The sensitivity belongs to an area: name it; only local_only applies to the whole office",
+                           reason="office_privacy_area_required", field="area")
+        entry = self._read().get(office_id)
+        if entry is None:
+            raise self._not_installed(office_id)
+        if area_id is not None and not any(area["id"] == area_id for area in entry["definition"]["areas"]):
+            raise _conflict(f"The office {office_id} has no area {area_id}", "office_area_not_installed",
+                            office=office_id, area=area_id)
+        return entry
+
+    def _current(self, entry: dict[str, Any], area_id: str | None) -> tuple[str | None, bool]:
+        if area_id is None:
+            return None, self._office_local(entry)[0]
+        level = self._own_level(entry, area_id)
+        return level["sensitivity"], level["local_only"]
+
+    @staticmethod
+    def _target(current: tuple[str | None, bool], sensitivity: str | None, local_only: bool | None) -> tuple[str | None, bool]:
+        return (current[0] if sensitivity is None else sensitivity, current[1] if local_only is None else local_only)
+
+    @staticmethod
+    def _lowers(before: tuple[str | None, bool], after: tuple[str | None, bool]) -> bool:
+        return _LEVEL_RANK[after[0]] < _LEVEL_RANK[before[0]] or (before[1] and not after[1])
+
+    def _store_level(self, offices: dict[str, dict[str, Any]], office_id: str, area_id: str | None,
+                     after: tuple[str | None, bool], *, actor: str, channel: str, direction: str) -> None:
+        """Write the level a person set, and its event ``office.privacy_changed`` (who, the area and both levels)."""
+        entry = offices[office_id]
+        before = self._current(entry, area_id)
+        privacy = json.loads(json.dumps(entry.get("privacy") or {}))
+        record = {"set_by": actor, "set_at": utcnow(), "source": "person"}
+        if area_id is None:
+            privacy["office"] = {"local_only": after[1], **record}
+        else:
+            privacy.setdefault("areas", {})[area_id] = {"sensitivity": after[0], "local_only": after[1], **record}
+        entry["privacy"] = privacy
+        self._write(offices)
+        self._event("office.privacy_changed", office_id, actor=actor, channel=channel, area=area_id, direction=direction,
+                    **{"from": _level_label(*before), "to": _level_label(*after)})
+
+    def _privacy_answer(self, office_id: str, area_id: str | None, before: tuple[str | None, bool],
+                        after: tuple[str | None, bool], changed: bool) -> dict[str, Any]:
+        return {**self.privacy(office_id), "area": area_id, "from": _level_label(*before), "to": _level_label(*after),
+                "changed": changed}
+
+    @service_errors
+    def raise_level(self, office_id: str, area_id: str | None, *, sensitivity: str | None = None,
+                    local_only: bool | None = None, actor: str, channel: str = "python") -> dict[str, Any]:
+        """Raise the level of an area (or ``local_only`` of the whole office): from nothing to any, ``normal`` to
+        ``sensitive``, ``local_only`` false to true. Anything lower is ``office_level_lowering_needs_gui``."""
+        from .projects import _user_actor
+
+        actor = _user_actor(actor)
+        with self._lock:
+            entry = self._check_levels(office_id, area_id, sensitivity, local_only)
+            before = self._current(entry, area_id)
+            after = self._target(before, sensitivity, local_only)
+            if self._lowers(before, after):
+                raise _conflict("Lowering a level is done in «Privacidad», with the one-use code",
+                                "office_level_lowering_needs_gui", office=office_id, area=area_id,
+                                **{"from": _level_label(*before), "to": _level_label(*after)})
+            if after == before:
+                return self._privacy_answer(office_id, area_id, before, after, False)
+            self._store_level(self._read(), office_id, area_id, after, actor=actor, channel=channel, direction="raise")
+            return self._privacy_answer(office_id, area_id, before, after, True)
+
+    @service_errors
+    def request_lowering(self, office_id: str, area_id: str | None, *, sensitivity: str | None = None,
+                         local_only: bool | None = None) -> dict[str, Any]:
+        """Ask for the one-use approval ``office_privacy_change`` (hidden) of a lower level; the person decides it
+        in «Privacidad». The ``sha256`` binds the office, the area and both levels. Changes nothing yet."""
+        with self._lock:
+            entry = self._check_levels(office_id, area_id, sensitivity, local_only)
+            before = self._current(entry, area_id)
+            after = self._target(before, sensitivity, local_only)
+            if not self._lowers(before, after):
+                raise _invalid("That is not a lower level: raise it with raise_level", reason="office_privacy_not_lower",
+                               office=office_id, area=area_id)
+            digest = _privacy_digest(office_id, area_id, _level_label(*before), _level_label(*after))
+            destination = {"office": office_id, "area": area_id or ""}
+            approvals = self._services.user_approvals
+            found = approvals.pending_like(PRIVACY_APPROVAL_KIND, sha256=digest, destination=destination)
+            if found is not None:
+                return found
+            return approvals.request(
+                kind=PRIVACY_APPROVAL_KIND, destination=destination, sha256=digest,
+                location={"source": "office_privacy", "from": _level_label(*before), "to": _level_label(*after)})
+
+    @service_errors
+    def lower_level(self, office_id: str, area_id: str | None, *, approval_id: str, actor: str = "user:operator",
+                    channel: str = "gui") -> dict[str, Any]:
+        """Spend the approved ``office_privacy_change`` once and store the lower level. Without it, or when the
+        level is no longer the one the person saw, ``office_privacy_change_not_approved``."""
+        from .projects import _user_actor
+
+        actor = _user_actor(actor)
+        office_id = self._check_id(office_id, "office_id")
+        area_id = self._check_id(area_id, "area") if area_id is not None else None
+        with self._lock:
+            offices = self._read()
+            entry = offices.get(office_id)
+            if entry is None:
+                raise self._not_installed(office_id)
+            approvals = self._services.user_approvals
+            item = approvals.peek(approval_id) if isinstance(approval_id, str) and approval_id else None
+            location = item.get("location") if item else None
+            after = _parse_label(location.get("to")) if isinstance(location, dict) else None
+            if (item is None or item.get("kind") != PRIVACY_APPROVAL_KIND or item.get("state") != "approved"
+                    or after is None or (area_id is None and after[0] is not None)):
+                raise self._not_approved(office_id, area_id)
+            before = self._current(entry, area_id)
+            digest = _privacy_digest(office_id, area_id, _level_label(*before), _level_label(*after))
+            if not self._lowers(before, after) or not approvals.consume(
+                    approval_id, sha256=digest, destination={"office": office_id, "area": area_id or ""}):
+                raise self._not_approved(office_id, area_id)
+            self._store_level(offices, office_id, area_id, after, actor=actor, channel=channel, direction="lower")
+            return self._privacy_answer(office_id, area_id, before, after, True)
+
+    @staticmethod
+    def _not_approved(office_id: str, area_id: str | None) -> ServiceError:
+        return ServiceError(INVALID_STATE, "Lowering a level needs the person's one-use approval", status=409,
+                            details={"reason": "office_privacy_change_not_approved", "office": office_id, "area": area_id})
+
+    @staticmethod
+    def _carry_privacy(entry: dict[str, Any], previous: dict[str, Any], *, drop: str | None = None) -> None:
+        """Keep what the person set when an area joins or leaves: the new entry of the office reads the same levels."""
+        privacy = json.loads(json.dumps(previous.get("privacy") or {}))
+        if drop is not None and isinstance(privacy.get("areas"), dict):
+            privacy["areas"].pop(drop, None)
+        if privacy.get("areas") or privacy.get("office"):
+            entry["privacy"] = {key: value for key, value in privacy.items() if value}
+
+    def _highest_levels(self, previous: dict[str, Any], record: dict[str, Any]) -> dict[str, Any] | None:
+        """The ``privacy`` of a reimported office: for each area it had, the highest of its level and the new
+        declaration (``sensitive`` over ``normal`` over nothing; ``local_only`` is added, never removed). An area that
+        is new takes what the office declares. ``None`` when the office.yaml already says it all."""
+        areas: dict[str, Any] = {}
+        for area in record["areas"]:
+            if not any(old["id"] == area["id"] for old in previous["definition"]["areas"]):
+                continue
+            held = self._own_level(previous, area["id"])
+            declared = (area.get("sensitivity"), bool(area.get("local_only")))
+            sensitivity = held["sensitivity"] if _LEVEL_RANK[held["sensitivity"]] > _LEVEL_RANK[declared[0]] else declared[0]
+            local_only = held["local_only"] or declared[1]
+            if (sensitivity, local_only) != declared:
+                areas[area["id"]] = {"sensitivity": sensitivity, "local_only": local_only, "set_by": held["set_by"],
+                                     "set_at": held["set_at"], "source": held["source"]}
+        held_office, who = self._office_local(previous)
+        privacy: dict[str, Any] = {}
+        if areas:
+            privacy["areas"] = areas
+        if held_office and not record.get("local_only"):
+            privacy["office"] = {"local_only": True, **who}
+        return privacy or None

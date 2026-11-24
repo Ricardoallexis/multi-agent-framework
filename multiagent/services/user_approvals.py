@@ -10,9 +10,11 @@ from typing import Any
 from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
-KINDS = frozenset({"secret_send", "osv_query", "bundle_load", "executor_activate", "memory_trust", "memory_delete"})
-# EJE-T01: decided only by the fixed note of «Activar», never listed in «Aprobaciones» or «Pendientes» (Decision 20)
-HIDDEN_KINDS = frozenset({"executor_activate"})
+KINDS = frozenset({"secret_send", "osv_query", "bundle_load", "executor_activate", "memory_trust", "memory_delete",
+                   "office_privacy_change"})
+# EJE-T01: decided only by the fixed note of «Activar», never listed in «Aprobaciones» or «Pendientes» (Decision 20).
+# SEN-T01: lowering the privacy level of an office area is decided only in «Privacidad» (Decision 14), also hidden.
+HIDDEN_KINDS = frozenset({"executor_activate", "office_privacy_change"})
 # MEM-T01: a person confirms the trust and the deletion of a memory entry; both show in «Pendientes»
 MEMORY_KINDS = frozenset({"memory_trust", "memory_delete"})
 EVENTS = frozenset({"user_approval.requested", "user_approval.decided", "user_approval.consumed"})

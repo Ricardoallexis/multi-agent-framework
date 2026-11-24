@@ -344,10 +344,20 @@ def _missing_error(missing: list[str]) -> ServiceError:
                         details={"missing_inputs": missing})
 
 
+def _area_sensitive(services, bundle: str | None, sensitive: bool) -> bool:
+    """SEN-T01: an area of an office that is ``sensitive`` or ``restricted`` previews as a ``sensitive`` run, so the
+    preview never offers a cloud model; the run itself is made ``sensitive`` the same way (``RunServices.create``)."""
+    offices = getattr(services, "offices", None)
+    if sensitive or bundle is None or offices is None:
+        return sensitive
+    return offices.area_class(bundle) in ("sensitive", "restricted")
+
+
 def _routing_preview(services, workflow_id: str, bundle: str | None, inputs: dict[str, str],
                      execution_mode: ExecutionMode, sensitive: bool, preferences=None) -> dict[str, list[dict[str, Any]]]:
     """Read the configured model route for confirmation; no profile setting is changed or executed."""
     preferences = preferences or {}
+    sensitive = _area_sensitive(services, bundle, sensitive)
     definition = services.definitions.get_workflow(workflow_id, bundle=bundle)
     for step in definition.get("steps", []):
         if step.get("function") and step["id"] in preferences:
@@ -521,11 +531,12 @@ def build_router(services) -> APIRouter:
     @router.post("/runs/preview")
     def preview(body: PreviewBody):
         """Render the prompts for these inputs as text. Nothing is executed or stored."""
+        sensitive = _area_sensitive(services, body.bundle, body.sensitive)
         result = services.definitions.preview_prompts(
             body.workflow_id, body.inputs, bundle=body.bundle,
-            execution_mode=body.execution_mode.value, sensitive=body.sensitive)
+            execution_mode=body.execution_mode.value, sensitive=sensitive)
         result["routing"] = _routing_preview(services, body.workflow_id, body.bundle, body.inputs,
-                                             body.execution_mode, body.sensitive, body.routing_preferences)
+                                             body.execution_mode, sensitive, body.routing_preferences)
         return result
 
     @router.get("/composer/executors")

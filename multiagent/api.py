@@ -149,6 +149,14 @@ class OfficeActorRequest(_Body):
     actor: str
 
 
+# SEN-T01: raising the level of an area. Strict: there is no way to name a lower level here (that is done in the GUI).
+class OfficePrivacyRaiseRequest(_Body):
+    actor: str
+    area: str | None = None
+    sensitivity: str | None = None
+    local_only: bool | None = None
+
+
 def _office_source(folder: str | None, zip_base64: str | None) -> tuple[Path | None, bytes | None]:
     """Exactly one of ``folder`` and ``zip_base64``; the ``.zip`` is decoded here, within the upload cap."""
     if (folder is None) == (zip_base64 is None):
@@ -751,6 +759,17 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/offices/{office_id}/areas/{area_id}/remove")
     def remove_office_area(office_id: str, area_id: str, body: OfficeActorRequest):
         return services.offices.remove_area(office_id, area_id, actor=body.actor, channel="api")
+
+    # --- the privacy level of each area (SEN-T01); lowering one has no route here: it needs the GUI --------
+
+    @app.get("/api/v1/offices/{office_id}/privacy")
+    def office_privacy(office_id: str):
+        return services.offices.privacy(office_id)
+
+    @app.post("/api/v1/offices/{office_id}/privacy/raise")
+    def raise_office_privacy(office_id: str, body: OfficePrivacyRaiseRequest):
+        return services.offices.raise_level(office_id, body.area, sensitivity=body.sensitivity,
+                                            local_only=body.local_only, actor=body.actor, channel="api")
 
     # --- evaluation sets (EVA-T01) ------------------------------------------
 

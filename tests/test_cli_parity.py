@@ -242,3 +242,13 @@ def test_office_group_has_its_five_commands():
     assert parser.parse_args(["office", "import", "folder", "--into", "demo"]).into == "demo"
     assert parser.parse_args(["office", "remove", "demo", "--area", "avisos"]).area == "avisos"
     assert parser.parse_args(["office", "remove", "demo"]).area is None
+
+
+def test_office_group_has_privacy():
+    """SEN-T01: ``office privacy ID`` shows the levels; ``--area``, ``--sensitive`` and ``--local-only`` raise one."""
+    parser = cli.build_parser()
+    args = parser.parse_args(["office", "privacy", "demo"])
+    assert args.func is cli.cmd_office and args.office_command == "privacy"
+    assert (args.office_id, args.area, args.sensitive, args.local_only, args.actor) == ("demo", None, False, False, "user:local")
+    args = parser.parse_args(["office", "privacy", "demo", "--area", "recepcion", "--sensitive", "--local-only", "--actor", "user:ana"])
+    assert (args.area, args.sensitive, args.local_only, args.actor) == ("recepcion", True, True, "user:ana")

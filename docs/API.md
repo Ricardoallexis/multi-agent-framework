@@ -33,8 +33,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.executors` | `run_task`, `resume_task`, `open_target`, `status` (and `record_app_open`, `session_guard`): run an ORQ task in Codex, Claude or Copilot, continue or open its session |
 | `services.memory` | `create`, `list`, `get`, `delete`: facts, decisions and conventions of a project, each with its author as provenance and a computed trust level. A `user:` author is only a claim, so a `user:` entry is stored `untrusted` until a person approves it in the GUI (`memory_trust`, one-use code), and a deletion waits for a person too (`memory_delete`). Entries live in the system database; a bundle run reads the memory of the project with the same name there. A workflow or step receives them, quoted as data, only when it sets `project_memory`. An `untrusted` entry that contradicts one a person confirmed (same project and kind, same title once normalized by NFKD without marks, `casefold` and single spaces, a different body) is never quoted: `select_entries` leaves it out and the note says so apart from the size cap. Two untrusted entries that clash are both quoted. |
 | `services.decisions` | `propose`, `get`, `list`, `accept`, `reject`, `supersede` (plus `record_review`, accepting optional `team_id`): durable proposals with a human decision, effective expiry and active filtering. Successful run reviews and team version approvals/rejections create records automatically. |
-| `services.offices` | `list`, `get`, `import_folder`, `import_zip`, `reimport_folder`, `reimport_zip`, `remove`, `remove_area`, `office_of`, `requirements`, `requirements_for`: offices of level 1 (data only), installed from a folder or a `.zip`; each area is an installed package named `<office>__<area>` and its team is only proposed. See [Offices](#offices). |
-| `services.evaluation` | `run(set, live=False)`: run an evaluation set of workflow, agent or prompt cases and return its report; see [Evaluation sets](EVALUATION.md). |
+| `services.offices` | `list`, `get`, `import_folder`, `import_zip`, `reimport_folder`, `reimport_zip`, `remove`, `remove_area`, `office_of`, `requirements`, `requirements_for`, `area_class`, `privacy`, `raise_level`, `request_lowering`, `lower_level`: offices of level 1 (data only), installed from a folder or a `.zip`; each area is an installed package named `<office>__<area>` and its team is only proposed. See [Offices](#offices). |
 
 For example, create a built-in social-post run:
 
@@ -402,6 +401,8 @@ An office of level 1 is an `office.yaml` and its areas, with data files only (se
 | `POST /api/v1/offices/{id}/reimport` | `{actor, folder}` or `{actor, zip_base64, filename?}` | `{office, teams, warnings, changes}`; only what differs changes. |
 | `POST /api/v1/offices/{id}/remove` | `{actor}` | `{id, removed: true, kept_data: true, areas, ...}`. Copies and run data are kept. |
 | `POST /api/v1/offices/{id}/areas/{area}/remove` | `{actor}` | `{office, removed: true, kept_data: true, area, warnings, ...}`. |
+| `GET /api/v1/offices/{id}/privacy` | | `{office, local_only, areas: [{id, sensitivity, local_only, data_class, set_by, set_at, source}], note}`. |
+| `POST /api/v1/offices/{id}/privacy/raise` | `{actor, area?, sensitivity?, local_only?}` | The same answer, plus `{area, from, to, changed}`. |
 
 An office is `{id, name, description, version, fingerprint, installed_at, installed_by, channel, level, local_only, state, issues, warnings, areas, orchestrator, relations}` and never has a path. `level` is `data`. `state` is `ok`, or `degraded` when an area is missing or its package is not `ok`; `issues` then lists `{code: "area_missing" | "area_changed", area, message}`. Each area is `{id, name, bundle, sensitivity, local_only, requires, package_state, team: {status, version_id}}`: `team` is the approved version if there is one, else the latest, and `{status: null, version_id: null}` for an area without `team.yaml`.
 
@@ -425,6 +426,16 @@ Errors. `409 invalid_state` with `details.reason`:
 | `bundle_name_in_use` | `<office>__<area>` is a `--bundle` or an installed package. |
 | `bundle_busy` | A run of an area that would change or leave is `queued`, `running`, `waiting_human` or `paused`. Nothing changes. |
 | `bundle_in_office` | `POST /api/v1/installed/{name}/reinstall` or `/remove` on an area: it changes with its office. |
+
+**Privacy of the areas** (see [Sensitivity](OFFICES.md#sensitivity)). Each area has a level (`normal`, `sensitive` or none) and `local_only`, which also exists for the whole office. The runs of an area carry `data_class` (`non_sensitive`, `sensitive` or `restricted`) in their answer, and the stored request is `sensitive: true` for the last two. `raise` only goes up: from none to any level, `normal` to `sensitive`, `local_only` false to true. `sensitivity` needs an `area`, and the body is strict. In an area, `source` is `person` or `office`. Lowering a level has no route in `/api/v1`: it is done in the GUI with a one-use approval (`office_privacy_change`, hidden like `executor_activate`).
+
+| Status and `reason` | When |
+| --- | --- |
+| `409 office_level_lowering_needs_gui` | `raise` asked for a lower level (`details.from`, `details.to`). |
+| `409 office_level_required` | A run of an area with no level asked for the cloud (`confirm_cloud`); `details.office`, `details.area`. Local runs do not ask. |
+| `409 office_privacy_change_not_approved` | `lower_level` without an approved, unspent `office_privacy_change` for that exact change (services only). |
+| `422 area_local_only` | A run of a «Solo local» area asked for `confirm_cloud`, `execution_mode: human_guided` or a `human_guided` step. |
+| `422 office_privacy_area_required`, `422 office_privacy_nothing_to_change` | `sensitivity` without an area, or no level named. |
 
 `422 invalid_request` with `details.reason`: `office_too_large` (`details.field` is `file`, `files`, `bytes` or `areas`: a file of more than 1 MiB, 2000 files, 50 MiB, or 20 areas), `office_single_area_required` (with `into`), `office_source_required`, and the `.zip` reasons `zip_unsafe_entry`, `zip_invalid` and `zip_too_large`. `422 invalid_definition` carries the problems of `office.yaml` (`details.reason` is the first issue code, `details.issues` all of them: `office_invalid`, `office_path_unsafe`, `office_duplicate_id`) or those of an area (the package validation of [Installed packages](#installed-packages)). No answer names a path of the machine.
 

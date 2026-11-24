@@ -167,6 +167,43 @@ An area that is «Sensible» (`sensitivity: sensitive`) or «Solo local» (`loca
 
 Code: `multiagent/offices/requirements.py` (pure: `coverage`, `office_requirements`, `model_capabilities`, `executor_capabilities`); `services.offices.requirements` gathers the candidates.
 
+## Sensitivity
+
+Each area has a privacy level, and every run that starts from an area carries the data class of that level. There is no new rule or path in the engine: `RunServices.create` applies the class when the package of the run is an area of an installed office (`offices.office_of(bundle)`), so runs from the GUI, the API, the CLI and a plan all get it.
+
+| Level | Data class | What a run of the area does |
+| --- | --- | --- |
+| `normal` | `non_sensitive` | As any run. |
+| `sensitive` | `sensitive` | The request is stored with `sensitive: true`, so the cloud cannot be confirmed (`confirm_cloud` grants nothing for sensitive data, see [model routing](model-routing.md)). |
+| `local_only: true`, in the area or in the whole office | `restricted` | As `sensitive`, and also `confirm_cloud`, `execution_mode: human_guided` and a `step_modes` entry with `human_guided` are refused with `422 invalid_request`, `details.reason = "area_local_only"` (a guided run would copy the prompt out of the machine). |
+| none (`sensitivity` is optional) | `None` | A local run goes on. A run that asks for the cloud (`confirm_cloud: true`) is `409 invalid_state`, `details.reason = "office_level_required"`, with `details.office` and `details.area`. |
+
+`local_only` wins over `sensitivity`. A package that is not an area of an office is not touched, and its runs carry no `data_class`. The run answer (`create`, `get` and the run list of the services and of `/api/v1`) has `data_class` for the runs of an area; it is the class of the area now, not a record of the class when the run started.
+
+**Plans.** Each task of a plan creates its run through `RunServices.create`, so it carries the class of its area. Today a task does not receive the output of another (`services/plans.py`), so no class travels between tasks. When one does, the task takes the highest class of its own area and of every task it reads: `restricted` over `sensitive` over `non_sensitive`. Nothing of a «Solo local» area is ever an input to a task that can reach a cloud model.
+
+**Where the levels live.** `office.yaml` declares the first level. What a person sets is kept in the entry of the office in `installed/offices.json`, under the optional key `privacy` (`{areas: {id: {sensitivity, local_only, set_by, set_at, source}}, office: {local_only, ...}}`). An office without it reads as before, and `OFFICES_SCHEMA` does not change. `source` is `"person"` for a level somebody set and `"office"` for the one the `office.yaml` declares.
+
+**Raising.** `raise_level(office_id, area_id, sensitivity=, local_only=, actor=)` goes from no level to any, from `normal` to `sensitive` and from `local_only: false` to `true`; `area_id = None` is the whole office and takes only `local_only`. It works from the services, the API and the CLI, and the event `office.privacy_changed` records `office`, `area`, `from`, `to`, `direction` and the actor (a level reads `unset`, `normal` or `sensitive`, plus `+local_only` when it applies). Asking for something lower is `409 invalid_state` with `details.reason = "office_level_lowering_needs_gui"`.
+
+```text
+GET  /api/v1/offices/{id}/privacy           # {office, local_only, areas: [{id, sensitivity, local_only, data_class, set_by, set_at, source}], note}
+POST /api/v1/offices/{id}/privacy/raise     # {actor, area?, sensitivity?, local_only?}
+multiagent office privacy OFFICE [--area AREA] [--sensitive] [--local-only] [--actor user:local]
+```
+
+**Lowering** has no route in `/api/v1` and no command: it is done in «Privacidad» of the GUI. `request_lowering` creates the hidden one-use approval `office_privacy_change` (never listed in «Aprobaciones» or «Pendientes»), bound by its `sha256` to `{office, area, from, to}`. The person decides it with the 120-second code. `lower_level` spends it once, stores the lower level and writes the event. Without an approved, unspent approval of exactly that change, or if the level moved since the person saw it, it is `409 invalid_state`, `details.reason = "office_privacy_change_not_approved"`.
+
+**Reimport** keeps the highest level between what the area had and what the new `office.yaml` declares: `sensitive` over `normal`, any level over none, and `local_only` is only added. A level a person raised therefore survives a reimport that declares less, with `source: "person"`; `local_only` of the whole office does too. An area that joins takes what the office declares.
+
+**The note** of «Privacidad» is fixed (`PRIVACY_NOTE`, returned by `privacy()` as `note`):
+
+- «Contraseñas, claves y tokens: siempre te pregunto, uno por uno.»
+- «Las áreas marcadas «Solo local».»
+- «Con un ejecutor (Claude, Codex, Copilot, agy), el agente puede leer toda la carpeta de trabajo de la oficina, no solo la tarea.»
+
+**Executors.** A launch of an executor (`ExecutorLaunchRequest`) does not name a package, so there is no path from an area to cover. The `restricted` class of an executor launch (`executors/privacy.py`) is still set by its caller, not by an office.
+
 ## Templates
 
 Two level-1 (data-only) office templates live in `examples/offices/` with synthetic Spanish data, `preferred_model: local_default`, `checkpoint_after: true`, and teams whose `revision` role assigns a `Responsable` person to review outputs from `redaccion`:
@@ -190,3 +227,4 @@ multiagent office import examples/offices/escuela
 ```
 
 The `examples/` directory is only present in a repository checkout; it is not included in the built wheel (`pyproject.toml`).
+
