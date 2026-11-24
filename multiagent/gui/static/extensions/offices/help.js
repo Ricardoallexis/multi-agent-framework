@@ -51,5 +51,53 @@ export const HELP = {
       "Normal y Sensible son niveles distintos; Solo local nunca sale del equipo.",
       "Sin nivel indica que el área no declara uno."
     ]
+  },
+  "offices.import_office": {
+    "title": "Importar una oficina",
+    "hint": "Elige un archivo .zip para revisar la oficina antes de instalarla.",
+    "more": [
+      "También puedes reimportar una oficina o añadir un área a una oficina que ya tienes.",
+      "En el modo avanzado puedes elegir una carpeta."
+    ]
+  },
+  "offices.card": {
+    "title": "Ficha de la oficina",
+    "hint": "Revisa las áreas, sus miembros, lo que necesitan y lo que declaran.",
+    "more": [
+      "Al instalar, también se aprueban los equipos que aparecen en la ficha.",
+      "La ficha muestra si la oficina trae código y el resultado de la revisión."
+    ]
+  },
+  "offices.install": {
+    "title": "Instalar oficina",
+    "hint": "La oficina se instala después de revisar esta ficha.",
+    "more": [
+      "Si hace falta, primero puedes permitir una consulta de seguridad.",
+      "Asume los riesgos solo si revisaste lo que trae la oficina."
+    ]
+  },
+  "offices.export": {
+    "title": "Exportar oficina o área",
+    "hint": "Guarda una oficina o un área como archivo .zip.",
+    "more": [
+      "El archivo se prepara en esta computadora y se descarga aquí.",
+      "Los avisos indican qué podría no funcionar en otra computadora."
+    ]
+  },
+  "offices.include_code": {
+    "title": "Incluir código",
+    "hint": "El código propio solo se incluye al exportar desde el modo avanzado.",
+    "more": [
+      "El archivo puede contener instrucciones que ejecuta un agente activado.",
+      "Revisa el código antes de compartir el archivo."
+    ]
+  },
+  "offices.remove": {
+    "title": "Quitar oficina o área",
+    "hint": "Quitarla solo la saca de la lista de oficinas.",
+    "more": [
+      "Se conservan sus datos y las copias guardadas.",
+      "La confirmación aparece antes de quitarla."
+    ]
   }
 };

@@ -203,6 +203,22 @@ def test_level_text():
 
 
 @needs_node
+def test_office_header_follows_its_areas():
+    out = run_node(f"""
+      import {{ officeWorks }} from {file_url(EXT / "model.js")};
+      const waiting = {{ areas: [{{ id: "menu", degraded: [{{ code: "team_not_approved" }}] }}, {{ id: "avisos", degraded: [] }}] }};
+      const fine = {{ areas: [{{ id: "menu", degraded: [] }}] }};
+      console.log(JSON.stringify({{
+        waiting: officeWorks({{ state: "ok" }}, waiting),
+        fine: officeWorks({{ state: "ok" }}, fine),
+        broken: officeWorks({{ state: "degraded" }}, fine),
+        no_scene_yet: officeWorks({{ state: "ok" }}, null),
+      }}));
+    """)
+    assert out == {"waiting": False, "fine": True, "broken": False, "no_scene_yet": True}
+
+
+@needs_node
 def test_degraded_actions():
     out = run_node(f"""
       import {{ degradedAction }} from {file_url(EXT / "model.js")};

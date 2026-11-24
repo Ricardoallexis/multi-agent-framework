@@ -817,6 +817,13 @@ the view is open, each scene is refreshed every four seconds and when the page b
 the last scene stays visible with a reconnect notice. With no installed offices, no office cards are drawn and no scenes
 are requested.
 
+The view can also import an office from a `.zip` and shows its single review card before installation. The card lists each
+area's members, capability coverage, data level and declarations, along with any code and scan verdict. When required,
+the person can allow one OSV query and then install the office; installation approves the teams listed on the card.
+Reimport shows only added, changed or removed areas, and an individual area can be added to an installed office. Offices
+and individual areas can be exported as `.zip` files or removed from the list; removal keeps their data. Code export is
+available only in advanced mode.
+
 ## What this browser remembers
 
 The GUI keeps a few choices in `localStorage`, only in `js/shell-state.js`, and only on

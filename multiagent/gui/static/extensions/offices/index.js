@@ -1,13 +1,15 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// «Oficinas» (#offices): a read-only list of the office scene and the fixes it reports.
+// «Oficinas» (#offices): office scenes, fixes and import/export actions.
 import { html, useEffect, useState } from "../../vendor/htm-preact-standalone.module.js";
-import { apiGet } from "../../js/api.js";
+import { apiGet, apiPost } from "../../js/api.js";
 import { currentMode } from "../../js/gui-mode.js";
 import { registerHelp, registerView } from "../../js/extensions.js";
 import { Help, helpFor } from "../../js/help.js";
 import { planThreadHref, teamThreadHref } from "../../js/route.js";
 import { HELP } from "./help.js";
+import { ImportOffice, exportOffice } from "./import.js";
+import { errorText, exportFileName, exportWarningText, includeCodeVisible, REMOVE_NOTICE } from "./import-model.js";
 import {
   createScenePoller,
   degradedAction,
@@ -15,6 +17,7 @@ import {
   EMPTY_TEXT,
   OFFLINE_TEXT,
   officeRows,
+  officeWorks,
   sceneTargets,
 } from "./model.js";
 
@@ -46,14 +49,66 @@ function DegradedLine({ entry }) {
   </li>`;
 }
 
-function OfficeCard({ office, detail, detailError, scene, offline }) {
+function OfficeCard({ office, detail, detailError, scene, offline, token, onImport, onChanged }) {
   const rows = officeRows(scene, detail?.requirements);
   const simple = currentMode() === "simple";
+  const [busy, setBusy] = useState(false);
+  const [includeCode, setIncludeCode] = useState(false);
+  const [message, setMessage] = useState(null);
+  const [removing, setRemoving] = useState(null);
+  const showIncludeCode = includeCodeVisible(currentMode());
+  const officeScope = office.id;
+
+  async function doExport(area = null) {
+    if (busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const payload = await exportOffice({ token, officeId: office.id, area, includeCode, post: apiPost });
+      const warnings = Array.isArray(payload.warnings) ? payload.warnings.map(exportWarningText) : [];
+      setMessage({ kind: "ok", text: warnings.length ? warnings.join(" ") : `${exportFileName(payload)} se descargó.` });
+    } catch (error) {
+      setMessage({ kind: "error", text: errorText(error?.details?.reason || (error?.status === 413 ? "zip_too_large" : ""),
+        error?.details) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doRemove(area = null) {
+    if (busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const path = officePath(office.id) + (area ? "/areas/" + encodeURIComponent(area) : "") + "/remove";
+      const result = await apiPost(path, token, {});
+      if (result?.kept_data !== true) throw new Error("The removal did not preserve the office data.");
+      setRemoving(null);
+      onChanged();
+    } catch (error) {
+      setMessage({ kind: "error", text: errorText(error?.details?.reason || "", error?.details) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function removeConfirmation(scope, area = null) {
+    const helpScope = officeScope + "-" + scope;
+    return removing === scope && html`<div class="offices-remove-confirm" role="alert">
+      <p class="small">${REMOVE_NOTICE}</p>
+      <button type="button" class="btn" disabled=${busy} ...${helpFor("offices.remove", { scope: helpScope })}
+        onClick=${() => doRemove(area)}>Quitar</button>
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.remove", { scope: helpScope })}
+        onClick=${() => setRemoving(null)}>Cancelar</button>
+      <${Help} topic="offices.remove" compact=${true} scope=${helpScope} />
+    </div>`;
+  }
+
   return html`<article class="offices-card" aria-label=${office.name}>
     <div class="offices-card-head">
       <p class="offices-title">${office.name}</p>
-      <span class=${"offices-office-state" + (office.state === "ok" ? " is-ok" : " is-degraded")}>
-        ${office.state === "ok" ? "Lista" : "Funciona a medias"}
+      <span class=${"offices-office-state" + (officeWorks(office, scene) ? " is-ok" : " is-degraded")}>
+        ${officeWorks(office, scene) ? "Lista" : "Funciona a medias"}
       </span>
     </div>
     ${detailError && html`<p class="message error small" role="alert">${detailError}</p>`}
@@ -79,6 +134,15 @@ function OfficeCard({ office, detail, detailError, scene, offline }) {
               <${Help} topic="offices.levels" compact=${true} />
               ${row.requirementText && html`<p class="offices-meta">${row.requirementText}</p>`}
               ${row.permissions && html`<p class="offices-meta">${row.permissions}</p><${Help} topic="offices.declared" compact=${true} />`}
+              <div class="offices-actions">
+                <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.export", { scope: officeScope + "-" + row.id })}
+                  onClick=${() => doExport(row.id)}>Exportar área</button>
+                <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.remove", { scope: officeScope + "-" + row.id })}
+                  onClick=${() => setRemoving("area:" + row.id)}>Quitar</button>
+                <${Help} topic="offices.export" compact=${true} scope=${officeScope + "-" + row.id} />
+                <${Help} topic="offices.remove" compact=${true} scope=${officeScope + "-" + row.id} />
+              </div>
+              ${removeConfirmation("area:" + row.id, row.id)}
               ${row.degraded.length > 0 && html`<ul class="offices-degraded-list">
                 ${row.degraded.map((entry) => html`<${DegradedLine} key=${entry.code} entry=${entry} />`)}
               </ul>`}
@@ -92,6 +156,28 @@ function OfficeCard({ office, detail, detailError, scene, offline }) {
             </div>`)}
     </div>`}
     ${simple && scene && scene.truncated && html`<p class="muted small">Se muestran los datos recientes disponibles.</p>`}
+    <div class="offices-actions offices-office-actions">
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.export", { scope: officeScope })}
+        onClick=${() => doExport()}>Exportar oficina</button>
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: officeScope })}
+        onClick=${() => onImport({ reimport: office.id })}>Reimportar</button>
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: officeScope })}
+        onClick=${() => onImport({ into: office.id })}>Añadir un área</button>
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.remove", { scope: officeScope })}
+        onClick=${() => setRemoving("office")}>Quitar</button>
+      <${Help} topic="offices.export" compact=${true} scope=${officeScope} />
+      <${Help} topic="offices.import_office" compact=${true} scope=${officeScope} />
+      <${Help} topic="offices.remove" compact=${true} scope=${officeScope} />
+    </div>
+    ${showIncludeCode && html`<label class="check-inline offices-include-code">
+      <input type="checkbox" checked=${includeCode} disabled=${busy} ...${helpFor("offices.include_code", { scope: officeScope })}
+        onChange=${(event) => setIncludeCode(event.target.checked)} />
+      Incluir código
+    </label>
+    <${Help} topic="offices.include_code" compact=${true} scope=${officeScope} />`}
+    ${removeConfirmation("office")}
+    ${message && html`<p class=${"message small" + (message.kind === "error" ? " error" : "")}
+      role=${message.kind === "error" ? "alert" : "status"}>${message.text}</p>`}
   </article>`;
 }
 
@@ -102,6 +188,8 @@ export function OfficesView({ token }) {
   const [scenes, setScenes] = useState({});
   const [offline, setOffline] = useState({});
   const [listError, setListError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [importTarget, setImportTarget] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -136,7 +224,7 @@ export function OfficesView({ token }) {
     }
     load();
     return () => { active = false; };
-  }, [token]);
+  }, [token, refreshKey]);
 
   useEffect(() => {
     const ids = sceneTargets(offices);
@@ -171,14 +259,27 @@ export function OfficesView({ token }) {
     };
   }, [offices, token]);
 
+  const startImport = (target = {}) => setImportTarget(target);
+  const finishImport = () => {
+    setImportTarget(null);
+    setRefreshKey((current) => current + 1);
+  };
   return html`<section class="offices-view" aria-label="Oficinas">
+    <div class="offices-actions offices-import-entry">
+      <button type="button" class="btn" ...${helpFor("offices.import_office")} onClick=${() => startImport()}>
+        Importar una oficina</button>
+      <${Help} topic="offices.import_office" compact=${true} />
+    </div>
+    ${importTarget !== null && html`<${ImportOffice} token=${token} into=${importTarget.into || null}
+      reimport=${importTarget.reimport || null} onDone=${finishImport} />`}
     ${listError && html`<p class="message error" role="alert">${listError}</p>`}
     ${offices === null && !listError && html`<p class="muted" role="status">Leyendo oficinas…</p>`}
     ${offices && offices.length === 0 && html`<p class="offices-empty" role="status">${EMPTY_TEXT}</p>`}
     ${offices && offices.length > 0 && html`<div class="offices-list">
       ${offices.map((office) => html`<${OfficeCard} key=${office.id} office=${office}
         detail=${details[office.id]} detailError=${detailErrors[office.id]}
-        scene=${scenes[office.id]} offline=${Boolean(offline[office.id])} />`)}
+        scene=${scenes[office.id]} offline=${Boolean(offline[office.id])} token=${token}
+        onImport=${startImport} onChanged=${() => setRefreshKey((current) => current + 1)} />`)}
     </div>`}
   </section>`;
 }

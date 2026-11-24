@@ -64,6 +64,14 @@ export function sceneTargets(offices) {
   return offices.map((office) => office?.id).filter((id) => typeof id === "string" && id.length > 0);
 }
 
+// The header says «Lista» only when the office itself is fine and no area of the scene is degraded (a team waiting
+// for its approval counts; OfficeServices.get only counts the packages).
+export function officeWorks(office, scene) {
+  if (office?.state && office.state !== "ok") return false;
+  const areas = Array.isArray(scene?.areas) ? scene.areas : [];
+  return !areas.some((area) => Array.isArray(area?.degraded) && area.degraded.length > 0);
+}
+
 export function officeRows(scene, requirements) {
   if (!scene) return [];
   const coverage = new Map((Array.isArray(requirements?.areas) ? requirements.areas : [])
