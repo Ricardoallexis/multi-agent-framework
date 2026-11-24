@@ -59,7 +59,15 @@ else:
 Runs are queued for the system worker. A Python host that needs runs to execute
 must start and stop `services.system.worker` as part of its own lifecycle. Bundle
 runtimes manage their own workers when `worker_enabled` is enabled; call
-`services.runs.close()` when shutting the facade down to stop those workers.
+`services.runs.close()` when shutting the facade down. It stops the worker of every
+package runtime and waits for its run threads (each bounded by
+`WORKER_SHUTDOWN_WAIT_SECONDS`), so nothing of the framework writes to the local
+folder afterwards and a temporary folder can be deleted. After `close()` the
+services build no new package runtime (a call that needs one fails with
+`invalid_state`, `details.reason` `services_closed`); the API calls `reopen()` when
+an app starts on services that were closed before. `close()` does not stop the
+system worker: its owner does (the API's lifespan, `multiagent worker`, or the host
+that called `services.system.worker.start()`).
 
 `ServiceError` provides a stable `code`, human-readable `message`, HTTP-like
 `status`, and JSON-ready `to_payload()` with `code`, `message`, and `details`.

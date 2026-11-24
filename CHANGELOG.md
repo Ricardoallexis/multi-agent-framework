@@ -132,6 +132,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Fixed
 
+- Closing the services (`services.runs.close()`) could return with a run thread still alive: the worker stop waited for a finishing run while that run's plan hook waited for the lock the close held. `close()` now stops the package workers without holding the lock and waits for their run threads, and the services build no package runtime after closing (`invalid_state`, `details.reason = "services_closed"`) until the API's lifespan reopens them.
 - GUI, from the sprint 5 manual test in Mock: the status «?» of «Sesión única» now sits beside its label «Estado de Gemini y Copilot», as in the orchestrator; the «Pasos» card of a completed run no longer repeats «Todos los pasos terminaron.» or contradicts it when a step was skipped; a history line without a step reads as a sentence («Se aprobó el resultado.», not «… del paso .»); and a new screen opens at its top instead of keeping the previous screen's scroll.
 
 ## [M1-B03-F01] - 2026-11-18

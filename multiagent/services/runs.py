@@ -112,6 +112,7 @@ class RunServices:
         self._services = services
         self._lock = threading.Lock()
         self._bundle_runtimes: dict[str, _Runtime] = {}
+        self._closed = False                      # CER-T01: after ``close`` no runtime of a package is built
         self._external_now = time.time
 
     @property
@@ -135,12 +136,17 @@ class RunServices:
         path = self._services.bundle_path(name)  # not_found for unknown bundles
         if not create and not self._bundle_settings(name).db_path.exists():
             return None
+        with self._lock:
+            if self._closed and name not in self._bundle_runtimes:   # CER-T01: before the scan and the functions load
+                return self._closed_runtime(create)
         self._services.bundle_scans.require_load(name)
         self._services.installed.load_functions(name)  # PAQ-T03: the functions of a trusted package, after the scan
         with self._lock:
             runtime = self._bundle_runtimes.get(name)
             if runtime is not None:
                 return runtime
+            if self._closed:
+                return self._closed_runtime(create)
             settings = self._bundle_settings(name)
             if not create and not settings.db_path.exists():
                 return None
@@ -179,6 +185,13 @@ class RunServices:
                 runtime.worker.start()
             self._bundle_runtimes[name] = runtime
             return runtime
+
+    @staticmethod
+    def _closed_runtime(create: bool) -> None:
+        """What a closed service answers when a package has no runtime: refuse a build, ``None`` for a read."""
+        if create:
+            raise ServiceError(INVALID_STATE, "The services are closed.", status=409, details={"reason": "services_closed"})
+        return None
 
     def release_bundle(self, name: str) -> None:
         """Drop the cached runtime of a bundle (PAQ-T01) and stop its worker, as ``close`` does.
@@ -225,11 +238,23 @@ class RunServices:
         return {**run, "bundle": runtime.bundle}
 
     def close(self) -> None:
-        """Stop the workers of bundle runtimes (the system worker belongs to its owner)."""
+        """Stop the workers of bundle runtimes and wait for their run threads; then refuse to build new ones.
+
+        The system worker belongs to its owner (the API's lifespan, the CLI or the host that started it). The lock is not
+        held while a worker stops: a run thread that is finishing reads the runtimes (the plan hook), and holding it
+        here made the stop wait for the thread and the thread wait for the lock. ``reopen`` lifts the refusal.
+        """
         with self._lock:
-            for runtime in self._bundle_runtimes.values():
-                if runtime.worker is not None:
-                    runtime.worker.stop()
+            self._closed = True
+            runtimes = list(self._bundle_runtimes.values())
+        for runtime in runtimes:
+            if runtime.worker is not None:
+                runtime.worker.stop()
+
+    def reopen(self) -> None:
+        """Allow runtimes of packages again, for services that outlive one API app."""
+        with self._lock:
+            self._closed = False
 
     def _record_decision(self, runtime: _Runtime, before: dict[str, Any], action: str,
                          *, by: str | None = None) -> None:

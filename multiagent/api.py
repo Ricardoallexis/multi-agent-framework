@@ -570,6 +570,7 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         background = getattr(getattr(services, "executors", None), "background", None)
         if background is not None:
             background.reopen()
+        services.runs.reopen()   # CER-T01: services that outlive one app build package runtimes again
         if system_obj.settings.worker_enabled:
             system_obj.worker.start()
         yield
