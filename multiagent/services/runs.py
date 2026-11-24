@@ -331,8 +331,15 @@ class RunServices:
         task_id = getattr(request, "task_id", None)
         if task_id is not None and self._services.tasks.store.get_task(task_id) is None:
             raise ServiceError(NOT_FOUND, f"Task not found: {task_id}", status=404, details={"task": task_id})
+        original_request = request
         request = self._apply_area_class(request, bundle)
         runtime = self._system_runtime if bundle is None else self._bundle_runtime(bundle)
+        if isinstance(request, RunRequest):
+            from .limits import require_cloud_confirmation, require_fixed_models_allowed
+            catalog = self._services.system.catalog if bundle is None else runtime.service.engine.catalog
+            require_cloud_confirmation(original_request, catalog)
+            workflow = runtime.service.engine.workflows.load(request.workflow_id)
+            require_fixed_models_allowed(request, workflow, catalog)
         # The approved team travels with the run (its runs live in the bundle's database, the versions in the
         # system's): the binding is stored in the same transaction as the run, before any worker can take it.
         team_binding = None

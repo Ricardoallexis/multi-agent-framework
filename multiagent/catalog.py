@@ -621,6 +621,12 @@ class Catalog:
         self.models: dict[str, ModelSpec] = {}
         for model_id, raw in raw_models.items():
             raw = dict(raw)
+            provider = str(raw.get("provider", "")).casefold()
+            tier = str(raw.get("tier", "")).casefold()
+            if provider in {"gemini", "openai"} and tier != "cloud":
+                raise CatalogError(
+                    f"Model {model_id!r}: provider {provider!r} requires tier 'cloud', got {tier!r}"
+                )
             if model_id in {"local_default", "local_reasoning"}:
                 raw["model"] = settings.ollama_model
                 raw["num_ctx"] = settings.ollama_num_ctx

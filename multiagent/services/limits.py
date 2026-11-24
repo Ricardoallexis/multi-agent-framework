@@ -77,3 +77,40 @@ def require_cloud_confirmation(request: Any, catalog: Any) -> None:
         raise ServiceError("cloud_confirmation_required", "Sensitive data cannot be sent to a cloud model.", status=422)
     if selected_cloud and not request.confirm_cloud:
         raise ServiceError("cloud_confirmation_required", "Confirm cloud use before creating this run.", status=422)
+
+
+def require_fixed_models_allowed(request: Any, workflow: Any, catalog: Any) -> None:
+    """Check fixed workflow model choices before they can bypass routing permissions."""
+    from ..contracts import ExecutionMode
+    from .errors import INVALID_DEFINITION, ServiceError
+
+    for step in workflow.steps:
+        if step.function is not None:
+            continue  # a function step keeps its own error for run options (function_step_option_invalid)
+        mode = request.step_modes.get(step.id, request.execution_mode)
+        if mode is ExecutionMode.CLOUD and step.id in request.step_modes and not request.confirm_cloud:
+            raise ServiceError(
+                "cloud_confirmation_required",
+                f"Confirm cloud use before step {step.id} runs in the cloud.",
+                status=422,
+                details={"step": step.id},
+            )
+        profile_id, _ = catalog.routing_profile_for(request.workflow_id, step.id)
+        if profile_id is not None or step.id in request.routing_preferences:
+            continue
+        if mode in (ExecutionMode.HUMAN_GUIDED, ExecutionMode.CLOUD):
+            continue
+
+        if mode is ExecutionMode.LOCAL or (mode is ExecutionMode.AUTO and request.sensitive):
+            model_id = "local_reasoning" if step.id == "strategy" else "local_default"
+            spec = catalog.models.get(model_id)
+            if spec is not None and str(spec.tier).casefold() != "local":
+                raise ServiceError(
+                    INVALID_DEFINITION,
+                    f"Step {step.id} requires local model {model_id!r}, but that model is not local.",
+                    status=422,
+                    details={"reason": "local_model_not_local", "step": step.id, "model": model_id},
+                )
+            continue
+        # ``auto`` without sensitive data keeps the workflow's own ``preferred_model`` and ``fallback_model`` as in 1.0
+        # (``social_post`` falls back to ``cloud_fast``): whether that needs the confirmation is the user's decision.

@@ -179,7 +179,13 @@ A limit (`QuotaExceeded` or `RateLimitExceeded`) is handled by the kind of entry
 - **No automatic wait.** A run that exhausts its fallbacks fails as before; waiting for the reset by itself is not part of the engine.
 - **Cloud needs a confirmation.** A generic run that chooses `--mode cloud` or a cloud model preference is refused with
   `422 cloud_confirmation_required` unless the request carries `confirm_cloud` (`--confirm-cloud` in the CLI). The confirmation grants only
-  `provider:cloud` for non-sensitive data; a run marked sensitive can never confirm it.
+  `provider:cloud` for non-sensitive data; a run marked sensitive can never confirm it. `RunServices.create` enforces this
+  for direct service callers as well, so entry points cannot bypass the check by skipping the API or GUI route.
+  A step set to `cloud` in `step_modes` needs the confirmation too. A step in `local`, or in `auto` with sensitive data,
+  uses the fixed `local_default` or `local_reasoning`: if the catalog does not mark that model local, the run is refused
+  (`invalid_definition`, `local_model_not_local`) whatever the confirmation. `auto` without sensitive data keeps the
+  workflow's own `preferred_model` and `fallback_model`, as before. The catalog rejects a `gemini` or `openai` model that
+  is not `tier: cloud`.
 - **Areas of an office.** A run of an area of an installed office takes the class of its area (`RunServices.create`; the engine and the
   router are unchanged). A `sensitive` or «Solo local» area stores the request with `sensitive: true`, so it never confirms the cloud,
   and the route preview of the GUI treats it as a `sensitive` run and offers no cloud model. «Solo local» (`restricted`) also refuses
