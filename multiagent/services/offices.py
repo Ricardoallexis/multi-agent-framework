@@ -27,6 +27,8 @@ import yaml
 from ..bundles import load_bundle
 from ..db.database import utcnow
 from ..external_output import canonical_json, sha256
+from ..offices.requirements import (executor_capabilities, mock_capabilities, model_capabilities,
+                                    office_requirements)
 from ..offices.schema import (OFFICE_ID_PATTERN, OFFICE_SCHEMA, OfficeDefinition, OfficeDefinitionError,
                               area_bundle_name, load_office)
 from ..teams.digest import team_sha256
@@ -725,3 +727,42 @@ class OfficeServices:
             return {"office": self._public(new, installed._read()), "removed": True, "kept_data": True,
                     "area": area_id, "warnings": [*definition.warnings, *warnings], "removed_by": actor,
                     "channel": channel}
+
+    # --- requirements by capability (OFI-T06) ---------------------------------
+
+    def requirements_candidates(self) -> list[dict[str, Any]]:
+        """Who could cover an area: catalog models of a connected provider, active executors and, in Mock, ``mock``.
+
+        It reads the saved connection state and the local activation file; it calls no model and no provider. ``local``
+        is explicit: ``True`` for ``mock`` and for a model of ``tier: local``, ``False`` for executors and cloud models.
+        """
+        services = self._services
+        rows = services.connections.list()["connections"]
+        ready = {row["id"] for row in rows if row.get("kind") == "model" and row.get("available")}
+        found: list[dict[str, Any]] = []
+        for spec in services.system.catalog.models.values():
+            if spec.provider in ready:
+                found.append({"id": spec.id, "kind": "model", "label": spec.id, "capabilities": model_capabilities(spec),
+                              "local": str(spec.tier).casefold() == "local"})
+        for executor_id in services.executor_activations.active_ids():
+            found.append({"id": executor_id, "kind": "executor", "label": executor_id,
+                          "capabilities": executor_capabilities(), "local": False})
+        if getattr(services.settings, "mock_mode", False):
+            found.append({"id": "mock", "kind": "mock", "label": "Mock (ejemplo)", "capabilities": mock_capabilities(),
+                          "local": True})
+        return found
+
+    def requirements_for(self, definition: OfficeDefinition) -> dict[str, Any]:
+        """``{office, areas}`` for an office still being prepared (the card of OFI-T04); ``requires`` only informs."""
+        return office_requirements(definition, self.requirements_candidates())
+
+    @service_errors
+    def requirements(self, office_id: str) -> dict[str, Any]:
+        """What covers each area of an installed office, or what is missing. ``office_not_installed`` if it is not there."""
+        office_id = self._check_id(office_id, "office_id")
+        with self._lock:
+            entry = self._read().get(office_id)
+            if entry is None:
+                raise self._not_installed(office_id)
+            definition = _office_of_record(entry["definition"])
+        return self.requirements_for(definition)

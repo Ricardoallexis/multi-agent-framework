@@ -134,3 +134,35 @@ multiagent office remove OFFICE [--area AREA]
 **Start.** The areas load as installed packages. `offices.json` is only read; an office is `degraded` when an area is missing or its package is not `ok`. Without offices there is no `offices.json` and nothing new is read.
 
 Events (team events, ref = the office id): `office.installed`, `office.removed` and `office.reimported` (also for one area added or removed).
+
+## Requirements
+
+Each area declares in `requires` what it needs, as namespaced capability ids, never a provider. The app crosses that with what the person has connected and answers one of two things: «Lo puedes cubrir con A o con B», or «Te falta un agente que pueda X» with a «Conectar otro» action. `requires` only informs in the MVP: the router does not read it.
+
+The catalog is not edited. New capabilities are derived from the table below (the builder fixes it, design §13).
+
+| Source | Gives |
+| --- | --- |
+| catalog `text_generation` | `model.text` |
+| catalog `structured_output: true` | `model.structured` |
+| catalog `tier: local` | `model.local` |
+| a namespaced id the model already declares in `capabilities` | the same id (this is how `model.tools` enters) |
+| an active executor | `model.text`, `executor.code`, `executor.files` |
+| the Mock backend | every `model.*` (so it counts as local), never `executor.*` |
+
+Texts (simple mode, none names a provider):
+
+| Id | Text |
+| --- | --- |
+| `model.text` | escribir texto |
+| `model.tools` | usar herramientas |
+| `model.structured` | dar respuestas con estructura |
+| `model.local` | correr en tu equipo |
+| `executor.code` | trabajar con código |
+| `executor.files` | trabajar con archivos |
+
+Candidates are saved connections' catalog models, active executors and, in Mock, `mock` («Mock (ejemplo)»). A candidate covers an area when it has every requirement. If none does, `missing` lists what the closest candidate (most requirements; ties by id) lacks, and `action` is `"connect"`. An id outside the list is shown as written («Te falta un agente que pueda model.vision»).
+
+An area that is «Sensible» (`sensitivity: sensitive`) or «Solo local» (`local_only`, on the area or the office) counts only local candidates, and carries the note «Esta área es Sensible: hoy solo puede usar agentes de tu equipo» or «Esta área es Solo local: nunca sale de tu equipo» («Solo local» wins when both apply).
+
+Code: `multiagent/offices/requirements.py` (pure: `coverage`, `office_requirements`, `model_capabilities`, `executor_capabilities`); `services.offices.requirements` gathers the candidates.

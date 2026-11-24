@@ -731,6 +731,11 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
                                                into=body.into)
         return services.offices.import_folder(folder, actor=body.actor, channel="api", into=body.into)
 
+    # OFI-T06: what covers each area of an office; it reads saved state only and calls no provider.
+    @app.get("/api/v1/offices/{office_id}/requirements")
+    def office_requirements(office_id: str):
+        return services.offices.requirements(office_id)
+
     @app.post("/api/v1/offices/{office_id}/reimport")
     def reimport_office(office_id: str, body: OfficeReimportRequest):
         folder, data = _office_source(body.folder, body.zip_base64)
