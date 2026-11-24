@@ -58,6 +58,7 @@ packages = [
   "multiagent.executors",
   "multiagent.tasks",
   "multiagent.teams",
+  "multiagent.offices",
   "multiagent.tools",
   "multiagent.sessions",
   "multiagent.gui",
