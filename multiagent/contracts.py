@@ -350,6 +350,24 @@ class MetricSnapshotInput(StrictModel):
     raw_payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class FreeTextAnswer(StrictModel):
+    """The neutral contract of a single answer: one non-empty text."""
+
+    answer: str = Field(min_length=1)
+
+
+class DocumentSummary(StrictModel):
+    """The neutral contract of a document summary."""
+
+    title: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    key_points: list[str] = Field(min_length=1)
+    open_questions: list[str]
+
+
+NEUTRAL_CONTRACTS = ("FreeTextAnswer", "DocumentSummary")
+
+
 OUTPUT_SCHEMAS: dict[str, type[StrictModel]] = {
     "ResearchOutput": ResearchOutput,
     "StrategyOutput": StrategyOutput,
@@ -359,6 +377,8 @@ OUTPUT_SCHEMAS: dict[str, type[StrictModel]] = {
     "VisualTechnicalPromptOutput": VisualTechnicalPromptOutput,
     "VisualBothOutput": VisualBothOutput,
     "BrandProfilePayload": BrandProfilePayload,
+    "FreeTextAnswer": FreeTextAnswer,
+    "DocumentSummary": DocumentSummary,
 }
 
 

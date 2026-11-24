@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from multiagent.contracts import StrictModel
+from multiagent.contracts import DocumentSummary, FreeTextAnswer, StrictModel
 
 
 # -- summarize_document -------------------------------------------------------------------------
@@ -22,13 +22,6 @@ class KeyPoint(StrictModel):
 
 class KeyPoints(StrictModel):
     key_points: list[KeyPoint] = Field(min_length=1)
-    open_questions: list[str]
-
-
-class DocumentSummary(StrictModel):
-    title: str = Field(min_length=1)
-    summary: str = Field(min_length=1)
-    key_points: list[str] = Field(min_length=1)
     open_questions: list[str]
 
 
@@ -89,10 +82,7 @@ class CollectedOutputs(StrictModel):
 
 
 # -- ask_once -----------------------------------------------------------------------------------
-class FreeTextAnswer(StrictModel):
-    answer: str = Field(min_length=1)
-
-
+# FreeTextAnswer and DocumentSummary live in the core (multiagent.contracts); they are re-exported here.
 OUTPUT_SCHEMAS = {
     "KeyPoints": KeyPoints,
     "DocumentSummary": DocumentSummary,

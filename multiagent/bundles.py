@@ -8,16 +8,20 @@ Layout (every part except ``workflows/`` is optional and falls back to the bundl
         prompts/<role>/<name>.v<N>.md
         skills/<skill>.md
         contracts.py      OUTPUT_SCHEMAS = {name: pydantic model}; optional SAMPLE_OUTPUTS = {name: dict}
+        contracts.yaml    contracts as data (``maf.contracts/1``, see docs/OFFICES.md); optional ``samples:``
         team.yaml         optional team definition (S6.A1)
 
-Bundle contracts are added to the bundled ``OUTPUT_SCHEMAS``; they may not redefine one.
+Bundle contracts are added to the bundled ``OUTPUT_SCHEMAS``; they may not redefine one. Re-exporting one of the
+two neutral core contracts (``NEUTRAL_CONTRACTS``) as the same class is an alias, not a clash. ``contracts.py`` and ``contracts.yaml`` may
+both be present, but a name may appear in only one of them.
+A ``catalog/`` folder with only one of ``agents.yaml`` and ``models.yaml`` reads the other from the app catalog.
 Function steps may name only functions already registered by the core or trusted host; unknown ids fail workflow validation.
-``contracts.py`` is imported, which runs its code: load only bundles you trust, such as the
+``contracts.py`` is imported, which runs its code (``contracts.yaml`` never runs anything): load only bundles you trust, such as the
 repository fixtures or your own private definitions.
 
 Besides the workflow issue codes, ``load_bundle`` raises ``WorkflowDefinitionError`` with
 ``bundle_invalid`` (no ``workflows/``), ``bundle_contracts_invalid`` (``contracts.py`` fails to
-import or has a malformed ``OUTPUT_SCHEMAS``/``SAMPLE_OUTPUTS``), ``contract_conflict`` (a bundle
+import, ``contracts.yaml`` is not valid, or ``contracts.py`` has a malformed ``OUTPUT_SCHEMAS``/``SAMPLE_OUTPUTS``), ``contract_conflict`` (a bundle
 contract reuses a bundled name) and ``sample_output_invalid``.
 """
 from __future__ import annotations
@@ -34,7 +38,8 @@ from pydantic import BaseModel, ValidationError
 
 from .catalog import Catalog
 from .config import Settings
-from .contracts import OUTPUT_SCHEMAS
+from .contracts import NEUTRAL_CONTRACTS, OUTPUT_SCHEMAS
+from .contracts_data import ContractsFileError, load_contracts_file
 from .prompts import PromptManager
 from .teams import Team, TeamDefinitionError, load_team
 from .workflow_validation import WorkflowDefinitionError, WorkflowIssue, validate_workflow_definition
@@ -109,12 +114,55 @@ def _team_issue_location(location: str) -> str:
 
 
 def _load_contracts(root: Path, name: str) -> tuple[dict[str, type[BaseModel]], dict[str, dict[str, Any]]]:
-    path = root / "contracts.py"
-    if not path.is_file():
-        return {}, {}
+    py_path, yaml_path = root / "contracts.py", root / "contracts.yaml"
+    contracts: dict[str, type[BaseModel]] = {}
+    samples: dict[str, dict[str, Any]] = {}
+    origin: dict[str, str] = {}
+    if py_path.is_file():
+        contracts, samples = _load_contracts_py(py_path, name)
+        origin = {key: "contracts.py" for key in samples}
+    if yaml_path.is_file():
+        try:
+            data_contracts, data_samples = load_contracts_file(yaml_path)
+        except ContractsFileError as exc:
+            raise WorkflowDefinitionError(name, [WorkflowIssue(exc.code, exc.location, exc.message)]) from exc
+        twice = sorted(set(contracts) & set(data_contracts))
+        if twice:
+            _fail(name, "contract_conflict", "contracts.yaml",
+                  f"contracts.py and contracts.yaml both define: {', '.join(twice)}")
+        clashes = sorted(set(data_contracts) & set(OUTPUT_SCHEMAS))
+        if clashes:
+            _fail(name, "contract_conflict", "contracts.yaml",
+                  f"Bundle contracts may not redefine bundled ones: {', '.join(clashes)}")
+        twice = sorted(set(samples) & set(data_samples))
+        if twice:
+            _fail(name, "sample_output_invalid", "contracts.yaml",
+                  f"Samples for {', '.join(twice)} are declared in contracts.py and in contracts.yaml")
+        contracts = {**contracts, **data_contracts}
+        samples = {**samples, **data_samples}
+        origin.update({key: "contracts.yaml" for key in data_samples})
+    # A sample may name a contract of this bundle or one of the two neutral core contracts.
+    known = {**{key: OUTPUT_SCHEMAS[key] for key in NEUTRAL_CONTRACTS}, **contracts}
+    for contract, sample in samples.items():
+        where = origin[contract]
+        if contract not in known:
+            _fail(name, "sample_output_invalid", where,
+                  f"Samples name {contract!r}, which is not a contract of this bundle")
+        try:
+            known[contract].model_validate(sample)
+        except ValidationError as exc:
+            _fail(name, "sample_output_invalid", where,
+                  f"Sample for {contract!r} does not satisfy the contract: {exc.error_count()} error(s)")
+    return contracts, samples
 
+
+def _fail(name: str, code: str, location: str, message: str):
+    raise WorkflowDefinitionError(name, [WorkflowIssue(code, location, message)])
+
+
+def _load_contracts_py(path: Path, name: str) -> tuple[dict[str, type[BaseModel]], dict[str, dict[str, Any]]]:
     def fail(code: str, message: str):
-        raise WorkflowDefinitionError(name, [WorkflowIssue(code, "contracts.py", message)])
+        _fail(name, code, "contracts.py", message)
 
     module_name = f"_multiagent_bundle_{uuid.uuid4().hex}"
     spec = importlib.util.spec_from_file_location(module_name, path)
@@ -135,18 +183,16 @@ def _load_contracts(root: Path, name: str) -> tuple[dict[str, type[BaseModel]], 
         for key, value in contracts.items()
     ):
         fail("bundle_contracts_invalid", "OUTPUT_SCHEMAS must be a dict of contract name -> pydantic model class")
-    clashes = sorted(set(contracts) & set(OUTPUT_SCHEMAS))
+    # L15: a neutral core contract re-exported as itself (the same class) is an alias, not a clash.
+    # Any other bundled name, even as the same class, stays a clash.
+    clashes = sorted(
+        key for key in set(contracts) & set(OUTPUT_SCHEMAS)
+        if key not in NEUTRAL_CONTRACTS or contracts[key] is not OUTPUT_SCHEMAS[key]
+    )
     if clashes:
         fail("contract_conflict", f"Bundle contracts may not redefine bundled ones: {', '.join(clashes)}")
 
     samples = getattr(module, "SAMPLE_OUTPUTS", {})
     if not isinstance(samples, dict):
         fail("bundle_contracts_invalid", "SAMPLE_OUTPUTS must be a dict of contract name -> sample output")
-    for contract, sample in samples.items():
-        if contract not in contracts:
-            fail("sample_output_invalid", f"SAMPLE_OUTPUTS names {contract!r}, which is not a contract of this bundle")
-        try:
-            contracts[contract].model_validate(sample)
-        except ValidationError as exc:
-            fail("sample_output_invalid", f"Sample for {contract!r} does not satisfy the contract: {exc.error_count()} error(s)")
     return dict(contracts), dict(samples)

@@ -159,3 +159,35 @@ def test_the_package_holds_nothing_from_the_spec_review_domain():
     for source in PACKAGE.rglob("*.py"):
         text = source.read_text(encoding="utf-8")
         assert not [name for name in names if name in text], source
+
+
+def test_neutral_contracts_live_in_the_core(settings):
+    from multiagent.contracts import NEUTRAL_CONTRACTS
+
+    assert NEUTRAL_CONTRACTS == ("FreeTextAnswer", "DocumentSummary")
+    assert "FreeTextAnswer" in OUTPUT_SCHEMAS and "DocumentSummary" in OUTPUT_SCHEMAS
+    bundle = load_bundle(GENERAL, settings)
+    assert bundle.output_schemas["FreeTextAnswer"] is OUTPUT_SCHEMAS["FreeTextAnswer"]
+    assert bundle.output_schemas["DocumentSummary"] is OUTPUT_SCHEMAS["DocumentSummary"]
+    assert "FreeTextAnswer" in bundle.sample_outputs
+    from examples.bundles.general import contracts as example
+
+    assert example.FreeTextAnswer is OUTPUT_SCHEMAS["FreeTextAnswer"]
+    assert example.DocumentSummary is OUTPUT_SCHEMAS["DocumentSummary"]
+
+
+def test_catalog_falls_back_per_file(settings, bundle_copy):
+    own = yaml.safe_load((SPEC_REVIEW / "catalog" / "models.yaml").read_text(encoding="utf-8"))
+    # Both files present: the bundle's own models.yaml is the one read.
+    assert set(load_bundle(SPEC_REVIEW, settings).catalog.models) == set(own["models"])
+    # No models.yaml: the models come from the app catalog, the agents stay the bundle's.
+    (bundle_copy / "catalog" / "models.yaml").unlink()
+    bundle = load_bundle(bundle_copy, settings)
+    assert set(bundle.catalog.agents) == {"requirements_analyst", "risk_reviewer", "test_planner"}
+    assert "local_default" in bundle.catalog.models
+    assert set(bundle.catalog.models) == set(Catalog(settings).models)
+    # No agents.yaml: the agents come from the app catalog.
+    (bundle_copy / "catalog" / "models.yaml").write_text(
+        (SPEC_REVIEW / "catalog" / "models.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    (bundle_copy / "catalog" / "agents.yaml").unlink()
+    assert set(load_bundle(bundle_copy, settings).catalog.agents) == set(Catalog(settings).agents)

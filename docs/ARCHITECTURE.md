@@ -94,7 +94,7 @@ Contain versioned prompts and reusable instruction fragments assembled by the ru
 
 ### `multiagent/contracts.py`
 
-Defines the Pydantic input and output contracts exchanged between workflow steps.
+Defines the Pydantic input and output contracts exchanged between workflow steps, including the two neutral ones any office can use (`FreeTextAnswer`, `DocumentSummary`). A bundle can declare its own as data in `contracts.yaml` (`multiagent/contracts_data.py`).
 
 ### `multiagent/db/`
 

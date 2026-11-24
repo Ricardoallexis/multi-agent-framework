@@ -57,3 +57,49 @@ Warnings are recorded on `OfficeDefinition.warnings`:
 | Code | Meaning |
 | --- | --- |
 | `office_relation_unknown_area` | A relation `from` or `to` field references an area ID not declared in `areas`. |
+
+## Contracts as data
+
+A bundle can declare its output contracts in `contracts.yaml`, next to (or instead of) `contracts.py`. The file is read with `yaml.safe_load` and the models are built with `pydantic.create_model`: nothing in it is executed or imported. A bundle with `contracts.yaml` and no `.py` file is a `data` package.
+
+Two neutral contracts live in the core, so a simple office needs to declare nothing: `FreeTextAnswer` (`answer`) and `DocumentSummary` (`title`, `summary`, `key_points`, `open_questions`).
+
+```yaml
+schema: maf.contracts/1
+contracts:
+  Notice:
+    description: A short notice for the team.
+    fields:
+      title:   {type: string, max_length: 120}
+      body:    {type: string, document: true}
+      urgency: {type: enum, values: [low, normal, high], required: false}
+      links:
+        type: list
+        max_items: 5
+        required: false
+        items: {type: string}
+samples:
+  Notice: {title: "Office closed", body: "We reopen on Monday."}
+```
+
+Each contract has an optional `description` and its `fields`. A field is required unless it sets `required: false`. A required `string` needs at least one character.
+
+| `type` | Accepts | Extra keys |
+| --- | --- | --- |
+| `string` | text | `max_length` |
+| `integer` | a whole number (not `true`/`false`) | none |
+| `number` | a number (not `true`/`false`) | none |
+| `boolean` | `true` or `false` | none |
+| `enum` | one of the listed texts | `values` (required, distinct, non-empty texts) |
+| `list` | a list of one kind of item | `items` (required, another field), `min_items`, `max_items` |
+| `object` | a nested set of fields | `fields` (required) |
+
+All types also take `description`. `document: true` marks the one top-level `string` field that holds the document text (at most one per contract).
+
+Limits: contract names match `^[A-Z][A-Za-z0-9]{0,63}$`, field names match `^[a-z][a-z0-9_]{0,63}$` (and cannot start with `model_`), and fields nest at most 6 levels. Unknown keys and types are rejected.
+
+`samples:` holds at most one sample per contract, checked against it. A sample may name the bundle's own contracts or the two neutral ones.
+
+A name can appear in only one of `contracts.py` and `contracts.yaml`, and `contracts.yaml` cannot redefine a core contract (`contract_conflict`). In `contracts.py`, re-exporting `FreeTextAnswer` or `DocumentSummary` as the same class is an alias, not a clash. A bad file fails with `bundle_contracts_invalid` and a location such as `contracts.yaml:Notice.title`.
+
+A `catalog/` folder may hold only one of `agents.yaml` and `models.yaml`: the missing file is read from the app catalog.

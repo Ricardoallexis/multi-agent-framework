@@ -598,9 +598,10 @@ class Catalog:
     def __init__(self, settings: Settings, *, catalog_dir: Path | None = None):
         self.settings = settings
         self.catalog_dir = Path(catalog_dir) if catalog_dir is not None else settings.catalog_dir
-        self.agents = self._load_yaml(self.catalog_dir / "agents.yaml").get("agents", {})
+        # Decision 23: each file falls back on its own to the app catalog when the folder lacks it.
+        self.agents = self._load_yaml(self._catalog_file("agents.yaml")).get("agents", {})
         self._check_agent_capabilities(self.agents)
-        models_document = self._load_yaml(self.catalog_dir / "models.yaml")
+        models_document = self._load_yaml(self._catalog_file("models.yaml"))
         raw_models = models_document.get("models", {})
         routing = models_document.get("routing_profiles", {}) or {}
         self.routing_profiles = {
@@ -745,6 +746,10 @@ class Catalog:
                 "those legacy values are not price evidence and the router ignores them. "
                 "Declare 'pricing' with a source and a validity window.", spec.id,
             )
+
+    def _catalog_file(self, name: str) -> Path:
+        own = self.catalog_dir / name
+        return own if own.is_file() else self.settings.catalog_dir / name
 
     @staticmethod
     def _load_yaml(path: Path) -> dict[str, Any]:
