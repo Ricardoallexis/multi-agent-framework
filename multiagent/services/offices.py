@@ -27,6 +27,7 @@ import yaml
 from ..bundles import load_bundle
 from ..db.database import utcnow
 from ..external_output import canonical_json, sha256
+from ..offices.export import build_export, check_manifest
 from ..offices.requirements import (executor_capabilities, mock_capabilities, model_capabilities,
                                     office_requirements)
 from ..offices.schema import (OFFICE_ID_PATTERN, OFFICE_SCHEMA, OfficeDefinition, OfficeDefinitionError,
@@ -34,8 +35,8 @@ from ..offices.schema import (OFFICE_ID_PATTERN, OFFICE_SCHEMA, OfficeDefinition
 from ..teams.digest import team_sha256
 from .bundle_scans import BundleScanServices
 from .errors import INVALID_DEFINITION, INVALID_REQUEST, INVALID_STATE, ServiceError, service_errors, translate
-from .installed import (CODE_FREE_SUFFIXES, SOURCE_OFFICE, STATE_MISSING, STATE_OK, ZIP_EXTRACT_MAX_BYTES, ZIP_MAX_FILES,
-                        _conflict, _invalid, extract_zip_safely)
+from .installed import (CODE_FREE_SUFFIXES, SOURCE_OFFICE, STATE_MISSING, STATE_OK, ZIP_EXTRACT_MAX_BYTES,
+                        ZIP_MAX_FILES, ZIP_UPLOAD_MAX_BYTES, _conflict, _invalid, extract_zip_safely)
 
 if TYPE_CHECKING:
     from . import ApplicationServices
@@ -314,6 +315,7 @@ class OfficeServices:
                         raise _invalid("The .zip must be bytes", field="zip")
                     staging.parent.mkdir(parents=True, exist_ok=True)
                     root = extract_zip_safely(bytes(data), staging, max_bytes=OFFICE_MAX_BYTES, max_files=OFFICE_MAX_FILES)
+                    check_manifest(root)
                     self._check_limits(root)
                 else:
                     source = Path(folder).expanduser() if isinstance(folder, (str, Path)) else None
@@ -1035,3 +1037,94 @@ class OfficeServices:
         if held_office and not record.get("local_only"):
             privacy["office"] = {"local_only": True, **who}
         return privacy or None
+
+    # --- allow-listed export (OFI-T05) -----------------------------------------
+
+    @service_errors
+    def export(self, office_id: str, *, area: str | None = None, include_code: bool = False) -> dict[str, Any]:
+        """Export the installed copies of an office, or one of its areas, as a checked .zip."""
+        office_id = self._check_id(office_id, "office_id")
+        area = self._check_id(area, "area") if area is not None else None
+        if not isinstance(include_code, bool):
+            raise _invalid("include_code must be a boolean", field="include_code")
+        with self._lock:
+            entry = self._read().get(office_id)
+            if entry is None:
+                raise self._not_installed(office_id)
+            version = entry.get("version")
+            if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+                raise ServiceError(INVALID_REQUEST, "The installed office copy is unavailable", status=409,
+                                   details={"reason": "office_copy_missing", "office": office_id})
+            office_copy = self._root / _OFFICES_DIR / office_id / f"v{version}" / "office.yaml"
+            try:
+                if office_copy.is_symlink() or not office_copy.resolve().is_relative_to(self._root.resolve()):
+                    raise ServiceError(INVALID_REQUEST, "The installed office copy is unavailable", status=409,
+                                       details={"reason": "office_copy_missing", "office": office_id})
+                raw = yaml.safe_load(office_copy.read_bytes())
+                definition = OfficeDefinition.model_validate(raw)
+            except (OSError, RuntimeError):
+                raise ServiceError(INVALID_REQUEST, "The installed office copy is unavailable", status=409,
+                                   details={"reason": "office_copy_missing", "office": office_id}) from None
+            except (yaml.YAMLError, ValueError):
+                raise ServiceError(INVALID_REQUEST, "The installed office definition cannot be exported", status=409,
+                                   details={"reason": "office_copy_invalid", "office": office_id}) from None
+            if definition.id != office_id:
+                raise ServiceError(INVALID_REQUEST, "The installed office definition cannot be exported", status=409,
+                                   details={"reason": "office_copy_invalid", "office": office_id})
+            if area is not None and not any(item.id == area for item in definition.areas):
+                raise ServiceError(INVALID_REQUEST, f"Area not found: {area}", status=422,
+                                   details={"reason": "office_area_not_found", "area": area})
+
+            registered = self._services.installed._read()
+            selected = [item for item in definition.areas if area is None or item.id == area]
+            files: dict[str, bytes] = {}
+            installed_root = self._services.installed._root.resolve()
+            for item in selected:
+                bundle = area_bundle_name(office_id, item.id)
+                package = registered.get(bundle)
+                if (package is None or package.get("source") != SOURCE_OFFICE or package.get("office") != office_id
+                        or self.office_of(bundle) != (office_id, item.id)):
+                    raise ServiceError(INVALID_REQUEST, f"The installed area {item.id} is unavailable", status=409,
+                                       details={"reason": "office_area_missing", "area": item.id})
+                folder = self._services.installed._folder_of(package)
+                if not folder.is_relative_to(installed_root) or not folder.is_dir():
+                    raise ServiceError(INVALID_REQUEST, f"The installed area {item.id} is unavailable", status=409,
+                                       details={"reason": "office_area_missing", "area": item.id})
+
+                def walk_error(error: OSError) -> None:
+                    raise error
+
+                try:
+                    for current, directories, names in os.walk(folder, followlinks=False, onerror=walk_error):
+                        here = Path(current)
+                        directories[:] = [name for name in directories if name != "__pycache__"]
+                        for name in directories:
+                            directory = here / name
+                            try:
+                                unsafe = directory.is_symlink() or not directory.resolve().is_relative_to(folder)
+                            except (OSError, RuntimeError):
+                                unsafe = True
+                            if unsafe:
+                                raise ServiceError(INVALID_REQUEST, "The installed area contains an unsafe path",
+                                                   status=409, details={"reason": "office_area_unsafe", "area": item.id})
+                        for name in names:
+                            path = here / name
+                            try:
+                                unsafe = path.is_symlink() or not path.resolve().is_relative_to(folder)
+                            except (OSError, RuntimeError):
+                                unsafe = True
+                            if unsafe:
+                                raise ServiceError(INVALID_REQUEST, "The installed area contains an unsafe path",
+                                                   status=409, details={"reason": "office_area_unsafe", "area": item.id})
+                            relative = path.relative_to(folder).as_posix()
+                            files[f"{item.path.rstrip('/')}/{relative}"] = path.read_bytes()
+                except OSError:
+                    raise ServiceError(INVALID_REQUEST, f"The installed area {item.id} cannot be read", status=409,
+                                       details={"reason": "office_area_unavailable", "area": item.id}) from None
+
+            archive, manifest = build_export(files, definition, include_code=include_code, area=area)
+            if len(archive) > ZIP_UPLOAD_MAX_BYTES:
+                raise _too_large(f"The office export is larger than {ZIP_UPLOAD_MAX_BYTES} bytes",
+                                 field="zip", limit=ZIP_UPLOAD_MAX_BYTES)
+        filename = f"{office_id}{'-' + area if area is not None else ''}.zip"
+        return {"filename": filename, "data": archive, "manifest": manifest, "warnings": manifest["warnings"]}

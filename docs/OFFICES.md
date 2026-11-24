@@ -204,6 +204,18 @@ multiagent office privacy OFFICE [--area AREA] [--sensitive] [--local-only] [--a
 
 **Executors.** A launch of an executor (`ExecutorLaunchRequest`) does not name a package, so there is no path from an area to cover. The `restricted` class of an executor launch (`executors/privacy.py`) is still set by its caller, not by an office.
 
+## Export and import
+
+`multiagent office export ID [--area AREA] [--include-code] [--output FILE.zip]` exports an installed office or one area from its installed copies. Without `--output`, the CLI writes `ID.zip` or `ID-AREA.zip` in the current directory and refuses to overwrite an existing file. The API endpoint is `POST /api/v1/offices/{id}/export`; it accepts `{area?, include_code?}` and returns the archive as `zip_base64`.
+
+The archive contains a rewritten `office.yaml`, the selected files from each area, and a `manifest.json` using schema `maf.office-export/1`. The manifest records each file's SHA-256 and size, the team digest for every exported area, and any portability warnings. Each exported area uses `path: areas/<area-id>` in `office.yaml`.
+
+By default, an area contributes `workflows/*.yaml`, `prompts/**`, `catalog/agents.yaml`, `team.yaml`, `contracts.yaml`, `README.md`, and `samples/**`. Every included file must use a suffix from `CODE_FREE_SUFFIXES`. Other files are left out and reported in `warnings`. `--include-code` additionally includes only the area's root `contracts.py` and `functions.py`; it does not include other Python files. Text files in the archive are screened by the secret gate. If a secret is found, the export fails with `422 export_secret_found`; the response identifies only the path, line, and secret type.
+
+The export never includes databases, runs, `data_dir`, `.env`, `.local`, logs, input resources, `executor_runs`, or `catalog/models.yaml`. A workflow step that selects a model defined in the area's omitted `catalog/models.yaml` produces an `export_model_not_portable` warning identifying the workflow and step; the archive is still created.
+
+An exported office can be imported with `multiagent office import FILE.zip` or `POST /api/v1/offices` using `zip_base64`. An area-only archive has one area and can be added to another installed office with `--into ID` or the API's `into` field. When an archive contains `manifest.json`, import requires its schema, file list, sizes, and hashes to match the extracted files exactly. A mismatch fails with `422 office_manifest_mismatch` and the affected path. Archives without a manifest remain supported for hand-authored imports. Safe extraction rejects unsafe paths and symbolic links before import.
+
 ## Templates
 
 Two level-1 (data-only) office templates live in `examples/offices/` with synthetic Spanish data, `preferred_model: local_default`, `checkpoint_after: true`, and teams whose `revision` role assigns a `Responsable` person to review outputs from `redaccion`:
@@ -227,4 +239,3 @@ multiagent office import examples/offices/escuela
 ```
 
 The `examples/` directory is only present in a repository checkout; it is not included in the built wheel (`pyproject.toml`).
-

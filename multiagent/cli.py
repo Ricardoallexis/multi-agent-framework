@@ -320,6 +320,18 @@ def cmd_office(args) -> None:
         if args.into:
             body["into"] = args.into
         pretty(_api_json("POST", "/api/v1/offices", json_body=body))
+    elif action == "export":
+        import base64
+
+        result = _api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/export",
+                           json_body={"area": args.area, "include_code": args.include_code})
+        target = Path(args.output or result["filename"]).expanduser()
+        try:
+            with target.open("xb") as stream:
+                stream.write(base64.b64decode(result["zip_base64"], validate=True))
+        except FileExistsError as exc:
+            raise RuntimeError(f"Output file already exists: {target}") from exc
+        pretty({"filename": str(target), "manifest": result["manifest"], "warnings": result["warnings"]})
     elif action == "reimport":
         pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/reimport",
                          json_body={**_office_source(args.path), "actor": args.actor}))
@@ -1524,7 +1536,7 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("name"); x.add_argument("folder"); x.add_argument("--actor", default="user:local")
     x.set_defaults(func=cmd_bundle)
     # Offices of level 1 (OFI-T03): data only, installed from a folder or a .zip on the server.
-    office = sub.add_parser("office", help="Import, list, show, reimport or remove offices on the server").add_subparsers(
+    office = sub.add_parser("office", help="Export, import, list, show, reimport or remove offices on the server").add_subparsers(
         dest="office_command", required=True)
     x = office.add_parser("import", help="Install an office from a folder or a .zip; its teams are only proposed")
     x.add_argument("path"); x.add_argument("--into", default=None, help="Add the single area of PATH to this installed office")
@@ -1544,6 +1556,10 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--local-only", dest="local_only", action="store_true",
                    help="Make the area, or without --area the whole office, local only")
     x.add_argument("--actor", default="user:local"); x.set_defaults(func=cmd_office)
+    x = office.add_parser("export", help="Export an installed office or area as an allow-listed .zip")
+    x.add_argument("office_id"); x.add_argument("--area", default=None); x.add_argument("--include-code", action="store_true")
+    x.add_argument("--output", default=None, help="Write to this path instead of the default .zip filename")
+    x.set_defaults(func=cmd_office)
     x = sub.add_parser("bundle-validate", help="Validate a bundle registered on the server")
     x.add_argument("name"); x.set_defaults(func=cmd_bundle_validate)
     x = sub.add_parser("bundle-scan", help="Show the scan status of a registered bundle")

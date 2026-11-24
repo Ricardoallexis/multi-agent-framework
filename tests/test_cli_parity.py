@@ -230,18 +230,21 @@ def test_bundle_group_has_its_four_commands():
     assert parser.parse_args(["bundle-validate", "demo"]).func is cli.cmd_bundle_validate
 
 
-def test_office_group_has_its_five_commands():
+def test_office_group_has_its_six_commands():
     parser = cli.build_parser()
     for argv, command in ((["office", "import", "folder"], "import"), (["office", "list"], "list"),
                           (["office", "show", "demo"], "show"), (["office", "remove", "demo"], "remove"),
-                          (["office", "reimport", "demo", "folder"], "reimport")):
+                          (["office", "reimport", "demo", "folder"], "reimport"),
+                          (["office", "export", "demo"], "export")):
         args = parser.parse_args(argv)
         assert args.func is cli.cmd_office and args.office_command == command
-        if command not in ("list", "show"):
+        if command in ("import", "remove", "reimport"):
             assert args.actor == "user:local"
     assert parser.parse_args(["office", "import", "folder", "--into", "demo"]).into == "demo"
     assert parser.parse_args(["office", "remove", "demo", "--area", "avisos"]).area == "avisos"
     assert parser.parse_args(["office", "remove", "demo"]).area is None
+    export = parser.parse_args(["office", "export", "demo", "--area", "avisos", "--include-code", "--output", "out.zip"])
+    assert (export.area, export.include_code, export.output) == ("avisos", True, "out.zip")
 
 
 def test_office_group_has_privacy():

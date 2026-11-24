@@ -157,6 +157,11 @@ class OfficePrivacyRaiseRequest(_Body):
     local_only: bool | None = None
 
 
+class OfficeExportRequest(_Body):
+    area: str | None = None
+    include_code: StrictBool = False
+
+
 def _office_source(folder: str | None, zip_base64: str | None) -> tuple[Path | None, bytes | None]:
     """Exactly one of ``folder`` and ``zip_base64``; the ``.zip`` is decoded here, within the upload cap."""
     if (folder is None) == (zip_base64 is None):
@@ -743,6 +748,12 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.get("/api/v1/offices/{office_id}/requirements")
     def office_requirements(office_id: str):
         return services.offices.requirements(office_id)
+
+    @app.post("/api/v1/offices/{office_id}/export")
+    def export_office(office_id: str, body: OfficeExportRequest):
+        result = services.offices.export(office_id, area=body.area, include_code=body.include_code)
+        return {"filename": result["filename"], "zip_base64": base64.b64encode(result["data"]).decode("ascii"),
+                "manifest": result["manifest"], "warnings": result["warnings"]}
 
     @app.post("/api/v1/offices/{office_id}/reimport")
     def reimport_office(office_id: str, body: OfficeReimportRequest):
