@@ -18,7 +18,7 @@ JS = STATIC_DIR / "js"
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 STEP_IDS = ["install", "try_mock", "connect", "activate", "real_run"]
-TITLES = {"install": "Instalar un paquete", "try_mock": "Probarlo en Mock y ver el documento", "connect": "Conectar un agente",
+TITLES = {"install": "Instalar una oficina", "try_mock": "Probarlo en Mock y ver el documento", "connect": "Conectar un agente",
           "activate": "Activarlo", "real_run": "Correr con tus datos y guardar el documento"}
 
 
@@ -102,9 +102,10 @@ def test_install_actions():
       console.log(JSON.stringify({ yes: install(%s), no: install(%s), unknown: install(%s) }));
     """ % (json.dumps(with_example), json.dumps(without), json.dumps(status())))
     assert [(a["kind"], a.get("path"), a.get("href")) for a in out["yes"]] == [
-        ("post", "/gui/api/packages/example", None), ("link", None, "#packages")]
-    assert out["yes"][0]["label"] == "Instalar el paquete de ejemplo"
-    assert [(a["kind"], a.get("href")) for a in out["no"]] == [("link", "#packages")]
+        ("post", "/gui/api/offices/example", None), ("link", None, "#offices")]
+    assert out["yes"][0]["label"] == "Instalar la oficina de ejemplo"
+    assert out["yes"][1]["label"] == "Importar una oficina"
+    assert [(a["kind"], a.get("href")) for a in out["no"]] == [("link", "#offices")]
     assert out["unknown"] == out["no"]
 
 
@@ -117,6 +118,19 @@ def test_other_step_actions_are_links():
     assert by_id["connect"]["actions"] == [{"kind": "link", "label": "Conectar un agente", "href": "#apps"}]
     assert by_id["activate"]["actions"] == [{"kind": "link", "label": "Activar un agente", "href": "#apps"}]
     assert [a["kind"] for a in by_id["real_run"]["actions"]] == ["link"]     # no offer_real: only the link
+
+
+@needs_node
+def test_try_mock_opens_the_example_office_when_installed():
+    out = run_node(SETUP + """
+      const ordinary = startRows(%s).find((row) => row.id === "try_mock").actions[0];
+      const example = startRows(%s).find((row) => row.id === "try_mock").actions[0];
+      console.log(JSON.stringify({ ordinary, example }));
+    """ % (json.dumps(status()), json.dumps(status(example_installed=True))))
+    assert out == {
+        "ordinary": {"kind": "link", "label": "Probar en Mock", "href": "#new"},
+        "example": {"kind": "link", "label": "Probar en Mock", "href": "#new/office/cafeteria/menu"},
+    }
 
 
 @needs_node
@@ -137,7 +151,7 @@ def test_real_models_offer_and_note():
 
 @needs_node
 def test_times_text_copy():
-    text = "Inicio: 2026-11-23T09:50:00Z\nInstalar un paquete: 2026-11-23T09:52:00Z (2 min desde el inicio)"
+    text = "Inicio: 2026-11-23T09:50:00Z\nInstalar una oficina: 2026-11-23T09:52:00Z (2 min desde el inicio)"
     out = run_node(SETUP + """
       const written = [];
       const value = %s;
@@ -178,6 +192,14 @@ def test_poll_is_four_seconds_and_never_stacks():
 def test_start_is_routed_and_reserved():
     assert '"start"' in read("route.js") and '"start"' in read("extensions.js")
     assert "inStartSidebar(start.status)" in read("sidebar.js")
+
+
+def test_start_reads_example_office_availability():
+    model, view = read("start-model.js"), read("start.js")
+    assert 'OFFICES_PATH = "/gui/api/offices"' in model
+    assert 'EXAMPLE_PATH = "/gui/api/offices/example"' in model
+    assert "apiGet(OFFICES_PATH, token)" in view
+    assert "example_installed: installed.some((office) => office && office.id === EXAMPLE_OFFICE_ID)" in view
 
 
 def test_start_css_block_is_at_the_end_and_has_no_inline_style():

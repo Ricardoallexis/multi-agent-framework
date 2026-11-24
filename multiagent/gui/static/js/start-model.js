@@ -3,6 +3,7 @@
 // «Inicio» (INI-T03), pure part: the rows of the steps that are still pending, with their actions, the hours as text to copy and
 // the fixed texts. No DOM and no network, so Node tests it. The server decides which steps are done (GET /gui/api/start, INI-T02):
 // a step that is done never comes back, so nothing here remembers anything. Every title and hour is plain text.
+import { officeHref } from "./route.js";
 
 export const POLL_MS = 4000;   // the same pace as the threads
 export const REAL_MODELS_NOTE = "Los modelos reales pueden costar dinero o usar tu cuota. Puedes volver a Mock aquí mismo";
@@ -10,8 +11,9 @@ export const TRY_MOCK_NOTE = "Cuando termine, verás el documento en el hilo";
 export const CHECKING_TEXT = "Comprobando…";
 export const START_PATH = "/gui/api/start";
 export const MODELS_PATH = "/gui/api/settings/models";
-export const EXAMPLE_PATH = "/gui/api/packages/example";   // PAQ-T02: offered only when the packages answer says it is there
-export const PACKAGES_PATH = "/gui/api/packages";
+export const OFFICES_PATH = "/gui/api/offices";
+export const EXAMPLE_OFFICE_ID = "cafeteria";
+export const EXAMPLE_PATH = "/gui/api/offices/example";
 
 const link = (label, href) => ({ kind: "link", label, href });
 const post = (label, path, body = {}) => ({ kind: "post", label, path, body });
@@ -20,10 +22,12 @@ const post = (label, path, body = {}) => ({ kind: "post", label, path, body });
 function actionsFor(id, status) {
   switch (id) {
     case "install":
-      return [...(status.example_available ? [post("Instalar el paquete de ejemplo", EXAMPLE_PATH)] : []),
-              link("Instalar desde un archivo", "#packages")];
+      return [...(status.example_available ? [post("Instalar la oficina de ejemplo", EXAMPLE_PATH)] : []),
+              link("Importar una oficina", "#offices")];
     case "try_mock":
-      return [link("Probar en Mock", "#new")];
+      return [link("Probar en Mock", status.example_installed
+        ? officeHref(EXAMPLE_OFFICE_ID, "menu")
+        : "#new")];
     case "connect":
       return [link("Conectar un agente", "#apps")];
     case "activate":
@@ -37,7 +41,7 @@ function actionsFor(id, status) {
 }
 
 // The pending steps in the order of the server: [{ id, title, note?, actions: [{ kind: "post" | "link", label, href?, path?, body?, note?, confirm? }] }].
-// `status` is the GET /gui/api/start answer, with `example_available` of GET /gui/api/packages added by the view.
+// `status` is the GET /gui/api/start answer, with the example-office fields added by the view.
 export function startRows(status) {
   if (!status || !Array.isArray(status.steps)) return [];
   const pending = Array.isArray(status.pending) ? new Set(status.pending) : null;

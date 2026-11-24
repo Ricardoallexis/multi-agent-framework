@@ -29,6 +29,10 @@ without opening it, and with the one-use approval code added to the fragment
 and the browser that the command opens gets both (see [Approvals](#approvals)).
 The default port is `APP_PORT` (8000).
 
+From a source checkout, «Inicio» offers the example office for installation;
+you can also import an office of your own from «Oficinas». The example is not
+part of an installed copy of the framework, where you import your own office.
+
 ## Register bundles
 
 The **Origen** selector offers the included workflows and registered bundles.
@@ -1058,7 +1062,7 @@ from a click: `GET /gui/api/start` returns them, and the screen only draws them.
 
 | Step | Done when |
 | --- | --- |
-| `install` | `installed.list()` has an entry with `state: "ok"` (the `shipped` example counts) |
+| `install` | `installed.list()` has an entry with `state: "ok"` (an installed office area or package counts) |
 | `try_mock` | A `completed` run created by this process, in Mock, whose document renders |
 | `connect` | `connections.list()` has an available row that is not a stand-in (only the rows are read, never a token) |
 | `activate` | `executor_activations.active_ids()` is not empty |
@@ -1087,8 +1091,8 @@ Done steps never come back: the server keeps them, and the screen reads `pending
 
 | Step | Actions |
 | --- | --- |
-| `install` | «Instalar el paquete de ejemplo» (`POST /gui/api/packages/example`, only when the packages answer says `example_available`) and «Instalar desde un archivo» (link to `#packages`) |
-| `try_mock` | «Probar en Mock» (link to `#new`), with the line «Cuando termine, verás el documento en el hilo» |
+| `install` | «Instalar la oficina de ejemplo» (`POST /gui/api/offices/example`, only when the offices answer says `example_available`) and «Importar una oficina» (link to `#offices`) |
+| `try_mock` | «Probar en Mock» (opens the example office's «Menú» area when it is installed, otherwise links to `#new`), with the line «Cuando termine, verás el documento en el hilo» |
 | `connect` | «Conectar un agente» (link to «Apps y agentes») |
 | `activate` | «Activar un agente» (link to «Apps y agentes»; the activation itself is there, never here) |
 | `real_run` | «Pasar a modelos reales», only with `offer_real`; then «Correr con tus datos» (link to `#new`) |

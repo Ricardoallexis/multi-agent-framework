@@ -67,6 +67,9 @@ class OfficeStub:
     def list(self):
         return [OFFICE]
 
+    def example_available(self):
+        return False
+
     def get(self, office_id):
         if office_id != "demo":
             raise ServiceError("invalid_state", "not installed", status=409,
@@ -310,7 +313,8 @@ def test_routes(env):
 
     listing = get(env, "/offices")
     assert listing.status_code == 200
-    assert listing.json() == {"offices": [{"id": "demo", "name": "Demo", "state": "ok", "areas": 2}]}
+    assert listing.json() == {"offices": [{"id": "demo", "name": "Demo", "state": "ok", "areas": 2}],
+                              "example_available": False}
 
     detail = get(env, "/offices/demo")
     assert detail.status_code == 200
@@ -341,7 +345,7 @@ def test_no_offices_changes_nothing(tmp_path):
         with TestClient(create_app(services=services), base_url="http://127.0.0.1") as client:
             response = client.get("/gui/api/offices", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 200
-        assert response.json() == {"offices": []}
+        assert response.json() == {"offices": [], "example_available": True}
         assert not registry.exists()
     finally:
         services.runs.close()

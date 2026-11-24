@@ -35,7 +35,7 @@ FIRST_RUN_SCHEMA = "maf.first-run/1"
 START_FILE = "primer-recorrido-inicio.txt"
 STEPS = ("install", "try_mock", "connect", "activate", "real_run")
 STEP_TITLES = {
-    "install": "Instalar un paquete",
+    "install": "Instalar una oficina",
     "try_mock": "Probarlo en Mock y ver el documento",
     "connect": "Conectar un agente",
     "activate": "Activarlo",

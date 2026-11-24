@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 import yaml
 
 from ..bundles import load_bundle
+from ..config import IN_CHECKOUT, PROJECT_ROOT
 from ..db.database import utcnow
 from ..external_output import canonical_json, sha256
 from ..offices.export import build_export, check_manifest
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
 
 OFFICES_FILE = "offices.json"
 OFFICES_SCHEMA = "maf.installed-offices/1"
+SHIPPED_OFFICES = {"cafeteria": "examples/offices/cafeteria"}
 # Proposed limits (design §13): the builder fixes them.
 OFFICE_FILE_MAX_BYTES = 2**20
 OFFICE_MAX_BYTES = ZIP_EXTRACT_MAX_BYTES
@@ -2205,3 +2207,25 @@ class OfficeServices:
             scene_proposals.append({**proposal, "scene_tasks": task_views})
 
         return build_scene(office, scene_areas, scene_proposals, now=current)
+
+    # --- the example office (MVP-T01) ----------------------------------------
+
+    @service_errors
+    def example_available(self) -> bool:
+        """Whether the example office can be copied from this source checkout."""
+        if not IN_CHECKOUT:
+            return False
+        folder = PROJECT_ROOT / SHIPPED_OFFICES["cafeteria"]
+        if not folder.is_dir():
+            return False
+        with self._lock:
+            return "cafeteria" not in self._read()
+
+    @service_errors
+    def install_example(self, *, actor: str = "user:gui", channel: str = "gui") -> dict[str, Any]:
+        """Copy the example office into the installation; nothing is installed at startup."""
+        folder = PROJECT_ROOT / SHIPPED_OFFICES["cafeteria"]
+        if not IN_CHECKOUT or not folder.is_dir():
+            raise _conflict("The example office is only available in a checkout of the product",
+                            "example_not_available", office="cafeteria")
+        return self.import_folder(folder, actor=actor, channel=channel)

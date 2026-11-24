@@ -106,7 +106,12 @@ def add_office_routes(api: APIRouter, services: Any) -> None:
             {"id": office["id"], "name": office["name"], "state": office["state"],
              "areas": len(office["areas"])}
             for office in offices
-        ]}
+        ], "example_available": services.offices.example_available()}
+
+    # MVP-T01: install the example only when the person asks from a checkout.
+    @api.post("/offices/example", status_code=201)
+    def install_example_office(body: _EmptyBody) -> dict[str, Any]:
+        return services.offices.install_example(actor=ACTOR, channel=CHANNEL)
 
     @api.get("/offices/{office_id}")
     def get_office(office_id: str) -> dict[str, Any]:

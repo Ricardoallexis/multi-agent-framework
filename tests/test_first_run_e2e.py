@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""INI-T02: the first-run path of metric 1, automatic. Fake CLIs and a double of «Activar»; nobody presses anything.
+"""INI-T02: the first-run path of metric 1, with fake CLIs, «Activar» and a test actor for the document review.
 
 Two starts of the same installation: the first in Mock (install, try, connect, activate), the second with real models
 (a fake adapter stands in for the provider) and its own ``FirstRunServices``.
@@ -24,10 +24,18 @@ def settings_for(tmp_path, *, mock):
 
 
 def run_to_completion(services):
-    run_id = services.runs.create(RunRequest(workflow_id="ask_once", project_name="Primer recorrido",
-                                             inputs={"task": "Explica la idea."}), bundle="general")["id"]
-    assert services.runs._bundle_runtime("general").worker.process_once()
-    assert services.runs.get(run_id)["status"] == "completed"
+    run_id = services.runs.create(
+        RunRequest(workflow_id="menu_semana", project_name="Primer recorrido",
+                   inputs={"pedido": "Menú de lunes a viernes con plato caliente y fruta."}),
+        bundle="cafeteria__menu",
+    )["id"]
+    runtime = services.runs._bundle_runtime("cafeteria__menu")
+    assert runtime is not None and runtime.worker is not None and runtime.worker.process_once()
+    waiting = services.runs.get(run_id)
+    assert waiting["status"] == "waiting_human" and waiting["waiting_reason"] == "review"
+    completed = services.runs.approve(run_id, by=ACTOR, channel="test")
+    assert completed["status"] == "completed"
+    assert services.teams.approved("cafeteria__menu") is None
     return run_id
 
 
@@ -41,7 +49,7 @@ def test_first_run_path_all_five_steps(tmp_path):
         mock.connections.list = lambda: {"connections": []}      # the real list() reads the home of the machine
         assert mock.first_run.status()["pending"] == list(STEPS)
 
-        mock.installed.install_shipped("general", actor=ACTOR)                              # 1. install the example
+        mock.offices.install_example(actor=ACTOR, channel="test")                          # 1. copy the example office
         assert mock.first_run.status()["pending"] == list(STEPS[1:])
         run_to_completion(mock)                                                             # 2. a Mock run, completed
         status = mock.first_run.status()
@@ -59,7 +67,10 @@ def test_first_run_path_all_five_steps(tmp_path):
         # Start 2: the person opens Iniciar again, now with real models (a fake adapter instead of the provider).
         real = ApplicationServices.create(settings_for(tmp_path, mock=False), dry_run=False,
                                           adapter_overrides={"ollama": FakeAdapter(
-                                              sample_outputs={"FreeTextAnswer": {"answer": "Una respuesta sencilla."}},
+                                              sample_outputs={"MenuSemana": {
+                                                  "titulo": "Menú semanal de prueba",
+                                                  "menu": "Lunes: plato caliente y fruta.",
+                                              }},
                                               output_schemas=None)})
         opened.append(real)
         real.connections.list = lambda: {"connections": []}

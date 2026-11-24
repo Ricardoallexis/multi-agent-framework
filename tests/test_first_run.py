@@ -77,6 +77,7 @@ def done(status):
 
 def test_fresh_install_all_pending(env):
     status = env.first_run.status()
+    assert STEP_TITLES["install"] == "Instalar una oficina"
     assert status["schema"] == FIRST_RUN_SCHEMA == "maf.first-run/1"
     assert [step["id"] for step in status["steps"]] == list(STEPS)
     assert [step["title"] for step in status["steps"]] == [STEP_TITLES[step] for step in STEPS]
@@ -93,6 +94,15 @@ def test_install_step_from_registry(env):
     assert done(status)["install"] is True
     step = status["steps"][0]
     assert step["done_at"] and [item["id"] for item in status["times"]] == ["install"]
+    assert "install" not in status["pending"]
+
+
+def test_install_step_from_office_registry(env):
+    assert done(env.first_run.status())["install"] is False
+    env.services.offices.install_example(actor=ACTOR, channel="test")
+    status = env.first_run.status()
+    assert done(status)["install"] is True
+    assert status["steps"][0]["done_at"]
     assert "install" not in status["pending"]
 
 
@@ -178,7 +188,7 @@ def test_times_from_launcher_start(env):
     assert status["install_started_at"].startswith("2026-11-22T11:57:00")
     assert status["times"][0]["id"] == "install" and status["times"][0]["minutes"] == 3
     text = first_run.times_text()
-    assert "Instalar un paquete" in text and "3 min" in text and "pendiente" in text
+    assert "Instalar una oficina" in text and "3 min" in text and "pendiente" in text
     assert STEP_TITLES["real_run"] in text
 
 
@@ -207,7 +217,7 @@ def test_start_route(env):
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["schema"] == FIRST_RUN_SCHEMA and body["pending"][0] == "try_mock"
-    assert "Instalar un paquete" in body["times_text"]
+    assert "Instalar una oficina" in body["times_text"]
     assert env.client.get("/gui/api/start").status_code in (401, 403)
 
 

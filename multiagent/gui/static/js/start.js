@@ -7,7 +7,8 @@
 import { html, useCallback, useEffect, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet, apiPost } from "./api.js";
 import { Help, helpFor } from "./help.js";
-import { CHECKING_TEXT, PACKAGES_PATH, POLL_MS, START_PATH, backToMockAction, copyTimes, startRows, timesText } from "./start-model.js";
+import { CHECKING_TEXT, EXAMPLE_OFFICE_ID, EXAMPLE_PATH, OFFICES_PATH, POLL_MS, START_PATH, backToMockAction,
+  copyTimes, startRows, timesText } from "./start-model.js";
 
 // ---- one shared answer, one request at a time --------------------------------------------------------------------------------
 let snapshot = { status: null, failed: false };
@@ -40,29 +41,35 @@ const errorText = (error) => (error && error.message) || "No se pudo completar l
 
 export function Start({ token }) {
   const { status, failed } = useStartStatus(token);
-  const [example, setExample] = useState(false);   // example_available of GET /gui/api/packages
+  const [officeStatus, setOfficeStatus] = useState({ example_available: false, example_installed: false });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);    // { kind: "ok" | "error", text }
   const [asking, setAsking] = useState(null);      // the action whose confirmation is open
   const [switched, setSwitched] = useState(null);  // "real" once the setting was changed and the person has not restarted yet
   const [copied, setCopied] = useState("");
-  const packages = useRef(null);
+  const offices = useRef(null);
 
-  // The «install» step needs to know if the example is there; the pending ones are the only ones that ask.
-  const loadExample = useCallback(() => {
-    if (packages.current) return packages.current;
-    packages.current = apiGet(PACKAGES_PATH, token)
-      .then((answer) => setExample(Boolean(answer && answer.example_available)))
-      .catch(() => setExample(false))
-      .finally(() => { packages.current = null; });
-    return packages.current;
+  // The office listing says whether the example can be installed and whether its menu area can be tried.
+  const loadOffices = useCallback(() => {
+    if (offices.current) return offices.current;
+    offices.current = apiGet(OFFICES_PATH, token)
+      .then((answer) => {
+        const installed = Array.isArray(answer && answer.offices) ? answer.offices : [];
+        setOfficeStatus({
+          example_available: Boolean(answer && answer.example_available),
+          example_installed: installed.some((office) => office && office.id === EXAMPLE_OFFICE_ID),
+        });
+      })
+      .catch(() => setOfficeStatus({ example_available: false, example_installed: false }))
+      .finally(() => { offices.current = null; });
+    return offices.current;
   }, [token]);
-  const refresh = useCallback(() => { refreshStart(token); loadExample(); }, [token, loadExample]);
+  const refresh = useCallback(() => { refreshStart(token); loadOffices(); }, [token, loadOffices]);
   useEffect(() => {
-    loadExample();
+    loadOffices();
     const timer = setInterval(refresh, POLL_MS);
     return () => clearInterval(timer);
-  }, [refresh, loadExample]);
+  }, [refresh, loadOffices]);
 
   const run = async (action) => {
     setBusy(true);
@@ -72,6 +79,7 @@ export function Start({ token }) {
       if (action.path.endsWith("/settings/models")) setSwitched(answer && answer.models === "real" ? "real" : null);
       setMessage({ kind: "ok", text: (answer && answer.text) || "Listo." });
       setAsking(null);
+      if (action.path === EXAMPLE_PATH) await loadOffices();
       await refreshStart(token);
     } catch (error) {
       setMessage({ kind: "error", text: errorText(error) });
@@ -88,7 +96,7 @@ export function Start({ token }) {
     }
   };
 
-  const rows = startRows(status ? { ...status, example_available: example } : null);
+  const rows = startRows(status ? { ...status, ...officeStatus } : null);
   const back = backToMockAction(status) || (switched === "real" ? backToMockAction({ models: "real" }) : null);
   const text = timesText(status);
   return html`<div class="start">
@@ -103,10 +111,15 @@ export function Start({ token }) {
         ${row.note && html`<span class="muted small">${row.note}</span>`}
         <div class="start-actions">
           ${row.actions.map((action) => (action.kind === "link"
-            ? html`<a key=${action.label} class="btn secondary" href=${action.href} ...${helpFor("start.steps")}>${action.label}</a>`
+            ? html`<a key=${action.label} class="btn secondary" href=${action.href}
+                ...${action.href === "#offices" ? helpFor("start.office_import", { scope: row.id }) : helpFor("start.steps")}>${action.label}</a>`
             : html`<button key=${action.label} type="button" class="btn secondary" disabled=${busy}
-                ...${action.confirm ? helpFor("start.real_models", { scope: row.id }) : helpFor("start.steps")} onClick=${() => press(action)}>${action.label}</button>`))}
+                ...${action.path === EXAMPLE_PATH ? helpFor("start.office_example", { scope: row.id })
+                  : action.confirm ? helpFor("start.real_models", { scope: row.id }) : helpFor("start.steps")}
+                onClick=${() => press(action)}>${action.label}</button>`))}
         </div>
+        ${row.actions.some((action) => action.path === EXAMPLE_PATH) && html`<${Help} topic="start.office_example" scope=${row.id} compact=${true} />`}
+        ${row.actions.some((action) => action.href === "#offices") && html`<${Help} topic="start.office_import" scope=${row.id} compact=${true} />`}
         ${row.actions.some((action) => action.confirm) && html`<${Help} topic="start.real_models" scope=${row.id} compact=${true} />`}
         ${asking && row.actions.some((action) => action.label === asking.label) && html`<div class="start-confirm" role="alert">
           <p class="small">${asking.note}</p>

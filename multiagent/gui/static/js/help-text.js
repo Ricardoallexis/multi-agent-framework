@@ -2101,6 +2101,16 @@ export const HELP = {
     "hint": "Cambia el ajuste de modelos a reales. Se aplica al abrir Iniciar de nuevo.",
     "more": ["Los modelos reales pueden costar dinero o usar tu cuota. Antes de cambiar, esta pantalla te pide confirmar.", "Se ofrece cuando ya probaste en Mock y ves el documento en el hilo.", "Puedes volver a Mock aquí mismo cuando quieras."]
   },
+  "start.office_example": {
+    "title": "Instalar la oficina de ejemplo",
+    "hint": "Solo se ofrece en una copia del proyecto.",
+    "more": ["La oficina se copia cuando pulsas el botón; no se instala al abrir el programa.", "Sus equipos quedan propuestos y no se aprueba ninguno."]
+  },
+  "start.office_import": {
+    "title": "Importar una oficina",
+    "hint": "Abre «Oficinas» para importar una oficina propia.",
+    "more": ["En una copia instalada del framework, importa una oficina propia desde un archivo.", "Sus equipos quedan propuestos hasta que tú los apruebes."]
+  },
   "shell.instance_label": {
     "title": "Etiqueta de esta instancia",
     "hint": "Es el nombre que se puso a esta instancia. También aparece en el título de la pestaña.",

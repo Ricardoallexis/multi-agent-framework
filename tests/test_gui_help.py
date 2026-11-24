@@ -498,9 +498,9 @@ def test_packages_help_keys_exist_and_are_used():
 
 
 def test_start_help_keys_exist_and_are_used():
-    """INI-T03: «Inicio» uses its three keys: the steps, «Tiempos» and the step to real models."""
+    """INI-T03/MVP-T01: «Inicio» explains its steps, times, model switch and office actions."""
     source = read("start.js")
-    for key in ("start.steps", "start.times", "start.real_models"):
+    for key in ("start.steps", "start.times", "start.real_models", "start.office_example", "start.office_import"):
         assert key in HELP, key
         assert f'helpFor("{key}"' in source and f'topic="{key}"' in source, key
 
