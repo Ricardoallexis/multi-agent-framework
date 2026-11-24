@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from contextlib import asynccontextmanager
 import inspect
 from pathlib import Path
@@ -18,6 +20,7 @@ from .run_request import RunRequest
 from .services import ApplicationServices, ServiceError
 from .services.availability import FOREGROUND_RUNNING
 from .services.errors import INVALID_REQUEST
+from .services.installed import ZIP_UPLOAD_MAX_BYTES
 from .gui import mount_gui
 from .version import __version__
 
@@ -123,6 +126,44 @@ class InstalledReinstallRequest(_Body):
 
 class InstalledRemoveRequest(_Body):
     actor: str
+
+
+# OFI-T03: offices. Strict like the rest: ``approve_teams``, ``trust_functions`` and ``risk_ack`` are unknown fields (422);
+# an office of level 1 never approves a team, never trusts functions and has nothing to acknowledge.
+class OfficeImportRequest(_Body):
+    actor: str
+    folder: str | None = None
+    zip_base64: str | None = None
+    filename: str = ""
+    into: str | None = None
+
+
+class OfficeReimportRequest(_Body):
+    actor: str
+    folder: str | None = None
+    zip_base64: str | None = None
+    filename: str = ""
+
+
+class OfficeActorRequest(_Body):
+    actor: str
+
+
+def _office_source(folder: str | None, zip_base64: str | None) -> tuple[Path | None, bytes | None]:
+    """Exactly one of ``folder`` and ``zip_base64``; the ``.zip`` is decoded here, within the upload cap."""
+    if (folder is None) == (zip_base64 is None):
+        raise ServiceError(INVALID_REQUEST, "Send either folder or zip_base64", status=422,
+                           details={"reason": "office_source_required", "fields": ["folder", "zip_base64"]})
+    if folder is not None:
+        return Path(folder), None
+    if len(zip_base64) > ZIP_UPLOAD_MAX_BYTES * 4 // 3 + 8:
+        raise ServiceError(INVALID_REQUEST, "The .zip is too large", status=422,
+                           details={"reason": "zip_too_large", "limit": ZIP_UPLOAD_MAX_BYTES, "field": "zip"})
+    try:
+        return None, base64.b64decode(zip_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise ServiceError(INVALID_REQUEST, "zip_base64 is not valid base64", status=422,
+                           details={"reason": "zip_invalid"}) from None
 
 
 class PlanStatusRequest(_Body):
@@ -671,6 +712,40 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/installed/{name}/remove")
     def remove_package(name: str, body: InstalledRemoveRequest):
         return services.installed.remove(name, actor=body.actor, channel="api")
+
+    # --- installed offices of level 1 (OFI-T03) -------------------------------
+
+    @app.get("/api/v1/offices")
+    def list_offices():
+        return {"offices": services.offices.list()}
+
+    @app.get("/api/v1/offices/{office_id}")
+    def get_office(office_id: str):
+        return services.offices.get(office_id)
+
+    @app.post("/api/v1/offices", status_code=201)
+    def import_office(body: OfficeImportRequest):
+        folder, data = _office_source(body.folder, body.zip_base64)
+        if data is not None:
+            return services.offices.import_zip(data, actor=body.actor, channel="api", filename=body.filename,
+                                               into=body.into)
+        return services.offices.import_folder(folder, actor=body.actor, channel="api", into=body.into)
+
+    @app.post("/api/v1/offices/{office_id}/reimport")
+    def reimport_office(office_id: str, body: OfficeReimportRequest):
+        folder, data = _office_source(body.folder, body.zip_base64)
+        if data is not None:
+            return services.offices.reimport_zip(office_id, data, actor=body.actor, channel="api",
+                                                 filename=body.filename)
+        return services.offices.reimport_folder(office_id, folder, actor=body.actor, channel="api")
+
+    @app.post("/api/v1/offices/{office_id}/remove")
+    def remove_office(office_id: str, body: OfficeActorRequest):
+        return services.offices.remove(office_id, actor=body.actor, channel="api")
+
+    @app.post("/api/v1/offices/{office_id}/areas/{area_id}/remove")
+    def remove_office_area(office_id: str, area_id: str, body: OfficeActorRequest):
+        return services.offices.remove_area(office_id, area_id, actor=body.actor, channel="api")
 
     # --- evaluation sets (EVA-T01) ------------------------------------------
 

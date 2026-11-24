@@ -103,3 +103,34 @@ Limits: contract names match `^[A-Z][A-Za-z0-9]{0,63}$`, field names match `^[a-
 A name can appear in only one of `contracts.py` and `contracts.yaml`, and `contracts.yaml` cannot redefine a core contract (`contract_conflict`). In `contracts.py`, re-exporting `FreeTextAnswer` or `DocumentSummary` as the same class is an alias, not a clash. A bad file fails with `bundle_contracts_invalid` and a location such as `contracts.yaml:Notice.title`.
 
 A `catalog/` folder may hold only one of `agents.yaml` and `models.yaml`: the missing file is read from the app catalog.
+
+## Install, remove and reimport
+
+An office of **level 1** has data only: every file has a suffix of `.yaml`, `.yml`, `.md`, `.txt`, `.json` or `.csv`. It installs from a folder or a `.zip` through the services (`services.offices`), the API (`/api/v1/offices`, see [Offices](API.md#offices)) or the CLI:
+
+```text
+multiagent office import PATH [--into OFFICE] [--actor user:local]   # a folder or a .zip
+multiagent office list
+multiagent office show OFFICE
+multiagent office reimport OFFICE PATH
+multiagent office remove OFFICE [--area AREA]
+```
+
+**Import.** The folder is copied (or the `.zip` extracted with the safety checks of installed packages) to `installed/.staging/<uuid>/`, which is removed at the end, and then:
+
+1. `office.yaml` is read and validated (the codes above). More than 20 areas, a file over 1 MiB, more than 2000 files or 50 MiB give `office_too_large`.
+2. If any file has another suffix, the import stops with `office_has_code`. This runs before any area is loaded, so no code of the office is imported or executed. An office with code needs the advanced mode of the GUI.
+3. Each area is validated as an installed package (every workflow, and its team). If it declares `team_sha256`, the digest of its canonical team (`multiagent.teams.digest.team_sha256`, the same one `TeamServices.propose` stores) must match, or `office_team_mismatch`.
+4. The areas are registered together with `InstalledServices.apply_batch`: packages `<office>__<area>`, `source: "office"`, `office: <id>`. If one fails, none stays and the preparation is removed.
+5. The team of each area that has a `team.yaml` is **proposed**. Installing an office never approves a team; a person does that in the GUI.
+6. The office is recorded in `installed/offices.json` (`maf.installed-offices/1`), its `office.yaml` is copied to `installed/.offices/<id>/v<n>/`, and the event `office.installed` goes to the team events.
+
+**One area.** With `into`, the folder or `.zip` holds an `office.yaml` with exactly one area (the format of «Export area»). It is checked against the installed office: an id already there gives `office_area_exists`, and a relation to an area the office does not have is not added and comes back as a warning. The copy of `office.yaml` moves to `v<n+1>`.
+
+**Remove.** `remove` takes the office and its areas out of the registry and the process; `remove_area` takes one. The package copies and `data_dir/bundles/<name>/` stay, and the answer has `kept_data: true`. When an area leaves, the plan items and relations that name it leave the new copy of `office.yaml`, each with a warning. The last area cannot be removed alone (`office_last_area`). An area is never reinstalled or removed through `bundle reinstall` or `bundle remove` (`bundle_in_office`).
+
+**Reimport.** Each area is compared by the fingerprint of its package: new areas are installed, changed ones reinstalled and the ones that are gone removed, all in one `apply_batch`. An unchanged area keeps its package version and its approved team version; the answer says so in `changes: {added, changed, removed, unchanged}`. With a run of an affected area in progress, nothing changes (`bundle_busy`). The office version goes up when an area or `office.yaml` changed; otherwise the registry is left as it was.
+
+**Start.** The areas load as installed packages. `offices.json` is only read; an office is `degraded` when an area is missing or its package is not `ok`. Without offices there is no `offices.json` and nothing new is read.
+
+Events (team events, ref = the office id): `office.installed`, `office.removed` and `office.reimported` (also for one area added or removed).

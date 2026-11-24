@@ -297,6 +297,39 @@ def cmd_bundle(args) -> None:
         pretty(_api_json("POST", f"/api/v1/installed/{quoted}/remove", json_body={"actor": args.actor}))
 
 
+# --- offices of level 1 (OFI-T03): the same HTTP API as the GUI; a .zip travels as base64 ---
+
+def _office_source(path: str) -> dict:
+    """``{folder}`` for a folder, ``{zip_base64, filename}`` for a ``.zip``, both resolved here."""
+    target = Path(path).expanduser().resolve()
+    if target.is_file():
+        import base64
+
+        return {"zip_base64": base64.b64encode(target.read_bytes()).decode("ascii"), "filename": target.name}
+    return {"folder": str(target)}
+
+
+def cmd_office(args) -> None:
+    action = args.office_command
+    if action == "list":
+        pretty(_api_json("GET", "/api/v1/offices"))
+    elif action == "show":
+        pretty(_api_json("GET", f"/api/v1/offices/{_segment(args.office_id)}"))
+    elif action == "import":
+        body = {**_office_source(args.path), "actor": args.actor}
+        if args.into:
+            body["into"] = args.into
+        pretty(_api_json("POST", "/api/v1/offices", json_body=body))
+    elif action == "reimport":
+        pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/reimport",
+                         json_body={**_office_source(args.path), "actor": args.actor}))
+    elif args.area:  # remove --area
+        pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/areas/{_segment(args.area)}/remove",
+                         json_body={"actor": args.actor}))
+    else:
+        pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/remove", json_body={"actor": args.actor}))
+
+
 def cmd_bundle_validate(args) -> None:
     name = quote(args.name, safe="")
     response = _api_response("POST", f"/api/v1/bundles/{name}/validate")
@@ -1482,6 +1515,21 @@ def build_parser() -> argparse.ArgumentParser:
     x = bundle.add_parser("reinstall", help="Install a new version of a package; the old one stays if it fails")
     x.add_argument("name"); x.add_argument("folder"); x.add_argument("--actor", default="user:local")
     x.set_defaults(func=cmd_bundle)
+    # Offices of level 1 (OFI-T03): data only, installed from a folder or a .zip on the server.
+    office = sub.add_parser("office", help="Import, list, show, reimport or remove offices on the server").add_subparsers(
+        dest="office_command", required=True)
+    x = office.add_parser("import", help="Install an office from a folder or a .zip; its teams are only proposed")
+    x.add_argument("path"); x.add_argument("--into", default=None, help="Add the single area of PATH to this installed office")
+    x.add_argument("--actor", default="user:local"); x.set_defaults(func=cmd_office)
+    x = office.add_parser("list", help="List the installed offices"); x.set_defaults(func=cmd_office)
+    x = office.add_parser("show", help="Show one installed office with its areas"); x.add_argument("office_id")
+    x.set_defaults(func=cmd_office)
+    x = office.add_parser("remove", help="Take an office, or with --area one of its areas, out (copies and data stay)")
+    x.add_argument("office_id"); x.add_argument("--area", default=None); x.add_argument("--actor", default="user:local")
+    x.set_defaults(func=cmd_office)
+    x = office.add_parser("reimport", help="Compare PATH with the installed office and change only what differs")
+    x.add_argument("office_id"); x.add_argument("path"); x.add_argument("--actor", default="user:local")
+    x.set_defaults(func=cmd_office)
     x = sub.add_parser("bundle-validate", help="Validate a bundle registered on the server")
     x.add_argument("name"); x.set_defaults(func=cmd_bundle_validate)
     x = sub.add_parser("bundle-scan", help="Show the scan status of a registered bundle")

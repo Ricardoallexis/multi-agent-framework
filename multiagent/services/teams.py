@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..db.database import utcnow
 from ..db.team_store import TeamStore
-from ..external_output import canonical_json, sha256
+from ..teams.digest import team_canonical_bytes, team_sha256
 from ..teams.org_chart import build_org_chart, render_mermaid
 from ..teams.schema import TeamDefinitionError
 from .errors import INVALID_DEFINITION, ServiceError, service_errors
@@ -300,9 +300,9 @@ class TeamServices:
         assert loaded.team is not None
         team = loaded.team
 
-        canonical_bytes = canonical_json(team.model_dump(mode="json"))
+        canonical_bytes = team_canonical_bytes(team)
         team_json_str = canonical_bytes.decode("utf-8")
-        digest = sha256(canonical_bytes)
+        digest = team_sha256(team)
 
         with self.store.db.tx() as conn:
             approved_row = self.store.latest_approved(bundle, conn=conn)

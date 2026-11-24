@@ -49,6 +49,7 @@ from .gui_settings import GuiSettingsServices
 from .inbox import InboxServices
 from .memory import MemoryServices
 from .new_session import NewSessionServices
+from .offices import OfficeServices
 from .plans import PlanServices
 from .installed import InstalledServices
 from .plan_autoadvance import PlanAutoAdvance
@@ -82,6 +83,7 @@ __all__ = [
     "InstalledServices",
     "MemoryServices",
     "NewSessionServices",
+    "OfficeServices",
     "PlanServices",
     "PlanProposalServices",
     "PlanningServices",
@@ -119,6 +121,8 @@ class ApplicationServices:
         self.installed = InstalledServices(self)
         self.installed.load_registry()
         self.installed.check_trusted_names()
+        self.offices = OfficeServices(self)   # OFI-T03: the areas are packages above; this reads offices.json only
+        self.offices.load_registry()
         self.definitions = DefinitionServices(self)
         self.runs = RunServices(self)
         self.tasks = TaskServices(self)

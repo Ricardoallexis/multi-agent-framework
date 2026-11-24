@@ -33,6 +33,7 @@ registrations, and the same system options as `build_system`. The facade exposes
 | `services.executors` | `run_task`, `resume_task`, `open_target`, `status` (and `record_app_open`, `session_guard`): run an ORQ task in Codex, Claude or Copilot, continue or open its session |
 | `services.memory` | `create`, `list`, `get`, `delete`: facts, decisions and conventions of a project, each with its author as provenance and a computed trust level. A `user:` author is only a claim, so a `user:` entry is stored `untrusted` until a person approves it in the GUI (`memory_trust`, one-use code), and a deletion waits for a person too (`memory_delete`). Entries live in the system database; a bundle run reads the memory of the project with the same name there. A workflow or step receives them, quoted as data, only when it sets `project_memory`. |
 | `services.decisions` | `propose`, `get`, `list`, `accept`, `reject`, `supersede` (plus `record_review`, accepting optional `team_id`): durable proposals with a human decision, effective expiry and active filtering. Successful run reviews and team version approvals/rejections create records automatically. |
+| `services.offices` | `list`, `get`, `import_folder`, `import_zip`, `reimport_folder`, `reimport_zip`, `remove`, `remove_area`, `office_of`: offices of level 1 (data only), installed from a folder or a `.zip`; each area is an installed package named `<office>__<area>` and its team is only proposed. See [Offices](#offices). |
 | `services.evaluation` | `run(set, live=False)`: run an evaluation set of workflow, agent or prompt cases and return its report; see [Evaluation sets](EVALUATION.md). |
 
 For example, create a built-in social-post run:
@@ -378,7 +379,7 @@ An installed package is a bundle copied under `<data_dir>/installed/NAME/v<n>/` 
 | `POST /api/v1/installed/{name}/remove` | `{actor}` | `{name, removed: true, kept_data: true, ...}`. The copy and the run data are kept. |
 
 An entry has `name`, `fingerprint`, `level` (`data` or `code`), `trust_functions`, `source_label`, `version`,
-`installed_at`, `installed_by`, `channel`, `source` (`copy`), `state` (`ok`, `changed` or `missing`) and `reason`
+`installed_at`, `installed_by`, `channel`, `source` (`copy` or `office`), `office` (the office id of an area, else `null`), `state` (`ok`, `changed` or `missing`) and `reason`
 (`null` or `installed_bundle_changed`). It never has a path. The body is strict: an unknown field, such as
 `trust_functions`, gives `422 invalid_request`. `actor` must be a `user:` actor.
 
@@ -387,6 +388,42 @@ Errors: `409 invalid_state` with `details.reason` `bundle_name_in_use` (the name
 or `bundle_not_installed`; `copy_fingerprint_mismatch` when the copy does not match the folder. An invalid name, a
 missing folder or a folder with symbolic links is `422 invalid_request`; a data package that does not validate is
 `422 invalid_definition`. An installed copy is always scanned (see [Bundle scan](security/bundle-scan.md)).
+
+### Offices
+
+An office of level 1 is an `office.yaml` and its areas, with data files only (see [Install, remove and reimport](OFFICES.md#install-remove-and-reimport)). Installing registers every area as an installed package named `<office>__<area>` (`source: "office"`, `office: <id>`) in one all-or-nothing change, proposes the team of each area (it never approves one) and records the office in `<data_dir>/installed/offices.json`. The same operations exist as `multiagent office import|list|show|remove|reimport`.
+
+| Endpoint | Body | Result |
+| --- | --- | --- |
+| `GET /api/v1/offices` | | `{offices: [...]}`, sorted by id. |
+| `GET /api/v1/offices/{id}` | | One office; `409 office_not_installed` if it is not in the registry. |
+| `POST /api/v1/offices` | `{actor, folder}` or `{actor, zip_base64, filename?}`, and `into?` | `201` with `{office, teams, warnings, changes}`. With `into`, the folder or `.zip` holds an `office.yaml` with one area, which joins that installed office. |
+| `POST /api/v1/offices/{id}/reimport` | `{actor, folder}` or `{actor, zip_base64, filename?}` | `{office, teams, warnings, changes}`; only what differs changes. |
+| `POST /api/v1/offices/{id}/remove` | `{actor}` | `{id, removed: true, kept_data: true, areas, ...}`. Copies and run data are kept. |
+| `POST /api/v1/offices/{id}/areas/{area}/remove` | `{actor}` | `{office, removed: true, kept_data: true, area, warnings, ...}`. |
+
+An office is `{id, name, description, version, fingerprint, installed_at, installed_by, channel, level, local_only, state, issues, warnings, areas, orchestrator, relations}` and never has a path. `level` is `data`. `state` is `ok`, or `degraded` when an area is missing or its package is not `ok`; `issues` then lists `{code: "area_missing" | "area_changed", area, message}`. Each area is `{id, name, bundle, sensitivity, local_only, requires, package_state, team: {status, version_id}}`: `team` is the approved version if there is one, else the latest, and `{status: null, version_id: null}` for an area without `team.yaml`.
+
+`teams` is `[{bundle, version_id, status}]`, one per area with a `team.yaml`. A new team is `proposed`; a team equal to the approved one keeps that version (`approved`), which is not an error. `changes` is `{added, changed, removed, unchanged}`, lists of area ids: a first install has every area in `added`; a reimport compares each area by the fingerprint of its package. `warnings` is `[{code, location, message}]`: a relation to an area the office does not have (`office_relation_unknown_area`), and when an area is removed, a plan item or relation that named it (`office_plan_item_removed`, `office_plan_after_removed`, `office_relation_removed`).
+
+The body is strict. Any other field, such as `approve_teams`, `trust_functions` or `risk_ack`, gives `422 invalid_request`: an office of level 1 has no code to trust and nothing to acknowledge, and a team is approved only by a person in the GUI. Send exactly one of `folder` and `zip_base64`. `actor` must be a `user:` actor.
+
+Errors. `409 invalid_state` with `details.reason`:
+
+| `reason` | When |
+| --- | --- |
+| `office_has_code` | A file has a suffix outside `.yaml .yml .md .txt .json .csv`. `details.files` lists up to 20 relative paths, `details.count` the total and `details.fix` the advice. Nothing of the office is imported or run. |
+| `office_exists` | An office with that id is installed (`details.office`). |
+| `office_area_exists` | With `into`, the office already has that area (`details.area`). |
+| `office_team_mismatch` | The area declares `team_sha256` and its `team.yaml` has another digest (`details.area`). |
+| `office_not_installed` | No installed office has that id. |
+| `office_area_not_installed`, `office_last_area` | Removing an area the office does not have, or its only one. |
+| `office_id_mismatch` | A reimport whose `office.yaml` is another office. |
+| `bundle_name_in_use` | `<office>__<area>` is a `--bundle` or an installed package. |
+| `bundle_busy` | A run of an area that would change or leave is `queued`, `running`, `waiting_human` or `paused`. Nothing changes. |
+| `bundle_in_office` | `POST /api/v1/installed/{name}/reinstall` or `/remove` on an area: it changes with its office. |
+
+`422 invalid_request` with `details.reason`: `office_too_large` (`details.field` is `file`, `files`, `bytes` or `areas`: a file of more than 1 MiB, 2000 files, 50 MiB, or 20 areas), `office_single_area_required` (with `into`), `office_source_required`, and the `.zip` reasons `zip_unsafe_entry`, `zip_invalid` and `zip_too_large`. `422 invalid_definition` carries the problems of `office.yaml` (`details.reason` is the first issue code, `details.issues` all of them: `office_invalid`, `office_path_unsafe`, `office_duplicate_id`) or those of an area (the package validation of [Installed packages](#installed-packages)). No answer names a path of the machine.
 
 ### Approvals and `user_click_required`
 

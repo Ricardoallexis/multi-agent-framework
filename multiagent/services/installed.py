@@ -46,6 +46,9 @@ STATE_OK, STATE_CHANGED, STATE_MISSING = "ok", "changed", "missing"
 REASON_CHANGED = "installed_bundle_changed"
 FUNCTIONS_FIX_TEXT = "Este paquete trae funciones; confía en ellas en la ficha del paquete"
 SOURCE_COPY, SOURCE_SHIPPED = "copy", "shipped"
+SOURCE_OFFICE = "office"                      # OFI-T03: an area of an installed office (the entry also has ``office``)
+_FOLDER_SOURCES = (SOURCE_COPY, SOURCE_OFFICE)   # entries that own a copy under installed/<name>/v<n>/
+_BATCH_OPS = ("install", "reinstall", "remove")
 
 # PAQ-T02: the .zip a person picks in the GUI. The route checks the upload cap before it reads the body.
 ZIP_UPLOAD_MAX_BYTES = 25 * 2**20
@@ -278,7 +281,7 @@ class InstalledServices:
                 "source_label": entry.get("source_label", ""), "version": entry.get("version"),
                 "installed_at": entry.get("installed_at"), "installed_by": entry.get("installed_by"),
                 "channel": entry.get("channel"), "source": entry.get("source", SOURCE_COPY),
-                "state": state, "reason": REASON_CHANGED if state != STATE_OK else None}
+                "office": entry.get("office"), "state": state, "reason": REASON_CHANGED if state != STATE_OK else None}
 
     @service_errors
     def list(self) -> list[dict[str, Any]]:
@@ -375,7 +378,7 @@ class InstalledServices:
     def _state_of(self, entry: dict[str, Any]) -> str:
         if entry.get("source") == SOURCE_SHIPPED:
             return STATE_OK if self._shipped_folder(entry["name"]) is not None else STATE_MISSING
-        if entry.get("source", SOURCE_COPY) != SOURCE_COPY:
+        if entry.get("source", SOURCE_COPY) not in _FOLDER_SOURCES:
             return STATE_OK
         folder = self._folder_of(entry)
         if not folder.is_dir() or not folder.is_relative_to(self._root.resolve()):
@@ -406,7 +409,7 @@ class InstalledServices:
                         or not isinstance(entry.get("path"), str)):
                     raise ValueError(f"The installed packages registry ({_REGISTRY_FILE}) has an invalid entry: {name!r}")
             for name, entry in sorted(entries.items()):
-                if entry.get("source", SOURCE_COPY) not in (SOURCE_COPY, SOURCE_SHIPPED):
+                if entry.get("source", SOURCE_COPY) not in (SOURCE_COPY, SOURCE_SHIPPED, SOURCE_OFFICE):
                     continue
                 # PAQ-T02: a shipped entry points at the product's own folder, found by its name in SHIPPED_EXAMPLES
                 # (the ``path`` of a hand-edited registry is never followed), and only inside a checkout.
@@ -438,7 +441,7 @@ class InstalledServices:
                 raise self._not_installed(name)
             state = self._state_of(entry)
             self._states[name] = state
-            if entry.get("source", SOURCE_COPY) in (SOURCE_COPY, SOURCE_SHIPPED):
+            if entry.get("source", SOURCE_COPY) in (SOURCE_COPY, SOURCE_SHIPPED, SOURCE_OFFICE):
                 folder = self._shipped_folder(name) if entry.get("source") == SOURCE_SHIPPED else self._folder_of(entry)
                 if state == STATE_OK and folder is not None:
                     self._services.register_bundle(name, folder)
@@ -543,6 +546,14 @@ class InstalledServices:
             raise
         return version, fingerprint, level, destination
 
+    @staticmethod
+    def _refuse_office_area(entry: dict[str, Any] | None) -> None:
+        """An area belongs to its office: it changes by reimporting or removing the office, never alone (OFI-T03)."""
+        if entry is not None and entry.get("source") == SOURCE_OFFICE:
+            raise _conflict(f"The package {entry['name']} belongs to the office {entry.get('office')}; "
+                            "remove or reimport the office instead", "bundle_in_office",
+                            bundle=entry["name"], office=entry.get("office"))
+
     def _assert_idle(self, name: str) -> None:
         if self._services.runs.has_runs_in(name, BUSY_STATUSES):
             raise _conflict(f"Package {name} has runs in progress", "bundle_busy", bundle=name)
@@ -588,6 +599,7 @@ class InstalledServices:
         with self._lock:
             entries = self._read()
             old = entries.get(name)
+            self._refuse_office_area(old)
             if old is None or old.get("source", SOURCE_COPY) != SOURCE_COPY:
                 raise self._not_installed(name)
             self._assert_idle(name)
@@ -613,6 +625,7 @@ class InstalledServices:
         with self._lock:
             entries = self._read()
             entry = entries.get(name)
+            self._refuse_office_area(entry)
             if entry is None or entry.get("source", SOURCE_COPY) not in (SOURCE_COPY, SOURCE_SHIPPED):
                 raise self._not_installed(name)
             self._assert_idle(name)
@@ -624,6 +637,120 @@ class InstalledServices:
             # The copy under installed/<name>/ and the run data under bundles/<name>/ stay: nothing is deleted.
             # A shipped entry has no copy: the product's folder is never touched.
             return {"name": name, "removed": True, "kept_data": True, "removed_by": actor, "channel": channel}
+
+    # --- several packages at once (OFI-T03) ---------------------------------
+
+    @service_errors
+    def apply_batch(self, changes: list[dict[str, Any]], *, actor: str, channel: str = "python",
+                    source: str = SOURCE_COPY, office: str | None = None) -> list[dict[str, Any]]:
+        """Install, reinstall and remove several packages as one change: all of them, or none.
+
+        Each change is ``{"op": "install" | "reinstall" | "remove", "name", "folder"?}``; ``folder`` is the new
+        content of an install or a reinstall. Everything is checked before the registry is written (names, runs in
+        progress, the copy and the validation of every data package), and the registry is written once. If a
+        change fails, no copy stays under ``installed/`` and the registry is as it was. ``source="office"`` with the
+        office id registers areas of an office: their level must be ``data`` (``office_has_code`` otherwise). The
+        answer has one item per change, in order: the entry of an install or reinstall, and the removal summary of a
+        remove. Copies and run data of a removed package stay, as in ``remove``.
+        """
+        from .projects import _user_actor
+
+        actor = _user_actor(actor)
+        if source not in (SOURCE_COPY, SOURCE_OFFICE):
+            raise _invalid("Unknown package source", field="source")
+        if (source == SOURCE_OFFICE) != (office is not None):
+            raise _invalid("source 'office' goes with an office id, and only with it", field="office")
+        plan: list[tuple[str, str, Path | None]] = []
+        names: set[str] = set()
+        for change in changes if isinstance(changes, list) else [None]:
+            if not isinstance(change, dict) or change.get("op") not in _BATCH_OPS:
+                raise _invalid("Each change is {op: install|reinstall|remove, name, folder?}", field="changes")
+            op, name = change["op"], self._check_name(change.get("name"))
+            if name in names:
+                raise _invalid("A package appears twice in the changes", field="changes", name=name)
+            names.add(name)
+            folder = change.get("folder")
+            if op != "remove" and not isinstance(folder, (str, Path)):
+                raise _invalid("An install or a reinstall needs its folder", field="folder", name=name)
+            plan.append((op, name, Path(folder) if op != "remove" else None))
+        if not plan:
+            return []
+        with self._lock:
+            entries = self._read()
+            for op, name, _ in plan:
+                old = entries.get(name)
+                if op == "install":
+                    if old is not None or name in self._services._bundles:
+                        raise _conflict(f"Bundle name in use: {name}", "bundle_name_in_use", bundle=name)
+                    continue
+                if source == SOURCE_OFFICE:
+                    owned = old is not None and old.get("source") == SOURCE_OFFICE and old.get("office") == office
+                else:
+                    self._refuse_office_area(old)
+                    owned = old is not None and old.get("source", SOURCE_COPY) == SOURCE_COPY
+                if not owned:
+                    raise self._not_installed(name)
+                self._assert_idle(name)
+            staging_root = (self._root / _STAGING).resolve()
+            placed: list[Path] = []
+            summaries: list[dict[str, Any]] = []
+            try:
+                for op, name, folder in plan:
+                    if op == "remove":
+                        summaries.append({"name": name, "removed": True, "kept_data": True, "removed_by": actor,
+                                          "channel": channel})
+                        entries.pop(name, None)
+                        continue
+                    folder = Path(folder).expanduser()
+                    inside = folder.exists() and folder.resolve().is_relative_to(staging_root)
+                    version, fingerprint, level, destination = self._stage_and_place(
+                        name, folder, entries, extracted=inside,
+                        code_gate=self._office_gate(name) if source == SOURCE_OFFICE else None)
+                    placed.append(destination)
+                    if op == "install":
+                        entry = {"name": name, "fingerprint": fingerprint, "level": level, "trust_functions": False,
+                                 "source_label": "", "version": version, "installed_at": utcnow(),
+                                 "installed_by": actor, "channel": channel, "source": source,
+                                 "path": f"{name}/v{version}"}
+                    else:
+                        entry = {**entries[name], "fingerprint": fingerprint, "level": level, "trust_functions": False,
+                                 "version": version, "installed_at": utcnow(), "installed_by": actor,
+                                 "channel": channel, "path": f"{name}/v{version}"}
+                    if office is not None:
+                        entry["office"] = office
+                    entries[name] = entry
+                    summaries.append(entry)
+                self._write(entries)
+            except BaseException:
+                for destination in placed:
+                    shutil.rmtree(destination, ignore_errors=True)
+                    try:
+                        destination.parent.rmdir()   # the folder of a package that had no copy before: only if empty
+                    except OSError:
+                        pass
+                raise
+            result: list[dict[str, Any]] = []
+            for (op, name, _), item in zip(plan, summaries):
+                if op == "remove":
+                    self._states.pop(name, None)
+                    unregister_owner(name)
+                    self._services.unregister_bundle(name)
+                    result.append(item)
+                    continue
+                self._states[name] = STATE_OK
+                if op == "reinstall":
+                    unregister_owner(name)
+                self._services.register_bundle(name, self._root / item["path"])
+                result.append(self._public(item))
+            return result
+
+    @staticmethod
+    def _office_gate(name: str) -> Callable[[str], None]:
+        def gate(level: str) -> None:
+            if level == "code":
+                raise _conflict(f"The area {name} has code; an office of level 1 has data only", "office_has_code",
+                                bundle=name)
+        return gate
 
     # --- .zip and the example (PAQ-T02) -------------------------------------
 
@@ -666,6 +793,7 @@ class InstalledServices:
         name = self._check_name(name)
         with self._lock:
             old = self._read().get(name)
+            self._refuse_office_area(old)
             if old is None or old.get("source", SOURCE_COPY) != SOURCE_COPY:
                 raise self._not_installed(name)
         staging, root = self._extract_to_staging(data)
