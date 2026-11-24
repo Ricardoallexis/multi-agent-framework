@@ -1,0 +1,124 @@
+/* Copyright 2026 Ricardoallexis and contributors */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.offices-view {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.offices-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+.offices-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.offices-card-head,
+.offices-row-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.offices-row-main > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.offices-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.offices-office-state,
+.offices-state {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.offices-office-state.is-ok {
+  color: var(--ok);
+}
+
+.offices-office-state.is-degraded,
+.offices-degraded {
+  color: var(--warn);
+}
+
+.offices-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  margin-top: 8px;
+}
+
+.offices-row {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.offices-coordinator {
+  border-top: 0;
+}
+
+.offices-area {
+  padding-left: 12px;
+}
+
+.offices-member {
+  padding-left: 24px;
+}
+
+.offices-meta {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.offices-degraded-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.offices-degraded {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.offices-degraded code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.offices-empty {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}

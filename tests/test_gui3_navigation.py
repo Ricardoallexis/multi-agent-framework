@@ -142,6 +142,6 @@ def test_icons_are_decorative_svg_and_unknown_names_fall_back_to_a_dot():
       }}));
     """)
     assert out == {
-        "count": 24, "root": "svg", "viewBox": "0 0 24 24", "hidden": "true",
+        "count": 25, "root": "svg", "viewBox": "0 0 24 24", "hidden": "true",
         "focusable": "false", "shape": "path", "fallback": "circle",
     }

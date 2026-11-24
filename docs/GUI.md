@@ -802,6 +802,21 @@ Stop either GUI server with Ctrl+C. The `multiagent gui` command prints
 On Windows, a batch launcher may additionally prompt `Terminate batch job
 (Y/N)?`; answer `Y`.
 
+## Offices
+
+**Oficinas** (`#offices`) lists installed offices, their coordinator, areas and members. Each row shows the state reported
+by the office scene; an area also shows its data level and the capability coverage text. Team permission declarations are
+shown as declarations, not as runtime guarantees.
+
+An area with a degraded state displays what is missing and an available fix. Team approval opens its team conversation,
+and missing capabilities link to Apps y agentes. A changed or missing area is identified for reimport; the view does not
+perform that reimport. Diagnostic codes are shown only in advanced mode.
+
+The view reads the office list and area requirements, then requests a scene immediately for each installed office. While
+the view is open, each scene is refreshed every four seconds and when the page becomes visible again. If a refresh fails,
+the last scene stays visible with a reconnect notice. With no installed offices, no office cards are drawn and no scenes
+are requested.
+
 ## What this browser remembers
 
 The GUI keeps a few choices in `localStorage`, only in `js/shell-state.js`, and only on

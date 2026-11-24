@@ -356,6 +356,19 @@ def test_extensions_project_and_decisions_rwd():
     assert "grid-template-columns: minmax(0, 1fr)" in rule(waiting, ".task-waiting-details")
 
 
+def test_view_offices_rwd():
+    """Oficinas stays in one shrinkable column and wraps long names at 375 px and 390 px.
+
+    Manual QA at both widths confirms the office, area and member rows do not create page-level horizontal scrolling."""
+    offices = read_sheet(EXT / "offices" / "style.css")
+    assert "min-width: 0" in rule(offices, ".offices-view")
+    assert "grid-template-columns: minmax(0, 1fr)" in rule(offices, ".offices-list")
+    assert "grid-template-columns: minmax(0, 1fr)" in rule(offices, ".offices-rows")
+    assert "overflow-wrap: anywhere" in rule(offices, ".offices-row-main > *")
+    assert "overflow-wrap: anywhere" in rule(offices, ".offices-title")
+    assert "overflow-wrap: anywhere" in rule(offices, ".offices-meta")
+
+
 def test_apps_key_names_break_at_underscores_without_changing_copied_text():
     """Apps y agentes: API setting names break only at underscores; manual QA covers 375, 390, and 768 px."""
     apps_css = read_sheet(EXT / "apps" / "style.css")

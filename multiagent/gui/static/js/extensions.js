@@ -43,7 +43,8 @@ const ENTRY_URL = /^\/gui\/static\/extensions\/([a-z][a-z_]{0,39})\/index\.js$/;
 const STYLE_URL = /^\/gui\/static\/extensions\/([a-z][a-z_]{0,39})\/style\.css$/;
 const STYLE_WAIT_MS = 2500;   // a sheet that neither loads nor fails stops being waited for (below LOAD_BUDGET_MS)
 const VIEW_ICONS = new Set(["more", "search", "inbox", "folder", "apps", "dots", "arrow", "panel", "menu", "help",
-  "settings", "send", "shield", "close", "clock", "file", "person", "link", "copy", "refresh", "run", "chart", "check", "map", "dot"]);
+  "settings", "send", "shield", "close", "clock", "file", "person", "link", "copy", "refresh", "run", "chart", "check", "map", "dot",
+  "building"]);
 
 const views = new Map();
 const slots = new Map();

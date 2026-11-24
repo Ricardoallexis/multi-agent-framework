@@ -35,6 +35,7 @@ const PATHS = {
   chart: "M4 20V12 M10 20V5 M16 20v-8 M22 20V8",
   check: "M4 12l5 5L20 6",
   map: "M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z M9 3v15 M15 6v15",
+  building: "M3 21h18 M5 21V7l7-4 7 4v14 M9 21v-6h6v6 M9 9h.01 M15 9h.01 M9 12h.01 M15 12h.01",
 };
 export const ICON_NAMES = Object.freeze(Object.keys(PATHS));
 
