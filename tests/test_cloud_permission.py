@@ -431,4 +431,3 @@ def test_social_post_request_confirm_cloud(service_factory, tmp_path):
 
     confirmed = services.runs.create(web.model_copy(update={"confirm_cloud": True}))
     assert confirmed["request"]["confirm_cloud"] is True
-
