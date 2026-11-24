@@ -216,6 +216,46 @@ The export never includes databases, runs, `data_dir`, `.env`, `.local`, logs, i
 
 An exported office can be imported with `multiagent office import FILE.zip` or `POST /api/v1/offices` using `zip_base64`. An area-only archive has one area and can be added to another installed office with `--into ID` or the API's `into` field. When an archive contains `manifest.json`, import requires its schema, file list, sizes, and hashes to match the extracted files exactly. A mismatch fails with `422 office_manifest_mismatch` and the affected path. Archives without a manifest remain supported for hand-authored imports. Safe extraction rejects unsafe paths and symbolic links before import.
 
+## Orchestrator
+
+`multiagent office plan-draft OFFICE TEXT [--confirm-cloud]` and
+`POST /api/v1/offices/{id}/plan-draft` prepare a plan for an installed office.
+The draft is not saved, approved, or started. Saving it still requires the
+confirmation handled by the new-session plan flow.
+
+The planner catalog contains only workflows from the office's areas. A model
+proposal is checked again after generation; a task outside those areas is
+rejected with `422 invalid_request`, `details.reason = "office_plan_outside_office"`.
+Drafts use the stable group id `office-<id>-<8 hex>` so the office scene can
+recognize their group without matching similarly named offices.
+
+`orchestrator.default_plan` is a deterministic template. Each stage uses the
+plan item's id, its area's name and bundle, and its workflow. `after` becomes
+`depends_on`, including an empty list when no dependency was declared, so
+parallel stages stay parallel. The operator's request fills the first required
+text input of each workflow; a workflow without one receives no input.
+
+| Model and office privacy | Planner | Fallback reason | Cloud calls |
+| --- | --- | --- | --- |
+| Mock | `deterministic`, using `default_plan` or the request template | `mock` | None |
+| Local model | `model`, with `sensitive` data class when any area is not normal | None | None |
+| Cloud model; any area is sensitive or restricted | `deterministic`, using `default_plan` or the request template | `office_not_normal` | None |
+| Cloud model; all areas normal; no confirmation | No draft | `cloud_confirmation_required` | None |
+| Cloud model; no protected area, at least one area has no level; confirmed | No draft; `office_level_required` identifies the area | None | None |
+| Cloud model; all areas normal; confirmed | `model`, with `non_sensitive` data class | None | One |
+
+If a deterministic fallback has no `default_plan`, it splits the request as
+the new-session planner does and matches each part against the office catalog.
+If no part matches, it returns `409 invalid_state` with
+`details.reason = "office_plan_unavailable"` and the advice to ask for one
+thing at a time.
+
+Office-aware interpretation uses the same restricted catalog. If any area is
+sensitive, restricted, or has no level and the configured model is not local,
+it makes no model call and returns keyword mode with
+`reason = "office_not_normal"`. With no selected office, planning and
+interpretation keep their existing behavior.
+
 ## Templates
 
 Two level-1 (data-only) office templates live in `examples/offices/` with synthetic Spanish data, `preferred_model: local_default`, `checkpoint_after: true`, and teams whose `revision` role assigns a `Responsable` person to review outputs from `redaccion`:

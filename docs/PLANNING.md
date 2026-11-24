@@ -203,6 +203,13 @@ confirmation and stores a plan proposal in `proposed` status and, for each bundl
 creates no task or run: **Aprobar** and **Rechazar** in the proposal's thread are the same
 as for any proposal, and approval still needs a `user:` actor and the approved team.
 
+When an office is selected, both the interpreter and planner see only that office's areas.
+An office with any area that is sensitive, restricted, or has no privacy level never sends
+the request to a cloud model: interpretation falls back to keyword matching, and planning
+uses the office's `default_plan` or the deterministic request template. A cloud plan for an
+office with an unset area requires its privacy level to be set first. See
+[Office orchestration](OFFICES-orchestrator.md) for planner selection and task mapping.
+
 A proposal also opens as a thread of the chat at `#new/plan/<id>` (read only,
 `GET /gui/api/threads/plans/{proposal_id}`). Its card lists each task with its
 inputs as readable text and has **Aprobar** and **Rechazar**, which send the

@@ -55,12 +55,14 @@ class InterpretBody(_Body):
     text: str = Field(min_length=1, max_length=2000)
     confirm_cloud: bool = False
     approval_id: str | None = None
+    office: str | None = None
 
 
 class PlanDraftBody(_Body):
     text: str = Field(min_length=1, max_length=2000)
     confirm_cloud: bool = False
     approval_id: str | None = None
+    office: str | None = None
 
 
 class PlanSaveBody(_Body):
@@ -507,7 +509,7 @@ def build_router(services) -> APIRouter:
         ``{"source": "model", "proposal": {...}}`` or ``{"source": "keywords", "reason": ..., "proposal": null}``
         (the client then matches words itself). Nothing is created: the operator confirms in the chat."""
         return services.new_session.interpret(body.text, confirm_cloud=body.confirm_cloud,
-                                              approval_id=body.approval_id)
+                                              approval_id=body.approval_id, office=body.office)
 
     @router.post("/new-session/plan")
     def draft_new_session_plan(body: PlanDraftBody):
@@ -516,7 +518,7 @@ def build_router(services) -> APIRouter:
         The draft (``{schema, goal, group_id, planner, tasks, teams, proposal}``) or, with no ``proposal``, a
         ``reason`` such as ``cloud_confirmation_required`` or ``secret_review_required`` (same as ``interpret``)."""
         return services.new_session.draft_plan(body.text, confirm_cloud=body.confirm_cloud,
-                                               approval_id=body.approval_id)
+                                               approval_id=body.approval_id, office=body.office)
 
     @router.post("/new-session/plan/save")
     def save_new_session_plan(body: PlanSaveBody):

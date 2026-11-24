@@ -255,3 +255,17 @@ def test_office_group_has_privacy():
     assert (args.office_id, args.area, args.sensitive, args.local_only, args.actor) == ("demo", None, False, False, "user:local")
     args = parser.parse_args(["office", "privacy", "demo", "--area", "recepcion", "--sensitive", "--local-only", "--actor", "user:ana"])
     assert (args.area, args.sensitive, args.local_only, args.actor) == ("recepcion", True, True, "user:ana")
+
+
+def test_office_plan_draft_cli_requests_api(monkeypatch, capsys):
+    requests = []
+
+    def fake_api_json(method, path, *, json_body=None, **_kwargs):
+        requests.append((method, path, json_body))
+        return {"schema": "maf.new-session-plan/1"}
+
+    monkeypatch.setattr(cli, "_api_json", fake_api_json)
+    cli.main(["office", "plan-draft", "demo", "Plan de prueba", "--confirm-cloud", "--json"])
+    assert requests == [("POST", "/api/v1/offices/demo/plan-draft",
+                         {"text": "Plan de prueba", "confirm_cloud": True})]
+    assert json.loads(capsys.readouterr().out) == {"schema": "maf.new-session-plan/1"}

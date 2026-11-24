@@ -162,6 +162,12 @@ class OfficeExportRequest(_Body):
     include_code: StrictBool = False
 
 
+class OfficePlanDraftRequest(_Body):
+    text: str = Field(min_length=1, max_length=2000)
+    confirm_cloud: StrictBool = False
+    approval_id: str | None = None
+
+
 def _office_source(folder: str | None, zip_base64: str | None) -> tuple[Path | None, bytes | None]:
     """Exactly one of ``folder`` and ``zip_base64``; the ``.zip`` is decoded here, within the upload cap."""
     if (folder is None) == (zip_base64 is None):
@@ -754,6 +760,11 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         result = services.offices.export(office_id, area=body.area, include_code=body.include_code)
         return {"filename": result["filename"], "zip_base64": base64.b64encode(result["data"]).decode("ascii"),
                 "manifest": result["manifest"], "warnings": result["warnings"]}
+
+    @app.post("/api/v1/offices/{office_id}/plan-draft")
+    def draft_office_plan(office_id: str, body: OfficePlanDraftRequest):
+        return services.offices.plan_draft(
+            office_id, body.text, confirm_cloud=body.confirm_cloud, approval_id=body.approval_id)
 
     @app.post("/api/v1/offices/{office_id}/reimport")
     def reimport_office(office_id: str, body: OfficeReimportRequest):

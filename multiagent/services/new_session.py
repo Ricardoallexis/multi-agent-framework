@@ -30,10 +30,12 @@ from ..call_guards import SCOPE_RUN_STEP, CallContext, GuardEnvironment, Pause, 
 from ..contracts import ModelTier, NewSessionProposal, TaskRequirements
 from ..document_trust import FIXED_CLAUSE, Provenance, wrap_untrusted
 from ..model_router import ModelBinding
+from ..offices.plan import default_plan_template, office_group_id, office_privacy
+from ..offices.schema import OfficeDefinition, area_bundle_name
 from ..observability import TokenUsageRecord, estimate_call_cost
 from ..planning import validate_proposal as validate_plan_proposal
 from ..planning.chat import split_request
-from .errors import INVALID_REQUEST, ServiceError, service_errors
+from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
 from .usage import NEW_SESSION_USAGE_ID
 
 SOURCE_MODEL = "model"
@@ -74,11 +76,13 @@ class NewSessionServices:
 
     # --- the catalog the model chooses from -------------------------------------------------------------------
 
-    def _catalog(self) -> list[dict[str, Any]]:
+    def _catalog(self, office: OfficeDefinition | None = None) -> list[dict[str, Any]]:
         """Every workflow of every origin with its description and the inputs the chat asks (declared by the workflow)."""
         definitions = self._services.definitions
         entries: list[dict[str, Any]] = []
-        for bundle in [None, *[item["name"] for item in definitions.list_bundles()]]:
+        bundles = ([area_bundle_name(office.id, area.id) for area in office.areas] if office is not None
+                   else [None, *[item["name"] for item in definitions.list_bundles()]])
+        for bundle in bundles:
             try:
                 listed = definitions.list_workflows(bundle=bundle)
             except Exception:  # noqa: BLE001 - one unreadable origin must not hide the others
@@ -117,7 +121,8 @@ class NewSessionServices:
         except KeyError:
             return ModelTier.CLOUD
 
-    def _ask(self, prompt: str, *, approval_id: str | None = None) -> NewSessionProposal:
+    def _ask(self, prompt: str, *, approval_id: str | None = None,
+             data_class: str = "non_sensitive") -> NewSessionProposal:
         settings = self._services.settings
         system = self._services.system
         router = system.engine.router
@@ -136,7 +141,7 @@ class NewSessionServices:
                 if call.replace_outgoing is not None:
                     call.replace_outgoing(value)
 
-            verdict = chain.check(call.with_fields(step_id=step_id, step_kind="work", data_class="non_sensitive",
+            verdict = chain.check(call.with_fields(step_id=step_id, step_kind="work", data_class=data_class,
                                                    replace_outgoing=replace),
                                  {"llm_calls": 0, "max_llm_calls": 1})     # one call, no run behind it
             if isinstance(verdict, (Stop, Pause)):
@@ -177,26 +182,34 @@ class NewSessionServices:
 
     @service_errors
     def interpret(self, text: str, *, confirm_cloud: bool = False,
-                  approval_id: str | None = None) -> dict[str, Any]:
+                  approval_id: str | None = None, office: str | None = None) -> dict[str, Any]:
         """Propose a workflow and inputs for ``text``.
 
         Returns ``{"source": "model" | "keywords", "reason": str, "proposal": {...} | None}``. ``proposal`` is
         ``{"workflow_id", "bundle", "inputs", "project_name", "explanation", "dropped"}`` and always names a workflow
         that exists; ``source`` ``keywords`` means the caller must use its own word matching, and ``reason`` says why
-        (``disabled``, ``no_workflows``, ``model_error``, ``refused``, ``invalid_output`` or ``no_match``).
+        (``disabled``, ``no_workflows``, ``office_not_normal``, ``model_error``, ``refused``, ``invalid_output`` or
+        ``no_match``).
         """
         clean = self._clean(text)
+        office_definition, _, office_classes = (
+            self._office_context(office) if office is not None else (None, [], [])
+        )
         if not self.enabled:
             return _fallback("disabled")
-        catalog = self._catalog()
+        catalog = self._catalog(office_definition)
         if not catalog:
             return _fallback("no_workflows")
         tier = self._model_tier()
+        privacy = office_privacy(office_classes) if office is not None else "normal"
+        data_class = "sensitive" if office is not None and privacy != "normal" else "non_sensitive"
+        if office is not None and privacy != "normal" and tier != ModelTier.LOCAL:
+            return _fallback("office_not_normal")
         if tier != ModelTier.LOCAL and not confirm_cloud:
             return {**_fallback("cloud_confirmation_required"),
                     "model": self._services.settings.gui_new_session_model, "tier": tier.value}
         try:
-            proposed = self._ask(self.build_prompt(clean, catalog), approval_id=approval_id)
+            proposed = self._ask(self.build_prompt(clean, catalog), approval_id=approval_id, data_class=data_class)
         except _SecretReview as held:
             return {**_fallback("secret_review_required"), "approval_id": held.approval_id}
         except _BudgetCut:
@@ -212,7 +225,7 @@ class NewSessionServices:
                                               retry_at=exc.retry_at)}
             return _fallback("invalid_output" if isinstance(exc, StructuredOutputError) else "model_error")
         if proposed.needs_plan:
-            suggested = self._plan_suggested(clean, proposed, catalog, confirm_cloud, approval_id)
+            suggested = self._plan_suggested(clean, proposed, catalog, confirm_cloud, approval_id, office=office)
             if suggested is not None:
                 return suggested
         if not proposed.workflow_id.strip():
@@ -221,11 +234,12 @@ class NewSessionServices:
         return _fallback("invalid_output") if checked is None else {"source": SOURCE_MODEL, "reason": "", "proposal": checked}
 
     def _plan_suggested(self, text: str, proposed: NewSessionProposal, catalog: list[dict[str, Any]],
-                        confirm_cloud: bool, approval_id: str | None) -> dict[str, Any] | None:
+                        confirm_cloud: bool, approval_id: str | None, *,
+                        office: str | None = None) -> dict[str, Any] | None:
         """The answer for a request that needs more than one workflow, or ``None`` to answer with one workflow as before
         (the plan could not be drafted: the single-workflow proposal is still a valid answer)."""
         try:
-            draft = self.draft_plan(text, confirm_cloud=confirm_cloud, approval_id=approval_id)
+            draft = self.draft_plan(text, confirm_cloud=confirm_cloud, approval_id=approval_id, office=office)
         except ServiceError:
             return None
         if draft.get("reason") == "secret_review_required":
@@ -238,49 +252,129 @@ class NewSessionServices:
     # --- a plan from the same text (ARR3-T01) ------------------------------------------------------------------
 
     @service_errors
-    def draft_plan(self, text: str, *, confirm_cloud: bool = False, approval_id: str | None = None) -> dict[str, Any]:
+    def draft_plan(self, text: str, *, confirm_cloud: bool = False, approval_id: str | None = None,
+                   office: str | None = None) -> dict[str, Any]:
         """Draft a plan of several workflows for ``text``. Nothing is saved, approved or started.
 
         Returns ``{schema, goal, group_id, planner, tasks, teams, proposal}``: ``planner`` is ``model`` (a real model
         plans) or ``deterministic`` (Mock: one stage for each part of the request, each after the previous one),
+        with ``office`` and ``fallback_reason`` when an office is selected,
         ``tasks`` the readable list, ``teams`` the bundles with ``role:`` steps and no approved team (``action``
         ``propose``) and ``proposal`` the ``multiagent.plan_proposal/1`` document. When the draft cannot be made the
         answer has no ``proposal`` and says why in ``reason``: ``disabled``, ``no_workflows``, ``no_match``,
         ``cloud_confirmation_required`` (the same confirmation as ``interpret``) or ``secret_review_required``
         (with its ``approval_id``)."""
         clean = self._clean(text)
+        office_definition, office_bundles, office_classes = (
+            self._office_context(office) if office is not None else (None, [], [])
+        )
         if not self.enabled:
-            return {"reason": "disabled"}
-        catalog = self._catalog()
+            result = {"reason": "disabled"}
+            return {**result, "office": office, "fallback_reason": None} if office is not None else result
+        catalog = self._catalog(office_definition)
         if not catalog:
-            return {"reason": "no_workflows"}
+            result = {"reason": "no_workflows"}
+            return {**result, "office": office, "fallback_reason": None} if office is not None else result
         tier = self._model_tier()
-        if tier != ModelTier.LOCAL and not confirm_cloud:
-            return {"reason": "cloud_confirmation_required",
-                    "model": self._services.settings.gui_new_session_model, "tier": tier.value}
-        group_id = PLAN_GROUP_PREFIX + uuid.uuid4().hex[:12]
-        if self._services.system.engine.router.dry_run:
-            template = self._template(clean, catalog)
-            if template is None:
-                return {"reason": "no_match"}
-            planner = "deterministic"
-            request = {"group_id": group_id, "goal": clean, "template": template}
+        fallback_reason = None
+        if office is None:
+            if tier != ModelTier.LOCAL and not confirm_cloud:
+                return {"reason": "cloud_confirmation_required",
+                        "model": self._services.settings.gui_new_session_model, "tier": tier.value}
+            group_id = PLAN_GROUP_PREFIX + uuid.uuid4().hex[:12]
+            if self._services.system.engine.router.dry_run:
+                template = self._template(clean, catalog)
+                if template is None:
+                    return {"reason": "no_match"}
+                planner = "deterministic"
+                request = {"group_id": group_id, "goal": clean, "template": template}
+            else:
+                planner = "model"
+                request = {"group_id": group_id, "goal": clean, "prefix": PLAN_TASK_PREFIX,
+                           "approval_id": approval_id}
         else:
-            planner = "model"
-            request = {"group_id": group_id, "goal": clean, "prefix": PLAN_TASK_PREFIX, "approval_id": approval_id}
+            privacy = office_privacy(office_classes)
+            group_id = office_group_id(office)
+            deterministic = self._services.system.engine.router.dry_run
+            if deterministic:
+                planner, fallback_reason = "deterministic", "mock"
+            elif tier == ModelTier.LOCAL:
+                planner = "model"
+            elif privacy == "protected":
+                planner, fallback_reason = "deterministic", "office_not_normal"
+            elif privacy == "unset":
+                if confirm_cloud:
+                    area = next(area.id for area, data_class in zip(office_definition.areas, office_classes)
+                                if data_class is None)
+                    raise ServiceError(INVALID_STATE, "Esta área no tiene nivel de privacidad: asígnale uno antes de pedir el plan",
+                                       status=409, details={"reason": "office_level_required",
+                                                            "office": office, "area": area})
+                result = {"reason": "cloud_confirmation_required",
+                          "model": self._services.settings.gui_new_session_model, "tier": tier.value}
+                return {**result, "office": office, "fallback_reason": None}
+            elif not confirm_cloud:
+                result = {"reason": "cloud_confirmation_required",
+                          "model": self._services.settings.gui_new_session_model, "tier": tier.value}
+                return {**result, "office": office, "fallback_reason": None}
+            else:
+                planner = "model"
+
+            if planner == "deterministic":
+                template = default_plan_template(
+                    office_definition, clean, self._first_required_text_input)
+                if template is None:
+                    template = self._template(clean, catalog)
+                if template is None:
+                    message = "Esta oficina no trae un plan por defecto: pide una cosa por vez"
+                    raise ServiceError(INVALID_STATE, message, status=409,
+                                       details={"reason": "office_plan_unavailable", "fix": message})
+                request = {"group_id": group_id, "goal": clean, "template": template}
+            else:
+                request = {"group_id": group_id, "goal": clean, "prefix": PLAN_TASK_PREFIX,
+                           "approval_id": approval_id, "bundles": office_bundles,
+                           "data_class": "sensitive" if privacy != "normal" else "non_sensitive"}
         try:
             proposal = self._services.planning.propose(planner, request, confirm_cloud=confirm_cloud)
         except ServiceError as exc:
             if (exc.details or {}).get("reason") == "secret_review_required":
-                return {"reason": "secret_review_required", "approval_id": exc.details["approval_id"]}
+                result = {"reason": "secret_review_required", "approval_id": exc.details["approval_id"]}
+                return {**result, "office": office, "fallback_reason": None} if office is not None else result
             raise
+        if office is not None:
+            allowed = set(office_bundles)
+            for task in proposal["tasks"]:
+                if task.get("bundle") not in allowed:
+                    raise ServiceError(INVALID_REQUEST, "El borrador contiene una tarea de un área ajena a esta oficina",
+                                       status=422,
+                                       details={"reason": "office_plan_outside_office", "task": task})
         teams = [{"bundle": item["bundle"], "roles": item["roles"], "action": "propose"}
                  for item in self._services.plan_proposals.team_blockers(proposal) if item["bundle"] is not None]
         tasks = [{"id": task["id"], "title": task["title"], "workflow": task["workflow"], "bundle": task.get("bundle"),
                   "inputs": dict(task.get("inputs") or {}), "depends_on": list(task["depends_on"])}
                  for task in proposal["tasks"]]
-        return {"schema": PLAN_DRAFT_SCHEMA, "goal": proposal["goal"], "group_id": proposal["group_id"],
-                "planner": planner, "tasks": tasks, "teams": teams, "proposal": proposal}
+        result = {"schema": PLAN_DRAFT_SCHEMA, "goal": proposal["goal"], "group_id": proposal["group_id"],
+                  "planner": planner, "tasks": tasks, "teams": teams, "proposal": proposal}
+        if office is not None:
+            result.update({"office": office, "fallback_reason": fallback_reason})
+        return result
+
+    def _office_context(self, office_id: str) -> tuple[OfficeDefinition, list[str], list[str | None]]:
+        try:
+            self._services.offices.get(office_id)
+            definition = self._services.offices.plan_definition(office_id)
+        except ServiceError as exc:
+            if (exc.details or {}).get("reason") == "office_not_installed":
+                raise ServiceError(NOT_FOUND, exc.message, status=404, details=exc.details) from exc
+            raise
+        bundles = [area_bundle_name(office_id, area.id) for area in definition.areas]
+        classes = [self._services.offices.area_class(bundle) for bundle in bundles]
+        return definition, bundles, classes
+
+    def _first_required_text_input(self, workflow_id: str, bundle: str) -> str | None:
+        spec = self._services.definitions.workflow_inputs(workflow_id, bundle=bundle)
+        return next((field["name"] for field in spec.get("inputs") or []
+                     if field.get("required") and field.get("type", "text") in {"text", "long_text"}
+                     and not field.get("choices")), None)
 
     @staticmethod
     def _clean(text: str) -> str:

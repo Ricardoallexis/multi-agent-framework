@@ -332,6 +332,9 @@ def cmd_office(args) -> None:
         except FileExistsError as exc:
             raise RuntimeError(f"Output file already exists: {target}") from exc
         pretty({"filename": str(target), "manifest": result["manifest"], "warnings": result["warnings"]})
+    elif action == "plan-draft":
+        pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/plan-draft",
+                         json_body={"text": args.text, "confirm_cloud": args.confirm_cloud}))
     elif action == "reimport":
         pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/reimport",
                          json_body={**_office_source(args.path), "actor": args.actor}))
@@ -1559,6 +1562,10 @@ def build_parser() -> argparse.ArgumentParser:
     x = office.add_parser("export", help="Export an installed office or area as an allow-listed .zip")
     x.add_argument("office_id"); x.add_argument("--area", default=None); x.add_argument("--include-code", action="store_true")
     x.add_argument("--output", default=None, help="Write to this path instead of the default .zip filename")
+    x.set_defaults(func=cmd_office)
+    x = office.add_parser("plan-draft", help="Draft a plan for an installed office without saving it")
+    x.add_argument("office_id"); x.add_argument("text"); x.add_argument("--confirm-cloud", action="store_true")
+    x.add_argument("--json", action="store_true", help="Print the draft as JSON")
     x.set_defaults(func=cmd_office)
     x = sub.add_parser("bundle-validate", help="Validate a bundle registered on the server")
     x.add_argument("name"); x.set_defaults(func=cmd_bundle_validate)

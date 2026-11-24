@@ -35,9 +35,10 @@ def _error(message: str) -> ServiceError:
     return ServiceError(INVALID_REQUEST, message, status=422)
 
 
-def _catalog(services: Any) -> list[dict[str, Any]]:
+def _catalog(services: Any, bundles: list[str] | None = None) -> list[dict[str, Any]]:
     entries = []
-    for bundle in [None, *services.bundle_names()]:
+    sources = [None, *services.bundle_names()] if bundles is None else bundles
+    for bundle in sources:
         for item in services.definitions.list_workflows(bundle=bundle):
             try:
                 definition = services.definitions.get_workflow(item["id"], bundle=bundle)
@@ -51,7 +52,11 @@ def _catalog(services: Any) -> list[dict[str, Any]]:
 
 
 def propose(services: Any, request: Mapping[str, Any], confirm_cloud: bool) -> Mapping[str, Any]:
-    catalog = _catalog(services)
+    bundles = request.get("bundles")
+    if bundles is not None and (not isinstance(bundles, list)
+                                or any(not isinstance(bundle, str) for bundle in bundles)):
+        raise _error("bundles must be a list of bundle names")
+    catalog = _catalog(services, bundles)
     if not catalog:
         raise _error("No workflows are available to plan")
     settings, system = services.settings, services.system
@@ -91,7 +96,8 @@ def propose(services: Any, request: Mapping[str, Any], confirm_cloud: bool) -> M
                 call.replace_outgoing(value)
 
         verdict = guards.check(call.with_fields(
-            step_id=step_id, step_kind="planning", data_class="non_sensitive", replace_outgoing=replace),
+            step_id=step_id, step_kind="planning",
+            data_class=request.get("data_class", "non_sensitive"), replace_outgoing=replace),
             {"llm_calls": 0, "max_llm_calls": 1})
         if isinstance(verdict, (Stop, Pause)):
             if isinstance(verdict, Pause) and verdict.guard == "secret":

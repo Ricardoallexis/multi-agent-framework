@@ -1128,3 +1128,22 @@ class OfficeServices:
                                  field="zip", limit=ZIP_UPLOAD_MAX_BYTES)
         filename = f"{office_id}{'-' + area if area is not None else ''}.zip"
         return {"filename": filename, "data": archive, "manifest": manifest, "warnings": manifest["warnings"]}
+
+    # --- office orchestrator (ESC-T02) ---------------------------------------
+
+    @service_errors
+    def plan_definition(self, office_id: str) -> OfficeDefinition:
+        """Return the validated installed definition for internal plan drafting."""
+        office_id = self._check_id(office_id, "office_id")
+        with self._lock:
+            entry = self._read().get(office_id)
+            if entry is None:
+                raise self._not_installed(office_id)
+            return _office_of_record(entry["definition"])
+
+    @service_errors
+    def plan_draft(self, office_id: str, text: str, *, confirm_cloud: bool = False,
+                   approval_id: str | None = None) -> dict[str, Any]:
+        """Draft an office plan without saving, approving or starting it."""
+        return self._services.new_session.draft_plan(
+            text, confirm_cloud=confirm_cloud, approval_id=approval_id, office=office_id)
