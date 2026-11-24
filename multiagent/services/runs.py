@@ -334,11 +334,25 @@ class RunServices:
         original_request = request
         request = self._apply_area_class(request, bundle)
         runtime = self._system_runtime if bundle is None else self._bundle_runtime(bundle)
-        if isinstance(request, RunRequest):
-            from .limits import require_cloud_confirmation, require_fixed_models_allowed
-            catalog = self._services.system.catalog if bundle is None else runtime.service.engine.catalog
-            require_cloud_confirmation(original_request, catalog)
-            workflow = runtime.service.engine.workflows.load(request.workflow_id)
+        from .limits import apply_cloud_permission, require_cloud_confirmation, require_fixed_models_allowed
+        catalog = self._services.system.catalog if bundle is None else runtime.service.engine.catalog
+        require_cloud_confirmation(original_request, catalog)
+        workflow_id = runtime.service.store.workflow_id_for(request)
+        workflow = runtime.service.engine.workflows.load(workflow_id)
+        require_fixed_models_allowed(request, workflow, catalog)      # a person's own cloud choice still asks first
+        permission = None
+        cloud_allowed = False
+        if isinstance(request, RunRequest) and bundle is not None:
+            offices = getattr(self._services, "offices", None)
+            # only a «Normal» area uses the saved permission: one without a level asks first (Decision 15)
+            if offices is not None and offices.area_class(bundle) == "non_sensitive":
+                permission = offices.cloud_permission_details(bundle)
+                cloud_allowed = bool(permission and permission["allowed"])
+        before_permission = request
+        request, permission_applied = apply_cloud_permission(
+            request, workflow, catalog, allowed=cloud_allowed,
+            mock_mode=self._services.system.engine.router.dry_run)
+        if request is not before_permission:
             require_fixed_models_allowed(request, workflow, catalog)
         # The approved team travels with the run (its runs live in the bundle's database, the versions in the
         # system's): the binding is stored in the same transaction as the run, before any worker can take it.
@@ -354,6 +368,9 @@ class RunServices:
                 "sha256": approved_team["sha256"],
                 "team": approved_team["team"],
             }
+        write_permission_event = permission_applied and permission is not None
+        if write_permission_event:
+            write_permission_event = runtime.service.store.find_idempotent_run(request) is None
         try:
             run = runtime.service.create_run(request, team_binding=team_binding)
         except ValueError as exc:
@@ -362,6 +379,11 @@ class RunServices:
             if getattr(request, "routing_preferences", None):
                 raise ServiceError(INVALID_REQUEST, str(exc), status=422) from exc
             raise
+        if write_permission_event and permission is not None:
+            runtime.store.db.log_event(run["id"], "cloud_permission_applied", {
+                "office": permission["office"], "area": permission["area"], "scope": permission["scope"],
+                "set_by": permission["set_by"], "set_at": permission["set_at"],
+            })
         return self._tag(runtime, run)
 
     @service_errors

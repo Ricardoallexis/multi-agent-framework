@@ -129,6 +129,7 @@ class SocialPostRequest(StrictModel):
     pipeline_mode: PipelineMode = PipelineMode.QUICK
     step_modes: dict[str, ExecutionMode] = Field(default_factory=dict)
     sensitive: bool = False
+    confirm_cloud: bool = False
 
     @model_validator(mode="after")
     def normalize_research_mode(self):

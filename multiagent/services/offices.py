@@ -149,6 +149,10 @@ def _privacy_digest(office_id: str, area_id: str | None, before: str, after: str
     return sha256(canonical_json({"office": office_id, "area": area_id, "from": before, "to": after}))
 
 
+def _cloud_permission_digest(office_id: str, area_id: str | None, scope: str) -> str:
+    return sha256(canonical_json({"office": office_id, "area": area_id, "scope": scope, "from": False, "to": True}))
+
+
 OFFICE_NOTICE = ("Las instrucciones de esta oficina las escribió otra persona. Un ejecutor activado las sigue dentro "
                  "de su carpeta de trabajo")
 STAGE_TTL_SECONDS = 3600
@@ -840,10 +844,8 @@ class OfficeServices:
     # --- sensitivity of the areas (SEN-T01) ---------------------------------
     #
     # What the office.yaml declares (``sensitivity`` and ``local_only`` of each area, ``local_only`` of the office) is
-    # the starting level. What a person sets lives beside it in the entry of the office, under ``privacy`` (new,
-    # optional keys; a registry without them reads as before): ``{"areas": {id: {sensitivity, local_only, set_by, set_at,
-    # source}}, "office": {local_only, set_by, set_at, source}}``. A record holds the whole level that applies to its
-    # area, so lowering is a new record and a reimport keeps the highest of the old and the new level (Decision 14).
+    # the starting level. What a person sets lives beside it in the entry of the office, under ``privacy``. Cloud
+    # permission is person-only and never imported.
 
     @staticmethod
     def _own_level(entry: dict[str, Any], area_id: str) -> dict[str, Any]:
@@ -851,8 +853,11 @@ class OfficeServices:
         declared = next((area for area in entry["definition"]["areas"] if area["id"] == area_id), {})
         record = ((entry.get("privacy") or {}).get("areas") or {}).get(area_id)
         if isinstance(record, dict):
-            return {"sensitivity": record.get("sensitivity"), "local_only": bool(record.get("local_only")),
-                    "set_by": record.get("set_by"), "set_at": record.get("set_at"), "source": record.get("source", "person")}
+            return {"sensitivity": record.get("sensitivity", declared.get("sensitivity")),
+                    "local_only": bool(record.get("local_only", declared.get("local_only"))),
+                    "set_by": record.get("set_by", entry.get("installed_by")),
+                    "set_at": record.get("set_at", entry.get("installed_at")),
+                    "source": record.get("source", "office")}
         return {"sensitivity": declared.get("sensitivity"), "local_only": bool(declared.get("local_only")),
                 "set_by": entry.get("installed_by"), "set_at": entry.get("installed_at"), "source": "office"}
 
@@ -883,25 +888,65 @@ class OfficeServices:
             return None
         return self._class_of(self._own_level(entry, located[1]), self._office_local(entry)[0])
 
+    @staticmethod
+    def _cloud_record(record: Any) -> dict[str, Any]:
+        if not isinstance(record, dict) or "cloud_allowed" not in record:
+            return {"allowed": False, "set_by": None, "set_at": None, "source": "default"}
+        metadata = record.get("cloud") if isinstance(record.get("cloud"), dict) else {}
+        return {"allowed": record.get("cloud_allowed") is True, "set_by": metadata.get("set_by"),
+                "set_at": metadata.get("set_at"), "source": metadata.get("source", "person")}
+
+    @classmethod
+    def _effective_cloud_record(cls, entry: dict[str, Any], area_id: str) -> dict[str, Any]:
+        privacy = entry.get("privacy") or {}
+        area = (privacy.get("areas") or {}).get(area_id)
+        if isinstance(area, dict) and "cloud_allowed" in area:
+            return {**cls._cloud_record(area), "scope": "area"}
+        office = privacy.get("office")
+        if isinstance(office, dict) and "cloud_allowed" in office:
+            return {**cls._cloud_record(office), "scope": "office"}
+        return {**cls._cloud_record(None), "scope": "default"}
+
+    def cloud_permission_details(self, bundle: str) -> dict[str, Any] | None:
+        """Effective saved permission and its provenance for a bundle in an installed office."""
+        located = self.office_of(bundle)
+        if located is None:
+            return None
+        office_id, area_id = located
+        entry = self._read().get(office_id)
+        if entry is None:
+            return None
+        return {"office": office_id, "area": area_id, **self._effective_cloud_record(entry, area_id)}
+
+    def cloud_permission_for(self, bundle: str, area: str | None = None) -> bool:
+        """Whether the installed area or its office allows cloud use (an explicit area value wins)."""
+        permission = self.cloud_permission_details(bundle)
+        return bool(permission and (area is None or area == permission["area"]) and permission["allowed"])
+
     @service_errors
     def privacy(self, office_id: str) -> dict[str, Any]:
-        """The levels of an office, area by area, with who set each one and the fixed note of «Privacidad»."""
+        """The levels and cloud permission of an office, area by area, with their provenance."""
         office_id = self._check_id(office_id, "office_id")
         with self._lock:
             entry = self._read().get(office_id)
             if entry is None:
                 raise self._not_installed(office_id)
             office_local, _ = self._office_local(entry)
+            office_cloud = self._cloud_record((entry.get("privacy") or {}).get("office"))
             areas = []
             for area in entry["definition"]["areas"]:
                 level = self._own_level(entry, area["id"])
                 local_only = level["local_only"] or office_local
                 areas.append({"id": area["id"], "sensitivity": level["sensitivity"], "local_only": local_only,
                               "data_class": self._class_of(level, office_local), "set_by": level["set_by"],
-                              "set_at": level["set_at"], "source": level["source"]})
-            return {"office": office_id, "local_only": office_local, "areas": areas, "note": PRIVACY_NOTE}
+                              "set_at": level["set_at"], "source": level["source"],
+                              "cloud": self._cloud_record(((entry.get("privacy") or {}).get("areas") or {}).get(area["id"])),
+                              "cloud_effective": self._effective_cloud_record(entry, area["id"])["allowed"]})
+            return {"office": office_id, "local_only": office_local, "cloud": office_cloud,
+                    "areas": areas, "note": PRIVACY_NOTE}
 
-    def _check_levels(self, office_id: str, area_id: str | None, sensitivity: Any, local_only: Any) -> dict[str, Any]:
+    def _check_levels(self, office_id: str, area_id: str | None, sensitivity: Any, local_only: Any,
+                      cloud_allowed: Any = None) -> dict[str, Any]:
         """The entry of the office, after validating the request; the area must exist and one level must be named."""
         office_id = self._check_id(office_id, "office_id")
         area_id = self._check_id(area_id, "area") if area_id is not None else None
@@ -909,8 +954,12 @@ class OfficeServices:
             raise _invalid("The sensitivity must be normal or sensitive", field="sensitivity", allowed=list(LEVELS))
         if local_only is not None and not isinstance(local_only, bool):
             raise _invalid("local_only must be true or false", field="local_only")
-        if sensitivity is None and local_only is None:
-            raise _invalid("Name a sensitivity or local_only", reason="office_privacy_nothing_to_change")
+        if cloud_allowed is not None and cloud_allowed is not False:
+            raise _invalid("Granting cloud use needs the one-use approval in «Privacidad»",
+                           reason="office_cloud_grant_needs_gui", field="cloud_allowed")
+        if sensitivity is None and local_only is None and cloud_allowed is None:
+            raise _invalid("Name a sensitivity, local_only or cloud_allowed",
+                           reason="office_privacy_nothing_to_change")
         if area_id is None and sensitivity is not None:
             raise _invalid("The sensitivity belongs to an area: name it; only local_only applies to the whole office",
                            reason="office_privacy_area_required", field="area")
@@ -944,9 +993,12 @@ class OfficeServices:
         privacy = json.loads(json.dumps(entry.get("privacy") or {}))
         record = {"set_by": actor, "set_at": utcnow(), "source": "person"}
         if area_id is None:
-            privacy["office"] = {"local_only": after[1], **record}
+            old = privacy.get("office") if isinstance(privacy.get("office"), dict) else {}
+            privacy["office"] = {**old, "local_only": after[1], **record}
         else:
-            privacy.setdefault("areas", {})[area_id] = {"sensitivity": after[0], "local_only": after[1], **record}
+            old = privacy.setdefault("areas", {}).get(area_id)
+            old = old if isinstance(old, dict) else {}
+            privacy["areas"][area_id] = {**old, "sensitivity": after[0], "local_only": after[1], **record}
         entry["privacy"] = privacy
         self._write(offices)
         self._event("office.privacy_changed", office_id, actor=actor, channel=channel, area=area_id, direction=direction,
@@ -959,24 +1011,122 @@ class OfficeServices:
 
     @service_errors
     def raise_level(self, office_id: str, area_id: str | None, *, sensitivity: str | None = None,
-                    local_only: bool | None = None, actor: str, channel: str = "python") -> dict[str, Any]:
-        """Raise the level of an area (or ``local_only`` of the whole office): from nothing to any, ``normal`` to
-        ``sensitive``, ``local_only`` false to true. Anything lower is ``office_level_lowering_needs_gui``."""
+                    local_only: bool | None = None, cloud_allowed: bool | None = None,
+                    actor: str, channel: str = "python") -> dict[str, Any]:
+        """Raise privacy levels or revoke cloud permission; granting cloud use needs the one-use approval."""
         from .projects import _user_actor
 
         actor = _user_actor(actor)
         with self._lock:
-            entry = self._check_levels(office_id, area_id, sensitivity, local_only)
+            entry = self._check_levels(office_id, area_id, sensitivity, local_only, cloud_allowed)
             before = self._current(entry, area_id)
             after = self._target(before, sensitivity, local_only)
             if self._lowers(before, after):
                 raise _conflict("Lowering a level is done in «Privacidad», with the one-use code",
                                 "office_level_lowering_needs_gui", office=office_id, area=area_id,
                                 **{"from": _level_label(*before), "to": _level_label(*after)})
-            if after == before:
+            level_changed = after != before
+            cloud_changed = cloud_allowed is False and self._cloud_setting_needs_update(entry, area_id)
+            if not level_changed and not cloud_changed:
                 return self._privacy_answer(office_id, area_id, before, after, False)
-            self._store_level(self._read(), office_id, area_id, after, actor=actor, channel=channel, direction="raise")
-            return self._privacy_answer(office_id, area_id, before, after, True)
+            if level_changed:
+                self._store_level(self._read(), office_id, area_id, after, actor=actor, channel=channel, direction="raise")
+            if cloud_changed:
+                self._store_cloud_permission(self._read(), office_id, area_id, False, actor=actor, channel=channel,
+                                             direction="revoke")
+            return self._privacy_answer(office_id, area_id, before, after, level_changed or cloud_changed)
+
+    @staticmethod
+    def _cloud_setting_needs_update(entry: dict[str, Any], area_id: str | None) -> bool:
+        privacy = entry.get("privacy") or {}
+        record = privacy.get("office") if area_id is None else (privacy.get("areas") or {}).get(area_id)
+        if area_id is not None and (not isinstance(record, dict) or "cloud_allowed" not in record):
+            return True
+        return isinstance(record, dict) and record.get("cloud_allowed") is not False
+
+    def _store_cloud_permission(self, offices: dict[str, dict[str, Any]], office_id: str, area_id: str | None,
+                                allowed: bool, *, actor: str, channel: str, direction: str) -> dict[str, Any]:
+        entry = offices[office_id]
+        before = (self._effective_cloud_record(entry, area_id)["allowed"] if area_id is not None
+                  else self._cloud_record((entry.get("privacy") or {}).get("office"))["allowed"])
+        privacy = json.loads(json.dumps(entry.get("privacy") or {}))
+        record = (privacy.setdefault("office", {}) if area_id is None
+                  else privacy.setdefault("areas", {}).setdefault(area_id, {}))
+        set_at = utcnow()
+        record.update({"cloud_allowed": allowed, "cloud": {"set_by": actor, "set_at": set_at, "source": "person"}})
+        entry["privacy"] = privacy
+        self._write(offices)
+        self._event("office.cloud_permission_changed", office_id, actor=actor, channel=channel, area=area_id,
+                    scope="office" if area_id is None else "area", direction=direction,
+                    **{"from": before, "to": allowed})
+        return {"allowed": allowed, "set_by": actor, "set_at": set_at, "source": "person"}
+
+    def _cloud_target(self, office_id: str, area_id: str | None) -> dict[str, Any]:
+        office_id = self._check_id(office_id, "office_id")
+        area_id = self._check_id(area_id, "area") if area_id is not None else None
+        entry = self._read().get(office_id)
+        if entry is None:
+            raise self._not_installed(office_id)
+        if area_id is not None and not any(area["id"] == area_id for area in entry["definition"]["areas"]):
+            raise _conflict(f"The office {office_id} has no area {area_id}", "office_area_not_installed",
+                            office=office_id, area=area_id)
+        return entry
+
+    @service_errors
+    def request_cloud_permission(self, office_id: str, area_id: str | None = None) -> dict[str, Any]:
+        """Request the hidden one-use approval to allow cloud use at the office or area scope."""
+        office_id = self._check_id(office_id, "office_id")
+        area_id = self._check_id(area_id, "area") if area_id is not None else None
+        with self._lock:
+            entry = self._cloud_target(office_id, area_id)
+            privacy = entry.get("privacy") or {}
+            record = privacy.get("office") if area_id is None else (privacy.get("areas") or {}).get(area_id)
+            if isinstance(record, dict) and record.get("cloud_allowed") is True:
+                raise _invalid("Cloud use is already allowed at this scope", reason="office_cloud_already_allowed",
+                               office=office_id, area=area_id)
+            scope = "office" if area_id is None else "area"
+            digest = _cloud_permission_digest(office_id, area_id, scope)
+            destination = {"office": office_id, "area": area_id or ""}
+            approvals = self._services.user_approvals
+            found = approvals.pending_like(PRIVACY_APPROVAL_KIND, sha256=digest, destination=destination)
+            approval = found or approvals.request(
+                kind=PRIVACY_APPROVAL_KIND, destination=destination, sha256=digest,
+                location={"source": "office_cloud_permission", "scope": scope, "from": False, "to": True})
+            return {"approval_id": approval["id"], "sha256": approval["sha256"]}
+
+    @service_errors
+    def grant_cloud_permission(self, office_id: str, area_id: str | None = None, *, approval_id: str,
+                               actor: str = "user:operator", channel: str = "gui") -> dict[str, Any]:
+        """Spend the approved one-use request and enable cloud use at the exact office or area scope."""
+        from .projects import _user_actor
+
+        actor = _user_actor(actor)
+        office_id = self._check_id(office_id, "office_id")
+        area_id = self._check_id(area_id, "area") if area_id is not None else None
+        scope = "office" if area_id is None else "area"
+        with self._lock:
+            offices = self._read()
+            entry = self._cloud_target(office_id, area_id)
+            privacy = entry.get("privacy") or {}
+            record = privacy.get("office") if area_id is None else (privacy.get("areas") or {}).get(area_id)
+            item = self._services.user_approvals.peek(approval_id) if isinstance(approval_id, str) and approval_id else None
+            location = item.get("location") if item else None
+            destination = {"office": office_id, "area": area_id or ""}
+            digest = _cloud_permission_digest(office_id, area_id, scope)
+            invalid = (
+                isinstance(record, dict) and record.get("cloud_allowed") is True
+                or item is None or item.get("kind") != PRIVACY_APPROVAL_KIND or item.get("state") != "approved"
+                or not isinstance(location, dict) or location.get("source") != "office_cloud_permission"
+                or location.get("scope") != scope or location.get("from") is not False or location.get("to") is not True
+                or item.get("destination") != destination or item.get("sha256") != digest
+            )
+            if invalid or not self._services.user_approvals.consume(
+                    approval_id, sha256=digest, destination=destination):
+                raise self._cloud_not_approved(office_id, area_id)
+            saved = self._store_cloud_permission(offices, office_id, area_id, True, actor=actor, channel=channel,
+                                                 direction="grant")
+            return {**self.privacy(office_id), "area": area_id, "scope": scope, "changed": True,
+                    "cloud_permission": saved}
 
     @service_errors
     def request_lowering(self, office_id: str, area_id: str | None, *, sensitivity: str | None = None,
@@ -1036,6 +1186,11 @@ class OfficeServices:
                             details={"reason": "office_privacy_change_not_approved", "office": office_id, "area": area_id})
 
     @staticmethod
+    def _cloud_not_approved(office_id: str, area_id: str | None) -> ServiceError:
+        return ServiceError(INVALID_STATE, "Granting cloud use needs the person's one-use approval", status=409,
+                            details={"reason": "office_privacy_change_not_approved", "office": office_id, "area": area_id})
+
+    @staticmethod
     def _carry_privacy(entry: dict[str, Any], previous: dict[str, Any], *, drop: str | None = None) -> None:
         """Keep what the person set when an area joins or leaves: the new entry of the office reads the same levels."""
         privacy = json.loads(json.dumps(previous.get("privacy") or {}))
@@ -1059,12 +1214,20 @@ class OfficeServices:
             if (sensitivity, local_only) != declared:
                 areas[area["id"]] = {"sensitivity": sensitivity, "local_only": local_only, "set_by": held["set_by"],
                                      "set_at": held["set_at"], "source": held["source"]}
+            old_cloud = (((previous.get("privacy") or {}).get("areas") or {}).get(area["id"]))
+            if isinstance(old_cloud, dict) and "cloud_allowed" in old_cloud:
+                areas.setdefault(area["id"], {}).update(
+                    {key: old_cloud[key] for key in ("cloud_allowed", "cloud") if key in old_cloud})
         held_office, who = self._office_local(previous)
         privacy: dict[str, Any] = {}
         if areas:
             privacy["areas"] = areas
         if held_office and not record.get("local_only"):
             privacy["office"] = {"local_only": True, **who}
+        old_office = (previous.get("privacy") or {}).get("office")
+        if isinstance(old_office, dict) and "cloud_allowed" in old_office:
+            privacy.setdefault("office", {}).update(
+                {key: old_office[key] for key in ("cloud_allowed", "cloud") if key in old_office})
         return privacy or None
 
     # --- allow-listed export (OFI-T05) -----------------------------------------

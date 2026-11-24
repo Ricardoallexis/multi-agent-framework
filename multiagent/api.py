@@ -155,6 +155,11 @@ class OfficePrivacyRaiseRequest(_Body):
     area: str | None = None
     sensitivity: str | None = None
     local_only: bool | None = None
+    cloud_allowed: StrictBool | None = None
+
+
+class OfficePrivacyCloudRequest(_Body):
+    area: str | None = None
 
 
 class OfficeExportRequest(_Body):
@@ -795,7 +800,12 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
     @app.post("/api/v1/offices/{office_id}/privacy/raise")
     def raise_office_privacy(office_id: str, body: OfficePrivacyRaiseRequest):
         return services.offices.raise_level(office_id, body.area, sensitivity=body.sensitivity,
-                                            local_only=body.local_only, actor=body.actor, channel="api")
+                                            local_only=body.local_only, cloud_allowed=body.cloud_allowed,
+                                            actor=body.actor, channel="api")
+
+    @app.post("/api/v1/offices/{office_id}/privacy/cloud-request")
+    def request_office_cloud_permission(office_id: str, body: OfficePrivacyCloudRequest):
+        return services.offices.request_cloud_permission(office_id, body.area)
 
     # --- evaluation sets (EVA-T01) ------------------------------------------
 

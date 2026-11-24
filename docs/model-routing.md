@@ -184,7 +184,7 @@ A limit (`QuotaExceeded` or `RateLimitExceeded`) is handled by the kind of entry
   A step set to `cloud` in `step_modes` needs the confirmation too. A step in `local`, or in `auto` with sensitive data,
   uses the fixed `local_default` or `local_reasoning`: if the catalog does not mark that model local, the run is refused
   (`invalid_definition`, `local_model_not_local`) whatever the confirmation. `auto` without sensitive data keeps the
-  workflow's own `preferred_model` and `fallback_model`, as before. The catalog rejects a `gemini` or `openai` model that
+  workflow's own `preferred_model` and `fallback_model` unless the office permission below applies. The catalog rejects a `gemini` or `openai` model that
   is not `tier: cloud`.
 - **Areas of an office.** A run of an area of an installed office takes the class of its area (`RunServices.create`; the engine and the
   router are unchanged). A `sensitive` or «Solo local» area stores the request with `sensitive: true`, so it never confirms the cloud,
@@ -192,6 +192,20 @@ A limit (`QuotaExceeded` or `RateLimitExceeded`) is handled by the kind of entry
   `confirm_cloud`, `execution_mode: human_guided` and `human_guided` steps (`422 area_local_only`), because a guided run could be copied
   out of the machine. An area without a level asks before the cloud (`409 office_level_required`). The tasks of a plan carry the class of
   their own area, and when a task starts to read the output of another the highest class wins. See [Sensitivity](OFFICES.md#sensitivity).
+
+### Automatic cloud permission
+
+Cloud permission is a person-set office or area setting, false by default; an explicit area value overrides the office. For new
+non-sensitive runs of an allowed area, `RunServices.create` sets `confirm_cloud` on its internal request so the unchanged router
+can use cloud candidates. It records `cloud_permission_applied` with the office, area, scope, setter and time. Revocation affects
+new runs; a queued run keeps its stored authorization. `sensitive` and `restricted` always win.
+
+Without permission, an automatic step with a local preferred model and a cloud fallback is run in `local` mode, with no cloud
+fallback. If that local preference is a model other than `local_default` or `local_reasoning`, the local mode uses the corresponding
+default local model. A cloud-preferred automatic step (including `social_post` research when web research is active) fails before
+the run is stored with `422 cloud_permission_required` and the step and model. A routing profile or explicit routing preference
+needs no additional rewrite: with no `confirm_cloud`, the router already excludes its cloud candidates. In Mock and dry-run, this
+rule neither rejects nor changes a request.
 
 ## The chain of checks before a call
 

@@ -347,9 +347,17 @@ def cmd_office(args) -> None:
     elif action == "reimport":
         pretty(_api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/reimport",
                          json_body={**_office_source(args.path), "actor": args.actor}))
-    elif action == "privacy":    # SEN-T01: without options it shows the levels; with them it raises one
+    elif action == "privacy":    # SEN-T01/SEN-T02: without options it shows privacy; changes never grant here
+        if args.request_cloud:
+            if args.sensitive or args.local_only or args.no_cloud:
+                raise ValueError("--request-cloud cannot be combined with privacy changes")
+            approval = _api_json("POST", f"/api/v1/offices/{_segment(args.office_id)}/privacy/cloud-request",
+                                 json_body={"area": args.area})
+            pretty({**approval, "message": "Complete this request in «Privacidad»."})
+            return
         raised = {"sensitivity": "sensitive"} if args.sensitive else {}
         raised.update({"local_only": True} if args.local_only else {})
+        raised.update({"cloud_allowed": False} if args.no_cloud else {})
         if not raised:
             pretty(_api_json("GET", f"/api/v1/offices/{_segment(args.office_id)}/privacy"))
         else:
@@ -1562,11 +1570,14 @@ def build_parser() -> argparse.ArgumentParser:
     x = office.add_parser("reimport", help="Compare PATH with the installed office and change only what differs")
     x.add_argument("office_id"); x.add_argument("path"); x.add_argument("--actor", default="user:local")
     x.set_defaults(func=cmd_office)
-    x = office.add_parser("privacy", help="Show the privacy level of each area, or raise one (lowering is done in the GUI)")
+    x = office.add_parser("privacy", help="Show privacy, raise a level, or revoke/request cloud permission")
     x.add_argument("office_id"); x.add_argument("--area", default=None)
     x.add_argument("--sensitive", action="store_true", help="Raise the area to sensitive")
     x.add_argument("--local-only", dest="local_only", action="store_true",
                    help="Make the area, or without --area the whole office, local only")
+    cloud = x.add_mutually_exclusive_group()
+    cloud.add_argument("--no-cloud", action="store_true", help="Revoke cloud permission at this scope")
+    cloud.add_argument("--request-cloud", action="store_true", help="Request cloud permission in «Privacidad»")
     x.add_argument("--actor", default="user:local"); x.set_defaults(func=cmd_office)
     x = office.add_parser("export", help="Export an installed office or area as an allow-listed .zip")
     x.add_argument("office_id"); x.add_argument("--area", default=None); x.add_argument("--include-code", action="store_true")

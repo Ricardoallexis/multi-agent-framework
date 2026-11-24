@@ -67,7 +67,7 @@ def require_cloud_confirmation(request: Any, catalog: Any) -> None:
     from .errors import ServiceError
 
     selected_cloud = request.execution_mode is ExecutionMode.CLOUD
-    for choice in request.routing_preferences.values():
+    for choice in getattr(request, "routing_preferences", {}).values():
         if choice.model:
             try:
                 selected_cloud |= ModelTier(catalog.model(choice.model).tier) is not ModelTier.LOCAL
@@ -79,11 +79,59 @@ def require_cloud_confirmation(request: Any, catalog: Any) -> None:
         raise ServiceError("cloud_confirmation_required", "Confirm cloud use before creating this run.", status=422)
 
 
+def apply_cloud_permission(request: Any, workflow: Any, catalog: Any, *, allowed: bool,
+                           mock_mode: bool) -> tuple[Any, bool]:
+    """Apply a saved office permission, or keep unpermitted automatic steps off cloud."""
+    from ..contracts import ExecutionMode
+    from .errors import ServiceError
+
+    if mock_mode or request.sensitive or request.confirm_cloud:
+        return request, False
+    if allowed:
+        return request.model_copy(update={"confirm_cloud": True}), True
+
+    workflow_id = getattr(request, "workflow_id", workflow.id)
+    inputs = getattr(request, "inputs", {})
+    preferences = getattr(request, "routing_preferences", {})
+    step_modes = dict(request.step_modes)
+    changed = False
+    for step in workflow.steps:
+        mode = step_modes.get(step.id, request.execution_mode)
+        if step.function is not None or mode is not ExecutionMode.AUTO:
+            continue
+        if step.when:
+            active = getattr(request, step.when, inputs.get(step.when, False))
+            if not active:
+                continue
+        profile_id, _ = catalog.routing_profile_for(workflow_id, step.id)
+        if profile_id is not None or step.id in preferences:
+            continue
+
+        preferred = catalog.models.get(step.preferred_model) if step.preferred_model else None
+        tier = getattr(getattr(preferred, "tier", None), "value", getattr(preferred, "tier", None))
+        if str(tier).casefold() == "cloud":
+            raise ServiceError(
+                "cloud_permission_required",
+                f"Step {step.id} prefers cloud model {step.preferred_model!r}, but this office has not allowed cloud use.",
+                status=422,
+                details={"step": step.id, "model": step.preferred_model},
+            )
+        fallback = catalog.models.get(step.fallback_model) if step.fallback_model else None
+        fallback_tier = getattr(getattr(fallback, "tier", None), "value", getattr(fallback, "tier", None))
+        if str(tier).casefold() == "local" and str(fallback_tier).casefold() == "cloud":
+            step_modes[step.id] = ExecutionMode.LOCAL
+            changed = True
+
+    return (request.model_copy(update={"step_modes": step_modes}), False) if changed else (request, False)
+
+
 def require_fixed_models_allowed(request: Any, workflow: Any, catalog: Any) -> None:
     """Check fixed workflow model choices before they can bypass routing permissions."""
     from ..contracts import ExecutionMode
     from .errors import INVALID_DEFINITION, ServiceError
 
+    workflow_id = getattr(request, "workflow_id", workflow.id)
+    preferences = getattr(request, "routing_preferences", {})
     for step in workflow.steps:
         if step.function is not None:
             continue  # a function step keeps its own error for run options (function_step_option_invalid)
@@ -95,8 +143,8 @@ def require_fixed_models_allowed(request: Any, workflow: Any, catalog: Any) -> N
                 status=422,
                 details={"step": step.id},
             )
-        profile_id, _ = catalog.routing_profile_for(request.workflow_id, step.id)
-        if profile_id is not None or step.id in request.routing_preferences:
+        profile_id, _ = catalog.routing_profile_for(workflow_id, step.id)
+        if profile_id is not None or step.id in preferences:
             continue
         if mode in (ExecutionMode.HUMAN_GUIDED, ExecutionMode.CLOUD):
             continue

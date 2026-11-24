@@ -200,6 +200,15 @@ def test_plan_task_carries_its_area_class(world):
     root = make_demo(tmp)
     prefer_cloud(root, DEMO_AREAS)
     services.offices.import_folder(root, actor=ACTOR)
+    assert services.runs._bundle_runtime("demo__seguimiento") is not None
+    assert services.runs._bundle_runtime("demo__avisos") is not None
+    permission = services.offices.request_cloud_permission("demo", "avisos")
+    app = create_app(services=services)
+    app.state.approval_sessions.bootstrap_code = "synthetic-start-code"
+    headers = {"Authorization": f"Bearer {ensure_token(services.settings.gui_token_file)}"}
+    with TestClient(app, base_url="http://localhost") as client:
+        decide_with_code(client, headers, permission["approval_id"])
+    services.offices.grant_cloud_permission("demo", "avisos", approval_id=permission["approval_id"], actor=ACTOR)
     tasks = services.tasks
     tasks.create_group("plan", "Invented plan", actor="user", authorized=True, default_requires="accepted")
     tasks.create_task("plan", "keep", "Follow up", actor="user")
@@ -465,5 +474,5 @@ def test_privacy_note_is_the_one_the_service_returns(demo):
     assert "destino" not in text and "autoriz" not in text and "nube" not in text
     assert [area["id"] for area in services.offices.privacy("demo")["areas"]] == list(DEMO_AREAS)
     assert set(services.offices.privacy("demo")["areas"][0]) == {
-        "id", "sensitivity", "local_only", "data_class", "set_by", "set_at", "source"}
+        "id", "sensitivity", "local_only", "data_class", "set_by", "set_at", "source", "cloud", "cloud_effective"}
     assert reason(failure(services.offices.privacy, "nothing")) == "office_not_installed"
