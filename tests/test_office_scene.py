@@ -370,4 +370,3 @@ def test_scene_route_and_cli_parity(world, monkeypatch, capsys):
         expected.pop("generated_at")
         assert actual == expected
         assert client.get("/api/v1/offices/missing/scene").status_code == 404
-
