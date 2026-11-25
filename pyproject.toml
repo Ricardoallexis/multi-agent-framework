@@ -81,7 +81,7 @@ packages = [
 [tool.setuptools.package-data]
 "multiagent.tasks" = ["labels.json"]
 "multiagent.gui" = ["static/*.html", "static/*.css", "static/js/*.js", "static/js/ui/*.js", "static/vendor/*",
-  "static/extensions/*/*", "static/extensions/*/*/*"]
+  "static/extensions/*/*", "static/extensions/*/*/*", "static/i18n/*/*.js"]
 "multiagent.project_templates" = ["*.yaml", "*.json"]
 "multiagent._resources.catalog" = ["*.yaml"]
 "multiagent._resources.workflows" = ["*.yaml"]

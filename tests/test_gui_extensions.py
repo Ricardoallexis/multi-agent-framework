@@ -208,6 +208,12 @@ def test_extension_folders_ship_in_the_wheel():
     assert "static/extensions/*/*" in patterns and "static/extensions/*/*/*" in patterns
 
 
+def test_gui_dictionaries_ship_in_the_wheel():
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "static/i18n/*/*.js" in data["tool"]["setuptools"]["package-data"]["multiagent.gui"]
+    assert list(STATIC_DIR.glob("i18n/*/*.js"))
+
+
 # --- the page keeps one script, and no shared file knows any extension ----------------------------------------------------
 
 def test_no_shared_file_names_an_extension_and_the_page_has_one_script_and_leading_app_css():
