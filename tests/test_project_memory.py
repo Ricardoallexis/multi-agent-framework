@@ -339,8 +339,8 @@ def test_pending_shows_the_memory_approvals_with_the_title_as_plain_text(service
     items = {item["id"]: item for item in body["items"]}
     trust_item = items["approval:" + entry["pending_approval"]]
     delete_item = items["approval:" + asked["pending_approval"]]
-    assert trust_item["title"] == "Apunte del proyecto: " + title and "apunte" in trust_item["reason"] and "fiable" in trust_item["reason"]
-    assert delete_item["title"] == "Apunte del proyecto: " + title and "apunte" in delete_item["reason"] and "borre" in delete_item["reason"]
+    assert trust_item["title"] == "Project note: " + title and "note" in trust_item["reason"] and "trusted" in trust_item["reason"]
+    assert delete_item["title"] == "Project note: " + title and "note" in delete_item["reason"] and "deleted" in delete_item["reason"]
     assert trust_item["href"] == "#approvals/" + entry["pending_approval"]
     listed = gui.client.get("/gui/api/approvals", headers=gui.headers).json()["items"]
     assert {item["kind"] for item in listed} == {"memory_trust", "memory_delete"}
@@ -458,7 +458,7 @@ def test_the_pending_card_carries_the_pair_read_from_the_entries_and_cut_to_a_fi
     assert "conflict" not in other
     item = next(item for item in gui.client.get("/gui/api/pending", headers=gui.headers).json()["items"]
                 if item["id"] == "approval:" + new["pending_approval"])
-    assert "contradice" in item["reason"] and "Pendientes" in item["reason"] and "apunte" in item["reason"]
+    assert "contradicts" in item["reason"] and "Pending" in item["reason"] and "note" in item["reason"]
     # once the old one is gone the pair is no longer shown
     delete = services.memory.delete(old["id"], actor="user:ana")
     decide_with_code(gui, delete["pending_approval"])

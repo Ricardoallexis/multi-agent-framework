@@ -64,7 +64,7 @@ def test_session_cookie_single_exchange_and_restart(env):
     assert "httponly" in cookie.lower() and "samesite=strict" in cookie.lower()
     assert "path=" + APPROVAL_COOKIE_PATH in cookie.lower()
     again = post(client, headers, "/session", {"code": "synthetic-start-code"})
-    assert again.status_code == 409 and "reinicia la GUI" in again.text
+    assert again.status_code == 409 and "restart the GUI" in again.text
     approval = request(services)
     replacement = create_app(services=services)
     replacement.state.approval_sessions.bootstrap_code = "another-start-code"
