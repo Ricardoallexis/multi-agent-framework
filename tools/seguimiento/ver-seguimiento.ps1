@@ -632,7 +632,7 @@ function ConvertTo-DisplaySharedLabelText([string]$sharedText) {
         'lista' { 'Available' }
         'disponible' { 'Available' }
         'cerrada' { 'Closed' }
-        default { $fallback }
+        default { $sharedText }
     }
 }
 # SEG-T13: one label for phases and stages, first match wins. $kind is 'Fase' or 'Etapa'; $rows are the tasks (State, Patch,
@@ -2555,14 +2555,17 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         # SEG-T09: the stage is a collapsible <details>; active stages open, completed ones closed.
         $stageIsComplete = $closure.Status -eq 'complete'
         $stageOpen = -not $stageIsComplete -and -not $claimsClosed -and $closure.Status -ne 'frozen'
-        $stageStateText = if ($stageIsComplete) { 'Closed' } elseif ($claimsClosed) { 'Closure unverified' } else { $sf = (Get-Field $stageText 'Estado').Trim(); if ($sf) { Get-DisplayTaskState $sf } else { 'Active' } }
+        $stageSf = (Get-Field $stageText 'Estado').Trim()
+        $stageStateText = if ($stageIsComplete) { 'Closed' } elseif ($claimsClosed) { 'Closure unverified' } elseif ($stageSf) { Get-DisplayTaskState $stageSf } else { 'Active' }
+        # The chip class comes from the raw state, not from the English text shown.
+        $stageStateRaw = if ($stageIsComplete) { 'cerrado' } elseif ($claimsClosed) { 'sin verificar' } elseif ($stageSf) { $stageSf } else { 'activa' }
         # SEG-T13: the header says what the tasks are doing (same function as the phases); the card's Estado is a secondary datum.
         $stageLabel = Get-StatusLabel 'Etapa' $taskRows $(if ($stageIsComplete) { 'cerrada' } elseif ($claimsClosed) { 'sin verificar' } else { '' }) $integrationRound.Since
         if ($closure.Status -eq 'frozen') { $stageLabel = [pscustomobject]@{ Text = 'Frozen'; Class = 's-congelada' } }
         $stageEstado = (Get-Field $stageText 'Estado').Trim().ToLowerInvariant()
         $stageStateHtml = if ($stageLabel) {
             "<span class=""state $($stageLabel.Class)"">$(Encode $stageLabel.Text)</span>" + $(if ($stageEstado -and -not $stageIsComplete -and -not $claimsClosed -and $closure.Status -ne 'frozen') { "<span class=""meta seg-estado"">stage $(Encode (Get-DisplayTaskState $stageEstado))</span>" })
-        } else { "<span class=""state s-$($stageStateText -replace '[^\p{L}\p{Nd}]+', '-')"">$(Encode $stageStateText)</span>" }
+        } else { "<span class=""state s-$($stageStateRaw -replace '[^\p{L}\p{Nd}]+', '-')"">$(Encode $stageStateText)</span>" }
         $stateOrder = @('en curso', 'disponible', 'liberada', 'pendiente', 'requiere cambios', 'reabierta', 'congelada', 'terminada', 'integrada')
         $countParts = @($taskRecords | Group-Object State | Sort-Object @{ Expression = { $i = $stateOrder.IndexOf($_.Name); if ($i -lt 0) { 99 } else { $i } } } | ForEach-Object { "$($_.Count) $(Encode (Get-DisplayTaskState $_.Name))" })
         $stageCountsText = if ($stageIsFrozen -and $taskRecords.Count) { "$($taskRecords.Count) tasks, all separate" } elseif ($countParts.Count) { $countParts -join ' &middot; ' } else { 'no tasks' }
