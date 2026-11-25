@@ -20,6 +20,8 @@ const CHIP_LABELS = {
   waiting: { text: "Falta un paso", tone: "warning", shape: "diamond", explanation: "Falta completar un paso." },
   unknown: { text: "Sin verificar", tone: "neutral", shape: "ring", explanation: "No se puede comprobar sin gastar." },
   error: { text: "No disponible", tone: "danger", shape: "square", explanation: "No disponible en este momento." },
+  conflict: { text: "Estado en conflicto; vuelve a comprobarlo", tone: "danger", shape: "square",
+    explanation: "La activación y la última comprobación no coinciden." },
   unverified: { text: "Sin comprobar", tone: "neutral", shape: "ring", explanation: "Clave configurada; se comprueba con el primer mensaje." },
   connected: { text: "Conectado", tone: "success", shape: "disc", explanation: "Conectado y comprobado con una respuesta reciente." },
   key_invalid: { text: "Clave inválida", tone: "danger", shape: "square", explanation: "El proveedor rechazó la clave configurada." },

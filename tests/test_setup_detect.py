@@ -105,13 +105,19 @@ def test_session_interpretation(probes, app, reply, state):
     assert apps(measure(probes))[app]["session"]["state"] == state
 
 
-@pytest.mark.parametrize("reply", [outcome("bad SYNTHETIC_SECRET"), outcome("1.2.3 4.5.6"),
-                                    outcome("1.2.3", code=1), outcome("1.2.3", timed_out=True),
-                                    outcome("1.2.3", stderr_truncated=True), OSError("SYNTHETIC_SECRET")])
-def test_version_failures_discard_output(probes, reply):
+@pytest.mark.parametrize("reply,reason", [
+    (outcome("bad SYNTHETIC_SECRET"), "uninterpretable"),
+    (outcome("1.2.3 4.5.6"), "uninterpretable"),
+    (outcome("1.2.3", code=1), "probe_failed"),
+    (outcome("1.2.3", timed_out=True), "timed_out"),
+    (outcome("1.2.3", stderr_truncated=True), "probe_failed"),
+    (OSError("SYNTHETIC_SECRET"), "probe_failed"),
+])
+def test_version_failures_discard_output(probes, reply, reason):
     probes[2][("codex", "--version")] = reply
     row = apps(measure(probes))["codex"]
-    assert row["version"] is None and row["next_step"]
+    assert row["detection"] == "detected" and row["executable_found"] is True
+    assert row["version"] is None and row["version_result"] == reason and row["next_step"]
     assert "SYNTHETIC_SECRET" not in json.dumps(row)
 
 
@@ -179,6 +185,26 @@ def test_contexts_are_separate_not_invented(probes):
     assert packaged["contexts"]["user_console"]["state"] == "not_measured"
     assert apps(console)["codex"]["version"] == "1.2.3"
     assert apps(packaged, "packaged_process")["codex"]["version"] == "2.0.0"
+    assert apps(console)["codex"]["context"] == "user_console"
+    assert apps(packaged, "packaged_process")["codex"]["context"] == "packaged_process"
+
+
+def test_packaged_app_location_requires_resolved_path(probes, monkeypatch):
+    local_app_data = probes[0].parent / "local"
+    package_bin = local_app_data / "Packages" / "SyntheticPackage" / "bin"
+    package_bin.mkdir(parents=True)
+    binary = package_bin / "codex.exe"
+    binary.write_text("synthetic executable", encoding="utf-8")
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    monkeypatch.setattr(process, "resolve_executable", lambda name, cwd: str(binary))
+
+    row = apps(measure(probes, context="packaged_process"), "packaged_process")["codex"]
+    assert row["executable_found"] is True and row["windows_package_path"] is True
+    assert row["version_result"] == "observed" and row["version_observed_at"]
+
+    monkeypatch.setattr(process, "resolve_executable", lambda name, cwd: str(probes[0].parent / "bin" / name))
+    row = apps(measure(probes, context="packaged_process"), "packaged_process")["codex"]
+    assert row["windows_package_path"] is False
 
 
 def test_antigravity_is_optional_detection_only(probes):

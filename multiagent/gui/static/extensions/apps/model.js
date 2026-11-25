@@ -28,6 +28,7 @@ const REASONS = {
   no_access: "Sin acceso.",
   limit_reached: "Límite alcanzado · sin hora conocida",
   status_unknown: "No se pudo comprobar la conexión.",
+  version_check_failed: "Falló la comprobación de versión.",
   session_unverifiable: "No se puede comprobar la sesión sin gastar cuota.",
   reachability_unknown: "El acceso no se prueba sin gastar.",
   unreachable: "No responde.",
@@ -47,13 +48,24 @@ export const EXECUTOR_ENABLE_NOTICE =
   "Activar un ejecutor permite que el framework lance esta app bajo tu supervisión y usando tu suscripción. " +
   "Solo lo activas tú, desde aquí y de uno en uno.";
 
+const VERSION_FAILURES = {
+  timed_out: "no respondió a tiempo",
+  probe_failed: "no se pudo ejecutar",
+  uninterpretable: "respuesta no reconocida",
+};
+
 export function quotaLines(quota) {
   return formatQuotaLines(quota, { emptyWhenMissing: true });
 }
 
 function installedLabel(row, kind) {
   if (kind === "model") return row.id === "ollama" ? "Local" : "No aplica (API)";
-  if (row.installed === true) return "Sí";
+  if (row.installed === true) {
+    if (row.detection_context === "packaged_process" && row.windows_package_path === true) {
+      return "Encontrado en el contexto de esta app; no se verificó su disponibilidad fuera de ella";
+    }
+    return "Sí";
+  }
   if (row.installed === false) return "No";
   return "Desconocido";
 }
@@ -295,6 +307,9 @@ function statusChipFor(row, view = null) {
   if (row.available !== true && (row.limit || row.reason === "limit_reached" || row.reason === "quota_paused")) {
     return { status: "limit_reached", label: "Límite alcanzado" };
   }
+  if (view?.state === "conflict") {
+    return { status: "conflict", label: "Estado en conflicto; vuelve a comprobarlo" };
+  }
   if (view && ACTIVATION_CHIPS[view.state]) {
     return { status: ACTIVATION_CHIPS[view.state], label: view.label };
   }
@@ -326,7 +341,12 @@ function tlsButton(button) {
 function buildEntry(row, kind, setupStatus, mode, activation = null) {
   const perm = setupStatus?.permissions?.[row.id] || null;
   const activationRow = kind === "executor" ? activation : null;
-  const view = kind === "executor" ? activationView(row, activationRow) : null;
+  const activationViewModel = kind === "executor" ? activationView(row, activationRow) : null;
+  const conflict = activationViewModel?.state === "ready" &&
+    (row.installed === false || ["probe_failed", "timed_out", "uninterpretable"].includes(row.version_result));
+  const view = conflict
+    ? { ...activationViewModel, state: "conflict", label: "Estado en conflicto; vuelve a comprobarlo", actions: [] }
+    : activationViewModel;
   // Without the answer of the server the chip stays what it was: an executor enabled by hand is «Listo», not «Listo para activar».
   const chip = statusChipFor(row, activationRow ? view : null);
   const limited = row.available !== true && (Boolean(row.limit) || row.reason === "limit_reached" || row.reason === "quota_paused");
@@ -345,7 +365,11 @@ function buildEntry(row, kind, setupStatus, mode, activation = null) {
     missingLine: missingSummaryLine(row, action, chip, reasonText),
     chip,
     installed: installedLabel(row, kind),
-    version: row.version || (kind === "model" && row.id !== "ollama" ? "No aplica" : "Sin dato"),
+    version: row.version || (kind === "model" && row.id !== "ollama"
+      ? "No aplica"
+      : ["probe_failed", "timed_out", "uninterpretable"].includes(row.version_result)
+        ? `Versión no comprobada · ${VERSION_FAILURES[row.version_result]}`
+        : "Sin dato"),
     session: sessionLabel(row, kind),
     enabled: enabledLabel(row),
     permissions: permissionSummary(row.id, perm, kind),
@@ -356,7 +380,7 @@ function buildEntry(row, kind, setupStatus, mode, activation = null) {
     tlsFix: tlsButton(row.tls_fix),
     tlsRevert: tlsButton(row.tls_revert),
     reasonText,
-    checkedAt: row.checked_at || null,
+    checkedAt: row.detection_observed_at || row.checked_at || null,
     action,
   };
 }

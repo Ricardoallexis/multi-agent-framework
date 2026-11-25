@@ -59,7 +59,8 @@ class ConnectionServices:
         if any(identifier not in self._last for identifier in APPS):
             try:
                 self._batch_detection = self.detector(cwd=Path.cwd(), context="packaged_process",
-                                                      include_antigravity=True)
+                                                      include_antigravity=True, parallel_apps=True,
+                                                      include_requirements=False)
             except Exception:
                 self._batch_detection = {}
         try:
@@ -76,7 +77,13 @@ class ConnectionServices:
                 for window in (row.get("quota") or {}).get("windows") or []
             ):
                 row["limit"] = limit_notice(self._services, identifier, rows=self._last.values())
-        return {"connections": [dict(self._last[identifier]) for identifier in IDS]}
+        observed_at = max(
+            (self._last[identifier].get("detection_observed_at") for identifier in APPS
+             if self._last[identifier].get("detection_observed_at")),
+            default=None,
+        )
+        return {"connections": [dict(self._last[identifier]) for identifier in IDS],
+                "detection_cache": {"scope": "service_memory", "observed_at": observed_at}}
 
     def check(self, identifier: str) -> dict[str, Any]:
         if identifier not in IDS:
@@ -117,13 +124,20 @@ class ConnectionServices:
         settings = self._services.settings
         try:
             observed = self._batch_detection if self._batch_detection is not None else self.detector(
-                cwd=Path.cwd(), context="packaged_process", include_antigravity=True)
+                cwd=Path.cwd(), context="packaged_process", include_antigravity=True, app=app)
             apps = observed["contexts"]["packaged_process"].get("apps", [])
             fact = next((item for item in apps if item.get("app") == app), {})
         except Exception:
             fact = {}
-        row["installed"] = fact.get("detection") == "detected" if fact else None
+        row["executable_found"] = fact.get("executable_found", fact.get("detection") == "detected") if fact else None
+        row["installed"] = row["executable_found"]
         row["version"] = fact.get("version")
+        row["version_result"] = fact.get("version_result")
+        row["detection_context"] = fact.get("context", "packaged_process") if fact else None
+        row["windows_package_path"] = bool(fact.get("windows_package_path")) if fact else False
+        row["detection_observed_at"] = (fact.get("version_observed_at") or
+                                        fact.get("observed_at") or
+                                        (observed.get("observed_at") if fact else None) or row["checked_at"])
         row["session"] = (fact.get("session") or {}).get("state", "unknown")
         if app == "copilot":
             row["session"] = "unknown"
@@ -155,6 +169,8 @@ class ConnectionServices:
         if state and state.get("pause_reason"):
             row["reason"] = "quota_paused"
             row["paused_until"] = state.get("paused_until")
+        if row["reason"] is None and row["version_result"] in {"probe_failed", "timed_out", "uninterpretable"}:
+            row["reason"] = "version_check_failed"
         self._quota(row, app)
 
     def _quota(self, row: dict[str, Any], app: str) -> None:

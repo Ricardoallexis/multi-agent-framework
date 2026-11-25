@@ -10,8 +10,10 @@ evidence: descriptor/adapter versions must not be treated as CLI versions.
 from __future__ import annotations
 
 import json
+import os
 import platform
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from collections.abc import Callable
 from pathlib import Path
@@ -77,7 +79,20 @@ def _version(executable: str, cwd: Path) -> tuple[str | None, str]:
 def _version_fact(executable: str, cwd: Path) -> dict[str, Any]:
     version, reason = _version(executable, cwd)
     return {"version": version, "version_result": reason,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
             "next_step": None if version else "Check the version in the application's official console."}
+
+
+def _is_windows_package_path(executable: str) -> bool:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        return False
+    try:
+        resolved = os.path.normcase(os.path.realpath(executable))
+        packages = os.path.normcase(os.path.realpath(str(Path(local_app_data) / "Packages")))
+        return os.path.commonpath((packages, resolved)) == packages and resolved != packages
+    except (OSError, ValueError):
+        return False
 
 
 def _session(app: str, executable: str, cwd: Path) -> dict[str, Any]:
@@ -120,7 +135,9 @@ def _session(app: str, executable: str, cwd: Path) -> dict[str, Any]:
 
 def _app(app: str, cwd: Path, declared_path: str | None, steps: _Steps) -> dict[str, Any]:
     result: dict[str, Any] = {
-        "app": app, "detection": "not_detected", "origin": "declared_path" if declared_path else "PATH",
+        "app": app, "detection": "not_detected", "executable_found": False,
+        "context": steps.context, "windows_package_path": False,
+        "origin": "declared_path" if declared_path else "PATH",
         "version": None, "version_status": "version not checked",
         "version_command": [app, "--version"], "compatibility": "compatibility not declared",
         "session": {"state": "unknown", "message": "cannot be checked"},
@@ -144,6 +161,7 @@ def _app(app: str, cwd: Path, declared_path: str | None, steps: _Steps) -> dict[
     observation = steps.run(app, "version", [app, "--version"], "Check the version without modifying the app.",
                             lambda: _version_fact(executable, cwd))
     version, reason = observation["version"], observation["version_result"]
+    result["version_observed_at"] = observation["observed_at"]
     arguments = COMMANDS[app][1]
     session = ({"state": "unknown", "message": "cannot be checked",
                 "next_step": "Check the session in the application's official console."}
@@ -151,11 +169,28 @@ def _app(app: str, cwd: Path, declared_path: str | None, steps: _Steps) -> dict[
                steps.run(app, "session", [app, *arguments] if arguments else None,
                          "Check the session with the fixed command; without a command, report without probing.",
                          lambda: _session(app, executable, cwd)))
-    result.update(detection="detected", version=version,
+    result.update(detection="detected", executable_found=True,
+                  windows_package_path=_is_windows_package_path(executable), version=version,
                   version_status="checked" if version and app in {"claude", "codex"} else "version not checked",
                   version_result=reason, session=session,
                   next_step=None if version else "Check the version in the application's official console.")
     return result
+
+
+def _failed_app(app: str, context: str) -> dict[str, Any]:
+    return {
+        "app": app,
+        "detection": "probe_failed",
+        "executable_found": None,
+        "context": context,
+        "windows_package_path": False,
+        "origin": "PATH",
+        "version": None,
+        "version_status": "version not checked",
+        "version_result": "probe_failed",
+        "session": {"state": "unknown", "message": "cannot be checked"},
+        "next_step": "Check the app in its official console.",
+    }
 
 
 def _requirements(cwd: Path, steps: _Steps) -> list[dict[str, Any]]:
@@ -187,6 +222,7 @@ def _requirements(cwd: Path, steps: _Steps) -> list[dict[str, Any]]:
 
 def detect(*, cwd: Path | str | None = None, context: str = "user_console",
            claude_path: str | None = None, include_antigravity: bool = False,
+           app: str | None = None, parallel_apps: bool = False, include_requirements: bool = True,
            system: str | None = None, before_step: Callable | None = None,
            after_step: Callable | None = None) -> dict[str, Any]:
     """Measure one explicitly identified context; never claim to have measured another.
@@ -194,9 +230,14 @@ def detect(*, cwd: Path | str | None = None, context: str = "user_console",
     No credential store, account usage reader, catalog writer or executor-enabling
     action is called. Returned evidence can be consumed by a local GUI without
     exposing subprocess output. A version observation is not a readiness verdict.
+    App probes stay serial unless requested, and hook-enabled measurements always
+    stay serial so configuration evidence retains its established order.
     """
     if context not in CONTEXTS:
         raise ValueError("context must be user_console or packaged_process")
+    available_apps = (*APPS, *(("agy",) if include_antigravity else ()))
+    if app is not None and app not in available_apps:
+        raise ValueError("app must be one of the selected apps")
     folder = process.validate_cwd(Path.cwd() if cwd is None else cwd)
     operating_system = platform.system() if system is None else system
     contexts: dict[str, Any] = {name: {"state": "not_measured"} for name in CONTEXTS}
@@ -210,9 +251,28 @@ def detect(*, cwd: Path | str | None = None, context: str = "user_console",
                      "apps": [], "requirements": [],
                      "next_step": "Use a Windows console; no verified source is available for other platforms."})
         return report
-    apps = (*APPS, "agy") if include_antigravity else APPS
-    contexts[context] = {"state": "measured", "apps": [
-        steps.run(app, "detection", None, "Resolve PATH or the declared path; do not open credential stores.",
-                  lambda app=app: _app(app, folder, claude_path if app == "claude" else None, steps))
-        for app in apps], "requirements": _requirements(folder, steps)}
+    apps = (app,) if app is not None else available_apps
+
+    def measure_app(app_name: str) -> dict[str, Any]:
+        return steps.run(
+            app_name,
+            "detection",
+            None,
+            "Resolve PATH or the declared path; do not open credential stores.",
+            lambda: _app(app_name, folder, claude_path if app_name == "claude" else None, steps),
+        )
+
+    if parallel_apps and before_step is None and after_step is None and len(apps) > 1:
+        with ThreadPoolExecutor(max_workers=len(apps), thread_name_prefix="setup-detect") as workers:
+            futures = {name: workers.submit(measure_app, name) for name in apps}
+            app_results = []
+            for name in apps:
+                try:
+                    app_results.append(futures[name].result())
+                except Exception:
+                    app_results.append(_failed_app(name, context))
+    else:
+        app_results = [measure_app(name) for name in apps]
+    requirements = _requirements(folder, steps) if include_requirements and app is None else []
+    contexts[context] = {"state": "measured", "apps": app_results, "requirements": requirements}
     return report
