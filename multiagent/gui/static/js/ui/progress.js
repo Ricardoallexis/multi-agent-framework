@@ -13,26 +13,34 @@
 // The bar is role="progressbar" with aria-valuemin, aria-valuemax, aria-valuenow, aria-valuetext and aria-label. The fill is an
 // SVG rect (a CSS style attribute would break the CSP), so the length is data, not style.
 import { html } from "../../vendor/htm-preact-standalone.module.js";
+import { t } from "../i18n.js";
 import { normalizeTone } from "./labels.js";
 
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
 
 // The numbers behind a bar: { determinate, min, max, now, percent, valueText }.
-export function progressInfo({ value = null, max = 100, min = 0, valueText = "" } = {}) {
+export function progressInfo({ value = null, max = 100, min = 0, valueText = "", words = null } = {}) {
   const low = finite(min) ? min : 0;
   const high = finite(max) ? max : 100;
   if (!finite(value) || high <= low) {
-    return { determinate: false, min: low, max: high, now: null, percent: null, valueText: valueText || "En curso" };
+    return { determinate: false, min: low, max: high, now: null, percent: null, valueText: valueText || words?.inProgress || "En curso" };
   }
   const now = Math.min(Math.max(value, low), high);
   const percent = Math.round(((now - low) / (high - low)) * 100);
   const scale = low === 0 && high === 100;
-  const text = valueText || (scale ? percent + " %" : now + " de " + high);
+  const text = valueText || (scale ? words?.percent?.(percent) || percent + " %" : words?.count?.(now, high) || now + " de " + high);
   return { determinate: true, min: low, max: high, now, percent, valueText: text };
 }
 
 export function Progress({ label, value = null, max = 100, min = 0, valueText = "", tone = "active", hideLabel = false, className = "", ...rest }) {
-  const info = progressInfo({ value, max, min, valueText });
+  const info = progressInfo({
+    value, max, min, valueText,
+    words: {
+      inProgress: t("common.progress.in_progress"),
+      count: (current, total) => t("common.progress.count", { current, total }),
+      percent: (percent) => t("common.progress.percent", { percent }),
+    },
+  });
   const aria = { "aria-valuemin": info.min, "aria-valuemax": info.max, "aria-valuetext": info.valueText };
   if (info.determinate) aria["aria-valuenow"] = info.now;
   return html`<div class=${"progress tone-" + normalizeTone(tone) + (info.determinate ? "" : " indeterminate") + (className ? " " + className : "")} ...${rest}>

@@ -10,6 +10,7 @@ import { navigate } from "./route.js";
 import { RunDetail } from "./run-detail.js";
 import { NARROW_QUERY, PHONE_QUERY, computeRunsLayout } from "./runs-layout.js";
 import { errorText, fmtDate } from "./text.js";
+import { t } from "./i18n.js";
 import { StatusChip } from "./ui/status-chip.js";
 
 const LIST_DEBOUNCE_MS = 500;
@@ -52,8 +53,8 @@ function RunList({ token, status, selected, version, onSelect }) {
   }, [token]);
 
   if (error && !runs) return html`<p class="message error" role="alert">${errorText(error)}</p>`;
-  if (!runs) return html`<p class="muted" aria-busy="true">Cargando ejecuciones…</p>`;
-  if (runs.length === 0) return html`<p class="muted">Todavía no hay ejecuciones. Crea la primera con «Nueva ejecución».</p>`;
+  if (!runs) return html`<p class="muted" aria-busy="true">${t("runs.loading")}</p>`;
+  if (runs.length === 0) return html`<p class="muted">${t("runs.empty")}</p>`;
   return html`<ul class="run-list">
     ${runs.map((run) => html`<li key=${run.id}>
       <button type="button" data-help-exempt="data-row" aria-current=${run.id === selected ? "true" : null} onClick=${() => onSelect(run.id)}>
@@ -93,14 +94,14 @@ export function Runs({ token, status, mock, initialRunId = null }) {
     main = html`<${RunDetail} token=${token} runId=${selected} status=${status} onChanged=${bump}
       onBack=${layout.showBack ? goBack : null} />`;
   } else {
-    main = html`<p class="muted">Elige una ejecución de la lista o crea una nueva.</p>`;
+    main = html`<p class="muted">${t("runs.choose")}</p>`;
   }
   return html`<div class="runs-page">
     <${Help} topic="runs.section" always=${true} />
     <div class="runs">
-      <aside class="runs-side" aria-label="Lista de ejecuciones" hidden=${!layout.showList}>
+      <aside class="runs-side" aria-label=${t("runs.list.aria")} hidden=${!layout.showList}>
         <div>
-          <button type="button" class="btn" ...${helpFor("runs.new")} onClick=${() => { setCreating(true); }}>Nueva ejecución</button>
+          <button type="button" class="btn" ...${helpFor("runs.new")} onClick=${() => { setCreating(true); }}>${t("runs.new")}</button>
           <${Help} topic="runs.new" />
         </div>
         <${Help} topic="runs.list" />

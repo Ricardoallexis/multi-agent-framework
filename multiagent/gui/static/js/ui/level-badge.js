@@ -11,6 +11,7 @@
 //   className / any other attribute goes to the outer element
 // The colours are the ones of the design (--lvl-1..4 in app.css): the badge has its own fill, so it reads the same in light and dark.
 import { html } from "../../vendor/htm-preact-standalone.module.js";
+import { t } from "../i18n.js";
 
 export const LEVELS = Object.freeze({
   T1: { rank: 1, name: "económico" },
@@ -31,9 +32,11 @@ export function levelInfo(level) {
 export function LevelBadge({ level, showName = false, className = "", ...rest }) {
   const info = levelInfo(level);
   if (!info) return null;
-  return html`<span class=${"level level-" + info.rank + (className ? " " + className : "")} data-level=${info.id} title=${info.label} ...${rest}>
+  const name = t("common.level." + info.id.toLowerCase());
+  const label = t("common.level.label", { level: info.id, name });
+  return html`<span class=${"level level-" + info.rank + (className ? " " + className : "")} data-level=${info.id} title=${label} ...${rest}>
     <span class="level-pips" aria-hidden="true">${[1, 2, 3, 4].map((n) => html`<i key=${n} class=${n <= info.rank ? "on" : ""}></i>`)}</span>
-    <span class="level-text" aria-hidden="true">${info.id}${showName ? " " + info.name : ""}</span>
-    <span class="sr-only">${info.label}</span>
+    <span class="level-text" aria-hidden="true">${info.id}${showName ? " " + name : ""}</span>
+    <span class="sr-only">${label}</span>
   </span>`;
 }

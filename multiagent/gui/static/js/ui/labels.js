@@ -14,6 +14,8 @@
 // <StatusChip labels="task" status="review" />. The old key names {label, help} are accepted too.
 // The default sets below are the statuses the GUI shows today; each view reads its own through labelSet(name).
 
+import { t } from "../i18n.js";
+
 export const TONES = ["success", "active", "info", "attention", "warning", "danger", "muted", "neutral"];
 export const SHAPES = ["disc", "ring", "square", "diamond"];
 
@@ -38,12 +40,15 @@ export function labelEntry(labels, status) {
   const text = entry.text !== undefined ? entry.text : entry.label;
   const explanation = entry.explanation !== undefined ? entry.explanation : entry.help;
   const tone = normalizeTone(known ? entry.tone : "neutral");
+  const defaultSet = Object.entries(DEFAULT_LABELS).find(([, map]) => map === labels);
+  const translationPrefix = known && (defaultSet ? "common.status." + defaultSet[0] + "." + key
+    : labels === VERSION_STATUS ? "common.status.version." + key : null);
   return {
     key,
     known,
-    text: text === undefined || text === null || text === "" ? key : String(text),
+    text: translationPrefix ? t(translationPrefix + ".label") : text === undefined || text === null || text === "" ? key : String(text),
     tone,
-    explanation: explanation ? String(explanation) : "",
+    explanation: translationPrefix && explanation ? t(translationPrefix + ".help") : explanation ? String(explanation) : "",
     pulse: Boolean(entry.pulse),
     shape: SHAPES.includes(entry.shape) ? entry.shape : DEFAULT_SHAPE[tone],
   };
@@ -113,7 +118,8 @@ export const VERSION_STATUS = {
   rejected: { text: "Rechazada", tone: "danger" },
 };
 
-export const versionStatusText = (status) => VERSION_STATUS[status]?.text || "Estado desconocido";
+export const versionStatusText = (status) => VERSION_STATUS[status]
+  ? t("common.status.version." + status + ".label") : t("common.value.unknown");
 
 // --- the registry: how a map is swapped -----------------------------------------------------------------------------
 

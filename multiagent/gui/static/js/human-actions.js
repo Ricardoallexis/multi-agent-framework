@@ -9,9 +9,14 @@ import { waitingReasonLabel } from "./runs-layout.js";
 import { errorText } from "./text.js";
 import { ExternalOutput } from "./external-output.js";
 import { ToolApprovalPreview } from "./thread-cards.js";
+import { t } from "./i18n.js";
 
 // Pasted answers survive a rejection or a re-render; memory only, keyed by run, step and attempt.
 const drafts = new Map();
+function translatedWaitingReasonLabel(waiting) {
+  if (!waiting) return waitingReasonLabel(waiting);
+  return waitingReasonLabel(waiting, t);
+}
 
 function Message({ message }) {
   if (!message) return null;
@@ -65,7 +70,7 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
   async function act(path, body, okText) {
     if (busy) return false;
     setBusy(true);
-    setMessage({ kind: "info", text: "Enviando…" });
+    setMessage({ kind: "info", text: t("runs.human.sending") });
     try {
       const updated = await apiPost(path, token, body);
       setConfirm(null);
@@ -84,70 +89,70 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
 
   const id = view.id;
   const waiting = view.waiting;
-  const cancelBox = (running) => html`<${Confirm} title="¿Cancelar la ejecución?" confirmLabel="Sí, cancelar"
-    keepLabel="Mantenerla" danger=${true} busy=${busy} onKeep=${() => setConfirm(null)}
+  const cancelBox = (running) => html`<${Confirm} title=${t("runs.human.cancel.title")} confirmLabel=${t("runs.human.cancel.confirm")}
+    keepLabel=${t("runs.human.cancel.keep")} danger=${true} busy=${busy} onKeep=${() => setConfirm(null)}
     onConfirm=${() => act(runPath(id, "cancel"), {}, (v) => v.status === "cancelled"
-      ? "La ejecución quedó cancelada." : "Se pidió cancelar; se detendrá cuando termine el paso en curso.")}>
+      ? t("runs.human.cancel.done") : t("runs.human.cancel.requested"))}>
     <p class="muted">${running
-      ? "Está corriendo: se pedirá detenerla y quedará cancelada cuando el worker lo note."
-      : "Dejará de avanzar y no se puede deshacer."}</p>
+      ? t("runs.human.cancel.running")
+      : t("runs.human.cancel.irreversible")}</p>
   <//>`;
   const cancelControl = !view.terminal && !view.cancel_requested
     ? (confirm === "cancel"
       ? cancelBox(view.status === "running")
       : html`<div class="action-item"><button type="button" class="btn secondary" disabled=${busy} ...${helpFor("human.cancel")}
-          onClick=${() => setConfirm("cancel")}>Cancelar ejecución…</button>
+          onClick=${() => setConfirm("cancel")}>${t("runs.human.cancel.button")}</button>
         <${Help} topic="human.cancel" /></div>`)
     : null;
   // Rejecting a tool call fails the run without running the tool; rejecting a review ends it as rejected.
   const rejectControl = (toolCall) => (confirm === "reject"
-    ? html`<${Confirm} title="¿Rechazar la ejecución?" confirmLabel="Sí, rechazar" keepLabel="Mantenerla" danger=${true}
+    ? html`<${Confirm} title=${t("runs.human.reject.title")} confirmLabel=${t("runs.human.reject.confirm")} keepLabel=${t("runs.human.cancel.keep")} danger=${true}
         busy=${busy} onKeep=${() => setConfirm(null)}
         onConfirm=${() => act(runPath(id, "reject"), { feedback: reason.trim() }, () => toolCall
-          ? "La llamada quedó rechazada y la ejecución terminó con error." : "La ejecución quedó rechazada.")}>
+          ? t("runs.human.reject.tool_done") : t("runs.human.reject.done"))}>
         <p class="muted">${toolCall
-          ? "La herramienta no se ejecutará y la ejecución terminará con error; no se puede deshacer."
-          : "La ejecución terminará como rechazada; no se puede deshacer."}</p>
-        <label for="reject-reason">Motivo (opcional)</label>
+          ? t("runs.human.reject.tool_warning")
+          : t("runs.human.reject.warning")}</p>
+        <label for="reject-reason">${t("runs.human.reject.reason_optional")}</label>
         <${Help} topic="human.reject_reason" />
         <textarea id="reject-reason" rows="2" maxlength="4000" value=${reason} ...${helpFor("human.reject_reason")}
           onInput=${(event) => setReason(event.target.value)}></textarea>
       <//>`
     : html`<div class="action-item"><button type="button" class="btn secondary" disabled=${busy} ...${helpFor("human.reject")}
-        onClick=${() => setConfirm("reject")}>Rechazar ejecución…</button>
+        onClick=${() => setConfirm("reject")}>${t("runs.human.reject.button")}</button>
       <${Help} topic="human.reject" /></div>`);
 
   let body;
   if (view.terminal) {
-    body = html`<p class="muted">Esta ejecución terminó; no queda ninguna acción por hacer.</p>`;
+    body = html`<p class="muted">${t("runs.human.terminal")}</p>`;
   } else if (waiting && (waiting.reason === "review" || waiting.reason === "approval_pending" || waiting.reason === "budget_exhausted" || waiting.reason === "")) {
     const cut = waiting.reason === "budget_exhausted" || view.counters.budget_exhausted;
     // The server says whether a correction is still possible (a cut by the run's own limits allows it).
     const exhausted = cut && view.corrections_allowed === false;
     body = html`<div>
-      ${exhausted && html`<p class="notice">El presupuesto está agotado: puedes aprobar el resultado que ya existe, rechazarlo o cancelar. Pedir cambios o regenerar ya no es posible.</p>`}
-      ${cut && !exhausted && html`<p class="notice">Se alcanzó el tope de la ejecución. Puedes aprobar el resultado que ya existe, rechazarlo o pedir una corrección: cada corrección tiene su propio margen.</p>`}
-      <p class="muted">Revisa el resultado del paso en «Resultados» y decide.</p>
+      ${exhausted && html`<p class="notice">${t("runs.human.budget.exhausted")}</p>`}
+      ${cut && !exhausted && html`<p class="notice">${t("runs.human.budget.correction_available")}</p>`}
+      <p class="muted">${t("runs.human.review.instruction")}</p>
       <div class="action-item">
         <button type="button" class="btn" disabled=${busy} ...${helpFor("human.approve")} onClick=${() => act(runPath(id, "approve"), {},
-          (v) => v.status === "completed" ? "Aprobado. La ejecución terminó." : "Aprobado. La ejecución continúa con el siguiente paso.")}>Aprobar</button>
+          (v) => t(v.status === "completed" ? "runs.human.approve.completed" : "runs.human.approve.continues"))}>${t("runs.human.approve.button")}</button>
         <${Help} topic="human.approve" />
       </div>
       ${!exhausted && html`<div class="action-item">
         <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("human.regenerate")}
-          onClick=${() => act(runPath(id, "regenerate"), {}, () => "Se pidió repetir el paso sin comentarios.")}>Regenerar sin comentarios</button>
+          onClick=${() => act(runPath(id, "regenerate"), {}, () => t("runs.human.regenerate.done"))}>${t("runs.human.regenerate.button")}</button>
         <${Help} topic="human.regenerate" />
       </div>`}
       ${!exhausted && html`<form class="stack" noValidate onSubmit=${(event) => {
         event.preventDefault();
-        if (!feedback.trim() && !comments.length) { setFeedbackInvalid(true); setMessage({ kind: "error", text: "Escribe una indicación o añade un comentario antes de enviar." }); return; }
-        if (comments.some((comment) => !comment.text.trim() || !comment.target.trim())) { setMessage({ kind: "error", text: "Completa la parte y el texto de cada comentario." }); return; }
+        if (!feedback.trim() && !comments.length) { setFeedbackInvalid(true); setMessage({ kind: "error", text: t("runs.human.changes.required") }); return; }
+        if (comments.some((comment) => !comment.text.trim() || !comment.target.trim())) { setMessage({ kind: "error", text: t("runs.human.comment.required_fields") }); return; }
         setFeedbackInvalid(false);
         act(runPath(id, "changes"), { feedback: feedback.trim(), comments: comments.map(({ target, kind, text, quote }) => ({ target: target.trim(), kind, text: text.trim(), quote: quote || null })) },
-          () => "Se pidieron cambios; el paso se repetirá con tus comentarios.")
+          () => t("runs.human.changes.done"))
           .then((ok) => { if (ok) { setFeedback(""); setComments([]); } });
       }}>
-        <label for="changes-feedback">Pedir cambios <span class="muted">(texto libre o comentarios)</span></label>
+        <label for="changes-feedback">${t("runs.human.changes.label")} <span class="muted">${t("runs.human.changes.detail")}</span></label>
         <${Help} topic="human.changes" />
         <textarea id="changes-feedback" rows="3" maxlength="4000" value=${feedback} aria-invalid=${feedbackInvalid ? "true" : null}
           disabled=${busy} ...${helpFor("human.changes")} onInput=${(event) => setFeedback(event.target.value)}></textarea>
@@ -155,34 +160,34 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
           const output = view.artifacts && view.artifacts.length ? view.artifacts[view.artifacts.length - 1].data : null;
           const keys = output && typeof output === "object" && !Array.isArray(output) ? Object.keys(output) : [];
           const choices = ["general", ...keys];
-          return html`<fieldset key=${index} class="stack"><legend>Comentario ${index + 1}</legend>
-            <label>Parte</label><${Help} topic="human.comment_target" />
-            <select aria-label=${"Parte del comentario " + (index + 1)} value=${choices.includes(comment.target) ? comment.target : "_manual"} disabled=${busy} ...${helpFor("human.comment_target")}
+          return html`<fieldset key=${index} class="stack"><legend>${t("runs.human.comment.legend", { count: index + 1 })}</legend>
+            <label>${t("runs.human.comment.part")}</label><${Help} topic="human.comment_target" />
+            <select aria-label=${t("runs.human.comment.part_aria", { count: index + 1 })} value=${choices.includes(comment.target) ? comment.target : "_manual"} disabled=${busy} ...${helpFor("human.comment_target")}
               onChange=${(event) => updateComment(index, { target: event.target.value === "_manual" ? "" : event.target.value })}>
-              <option value="general">General</option>${keys.map((key) => html`<option value=${key}>${key}</option>`)}<option value="_manual">Escribir ruta…</option>
+              <option value="general">${t("runs.human.comment.general")}</option>${keys.map((key) => html`<option value=${key}>${key}</option>`)}<option value="_manual">${t("runs.human.comment.write_path")}</option>
             </select>
-            ${!choices.includes(comment.target) && html`<input aria-label="Ruta de la parte" maxlength="200" value=${comment.target} disabled=${busy}
+            ${!choices.includes(comment.target) && html`<input aria-label=${t("runs.human.comment.path_aria")} maxlength="200" value=${comment.target} disabled=${busy}
               ...${helpFor("human.comment_target")} onInput=${(event) => updateComment(index, { target: event.target.value })} />`}
-            <label>Tipo</label><${Help} topic="human.comment_kind" />
-            <select aria-label=${"Tipo del comentario " + (index + 1)} value=${comment.kind} disabled=${busy} ...${helpFor("human.comment_kind")}
+            <label>${t("runs.human.comment.type")}</label><${Help} topic="human.comment_kind" />
+            <select aria-label=${t("runs.human.comment.type_aria", { count: index + 1 })} value=${comment.kind} disabled=${busy} ...${helpFor("human.comment_kind")}
               onChange=${(event) => updateComment(index, { kind: event.target.value })}>
-              <option value="fix">Corregir</option><option value="add">Añadir</option><option value="remove">Quitar</option>
-              <option value="rewrite">Reescribir</option><option value="other">Otro</option>
+              <option value="fix">${t("runs.comment_kind.fix")}</option><option value="add">${t("runs.comment_kind.add")}</option><option value="remove">${t("runs.comment_kind.remove")}</option>
+                <option value="rewrite">${t("runs.comment_kind.rewrite")}</option><option value="other">${t("runs.comment_kind.other")}</option>
             </select>
-            <label>Texto</label><${Help} topic="human.comment_text" />
-            <textarea aria-label=${"Texto del comentario " + (index + 1)} rows="2" maxlength="2000" value=${comment.text} disabled=${busy} ...${helpFor("human.comment_text")}
+            <label>${t("runs.human.comment.text")}</label><${Help} topic="human.comment_text" />
+            <textarea aria-label=${t("runs.human.comment.text_aria", { count: index + 1 })} rows="2" maxlength="2000" value=${comment.text} disabled=${busy} ...${helpFor("human.comment_text")}
               onInput=${(event) => updateComment(index, { text: event.target.value })}></textarea>
-            <label>Cita de la salida (opcional)</label><${Help} topic="human.comment_quote" />
-            <textarea aria-label=${"Cita del comentario " + (index + 1)} rows="2" maxlength="2000" value=${comment.quote} disabled=${busy} ...${helpFor("human.comment_quote")}
+            <label>${t("runs.human.comment.quote_optional")}</label><${Help} topic="human.comment_quote" />
+            <textarea aria-label=${t("runs.human.comment.quote_aria", { count: index + 1 })} rows="2" maxlength="2000" value=${comment.quote} disabled=${busy} ...${helpFor("human.comment_quote")}
               onInput=${(event) => updateComment(index, { quote: event.target.value })}></textarea>
             <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("human.comment_remove")}
-              onClick=${() => setComments(comments.filter((_, i) => i !== index))}>Quitar comentario</button><${Help} topic="human.comment_remove" />
+              onClick=${() => setComments(comments.filter((_, i) => i !== index))}>${t("runs.human.comment.remove")}</button><${Help} topic="human.comment_remove" />
           </fieldset>`;
         })}
         <div class="action-item"><button type="button" class="btn secondary" disabled=${busy || comments.length >= 20}
-          ...${helpFor("human.comment_add")} onClick=${() => setComments([...comments, { target: "general", kind: "fix", text: "", quote: "" }])}>Añadir comentario</button>
+          ...${helpFor("human.comment_add")} onClick=${() => setComments([...comments, { target: "general", kind: "fix", text: "", quote: "" }])}>${t("runs.human.comment.add")}</button>
           <${Help} topic="human.comment_add" /></div>
-        <div class="actions"><button type="submit" class="btn secondary" disabled=${busy} ...${helpFor("human.changes")}>Pedir cambios</button></div>
+        <div class="actions"><button type="submit" class="btn secondary" disabled=${busy} ...${helpFor("human.changes")}>${t("runs.human.changes.button")}</button></div>
       </form>`}
       <div class="action-list">
         ${rejectControl(false)}
@@ -193,20 +198,20 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
     const call = view.tool_approval;
     body = call
       ? html`<div>
-          <p class="muted">El paso «${call.step_id}» quiere usar la herramienta «${call.tool_id}». Revisa qué hará y decide.</p>
+          <p class="muted">${t("runs.human.tool.request", { step_id: call.step_id, tool_id: call.tool_id })}</p>
           ${call.tool_id === "file.write" && html`<${ToolApprovalPreview} runId=${id} token=${token}
             permissionRequestId=${call.permission_request_id} />`}
           <dl class="tool-approval">
-            <dt>Qué hará</dt><dd>${call.summary || "(sin resumen)"}</dd>
-            <dt>Efectos</dt><dd>${call.impacts.length ? call.impacts.join(", ") : "ninguno declarado"}</dd>
-            <dt>Acciones</dt><dd>${call.actions.length
+            <dt>${t("runs.human.tool.summary")}</dt><dd>${call.summary || t("runs.human.tool.no_summary")}</dd>
+            <dt>${t("runs.human.tool.effects")}</dt><dd>${call.impacts.length ? call.impacts.join(", ") : t("runs.human.tool.no_effects")}</dd>
+            <dt>${t("runs.human.tool.actions")}</dt><dd>${call.actions.length
               ? html`<ul>${call.actions.map((item, index) => html`<li key=${index}>${item.kind}${item.target ? ": " + item.target : ""}</li>`)}</ul>`
-              : "ninguna declarada"}${call.actions_omitted && html` <span class="muted">${call.actions_omitted}</span>`}</dd>
+              : t("runs.human.tool.no_actions")}${call.actions_omitted && html` <span class="muted">${call.actions_omitted}</span>`}</dd>
           </dl>
           <div class="action-item">
             <button type="button" class="btn" disabled=${busy} ...${helpFor("human.tool_approve")}
               onClick=${() => act(runPath(id, "approve"), { permission_request_id: call.permission_request_id },
-                (v) => v.status === "completed" ? "Llamada aprobada. La ejecución terminó." : "Llamada aprobada. La ejecución continúa.")}>Aprobar esta llamada</button>
+                (v) => t(v.status === "completed" ? "runs.human.tool.approved_completed" : "runs.human.tool.approved_continues"))}>${t("runs.human.tool.approve")}</button>
             <${Help} topic="human.tool_approve" />
           </div>
           <div class="action-list">
@@ -214,7 +219,7 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
             ${cancelControl}
           </div>
         </div>`
-      : html`<div><p class="muted">La ejecución espera la aprobación de una herramienta, pero no se encontró la petición. Recarga la vista o cancela.</p>
+      : html`<div><p class="muted">${t("runs.human.tool.missing_request")}</p>
           <div class="action-list">${cancelControl}</div></div>`;
   } else if (waiting && view.pending_human) {
     body = html`<div>
@@ -222,41 +227,41 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
       <div class="action-list">${cancelControl}</div>
     </div>`;
   } else if (waiting) {
-    body = html`<div><p class="muted">Esta ejecución espera una acción humana que esta pantalla no sabe mostrar (${waiting.reason}).</p>
+    body = html`<div><p class="muted">${t("runs.human.unknown_waiting", { reason: waiting.reason })}</p>
       <div class="action-list">${cancelControl}</div></div>`;
   } else {
     body = html`<div>
       <p class="muted">${view.cancel_requested
-        ? "Se pidió cancelar; se detendrá cuando termine el paso en curso."
-        : "No hay ninguna acción humana pendiente. Esta vista se actualiza sola cuando la ejecución cambia."}</p>
+        ? t("runs.human.cancel.requested")
+        : t("runs.human.no_pending_action")}</p>
       <div class="action-list">${cancelControl}</div>
     </div>`;
   }
 
   const isWaiting = Boolean(waiting && !view.terminal);
-  const waitLabel = isWaiting ? waitingReasonLabel(waiting) : "";
+  const waitLabel = isWaiting ? translatedWaitingReasonLabel(waiting) : "";
   const isReviewLike = isWaiting && (waiting.reason === "review" || waiting.reason === "approval_pending" || waiting.reason === "budget_exhausted" || waiting.reason === "");
   const isToolApproval = isWaiting && waiting.reason === "tool_approval" && Boolean(view.tool_approval);
 
   return html`<section ref=${cardRef} class=${"panel" + (isWaiting ? " human-actions-waiting" : "")} aria-labelledby="human-actions-title">
-    <h4 id="human-actions-title">Acciones humanas</h4>
+    <h4 id="human-actions-title">${t("runs.human.title")}</h4>
     <${Help} topic="human.section" />
-    ${isWaiting && html`<p class="human-waiting-reason"><strong>Motivo de la espera:</strong> ${waitLabel}</p>`}
+    ${isWaiting && html`<p class="human-waiting-reason"><strong>${t("runs.human.waiting_reason")}</strong> ${waitLabel}</p>`}
     ${body}
     ${waiting && ["review", "execute_step", "research"].includes(waiting.reason) && !view.cancel_requested && html`<${ExternalOutput}
       key=${view.id} token=${token} view=${view} onUpdate=${onUpdate} onStale=${onStale} />`}
     <${Message} message=${message} />
-    ${isWaiting && actionBar && html`<div class="human-action-bar" role="region" aria-label="Acción pendiente">
+    ${isWaiting && actionBar && html`<div class="human-action-bar" role="region" aria-label=${t("runs.human.pending_action")}>
       <p class="human-bar-reason"><strong>${waitLabel}</strong></p>
       <div class="human-bar-actions">
         ${isReviewLike && html`<button type="button" class="btn" disabled=${busy} ...${helpFor("human.approve")}
           onClick=${() => act(runPath(id, "approve"), {},
-            (v) => v.status === "completed" ? "Aprobado. La ejecución terminó." : "Aprobado. La ejecución continúa con el siguiente paso.")}>Aprobar</button>`}
+            (v) => t(v.status === "completed" ? "runs.human.approve.completed" : "runs.human.approve.continues"))}>${t("runs.human.approve.button")}</button>`}
         ${isToolApproval && html`<button type="button" class="btn" disabled=${busy} ...${helpFor("human.tool_approve")}
           onClick=${() => act(runPath(id, "approve"), { permission_request_id: view.tool_approval.permission_request_id },
-            (v) => v.status === "completed" ? "Llamada aprobada. La ejecución terminó." : "Llamada aprobada. La ejecución continúa.")}>Aprobar llamada</button>`}
+            (v) => t(v.status === "completed" ? "runs.human.tool.approved_completed" : "runs.human.tool.approved_continues"))}>${t("runs.human.tool.approve_short")}</button>`}
         <button type="button" class="btn secondary" ...${helpFor("human.bar_focus")} onClick=${focusActions}>
-          ${isReviewLike || isToolApproval ? "Más acciones" : "Ir a la acción"}
+          ${t(isReviewLike || isToolApproval ? "runs.human.more_actions" : "runs.human.go_to_action")}
         </button>
         <${Help} topic="human.bar_focus" compact=${true} />
       </div>
@@ -300,37 +305,37 @@ function HumanStep({ token, view, busy, act, setMessage, onStale }) {
   async function copyPrompt() {
     try {
       await navigator.clipboard.writeText(pending.prompt);
-      setMessage({ kind: "ok", text: "Prompt copiado al portapapeles." });
+      setMessage({ kind: "ok", text: t("runs.human.prompt.copied") });
     } catch (_) {
       if (promptBox.current) { promptBox.current.focus(); promptBox.current.select(); }
-      setMessage({ kind: "info", text: "El navegador bloqueó copiar; el prompt quedó seleccionado, pulsa Ctrl+C." });
+      setMessage({ kind: "info", text: t("runs.human.prompt.copy_blocked") });
     }
   }
 
   if (loadError) {
-    return html`<p class="message error" role="alert">No se pudo cargar el paso pendiente: ${loadError.message}</p>`;
+    return html`<p class="message error" role="alert">${t("runs.human.pending.load_error", { message: loadError.message })}</p>`;
   }
-  if (!pending) return html`<p class="muted" aria-busy="true">Cargando el paso pendiente…</p>`;
+  if (!pending) return html`<p class="muted" aria-busy="true">${t("runs.human.pending.loading")}</p>`;
 
   const submit = async (event) => {
     event.preventDefault();
     if (!draft.response.trim()) {
       setInvalid(true);
-      setMessage({ kind: "error", text: "Pega la respuesta completa antes de enviarla." });
+      setMessage({ kind: "error", text: t("runs.human.response.required") });
       return;
     }
     setInvalid(false);
     const ok = await act(runPath(view.id, "human-submit"), {
       raw_response: draft.response, provider: draft.provider.trim() || "human", model: draft.model.trim(),
       prompt_used: draft.prompt_used, notes: draft.notes.trim(),
-    }, (v) => v.status === "waiting_human" ? "Respuesta aceptada. Ahora toca revisar el resultado." : "Respuesta aceptada. La ejecución continúa.");
+    }, (v) => t(v.status === "waiting_human" ? "runs.human.response.accepted_review" : "runs.human.response.accepted_continues"));
     if (ok) drafts.delete(draftKey);
   };
 
   const validate = async () => {
     if (!draft.response.trim()) {
       setInvalid(true);
-      setMessage({ kind: "error", text: "Pega la respuesta completa antes de validarla." });
+      setMessage({ kind: "error", text: t("runs.human.response.required_check") });
       return;
     }
     setInvalid(false);
@@ -344,44 +349,45 @@ function HumanStep({ token, view, busy, act, setMessage, onStale }) {
   };
 
   return html`<div class="stack">
-    <p>El paso «${pending.step_id}» (intento ${pending.attempt}) hay que hacerlo fuera del framework. La respuesta debe cumplir
-      el contrato <code>${pending.expected_contract}</code>.</p>
-    <label for="human-prompt">Prompt a copiar <span class="muted">(${pending.prompt_id} v${pending.prompt_version})</span></label>
+    <p>${t("runs.human.pending.description", { step_id: pending.step_id, attempt: pending.attempt })} <code>${pending.expected_contract}</code>.</p>
+    <label for="human-prompt">${t("runs.human.prompt.label")} <span class="muted">${t("runs.human.prompt.version", {
+      prompt_id: pending.prompt_id, version: pending.prompt_version,
+    })}</span></label>
     <${Help} topic="human.prompt" />
     <textarea id="human-prompt" ref=${promptBox} rows="10" readOnly value=${pending.prompt} ...${helpFor("human.prompt")}></textarea>
-    <div class="actions"><button type="button" class="btn secondary" ...${helpFor("human.copy_prompt")} onClick=${copyPrompt}>Copiar prompt</button>
+    <div class="actions"><button type="button" class="btn secondary" ...${helpFor("human.copy_prompt")} onClick=${copyPrompt}>${t("runs.human.prompt.copy")}</button>
       <${Help} topic="human.copy_prompt" compact=${true} /></div>
     <form class="stack" noValidate onSubmit=${submit}>
-      <label for="human-response">Respuesta pegada <span class="req">(obligatoria)</span></label>
+      <label for="human-response">${t("runs.human.response.label")} <span class="req">${t("runs.human.required")}</span></label>
       <${Help} topic="human.response" />
       <textarea id="human-response" rows="10" value=${draft.response} disabled=${busy}
         aria-invalid=${invalid ? "true" : null} ...${helpFor("human.response")}
         onInput=${(event) => update({ response: event.target.value })}></textarea>
       <div class="two">
-        <div><label for="human-provider">Proveedor</label>
+        <div><label for="human-provider">${t("runs.human.provider")}</label>
           <${Help} topic="human.provider" />
           <input id="human-provider" maxlength="120" autocomplete="off" value=${draft.provider} disabled=${busy}
             ...${helpFor("human.provider")} onInput=${(event) => update({ provider: event.target.value })} /></div>
-        <div><label for="human-model">Modelo <span class="muted">(opcional)</span></label>
+        <div><label for="human-model">${t("runs.human.model")} <span class="muted">${t("runs.human.optional")}</span></label>
           <${Help} topic="human.model" />
           <input id="human-model" maxlength="200" autocomplete="off" value=${draft.model} disabled=${busy}
             ...${helpFor("human.model")} onInput=${(event) => update({ model: event.target.value })} /></div>
       </div>
-      <label for="human-prompt-used">Prompt usado <span class="muted">(opcional)</span></label>
+      <label for="human-prompt-used">${t("runs.human.prompt.used")} <span class="muted">${t("runs.human.optional")}</span></label>
       <${Help} topic="human.prompt_used" />
       <textarea id="human-prompt-used" rows="3" maxlength="50000" value=${draft.prompt_used} disabled=${busy}
         ...${helpFor("human.prompt_used")} onInput=${(event) => update({ prompt_used: event.target.value })}></textarea>
-      <label for="human-notes">Notas <span class="muted">(opcional)</span></label>
+      <label for="human-notes">${t("runs.human.notes")} <span class="muted">${t("runs.human.optional")}</span></label>
       <${Help} topic="human.notes" />
       <textarea id="human-notes" rows="3" maxlength="4000" value=${draft.notes} disabled=${busy}
         ...${helpFor("human.notes")} onInput=${(event) => update({ notes: event.target.value })}></textarea>
       <div class="action-item"><button type="button" class="btn secondary" disabled=${busy}
-        ...${helpFor("human.check")} onClick=${validate}>Validar sin enviar</button>
+        ...${helpFor("human.check")} onClick=${validate}>${t("runs.human.check")}</button>
         <${Help} topic="human.check" /></div>
       ${check && html`<div role="status" aria-live="polite">
-        ${check.ok ? "La respuesta cumple el contrato." : html`<ul>${check.problems.map((problem) => html`<li><code>${problem.path}</code>: ${problem.message}</li>`)}</ul>`}
+        ${check.ok ? t("runs.human.response.valid") : html`<ul>${check.problems.map((problem) => html`<li><code>${problem.path}</code>: ${problem.message}</li>`)}</ul>`}
       </div>`}
-      <div class="action-item"><button type="submit" class="btn" disabled=${busy} ...${helpFor("human.submit")}>Enviar respuesta</button>
+      <div class="action-item"><button type="submit" class="btn" disabled=${busy} ...${helpFor("human.submit")}>${t("runs.human.response.send")}</button>
         <${Help} topic="human.submit" /></div>
     </form>
   </div>`;

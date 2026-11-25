@@ -19,6 +19,7 @@ from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.run_request import RunRequest
 from multiagent.services import ApplicationServices, ServiceError
+from tests.gui_text import ui_text
 
 BUNDLE = Path(__file__).parent / "fixtures" / "bundles" / "spec_review"
 
@@ -310,7 +311,7 @@ def test_api_cli_parity_errors_and_gui_token_rules(monkeypatch, capsys, tmp_path
 
 
 def test_gui_run_detail_groups_by_step_and_uses_api_helper():
-    source = (STATIC_DIR / "js" / "run-detail.js").read_text(encoding="utf-8")
+    source = ui_text(STATIC_DIR / "js" / "run-detail.js")
     assert "groupArtifactsByStep" in source
     assert "Comparar" in source
     assert "/attempts/compare" in source

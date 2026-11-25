@@ -108,10 +108,10 @@ def test_runs_layout_master_detail_and_action_first_rules():
     assert out["desktopWaiting"]["actionBar"] is False
     assert out["desktopWaiting"]["actionPosition"] == "top"
 
-    assert out["reasons"]["review"] == "Esperando tu revisión · paso «create»"
-    assert out["reasons"]["tool"] == "Esperando aprobación de herramienta · paso «write»"
-    assert out["reasons"]["human"] == "Paso manual pendiente · paso «draft»"
-    assert out["reasons"]["research"] == "Investigación externa pendiente"
+    assert out["reasons"]["review"] == "Waiting for your review · step “create”"
+    assert out["reasons"]["tool"] == "Waiting for tool approval · step “write”"
+    assert out["reasons"]["human"] == "Manual step pending · step “draft”"
+    assert out["reasons"]["research"] == "External research pending"
     assert out["reasons"]["empty"] == ""
 
 

@@ -6,500 +6,500 @@
 
 export const HELP = {
   "runs.section": {
-    "title": "Ejecuciones",
-    "hint": "Aquí lanzas workflows del framework y decides qué pasa en cada paso.",
+    "title": "Runs",
+    "hint": "Start framework workflows here and decide what happens at each step.",
     "more": [
-      "Una ejecución es un workflow con sus entradas que avanza paso a paso.",
-      "A la izquierda están las ejecuciones guardadas, la más reciente primero; a la derecha, el detalle de la elegida o el formulario de una nueva.",
-      "Cuando un paso necesita a una persona, la ejecución espera aquí tu decisión."
+      "A run is a workflow with its inputs that advances one step at a time.",
+      "Saved runs appear on the left, newest first; on the right, you can see the selected run or the form for a new one.",
+      "When a step needs a person, the run waits here for your decision."
     ]
   },
   "runs.new": {
-    "title": "Nueva ejecución",
-    "hint": "Abre el formulario para lanzar un workflow.",
+    "title": "New run",
+    "hint": "Open the form to start a workflow.",
     "more": [
-      "Eliges un workflow, rellenas sus entradas y el modo de ejecución.",
-      "Antes de crear nada ves una vista previa del prompt; la ejecución solo existe cuando pulsas «Crear ejecución»."
+      "Choose a workflow, fill in its inputs, and select the run mode.",
+      "You can preview the prompt before creating anything; the run is created only when you select the Create run button."
     ]
   },
   "runs.list": {
-    "title": "Lista de ejecuciones",
-    "hint": "Las ejecuciones guardadas, la más reciente primero.",
+    "title": "Run list",
+    "hint": "Saved runs, newest first.",
     "more": [
-      "Cada fila muestra el workflow, el proyecto, el estado y cuándo se creó.",
-      "Si la ejecución viene de un bundle, su nombre aparece al final de la fila.",
-      "Pulsa una fila para abrir su detalle."
+      "Each row shows the workflow, project, status, and creation time.",
+      "If a run came from a bundle, its name appears at the end of the row.",
+      "Select a row to open its details."
     ]
   },
   "runs.back": {
-    "title": "Volver a la lista",
-    "hint": "Cierra el detalle y vuelve a la lista de ejecuciones.",
+    "title": "Back to the list",
+    "hint": "Close the details and return to the run list.",
     "more": [
-      "En pantallas estrechas muestra de nuevo la lista de ejecuciones.",
-      "No detiene ni modifica la ejecución abierta."
+      "On narrow screens, this shows the run list again.",
+      "It does not stop or change the open run."
     ]
   },
   "run.open_chat": {
-    "title": "Abrir en el chat",
-    "hint": "Abre esta ejecución como hilo en la vista de chat.",
+    "title": "Open in chat",
+    "hint": "Open this run as a thread in the chat view.",
     "more": [
-      "Muestra los pasos y las decisiones pendientes en forma de conversación.",
-      "Conserva la ejecución actual sin crear otra nueva."
+      "It shows the steps and pending decisions as a conversation.",
+      "The current run is kept; no new run is created."
     ]
   },
   "human.bar_focus": {
-    "title": "Ir a las acciones",
-    "hint": "Desplaza la vista hasta la tarjeta de acciones humanas.",
+    "title": "Go to actions",
+    "hint": "Move the view to the human actions card.",
     "more": [
-      "Te lleva arriba del detalle donde están todas las opciones disponibles.",
-      "Úsalo para pedir cambios, rechazar o pegar una respuesta."
+      "It takes you to the top of the details, where all available options are shown.",
+      "Use it to request changes, reject, or paste a response."
     ]
   },
 
   "run.refresh": {
-    "title": "Actualizar",
-    "hint": "Vuelve a pedir el estado de la ejecución al servidor.",
+    "title": "Refresh",
+    "hint": "Request the run's current status from the server again.",
     "more": [
-      "Normalmente no hace falta: la pantalla se actualiza sola cuando hay novedades.",
-      "Úsalo si ves «Sin conexión en vivo» y quieres comprobar el estado ahora."
+      "This is usually unnecessary: the screen updates automatically when something changes.",
+      "Use it if you see “Live updates disconnected” and want to check the status now."
     ]
   },
   "run.live": {
-    "title": "En vivo",
-    "hint": "Indica si la pantalla recibe los cambios al instante.",
+    "title": "Live updates",
+    "hint": "Shows whether the screen receives changes as they happen.",
     "more": [
-      "«En vivo» significa que el servidor avisa en cuanto la ejecución cambia.",
-      "Con «Sin conexión en vivo» la pantalla se actualiza sola cada 10 segundos hasta que vuelva la conexión.",
-      "Las ejecuciones de un bundle también se consultan cada 10 segundos."
+      "“Live” means the server notifies the screen as soon as the run changes.",
+      "When live updates are disconnected, the screen refreshes every 10 seconds until the connection returns.",
+      "Bundle runs are also checked every 10 seconds."
     ]
   },
   "run.steps": {
-    "title": "Pasos",
-    "hint": "El recorrido del workflow y en qué paso va.",
+    "title": "Steps",
+    "hint": "The workflow's steps and its current position.",
     "more": [
-      "Cada paso muestra su estado: hecho, en curso, pendiente, esperando a una persona o saltado.",
-      "En los pasos hechos ves qué modelo, o qué persona, produjo el resultado y cuántos intentos hicieron falta.",
-      "Un paso saltado no se ejecuta ni gasta llamadas al modelo."
+      "Each step shows its status: done, in progress, pending, waiting for a person, or skipped.",
+      "For completed steps, you can see which model or person produced the result and how many attempts it took.",
+      "A skipped step does not run or use model calls."
     ]
   },
   "run.skipped": {
-    "title": "Pasos saltados",
-    "hint": "Un paso se salta cuando no se cumple su condición.",
+    "title": "Skipped steps",
+    "hint": "A step is skipped when its condition is not met.",
     "more": [
-      "Algunos pasos solo valen si la ejecución pide búsqueda web, o solo si no la pide; el workflow lo declara con una condición.",
-      "Si no se cumple, el paso no se ejecuta y junto a él aparece el motivo.",
-      "«Se saltará» es un aviso previo; «Se saltó» ya ocurrió."
+      "Some steps apply only when the run requests web search, or only when it does not; the workflow declares this condition.",
+      "If the condition is not met, the step does not run and the reason appears next to it.",
+      "“Will be skipped” is a notice; “Skipped” means it has already happened."
     ]
   },
   "run.role": {
-    "title": "Rol del paso",
-    "hint": "El puesto del equipo aprobado con el que se ejecutó este paso.",
+    "title": "Step role",
+    "hint": "The approved team position used to run this step.",
     "more": [
-      "El rol aporta su propósito, sus reglas y sus habilidades al paso, e indica qué miembro del equipo lo ejecuta.",
-      "Sale de la versión aprobada del equipo vinculada al crear la ejecución, nunca de cambios posteriores."
+      "The role provides its purpose, rules, and skills to the step, and identifies the team member who runs it.",
+      "It comes from the approved team version linked when the run was created, not from later changes."
     ]
   },
   "run.operating_mode": {
-    "title": "Modo de operación",
-    "hint": "El modo fijado al crear la ejecución y si vino de la ejecución o del equipo.",
+    "title": "Operating mode",
+    "hint": "The mode set when the run was created and whether it came from the run or the team.",
     "more": [
-      "«Supervisado» pide revisión humana en entregas entre roles y aprobación en cada escritura.",
-      "«Autónomo» permite escrituras ordinarias del rol, pero lo destructivo y lo externo siguen esperando.",
-      "El modo queda fijado al crear la ejecución y no cambia aunque se apruebe otro equipo después."
+      "“Supervised” requires human review for handoffs between roles and approval for every write.",
+      "“Autonomous” allows ordinary role writes, but destructive and external actions still wait for approval.",
+      "The mode is fixed when the run is created and does not change if another team is approved later."
     ]
   },
   "run.counters": {
-    "title": "Contadores",
-    "hint": "Cuánto lleva gastado la ejecución frente a sus límites.",
+    "title": "Counters",
+    "hint": "How much of each run limit has been used.",
     "more": [
-      "Los máximos evitan bucles y gastos inesperados.",
-      "Cuando se agotan las llamadas al modelo ya no se pueden pedir cambios ni regenerar; solo aprobar, rechazar o cancelar.",
-      "Se actualizan mientras la ejecución avanza."
+      "The limits prevent loops and unexpected costs.",
+      "When model calls run out, you can no longer request changes or regenerate; you can only approve, reject, or cancel.",
+      "Counters update as the run progresses."
     ]
   },
   "counter.model_calls": {
-    "title": "Llamadas al modelo",
-    "hint": "Cuántas veces el framework llamó a un modelo, frente a su máximo.",
+    "title": "Model calls",
+    "hint": "How many times the framework called a model, compared with the limit.",
     "more": [
-      "Solo cuentan las llamadas que hace el framework; los pasos que hace una persona o un modelo externo (modo guiado) no cuentan.",
-      "Repetir un paso, por cambios o por regeneración, vuelve a llamar al modelo y suma otra."
+      "Only calls made by the framework count; steps completed by a person or external model (guided mode) do not.",
+      "Repeating a step because of requested changes or regeneration makes another model call and adds to the count."
     ]
   },
   "counter.human_steps": {
-    "title": "Pasos hechos por una persona",
-    "hint": "Pasos resueltos copiando y pegando, sin llamar a un modelo.",
+    "title": "Steps completed by a person",
+    "hint": "Steps completed by copying and pasting, without calling a model.",
     "more": [
-      "Salen cuando la ejecución está en modo guiado o cuando un paso pide una investigación externa.",
-      "No gastan llamadas al modelo."
+      "These occur when the run is in guided mode or when a step needs external research.",
+      "They do not use model calls."
     ]
   },
   "counter.steps": {
-    "title": "Pasos",
-    "hint": "Pasos hechos del total, y cuántos se saltaron.",
+    "title": "Steps",
+    "hint": "Completed steps out of the total, and how many were skipped.",
     "more": [
-      "«Hechos» cuenta solo los que terminaron; los saltados van aparte, entre paréntesis.",
-      "Un paso se salta cuando no se cumple su condición, por ejemplo la búsqueda web."
+      "“Done” counts only steps that finished; skipped steps are shown separately in parentheses.",
+      "A step is skipped when its condition is not met, for example, when web search is not requested."
     ]
   },
   "counter.time": {
-    "title": "Tiempo activo",
-    "hint": "Segundos que el servidor ha trabajado en esta ejecución, frente a su máximo.",
+    "title": "Active time",
+    "hint": "How many seconds the server has worked on this run, compared with the limit.",
     "more": [
-      "No cuenta el tiempo que la ejecución espera a una persona.",
-      "Si se supera el máximo, la ejecución se detiene."
+      "Time spent waiting for a person does not count.",
+      "The run stops if it exceeds the limit."
     ]
   },
   "run.history": {
-    "title": "Historial de acciones humanas",
-    "hint": "Qué decisiones se tomaron y quién las tomó.",
+    "title": "Human action history",
+    "hint": "What decisions were made and who made them.",
     "more": [
-      "Cada línea tiene fecha, quién actuó y qué hizo: aprobar, pedir cambios, rechazar, regenerar, cancelar o enviar una respuesta pegada.",
-      "«Sistema» son acciones automáticas, «Operador» las tuyas en esta pantalla y «declarado» lo que una persona contó sin que se verifique.",
-      "Los comentarios y los errores se muestran debajo de su línea."
+      "Each entry shows when it happened, who acted, and what they did: approve, request changes, reject, regenerate, cancel, or submit a pasted response.",
+      "“System” marks automatic actions, “Operator” marks actions taken on this screen, and “Declared” marks information a person provided but that was not verified.",
+      "Comments and errors appear beneath their entry."
     ]
   },
   "run.results": {
-    "title": "Resultados",
-    "hint": "Lo que produjo cada paso, agrupado por paso e intento.",
+    "title": "Results",
+    "hint": "What each step produced, grouped by step and attempt.",
     "more": [
-      "Cada paso reúne sus intentos completados con quién lo produjo, su revisión y su salida.",
-      "Cuando un paso tiene dos o más intentos, puedes elegir dos y pulsar «Comparar» para ver qué cambió.",
-      "Cuando la ejecución espera tu revisión, se abre el resultado del paso que revisas."
+      "Each step groups its completed attempts, who produced each one, its review, and its output.",
+      "When a step has two or more attempts, select two and choose “Compare” to see what changed.",
+      "When the run is waiting for your review, the output for the step under review opens here."
     ]
   },
   "run.compare_select": {
-    "title": "Intentos a comparar",
-    "hint": "Elige qué dos intentos de este paso quieres comparar.",
+    "title": "Attempts to compare",
+    "hint": "Choose the two attempts of this step to compare.",
     "more": [
-      "El primero es la referencia anterior y el segundo es el intento nuevo.",
-      "Por defecto se eligen los dos últimos intentos completados."
+      "The first is the earlier reference; the second is the newer attempt.",
+      "The two most recent completed attempts are selected by default."
     ]
   },
   "run.compare": {
-    "title": "Comparar intentos",
-    "hint": "Muestra qué campos cambiaron entre los dos intentos elegidos.",
+    "title": "Compare attempts",
+    "hint": "Show which fields changed between the selected attempts.",
     "more": [
-      "Compara la salida campo a campo indicando lo añadido, lo quitado y lo cambiado.",
-      "En textos largos o de varias líneas muestra las diferencias línea por línea."
+      "Compare the outputs field by field, showing additions, removals, and changes.",
+      "Long or multiline text is compared line by line."
     ]
   },
   "run.inputs": {
-    "title": "Entradas de la ejecución",
-    "hint": "Los datos con los que se creó esta ejecución.",
+    "title": "Run inputs",
+    "hint": "The data used to create this run.",
     "more": [
-      "Son los valores que escribiste en el formulario; aquí solo se leen.",
-      "Cada nombre corresponde a un hueco {nombre} de los prompts.",
-      "«(vacía)» significa que se dejó sin rellenar."
+      "These are the values entered in the form; they are read-only here.",
+      "Each name corresponds to a {name} placeholder in the prompts.",
+      "“(empty)” means no value was entered."
     ]
   },
   "run.events": {
-    "title": "Eventos técnicos",
-    "hint": "El registro interno de lo que hizo el framework.",
+    "title": "Technical events",
+    "hint": "The framework's internal activity log.",
     "more": [
-      "Cada cambio de estado deja un evento con su hora; de ahí sale todo lo demás.",
-      "Está pensado para diagnosticar problemas; para el día a día bastan los pasos y el historial.",
-      "Solo se muestran los más recientes."
+      "Each status change creates a timestamped event; the rest of the view is derived from these events.",
+      "This log is for diagnosing problems; the steps and history are usually enough for day-to-day use.",
+      "Only the most recent events are shown."
     ]
   },
 
   "human.section": {
-    "title": "Acciones humanas",
-    "hint": "Lo que puedes hacer con esta ejecución ahora mismo.",
+    "title": "Human actions",
+    "hint": "What you can do with this run right now.",
     "more": [
-      "Los botones cambian según lo que la ejecución espera: revisar un resultado, hacer un paso fuera del framework o nada.",
-      "El servidor decide qué acciones son posibles; si una ya no lo es, la vista se actualiza y se explica por qué.",
-      "Cada acción queda anotada en el historial."
+      "The available buttons depend on what the run is waiting for: review a result, complete a step outside the framework, or take no action.",
+      "The server decides which actions are available; if an action is no longer possible, the view refreshes and explains why.",
+      "Every action is recorded in the history."
     ]
   },
   "human.approve": {
-    "title": "Aprobar",
-    "hint": "Da por bueno el resultado del paso y sigue con el siguiente.",
+    "title": "Approve",
+    "hint": "Accept the step's result and continue to the next step.",
     "more": [
-      "Si era el último paso, la ejecución termina como completada.",
-      "El resultado aprobado queda marcado como tal en «Resultados»."
+      "If this was the last step, the run finishes as complete.",
+      "The approved result is marked in “Results”."
     ]
   },
   "human.tool_approve": {
-    "title": "Aprobar esta llamada",
-    "hint": "Deja que el paso use la herramienta una vez, con lo que se muestra arriba.",
+    "title": "Approve this call",
+    "hint": "Allow the step to use the tool once with the details shown above.",
     "more": [
-      "La aprobación vale solo para esta llamada: otra llamada vuelve a pedir permiso.",
-      "Si los datos de la llamada cambian, la aprobación ya no sirve y se pide otra vez."
+      "Approval applies only to this call; another call will need approval again.",
+      "If the call details change, the approval no longer applies and approval is requested again."
     ]
   },
   "human.regenerate": {
-    "title": "Regenerar sin comentarios",
-    "hint": "Repite el paso otra vez, sin darle indicaciones.",
+    "title": "Regenerate without comments",
+    "hint": "Run the step again without giving it guidance.",
     "more": [
-      "Sirve cuando el resultado no te convence pero no sabes qué corregir.",
-      "Vuelve a llamar al modelo, así que cuenta como otra llamada y puede dar un resultado distinto.",
-      "Desaparece cuando se agota el presupuesto."
+      "Use this when the result does not satisfy you but you are not sure what to correct.",
+      "This calls the model again, counts as another call, and may produce a different result.",
+      "This option is unavailable when the budget is exhausted."
     ]
   },
   "human.changes": {
-    "title": "Pedir cambios",
-    "hint": "Repite el paso con tus comentarios sobre qué corregir.",
+    "title": "Request changes",
+    "hint": "Run the step again with your guidance on what to correct.",
     "more": [
-      "Escribe una indicación general, añade comentarios sobre partes concretas, o ambas cosas.",
-      "Sirve cuando el resultado va bien encaminado pero hay que corregir algo concreto.",
-      "Cuenta como otra llamada al modelo y desaparece si se agotó el presupuesto."
+      "Write general guidance, add comments on specific parts, or do both.",
+      "Use this when the result is on the right track but something specific needs correction.",
+      "This counts as another model call and is unavailable when the budget is exhausted."
     ]
   },
-  "human.comment_add": { "title": "Añadir comentario", "hint": "Añade una indicación sobre una parte de la salida.", "more": ["Puedes añadir hasta veinte comentarios.", "Cada uno puede señalar una parte distinta."] },
-  "human.comment_target": { "title": "Parte de la salida", "hint": "Elige General o escribe una ruta como items[2].title.", "more": ["Las claves visibles aparecen en la lista.", "También puedes escribir una ruta más precisa."] },
-  "human.comment_kind": { "title": "Tipo de cambio", "hint": "Indica si hay que corregir, añadir, quitar o reescribir.", "more": ["Elige el tipo que mejor describa tu petición.", "Otro sirve para cambios distintos."] },
-  "human.comment_text": { "title": "Texto del comentario", "hint": "Explica el cambio que quieres.", "more": ["Este texto es obligatorio en cada comentario.", "Se enviará al siguiente intento."] },
-  "human.comment_quote": { "title": "Cita de la salida", "hint": "Opcional: copia un fragmento del resultado al que te refieres.", "more": ["La cita ayuda a identificar el fragmento.", "Se entrega como dato no confiable."] },
-  "human.comment_remove": { "title": "Quitar comentario", "hint": "Quita esta fila antes de enviar la petición.", "more": ["Solo se elimina del formulario actual.", "Los demás comentarios permanecen."] },
+  "human.comment_add": { "title": "Add comment", "hint": "Add guidance about one part of the output.", "more": ["You can add up to twenty comments.", "Each comment can refer to a different part."] },
+  "human.comment_target": { "title": "Output part", "hint": "Choose General or enter a path such as items[2].title.", "more": ["Visible keys appear in the list.", "You can also enter a more specific path."] },
+  "human.comment_kind": { "title": "Change type", "hint": "Say whether to fix, add, remove, or rewrite something.", "more": ["Choose the type that best describes your request.", "Choose Other for a different kind of change."] },
+  "human.comment_text": { "title": "Comment text", "hint": "Explain the change you want.", "more": ["Every comment must include text.", "It will be sent with the next attempt."] },
+  "human.comment_quote": { "title": "Quote from the output", "hint": "Optional: copy a fragment of the result you are referring to.", "more": ["A quote helps identify the fragment.", "It is provided as untrusted data."] },
+  "human.comment_remove": { "title": "Remove comment", "hint": "Remove this row before submitting the request.", "more": ["This removes it only from the current form.", "Other comments remain."] },
   "human.reject": {
-    "title": "Rechazar ejecución",
-    "hint": "Termina la ejecución como rechazada; no se puede deshacer.",
+    "title": "Reject run",
+    "hint": "End the run as rejected; this cannot be undone.",
     "more": [
-      "Úsalo cuando el resultado no sirve y no quieres seguir intentándolo.",
-      "Puedes escribir un motivo opcional, que queda en el historial.",
-      "Antes de rechazar se te pide confirmación."
+      "Use this when the result is not useful and you do not want to continue trying.",
+      "You can add an optional reason, which is recorded in the history.",
+      "You will be asked to confirm before rejecting."
     ]
   },
   "human.reject_reason": {
-    "title": "Motivo del rechazo",
-    "hint": "Opcional: por qué rechazas.",
+    "title": "Rejection reason",
+    "hint": "Optional: explain why you are rejecting the run.",
     "more": [
-      "Queda anotado en el historial junto a tu rechazo.",
-      "Puedes dejarlo vacío."
+      "The reason is recorded in the history with your rejection.",
+      "You can leave it blank."
     ]
   },
   "human.cancel": {
-    "title": "Cancelar ejecución",
-    "hint": "Detiene la ejecución antes de que termine.",
+    "title": "Cancel run",
+    "hint": "Stop the run before it finishes.",
     "more": [
-      "Si está corriendo, se pide detenerla y quedará cancelada cuando termine el paso en curso.",
-      "Si está esperando a una persona, se cancela enseguida.",
-      "No se puede deshacer, así que se pide confirmación."
+      "If it is running, cancellation is requested and takes effect when the current step finishes.",
+      "If it is waiting for a person, it is cancelled immediately.",
+      "This cannot be undone, so you will be asked to confirm."
     ]
   },
   "human.prompt": {
-    "title": "Prompt a copiar",
-    "hint": "El texto exacto que tienes que llevar a otra herramienta.",
+    "title": "Prompt to copy",
+    "hint": "The exact text to paste into another tool.",
     "more": [
-      "Cópialo tal cual en el modelo o la herramienta que prefieras.",
-      "Ya incluye tus entradas y, al final, las instrucciones del formato en que debe responder.",
-      "Está en solo lectura para que no lo cambies sin querer."
+      "Copy it as-is into the model or tool you prefer.",
+      "It already includes your inputs and, at the end, instructions for the response format.",
+      "It is read-only so you do not change it by accident."
     ]
   },
   "human.copy_prompt": {
-    "title": "Copiar prompt",
-    "hint": "Copia el prompt al portapapeles.",
+    "title": "Copy prompt",
+    "hint": "Copy the prompt to the clipboard.",
     "more": [
-      "Evita tener que seleccionar el texto a mano.",
-      "Si el navegador bloquea el portapapeles, el prompt queda seleccionado y basta con pulsar Ctrl+C."
+      "This saves you from selecting the text by hand.",
+      "If the browser blocks clipboard access, the prompt is selected; press Ctrl+C to copy it."
     ]
   },
   "human.response": {
-    "title": "Respuesta pegada",
-    "hint": "Pega aquí la respuesta completa de la otra herramienta.",
+    "title": "Pasted response",
+    "hint": "Paste the complete response from the other tool here.",
     "more": [
-      "Debe cumplir el formato que se indica arriba.",
-      "El servidor la valida al enviarla; si no lo cumple, se rechaza y el texto se queda aquí para que lo corrijas.",
-      "Tu borrador se conserva aunque cambies de pantalla, mientras no recargues la página."
+      "The response must match the format shown above.",
+      "The server validates it when submitted; if it does not match, it is rejected and the text stays here for you to correct.",
+      "Your draft remains if you switch screens, unless you reload the page."
     ]
   },
   "human.provider": {
-    "title": "Proveedor",
-    "hint": "Quién produjo la respuesta, por ejemplo la herramienta que usaste.",
+    "title": "Provider",
+    "hint": "Who produced the response, such as the tool you used.",
     "more": [
-      "Lo declaras tú y no se verifica: queda en el historial como «declarado».",
-      "Si lo dejas vacío se anota «human».",
-      "Sirve para saber después de dónde salió cada resultado."
+      "You provide this value and it is not verified; the history marks it as “Declared”.",
+      "If you leave it blank, “human” is recorded.",
+      "This helps identify where each result came from."
     ]
   },
   "human.model": {
-    "title": "Modelo",
-    "hint": "Opcional: el nombre del modelo que respondió.",
+    "title": "Model",
+    "hint": "Optional: the name of the model that responded.",
     "more": [
-      "También lo declaras tú y no se verifica.",
-      "Si no lo sabes, déjalo vacío: el historial dirá «sin modelo indicado»."
+      "You provide this value too, and it is not verified.",
+      "If you do not know it, leave it blank; the history will say “model not specified”."
     ]
   },
   "human.prompt_used": {
-    "title": "Prompt usado",
-    "hint": "Opcional: anota el prompt exacto si lo cambiaste antes de usarlo fuera.",
-    "more": ["Si lo dejas vacío se guarda el prompt mostrado para este paso.", "Queda asociado a la respuesta enviada."]
+    "title": "Prompt used",
+    "hint": "Optional: record the exact prompt if you changed it before using it elsewhere.",
+    "more": ["If you leave it blank, the prompt shown for this step is saved.", "It is associated with the submitted response."]
   },
   "human.notes": {
-    "title": "Notas",
-    "hint": "Opcional: añade contexto sobre cómo obtuviste la respuesta.",
-    "more": ["Las notas se guardan junto al envío.", "No afectan a la validación del contrato."]
+    "title": "Notes",
+    "hint": "Optional: add context about how you got the response.",
+    "more": ["Notes are saved with the submission.", "They do not affect contract validation."]
   },
   "external.section": {
-    "title": "Salida externa",
-    "hint": "Entrega una salida hecha fuera del framework, con sus evidencias.",
-    "more": ["Primero ves una vista previa que no cambia nada; después la confirmas.", "Al confirmar se guarda un recibo con los hashes de todo lo entregado."]
+    "title": "External output",
+    "hint": "Submit output produced outside the framework, along with its evidence.",
+    "more": ["First, review a preview that makes no changes; then confirm it.", "Confirmation saves a receipt with hashes for everything submitted."]
   },
   "external.output": {
-    "title": "Salida en JSON",
-    "hint": "El objeto JSON que cumple el contrato del paso que espera.",
-    "more": ["Pégalo completo; la vista previa lo valida contra el contrato.", "Si hay un error, lo que escribiste se queda en pantalla para corregirlo."]
+    "title": "JSON output",
+    "hint": "The JSON object that satisfies the waiting step's contract.",
+    "more": ["Paste the complete object; the preview validates it against the contract.", "If there is an error, your text remains on screen so you can correct it."]
   },
   "external.evidence": {
-    "title": "Evidencias",
-    "hint": "Archivos opcionales que respaldan la salida.",
-    "more": ["Se admiten imágenes, vídeos cortos, texto y JSON, dentro de los límites de tamaño.", "La página solo muestra su nombre, tipo, tamaño y hash; nunca su contenido."]
+    "title": "Evidence",
+    "hint": "Optional files that support the output.",
+    "more": ["Images, short videos, text, and JSON are accepted within the size limits.", "The page shows only each file's name, type, size, and hash, never its contents."]
   },
   "external.preview": {
-    "title": "Vista previa",
-    "hint": "Valida la salida y las evidencias sin cambiar la ejecución.",
-    "more": ["Muestra la salida normalizada, cada archivo con su hash y cuándo caduca la vista previa.", "Si caduca, prepara otra."]
+    "title": "Preview",
+    "hint": "Validate the output and evidence without changing the run.",
+    "more": ["The preview shows normalized output, each file with its hash, and when the preview expires.", "Prepare another preview if it expires."]
   },
   "external.confirm": {
-    "title": "Confirmar salida externa",
-    "hint": "Entrega la salida mostrada en la vista previa.",
-    "more": ["Pide una confirmación antes de guardar nada.", "Después muestra el recibo con quién, por qué canal y cuándo."]
+    "title": "Confirm external output",
+    "hint": "Submit the output shown in the preview.",
+    "more": ["You must confirm before anything is saved.", "The receipt then shows who submitted it, through which channel, and when."]
   },
   "human.check": {
-    "title": "Validar sin enviar",
-    "hint": "Comprueba el JSON, el contrato y sus campos antes de enviarlo.",
-    "more": ["Muestra los problemas por campo sin guardar la respuesta ni avanzar la ejecución.", "Puedes corregir el texto y volver a validar."]
+    "title": "Validate without submitting",
+    "hint": "Check the JSON, contract, and fields before submitting.",
+    "more": ["Problems are shown by field without saving the response or advancing the run.", "You can correct the text and validate it again."]
   },
   "human.submit": {
-    "title": "Enviar respuesta",
-    "hint": "Entrega la respuesta pegada para que el framework la valide.",
+    "title": "Submit response",
+    "hint": "Submit the pasted response for the framework to validate.",
     "more": [
-      "Si cumple el formato, la ejecución sigue; según el workflow, antes puede pasar a una revisión tuya.",
-      "Si no lo cumple, se rechaza con el motivo y puedes corregirla.",
-      "El envío queda en el historial con el proveedor y el modelo que declaraste."
+      "If it matches the format, the run continues; depending on the workflow, it may first wait for your review.",
+      "If it does not match, it is rejected with a reason and you can correct it.",
+      "The submission is recorded in the history with the provider and model you declared."
     ]
   },
 
   "thread.section": {
-    "title": "Hilo de la ejecución",
-    "hint": "Muestra los pasos y las decisiones de esta ejecución.",
-    "more": ["El hilo se actualiza cada pocos segundos mientras esta vista está abierta.", "Las decisiones aparecen en la parada actual."]
+    "title": "Run thread",
+    "hint": "Shows the steps and decisions for this run.",
+    "more": ["The thread refreshes every few seconds while this view is open.", "Decision controls appear at the current pause."]
   },
   "thread.refresh": {
-    "title": "Actualizar hilo",
-    "hint": "Vuelve a leer todos los mensajes de esta ejecución.",
-    "more": ["Úsalo si quieres comprobar el estado ahora.", "No cambia la ejecución."]
+    "title": "Refresh thread",
+    "hint": "Read all messages for this run again.",
+    "more": ["Use this to check the status now.", "It does not change the run."]
   },
   "thread.detail": {
-    "title": "Ver detalle de la ejecución",
-    "hint": "Abre el detalle completo en Ejecuciones.",
-    "more": ["Allí puedes revisar resultados y acciones que este hilo no muestra.", "El enlace conserva la ejecución elegida."]
+    "title": "View run details",
+    "hint": "Open the full details in Runs.",
+    "more": ["There you can review results and actions that are not shown in this thread.", "The link keeps the selected run."]
   },
   "thread.related": {
-    "title": "Abrir elemento relacionado",
-    "hint": "Abre el plan o equipo vinculado a la ejecución.",
-    "more": ["El enlace aparece cuando la ejecución pertenece a una tarea o usa un equipo.", "Abrirlo no modifica la ejecución."]
+    "title": "Open related item",
+    "hint": "Open the plan or team linked to this run.",
+    "more": ["The link appears when the run belongs to a task or uses a team.", "Opening it does not change the run."]
   },
   "thread.approve": {
-    "title": "Aprobar la parada",
-    "hint": "Confirma el resultado o la llamada pendiente.",
-    "more": ["Lee el detalle antes de decidir.", "La aprobación se envía solo después de confirmarla."]
+    "title": "Approve the pause",
+    "hint": "Approve the result or pending call.",
+    "more": ["Read the details before deciding.", "Approval is submitted only after you confirm."]
   },
   "thread.changes": {
-    "title": "Pedir cambios",
-    "hint": "Devuelve el paso con indicaciones o comentarios.",
-    "more": ["Escribe una indicación o añade un comentario.", "Confirma antes de enviarlos."]
+    "title": "Request changes",
+    "hint": "Send the step back with guidance or comments.",
+    "more": ["Write guidance or add a comment.", "Confirm before submitting them."]
   },
   "thread.reject": {
-    "title": "Rechazar la ejecución",
-    "hint": "Termina esta ejecución después de confirmar.",
-    "more": ["Puedes escribir un motivo.", "Rechazar no se puede deshacer."]
+    "title": "Reject the run",
+    "hint": "End this run after confirming.",
+    "more": ["You can provide a reason.", "A rejection cannot be undone."]
   },
   "thread.feedback": {
-    "title": "Indicación de la decisión",
-    "hint": "Escribe qué debe cambiar o por qué rechazas.",
-    "more": ["Para pedir cambios necesitas una indicación o un comentario.", "El motivo del rechazo es opcional."]
+    "title": "Decision guidance",
+    "hint": "Explain what should change or why you are rejecting it.",
+    "more": ["Requesting changes requires guidance or a comment.", "A rejection reason is optional."]
   },
   "thread.comment": {
-    "title": "Comentario de revisión",
-    "hint": "Señala una parte, el tipo de cambio y su texto.",
-    "more": ["Puedes añadir varios comentarios.", "La cita de la salida es opcional."]
+    "title": "Review comment",
+    "hint": "Identify a part, the type of change, and the details.",
+    "more": ["You can add multiple comments.", "Quoting the output is optional."]
   },
   "thread.confirm": {
-    "title": "Confirmar decisión",
-    "hint": "Envía la decisión o vuelve sin cambiar la ejecución.",
-    "more": ["Comprueba el resultado y las indicaciones antes de enviar.", "El hilo se vuelve a leer tras la acción."]
+    "title": "Confirm decision",
+    "hint": "Submit the decision or go back without changing the run.",
+    "more": ["Check the result and guidance before submitting.", "The thread refreshes after the action."]
   },
   "thread.output": {
-    "title": "Salida para revisar",
-    "hint": "Es la salida guardada del intento que espera tu decisión.",
-    "more": ["Los campos aparecen como lista y las listas de objetos como tablas.", "El texto y el JSON completo se muestran como texto plano."]
+    "title": "Output to review",
+    "hint": "The saved output from the attempt waiting for your decision.",
+    "more": ["Fields appear as a list and lists of objects appear as tables.", "Text and full JSON are displayed as plain text."]
   },
   "thread.json": {
-    "title": "JSON completo",
-    "hint": "Abre la salida original con todos sus campos.",
-    "more": ["Está plegada para que puedas leer primero el resumen.", "No interpreta Markdown ni HTML."]
+    "title": "Full JSON",
+    "hint": "Open the original output with all its fields.",
+    "more": ["It is collapsed so you can read the summary first.", "Markdown and HTML are not rendered."]
   },
   "thread.document": {
-    "title": "Documento",
-    "hint": "Es el resultado de esta ejecución escrito como un documento en Markdown.",
-    "more": ["Se muestra como texto plano, sin dibujar el formato.", "Aparece cuando la ejecución terminó y tiene un resultado."]
+    "title": "Document",
+    "hint": "The run's result, written as a Markdown document.",
+    "more": ["It is shown as plain text, without rendering the formatting.", "It appears when the run is complete and has a result."]
   },
   "thread.document_save": {
-    "title": "Guardar como Markdown",
-    "hint": "Descarga el documento como un archivo .md desde tu navegador.",
-    "more": ["El archivo lo arma tu navegador; el servidor no escribe nada en tu equipo.", "El nombre lleva el título y el principio del id de la ejecución."]
+    "title": "Save as Markdown",
+    "hint": "Download the document as a .md file in your browser.",
+    "more": ["Your browser creates the file; the server does not write to your computer.", "The filename includes the title and the beginning of the run ID."]
   },
   "thread.previous": {
-    "title": "Ver pasos anteriores",
-    "hint": "Carga las salidas guardadas de los pasos anteriores de esta ejecución.",
-    "more": ["Se leen solo cuando pulsas el botón.", "Cada intento se puede abrir por separado."]
+    "title": "View earlier steps",
+    "hint": "Load saved outputs from earlier steps in this run.",
+    "more": ["They are loaded only when you select the button.", "Each attempt can be opened separately."]
   },
   "thread.calls": {
-    "title": "Llamadas a modelo",
-    "hint": "Muestra las llamadas usadas y el máximo de esta ejecución.",
-    "more": ["El número ayuda a decidir si pedir cambios.", "No cambia el presupuesto del workflow."]
+    "title": "Model calls",
+    "hint": "Shows the calls used and the limit for this run.",
+    "more": ["The count can help you decide whether to request changes.", "It does not change the workflow budget."]
   },
 
   "inbox.section": {
-    "title": "Mensaje a la ejecución", "hint": "Escribe una instrucción para el siguiente paso de trabajo.",
-    "more": ["La bandeja solo funciona cuando la política de disponibilidad está encendida.", "El mensaje se lee en una frontera de trabajo y nunca aprueba una decisión."]
+    "title": "Message the run", "hint": "Write an instruction for the next work step.",
+    "more": ["The inbox works only when the availability policy is enabled.", "The message is read at a work boundary and never approves a decision."]
   },
   "inbox.kind": {
-    "title": "Acción del mensaje", "hint": "Elige cancelar, interrumpir, ajustar o dejar una nota.",
-    "more": ["Cancelar detiene la ejecución cuando el trabajador lea el mensaje.", "Interrumpir y ajustar esperan tu decisión; una nota deja constancia y permite continuar."]
+    "title": "Message action", "hint": "Choose whether to cancel, interrupt, adjust, or leave a note.",
+    "more": ["Cancel stops the run when the worker reads the message.", "Interrupt and adjust wait for your decision; a note records information and lets work continue."]
   },
   "inbox.text": {
-    "title": "Texto del mensaje", "hint": "Explica tu ajuste o deja una nota.",
-    "more": ["El texto es obligatorio para ajustar y para una nota.", "La bandeja admite hasta 1200 bytes de texto."]
+    "title": "Message text", "hint": "Explain your adjustment or leave a note.",
+    "more": ["Text is required for an adjustment or a note.", "The inbox accepts up to 1,200 bytes of text."]
   },
   "inbox.send": {
-    "title": "Enviar mensaje", "hint": "Guarda el mensaje para que lo lea el trabajador.",
-    "more": ["Cancelar, interrumpir y ajustar requieren una confirmación adicional.", "El botón queda desactivado si la política está apagada o la ejecución terminó."]
+    "title": "Send message", "hint": "Save the message for the worker to read.",
+    "more": ["Cancel, interrupt, and adjust require extra confirmation.", "The button is disabled if the policy is off or the run has ended."]
   },
   "inbox.confirm": {
-    "title": "Confirmar mensaje", "hint": "Confirma la instrucción que vas a guardar.",
-    "more": ["El mensaje se guarda con un identificador propio para evitar duplicados.", "Se aplicará cuando el trabajador llegue a la siguiente frontera de trabajo."]
+    "title": "Confirm message", "hint": "Confirm the instruction you are about to save.",
+    "more": ["The message is saved with its own ID to prevent duplicates.", "It takes effect when the worker reaches the next work boundary."]
   },
   "inbox.back": {
-    "title": "Volver al mensaje", "hint": "Cierra la confirmación y conserva el texto.",
-    "more": ["Puedes cambiar la acción o el texto antes de enviarlo.", "La ejecución sigue en su estado actual."]
+    "title": "Back to message", "hint": "Close the confirmation and keep the text.",
+    "more": ["You can change the action or text before sending.", "The run stays in its current state."]
   },
 
   "human.tool_preview": {
-    "title": "Vista previa de file.write",
-    "hint": "Muestra el contenido que se propone escribir antes de aprobar la llamada.",
+    "title": "file.write preview",
+    "hint": "Show the proposed file contents before approving the call.",
     "more": [
-      "Si el archivo existe, también compara el contenido actual con el propuesto y avisa si se quitarán líneas.",
-      "La vista usa los argumentos reconstruidos del workflow y solo los muestra si coinciden con la huella de la aprobación pendiente.",
-      "Si no coinciden o la ruta no cumple los límites, explica por qué no puede mostrar el contenido."
+      "If the file exists, the preview compares its current contents with the proposed contents and warns if lines will be removed.",
+      "The preview uses arguments reconstructed from the workflow and shows them only if they match the pending approval fingerprint.",
+      "If they do not match or the path is outside the allowed limits, it explains why the contents cannot be shown."
     ]
   },
 
   "run.limit_retry": {
-    "title": "Reintentar tras límite",
-    "hint": "Abre «Nueva sesión» para volver a lanzar cuando se reinicie la cuota.",
+    "title": "Retry after a limit",
+    "hint": "Open “New session” to launch again when the quota resets.",
     "more": [
-      "Cuando una ejecución falla por cuota, muestra «Límite alcanzado» con la hora local o «sin hora conocida».",
-      "Pulsar «Reintentar» abre una nueva sesión sin relanzar nada de forma automática."
+      "When a run fails because of a quota, it shows “Limit reached” with the local time or “time unknown”.",
+      "Selecting “Retry” opens a new session; nothing is relaunched automatically."
     ]
   },
   "run.tabs": {
-    "title": "Secciones de la ejecución",
-    "hint": "Cambia entre pasos, resultados y detalles de esta ejecución.",
+    "title": "Run sections",
+    "hint": "Switch between this run's steps, results, and details.",
     "more": [
-      "«Pasos» muestra el avance y los contadores; «Resultados» reúne las salidas por paso e intento.",
-      "«Detalles» guarda el historial humano, las entradas y los eventos técnicos."
+      "“Steps” shows progress and counters; “Results” groups outputs by step and attempt.",
+      "“Details” contains the human action history, inputs, and technical events."
     ]
   }
 };

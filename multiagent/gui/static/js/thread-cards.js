@@ -7,20 +7,72 @@ import { Help, helpFor } from "./help.js";
 import { errorText, fmtJson } from "./text.js";
 import { readable } from "./readable.js";
 import { actionsFor, detailHref, previousStepIds, reviewArtifact, showRawOutput, threadLinksFor } from "./thread-model.js";
+import { t } from "./i18n.js";
 
-const LABELS = { launched: "Inicio", step: "Paso terminado", user_message: "Tu mensaje",
-  message_consumed: "Mensaje leído", waiting: "Se necesita tu decisión", final: "Final" };
-const KIND_LABELS = { fix: "Corregir", add: "Añadir", remove: "Quitar", rewrite: "Reescribir", other: "Otro" };
-const REASONS = { review: "Revisión", tool_approval: "Aprobación de herramienta", execute_step: "Paso humano",
-  research: "Investigación externa", escalation_approval: "Escalamiento", budget_exhausted: "Presupuesto agotado",
-  content_review: "Revisión de contenido" };
+const LABELS = {
+  launched: "thread.card.started",
+  step: "thread.card.step",
+  user_message: "thread.card.user_message",
+  message_consumed: "thread.card.message_read",
+  waiting: "thread.card.waiting",
+  final: "thread.card.final",
+};
+const KIND_LABELS = {
+  fix: "runs.comment_kind.fix",
+  add: "runs.comment_kind.add",
+  remove: "runs.comment_kind.remove",
+  rewrite: "runs.comment_kind.rewrite",
+  other: "runs.comment_kind.other",
+};
+const REASONS = {
+  review: "thread.reason.review",
+  tool_approval: "thread.reason.tool_approval",
+  execute_step: "thread.reason.execute_step",
+  research: "thread.reason.research",
+  escalation_approval: "thread.reason.escalation_approval",
+  budget_exhausted: "thread.reason.budget_exhausted",
+  content_review: "thread.reason.content_review",
+};
+const WAITING_TEXT_KEYS = {
+  review: "thread.event.waiting_review",
+  tool_approval: "thread.event.waiting_tool_approval",
+  execute_step: "thread.event.waiting_execute_step",
+  research: "thread.event.waiting_research",
+  escalation_approval: "thread.event.waiting_escalation",
+  budget_exhausted: "thread.event.waiting_budget",
+  content_review: "thread.event.waiting_content_review",
+};
+const FINAL_TEXT_KEYS = {
+  completed: "thread.event.completed",
+  failed: "thread.event.failed",
+  cancelled: "thread.event.cancelled",
+  rejected: "thread.event.rejected",
+  interrupted: "thread.event.interrupted",
+};
+
+export function threadEntryText(entry) {
+  if (entry.kind === "launched" && typeof entry.workflow_id === "string" && entry.text === "Started " + entry.workflow_id) {
+    return t("thread.event.started", { workflow_id: entry.workflow_id });
+  }
+  if (entry.kind === "step" && typeof entry.step_id === "string" && entry.text === entry.step_id + " completed") {
+    return t("thread.event.step_completed", { step_id: entry.step_id });
+  }
+  if (entry.kind === "message_consumed" && entry.text === "Message read") return t("thread.event.message_read");
+  if (entry.kind === "waiting" && WAITING_TEXT_KEYS[entry.reason] && entry.text === "Waiting: " + entry.reason) {
+    return t(WAITING_TEXT_KEYS[entry.reason]);
+  }
+  if (entry.kind === "final" && FINAL_TEXT_KEYS[entry.status] && entry.text === "Run " + entry.status) {
+    return t(FINAL_TEXT_KEYS[entry.status]);
+  }
+  return entry.text || "";
+}
 
 export function ReadableValue({ node }) {   // CHT-T06: also used by plan-thread.js and plans.js
-  if (node.kind === "long") return html`<details class="thread-long"><summary ...${helpFor("thread.output")}>Ver texto largo</summary>
+  if (node.kind === "long") return html`<details class="thread-long"><summary ...${helpFor("thread.output")}>${t("thread.value.long")}</summary>
     <pre class="thread-readable-text">${node.text}</pre></details>`;
   if (node.kind === "fields") return html`<dl class="thread-fields">${node.fields.map(({ name, value }) => html`
     <dt key=${name + "-name"}>${name}</dt><dd key=${name}><${ReadableValue} node=${value} /></dd>`)}</dl>`;
-  if (node.kind === "table") return html`<div class="usage-table-wrap" role="region" aria-label="Tabla de la salida" tabindex="0">
+  if (node.kind === "table") return html`<div class="usage-table-wrap" role="region" aria-label=${t("thread.value.table")} tabindex="0">
     <table><thead><tr>${node.columns.map((name) => html`<th key=${name} scope="col">${name}</th>`)}</tr></thead>
       <tbody>${node.rows.map((row, index) => html`<tr key=${index}>${row.map((cell, column) => html`
         <td key=${column}><${ReadableValue} node=${cell} /></td>`)}</tr>`)}</tbody></table></div>`;
@@ -61,37 +113,36 @@ function ReviewOutput({ entry, view, runId, token, mode }) {
 // the raw JSON, the model calls and the earlier steps; advanced mode draws all of it, as before.
 export function ReviewBody({ artifact, counters, steps, earlier, loading, loadError, showEarlier, mode = "advanced" }) {
   const raw = showRawOutput(mode);
-  return html`<section class="thread-review" aria-label="Salida para revisar">
-    <h4>Salida para revisar</h4><${Help} topic="thread.output" compact=${true} />
+  return html`<section class="thread-review" aria-label=${t("thread.review.title")}>
+    <h4>${t("thread.review.title")}</h4><${Help} topic="thread.output" compact=${true} />
     ${artifact ? html`<${ReadableValue} node=${readable(artifact.data)} />
-      ${raw && html`<details class="thread-json"><summary ...${helpFor("thread.json")}>JSON completo</summary>
+      ${raw && html`<details class="thread-json"><summary ...${helpFor("thread.json")}>${t("thread.json.full")}</summary>
         <${Help} topic="thread.json" compact=${true} /><pre class="thread-readable-text">${fmtJson(artifact.data)}</pre></details>`}`
-      : html`<p class="muted">No se encontró la salida de este intento.</p>`}
-    ${raw && counters && html`<p class="thread-calls">Llamadas a modelo: ${counters.model_calls} de ${counters.max_model_calls} máximo.
+      : html`<p class="muted">${t("thread.review.output_missing")}</p>`}
+    ${raw && counters && html`<p class="thread-calls">${t("thread.review.calls", { current: counters.model_calls, maximum: counters.max_model_calls })}
       <${Help} topic="thread.calls" compact=${true} /></p>`}
     ${raw && steps.length > 0 && html`<button type="button" class="btn secondary" disabled=${loading}
-      ...${helpFor("thread.previous")} onClick=${showEarlier}>${loading ? "Cargando…" : "Ver pasos anteriores"}</button>`}
+      ...${helpFor("thread.previous")} onClick=${showEarlier}>${t(loading ? "thread.previous.loading" : "thread.previous.button")}</button>`}
     ${raw && steps.length > 0 && html`<${Help} topic="thread.previous" compact=${true} />`}
-    ${raw && loadError && html`<p class="message error" role="alert">No se pudieron leer los pasos anteriores.</p>`}
+    ${raw && loadError && html`<p class="message error" role="alert">${t("thread.previous.error")}</p>`}
     ${raw && earlier && html`<div class="thread-earlier">${earlier.map(({ stepId, attempts }) => html`<section key=${stepId}>
-      <h5>Paso ${stepId}</h5>${attempts.length ? attempts.map((attempt) => html`<details key=${attempt.attempt}>
-        <summary ...${helpFor("thread.previous")}>Intento ${attempt.attempt}</summary><${ReadableValue} node=${readable(attempt.output)} />
-        <details class="thread-json"><summary ...${helpFor("thread.json")}>JSON completo</summary>
+      <h5>${t("thread.previous.step", { step_id: stepId })}</h5>${attempts.length ? attempts.map((attempt) => html`<details key=${attempt.attempt}>
+        <summary ...${helpFor("thread.previous")}>${t("runs.attempt.option", { count: attempt.attempt })}</summary><${ReadableValue} node=${readable(attempt.output)} />
+        <details class="thread-json"><summary ...${helpFor("thread.json")}>${t("thread.json.full")}</summary>
           <${Help} topic="thread.json" compact=${true} /><pre class="thread-readable-text">${fmtJson(attempt.output)}</pre></details>
-      </details>`) : html`<p class="muted">Sin salidas guardadas.</p>`}</section>`)}</div>`}
+      </details>`) : html`<p class="muted">${t("thread.previous.empty")}</p>`}</section>`)}</div>`}
   </section>`;
 }
 
-// The server explains in English; the card says it in Spanish and falls back to the server text for file errors.
 const PREVIEW_REASONS = {
-  no_pending_approval: "Ya no hay una aprobación pendiente.",
-  permission_request_mismatch: "La aprobación cambió: actualiza la ejecución para ver su vista previa.",
-  file_tools_disabled: "Las herramientas de archivos no están configuradas en esta aplicación.",
-  file_write_unavailable: "La herramienta file.write no está registrada.",
-  run_inputs_unavailable: "Faltan las entradas de la ejecución para rehacer la llamada.",
-  declaration_unavailable: "El paso ya no declara esta llamada a file.write.",
-  arguments_unavailable: "Los argumentos no se pueden rehacer con las entradas de esta ejecución.",
-  arguments_mismatch: "Los argumentos rehechos no coinciden con la huella de la aprobación, así que no se muestran.",
+  no_pending_approval: "thread.preview.no_pending_approval",
+  permission_request_mismatch: "thread.preview.permission_request_mismatch",
+  file_tools_disabled: "thread.preview.file_tools_disabled",
+  file_write_unavailable: "thread.preview.file_write_unavailable",
+  run_inputs_unavailable: "thread.preview.run_inputs_unavailable",
+  declaration_unavailable: "thread.preview.declaration_unavailable",
+  arguments_unavailable: "thread.preview.arguments_unavailable",
+  arguments_mismatch: "thread.preview.arguments_mismatch",
 };
 
 export function ToolApprovalPreview({ runId, token, permissionRequestId }) {
@@ -109,21 +160,21 @@ export function ToolApprovalPreview({ runId, token, permissionRequestId }) {
     return () => { request.current += 1; };
   }, [runId, token, permissionRequestId]);
   if (preview && !preview.available && preview.reason === "unsupported_tool") return null;
-  return html`<section class="tool-approval-preview" aria-label="Vista previa de file.write">
-    <h4>Vista previa de file.write</h4><${Help} topic="human.tool_preview" compact=${true} />
+  return html`<section class="tool-approval-preview" aria-label=${t("thread.preview.title")}>
+    <h4>${t("thread.preview.title")}</h4><${Help} topic="human.tool_preview" compact=${true} />
     ${error && html`<p class="message error" role="alert">${error}</p>`}
-    ${!error && !preview && html`<p class="muted" aria-busy="true">Leyendo vista previa…</p>`}
-    ${preview && !preview.available && html`<p class="message info" role="status">${PREVIEW_REASONS[preview.reason] || preview.message}</p>`}
+    ${!error && !preview && html`<p class="muted" aria-busy="true">${t("thread.preview.loading")}</p>`}
+    ${preview && !preview.available && html`<p class="message info" role="status">${PREVIEW_REASONS[preview.reason] ? t(PREVIEW_REASONS[preview.reason]) : preview.message}</p>`}
     ${preview && preview.available && html`<div>
-      <p><strong>Ruta:</strong> ${preview.path}</p>
-      ${preview.removed_lines > 0 && html`<p class="notice" role="alert">Se quitarán ${preview.removed_lines}
-        ${preview.removed_lines === 1 ? "línea" : "líneas"} del archivo actual.</p>`}
+      <p><strong>${t("thread.preview.path")}</strong> ${preview.path}</p>
+      ${preview.removed_lines > 0 && html`<p class="notice" role="alert">${t("thread.preview.removed_lines", { count: preview.removed_lines,
+        label: t(preview.removed_lines === 1 ? "thread.preview.line.one" : "thread.preview.line.many") })}</p>`}
       ${preview.exists
-        ? html`<h5>Contenido que se escribirá</h5><pre class="thread-readable-text">${preview.content}</pre>
-          <h5>Diferencias con el archivo actual</h5>
+        ? html`<h5>${t("thread.preview.content")}</h5><pre class="thread-readable-text">${preview.content}</pre>
+          <h5>${t("thread.preview.diff")}</h5>
           ${preview.diff ? html`<pre class="thread-readable-text">${preview.diff}</pre>`
-            : html`<p class="muted">El archivo actual ya contiene el mismo contenido.</p>`}`
-        : html`<h5>Archivo nuevo: todas las líneas se añadirán</h5>
+            : html`<p class="muted">${t("thread.preview.same_content")}</p>`}`
+        : html`<h5>${t("thread.preview.new_file")}</h5>
           <pre class="thread-readable-text">${preview.diff || preview.content}</pre>`}
     </div>`}
   </section>`;
@@ -142,58 +193,62 @@ function Decision({ entry, busy, onAction, runId, token, mode }) {
   const patchComment = (index, patch) => setComments(comments.map((item, i) => i === index ? { ...item, ...patch } : item));
   const send = () => {
     if (pending === "changes" && !feedback.trim() && !comments.length) {
-      setError("Escribe una indicación o añade un comentario."); return;
+      setError(t("thread.decision.change_required")); return;
     }
     if (pending === "changes" && comments.some((item) => !item.target.trim() || !item.text.trim())) {
-      setError("Completa la parte y el texto de cada comentario."); return;
+      setError(t("thread.decision.comment_required")); return;
     }
     const body = pending === "approve" ? approveBody : pending === "reject" ? { feedback: feedback.trim() }
       : { feedback: feedback.trim(), comments: comments.map((item) => ({ ...item, target: item.target.trim(), text: item.text.trim(), quote: item.quote || null })) };
     onAction(pending, body);
   };
   return html`<div class="thread-decision">
-    <p class="muted">${REASONS[entry.reason] || entry.reason || "Parada"} · paso ${entry.step_id || "sin indicar"}${entry.attempt && showRawOutput(mode) ? " · intento " + entry.attempt : ""}</p>
+    <p class="muted">${REASONS[entry.reason] ? t(REASONS[entry.reason]) : entry.reason || t("thread.reason.stopped")} · ${t("thread.reason.step", { step_id: entry.step_id || t("common.value.unspecified") })}${entry.attempt && showRawOutput(mode) ? " · " + t("runs.attempt.option", { count: entry.attempt }) : ""}</p>
     ${tool && html`<${ToolApprovalPreview} runId=${runId} token=${token}
       permissionRequestId=${entry.decision.permission_request_id} />`}
     ${!pending && html`<div class="thread-actions">
       ${actions.includes("approve") && html`<button type="button" class="btn" disabled=${busy || (tool && !entry.decision.permission_request_id)}
-        ...${helpFor("thread.approve")} onClick=${() => setPending("approve")}>Aprobar</button>`}
+        ...${helpFor("thread.approve")} onClick=${() => setPending("approve")}>${t("thread.action.approve")}</button>`}
       ${actions.includes("changes") && html`<button type="button" class="btn secondary" disabled=${busy}
-        ...${helpFor("thread.changes")} onClick=${() => setPending("changes")}>Pedir cambios</button>`}
+        ...${helpFor("thread.changes")} onClick=${() => setPending("changes")}>${t("thread.action.changes")}</button>`}
       ${actions.includes("reject") && html`<button type="button" class="btn secondary" disabled=${busy}
-        ...${helpFor("thread.reject")} onClick=${() => setPending("reject")}>Rechazar</button>`}
+        ...${helpFor("thread.reject")} onClick=${() => setPending("reject")}>${t("thread.action.reject")}</button>`}
       <${Help} topic="thread.approve" compact=${true} /><${Help} topic="thread.changes" compact=${true} />
       <${Help} topic="thread.reject" compact=${true} />
     </div>`}
-    ${pending && html`<div class="thread-confirm" role="group" aria-label="Confirmar decisión">
-      <p><strong>¿${pending === "approve" ? "Aprobar" : pending === "changes" ? "Pedir cambios" : "Rechazar"} esta parada?</strong></p>
-      ${(pending === "changes" || pending === "reject") && html`<label>Motivo ${pending === "reject" ? "(opcional)" : "o indicación"}
+    ${pending && html`<div class="thread-confirm" role="group" aria-label=${t("thread.decision.confirm")}>
+      <p><strong>${t("thread.decision.confirm_question", {
+        action: t(pending === "approve" ? "thread.action.approve" : pending === "changes" ? "thread.action.changes" : "thread.action.reject"),
+      })}</strong></p>
+      ${(pending === "changes" || pending === "reject") && html`<label>${t("thread.decision.reason")} ${pending === "reject" ? t("runs.human.optional") : t("thread.decision.guidance")}
         <textarea rows="3" maxlength="4000" value=${feedback} disabled=${busy} ...${helpFor("thread.feedback")}
           onInput=${(event) => { setFeedback(event.target.value); setError(""); }}></textarea></label>
         <${Help} topic="thread.feedback" compact=${true} />`}
       ${pending === "changes" && html`<div class="thread-comments">
-        ${comments.map((item, index) => html`<fieldset key=${index}><legend>Comentario ${index + 1}</legend>
-          <label>Parte<input maxlength="200" value=${item.target} disabled=${busy} ...${helpFor("thread.comment")}
+        ${comments.map((item, index) => html`<fieldset key=${index}><legend>${t("runs.human.comment.legend", { count: index + 1 })}</legend>
+          <label>${t("runs.human.comment.part")}<input maxlength="200" value=${item.target} disabled=${busy} ...${helpFor("thread.comment")}
             onInput=${(event) => patchComment(index, { target: event.target.value })} /></label>
-          <label>Tipo<select value=${item.kind} disabled=${busy} ...${helpFor("thread.comment")}
+          <label>${t("runs.human.comment.type")}<select value=${item.kind} disabled=${busy} ...${helpFor("thread.comment")}
             onChange=${(event) => patchComment(index, { kind: event.target.value })}>
-            ${Object.entries(KIND_LABELS).map(([kind, label]) => html`<option key=${kind} value=${kind}>${label}</option>`)}
+            ${Object.entries(KIND_LABELS).map(([kind, key]) => html`<option key=${kind} value=${kind}>${t(key)}</option>`)}
           </select></label>
-          <label>Texto<textarea rows="2" maxlength="2000" value=${item.text} disabled=${busy} ...${helpFor("thread.comment")}
+          <label>${t("runs.human.comment.text")}<textarea rows="2" maxlength="2000" value=${item.text} disabled=${busy} ...${helpFor("thread.comment")}
             onInput=${(event) => patchComment(index, { text: event.target.value })}></textarea></label>
-          <label>Cita de la salida (opcional)<textarea rows="2" maxlength="2000" value=${item.quote} disabled=${busy}
+          <label>${t("runs.human.comment.quote_optional")}<textarea rows="2" maxlength="2000" value=${item.quote} disabled=${busy}
             ...${helpFor("thread.comment")} onInput=${(event) => patchComment(index, { quote: event.target.value })}></textarea></label>
           <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("thread.comment")}
-            onClick=${() => setComments(comments.filter((_, i) => i !== index))}>Quitar comentario</button>
+            onClick=${() => setComments(comments.filter((_, i) => i !== index))}>${t("runs.human.comment.remove")}</button>
         </fieldset>`)}
         <button type="button" class="btn secondary" disabled=${busy || comments.length >= 20} ...${helpFor("thread.comment")}
-          onClick=${addComment}>Añadir comentario</button><${Help} topic="thread.comment" compact=${true} />
+          onClick=${addComment}>${t("runs.human.comment.add")}</button><${Help} topic="thread.comment" compact=${true} />
       </div>`}
       ${error && html`<p class="message error" role="alert">${error}</p>`}
       <div class="thread-actions"><button type="button" class=${pending === "reject" ? "btn danger" : "btn"} disabled=${busy}
-        ...${helpFor("thread.confirm")} onClick=${send}>Sí, ${pending === "approve" ? "aprobar" : pending === "changes" ? "pedir cambios" : "rechazar"}</button>
+        ...${helpFor("thread.confirm")} onClick=${send}>${t("thread.decision.confirm_button", {
+          action: t(pending === "approve" ? "thread.action.approve_infinitive" : pending === "changes" ? "thread.action.changes_infinitive" : "thread.action.reject_infinitive"),
+        })}</button>
         <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("thread.confirm")}
-          onClick=${() => { setPending(""); setError(""); }}>Volver</button><${Help} topic="thread.confirm" compact=${true} /></div>
+          onClick=${() => { setPending(""); setError(""); }}>${t("thread.inbox.back")}</button><${Help} topic="thread.confirm" compact=${true} /></div>
     </div>`}
   </div>`;
 }
@@ -207,15 +262,15 @@ export function ThreadCard({ entry, status, runId, token, reviewView, busy, onAc
   const output = entry.kind === "final" ? entry.error || (entry.output == null ? "" :
     typeof entry.output === "string" ? entry.output : raw ? JSON.stringify(entry.output, null, 2) : "") : "";
   return html`<li class=${"thread-card thread-" + entry.kind}>
-    <div class="thread-card-head"><strong>${LABELS[entry.kind] || "Evento"}</strong>
-      ${links.detail && html`<a href=${details} ...${helpFor("thread.detail")}>Ver detalle</a><${Help} topic="thread.detail" compact=${true} />`}</div>
-    <p>${entry.text || ""}</p>
-    ${entry.kind === "launched" && html`<p class="muted">${entry.workflow_id} · ${entry.project_name || "sin proyecto"}
+    <div class="thread-card-head"><strong>${t(LABELS[entry.kind] || "thread.card.event")}</strong>
+      ${links.detail && html`<a href=${details} ...${helpFor("thread.detail")}>${t("thread.detail")}</a><${Help} topic="thread.detail" compact=${true} />`}</div>
+    <p>${threadEntryText(entry)}</p>
+    ${entry.kind === "launched" && html`<p class="muted">${entry.workflow_id} · ${entry.project_name || t("common.value.no_project")}
       ${entry.execution_mode ? " · " + entry.execution_mode : ""}${entry.operating_mode ? " · " + entry.operating_mode : ""}</p>`}
-    ${entry.kind === "launched" && entry.task_id && html`<p>Tarea ${entry.task_id}
-      ${links.related && entry.task_href && html` · <a href=${entry.task_href} ...${helpFor("thread.related")}>Ver plan</a>`}</p>`}
-    ${entry.kind === "launched" && entry.team && html`<p>Equipo ${entry.team.team_id || entry.team.bundle || "vinculado"}
-      ${links.related && entry.team_href && html` · <a href=${entry.team_href} ...${helpFor("thread.related")}>Ver equipo</a>`}</p>`}
+    ${entry.kind === "launched" && entry.task_id && html`<p>${t("thread.related.task", { task_id: entry.task_id })}
+      ${links.related && entry.task_href && html` · <a href=${entry.task_href} ...${helpFor("thread.related")}>${t("thread.related.plan")}</a>`}</p>`}
+    ${entry.kind === "launched" && entry.team && html`<p>${t("thread.related.team", { team_id: entry.team.team_id || entry.team.bundle || t("thread.related.linked") })}
+      ${links.related && entry.team_href && html` · <a href=${entry.team_href} ...${helpFor("thread.related")}>${t("thread.related.team_link")}</a>`}</p>`}
     ${entry.kind === "launched" && links.related && html`<${Help} topic="thread.related" compact=${true} />`}
     ${entry.kind === "step" && html`<p class="muted">${entry.step_id}${raw && entry.executor ? " · " + (entry.executor.model || entry.executor.function || entry.executor.provider || entry.executor.kind || "") : ""}</p>`}
     ${entry.kind === "waiting" && status === "waiting_human" && entry.decision &&

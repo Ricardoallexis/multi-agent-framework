@@ -6,15 +6,16 @@ import { html, useEffect, useState } from "../vendor/htm-preact-standalone.modul
 import { apiGet, runPath } from "./api.js";
 import { Help, helpFor } from "./help.js";
 import { errorText } from "./text.js";
-import { SAVE_LABEL, documentState, downloadMarkdown } from "./document-model.js";
+import { documentState, downloadMarkdown } from "./document-model.js";
+import { t } from "./i18n.js";
 
 // No hooks: the card body for a payload the server gave.
 export function DocumentView({ payload, onSave }) {
-  return html`<section class="document-card" aria-label="Documento del resultado">
-    <h4>Documento</h4><${Help} topic="thread.document" compact=${true} />
+  return html`<section class="document-card" aria-label=${t("thread.document.title")}>
+    <h4>${t("thread.document.title")}</h4><${Help} topic="thread.document" compact=${true} />
     <pre class="document-text">${payload.markdown}</pre>
     <div class="document-actions">
-      <button type="button" class="btn secondary" ...${helpFor("thread.document_save")} onClick=${onSave}>${SAVE_LABEL}</button>
+      <button type="button" class="btn secondary" ...${helpFor("thread.document_save")} onClick=${onSave}>${t("thread.document.save")}</button>
       <${Help} topic="thread.document_save" compact=${true} />
     </div>
   </section>`;
@@ -33,6 +34,6 @@ export function DocumentCard({ token, runId }) {
   }, [runId, token]);
   const state = documentState(payload, error);
   if (state === "none") return null;
-  if (state === "error") return html`<p class="message error" role="alert">No se pudo leer el documento: ${errorText(error)}</p>`;
+  if (state === "error") return html`<p class="message error" role="alert">${t("thread.document.error", { message: errorText(error) })}</p>`;
   return html`<${DocumentView} payload=${payload} onSave=${() => downloadMarkdown(payload, document, URL)} />`;
 }

@@ -96,9 +96,10 @@ def test_components_import_only_the_vendored_library_and_their_siblings():
     for name in UI_FILES:
         imported = set(re.findall(r'from "([^"]+)"', ui(name)))
         for target in imported:
-            assert target == "../../vendor/htm-preact-standalone.module.js" or re.fullmatch(r"\./[a-z-]+\.js", target), (name, target)
+            assert (target in {"../../vendor/htm-preact-standalone.module.js", "../i18n.js"}
+                    or re.fullmatch(r"\./[a-z-]+\.js", target)), (name, target)
     # components never reach into the views
-    assert not re.search(r'from "\.\./[a-z-]+\.js"', "".join(ui(name) for name in UI_FILES))
+    assert not re.search(r'from "\.\./(?!i18n\.js)[a-z-]+\.js"', "".join(ui(name) for name in UI_FILES))
 
 
 def test_the_ui_folder_ships_in_the_wheel_and_is_served_with_the_csp(tmp_path):
@@ -132,7 +133,7 @@ def test_every_use_of_tabs_passes_its_help_and_names_the_tab_list():
             uses += 1
             tag = match[1]
             assert "helpFor(" in tag, f"{path.name}: <Tabs> without help"       # test_gui_help.py: every control has help
-            assert re.search(r'\blabel="[^"]+"', tag) and re.search(r'\bid="[a-z]+"', tag), path.name
+            assert re.search(r'\blabel=(?:"[^"]+"|\$\{t\("[^"]+"\)\})', tag) and re.search(r'\bid="[a-z]+"', tag), path.name
     assert uses >= 1
 
 
@@ -325,6 +326,7 @@ def node_root(tmp_path_factory):
     """A copy of the client folder where ``.js`` is an ES module on every Node version (a package.json says so)."""
     root = tmp_path_factory.mktemp("static")
     shutil.copytree(STATIC_DIR / "js", root / "js")
+    shutil.copytree(STATIC_DIR / "i18n", root / "i18n")
     shutil.copytree(STATIC_DIR / "vendor", root / "vendor")
     (root / "package.json").write_text('{"type": "module"}', encoding="utf-8")
     return root

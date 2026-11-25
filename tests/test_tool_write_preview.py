@@ -158,8 +158,8 @@ def test_gui_preview_refuses_a_stale_permission_request_id(env):
 
 def test_thread_and_execution_cards_mount_the_preview():
     js = Path(__file__).resolve().parents[1] / "multiagent" / "gui" / "static" / "js"
-    cards = (js / "thread-cards.js").read_text(encoding="utf-8")
-    actions = (js / "human-actions.js").read_text(encoding="utf-8")
+    cards = ui_text(js / "thread-cards.js")
+    actions = ui_text(js / "human-actions.js")
     css = (js.parent / "new-session.css").read_text(encoding="utf-8")
 
     assert 'runPath(runId, "tool-approval/preview") + "?permission_request_id="' in cards

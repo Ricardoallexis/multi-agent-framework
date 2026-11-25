@@ -9,20 +9,23 @@ export const NARROW_QUERY = "(max-width: 899.98px)";
 export const PHONE_QUERY = "(max-width: 599.98px)";
 
 const WAITING_LABELS = {
-  review: "Esperando tu revisión",
-  approval_pending: "Esperando tu aprobación",
-  budget_exhausted: "Presupuesto agotado",
-  tool_approval: "Esperando aprobación de herramienta",
-  execute_step: "Paso manual pendiente",
-  research: "Investigación externa pendiente",
+  review: { key: "runs.waiting.review_label", fallback: "Waiting for your review" },
+  approval_pending: { key: "runs.waiting.approval_pending", fallback: "Waiting for your approval" },
+  budget_exhausted: { key: "runs.waiting.budget_exhausted", fallback: "Budget exhausted" },
+  tool_approval: { key: "runs.waiting.tool_approval", fallback: "Waiting for tool approval" },
+  execute_step: { key: "runs.waiting.execute_step", fallback: "Manual step pending" },
+  research: { key: "runs.waiting.research", fallback: "External research pending" },
 };
 
-export function waitingReasonLabel(waiting) {
+export function waitingReasonLabel(waiting, translate = null) {
   if (!waiting || typeof waiting !== "object") return "";
   const reason = typeof waiting.reason === "string" ? waiting.reason : "";
-  const base = WAITING_LABELS[reason] || "Esperando acción humana";
+  const entry = WAITING_LABELS[reason];
+  const key = entry ? entry.key : "runs.waiting.human_action";
+  const fallback = entry ? entry.fallback : "Waiting for a human action";
+  const base = translate ? translate(key) : fallback;
   const stepId = typeof waiting.step_id === "string" ? waiting.step_id.trim() : "";
-  return stepId ? base + " · paso «" + stepId + "»" : base;
+  return stepId ? (translate ? translate("runs.waiting.step_suffix", { label: base, step_id: stepId }) : base + " · step “" + stepId + "”") : base;
 }
 
 export function computeRunsLayout({
@@ -55,9 +58,9 @@ export function computeRunsLayout({
 export const DEFAULT_RUN_TAB = "steps";
 
 export const RUN_DETAIL_TABS = [
-  { id: "steps", label: "Pasos" },
-  { id: "results", label: "Resultados" },
-  { id: "details", label: "Detalles" },
+  { id: "steps", label: "runs.tab.steps" },
+  { id: "results", label: "runs.tab.results" },
+  { id: "details", label: "runs.tab.details" },
 ];
 
 export const RUN_TAB_SECTIONS = {

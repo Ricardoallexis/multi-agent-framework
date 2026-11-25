@@ -21,18 +21,19 @@ import { contextEventText } from "./session-text.js";
 import { Progress } from "./ui/progress.js";
 import { StatusChip } from "./ui/status-chip.js";
 import { Tabs } from "./ui/tabs.js";
+import { t } from "./i18n.js";
 
 const DEGRADED_POLL_MS = 10000;
 const REFRESH_DEBOUNCE_MS = 250;
 
 const OPERATING_MODE_LABELS = {
-  supervised: "Supervisado",
-  autonomous: "Autónomo",
+  supervised: "runs.operating_mode.supervised",
+  autonomous: "runs.operating_mode.autonomous",
 };
 
 const OPERATING_MODE_SOURCES = {
-  run: "de la ejecución",
-  team: "del equipo",
+  run: "runs.operating_mode.source.run",
+  team: "runs.operating_mode.source.team",
 };
 
 export function operatingModeInfo(view) {
@@ -57,29 +58,32 @@ export function operatingModeInfo(view) {
 export function RunOperatingMode({ view }) {
   const modeInfo = operatingModeInfo(view);
   if (!modeInfo) return null;
-  const label = OPERATING_MODE_LABELS[modeInfo.mode] || modeInfo.mode;
-  const sourceLabel = modeInfo.source ? (OPERATING_MODE_SOURCES[modeInfo.source] || modeInfo.source) : "";
-  return html`<span class="badge operating-mode-badge">Modo de operación: ${label}${sourceLabel ? " (" + sourceLabel + ")" : ""}</span>
+  const labelKey = OPERATING_MODE_LABELS[modeInfo.mode];
+  const sourceKey = OPERATING_MODE_SOURCES[modeInfo.source];
+  const label = labelKey ? t(labelKey) : modeInfo.mode;
+  const sourceLabel = modeInfo.source ? (sourceKey ? t(sourceKey) : modeInfo.source) : "";
+  return html`<span class="badge operating-mode-badge">${t("runs.operating_mode.label", { label, source: sourceLabel ? t("runs.operating_mode.source_suffix", { source: sourceLabel }) : "" })}</span>
     <${Help} topic="run.operating_mode" compact=${true} />`;
 }
 
 function Counters({ view }) {
   const counters = view.counters;
   return html`<section class="panel" aria-labelledby="counters-title">
-    <h4 id="counters-title">Contadores</h4>
+    <h4 id="counters-title">${t("runs.counters.title")}</h4>
     <${Help} topic="run.counters" />
     <dl class="facts">
-      <dt>Llamadas al modelo</dt>
-      <dd>${counters.model_calls} de ${counters.max_model_calls} máximo
+      <dt>${t("runs.counter.model_calls")}</dt>
+      <dd>${t("runs.counter.count_max", { current: counters.model_calls, maximum: counters.max_model_calls })}
         <${Help} topic="counter.model_calls" /></dd>
-      <dt>Pasos hechos por una persona</dt>
+      <dt>${t("runs.counter.human_steps")}</dt>
       <dd>${counters.human_steps}
         <${Help} topic="counter.human_steps" /></dd>
-      <dt>Pasos</dt>
-      <dd>${counters.steps_done} hechos de ${counters.steps_total}${counters.steps_skipped ? " (" + counters.steps_skipped + (counters.steps_skipped === 1 ? " saltado)" : " saltados)") : ""}
+      <dt>${t("runs.counter.steps")}</dt>
+      <dd>${t("runs.counter.steps_count", { done: counters.steps_done, total: counters.steps_total })}${counters.steps_skipped
+        ? t(counters.steps_skipped === 1 ? "runs.counter.skipped_one" : "runs.counter.skipped_many", { count: counters.steps_skipped }) : ""}
         <${Help} topic="counter.steps" /></dd>
-      <dt>Tiempo activo</dt>
-      <dd>${counters.active_seconds} s de ${counters.max_seconds} s máximo
+      <dt>${t("runs.counter.active_time")}</dt>
+      <dd>${t("runs.counter.seconds_max", { current: counters.active_seconds, maximum: counters.max_seconds })}
         <${Help} topic="counter.time" /></dd>
     </dl>
   </section>`;
@@ -88,8 +92,11 @@ function Counters({ view }) {
 // "3 de 5 pasos" (done and skipped steps both count as passed); the skipped ones are named so the number is honest.
 function stepsProgressText(counters) {
   const passed = counters.steps_done + counters.steps_skipped;
-  const skipped = counters.steps_skipped ? " (" + counters.steps_skipped + (counters.steps_skipped === 1 ? " saltado)" : " saltados)") : "";
-  return passed + " de " + counters.steps_total + (counters.steps_total === 1 ? " paso" : " pasos") + skipped;
+  const skipped = counters.steps_skipped
+    ? t(counters.steps_skipped === 1 ? "runs.progress.skipped_one" : "runs.progress.skipped_many", { count: counters.steps_skipped }) : "";
+  return t(counters.steps_total === 1 ? "runs.progress.steps_one" : "runs.progress.steps_many", {
+    passed, total: counters.steps_total, skipped,
+  });
 }
 
 export function stepRolesByStep(view) {
@@ -124,8 +131,8 @@ export function stepRolesByStep(view) {
 export function roleTeamTitle(info) {
   if (!info || !info.role) return null;
   const parts = [];
-  if (info.team_id) parts.push("Equipo: " + info.team_id);
-  if (info.team_version !== null && info.team_version !== undefined) parts.push("versión " + info.team_version);
+  if (info.team_id) parts.push(t("runs.role.team", { team_id: info.team_id }));
+  if (info.team_version !== null && info.team_version !== undefined) parts.push(t("runs.role.version", { version: info.team_version }));
   if (info.team_version_id) parts.push(info.team_version_id);
   return parts.length ? parts.join(" · ") : null;
 }
@@ -134,7 +141,7 @@ export function roleTeamLabel(info) {
   if (!info || !info.role) return "";
   const parts = [];
   if (info.team_id) parts.push(info.team_id);
-  if (info.team_version !== null && info.team_version !== undefined) parts.push("v" + info.team_version);
+  if (info.team_version !== null && info.team_version !== undefined) parts.push(t("runs.role.version_short", { version: info.team_version }));
   return parts.length ? "(" + parts.join(" ") + ")" : "";
 }
 
@@ -143,9 +150,9 @@ export function Steps({ view }) {
   const hasRoles = roles.size > 0;
   const line = cursorText(view);
   return html`<section class="panel" aria-labelledby="steps-title">
-    <h4 id="steps-title">Pasos</h4>
+    <h4 id="steps-title">${t("runs.tab.steps")}</h4>
     ${line && html`<p class="muted">${line}</p>`}
-    ${view.counters.steps_total > 0 && html`<${Progress} label="Avance de los pasos" value=${view.counters.steps_done + view.counters.steps_skipped}
+    ${view.counters.steps_total > 0 && html`<${Progress} label=${t("runs.progress.label")} value=${view.counters.steps_done + view.counters.steps_skipped}
       max=${view.counters.steps_total} valueText=${stepsProgressText(view.counters)} tone=${view.terminal && view.status !== "completed" ? "warning" : "active"} />`}
     <${Help} topic="run.steps" />
     ${view.steps.some((step) => step.skip) && html`<${Help} topic="run.skipped" />`}
@@ -157,10 +164,15 @@ export function Steps({ view }) {
         return html`<li key=${step.id} class=${"step " + step.state}>
           <span class="step-name">${step.id}</span>
           <${StatusChip} status=${step.state} labels="step" />
-          ${roleInfo && html`<span class="badge role-badge" title=${roleTeamTitle(roleInfo)}>Rol: ${roleInfo.role}${roleInfo.member ? " · " + roleInfo.member : ""}${teamLabel && html` <span class="muted small">${teamLabel}</span>`}</span>`}
-          ${step.skip && html`<span class="step-note">${step.state === "will_skip" ? "Se saltará " : "Se saltó "}${skipReason(step.skip)}.</span>`}
-          ${step.state === "done" && step.executor && html`<span class="step-note">${executorText(step.executor)}${step.attempts > 1 ? " · " + step.attempts + " intentos" : ""}.</span>`}
-          ${step.state === "not_run" && html`<span class="step-note">La ejecución terminó antes de llegar a este paso.</span>`}
+          ${roleInfo && html`<span class="badge role-badge" title=${roleTeamTitle(roleInfo)}>${t("runs.role.badge", {
+            role: roleInfo.role, member: roleInfo.member ? t("runs.role.member", { member: roleInfo.member }) : "",
+          })}${teamLabel && html` <span class="muted small">${teamLabel}</span>`}</span>`}
+          ${step.skip && html`<span class="step-note">${t(step.state === "will_skip" ? "runs.step.will_skip" : "runs.step.skipped", { reason: skipReason(step.skip) })}</span>`}
+          ${step.state === "done" && step.executor && html`<span class="step-note">${t("runs.step.executor_note", {
+            executor: executorText(step.executor),
+            attempts: step.attempts > 1 ? t("runs.step.attempts", { count: step.attempts }) : "",
+          })}</span>`}
+          ${step.state === "not_run" && html`<span class="step-note">${t("runs.step.not_run")}</span>`}
         </li>`;
       })}
     </ol>
@@ -169,10 +181,10 @@ export function Steps({ view }) {
 
 function History({ view }) {
   return html`<section class="panel" aria-labelledby="history-title">
-    <h4 id="history-title">Historial de acciones humanas</h4>
+    <h4 id="history-title">${t("runs.history.title")}</h4>
     <${Help} topic="run.history" />
     ${view.history.length === 0
-      ? html`<p class="muted">Todavía no hay acciones humanas en esta ejecución.</p>`
+      ? html`<p class="muted">${t("runs.history.empty")}</p>`
       : html`<ol class="history">
         ${view.history.map((entry) => html`<li key=${entry.seq}>
           <span class="when">${fmtDate(entry.ts)}</span>
@@ -186,43 +198,45 @@ function History({ view }) {
 }
 
 const REVIEW_LABELS = {
-  pending: "Pendiente de revisión",
-  approved: "Aprobado",
-  changes_requested: "Cambios pedidos",
-  regenerated: "Regenerado",
-  rejected: "Rechazado",
+  pending: "runs.review.pending",
+  approved: "runs.review.approved",
+  changes_requested: "runs.review.changes_requested",
+  regenerated: "runs.review.regenerated",
+  rejected: "runs.review.rejected",
 };
 
 const COMMENT_KIND_LABELS = {
-  fix: "Corregir",
-  add: "Añadir",
-  remove: "Quitar",
-  rewrite: "Reescribir",
-  other: "Otro",
+  fix: "runs.comment_kind.fix",
+  add: "runs.comment_kind.add",
+  remove: "runs.comment_kind.remove",
+  rewrite: "runs.comment_kind.rewrite",
+  other: "runs.comment_kind.other",
 };
 
 const CHANGE_LABELS = {
-  added: "Añadido",
-  removed: "Eliminado",
-  changed: "Cambiado",
+  added: "runs.change.added",
+  removed: "runs.change.removed",
+  changed: "runs.change.changed",
 };
 
 function producerLabel(producer) {
   if (!producer || !producer.kind) return "—";
   if (producer.kind === "human") {
-    const model = producer.model ? " · modelo: " + producer.model : "";
-    return "Persona o modelo externo (" + (producer.provider || "human") + model + ")";
+    return t("runs.producer.human", {
+      provider: producer.provider || "human",
+      model: producer.model ? t("runs.producer.model_suffix", { model: producer.model }) : "",
+    });
   }
   const parts = [producer.model, producer.provider].filter(Boolean);
-  return parts.join(" · ") || "Modelo sin identificar";
+  return t("runs.producer.model", { model: parts.join(" · ") || t("common.value.unknown") });
 }
 
 function tokensLabel(tokens) {
   if (!tokens) return "—";
   const parts = [];
-  if (tokens.tokens_in !== null && tokens.tokens_in !== undefined) parts.push("entrada: " + tokens.tokens_in);
-  if (tokens.tokens_out !== null && tokens.tokens_out !== undefined) parts.push("salida: " + tokens.tokens_out);
-  if (tokens.tokens_total !== null && tokens.tokens_total !== undefined) parts.push("total: " + tokens.tokens_total);
+  if (tokens.tokens_in !== null && tokens.tokens_in !== undefined) parts.push(t("runs.tokens.input", { count: tokens.tokens_in }));
+  if (tokens.tokens_out !== null && tokens.tokens_out !== undefined) parts.push(t("runs.tokens.output", { count: tokens.tokens_out }));
+  if (tokens.tokens_total !== null && tokens.tokens_total !== undefined) parts.push(t("runs.tokens.total", { count: tokens.tokens_total }));
   return parts.length ? parts.join(" · ") : "—";
 }
 
@@ -298,42 +312,42 @@ function StepResults({ runId, stepId, items, waiting, token }) {
 
   return html`<div class="step-results">
     <div class="step-results-head">
-      <h5>Paso «${stepId}» <span class="muted">(${items.length} ${items.length === 1 ? "intento" : "intentos"})</span></h5>
+      <h5>${t("runs.step_attempts.title", { step_id: stepId, count: items.length, label: t(items.length === 1 ? "runs.attempt.one" : "runs.attempt.many") })}</h5>
       ${canCompare && html`<div class="compare-controls">
-        <label class="compare-field">Intento A
-          <select aria-label=${"Intento A del paso " + stepId} ...${helpFor("run.compare_select")}
+        <label class="compare-field">${t("runs.compare.attempt_a")}
+          <select aria-label=${t("runs.compare.attempt_a_for_step", { step_id: stepId })} ...${helpFor("run.compare_select")}
             value=${leftAttempt} onChange=${(event) => setLeftAttempt(event.target.value)}>
-            ${attemptNumbers.map((num) => html`<option key=${num} value=${String(num)}>${"Intento " + num}</option>`)}
+            ${attemptNumbers.map((num) => html`<option key=${num} value=${String(num)}>${t("runs.attempt.option", { count: num })}</option>`)}
           </select>
         </label>
-        <label class="compare-field">Intento B
-          <select aria-label=${"Intento B del paso " + stepId} ...${helpFor("run.compare_select")}
+        <label class="compare-field">${t("runs.compare.attempt_b")}
+          <select aria-label=${t("runs.compare.attempt_b_for_step", { step_id: stepId })} ...${helpFor("run.compare_select")}
             value=${rightAttempt} onChange=${(event) => setRightAttempt(event.target.value)}>
-            ${attemptNumbers.map((num) => html`<option key=${num} value=${String(num)}>${"Intento " + num}</option>`)}
+            ${attemptNumbers.map((num) => html`<option key=${num} value=${String(num)}>${t("runs.attempt.option", { count: num })}</option>`)}
           </select>
         </label>
         <${Help} topic="run.compare_select" compact=${true} />
         <button type="button" class="btn secondary small" disabled=${comparing} ...${helpFor("run.compare")}
-          onClick=${runCompare}>${comparing ? "Comparando…" : "Comparar"}</button>
+          onClick=${runCompare}>${t(comparing ? "runs.compare.progress" : "runs.compare.button")}</button>
         <${Help} topic="run.compare" compact=${true} />
       </div>`}
     </div>
     ${compareError && html`<p class="message error" role="alert">${errorText(compareError)}</p>`}
     ${comparison && html`<div class="compare-panel" aria-live="polite">
-      <p class="compare-summary"><strong>Comparación: intento ${comparison.a.attempt} → intento ${comparison.b.attempt}</strong></p>
+      <p class="compare-summary"><strong>${t("runs.compare.summary", { first: comparison.a.attempt, second: comparison.b.attempt })}</strong></p>
       ${comparison.changes.length === 0
-        ? html`<p class="muted">Sin diferencias entre el intento ${comparison.a.attempt} y el intento ${comparison.b.attempt}.</p>`
+        ? html`<p class="muted">${t("runs.compare.no_changes", { first: comparison.a.attempt, second: comparison.b.attempt })}</p>`
         : html`<ul class="compare-list">
           ${comparison.changes.map((item) => html`<li key=${item.path + ":" + item.change} class=${"compare-item compare-" + item.change}>
             <div class="compare-item-head">
-              <span class="badge">${CHANGE_LABELS[item.change] || item.change}</span>
-              <code>${item.path || "(raíz)"}</code>
+              <span class="badge">${CHANGE_LABELS[item.change] ? t(CHANGE_LABELS[item.change]) : item.change}</span>
+              <code>${item.path || t("runs.compare.root")}</code>
             </div>
             ${item.diff
               ? html`<pre class="data">${item.diff}</pre>`
               : html`<div class="compare-values">
-                ${item.change !== "added" && html`<div><span class="muted">Antes:</span><pre class="data">${fmtJson(item.before)}</pre></div>`}
-                ${item.change !== "removed" && html`<div><span class="muted">Después:</span><pre class="data">${fmtJson(item.after)}</pre></div>`}
+                ${item.change !== "added" && html`<div><span class="muted">${t("runs.compare.before")}</span><pre class="data">${fmtJson(item.before)}</pre></div>`}
+                ${item.change !== "removed" && html`<div><span class="muted">${t("runs.compare.after")}</span><pre class="data">${fmtJson(item.after)}</pre></div>`}
               </div>`}
           </li>`)}
         </ul>`}
@@ -355,31 +369,37 @@ export function AttemptDetail({ artifact, detail, isOpen = false, scopePrefix = 
   const teamLabel = hasRole ? roleTeamLabel(detail) : "";
   const helpScope = (scopePrefix ? scopePrefix + "-" : "") + artifact.step_id + "-" + artifact.attempt;
   return html`<details open=${isOpen}>
-    <summary>Intento ${artifact.attempt} · ${artifact.approved ? "aprobado" : "sin aprobar"} · ${artifact.kind}${hasRole ? " · rol: " + detail.role + (detail.member ? " (" + detail.member + ")" : "") : ""}${detail && detail.producer ? " · " + producerLabel(detail.producer) : ""}</summary>
+    <summary>${t("runs.attempt.summary", {
+      count: artifact.attempt,
+      approval: t(artifact.approved ? "runs.attempt.approved" : "runs.attempt.unapproved"),
+      kind: artifact.kind,
+      role: hasRole ? t("runs.attempt.role", { role: detail.role, member: detail.member ? t("runs.attempt.member", { member: detail.member }) : "" }) : "",
+      producer: detail && detail.producer ? t("runs.attempt.producer", { producer: producerLabel(detail.producer) }) : "",
+    })}</summary>
     ${detail && html`<dl class="facts attempt-meta">
-      <dt>Producido por</dt><dd>${producerLabel(detail.producer)}</dd>
-      ${hasRole && html`<dt>Rol</dt><dd title=${roleTeamTitle(detail)}>${detail.role}${detail.member ? " · " + detail.member : ""}${teamLabel && html` <span class="muted small">${teamLabel}</span>`}
+      <dt>${t("runs.attempt.produced_by")}</dt><dd>${producerLabel(detail.producer)}</dd>
+      ${hasRole && html`<dt>${t("runs.role.label")}</dt><dd title=${roleTeamTitle(detail)}>${detail.role}${detail.member ? " · " + detail.member : ""}${teamLabel && html` <span class="muted small">${teamLabel}</span>`}
         <${Help} topic="run.role" compact=${true} scope=${helpScope} /></dd>`}
-      ${input && input.revision_feedback && html`<dt>Comentario recibido</dt><dd>${input.revision_feedback}${input.has_previous_output ? " (con salida previa)" : ""}</dd>`}
-      ${review && html`<dt>Revisión</dt><dd>${REVIEW_LABELS[review.status] || review.status}${review.actor ? " · " + review.actor : ""}${review.reviewed_at ? " · " + fmtDate(review.reviewed_at) : ""}</dd>`}
-      ${review && review.channel && html`<dt>Canal</dt><dd>${review.channel}</dd>`}
-      ${review && review.comments && review.comments.length > 0 && html`<dt>Comentarios</dt><dd><ol>${review.comments.map((comment, index) => html`<li key=${index}><strong>${comment.target === "general" ? "General" : comment.target} · ${COMMENT_KIND_LABELS[comment.kind] || comment.kind}</strong>: ${comment.text}${comment.quote && html`<blockquote>${comment.quote}</blockquote>`}</li>`)}</ol></dd>`}
-      ${human && human.notes && html`<dt>Notas humanas</dt><dd>${human.notes}</dd>`}
-      ${detail.tokens && html`<dt>Tokens</dt><dd>${tokensLabel(detail.tokens)}</dd>`}
+      ${input && input.revision_feedback && html`<dt>${t("runs.attempt.feedback")}</dt><dd>${input.revision_feedback}${input.has_previous_output ? " " + t("runs.attempt.previous_output") : ""}</dd>`}
+      ${review && html`<dt>${t("runs.attempt.review")}</dt><dd>${REVIEW_LABELS[review.status] ? t(REVIEW_LABELS[review.status]) : review.status}${review.actor ? " · " + review.actor : ""}${review.reviewed_at ? " · " + fmtDate(review.reviewed_at) : ""}</dd>`}
+      ${review && review.channel && html`<dt>${t("runs.attempt.channel")}</dt><dd>${review.channel}</dd>`}
+      ${review && review.comments && review.comments.length > 0 && html`<dt>${t("runs.attempt.comments")}</dt><dd><ol>${review.comments.map((comment, index) => html`<li key=${index}><strong>${t(comment.target === "general" ? "runs.comment.general" : "runs.comment.target", { target: comment.target })} · ${COMMENT_KIND_LABELS[comment.kind] ? t(COMMENT_KIND_LABELS[comment.kind]) : comment.kind}</strong>: ${comment.text}${comment.quote && html`<blockquote>${comment.quote}</blockquote>`}</li>`)}</ol></dd>`}
+      ${human && human.notes && html`<dt>${t("runs.attempt.human_notes")}</dt><dd>${human.notes}</dd>`}
+      ${detail.tokens && html`<dt>${t("runs.attempt.tokens")}</dt><dd>${tokensLabel(detail.tokens)}</dd>`}
     </dl>`}
-    ${human && human.prompt_used && html`<details class="attempt-extra"><summary>Prompt utilizado (envío humano)</summary><pre class="prompt">${human.prompt_used}</pre></details>`}
+    ${human && human.prompt_used && html`<details class="attempt-extra"><summary>${t("runs.attempt.prompt_used")}</summary><pre class="prompt">${human.prompt_used}</pre></details>`}
     <pre class="data">${fmtJson(artifact.data)}</pre>
-    ${detail && detail.markdown && html`<details class="attempt-extra"><summary>Salida en Markdown</summary><pre class="data">${detail.markdown}</pre></details>`}
+    ${detail && detail.markdown && html`<details class="attempt-extra"><summary>${t("runs.attempt.markdown")}</summary><pre class="data">${detail.markdown}</pre></details>`}
   </details>`;
 }
 
 function Results({ view, token }) {
   const groups = groupArtifactsByStep(view.artifacts);
   return html`<section class="panel" aria-labelledby="results-title">
-    <h4 id="results-title">Resultados</h4>
+    <h4 id="results-title">${t("runs.tab.results")}</h4>
     <${Help} topic="run.results" />
     ${groups.length === 0
-      ? html`<p class="muted">Todavía no hay resultados guardados.</p>`
+      ? html`<p class="muted">${t("runs.results.empty")}</p>`
       : groups.map((group) => html`<${StepResults} key=${group.stepId} runId=${view.id} stepId=${group.stepId}
         items=${group.items} waiting=${view.waiting} token=${token} />`)}
   </section>`;
@@ -387,7 +407,10 @@ function Results({ view, token }) {
 
 function Technical({ view }) {
   return html`<details class="panel technical">
-    <summary>Eventos técnicos (${view.events_total}${view.events_total > view.events.length ? ", últimos " + view.events.length : ""})</summary>
+    <summary>${t("runs.technical.title", {
+      total: view.events_total,
+      latest: view.events_total > view.events.length ? t("runs.technical.latest", { count: view.events.length }) : "",
+    })}</summary>
     <${Help} topic="run.events" />
     <ol class="events">
       ${view.events.map((event) => html`<li key=${event.seq}><code>#${event.seq}</code> ${fmtDate(event.ts)} · ${contextEventText(event.type, event.payload) || event.type}
@@ -412,10 +435,10 @@ function useMedia(query) {
 
 export function RunInputs({ view }) {
   return html`<section class="panel" aria-labelledby="inputs-title">
-    <h4 id="inputs-title">Entradas de la ejecución</h4>
+    <h4 id="inputs-title">${t("runs.inputs.title")}</h4>
     <${Help} topic="run.inputs" />
     ${Object.keys(view.inputs).length === 0
-      ? html`<p class="muted">Esta ejecución no recibió entradas.</p>`
+      ? html`<p class="muted">${t("runs.inputs.empty")}</p>`
       : html`<dl class="facts">${Object.entries(view.inputs).map(([name, value]) => html`<${Input} key=${name} name=${name} value=${value} />`)}</dl>`}
   </section>`;
 }
@@ -485,7 +508,7 @@ export function RunDetail({ token, runId, status, onChanged, onBack = null }) {
   }, [polling, runId, token]);
 
   const backBar = onBack ? html`<div class="header-tools back-bar">
-    <button type="button" class="btn secondary small" ...${helpFor("runs.back")} onClick=${onBack}>← Volver a la lista</button>
+    <button type="button" class="btn secondary small" ...${helpFor("runs.back")} onClick=${onBack}>${t("runs.back")}</button>
     <${Help} topic="runs.back" compact=${true} />
   </div>` : null;
 
@@ -494,7 +517,7 @@ export function RunDetail({ token, runId, status, onChanged, onBack = null }) {
       ${backBar}
       ${error
         ? html`<p class="message error" role="alert">${errorText(error)}</p>`
-        : html`<p class="muted" aria-busy="true">Cargando la ejecución…</p>`}
+        : html`<p class="muted" aria-busy="true">${t("runs.detail.loading")}</p>`}
     </div>`;
   }
   const info = statusInfo(view.status);
@@ -512,38 +535,41 @@ export function RunDetail({ token, runId, status, onChanged, onBack = null }) {
   return html`<article class=${"run-detail" + (layout.actionBar ? " has-action-bar" : "")} aria-labelledby="run-title">
     ${backBar}
     <header>
-      <h3 id="run-title">${view.workflow_id} <span class="muted">· ${view.project_name || "sin proyecto"}</span></h3>
+      <h3 id="run-title">${view.workflow_id} <span class="muted">· ${view.project_name || t("common.value.no_project")}</span></h3>
       <div class="status-line">
         <${StatusChip} status=${view.status} labels="run" />
-        ${!view.terminal && html`<span class=${"badge " + (live ? "connected" : "reconnecting")}>${live ? "En vivo" : "Sin conexión en vivo"}</span>`}
+        ${!view.terminal && html`<span class=${"badge " + (live ? "connected" : "reconnecting")}>${t(live ? "runs.live.connected" : "runs.live.disconnected")}</span>`}
         <${RunOperatingMode} view=${view} />
-        ${chatHref && html`<a class="btn secondary small" href=${chatHref} ...${helpFor("run.open_chat")}>Abrir en el chat</a>
+        ${chatHref && html`<a class="btn secondary small" href=${chatHref} ...${helpFor("run.open_chat")}>${t("runs.open_chat")}</a>
           <${Help} topic="run.open_chat" compact=${true} />`}
-        <button type="button" class="btn secondary small" ...${helpFor("run.refresh")} onClick=${load}>Actualizar</button>
+        <button type="button" class="btn secondary small" ...${helpFor("run.refresh")} onClick=${load}>${t("runs.refresh")}</button>
         <${Help} topic="run.refresh" compact=${true} />
       </div>
       ${!view.terminal && html`<${Help} topic="run.live" />`}
-      <p class="muted">Ejecución <code>${view.id}</code>${" · creada " + fmtDate(view.created_at) + " · actualizada " + fmtDate(view.updated_at) +
-        " · " + (view.bundle ? "bundle «" + view.bundle + "»" : "workflow incluido") +
-        " · modo: " + (MODE_LABELS[view.execution_mode] || view.execution_mode)}</p>
+      <p class="muted">${t("runs.detail.prefix")} <code>${view.id}</code>${t("runs.detail.meta", {
+        created: fmtDate(view.created_at),
+        updated: fmtDate(view.updated_at),
+        source: view.bundle ? t("runs.detail.bundle", { bundle: view.bundle }) : t("runs.detail.workflow"),
+        mode: MODE_LABELS[view.execution_mode] || view.execution_mode,
+      })}</p>
     </header>
     ${polling && html`<p class="notice">${view.bundle && live
-      ? "Las ejecuciones de un bundle todavía no llegan por el flujo en vivo; la vista se actualiza cada 10 segundos."
-      : "Se perdió la conexión en vivo; la vista se actualiza cada 10 segundos hasta que vuelva."}</p>`}
-    ${error && html`<p class="message error" role="alert">No se pudo actualizar: ${errorText(error)}</p>`}
-    <p class="summary">${view.waiting ? waitingText(view.waiting) : info.help}${view.cancel_requested && !view.terminal ? " Se pidió cancelar." : ""}</p>
-    ${view.error && html`<p class="message error" role="alert">Error de la ejecución: ${view.error}</p>`}
-    ${view.limit && html`<div class="notice limit-notice" role="status" aria-label="Límite alcanzado">
+      ? t("runs.notice.bundle_poll")
+      : t("runs.notice.connection_poll")}</p>`}
+    ${error && html`<p class="message error" role="alert">${t("runs.error.refresh", { message: errorText(error) })}</p>`}
+    <p class="summary">${view.waiting ? waitingText(view.waiting) : info.help}${view.cancel_requested && !view.terminal ? " " + t("runs.cancel_requested") : ""}</p>
+    ${view.error && html`<p class="message error" role="alert">${t("runs.error.run", { message: view.error })}</p>`}
+    ${view.limit && html`<div class="notice limit-notice" role="status" aria-label=${t("runs.limit.reached")}>
       <p>${limitReachedText(view.limit)}</p>
-      ${Array.isArray(view.limit.suggestions) && view.limit.suggestions.length > 0 && html`<p class="muted small">Opciones disponibles: ${view.limit.suggestions.map(connectionLabel).join(", ")}.</p>`}
+      ${Array.isArray(view.limit.suggestions) && view.limit.suggestions.length > 0 && html`<p class="muted small">${t("runs.limit.options", { options: view.limit.suggestions.map(connectionLabel).join(", ") })}</p>`}
       <div class="actions">
-        <a class="btn secondary small" href=${routeHref("new")} ...${helpFor("run.limit_retry")}>Reintentar</a>
+        <a class="btn secondary small" href=${routeHref("new")} ...${helpFor("run.limit_retry")}>${t("runs.limit.retry")}</a>
         <${Help} topic="run.limit_retry" compact=${true} />
       </div>
     </div>`}
     ${layout.actionFirst && actionsCard}
-    <${Tabs} id="rundetail" label="Secciones de la ejecución" className="run-tabs" selected=${activeTab} onSelect=${setTab} ...${helpFor("run.tabs")}
-      tabs=${RUN_DETAIL_TABS}
+    <${Tabs} id="rundetail" label=${t("runs.tabs.aria")} className="run-tabs" selected=${activeTab} onSelect=${setTab} ...${helpFor("run.tabs")}
+      tabs=${RUN_DETAIL_TABS.map((item) => ({ ...item, label: t(item.label) }))}
       after=${html`<${Help} topic="run.tabs" compact=${true} />`}>
       <${RunTabContent} tab=${activeTab} view=${view} token=${token} />
     <//>
@@ -553,5 +579,5 @@ export function RunDetail({ token, runId, status, onChanged, onBack = null }) {
 
 // Two sibling roots: htm returns them as an array, which Preact renders as is.
 function Input({ name, value }) {
-  return html`<dt><code>${name}</code></dt><dd>${value || html`<span class="muted">(vacía)</span>`}</dd>`;
+  return html`<dt><code>${name}</code></dt><dd>${value || html`<span class="muted">${t("runs.inputs.empty_value")}</span>`}</dd>`;
 }
