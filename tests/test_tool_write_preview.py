@@ -17,6 +17,7 @@ from multiagent.services import ApplicationServices
 from multiagent.tools.contracts import ToolExecutionError
 from multiagent.tools.files import preview_file_write
 from multiagent.workflows import WorkflowCatalog
+from tests.gui_text import ui_text
 
 POST_INPUTS = {"topic": "Gatos que programan", "platform": "Instagram", "audience": "Equipos pequenos",
                "instructions": "Tono cercano"}
@@ -167,6 +168,6 @@ def test_thread_and_execution_cards_mount_the_preview():
     assert "permission_request_id: entry.decision.permission_request_id" in cards
     assert "permission_request_id: call.permission_request_id" in actions
     assert "preview.removed_lines > 0" in cards and 'role="alert"' in cards
-    assert '"human.tool_preview":' in (js / "help-text.js").read_text(encoding="utf-8")
+    assert '"human.tool_preview":' in ui_text(js / "help-text.js")
     assert "/* CHT-T04:" in css and ".tool-approval-preview" in css
     assert ".thread-readable-text { max-height: 20rem; overflow: auto;" in css

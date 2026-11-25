@@ -41,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # The files every GUI task used to edit; a view added through an extension folder changes none of them.
 SHARED = ["index.html", "app.css", "js/main.js", "js/route.js", "js/help.js", "js/help-text.js", "js/panel-slots.js",
           "js/right-panel.js", "js/extensions.js"]
+SHARED += [f"js/help-text-{part}.js" for part in ("shell", "runs", "teams", "lists", "apps")]   # the parts of help-text.js
 
 
 # --- two example views, written only into a temporary copy of the static folder ---------------------------------------

@@ -23,7 +23,9 @@ English is the base language. Each converted view has a plain ES module in
 into the Spanish module, write the English equivalents, replace visible
 literals with `t("view.key")`, and import both modules in `js/i18n.js`.
 `t()` falls back to English, then to the key. Help entries use `help.*` keys
-and are read through `localizedHelp()`.
+and are read through `localizedHelp()`. The Spanish help catalog it falls back
+to, `js/help-text.js`, joins one part per group of views
+(`js/help-text-<part>.js`), so the help texts of a view live in one file.
 
 Static GUI tests that search for visible text should call
 `tests.gui_text.ui_text(path, lang="es")` instead of reading the source file
@@ -1019,7 +1021,7 @@ In «Apps y agentes» a step that edits a file (enable a model, an API key) is o
 ## Adding a view, a panel section or help texts
 
 Tasks that add to the GUI in parallel do not edit shared files (`index.html`,
-`main.js`, `route.js`, `help-text.js`, `right-panel.js`, `tests/test_gui_help.py`).
+`main.js`, `route.js`, `help-text.js` and its parts, `right-panel.js`, `tests/test_gui_help.py`).
 Each one adds a folder, `multiagent/gui/static/extensions/<name>/`, where `<name>`
 is lowercase letters and `_` (`projects`, `doc_alerts`):
 
@@ -1027,7 +1029,7 @@ is lowercase letters and `_` (`projects`, `doc_alerts`):
 | --- | --- |
 | `index.js` | Required entry module. Calls the register functions of `js/extensions.js` when it loads, passing its folder name as `owner`. |
 | `style.css` | Optional stylesheet. The page adds it; `index.html` gets no line. Every selector starts from a class or id prefixed with the name (`.doc-alerts-card`), and colours come from the `app.css` variables. |
-| `help.js` | Optional help texts: `export const HELP = { ... }` as strict JSON, like `js/help-text.js`, with every key under `<name>.`. The entry module passes it to `registerHelp(HELP, "<name>")`. |
+| `help.js` | Optional help texts: `export const HELP = { ... }` as strict JSON, like the parts of `js/help-text.js` (`js/help-text-<part>.js`), with every key under `<name>.`. The entry module passes it to `registerHelp(HELP, "<name>")`. |
 | anything else | Helpers of the extension (components, models). Import only from the folder itself, `../../js/` and `../../vendor/`. |
 
 ```js

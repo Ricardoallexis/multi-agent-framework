@@ -9,6 +9,33 @@ from pathlib import Path
 
 from multiagent.gui import STATIC_DIR
 
+_HELP_PART = re.compile(r'^import \{ HELP as \w+ \} from "\./(help-text-[\w-]+\.js)";$', re.M)
+_HELP_BLOCK = re.compile(r"^export const HELP = (\{.*?^\});$", re.S | re.M)
+_HELP_ORDER = re.compile(r"^const ORDER = (\[.*?^\]);$", re.S | re.M)
+_HELP_JOIN = re.compile(r"^export const HELP = (?!\{).*?;$", re.M)
+
+
+def _with_help_parts(path: Path, source: str) -> str:
+    """help-text.js joins one part per view (help-text-<part>.js) into HELP; read it as the one catalog it was.
+
+    The joined HELP comes back as a strict JSON block in the catalog order, followed by the text of every part, so a
+    test that looks for an entry or parses ``export const HELP = {...};`` works whichever part holds the entry."""
+    parts = _HELP_PART.findall(source)
+    if not parts:
+        return source
+    texts = [(path.parent / name).read_text(encoding="utf-8") for name in parts]
+    joined: dict = {}
+    for name, text in zip(parts, texts):
+        for key, entry in json.loads(_HELP_BLOCK.search(text)[1]).items():
+            if key in joined:
+                raise ValueError(f"help topic {key} is in two parts ({name})")
+            joined[key] = entry
+    order = _HELP_ORDER.search(source)
+    listed = [key for key in json.loads(order[1]) if key in joined] if order else []
+    keys = listed + [key for key in joined if key not in set(listed)]
+    block = "export const HELP = " + json.dumps({key: joined[key] for key in keys}, ensure_ascii=False, indent=2) + ";"
+    return "\n".join([_HELP_JOIN.sub(lambda _: block, source, count=1), *texts])
+
 
 def _dictionaries(source: str, lang: str) -> list[Path]:
     """Find dictionary modules used by this source, including future views."""
@@ -36,7 +63,7 @@ def _words(paths: list[Path]) -> dict[str, str]:
 
 def ui_text(path: Path | str, lang: str = "es") -> str:
     """Reconstruct literal UI strings in source without executing browser code."""
-    source = Path(path).read_text(encoding="utf-8")
+    source = _with_help_parts(Path(path), Path(path).read_text(encoding="utf-8"))
     selected = _dictionaries(source, lang)
     if not selected:
         return source

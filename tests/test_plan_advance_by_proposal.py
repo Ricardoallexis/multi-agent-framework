@@ -19,6 +19,7 @@ from multiagent.config import Settings
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices, ServiceError
+from tests.gui_text import ui_text
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERAL_BUNDLE = ROOT / "examples" / "bundles" / "general"
@@ -180,7 +181,7 @@ def test_gui_route_conflicts_on_an_unapproved_proposal(env):
 
 def test_the_advance_button_is_wired_and_helped():
     view = (JS / "plans.js").read_text(encoding="utf-8")
-    help_text = (JS / "help-text.js").read_text(encoding="utf-8")
+    help_text = ui_text(JS / "help-text.js")
     for expected in ('"/advance"', "Avanzar plan", "<${Confirm}", 'topic="plans.advance"', 'helpFor("plans.advance")'):
         assert expected in view, expected
     assert '"plans.advance":' in help_text
