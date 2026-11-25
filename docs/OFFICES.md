@@ -143,6 +143,24 @@ In a repository checkout, «Inicio» offers «Instalar la oficina de ejemplo» o
 installed only when the person presses it. An installed copy does not include the example files, so the person imports
 an office of their own. The example is never installed by default.
 
+### Install card declarations
+
+The install card reads declarations without running office code. It lists `contracts.yaml` contracts after validating
+their schema, workflows, team roles, and each workflow's `role:` and `file.*` requirements separately. Python contract
+names are shown only as unverified static `OUTPUT_SCHEMAS` declarations; `contracts.py` is not executed for the card.
+For `functions.py`, only literal IDs passed to `register_function(...)` are recognized. Helpers are not executable
+functions, and dynamic or otherwise unverified registrations are called out rather than imported.
+
+The SkillSpector result is a limited review, not a guarantee that code is safe. If SkillSpector is unavailable, no scan
+was run; the card does not report that state as a clean result. A workflow with no `role:` requirement can run without
+an approved team. Workflows that name a role need an approved team, and a plan is blocked only by tasks that need roles
+without an approved team.
+
+When a workflow declares a `file.*` tool and `FILE_TOOLS_ROOT` is unset, the card and chat identify the requirement and
+block only that workflow until the setting is defined and the app is restarted. The GUI does not offer a local-folder
+picker: importing a folder requires the person to enter its path manually in advanced mode, and choosing a path does
+not execute the folder.
+
 ## Requirements
 
 Each area declares in `requires` what it needs, as namespaced capability ids, never a provider. The app crosses that with what the person has connected and answers one of two things: "You can cover this with A or with B", or "You need an agent that can X" with a "Connect another" action. `requires` only informs in the MVP: the router does not read it.

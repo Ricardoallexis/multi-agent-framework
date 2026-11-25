@@ -57,15 +57,21 @@ export const HELP = {
     "hint": "Elige un archivo .zip para revisar la oficina antes de instalarla.",
     "more": [
       "También puedes reimportar una oficina o añadir un área a una oficina que ya tienes.",
-      "En el modo avanzado puedes elegir una carpeta."
+      "En el modo avanzado puedes escribir la ruta local de una carpeta; el navegador no ofrece un selector seguro.",
+      "Revisar o elegir una carpeta no ejecuta el código de la oficina."
     ]
   },
   "offices.card": {
     "title": "Ficha de la oficina",
-    "hint": "Revisa las áreas, sus miembros, lo que necesitan y lo que declaran.",
+    "hint": "Revisa los workflows, contratos YAML con esquema válido, roles y requisitos de cada área.",
     "more": [
       "Al instalar, también se aprueban los equipos que aparecen en la ficha.",
-      "La ficha muestra si la oficina trae código y el resultado de la revisión."
+      "Un workflow sin role: puede ejecutarse aunque el equipo siga propuesto; los que declaran puestos requieren un equipo aprobado.",
+      "Un plan solo se bloquea cuando sus tareas necesitan puestos sin aprobar.",
+      "La ficha solo reconoce llamadas estáticas a register_function; los helpers no son funciones registradas.",
+      "contracts.py no se ejecuta para preparar la ficha; sus declaraciones no se verifican antes de aprobar.",
+      "La revisión de SkillSpector tiene un alcance limitado y no garantiza que el código sea seguro.",
+      "Si no hay escáner instalado, no se hizo la revisión; eso no significa que no haya hallazgos."
     ]
   },
   "offices.install": {

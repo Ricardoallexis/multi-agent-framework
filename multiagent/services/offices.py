@@ -29,6 +29,7 @@ import yaml
 
 from ..bundles import load_bundle
 from ..config import IN_CHECKOUT, PROJECT_ROOT
+from ..contracts_data import ContractsFileError, load_contracts_file
 from ..db.database import utcnow
 from ..external_output import canonical_json, sha256
 from ..offices.export import build_export, check_manifest
@@ -283,15 +284,18 @@ class OfficeServices:
                 issues.append({"code": f"area_{package_state}", "area": area["id"],
                                "message": f"The package of the area {area['id']} is {package_state}; reimport the office"})
             level = self._own_level(entry, area["id"])      # SEN-T01: what applies, not only what the office.yaml declares
+            folder = self._services._bundles.get(bundle)
             areas.append({"id": area["id"], "name": area["name"], "bundle": bundle, "sensitivity": level["sensitivity"],
                           "local_only": level["local_only"], "requires": list(area.get("requires") or []),
-                          "package_state": package_state, "team": self._team_state(bundle)})
+                          "package_state": package_state, "team": self._team_state(bundle),
+                          "workflow_declarations": self._workflow_declarations(folder) if folder is not None else []})
         return {"id": office_id, "name": definition["name"], "description": definition.get("description"),
                 "version": entry.get("version"), "fingerprint": entry.get("fingerprint"),
                 "installed_at": entry.get("installed_at"), "installed_by": entry.get("installed_by"),
                 "channel": entry.get("channel"), "level": "data", "local_only": self._office_local(entry)[0],
                 "state": "degraded" if issues else "ok", "issues": issues,
                 "warnings": list(entry.get("warnings") or []), "areas": areas,
+                "file_tools_configured": self._services.settings.file_tools_root is not None,
                 "orchestrator": definition.get("orchestrator"), "relations": list(definition.get("relations") or [])}
 
     @service_errors
@@ -1606,26 +1610,69 @@ class OfficeServices:
         return fingerprint, folders
 
     @staticmethod
-    def _python_declarations(path: Path, label: str) -> list[str]:
+    def _python_tree(path: Path, label: str) -> ast.Module | None:
         if not path.is_file():
-            return []
+            return None
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=label)
-        except (OSError, SyntaxError):
+            return ast.parse(path.read_text(encoding="utf-8"), filename=label)
+        except (OSError, SyntaxError, UnicodeDecodeError):
             raise ServiceError(INVALID_DEFINITION, f"Invalid Python file in office: {label}", status=422,
                                details={"reason": "office_code_invalid", "file": label}) from None
-        names = []
+
+    @classmethod
+    def _python_contract_declarations(cls, path: Path, label: str) -> list[str]:
+        tree = cls._python_tree(path, label)
+        if tree is None:
+            return []
+        names: set[str] = set()
         for statement in tree.body:
-            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                names.append(statement.name)
             if isinstance(statement, (ast.Assign, ast.AnnAssign)):
                 targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
                 if any(isinstance(target, ast.Name) and target.id == "OUTPUT_SCHEMAS" for target in targets):
                     value = statement.value
                     if isinstance(value, ast.Dict):
-                        names.extend(key.value for key in value.keys if isinstance(key, ast.Constant)
+                        names.update(key.value for key in value.keys if isinstance(key, ast.Constant)
                                      and isinstance(key.value, str))
-        return sorted(set(names))
+        return sorted(names)
+
+    @classmethod
+    def _function_declarations(cls, path: Path, label: str) -> tuple[list[str], bool]:
+        tree = cls._python_tree(path, label)
+        if tree is None:
+            return [], False
+        registration_names = {"register_function"}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("functions"):
+                registration_names.update(
+                    alias.asname or alias.name for alias in node.names if alias.name == "register_function")
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                value = node.value
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if isinstance(value, ast.Name) and value.id in registration_names:
+                    registration_names.update(target.id for target in targets if isinstance(target, ast.Name))
+
+        names: set[str] = set()
+        unverified = False
+        found_call = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            function = node.func
+            is_registration = (
+                isinstance(function, ast.Name) and function.id in registration_names
+            ) or (
+                isinstance(function, ast.Attribute) and function.attr == "register_function"
+            )
+            if not is_registration:
+                continue
+            found_call = True
+            function_id = node.args[0] if node.args else next(
+                (keyword.value for keyword in node.keywords if keyword.arg == "function_id"), None)
+            if isinstance(function_id, ast.Constant) and isinstance(function_id.value, str):
+                names.add(function_id.value)
+            else:
+                unverified = True
+        return sorted(names), unverified or not found_call
 
     @staticmethod
     def _area_members(folder: Path) -> list[dict[str, Any]]:
@@ -1653,21 +1700,64 @@ class OfficeServices:
                             member.get("agent") or member_id, "role": ", ".join(roles) or None})
         return members
 
-    def _area_declares(self, folder: Path, root: Path) -> dict[str, list[str]]:
+    def _workflow_declarations(self, folder: Path) -> list[dict[str, Any]]:
+        declarations = []
+        for path in sorted((folder / "workflows").glob("*.yaml")):
+            try:
+                raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, yaml.YAMLError):
+                raise ServiceError(INVALID_DEFINITION, "Invalid workflow declaration in office", status=422,
+                                   details={"reason": "office_workflow_invalid", "workflow": path.stem}) from None
+            steps = raw.get("steps") if isinstance(raw, dict) else None
+            if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
+                raise ServiceError(INVALID_DEFINITION, "Invalid workflow declaration in office", status=422,
+                                   details={"reason": "office_workflow_invalid", "workflow": path.stem})
+            roles: set[str] = set()
+            file_tools: set[str] = set()
+            for step in steps:
+                role = step.get("role")
+                if isinstance(role, str):
+                    roles.add(role)
+                elif role is not None:
+                    raise ServiceError(INVALID_DEFINITION, "Invalid workflow role declaration in office", status=422,
+                                       details={"reason": "office_workflow_invalid", "workflow": path.stem})
+                tools = step.get("tools")
+                if tools is None:
+                    continue
+                if not isinstance(tools, list):
+                    raise ServiceError(INVALID_DEFINITION, "Invalid workflow tool declaration in office", status=422,
+                                       details={"reason": "office_workflow_invalid", "workflow": path.stem})
+                for tool in tools:
+                    if not isinstance(tool, dict):
+                        raise ServiceError(INVALID_DEFINITION, "Invalid workflow tool declaration in office",
+                                           status=422,
+                                           details={"reason": "office_workflow_invalid", "workflow": path.stem})
+                    tool_id = tool.get("tool") or tool.get("capability")
+                    if not isinstance(tool_id, str):
+                        raise ServiceError(INVALID_DEFINITION, "Invalid workflow tool declaration in office",
+                                           status=422,
+                                           details={"reason": "office_workflow_invalid", "workflow": path.stem})
+                    if tool_id.startswith("file."):
+                        file_tools.add(tool_id)
+            declarations.append({"id": path.stem, "roles": sorted(roles), "file_tools": sorted(file_tools)})
+        return declarations
+
+    def _area_declares(self, folder: Path) -> dict[str, list[str]]:
         workflows = sorted(path.stem for path in (folder / "workflows").glob("*.yaml"))
-        contracts: set[str] = set()
+        contracts: list[str] = []
         data_contracts = folder / "contracts.yaml"
         if data_contracts.is_file():
-            raw = yaml.safe_load(data_contracts.read_text(encoding="utf-8")) or {}
-            if isinstance(raw, dict) and isinstance(raw.get("contracts"), dict):
-                contracts.update(str(name) for name in raw["contracts"])
-        contracts.update(self._python_declarations(folder / "contracts.py",
-                                                   (folder / "contracts.py").relative_to(root).as_posix()))
+            try:
+                declared, _ = load_contracts_file(data_contracts)
+            except ContractsFileError as exc:
+                raise ServiceError(INVALID_DEFINITION, exc.message, status=422,
+                                   details={"reason": exc.code, "location": exc.location}) from exc
+            contracts = sorted(declared)
         team = yaml.safe_load((folder / "team.yaml").read_text(encoding="utf-8")) if (folder / "team.yaml").is_file() else {}
         role_rows = team.get("roles", []) if isinstance(team, dict) else []
         roles = sorted(str(role["id"]) for role in role_rows
                        if isinstance(role, dict) and isinstance(role.get("id"), str))
-        return {"workflows": workflows, "contracts": sorted(contracts), "roles": roles}
+        return {"workflows": workflows, "contracts": contracts, "roles": roles}
 
     def _stage_approval(self, stage_id: str, metadata: dict[str, Any], fingerprint: str, level: str,
                         risk_ack_required: bool) -> str:
@@ -1738,7 +1828,8 @@ class OfficeServices:
                 data = {"id": area.id, "name": area.name, "sensitivity": area.sensitivity,
                         "local_only": area.local_only or definition.local_only,
                         "requires": requirements.get(area_id, {}),
-                        "members": self._area_members(folder), "declares": self._area_declares(folder, root)}
+                        "members": self._area_members(folder), "declares": self._area_declares(folder),
+                        "workflow_declarations": self._workflow_declarations(folder)}
             else:
                 old_record = self._read()[office_id]["definition"]
                 record = next(item for item in old_record["areas"] if item["id"] == area_id)
@@ -1748,17 +1839,32 @@ class OfficeServices:
                         "local_only": bool(record.get("local_only")) or definition.local_only,
                         "requires": requirements.get(area_id, {}),
                         "members": self._area_members(folder) if folder is not None else [],
-                        "declares": self._area_declares(folder, folder) if folder is not None else
-                        {"workflows": [], "contracts": [], "roles": []}}
+                        "declares": self._area_declares(folder) if folder is not None else
+                        {"workflows": [], "contracts": [], "roles": []},
+                        "workflow_declarations": self._workflow_declarations(folder) if folder is not None else []}
             areas.append({"id": area_id, "name": data["name"], "change": change, "members": data["members"],
                           "requires": data["requires"], "sensitivity": data["sensitivity"],
-                          "local_only": data["local_only"], "declares": data["declares"]})
+                          "local_only": data["local_only"], "declares": data["declares"],
+                          "workflow_declarations": data["workflow_declarations"]})
         code_files = self._code_files(root, definition)
-        functions = sorted({name for area in definition.areas
-                            for name in self._python_declarations(
-                                root.joinpath(*area.path.split("/")) / "functions.py",
-                                (root.joinpath(*area.path.split("/")) / "functions.py").relative_to(root).as_posix())})
-        code = {"present": level == "code", "files": code_files[:OFFICE_CODE_FILES_SHOWN], "functions": functions}
+        functions: set[str] = set()
+        functions_unverified = False
+        python_contracts: set[str] = set()
+        python_contracts_unverified = False
+        for area in definition.areas:
+            folder = root.joinpath(*area.path.split("/"))
+            functions_path = folder / "functions.py"
+            found, unverified = self._function_declarations(
+                functions_path, functions_path.relative_to(root).as_posix())
+            functions.update(found)
+            functions_unverified = functions_unverified or unverified
+            contracts_path = folder / "contracts.py"
+            python_contracts.update(self._python_contract_declarations(
+                contracts_path, contracts_path.relative_to(root).as_posix()))
+            python_contracts_unverified = python_contracts_unverified or contracts_path.is_file()
+        code = {"present": level == "code", "files": code_files, "functions": sorted(functions),
+                "functions_unverified": functions_unverified, "python_contracts": sorted(python_contracts),
+                "python_contracts_unverified": python_contracts_unverified}
         allowed = {"safe", "caution", "off", "not_installed"}
         current_approval = (self._services.user_approvals.peek(metadata["approval_id"])
                             if isinstance(metadata.get("approval_id"), str) else None)
@@ -1775,6 +1881,7 @@ class OfficeServices:
         return {"stage_id": stage_id, "kind": kind, "office": shown_office, "into": metadata.get("into"),
                 "level": level, "fingerprint": metadata["fingerprint"], "notice": OFFICE_NOTICE, "areas": areas,
                 "code": code, "scan": scan, "approval_id": approval_id,
+                "file_tools_configured": self._services.settings.file_tools_root is not None,
                 "risk_ack_required": risk_ack_required}
 
     def _approve_stage_teams(self, office_id: str, area_ids: list[str], infos: dict[str, dict[str, Any]], *,

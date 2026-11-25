@@ -36,7 +36,6 @@ const SCAN_TEXT = Object.freeze({
   pending: "Falta permitir la consulta",
   running: "Revisión en curso",
   off: "Revisión desactivada",
-  not_installed: "No hay herramienta de revisión",
 });
 
 const arrayOfStrings = (value) => Array.isArray(value)
@@ -72,6 +71,8 @@ export function cardView(card) {
   const sourceCode = card?.code && typeof card.code === "object" ? card.code : {};
   const officeName = card?.office?.name || "Oficina";
   const scanAreas = scan.areas && typeof scan.areas === "object" ? scan.areas : {};
+  const scanUnavailable = scan.state === "not_installed"
+    || Object.values(scanAreas).some((result) => result?.state === "not_installed");
   const areaNames = new Map(areas.map((area) => [String(area?.id || ""), String(area?.name || "Área")]));
   return {
     title: String(officeName),
@@ -101,19 +102,34 @@ export function cardView(card) {
           contracts: arrayOfStrings(declarations.contracts),
           roles: arrayOfStrings(declarations.roles),
         },
+        workflowDeclarations: (Array.isArray(area?.workflow_declarations) ? area.workflow_declarations : [])
+          .filter((item) => item && typeof item === "object")
+          .map((item) => ({
+            id: typeof item.id === "string" ? item.id : "",
+            roles: arrayOfStrings(item.roles),
+            fileTools: arrayOfStrings(item.file_tools),
+          }))
+          .filter((item) => item.id),
         change: CHANGE_TEXT[area?.change] || "",
       };
     }),
+    fileToolsConfigured: card?.file_tools_configured === true,
     code: {
       present: sourceCode.present === true,
       files: arrayOfStrings(sourceCode.files),
       functions: arrayOfStrings(sourceCode.functions),
-      verdict: scanText(typeof scan.verdict === "string" ? scan.verdict : scan.state),
-      areas: Object.entries(scanAreas).map(([id, result]) => ({
-        id,
-        name: areaNames.get(id) || "Área",
-        verdict: scanText(result?.verdict || result?.state) || "Sin resultado",
-      })),
+      functionsUnverified: sourceCode.functions_unverified === true,
+      pythonContracts: arrayOfStrings(sourceCode.python_contracts),
+      pythonContractsUnverified: sourceCode.python_contracts_unverified === true,
+      scanUnavailable,
+      verdict: scanUnavailable ? "" : scanText(typeof scan.verdict === "string" ? scan.verdict : scan.state),
+      areas: Object.entries(scanAreas)
+        .filter(([, result]) => result?.state !== "not_installed")
+        .map(([id, result]) => ({
+          id,
+          name: areaNames.get(id) || "Área",
+          verdict: scanText(result?.verdict || result?.state) || "Sin resultado",
+        })),
     },
     needsScanDecision: typeof scan.approval_id === "string" && scan.state === "pending",
     riskAckRequired: card?.risk_ack_required === true,
@@ -125,7 +141,7 @@ export function errorText(reason, details = {}) {
     return REASON_TEXT.office_has_code;
   }
   if (reason === "advanced_mode_required" && details?.action === "install_folder") {
-    return "Elegir una carpeta necesita el modo avanzado.";
+    return "La ruta local de una carpeta necesita el modo avanzado.";
   }
   if (REASON_TEXT[reason]) return REASON_TEXT[reason];
   if (reason === "export_secret_found") {

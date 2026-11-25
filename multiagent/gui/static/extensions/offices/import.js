@@ -233,10 +233,11 @@ export function ImportOffice({ token, into = null, reimport = null, onDone }) {
         <button type="button" class="btn" disabled=${busy} ...${helpFor("offices.import_office", { scope: helpScope })} onClick=${prepareZip}>
           ${busy ? "Preparando ficha…" : "Revisar ficha"}
         </button>`}
-      ${showIncludeCode && html`<label class="offices-import-field">Carpeta de la oficina
-        <input type="text" value=${folder} placeholder="Carpeta de la oficina" disabled=${busy}
+      ${showIncludeCode && html`<label class="offices-import-field">Ruta local de la carpeta
+        <input type="text" value=${folder} placeholder="Escribe la ruta local de la carpeta" disabled=${busy}
           ...${helpFor("offices.import_office", { scope: helpScope + "-folder" })} onInput=${(event) => setFolder(event.target.value)} />
       </label>
+      <p class="muted small">El navegador no ofrece un selector seguro de carpetas. En modo avanzado, escribe la ruta local; esto no ejecuta el código de la oficina.</p>
       <button type="button" class="btn secondary" disabled=${busy || !folder.trim()}
         ...${helpFor("offices.import_office", { scope: helpScope + "-folder" })} onClick=${prepareFolder}>Revisar carpeta</button>
       <${Help} topic="offices.import_office" compact=${true} scope=${helpScope + "-folder"} />`}
@@ -257,15 +258,28 @@ export function ImportOffice({ token, into = null, reimport = null, onDone }) {
             : "No se declararon miembros"}</p>
           <p>${area.requirement}</p>
           <p>Nivel: ${area.level}</p>
-          <p>Lo que sabe hacer: ${declarationList(area.declares.workflows, advanced) || "No declarado"}</p>
-          <p>Contratos: ${declarationList(area.declares.contracts, advanced) || "No declarados"}</p>
-          <p>Roles: ${declarationList(area.declares.roles, advanced) || "No declarados"}</p>
+          <p>Workflows: ${declarationList(area.declares.workflows, advanced) || "No declarados"}</p>
+          <p>Contratos YAML con esquema válido: ${declarationList(area.declares.contracts, advanced) || "No declarados"}</p>
+          <p>Roles del equipo: ${declarationList(area.declares.roles, advanced) || "No declarados"}</p>
+          ${area.workflowDeclarations.map((workflow) => html`<div key=${workflow.id}>
+            ${workflow.roles.length
+              ? html`<p>Workflow ${declarationList([workflow.id], advanced)} requiere los puestos ${declarationList(workflow.roles, advanced)} y un equipo aprobado.</p>`
+              : html`<p>Workflow ${declarationList([workflow.id], advanced)}: Este workflow no requiere un puesto del equipo; puede ejecutarse sin un equipo aprobado.</p>`}
+            ${workflow.fileTools.length > 0 && html`<p>${view.fileToolsConfigured
+              ? "Este workflow usa herramientas locales de archivos."
+              : "Este workflow necesita herramientas de archivos locales. Configura FILE_TOOLS_ROOT y reinicia la aplicación antes de ejecutarlo."}</p>
+              ${advanced && html`<p>Herramientas requeridas: ${workflow.fileTools.join(", ")}</p>`}`}
+          </div>`)}
         </li>`)}
       </ul>
       <div class="offices-import-code">
         <p>${view.code.present ? "La oficina trae código propio." : "La oficina trae solo instrucciones y datos."}</p>
         ${advanced && view.code.files.length > 0 && html`<p>Archivos de código: ${view.code.files.join(", ")}</p>`}
-        ${advanced && view.code.functions.length > 0 && html`<p>Funciones declaradas: ${view.code.functions.join(", ")}</p>`}
+        ${view.code.functions.length > 0 && html`<p>${advanced ? "IDs de register_function:" : "Funciones declaradas:"} ${declarationList(view.code.functions, advanced)}</p>`}
+        ${view.code.functionsUnverified && html`<p>No se pudieron verificar estáticamente los registros de functions.py; no se ejecutó el archivo.</p>`}
+        ${advanced && view.code.pythonContracts.length > 0 && html`<p>Contratos Python no verificados: ${view.code.pythonContracts.join(", ")}</p>`}
+        ${view.code.pythonContractsUnverified && html`<p>contracts.py no se ejecutó; sus contratos no están verificados antes de aprobar.</p>`}
+        ${view.code.scanUnavailable && html`<p role="status">No hay escáner de oficinas disponible: no se hizo la revisión. Revisa el código antes de instalar.</p>`}
         ${view.code.verdict && html`<p>Resultado de la revisión: ${view.code.verdict}</p>`}
         ${view.code.areas.map((item) => html`<p key=${item.id}>${item.name}: ${item.verdict}</p>`)}
       </div>

@@ -149,10 +149,12 @@ function QuestionCard({ question, n, total, disabled, onChoose }) {
 
 function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef }) {
   const { mode, setMode, sensitive, setSensitive, confirmReal, setConfirmReal, preview, previewError, previewing,
-    routing, routingError, routingLoading, launchError, routingOverrides, setRoutingOverrides } = state;
+    routing, routingError, routingLoading, launchError, routingOverrides, setRoutingOverrides,
+    fileToolsNotice, fileToolsMissing } = state;
   const cloudAllowed = state.cloudAllowed !== false;
   const blockers = [];
   if (!mock && !confirmReal) blockers.push("Confirma que entiendes que el servidor no está en modo Mock.");
+  if (fileToolsMissing) blockers.push("Configura FILE_TOOLS_ROOT y reinicia la aplicación.");
   const routingSteps = routing && Array.isArray(routing.steps) ? routing.steps : [];
   const changedRoutes = Object.entries(routingOverrides).filter(([, override]) => Object.keys(override).length > 0);
   if (previewing) blockers.push("Espera a que se validen las preferencias.");
@@ -236,6 +238,8 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
       <${Help} topic="create.confirm_real" /></div>`}
     <${PreviewPanel} preview=${preview} error=${previewError} loading=${previewing} />
     ${launchError && html`<p class="message error" role="alert">${errorText(launchError)}</p>`}
+    ${fileToolsNotice && fileToolsMissing && html`<p class="message error small" role="alert">${fileToolsNotice}</p>`}
+    ${fileToolsNotice && !fileToolsMissing && html`<p class="hint" role="status">${fileToolsNotice}</p>`}
     <p id="ns-blockers" class="hint" role="status">${blockers.length ? "No se puede lanzar todavía. " + blockers.join(" ") : "Todo listo: nada se ejecuta hasta que pulses «Lanzar»."}</p>
     ${changedRoutes.length > 0 && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.routing")}
       onClick=${() => setRoutingOverrides({})}>Revertir ajustes de routing</button>`}
@@ -976,6 +980,19 @@ export function NewSession({ token, mock }) {
     officeArea || (currentOfficeDetail?.areas || []),
     activeCatalog.entries,
   );
+  const selectedWorkflow = conv.workflow;
+  const selectedWorkflowArea = currentOfficeDetail?.areas?.find((area) => area.bundle === selectedWorkflow?.bundle);
+  const selectedWorkflowDeclaration = selectedWorkflowArea?.workflow_declarations?.find(
+    (item) => item.id === selectedWorkflow?.id,
+  );
+  const usesFileTools = Array.isArray(selectedWorkflowDeclaration?.file_tools)
+    && selectedWorkflowDeclaration.file_tools.length > 0;
+  const fileToolsMissing = usesFileTools && currentOfficeDetail?.file_tools_configured !== true;
+  const fileToolsNotice = usesFileTools
+    ? fileToolsMissing
+      ? "Este workflow necesita herramientas de archivos locales. Configura FILE_TOOLS_ROOT y reinicia la aplicación antes de ejecutarlo."
+      : "Este workflow usa herramientas locales de archivos."
+    : "";
   const settledCatalog = async () => {
     const pending = officeId ? officeCatalogRun.current : catalogRun.current;
     return pending || { entries: activeCatalog.entries, error: activeCatalog.error };
@@ -1546,7 +1563,7 @@ export function NewSession({ token, mock }) {
     ${conv.phase === "confirm" && html`<${ConfirmCard} conv=${conv} mock=${mock} busy=${busy} boxRef=${confirmBox}
       state=${{ mode, setMode, sensitive, setSensitive, confirmReal, setConfirmReal, preview, previewError, previewing,
         routing: preview && preview.routing, routingError: previewError, routingLoading: previewing, launchError,
-        routingOverrides, setRoutingOverrides, cloudAllowed }}
+        routingOverrides, setRoutingOverrides, cloudAllowed, fileToolsNotice, fileToolsMissing }}
       onLaunch=${launch} onEdit=${() => dispatch({ type: "edit" })} onForm=${openForm} />`}
     <div class="ns-end" ref=${endMark}></div>
     <div class="ns-tools">
