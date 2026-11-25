@@ -11,6 +11,7 @@ import { ApiError, apiGet } from "../../js/api.js";
 import { ContentReport, useContentReport } from "../../js/context-report.js";
 import { registerHelp, registerView } from "../../js/extensions.js";
 import { Help, helpFor } from "../../js/help.js";
+import { t } from "../../js/i18n.js";
 import { POLL_MS, panelVisible } from "../../js/panel-data.js";
 import { subjectOf } from "../../js/panel-model.js";
 import { Empty, Failure, Loading } from "../../js/panel-parts.js";
@@ -45,32 +46,33 @@ function useAlerts(token, runId) {
 }
 
 function summaryText(alerts) {
-  if (alerts.length === 0) return "Sin alertas de documentos.";
+  if (alerts.length === 0) return t("ext.document_alerts.summary.none");
   const waiting = pendingCount(alerts);
-  const total = alerts.length + (alerts.length === 1 ? " alerta" : " alertas");
-  return waiting > 0 ? total + " · " + waiting + (waiting === 1 ? " espera una decisión" : " esperan una decisión") : total;
+  const total = t(alerts.length === 1 ? "ext.document_alerts.summary.one" : "ext.document_alerts.summary.many", { count: alerts.length });
+  return waiting > 0 ? total + " · " + t(waiting === 1
+    ? "ext.document_alerts.summary.waiting_one" : "ext.document_alerts.summary.waiting_many", { count: waiting }) : total;
 }
 
 // The summary, the refresh button and the list; `scope` keeps the ids of the help apart (the card and the view can be on screen
 // together). A read that failed before anything was read says so and shows no list; one that failed later keeps the old list.
 function Alerts({ data, scope, showRun, labelledBy }) {
   const stale = data.alerts.length > 0;
-  const summary = data.status === "loading" ? "Buscando alertas…"
-    : data.status === "error" && !stale ? "No se pudieron leer las alertas." : summaryText(data.alerts);
+  const summary = data.status === "loading" ? t("ext.document_alerts.loading")
+    : data.status === "error" && !stale ? t("ext.document_alerts.error.read") : summaryText(data.alerts);
   return html`<div class="document-alerts-card" aria-busy=${data.status === "loading" ? "true" : "false"}>
     <div class="document-alerts-bar">
       <p class="document-alerts-summary" id=${"document-alerts-summary-" + scope} role="status" aria-live="polite">${summary}</p>
       <span class="document-alerts-refresh">
-        <button type="button" class="btn secondary small" ...${helpFor("document_alerts.refresh", { scope })} onClick=${data.reload}>Actualizar</button>
+        <button type="button" class="btn secondary small" ...${helpFor("document_alerts.refresh", { scope })} onClick=${data.reload}>${t("ext.document_alerts.refresh")}</button>
         <${Help} topic="document_alerts.refresh" compact=${true} scope=${scope} />
       </span>
     </div>
-    ${data.status === "error" ? html`<${Failure} error=${data.error} scope=${"document-alerts-" + scope} what="las alertas de documentos"
+    ${data.status === "error" ? html`<${Failure} error=${data.error} scope=${"document-alerts-" + scope} what=${t("ext.document_alerts.what")}
       stale=${stale} onRetry=${data.reload} />` : null}
     ${data.alerts.length > 0 ? html`<ul class="document-alerts-list" aria-labelledby=${labelledBy || "document-alerts-summary-" + scope}>
       ${data.alerts.map((alert) => html`<${AlertItem} key=${alert.id} alert=${alert} showRun=${showRun} />`)}
     </ul>` : null}
-    ${data.truncated ? html`<${Empty}>Hay más alertas de las que se listan: se muestran las más recientes.<//>` : null}
+    ${data.truncated ? html`<${Empty}>${t("ext.document_alerts.truncated")}<//>` : null}
   </div>`;
 }
 
@@ -87,19 +89,20 @@ export function DocumentAlertsCard({ token, route, sessionId, onContent }) {
   const runId = subject && subject.runId;
   return runId
     ? html`<${RunAlerts} key=${runId} token=${token} runId=${runId} onContent=${onContent} />`
-    : html`<${ContentReport} onContent=${onContent} has=${false} /><${Empty}>Sin ejecución abierta: abre una ejecución para ver sus alertas de documentos.<//>`;
+    : html`<${ContentReport} onContent=${onContent} has=${false} /><${Empty}>${t("ext.document_alerts.no_run")}<//>`;
 }
 
 // The screen of the sidebar (props: token, status, mock, route = { section, id }): #document_alerts or #document_alerts/<run id>.
 export function DocumentAlertsView({ token, route }) {
   const runId = (route && route.id) || null;
   const data = useAlerts(token, runId);
-  return html`<section class="document-alerts-view" aria-label="Alertas de documentos">
-    <p class="muted small document-alerts-scope">${runId ? "Solo las alertas de la ejecución " + runId + "."
-      : "Las más recientes de las ejecuciones del sistema. Las de un paquete se ven al abrir su ejecución."}</p>
+  return html`<section class="document-alerts-view" aria-label=${t("ext.document_alerts.title")}>
+    <p class="muted small document-alerts-scope">${runId
+      ? t("ext.document_alerts.scope.run", { run: runId })
+      : t("ext.document_alerts.scope.system")}</p>
     <${Alerts} data=${data} scope="view" showRun=${!runId} />
   </section>`;
 }
 
-registerView({ id: "document_alerts", owner: "document_alerts", group: "pending", icon: "file", label: "Alertas de documentos", topic: "document_alerts.view", component: DocumentAlertsView, order: 50, mode: "simple" });
-registerSlot("document_alerts", DocumentAlertsCard, { title: "Alertas de documentos", topic: "document_alerts.card", owner: "document_alerts", order: 50 });
+registerView({ id: "document_alerts", owner: "document_alerts", group: "pending", icon: "file", label: t("ext.document_alerts.title"), topic: "document_alerts.view", component: DocumentAlertsView, order: 50, mode: "simple" });
+registerSlot("document_alerts", DocumentAlertsCard, { title: t("ext.document_alerts.title"), topic: "document_alerts.card", owner: "document_alerts", order: 50 });

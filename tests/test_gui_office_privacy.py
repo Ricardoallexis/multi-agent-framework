@@ -104,7 +104,10 @@ def test_routes_and_privacy_payload(env):
 @needs_node
 def test_rows_and_note(env):
     out = run_node(f"""
-      import {{ NOTE_TITLE, privacyRows }} from {file_url(EXT / "privacy-model.js")};
+      const ui = await import({file_url(STATIC_DIR / "js" / "i18n.js")});
+      await import({file_url(EXT / "i18n.js")});
+      ui.setLanguage("es");
+      const {{ NOTE_TITLE, privacyRows }} = await import({file_url(EXT / "privacy-model.js")});
       const payload = {{
         office: "demo",
         cloud: {{ allowed: true, source: "person" }},
@@ -126,7 +129,7 @@ def test_rows_and_note(env):
         {{ id: "proposal", name: "Proposals" }},
         {{ id: "reception", name: "Reception" }},
       ]);
-      console.log(JSON.stringify({{ title: NOTE_TITLE, rows, note: payload.note }}));
+      console.log(JSON.stringify({{ title: NOTE_TITLE(), rows, note: payload.note }}));
     """)
     assert out["title"] == "Lo que esta opción no libera"
     assert [(row["id"], row["name"], row["level"], row["sourceText"]) for row in out["rows"]] == [

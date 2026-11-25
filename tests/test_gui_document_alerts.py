@@ -435,7 +435,10 @@ PLAIN_TAGS = {"li", "div", "span", "p", "strong", "dl", "dt", "dd", "figure", "b
 def draw(alerts: list, show_run: bool = False) -> list[dict]:
     """What ``AlertItem`` draws for each alert (text, tags, links), run in Node on the JSON the route gave."""
     return run_node(f"""
-      import {{ AlertItem }} from {json.dumps((FOLDER / "alert-item.js").as_uri())};
+      const ui = await import({json.dumps((JS / "i18n.js").as_uri())});
+      await import({json.dumps((FOLDER / "i18n.js").as_uri())});
+      ui.setLanguage("es");
+      const {{ AlertItem }} = await import({json.dumps((FOLDER / "alert-item.js").as_uri())});
       {WALK}
       let input = "";
       process.stdin.setEncoding("utf8");

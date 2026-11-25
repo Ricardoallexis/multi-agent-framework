@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -31,6 +32,17 @@ BOOTSTRAP_CODE = "synthetic-office-approval-code"
 
 
 def run_node(script: str):
+    script = f"""
+      const mafUi = await import({json.dumps((STATIC_DIR / "js" / "i18n.js").as_uri())});
+      await import({json.dumps((EXT / "i18n.js").as_uri())});
+      mafUi.setLanguage("es");
+      {script}
+    """
+    script = re.sub(
+        r'(?m)^(\s*)import\s+(\{[^}]*\})\s+from\s+("[^"]*/extensions/offices/(?:import-)?model\.js");',
+        r"\1const \2 = await import(\3);",
+        script,
+    )
     result = subprocess.run(
         [NODE, "--input-type=module", "-e", script],
         capture_output=True,
@@ -122,7 +134,11 @@ def test_card_shows_everything():
         risk_ack_required: false,
       }};
       const view = cardView(card);
-      console.log(JSON.stringify({{ view, CHANGE_TEXT, TEAMS_NOTE }}));
+      console.log(JSON.stringify({{
+        view,
+        CHANGE_TEXT: Object.fromEntries(Object.entries(CHANGE_TEXT).map(([name, key]) => [name, mafUi.t(key)])),
+        TEAMS_NOTE: TEAMS_NOTE(),
+      }}));
     """)
     view = out["view"]
     assert view["title"] == "Demo office"
@@ -318,11 +334,11 @@ def test_export_routes_and_remove_keep_data(gui, tmp_path):
 def test_remove_confirmation_shows_data_retention_notice():
     out = run_node(f"""
       import {{ REMOVE_NOTICE }} from {file_url(EXT / "import-model.js")};
-      console.log(JSON.stringify(REMOVE_NOTICE));
+      console.log(JSON.stringify(REMOVE_NOTICE()));
     """)
     source = ui_text((EXT / "index.js"))
     assert out == "Se quita de la lista. Se conservan sus datos"
-    assert '<p class="small">${REMOVE_NOTICE}</p>' in source
+    assert '<p class="small">Se quita de la lista. Se conservan sus datos</p>' in source
     assert 'result?.kept_data !== true' in source
 
 

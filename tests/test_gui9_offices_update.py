@@ -21,6 +21,17 @@ STATIC_JS = STATIC_DIR / "js"
 
 
 def run_node(script: str):
+    script = f"""
+      const mafUi = await import({file_url(STATIC_DIR / "js" / "i18n.js")});
+      await import({file_url(EXT / "i18n.js")});
+      mafUi.setLanguage("es");
+      {script}
+    """
+    script = re.sub(
+        r'(?m)^(\s*)import\s+(\{[^}]*\})\s+from\s+("[^"]*/extensions/offices/(?:import-)?model\.js");',
+        r"\1const \2 = await import(\3);",
+        script,
+    )
     result = subprocess.run(
         [NODE, "--input-type=module", "-e", script],
         capture_output=True,
@@ -63,7 +74,7 @@ def test_chat_offers_reviewed_updates_and_office_controls_in_both_modes():
     assert "currentOfficeDetail.source_update.changed" in chat
     assert "stage-source-update" in importer
     assert "Revisar cambios" in importer
-    assert "onClick=${install}>${busy ? \"Instalando…\" : reimport ? \"Actualizar oficina\"" in importer
+    assert re.search(r'onClick=\$\{install\}>\$\{busy \? "Instalando…" : reimport\s*\? "Actualizar oficina"', importer)
     assert '${!card && html`<div class="offices-import-form">' in importer
     assert "Archivo .zip" in importer
     assert '${showIncludeCode && html`<label class="offices-import-field">Ruta local de la carpeta' in importer

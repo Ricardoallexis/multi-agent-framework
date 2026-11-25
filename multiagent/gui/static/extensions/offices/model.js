@@ -1,29 +1,30 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Pure view data helpers for Offices; no DOM, storage, or network access.
+import { t } from "../../js/i18n.js";
 
 export const POLL_MS = 4000;
 export const LEVEL_TEXT = Object.freeze({
-  non_sensitive: "Normal",
-  sensitive: "Sensible",
-  restricted: "Solo local",
-  none: "Sin nivel",
+  get non_sensitive() { return t("ext.offices.level.normal"); },
+  get sensitive() { return t("ext.offices.level.sensitive"); },
+  get restricted() { return t("ext.offices.level.local_only"); },
+  get none() { return t("ext.offices.level.none"); },
 });
-export const EMPTY_TEXT = "Todavía no tienes oficinas";
-export const OFFLINE_TEXT = "Sin conexión; reintento en 4 s";
+export const EMPTY_TEXT = () => t("ext.offices.empty");
+export const OFFLINE_TEXT = () => t("ext.offices.offline");
 
 const PERMISSION_TEXT = Object.freeze({
-  read: "leer",
-  write: "escribir",
-  destructive: "cambiar o borrar",
-  external: "comunicarse fuera del equipo",
+  read: () => t("ext.offices.permission.read"),
+  write: () => t("ext.offices.permission.write"),
+  destructive: () => t("ext.offices.permission.destructive"),
+  external: () => t("ext.offices.permission.external"),
 });
 
 const DEGRADED_TEXT = Object.freeze({
-  team_not_approved: "Hay un equipo sin aprobar.",
-  requirement_missing: "Falta conectar un agente.",
-  installed_bundle_changed: "Cambió desde que la revisaste.",
-  bundle_not_installed: "Falta un área de la oficina.",
+  team_not_approved: "ext.offices.team_not_approved",
+  requirement_missing: "ext.offices.degraded.requirement_missing",
+  installed_bundle_changed: "ext.offices.degraded.bundle_changed",
+  bundle_not_installed: "ext.offices.degraded.bundle_missing",
 });
 
 export function levelText(value) {
@@ -31,18 +32,18 @@ export function levelText(value) {
 }
 
 export function memberLine(member) {
-  if (member?.kind === "person") return "persona: " + (member.name || "Persona");
+  if (member?.kind === "person") return t("ext.offices.member.person", { name: member.name || t("ext.offices.member.default_person") });
   const worker = member?.worker && member.worker !== "—"
     ? member.worker
-    : member?.agent || member?.name || "Agente";
-  return "lo hace: " + worker;
+    : member?.agent || member?.name || t("ext.offices.member.default_agent");
+  return t("ext.offices.member.worker", { model: worker });
 }
 
 export function declaredPermissionText(team) {
   const values = [...new Set((Array.isArray(team?.roles) ? team.roles : [])
     .flatMap((role) => Array.isArray(role?.permissions) ? role.permissions : []))];
   if (!values.length) return "";
-  return "Permisos declarados: " + values.map((value) => PERMISSION_TEXT[value] || value).join(", ");
+  return t("ext.offices.permissions", { permissions: values.map((value) => PERMISSION_TEXT[value]?.() || value).join(", ") });
 }
 
 export function degradedAction(entry) {
@@ -56,7 +57,7 @@ export function degradedAction(entry) {
 }
 
 export function degradedMessage(code) {
-  return DEGRADED_TEXT[code] || "Revisa esta área.";
+  return t(DEGRADED_TEXT[code] || "ext.offices.degraded.default");
 }
 
 export function sceneTargets(offices) {
@@ -81,8 +82,8 @@ export function officeRows(scene, requirements) {
   const rows = [{
     key: "coordinator",
     kind: "orchestrator",
-    name: "Coordinación",
-    label: orchestrator.label || "Libre",
+    name: t("ext.offices.coordination"),
+    label: orchestrator.label || t("ext.offices.member.free"),
     state: orchestrator.state || "idle",
     plan: orchestrator.plan || null,
   }];
@@ -92,8 +93,8 @@ export function officeRows(scene, requirements) {
       key: "area:" + area.id,
       kind: "area",
       id: area.id,
-      name: area.name || "Área",
-      label: area.label || "Libre",
+      name: area.name || t("ext.offices.area.default"),
+      label: area.label || t("ext.offices.member.free"),
       state: area.state || "idle",
       level: levelText(area.data_class),
       requirementText: typeof requirement?.text === "string" ? requirement.text : "",
@@ -104,9 +105,9 @@ export function officeRows(scene, requirements) {
       rows.push({
         key: "member:" + area.id + ":" + member.id,
         kind: "member",
-        name: member.name || "Miembro",
+        name: member.name || t("ext.offices.member.default"),
         line: memberLine(member),
-        label: member.label || "Libre",
+        label: member.label || t("ext.offices.member.free"),
         state: member.state || "idle",
       });
     }

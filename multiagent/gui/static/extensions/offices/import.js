@@ -5,15 +5,17 @@ import { html, useCallback, useEffect, useState } from "../../vendor/htm-preact-
 import { ApiError, apiGet, apiPost } from "../../js/api.js";
 import { currentMode, onModeChange } from "../../js/gui-mode.js";
 import { Help, helpFor } from "../../js/help.js";
+import { t } from "../../js/i18n.js";
 import {
   bytesToBase64,
   cardView,
   declarationName,
+  declaredFunctionsText,
   errorText,
   exportFileName,
   exportWarningText,
   includeCodeVisible,
-  TEAMS_NOTE,
+  importTitle,
   ZIP_UPLOAD_MAX_BYTES,
   zipBody,
 } from "./import-model.js";
@@ -28,17 +30,17 @@ function failureText(error) {
   const reason = error?.details?.reason || error?.details?.cause
     || (error?.status === 413 ? "zip_too_large" : error?.code);
   if (reason === "approval_session_unavailable" || reason === "missing_or_invalid_session") {
-    return "Vuelve a abrir la GUI para permitir una consulta o instalar una oficina.";
+    return t("ext.offices.error.reopen_for_approval");
   }
-  if (reason === "user_click_required") return "Vuelve a abrir la GUI para decidir esta acción.";
-  if (error?.message === "El servidor no entregó un código de un solo uso válido.") return error.message;
+  if (reason === "user_click_required") return t("ext.offices.error.reopen_for_decision");
+  if (error?.message === t("ext.offices.error.invalid_approval_code")) return error.message;
   return errorText(reason, error?.details);
 }
 
 async function decideApproval(token, approvalId, { decision = "approve", fingerprint = "", riskAck = false } = {}) {
   const challenge = await apiPost(challengePath(approvalId), token, {});
   if (!challenge || typeof challenge.code !== "string" || !challenge.code) {
-    throw new Error("El servidor no entregó un código de un solo uso válido.");
+    throw new Error(t("ext.offices.error.invalid_approval_code"));
   }
   if (fingerprint && challenge.sha256 && challenge.sha256 !== fingerprint) {
     throw new ApiError({ code: "office_changed_since_card", details: { reason: "office_changed_since_card" } });
@@ -59,10 +61,10 @@ export async function exportOffice({ token, officeId, area = null, includeCode =
   const path = BASE + "/" + encodeURIComponent(officeId) + "/export";
   const payload = await post(path, token, { area: area || null, include_code: includeCode === true });
   if (!payload || typeof payload.zip_base64 !== "string") {
-    throw new Error("El servidor no entregó el archivo de la oficina.");
+    throw new Error(t("ext.offices.error.missing_export_file"));
   }
   if (typeof document === "undefined" || !document.body || typeof URL.createObjectURL !== "function") {
-    throw new Error("El navegador no puede descargar el archivo de la oficina.");
+    throw new Error(t("ext.offices.error.cannot_download"));
   }
   const blob = new Blob([bytesFromBase64(payload.zip_base64)], { type: "application/zip" });
   const objectUrl = URL.createObjectURL(blob);
@@ -124,7 +126,7 @@ export function ImportOffice({
     try {
       setUpload({ filename: file.name, zipBase64: bytesToBase64(new Uint8Array(await file.arrayBuffer())) });
     } catch (_) {
-      setError("No se pudo leer el archivo. Vuelve a elegirlo.");
+      setError(t("ext.offices.error.read_file"));
     }
   };
 
@@ -174,9 +176,9 @@ export function ImportOffice({
         await apiPost(stagePath(card.stage_id) + "/discard", token, {});
         setCard(null);
         setUpload(null);
-        setMessage("No se permitió la consulta. La ficha se canceló.");
+        setMessage(t("ext.offices.scan.denied"));
       } else {
-        setMessage("Consulta permitida. Se está revisando la oficina.");
+        setMessage(t("ext.offices.scan.allowed"));
         await refreshCard(card.stage_id);
       }
     } catch (failure) {
@@ -223,28 +225,28 @@ export function ImportOffice({
   const scanRunning = card?.scan?.state === "running";
   const advanced = mode === "advanced";
   const showIncludeCode = includeCodeVisible(mode);
-  return html`<section class="offices-importer" aria-label="Importar una oficina">
+  return html`<section class="offices-importer" aria-label=${t("ext.offices.import.title")}>
     <div class="offices-import-head">
-      <p class="offices-import-title"><strong>${title || (reimport ? "Reimportar oficina" : into ? "Añadir un área" : "Importar una oficina")}</strong></p>
-      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: helpScope })} onClick=${cancel}>Cancelar</button>
+      <p class="offices-import-title"><strong>${importTitle({ title, reimport, into })}</strong></p>
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: helpScope })} onClick=${cancel}>${t("ext.offices.cancel")}</button>
       <${Help} topic="offices.import_office" compact=${true} scope=${helpScope} />
     </div>
     ${!card && html`<div class="offices-import-form">
-      <label class="offices-import-field">Archivo .zip
+      <label class="offices-import-field">${t("ext.offices.import.zip_file")}
         <input type="file" accept=".zip,application/zip" disabled=${busy}
           ...${helpFor("offices.import_office", { scope: helpScope })} onChange=${chooseZip} />
       </label>
       ${upload && html`<p class="offices-import-file">${upload.filename}</p>
         <button type="button" class="btn" disabled=${busy} ...${helpFor("offices.import_office", { scope: helpScope })} onClick=${prepareZip}>
-          ${busy ? "Preparando ficha…" : "Revisar ficha"}
+          ${busy ? t("ext.offices.import.preparing") : t("ext.offices.import.review")}
         </button>`}
-      ${showIncludeCode && html`<label class="offices-import-field">Ruta local de la carpeta
-        <input type="text" value=${folder} placeholder="Escribe la ruta local de la carpeta" disabled=${busy}
+      ${showIncludeCode && html`<label class="offices-import-field">${t("ext.offices.import.folder_path")}
+        <input type="text" value=${folder} placeholder=${t("ext.offices.import.folder_placeholder")} disabled=${busy}
           ...${helpFor("offices.import_office", { scope: helpScope + "-folder" })} onInput=${(event) => setFolder(event.target.value)} />
       </label>
-      <p class="muted small">El navegador no ofrece un selector seguro de carpetas. En modo avanzado, escribe la ruta local; esto no ejecuta el código de la oficina.</p>
+      <p class="muted small">${t("ext.offices.import.folder_note")}</p>
       <button type="button" class="btn secondary" disabled=${busy || !folder.trim()}
-        ...${helpFor("offices.import_office", { scope: helpScope + "-folder" })} onClick=${prepareFolder}>Revisar carpeta</button>
+        ...${helpFor("offices.import_office", { scope: helpScope + "-folder" })} onClick=${prepareFolder}>${t("ext.offices.import.review_folder")}</button>
       <${Help} topic="offices.import_office" compact=${true} scope=${helpScope + "-folder"} />`}
     </div>`}
     ${error && html`<p class="message error small" role="alert">${error}</p>`}
@@ -252,12 +254,12 @@ export function ImportOffice({
     ${view && html`<article class="offices-import-card" aria-label=${view.title}>
       <p class="offices-import-title"><strong>${view.title}</strong></p>
       <p class="offices-import-notice">${view.notice}</p>
-      ${reviewChanges && html`<p><strong>Revisar cambios</strong></p>`}
+      ${reviewChanges && html`<p><strong>${t("ext.offices.import.review_changes")}</strong></p>`}
       <p class="offices-import-meta">${view.level}</p>
-      <p class="offices-import-teams">${TEAMS_NOTE}</p>
+      <p class="offices-import-teams">${t("ext.offices.teams_note")}</p>
       <${Help} topic="offices.card" compact=${true} scope=${helpScope} />
-      ${view.fileChanges.length > 0 && html`<section class="offices-import-files" aria-label="Cambios en archivos">
-        <p><strong>Cambios en archivos</strong></p>
+      ${view.fileChanges.length > 0 && html`<section class="offices-import-files" aria-label=${t("ext.offices.import.file_changes")}>
+        <p><strong>${t("ext.offices.import.file_changes")}</strong></p>
         <ul>${view.fileChanges.map((file, index) => html`<li key=${file.area + "|" + file.path + "|" + index}>
           ${file.area && html`<strong>${file.area}: </strong>`}${file.path} — ${file.change}
         </li>`)}</ul>
@@ -265,55 +267,58 @@ export function ImportOffice({
       <ul class="offices-import-areas">
         ${view.areas.map((area) => html`<li key=${area.id} class="offices-import-area">
           <div class="offices-import-row"><strong>${area.name}</strong>${area.change && html`<span>${area.change}</span>`}</div>
-          <p>Miembros: ${area.members.length
+          <p>${t("ext.offices.import.members")}: ${area.members.length
             ? area.members.map((member) => [member.name, member.role].filter(Boolean).join(" · ")).join(", ")
-            : "No se declararon miembros"}</p>
+            : t("ext.offices.import.no_members")}</p>
           <p>${area.requirement}</p>
-          <p>Nivel: ${area.level}</p>
-          <p>Workflows: ${declarationList(area.declares.workflows, advanced) || "No declarados"}</p>
-          <p>Contratos YAML con esquema válido: ${declarationList(area.declares.contracts, advanced) || "No declarados"}</p>
-          <p>Roles del equipo: ${declarationList(area.declares.roles, advanced) || "No declarados"}</p>
+          <p>${t("ext.offices.level.label")}: ${area.level}</p>
+          <p>${t("ext.offices.import.workflows")}: ${declarationList(area.declares.workflows, advanced) || t("ext.offices.import.none_declared")}</p>
+          <p>${t("ext.offices.import.contracts")}: ${declarationList(area.declares.contracts, advanced) || t("ext.offices.import.none_declared")}</p>
+          <p>${t("ext.offices.import.team_roles")}: ${declarationList(area.declares.roles, advanced) || t("ext.offices.import.none_declared")}</p>
           ${area.workflowDeclarations.map((workflow) => html`<div key=${workflow.id}>
             ${workflow.roles.length
-              ? html`<p>Workflow ${declarationList([workflow.id], advanced)} requiere los puestos ${declarationList(workflow.roles, advanced)} y un equipo aprobado.</p>`
-              : html`<p>Workflow ${declarationList([workflow.id], advanced)}: Este workflow no requiere un puesto del equipo; puede ejecutarse sin un equipo aprobado.</p>`}
+              ? html`<p>${t("ext.offices.import.workflow_requires_roles", {
+                workflow: declarationList([workflow.id], advanced), roles: declarationList(workflow.roles, advanced),
+              })}</p>`
+              : html`<p>${t("ext.offices.import.workflow_no_roles", { workflow: declarationList([workflow.id], advanced) })}</p>`}
             ${workflow.fileTools.length > 0 && html`<p>${view.fileToolsConfigured
-              ? "Este workflow usa herramientas locales de archivos."
-              : "Este workflow necesita herramientas de archivos locales. Configura FILE_TOOLS_ROOT y reinicia la aplicación antes de ejecutarlo."}</p>
-              ${advanced && html`<p>Herramientas requeridas: ${workflow.fileTools.join(", ")}</p>`}`}
+              ? t("ext.offices.import.workflow_uses_file_tools")
+              : t("ext.offices.import.workflow_needs_file_tools")}</p>
+              ${advanced && html`<p>${t("ext.offices.import.required_tools")}: ${workflow.fileTools.join(", ")}</p>`}`}
           </div>`)}
         </li>`)}
       </ul>
       <div class="offices-import-code">
-        <p>${view.code.present ? "La oficina trae código propio." : "La oficina trae solo instrucciones y datos."}</p>
-        ${advanced && view.code.files.length > 0 && html`<p>Archivos de código: ${view.code.files.join(", ")}</p>`}
-        ${view.code.functions.length > 0 && html`<p>${advanced ? "IDs de register_function:" : "Funciones declaradas:"} ${declarationList(view.code.functions, advanced)}</p>`}
-        ${view.code.functionsUnverified && html`<p>No se pudieron verificar estáticamente los registros de functions.py; no se ejecutó el archivo.</p>`}
-        ${advanced && view.code.pythonContracts.length > 0 && html`<p>Contratos Python no verificados: ${view.code.pythonContracts.join(", ")}</p>`}
-        ${view.code.pythonContractsUnverified && html`<p>contracts.py no se ejecutó; sus contratos no están verificados antes de aprobar.</p>`}
-        ${view.code.scanUnavailable && html`<p role="status">No hay escáner de oficinas disponible: no se hizo la revisión. Revisa el código antes de instalar.</p>`}
-        ${view.code.verdict && html`<p>Resultado de la revisión: ${view.code.verdict}</p>`}
+        <p>${view.code.present ? t("ext.offices.import.code_present") : t("ext.offices.import.code_absent")}</p>
+        ${advanced && view.code.files.length > 0 && html`<p>${t("ext.offices.import.code_files")}: ${view.code.files.join(", ")}</p>`}
+        ${view.code.functions.length > 0 && html`<p>${declaredFunctionsText(declarationList(view.code.functions, advanced), advanced)}</p>`}
+        ${view.code.functionsUnverified && html`<p>${t("ext.offices.import.functions_unverified")}</p>`}
+        ${advanced && view.code.pythonContracts.length > 0 && html`<p>${t("ext.offices.import.python_contracts_unverified")}: ${view.code.pythonContracts.join(", ")}</p>`}
+        ${view.code.pythonContractsUnverified && html`<p>${t("ext.offices.import.contracts_not_run")}</p>`}
+        ${view.code.scanUnavailable && html`<p role="status">${t("ext.offices.import.scanner_unavailable")}</p>`}
+        ${view.code.verdict && html`<p>${t("ext.offices.import.scan_result")}: ${view.code.verdict}</p>`}
         ${view.code.areas.map((item) => html`<p key=${item.id}>${item.name}: ${item.verdict}</p>`)}
       </div>
-      ${view.needsScanDecision && html`<div class="offices-import-actions" role="group" aria-label="Permitir la consulta">
+      ${view.needsScanDecision && html`<div class="offices-import-actions" role="group" aria-label=${t("ext.offices.import.allow_scan")}>
         <button type="button" class="btn" disabled=${busy} ...${helpFor("offices.install", { scope: helpScope + "-scan" })}
-          onClick=${() => scanDecision("approve")}>Permitir la consulta</button>
+          onClick=${() => scanDecision("approve")}>${t("ext.offices.import.allow_scan")}</button>
         <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.install", { scope: helpScope + "-scan" })}
-          onClick=${() => scanDecision("reject")}>No permitir</button>
+          onClick=${() => scanDecision("reject")}>${t("ext.offices.privacy.deny")}</button>
         <${Help} topic="offices.install" compact=${true} scope=${helpScope + "-scan"} />
       </div>`}
       ${view.riskAckRequired && html`<label class="check-inline offices-risk-ack">
         <input type="checkbox" checked=${riskAck} disabled=${busy} ...${helpFor("offices.install", { scope: helpScope + "-risk" })}
           onChange=${(event) => setRiskAck(event.target.checked)} />
-        Asumo los riesgos
+        ${t("ext.offices.import.risk_ack")}
       </label>
       <${Help} topic="offices.install" compact=${true} scope=${helpScope + "-risk"} />`}
       <div class="offices-import-actions">
         <button type="button" class="btn" disabled=${busy || scanRunning || view.needsScanDecision || (view.riskAckRequired && !riskAck)}
           ...${helpFor("offices.install", { scope: helpScope + "-install" })}
-          onClick=${install}>${busy ? "Instalando…" : reimport ? "Actualizar oficina" : "Instalar oficina"}</button>
+          onClick=${install}>${busy ? t("ext.offices.import.installing") : reimport
+            ? t("ext.offices.update.button") : t("ext.offices.install.button")}</button>
         ${scanRunning && html`<button type="button" class="btn secondary" disabled=${busy}
-          ...${helpFor("offices.card", { scope: helpScope + "-refresh" })} onClick=${() => refreshCard(card.stage_id)}>Actualizar ficha</button>
+          ...${helpFor("offices.card", { scope: helpScope + "-refresh" })} onClick=${() => refreshCard(card.stage_id)}>${t("ext.offices.import.refresh_card")}</button>
           <${Help} topic="offices.card" compact=${true} scope=${helpScope + "-refresh"} />`}
         <${Help} topic="offices.install" compact=${true} scope=${helpScope + "-install"} />
       </div>
@@ -355,10 +360,10 @@ export function OfficeSourceUpdate({ token, officeId, onDone }) {
   return html`<div class="offices-source-update">
     ${!card && html`<button type="button" class="btn secondary small" disabled=${busy}
       ...${helpFor("offices.import_office", { scope: "source-update-" + officeId })}
-      onClick=${prepareUpdate}>Actualizar oficina</button>
+      onClick=${prepareUpdate}>${t("ext.offices.update.button")}</button>
       <${Help} topic="offices.import_office" compact=${true} scope=${"source-update-" + officeId} />`}
     ${error && html`<p class="message error small" role="alert">${error}</p>`}
     ${card && html`<${ImportOffice} token=${token} reimport=${officeId} initialCard=${card}
-      title="Actualizar oficina" reviewChanges=${true} onDone=${finishUpdate} />`}
+      title=${t("ext.offices.update.button")} reviewChanges=${true} onDone=${finishUpdate} />`}
   </div>`;
 }

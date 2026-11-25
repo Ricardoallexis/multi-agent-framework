@@ -11,6 +11,7 @@ import { useContentReport } from "../../js/context-report.js";
 import { registerHelp, registerSlot, registerView } from "../../js/extensions.js";
 import { Help, helpFor } from "../../js/help.js";
 import { apiGet, apiPost } from "../../js/api.js";
+import { t } from "../../js/i18n.js";
 import { navigate, routeHref } from "../../js/route.js";
 import { Progress } from "../../js/ui/progress.js";
 import { Tabs } from "../../js/ui/tabs.js";
@@ -25,16 +26,19 @@ const NO_REVIEW = { open: false, text: "", busy: false };
 const enc = encodeURIComponent;
 const CHANGED = "project:changed";      // the screen tells the panel card that the numbers moved (a decision, a refresh)
 const announce = () => window.dispatchEvent(new Event(CHANGED));
-const TABS = [{ id: "overview", label: "Resumen" }, { id: "stages", label: "Etapas y tareas" }, { id: "list", label: "Lista plana" }];
-
 // What the user reads when a call fails: a clash of revisions or a missing task gets its own words; the rest is the server's.
-function failure(error, fallback) {
-  if (error && error.status === 409) return "La tarea cambió mientras la veías. Se actualizó; revísala otra vez antes de decidir.";
-  if (error && error.status === 404) return "Esa tarea o ese proyecto ya no existe.";
-  return (error && error.message) || fallback;
+function failure(error, fallbackKey) {
+  if (error && error.status === 409) return t("ext.project.error.changed");
+  if (error && error.status === 404) return t("ext.project.error.missing");
+  return (error && error.message) || t(fallbackKey);
 }
 
 export function ProjectView({ token, route }) {
+  const tabs = [
+    { id: "overview", label: t("ext.project.tab.overview") },
+    { id: "stages", label: t("ext.project.tab.stages") },
+    { id: "list", label: t("ext.project.tab.list") },
+  ];
   const [projects, setProjects] = useState(null);       // null while the list loads
   const [selected, setSelected] = useState(route?.id || "");
   const [project, setProject] = useState(null);
@@ -72,7 +76,7 @@ export function ProjectView({ token, route }) {
       setSelected((current) => (current && (all.some((p) => p.id === current) || current === route?.id) ? current : pickProject(all, route?.id)));
     } catch (err) {
       setProjects([]);
-      setError(failure(err, "No se pudo cargar la lista de proyectos."));
+      setError(failure(err, "ext.project.error.load_projects"));
     }
   };
 
@@ -84,7 +88,7 @@ export function ProjectView({ token, route }) {
       const data = await apiGet("/gui/api/projects/" + enc(id), token);
       if (call === calls.current.project) setProject(data);
     } catch (err) {
-      if (call === calls.current.project) setError(failure(err, "No se pudo cargar el proyecto."));
+      if (call === calls.current.project) setError(failure(err, "ext.project.error.load_project"));
     } finally {
       if (call === calls.current.project) setLoading(false);
     }
@@ -99,7 +103,7 @@ export function ProjectView({ token, route }) {
       const data = await apiGet("/gui/api/projects/" + enc(selected) + "/tasks/" + enc(id), token);
       if (call === calls.current.task) setTask(data);
     } catch (err) {
-      if (call === calls.current.task) { setTask(null); setTaskError(failure(err, "No se pudo cargar la tarea.")); }
+      if (call === calls.current.task) { setTask(null); setTaskError(failure(err, "ext.project.error.load_task")); }
     } finally {
       if (call === calls.current.task) setTaskLoading(false);
     }
@@ -140,16 +144,16 @@ export function ProjectView({ token, route }) {
       await apiPost("/gui/api/projects/" + enc(selected) + "/tasks/" + enc(task.id) + "/review", token, {
         action,
         expected_revision: task.revision,       // the revision the user saw: a result seen is the only one that can be decided on
-        cause: action === "accept" ? "Aprobada desde la pantalla Proyectos." : review.text.trim(),
+        cause: action === "accept" ? t("ext.project.approved_from_view") : review.text.trim(),
       });
       setReview(NO_REVIEW);
       await Promise.all([loadProject(selected), loadTask(task.id)]);
       announce();
-      setNotice(action === "accept" ? "Tarea aprobada." : "Cambios pedidos: la tarea vuelve a su responsable.");
+      setNotice(action === "accept" ? t("ext.project.notice.approved") : t("ext.project.notice.changes_requested"));
     } catch (err) {
       patchReview({ busy: false });
       if (err && (err.status === 409 || err.status === 404)) await Promise.all([loadProject(selected), loadTask(task.id)]);
-      setTaskError(failure(err, "No se pudo guardar la decisión."));
+      setTaskError(failure(err, "ext.project.error.save_decision"));
     }
   };
 
@@ -168,28 +172,28 @@ export function ProjectView({ token, route }) {
         review=${review} headingRef=${heading} onReview=${sendReview} onFeedback=${patchReview} />` : null}
     </div>` : null;
 
-  return html`<section class="project-view" aria-label="Proyectos">
+  return html`<section class="project-view" aria-label=${t("ext.project.title")}>
     <div class="project-head">
       <div class="project-picker">
-        <label for="project-select">Proyecto</label>
+        <label for="project-select">${t("ext.project.project")}</label>
         <div class="project-picker-row">
           <select id="project-select" value=${selected} disabled=${!projects || !projects.length}
             onChange=${(event) => { navigate("project", event.target.value); selectProject(event.target.value); }} ...${helpFor("project.select")}>
             ${list(projects).map((p) => html`<option key=${p.id} value=${p.id}>${p.title || p.name || p.id}</option>`)}
           </select>
           <button type="button" class="btn secondary" disabled=${!selected} onClick=${() => { loadProject(selected).then(announce); if (taskId) loadTask(taskId); }}
-            ...${helpFor("project.refresh")}>Actualizar</button>
+            ...${helpFor("project.refresh")}>${t("ext.project.refresh")}</button>
         </div>
         <${Help} topic="project.select" /><${Help} topic="project.refresh" compact=${true} />
       </div>
     </div>
 
     ${error ? html`<p class="project-error" role="alert">${error}</p>` : null}
-    ${projects === null ? html`<p class="project-empty">Cargando proyectos...</p>` : null}
-    ${projects && !projects.length && !error ? html`<p class="project-empty">Todavía no hay proyectos. Cuando se cree uno, aparecerá aquí.</p>` : null}
-    ${selected && !project && !error && projects && projects.length ? html`<p class="project-empty">Cargando el proyecto...</p>` : null}
+    ${projects === null ? html`<p class="project-empty">${t("ext.project.loading.projects")}</p>` : null}
+    ${projects && !projects.length && !error ? html`<p class="project-empty">${t("ext.project.empty.projects")}</p>` : null}
+    ${selected && !project && !error && projects && projects.length ? html`<p class="project-empty">${t("ext.project.loading.project")}</p>` : null}
 
-    ${project ? html`<${Tabs} id="project-tabs" label="Secciones del proyecto" tabs=${TABS} selected=${tab} onSelect=${setTab}
+    ${project ? html`<${Tabs} id="project-tabs" label=${t("ext.project.tabs.aria_label")} tabs=${tabs} selected=${tab} onSelect=${setTab}
         after=${html`<${Help} topic="project.tabs" compact=${true} />`} panelProps=${{ "aria-busy": loading ? "true" : "false" }}
         ...${helpFor("project.tabs")}>
       ${tab === "overview" ? html`<${Overview} project=${project} onOpen=${openTask} />` : tab === "list" ? listTab : stagesTab}
@@ -211,19 +215,19 @@ export function ProjectSlot({ token, route, onContent }) {
   }, [token]);
   const { projects, failed } = state;
   useContentReport(onContent, projects !== null && !failed && projects.length > 0);   // GUI3-T04
-  if (projects === null) return html`<p class="project-empty">Cargando proyectos...</p>`;
-  if (failed) return html`<p class="project-empty">No se pudo leer la lista de proyectos.</p>`;
+  if (projects === null) return html`<p class="project-empty">${t("ext.project.loading.projects")}</p>`;
+  if (failed) return html`<p class="project-empty">${t("ext.project.error.read_projects")}</p>`;
   const chosen = projects.find((p) => p.id === pickProject(projects, route?.section === "project" ? route.id : ""));
-  if (!chosen) return html`<p class="project-empty">Todavía no hay proyectos.</p>`;
+  if (!chosen) return html`<p class="project-empty">${t("ext.project.empty.projects_short")}</p>`;
   const bar = progressOf(chosen.progress);
   return html`<div class="project-slot">
     <span class="project-title">${chosen.title || chosen.name || chosen.id}</span>
-    <${Progress} label="Avance" value=${bar.value} max=${bar.max} valueText=${bar.valueText} />
+    <${Progress} label=${t("ext.project.progress.title")} value=${bar.value} max=${bar.max} valueText=${bar.valueText} />
     <p class="project-meta">${needsText(chosen.needs_you)}</p>
-    <a class="btn secondary small" href=${routeHref("project", chosen.id)} ...${helpFor("project.open")}>Abrir proyecto</a>
+    <a class="btn secondary small" href=${routeHref("project", chosen.id)} ...${helpFor("project.open")}>${t("ext.project.open")}</a>
     <${Help} topic="project.open" compact=${true} />
   </div>`;
 }
 
-registerView({ id: "project", owner: "project", group: "primary", icon: "folder", label: "Proyectos", topic: "project.view", component: ProjectView, order: 40, mode: "simple" });
-registerSlot("project", ProjectSlot, { title: "Proyecto", topic: "project.slot", owner: "project", order: 40 });
+registerView({ id: "project", owner: "project", group: "primary", icon: "folder", label: t("ext.project.title"), topic: "project.view", component: ProjectView, order: 40, mode: "simple" });
+registerSlot("project", ProjectSlot, { title: t("ext.project.project"), topic: "project.slot", owner: "project", order: 40 });

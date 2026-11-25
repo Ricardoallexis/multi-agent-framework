@@ -188,8 +188,11 @@ def test_office_without_areas_does_not_load_the_global_catalog():
 @needs_node
 def test_office_level_words_match_the_offices_view():
     out = run_node(f"""
-      import {{ OFFICE_LEVEL_TEXT, officeLevelText }} from {file_url(JS / "new-session-model.js")};
-      import {{ LEVEL_TEXT }} from {file_url(STATIC_DIR / "extensions" / "offices" / "model.js")};
+      const mafUi = await import({file_url(STATIC_DIR / "js" / "i18n.js")});
+      await import({file_url(STATIC_DIR / "extensions" / "offices" / "i18n.js")});
+      mafUi.setLanguage("es");
+      const {{ OFFICE_LEVEL_TEXT, officeLevelText }} = await import({file_url(JS / "new-session-model.js")});
+      const {{ LEVEL_TEXT }} = await import({file_url(STATIC_DIR / "extensions" / "offices" / "model.js")});
       const scene = (...classes) => ({{ areas: classes.map((data_class) => ({{ data_class }})) }});
       console.log(JSON.stringify({{
         same: JSON.stringify(OFFICE_LEVEL_TEXT) === JSON.stringify(LEVEL_TEXT),

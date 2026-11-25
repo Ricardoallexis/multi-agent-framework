@@ -1,5 +1,6 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
+import { t } from "../../js/i18n.js";
 // The project view's data rules (PRY-T03) as pure functions: no DOM, no Preact, so Node tests run them. Everything shown
 // comes from the answers of /gui/api/projects (which are the core's own views); a value the core did not give is shown as
 // «sin dato», never invented.
@@ -9,8 +10,8 @@ export const list = (value) => (Array.isArray(value) ? value : []);
 // The order the labels of the core are shown in (multiagent/tasks/labels.json): what waits for the user first.
 export const LABEL_ORDER = ["review", "changes", "doing", "ready", "blocked", "todo", "done", "failed", "cancelled"];
 
-const REQUIRES = { accepted: "aceptada", submitted: "entregada" };
-export const requiresText = (requires) => REQUIRES[requires] || String(requires || "aceptada");
+export const requiresText = (requires) => requires === "submitted" ? t("ext.project.requires.submitted")
+  : requires === "accepted" || !requires ? t("ext.project.requires.accepted") : String(requires);
 
 // «INV-T01» for «snt-INV-T01»: the project key prefix is hidden (PRY-T01 section 2).
 export function shortId(id, projectId) {
@@ -23,7 +24,7 @@ export function shortId(id, projectId) {
 // own words and tone, so no copy of the label table lives in the page.
 export function chipOf(label) {
   const known = label && typeof label === "object" && label.key;
-  const entry = known ? label : { key: "none", text: "Sin etiqueta", tone: "neutral" };
+  const entry = known ? label : { key: "none", text: t("ext.project.status.none"), tone: "neutral" };
   return { status: entry.key, labels: { [entry.key]: { text: entry.text, tone: entry.tone } }, detail: known && label.detail ? label.detail : "" };
 }
 
@@ -31,9 +32,9 @@ export function chipOf(label) {
 export function progressOf(progress) {
   const done = Number(progress?.done) || 0;
   const counted = (Number(progress?.total) || 0) - (Number(progress?.cancelled) || 0);
-  if (counted <= 0) return { value: null, max: 100, valueText: "Sin tareas que contar todavía" };
+  if (counted <= 0) return { value: null, max: 100, valueText: t("ext.project.progress.none") };
   const percent = Number.isFinite(progress?.percent) ? progress.percent : Math.round((100 * done) / counted);
-  return { value: done, max: counted, valueText: done + " de " + counted + " tareas terminadas (" + percent + " %)" };
+  return { value: done, max: counted, valueText: t("ext.project.progress.summary", { done, total: counted, percent }) };
 }
 
 // Every task of the stages, each with its stage; activities are not in stages (PRY-T09) and are not here.
@@ -68,23 +69,29 @@ export function actorText(info) {
 
 export function whoText(task) {
   const name = actorText(task?.assignee_info);
-  if (!name) return "Sin asignar";
-  return task.assignee ? name : name + " (sugerido)";
+  if (!name) return t("ext.project.owner.unassigned");
+  return task.assignee ? name : t("ext.project.owner.suggested", { name });
 }
 
-const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-
-// «2026-11-15» -> «15 nov 2026». Parsed by hand: a date without time must not move with the time zone.
-export function dayText(value, fallback = "Sin fecha") {
+// A date without a time must not move with the time zone.
+export function dayText(value, fallback = null) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ""));
-  if (!match) return fallback;
+  if (!match) return fallback || t("ext.project.date.none");
   const month = Number(match[2]);
-  return month >= 1 && month <= 12 ? Number(match[3]) + " " + MONTHS[month - 1] + " " + match[1] : fallback;
+  const monthNames = [
+    t("ext.project.month.jan"), t("ext.project.month.feb"), t("ext.project.month.mar"),
+    t("ext.project.month.apr"), t("ext.project.month.may"), t("ext.project.month.jun"),
+    t("ext.project.month.jul"), t("ext.project.month.aug"), t("ext.project.month.sep"),
+    t("ext.project.month.oct"), t("ext.project.month.nov"), t("ext.project.month.dec"),
+  ];
+  return month >= 1 && month <= 12
+    ? t("ext.project.date.short", { day: Number(match[3]), month: monthNames[month - 1], year: match[1] })
+    : fallback || t("ext.project.date.none");
 }
 
 export function planText(stage) {
-  if (!stage?.planned_start && !stage?.planned_end) return "Sin fechas previstas";
-  return "Previsto: " + dayText(stage.planned_start, "?") + " a " + dayText(stage.planned_end, "?");
+  if (!stage?.planned_start && !stage?.planned_end) return t("ext.project.date.no_plan");
+  return t("ext.project.date.planned", { start: dayText(stage.planned_start, "?"), end: dayText(stage.planned_end, "?") });
 }
 
 // The List view (PRY-T05): every task of the stages as one flat row, with its stage and the stage's planned dates (null when the
@@ -134,7 +141,7 @@ export function phaseGroups(stage, visible) {
   const shown = new Set(list(visible).map((task) => task.id));
   const groups = phases.map((name) => ({ key: name, name, all: all.filter((t) => t.phase === name) }));
   const loose = all.filter((task) => !phases.includes(task.phase));
-  if (loose.length || !phases.length) groups.push({ key: "", name: phases.length ? "Sin fase" : "", all: loose });
+  if (loose.length || !phases.length) groups.push({ key: "", name: phases.length ? t("ext.project.phase.none") : "", all: loose });
   return groups.map((group) => ({ ...group, tasks: group.all.filter((task) => shown.has(task.id)) }));
 }
 
@@ -182,8 +189,11 @@ export function pickProject(projects, wanted = "") {
 
 // What waits for the user in a project, as a sentence for the panel card.
 export function needsText(needs) {
-  const parts = [["reviews", "por revisar"], ["verifications", "por verificar"], ["mine", "tuyas"], ["blocked", "bloqueadas"]]
-    .filter(([key]) => Number(needs?.[key]) > 0)
-    .map(([key, word]) => needs[key] + " " + word);
-  return parts.length ? parts.join(" · ") : "Nada pendiente de ti";
+  const parts = [
+    Number(needs?.reviews) > 0 ? t("ext.project.needs.reviews", { count: needs.reviews }) : "",
+    Number(needs?.verifications) > 0 ? t("ext.project.needs.verifications", { count: needs.verifications }) : "",
+    Number(needs?.mine) > 0 ? t("ext.project.needs.mine", { count: needs.mine }) : "",
+    Number(needs?.blocked) > 0 ? t("ext.project.needs.blocked", { count: needs.blocked }) : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : t("ext.project.needs.none");
 }

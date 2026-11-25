@@ -1,18 +1,19 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
+import { t } from "./i18n.js";
 
 export const LEVEL_OPTIONS = [
-  { value: "normal", label: "Normal" },
-  { value: "sensitive", label: "Sensible" },
-  { value: "local_only", label: "Solo local" },
+  { value: "normal", get label() { return t("office_level.normal"); } },
+  { value: "sensitive", get label() { return t("office_level.sensitive"); } },
+  { value: "local_only", get label() { return t("office_level.local_only"); } },
 ];
 
-export const NOTE_TITLE = "Lo que esta opción no libera";
+export const NOTE_TITLE = () => t("office_level.note_title");
 
 export const QUESTION_LINES = {
-  normal: "Normal: puede usar modelos de la nube si lo permites en «Privacidad»",
-  sensitive: "Sensible: solo agentes de tu equipo",
-  local_only: "Solo local: nunca sale de tu equipo",
+  get normal() { return t("office_level.question.normal"); },
+  get sensitive() { return t("office_level.question.sensitive"); },
+  get local_only() { return t("office_level.question.local_only"); },
 };
 
 const LEVEL_RANK = { normal: 0, sensitive: 1, local_only: 2 };
@@ -30,15 +31,16 @@ export function privacyRows(payload, areas = []) {
     const areaCloud = area.cloud || {};
     const cloudFromArea = areaCloud.source !== "default";
     const cloudRecord = cloudFromArea ? areaCloud : payload?.cloud || {};
-    const cloudSourceText = cloudFromArea ? "de esta área"
-      : cloudRecord.source !== "default" ? "de la oficina" : "por defecto";
+    const cloudSourceText = cloudFromArea ? t("office_level.source.area")
+      : cloudRecord.source !== "default" ? t("office_level.source.office") : t("office_level.source.default");
     return {
       id: area.id,
       name: names.get(area.id) || area.name || area.id,
       level: area.local_only && !payload.local_only ? "local_only" : area.sensitivity || null,
       setBy: area.set_by || null,
       setAt: area.set_at || null,
-      sourceText: area.source === "person" ? "de esta área" : area.source === "office" ? "de la oficina" : "sin fijar",
+      sourceText: area.source === "person" ? t("office_level.source.area")
+        : area.source === "office" ? t("office_level.source.office") : t("office_level.source.unset"),
       dataClass: area.data_class || null,
       cloudEffective: area.cloud_effective === true,
       cloudSetBy: cloudRecord.set_by || null,

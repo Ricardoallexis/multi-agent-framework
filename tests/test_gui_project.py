@@ -202,7 +202,7 @@ def test_the_panel_card_follows_the_screen_and_cleans_up_after_itself():
 def test_project_view_has_no_hand_made_copy_of_the_label_table():
     # The words and tones of the states come from the core with every task (label.text / label.tone): no table in the page.
     for name in ("index.js", "parts.js", "model.js"):
-        text = ui_text((PROJECT_DIR / name))
+        text = (PROJECT_DIR / name).read_text(encoding="utf-8")
         assert 'labels="run"' not in text and "Bloqueada" not in text and "Terminada" not in text, name
 
 
@@ -222,7 +222,10 @@ def test_model_rules_over_the_real_project_answer(env):
     waiting = env.client.get("/gui/api/projects/snt/tasks/snt-INV-T02", headers=auth(env)).json()
     assert "phase" not in detail and "due_at" not in detail and "assignee_info" not in waiting     # why the page merges (detailOf)
     out = run_node(f"""
-      import * as m from {json.dumps((PROJECT_DIR / "model.js").as_uri())};
+      const ui = await import({json.dumps((STATIC_DIR / "js" / "i18n.js").as_uri())});
+      await import({json.dumps((PROJECT_DIR / "i18n.js").as_uri())});
+      ui.setLanguage("es");
+      const m = await import({json.dumps((PROJECT_DIR / "model.js").as_uri())});
       const project = {json.dumps(project)};
       const detail = {json.dumps(detail)};
       const waiting = {json.dumps(waiting)};
@@ -299,7 +302,7 @@ def test_the_extension_registers_its_view_slot_and_help_when_loaded():
       }}));
     """)
     assert out["view"] == ["Proyectos", "function"] and out["slot"] == ["Proyecto", "project.slot", "function"]
-    assert out["help"] == ["Proyectos", "Proyecto"]
+    assert out["help"] == ["Projects", "Project"]
 
 
 # --- the routes under /gui/api/projects ------------------------------------------------------------------------------------

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -48,6 +49,17 @@ SCENE = {
 
 
 def run_node(script: str):
+    script = f"""
+      const mafUi = await import({json.dumps((STATIC_DIR / "js" / "i18n.js").as_uri())});
+      await import({json.dumps((EXT / "i18n.js").as_uri())});
+      mafUi.setLanguage("es");
+      {script}
+    """
+    script = re.sub(
+        r'(?m)^(\s*)import\s+(\{[^}]*\})\s+from\s+("[^"]*/extensions/offices/(?:import-)?model\.js");',
+        r"\1const \2 = await import(\3);",
+        script,
+    )
     result = subprocess.run(
         [NODE, "--input-type=module", "-e", script],
         capture_output=True,
@@ -186,11 +198,11 @@ def test_office_rows_from_a_scene():
         "rows": [
             ["orchestrator", "Coordinación", "Libre", "", ""],
             ["area", "Área uno", "Libre", "", "Lo puedes cubrir con A o con B"],
-            ["member", "local_default", "Libre", "lo hace: local_default", ""],
+            ["member", "local_default", "Libre", "Modelo: local_default", ""],
             ["area", "Área dos", "Libre", "", "Te falta un agente que pueda trabajar con archivos"],
             ["member", "Responsable", "Libre", "persona: Responsable", ""],
         ],
-        "agent": "lo hace: local_default",
+        "agent": "Modelo: local_default",
         "person": "persona: Responsable",
     }
 
@@ -256,7 +268,7 @@ def test_permissions_say_declared():
 def test_empty_state():
     out = run_node(f"""
       import {{ EMPTY_TEXT, sceneTargets }} from {file_url(EXT / "model.js")};
-      console.log(JSON.stringify({{ text: EMPTY_TEXT, targets: sceneTargets([]), noList: sceneTargets(null) }}));
+      console.log(JSON.stringify({{ text: EMPTY_TEXT(), targets: sceneTargets([]), noList: sceneTargets(null) }}));
     """)
     assert out == {"text": "Todavía no tienes oficinas", "targets": [], "noList": []}
 
@@ -280,7 +292,7 @@ def test_polls_every_4_seconds_and_keeps_the_last_scene_on_failure():
           return value;
         }},
         onScene: (scene) => {{ last = scene; notice = ""; }},
-        onFailure: () => {{ notice = OFFLINE_TEXT; }},
+        onFailure: () => {{ notice = OFFLINE_TEXT(); }},
         setIntervalFn: (fn, ms) => {{ callback = fn; interval = ms; return 7; }},
         clearIntervalFn: (id) => {{ if (id === 7) cleared += 1; }},
       }});

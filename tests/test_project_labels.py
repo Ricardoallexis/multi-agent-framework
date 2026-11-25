@@ -18,6 +18,7 @@ import pytest
 from multiagent.gui import STATIC_DIR
 from multiagent.services import ServiceError
 from multiagent.tasks import labels
+from tests.gui_text import ui_text
 from test_gui_help import NODE
 from test_projects_service import AGENT, OWNER, authorize, error_of, make_project, make_services, plan_doc
 
@@ -134,8 +135,8 @@ def test_bad_filters_and_unknown_projects_are_refused(project):
 
 
 def test_the_list_tab_is_wired_to_the_page():
-    index = (PROJECT_DIR / "index.js").read_text(encoding="utf-8")
-    parts = (PROJECT_DIR / "parts.js").read_text(encoding="utf-8")
+    index = ui_text(PROJECT_DIR / "index.js")
+    parts = ui_text(PROJECT_DIR / "parts.js")
     assert '{ id: "list", label: "Lista plana" }' in index and "ListPanel" in index and "export function ListPanel" in parts
 
 

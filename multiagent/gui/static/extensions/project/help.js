@@ -4,205 +4,205 @@
 
 export const HELP = {
   "project.view": {
-    "title": "Proyectos",
-    "hint": "Sigue el avance de un proyecto por etapas, fases y tareas.",
+    "title": "Projects",
+    "hint": "Track a project's progress by stages, phases, and tasks.",
     "more": [
-      "Todo lo que ves viene del núcleo del framework y no se inventa ningún dato.",
-      "Desde aquí puedes aprobar una tarea entregada o pedir cambios; lo demás solo se lee."
+      "Everything shown here comes from the framework; no data is made up.",
+      "You can approve a submitted task or request changes here. Everything else is read-only."
     ]
   },
   "project.select": {
-    "title": "Proyecto",
-    "hint": "Elige qué proyecto activo quieres ver.",
+    "title": "Project",
+    "hint": "Choose an active project to view.",
     "more": [
-      "La lista trae los proyectos que no están archivados.",
-      "Al cambiar de proyecto se cierra el detalle de la tarea que tenías abierta."
+      "The list shows projects that are not archived.",
+      "Choosing another project closes the task details you had open."
     ]
   },
   "project.refresh": {
-    "title": "Actualizar",
-    "hint": "Vuelve a pedir los datos del proyecto al servidor.",
+    "title": "Refresh",
+    "hint": "Load the project's data from the server again.",
     "more": [
-      "La pantalla no se actualiza sola mientras otras personas o agentes trabajan.",
-      "Usa este botón para ver los cambios más recientes."
+      "The screen does not update automatically while other people or agents work.",
+      "Use this button to see the latest changes."
     ]
   },
   "project.tabs": {
-    "title": "Secciones",
-    "hint": "Cambia entre el resumen, las etapas con sus tareas y la lista plana.",
+    "title": "Sections",
+    "hint": "Switch between the overview, stages and tasks, and the flat list.",
     "more": [
-      "«Resumen» muestra el avance y qué debes hacer tú.",
-      "«Etapas y tareas» muestra cada etapa con sus fases, filtros y el detalle de una tarea.",
-      "«Lista plana» muestra todas las tareas en una lista plana, con filtros por responsable, estado y fecha."
+      "Overview shows progress and what needs your attention.",
+      "Stages and tasks shows each stage, its phases, filters, and task details.",
+      "The flat list shows all tasks with filters for owner, state, and due date."
     ]
   },
   "project.progress": {
-    "title": "Avance",
-    "hint": "Tareas terminadas sobre las que cuentan, y cuántas hay en cada estado.",
+    "title": "Progress",
+    "hint": "Completed tasks out of those that count, and the number in each state.",
     "more": [
-      "Las tareas canceladas no cuentan en el avance.",
-      "Una tarea cuenta como terminada cuando fue aceptada, no cuando se entrega."
+      "Cancelled tasks do not count toward progress.",
+      "A task is complete when it is accepted, not when it is submitted."
     ]
   },
   "project.attention": {
-    "title": "Qué tienes que hacer",
-    "hint": "Lo que espera una decisión o una acción tuya.",
+    "title": "What needs your attention",
+    "hint": "Items waiting for a decision or action from you.",
     "more": [
-      "Reúne las tareas entregadas por revisar, las etapas por verificar y tus propias tareas.",
-      "En cada bloqueo ves de qué tarea depende y en qué estado está, para saber dónde empujar."
+      "This section includes submitted tasks to review, stages to verify, and your own tasks.",
+      "Each blocker shows the task it depends on and its state, so you know what to move forward."
     ]
   },
   "project.working_now": {
-    "title": "Quién trabaja ahora",
-    "hint": "Tareas y actividades en curso, con su responsable.",
+    "title": "Who is working now",
+    "hint": "Tasks and activities in progress, with their owner.",
     "more": [
-      "Incluye lo que alguien tomó, está haciendo, tiene en pausa o se comprueba de forma automática.",
-      "Si no hay responsable, la tarea aún no la tomó nadie.",
-      "Las actividades se muestran aquí, pero no cuentan para el avance ni para los conteos por estado."
+      "This includes work that someone picked up, is doing, paused, or that is being checked automatically.",
+      "If there is no owner, no one has picked up the task yet.",
+      "Activities appear here but do not count toward progress or state totals."
     ]
   },
   "project.milestones": {
-    "title": "Etapas e hitos",
-    "hint": "Fecha prevista y cierre real de cada etapa.",
+    "title": "Stages and milestones",
+    "hint": "The planned date and actual completion date for each stage.",
     "more": [
-      "La fecha prevista es la que se escribió en el plan; puede faltar.",
-      "El cierre real se anota cuando la etapa se verifica y se cierra."
+      "The planned date comes from the plan and may be missing.",
+      "The actual completion date is recorded when the stage is verified and closed."
     ]
   },
   "project.stages_view": {
-    "title": "Etapas y tareas",
-    "hint": "Cada etapa con sus fases plegables y sus tareas.",
+    "title": "Stages and tasks",
+    "hint": "Each stage with collapsible phases and their tasks.",
     "more": [
-      "Abre una tarea para ver sus dependencias y lo que entregó.",
-      "Las tareas sin fase aparecen aparte, en «Sin fase»."
+      "Open a task to see its dependencies and submitted work.",
+      "Tasks without a phase appear separately under No phase."
     ]
   },
   "project.filter_text": {
-    "title": "Buscar",
-    "hint": "Filtra por texto en el título, el identificador o la fase.",
+    "title": "Search",
+    "hint": "Filter by text in the title, ID, or phase.",
     "more": [
-      "No distingue mayúsculas de minúsculas.",
-      "Solo cambia lo que ves; no modifica ninguna tarea."
+      "Search is not case-sensitive.",
+      "This only changes what you see; it does not change any tasks."
     ]
   },
   "project.filter_state": {
-    "title": "Filtrar por estado",
-    "hint": "Muestra solo las tareas con el estado elegido.",
+    "title": "Filter by state",
+    "hint": "Show only tasks with the selected state.",
     "more": [
-      "Los estados son los mismos que usa el núcleo, como «Espera tu revisión» o «Bloqueada».",
-      "Elige «Todos» para quitar el filtro."
+      "States come from the framework, such as Waiting for your review or Blocked.",
+      "Choose All to clear the filter."
     ]
   },
   "project.list_view": {
-    "title": "Lista de tareas",
-    "hint": "Todas las tareas del proyecto en una sola lista plana.",
+    "title": "Task list",
+    "hint": "All project tasks in one flat list.",
     "more": [
-      "Cada fila dice su etapa, quién la tiene, su fecha límite y las fechas previstas de su etapa.",
-      "Lo que no tiene fecha dice «Sin fecha»; nunca se inventa una."
+      "Each row shows its stage, owner, due date, and the stage's planned dates.",
+      "Tasks without a date say No date; dates are never made up."
     ]
   },
   "project.list_owner": {
-    "title": "Filtrar por responsable",
-    "hint": "Muestra solo las tareas de la persona o el agente elegido.",
+    "title": "Filter by owner",
+    "hint": "Show only tasks owned by the selected person or agent.",
     "more": [
-      "Cuenta quien tomó la tarea o, si nadie la tomó, quien está sugerido.",
-      "Elige «Todos» para quitar el filtro."
+      "The owner is the person who picked up the task, or the suggested owner if no one has.",
+      "Choose All to clear the filter."
     ]
   },
   "project.list_state": {
-    "title": "Filtrar por estado",
-    "hint": "Muestra solo las tareas con el estado elegido.",
+    "title": "Filter by state",
+    "hint": "Show only tasks with the selected state.",
     "more": [
-      "Los estados son los mismos que usa el núcleo y que enseña Seguimiento.",
-      "Elige «Todos» para quitar el filtro."
+      "States come from the framework and are also shown in Activity.",
+      "Choose All to clear the filter."
     ]
   },
   "project.list_dates": {
-    "title": "Filtrar por fecha límite",
-    "hint": "Muestra solo las tareas cuya fecha límite cae entre las dos fechas.",
+    "title": "Filter by due date",
+    "hint": "Show only tasks due between the two dates.",
     "more": [
-      "Las dos fechas son opcionales y cuentan los días indicados.",
-      "Con una fecha elegida, las tareas sin fecha límite no aparecen."
+      "Both dates are optional, and the selected days are included.",
+      "When either date is set, tasks without a due date are hidden."
     ]
   },
   "project.phase_toggle": {
-    "title": "Plegar fase",
-    "hint": "Muestra u oculta las tareas de esta fase.",
+    "title": "Collapse phase",
+    "hint": "Show or hide this phase's tasks.",
     "more": [
-      "Plegar una fase no cambia nada en el proyecto.",
-      "El número entre paréntesis cuenta las tareas que cumplen el filtro y las que hay en total."
+      "Collapsing a phase does not change the project.",
+      "The number in parentheses shows tasks matching the filter and the total."
     ]
   },
   "project.task_detail": {
-    "title": "Detalle de la tarea",
-    "hint": "Responsable, fecha, dependencias y lo que entregó.",
+    "title": "Task details",
+    "hint": "Owner, due date, dependencies, and submitted work.",
     "more": [
-      "Las dependencias dicen qué debe cumplirse antes y si ya se cumplió.",
-      "Los entregables son los del último resultado que su responsable envió."
+      "Dependencies show what must happen first and whether it has happened.",
+      "Deliverables come from the latest result submitted by the task's owner."
     ]
   },
   "project.deliverables": {
-    "title": "Entregables",
-    "hint": "El último resultado enviado por quien hizo la tarea.",
+    "title": "Deliverables",
+    "hint": "The latest result submitted by the person who did the task.",
     "more": [
-      "Incluye el resumen, los archivos, las decisiones y lo que no se probó.",
-      "Léelo antes de aprobar o de pedir cambios."
+      "This includes the summary, files, decisions, and anything not tested.",
+      "Read it before approving or requesting changes."
     ]
   },
   "project.approve": {
-    "title": "Aprobar",
-    "hint": "Acepta el resultado y da la tarea por terminada.",
+    "title": "Approve",
+    "hint": "Accept the result and mark the task as complete.",
     "more": [
-      "La tarea pasa a aceptada y sus dependientes pueden avanzar.",
-      "Si alguien cambió la tarea mientras la veías, el servidor lo rechaza y debes revisarla de nuevo."
+      "The task is accepted, and tasks that depend on it can move forward.",
+      "If someone changed the task while you were viewing it, the server rejects the decision and you must review it again."
     ]
   },
   "project.request_changes": {
-    "title": "Pedir cambios",
-    "hint": "Devuelve la tarea a su responsable con tus observaciones.",
+    "title": "Request changes",
+    "hint": "Send the task back to its owner with your feedback.",
     "more": [
-      "La tarea pasa a «Cambios pedidos» y su responsable debe volver a trabajarla.",
-      "Es obligatorio explicar qué debe cambiar."
+      "The task moves to Changes requested, and its owner must work on it again.",
+      "You must explain what needs to change."
     ]
   },
   "project.feedback_input": {
-    "title": "Observaciones",
-    "hint": "Escribe qué debe corregirse o completarse.",
+    "title": "Feedback",
+    "hint": "Write what needs to be fixed or completed.",
     "more": [
-      "El texto se guarda como causa del cambio de estado.",
-      "Admite hasta 500 caracteres."
+      "This text is saved as the reason for the state change.",
+      "You can enter up to 500 characters."
     ]
   },
   "project.send_feedback": {
-    "title": "Enviar observaciones",
-    "hint": "Pide los cambios con el texto que escribiste.",
+    "title": "Send feedback",
+    "hint": "Request changes using the text you wrote.",
     "more": [
-      "Se registra tu decisión y la tarea vuelve a su responsable.",
-      "Sin texto no se envía."
+      "Your decision is recorded, and the task goes back to its owner.",
+      "Nothing is sent without text."
     ]
   },
   "project.cancel_feedback": {
-    "title": "Cancelar",
-    "hint": "Cierra el formulario sin pedir cambios.",
+    "title": "Cancel",
+    "hint": "Close the form without requesting changes.",
     "more": [
-      "La tarea sigue esperando tu revisión.",
-      "Lo que escribiste se descarta."
+      "The task will still be waiting for your review.",
+      "Your text is discarded."
     ]
   },
   "project.slot": {
-    "title": "Proyecto",
-    "hint": "Avance del proyecto y lo que espera de ti.",
+    "title": "Project",
+    "hint": "Project progress and what needs your attention.",
     "more": [
-      "Muestra el proyecto abierto en la pantalla Proyectos, o el primero que necesita algo de ti.",
-      "Los datos se leen al abrir el panel y se actualizan cuando decides algo en la pantalla Proyectos."
+      "Shows the project open on the Projects screen, or the first project that needs your attention.",
+      "Data loads when the panel opens and updates when you make a decision on the Projects screen."
     ]
   },
   "project.open": {
-    "title": "Abrir proyecto",
-    "hint": "Va a la pantalla Proyectos con este proyecto.",
+    "title": "Open project",
+    "hint": "Go to the Projects screen for this project.",
     "more": [
-      "Allí ves las etapas, las tareas y sus entregables.",
-      "El enlace no cambia nada en el proyecto."
+      "There you can see stages, tasks, and their deliverables.",
+      "This link does not change the project."
     ]
   }
 };

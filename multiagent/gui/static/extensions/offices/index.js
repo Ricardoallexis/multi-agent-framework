@@ -5,19 +5,18 @@ import "./i18n.js";
 import { html, useEffect, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { apiGet, apiPost } from "../../js/api.js";
 import { currentMode, onModeChange } from "../../js/gui-mode.js";
+import { t } from "../../js/i18n.js";
 import { registerHelp, registerView } from "../../js/extensions.js";
 import { Help, helpFor } from "../../js/help.js";
 import { officeHref, planThreadHref, teamThreadHref } from "../../js/route.js";
 import { HELP } from "./help.js";
 import { ImportOffice, exportOffice } from "./import.js";
-import { errorText, exportFileName, exportWarningText, includeCodeVisible, REMOVE_NOTICE } from "./import-model.js";
+import { errorText, exportDownloadedText, exportFileName, exportWarningText, includeCodeVisible } from "./import-model.js";
 import { PrivacyPanel } from "./privacy.js";
 import {
   createScenePoller,
   degradedAction,
   degradedMessage,
-  EMPTY_TEXT,
-  OFFLINE_TEXT,
   officeRows,
   officeWorks,
   sceneTargets,
@@ -28,7 +27,7 @@ registerHelp(HELP, "offices");
 const LIST_PATH = "/gui/api/offices";
 const officePath = (id) => LIST_PATH + "/" + encodeURIComponent(id);
 const scenePath = (id) => officePath(id) + "/scene";
-const requestError = (error, fallback) => (error && error.message) || fallback;
+const requestError = (error, fallbackKey) => (error && error.message) || t(fallbackKey);
 
 function fixHref(entry, action) {
   const prefix = "#new/team/";
@@ -42,7 +41,7 @@ function DegradedLine({ entry, simple }) {
   const action = degradedAction(entry);
   const href = fixHref(entry, action);
   return html`<li class="offices-degraded">
-    <span>Funciona a medias: ${degradedMessage(entry.code)}</span>
+    <span>${t("ext.offices.degraded.prefix", { message: degradedMessage(entry.code) })}</span>
     ${!simple && html`<code class="small">${entry.code}</code>`}
     ${href ? html`<a class="btn secondary small" href=${href} ...${helpFor("offices.degraded")}>${action.label}</a>`
       : action.action === "reimport" ? html`<span class="muted small">${action.label}</span>` : null}
@@ -54,7 +53,7 @@ function OfficeAskButton({ officeId, area = null }) {
   const scope = area ? "area-" + officeId + "-" + area : "office-" + officeId;
   return html`<div class="offices-session-action">
     <a class="btn secondary small" href=${officeHref(officeId, area)} ...${helpFor("offices.ask", { scope })}>
-      ${area ? "Pedir a esta área" : "Pídele algo a la oficina"}</a>
+      ${area ? t("ext.offices.ask.area") : t("ext.offices.ask.office")}</a>
     <${Help} topic="offices.ask" compact=${true} scope=${scope} />
   </div>`;
 }
@@ -79,7 +78,9 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
     try {
       const payload = await exportOffice({ token, officeId: office.id, area, includeCode, post: apiPost });
       const warnings = Array.isArray(payload.warnings) ? payload.warnings.map(exportWarningText) : [];
-      setMessage({ kind: "ok", text: warnings.length ? warnings.join(" ") : `${exportFileName(payload)} se descargó.` });
+      setMessage({ kind: "ok", text: warnings.length
+        ? warnings.join(" ")
+        : exportDownloadedText(exportFileName(payload)) });
     } catch (error) {
       setMessage({ kind: "error", text: errorText(error?.details?.reason || (error?.status === 413 ? "zip_too_large" : ""),
         error?.details) });
@@ -95,7 +96,7 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
     try {
       const path = officePath(office.id) + (area ? "/areas/" + encodeURIComponent(area) : "") + "/remove";
       const result = await apiPost(path, token, {});
-      if (result?.kept_data !== true) throw new Error("The removal did not preserve the office data.");
+      if (result?.kept_data !== true) throw new Error(t("ext.offices.error.removal_data_not_kept"));
       setRemoving(null);
       onChanged();
     } catch (error) {
@@ -108,11 +109,11 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
   function removeConfirmation(scope, area = null) {
     const helpScope = officeScope + "-" + scope;
     return removing === scope && html`<div class="offices-remove-confirm" role="alert">
-      <p class="small">${REMOVE_NOTICE}</p>
+      <p class="small">${t("ext.offices.remove_notice")}</p>
       <button type="button" class="btn" disabled=${busy} ...${helpFor("offices.remove", { scope: helpScope })}
-        onClick=${() => doRemove(area)}>Quitar</button>
+        onClick=${() => doRemove(area)}>${t("ext.offices.remove.button")}</button>
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.remove", { scope: helpScope })}
-        onClick=${() => setRemoving(null)}>Cancelar</button>
+        onClick=${() => setRemoving(null)}>${t("ext.offices.cancel")}</button>
       <${Help} topic="offices.remove" compact=${true} scope=${helpScope} />
     </div>`;
   }
@@ -121,21 +122,21 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
     <div class="offices-card-head">
       <p class="offices-title">${office.name}</p>
       <span class=${"offices-office-state" + (officeWorks(office, scene) ? " is-ok" : " is-degraded")}>
-        ${officeWorks(office, scene) ? "Lista" : "Funciona a medias"}
+        ${officeWorks(office, scene) ? t("ext.offices.state.ready") : t("ext.offices.state.degraded")}
       </span>
     </div>
     <${OfficeAskButton} officeId=${office.id} />
     ${detailError && html`<p class="message error small" role="alert">${detailError}</p>`}
-    ${offline && html`<p class="message error small" role="status">${OFFLINE_TEXT}</p>`}
-    ${!scene && !offline && !detailError && html`<p class="muted small" role="status">Leyendo el estado de la oficina…</p>`}
+    ${offline && html`<p class="message error small" role="status">${t("ext.offices.offline")}</p>`}
+    ${!scene && !offline && !detailError && html`<p class="muted small" role="status">${t("ext.offices.loading_state")}</p>`}
     ${scene && html`<div class="offices-rows">
       ${rows.map((row) => row.kind === "orchestrator"
         ? html`<div key=${row.key} class="offices-row offices-coordinator">
             <div class="offices-row-main">
               <strong>${row.name}</strong><span class="offices-state">${row.label}</span>
             </div>
-            ${row.plan && html`<p class="offices-meta">Plan de ${row.plan.tasks} tareas ·
-              <a href=${planThreadHref(row.plan.proposal_id)} ...${helpFor("offices.plan")}>Abrir plan</a></p>
+            ${row.plan && html`<p class="offices-meta">${t("ext.offices.plan.summary", { tasks: row.plan.tasks })} ·
+              <a href=${planThreadHref(row.plan.proposal_id)} ...${helpFor("offices.plan")}>${t("ext.offices.plan.open")}</a></p>
               <${Help} topic="offices.plan" compact=${true} />`}
             <${Help} topic="offices.member_state" compact=${true} />
           </div>`
@@ -144,17 +145,17 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
               <div class="offices-row-main">
                 <strong>${row.name}</strong><span class="offices-state">${row.label}</span>
               </div>
-              <p class="offices-meta">Nivel: ${row.level}</p>
+              <p class="offices-meta">${t("ext.offices.level.label")}: ${row.level}</p>
               <${Help} topic="offices.levels" compact=${true} />
               ${row.requirementText && html`<p class="offices-meta">${row.requirementText}</p>`}
               <${OfficeAskButton} officeId=${office.id} area=${row.id} />
               ${row.permissions && html`<p class="offices-meta">${row.permissions}</p><${Help} topic="offices.declared" compact=${true} />`}
               <div class="offices-actions">
                 <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.export", { scope: officeScope + "-" + row.id })}
-                  onClick=${() => doExport(row.id)}>Exportar área</button>
+                  onClick=${() => doExport(row.id)}>${t("ext.offices.export.area")}</button>
                 <${Help} topic="offices.export" compact=${true} scope=${officeScope + "-" + row.id} />
                 <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.remove", { scope: officeScope + "-" + row.id })}
-                  onClick=${() => setRemoving("area:" + row.id)}>Quitar</button>
+                  onClick=${() => setRemoving("area:" + row.id)}>${t("ext.offices.remove.button")}</button>
                 <${Help} topic="offices.remove" compact=${true} scope=${officeScope + "-" + row.id} />
               </div>
               ${removeConfirmation("area:" + row.id, row.id)}
@@ -170,21 +171,21 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
               <${Help} topic="offices.member_state" compact=${true} />
             </div>`)}
     </div>`}
-    ${simple && scene && scene.truncated && html`<p class="muted small">Se muestran los datos recientes disponibles.</p>`}
+    ${simple && scene && scene.truncated && html`<p class="muted small">${t("ext.offices.recent_data")}</p>`}
     <div class="offices-actions offices-office-actions">
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.export", { scope: officeScope })}
-        onClick=${() => doExport()}>Exportar oficina</button>
+        onClick=${() => doExport()}>${t("ext.offices.export.office")}</button>
       <${Help} topic="offices.export" compact=${true} scope=${officeScope} />
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: officeScope + "-reimport" })}
-        onClick=${() => onImport({ reimport: office.id })}>Reimportar</button>
+        onClick=${() => onImport({ reimport: office.id })}>${t("ext.offices.reimport")}</button>
       <${Help} topic="offices.import_office" compact=${true} scope=${officeScope + "-reimport"} />
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: officeScope + "-add-area" })}
-        onClick=${() => onImport({ into: office.id })}>Añadir un área</button>
+        onClick=${() => onImport({ into: office.id })}>${t("ext.offices.add_area")}</button>
       <${Help} topic="offices.import_office" compact=${true} scope=${officeScope + "-add-area"} />
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.privacy", { scope: officeScope })}
-        onClick=${() => setPrivacyOpen((open) => !open)}>Privacidad</button>
+        onClick=${() => setPrivacyOpen((open) => !open)}>${t("ext.offices.privacy.button")}</button>
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.remove", { scope: officeScope })}
-        onClick=${() => setRemoving("office")}>Quitar</button>
+        onClick=${() => setRemoving("office")}>${t("ext.offices.remove.button")}</button>
       <${Help} topic="offices.privacy" compact=${true} scope=${officeScope} />
       <${Help} topic="offices.remove" compact=${true} scope=${officeScope} />
     </div>
@@ -193,7 +194,7 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
     ${showIncludeCode && html`<label class="check-inline offices-include-code">
       <input type="checkbox" checked=${includeCode} disabled=${busy} ...${helpFor("offices.include_code", { scope: officeScope })}
         onChange=${(event) => setIncludeCode(event.target.checked)} />
-      Incluir código
+      ${t("ext.offices.include_code")}
     </label>
     <${Help} topic="offices.include_code" compact=${true} scope=${officeScope} />`}
     ${removeConfirmation("office")}
@@ -230,7 +231,7 @@ export function OfficesView({ token, route }) {
         const answer = await apiGet(LIST_PATH, token);
         rows = Array.isArray(answer?.offices) ? answer.offices : [];
       } catch (error) {
-        if (active) setListError(requestError(error, "No se pudo leer la lista de oficinas."));
+        if (active) setListError(requestError(error, "ext.offices.error.read_list"));
         return;
       }
       if (!active) return;
@@ -240,7 +241,7 @@ export function OfficesView({ token, route }) {
         try {
           return [office.id, await apiGet(officePath(office.id), token), ""];
         } catch (error) {
-          return [office.id, null, requestError(error, "No se pudo leer la oficina.")];
+          return [office.id, null, requestError(error, "ext.offices.error.read_office")];
         }
       }));
       if (!active) return;
@@ -289,17 +290,17 @@ export function OfficesView({ token, route }) {
     setImportTarget(null);
     setRefreshKey((current) => current + 1);
   };
-  return html`<section class="offices-view" aria-label="Oficinas">
+  return html`<section class="offices-view" aria-label=${t("ext.offices.title")}>
     <div class="offices-actions offices-import-entry">
       <button type="button" class="btn" ...${helpFor("offices.import_office", { scope: "import-office" })} onClick=${() => startImport()}>
-        Importar una oficina</button>
+        ${t("ext.offices.import.button")}</button>
       <${Help} topic="offices.import_office" compact=${true} scope="import-office" />
     </div>
     ${importTarget !== null && html`<${ImportOffice} token=${token} into=${importTarget.into || null}
       reimport=${importTarget.reimport || null} onDone=${finishImport} />`}
     ${listError && html`<p class="message error" role="alert">${listError}</p>`}
-    ${offices === null && !listError && html`<p class="muted" role="status">Leyendo oficinas…</p>`}
-    ${offices && offices.length === 0 && html`<p class="offices-empty" role="status">${EMPTY_TEXT}</p>`}
+    ${offices === null && !listError && html`<p class="muted" role="status">${t("ext.offices.loading")}</p>`}
+    ${offices && offices.length === 0 && html`<p class="offices-empty" role="status">${t("ext.offices.empty")}</p>`}
     ${offices && offices.length > 0 && html`<div class="offices-list">
       ${offices.map((office) => html`<${OfficeCard} key=${office.id} office=${office}
         detail=${details[office.id]} detailError=${detailErrors[office.id]}
@@ -313,7 +314,7 @@ export function OfficesView({ token, route }) {
 
 registerView({
   id: "offices",
-  label: "Oficinas",
+  label: t("ext.offices.title"),
   topic: "offices.view",
   component: OfficesView,
   order: 30,

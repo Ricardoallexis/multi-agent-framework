@@ -6,39 +6,69 @@
 // as a text child of htm/Preact, never as HTML, and the original of a fragment is never fetched or shown.
 import { html } from "../../vendor/htm-preact-standalone.module.js";
 import { Help, helpFor } from "../../js/help.js";
+import { t } from "../../js/i18n.js";
 import { routeHref } from "../../js/route.js";
 import { fmtDate } from "../../js/text.js";
 
 const KINDS = {
-  document: "Documento", attachment: "Adjunto", channel_entry: "Entrada del canal", worker_report: "Informe de un trabajador",
-  transcript: "Transcripción", tool_output: "Salida de una herramienta", web_page: "Página web", model_output: "Salida de un modelo",
-  context_summary: "Resumen de contexto", executor_result: "Resultado de un ejecutor", unknown: "Origen desconocido",
+  document: () => t("ext.document_alerts.kind.document"),
+  attachment: () => t("ext.document_alerts.kind.attachment"),
+  channel_entry: () => t("ext.document_alerts.kind.channel_entry"),
+  worker_report: () => t("ext.document_alerts.kind.worker_report"),
+  transcript: () => t("ext.document_alerts.kind.transcript"),
+  tool_output: () => t("ext.document_alerts.kind.tool_output"),
+  web_page: () => t("ext.document_alerts.kind.web_page"),
+  model_output: () => t("ext.document_alerts.kind.model_output"),
+  context_summary: () => t("ext.document_alerts.kind.context_summary"),
+  executor_result: () => t("ext.document_alerts.kind.executor_result"),
+  unknown: () => t("ext.document_alerts.kind.unknown"),
 };
-const POLICIES = { quarantine_warn: "Cuarentena con aviso", pause: "Pausa para revisión" };
-const ACTIONS = { quarantine: "Cuarentena con aviso", pause: "Pausa para revisión" };
-const SEVERITIES = { low: "baja", medium: "media", high: "alta" };
+const POLICIES = {
+  quarantine_warn: () => t("ext.document_alerts.policy.quarantine_warn"),
+  pause: () => t("ext.document_alerts.policy.pause"),
+};
+const ACTIONS = {
+  quarantine: () => t("ext.document_alerts.policy.quarantine"),
+  pause: () => t("ext.document_alerts.policy.pause"),
+};
+const SEVERITIES = {
+  low: () => t("ext.document_alerts.severity.low"),
+  medium: () => t("ext.document_alerts.severity.medium"),
+  high: () => t("ext.document_alerts.severity.high"),
+};
 const SIGNALS = {
-  ignore_rules: "ignorar las reglas", false_authorization: "falsa autorización", command_request: "petición de un comando",
-  false_urgency: "falsa urgencia", role_marker: "marca de rol", fake_delimiter: "delimitador falso",
-  encoded_command: "comando codificado", encoded_instruction: "instrucción codificada", encoded_payload: "contenido codificado",
-  too_large_to_scan: "demasiado grande para revisarlo", invisible_characters: "caracteres invisibles",
-  hidden_content: "contenido oculto", hidden_instruction: "instrucción oculta",
+  ignore_rules: () => t("ext.document_alerts.signal.ignore_rules"),
+  false_authorization: () => t("ext.document_alerts.signal.false_authorization"),
+  command_request: () => t("ext.document_alerts.signal.command_request"),
+  false_urgency: () => t("ext.document_alerts.signal.false_urgency"),
+  role_marker: () => t("ext.document_alerts.signal.role_marker"),
+  fake_delimiter: () => t("ext.document_alerts.signal.fake_delimiter"),
+  encoded_command: () => t("ext.document_alerts.signal.encoded_command"),
+  encoded_instruction: () => t("ext.document_alerts.signal.encoded_instruction"),
+  encoded_payload: () => t("ext.document_alerts.signal.encoded_payload"),
+  too_large_to_scan: () => t("ext.document_alerts.signal.too_large_to_scan"),
+  invisible_characters: () => t("ext.document_alerts.signal.invisible_characters"),
+  hidden_content: () => t("ext.document_alerts.signal.hidden_content"),
+  hidden_instruction: () => t("ext.document_alerts.signal.hidden_instruction"),
 };
 // state -> label, tone (a class that app.css variables colour; the label is the cue, colour only helps) and what it means
 const STATES = {
-  quarantined: { label: "En cuarentena", tone: "warn", note: "El fragmento se cambió por una marca y el trabajo siguió." },
-  open: { label: "Espera una decisión", tone: "bad",
-    note: "Una persona debe aprobar o rechazar desde la ejecución. Esta pantalla no decide." },
-  approved: { label: "Aprobada", tone: "ok", note: "Una persona dejó seguir el paso; el fragmento sigue en cuarentena." },
-  rejected: { label: "Rechazada", tone: "bad", note: "Una persona rechazó la ejecución." },
+  quarantined: { label: "ext.document_alerts.state.quarantined", tone: "warn", note: "ext.document_alerts.note.quarantined" },
+  open: { label: "ext.document_alerts.state.open", tone: "bad", note: "ext.document_alerts.note.open" },
+  approved: { label: "ext.document_alerts.state.approved", tone: "ok", note: "ext.document_alerts.note.approved" },
+  rejected: { label: "ext.document_alerts.state.rejected", tone: "bad", note: "ext.document_alerts.note.rejected" },
 };
-const UNKNOWN_STATE = { label: "Sin estado", tone: "warn", note: "" };
+const UNKNOWN_STATE = { label: "ext.document_alerts.state.unknown", tone: "warn", note: "" };
 
-export const kindText = (kind) => KINDS[kind] || String(kind || "") || KINDS.unknown;
-export const policyText = (alert) => POLICIES[alert.policy] || alert.policy || ACTIONS[alert.action] || alert.action || "Sin dato";
-export const severityText = (value) => SEVERITIES[value] || String(value || "") || "sin dato";
-export const signalText = (code) => SIGNALS[code] || String(code || "");
-export const stateInfo = (state) => STATES[state] || UNKNOWN_STATE;
+export const kindText = (kind) => KINDS[kind]?.() || String(kind || "") || KINDS.unknown();
+export const policyText = (alert) => POLICIES[alert.policy]?.() || alert.policy || ACTIONS[alert.action]?.() || alert.action
+  || t("ext.document_alerts.no_data");
+export const severityText = (value) => SEVERITIES[value]?.() || String(value || "") || t("ext.document_alerts.severity.unknown");
+export const signalText = (code) => SIGNALS[code]?.() || String(code || "");
+export const stateInfo = (state) => {
+  const found = STATES[state] || UNKNOWN_STATE;
+  return { ...found, label: t(found.label), note: found.note ? t(found.note) : "" };
+};
 // «blob:sha256:0123456789ab…»: enough to tell fragments apart
 export const shortRef = (ref) => {
   const text = String(ref || "");
@@ -62,9 +92,9 @@ function Fact({ label, children }) {
 function Fragment({ fragment }) {
   const codes = (fragment.signals || []).map(signalText).filter(Boolean);
   return html`<figure class="document-alerts-fragment">
-    <blockquote class="document-alerts-excerpt">${fragment.excerpt || "(sin extracto)"}</blockquote>
-    <figcaption class="document-alerts-meta">${fragment.length} caracteres${codes.length > 0 ? " · " + codes.join(", ") : ""}
-      ${fragment.ref ? " · original guardado aparte (" + shortRef(fragment.ref) + ")" : ""}</figcaption>
+    <blockquote class="document-alerts-excerpt">${fragment.excerpt || t("ext.document_alerts.fragment.no_excerpt")}</blockquote>
+    <figcaption class="document-alerts-meta">${t("ext.document_alerts.fragment.length", { count: fragment.length })}${codes.length > 0 ? " · " + codes.join(", ") : ""}
+      ${fragment.ref ? " · " + t("ext.document_alerts.fragment.original_saved", { ref: shortRef(fragment.ref) }) : ""}</figcaption>
   </figure>`;
 }
 
@@ -82,24 +112,29 @@ export function AlertItem({ alert, showRun = false }) {
       <span class=${"document-alerts-badge document-alerts-tone-" + state.tone}>${state.label}</span>
       <span class="document-alerts-when">${fmtDate(alert.ts)}</span>
     </div>
-    <p class="document-alerts-where">Paso <strong>${alert.step_id || "—"}</strong>${alert.attempt ? ", intento " + alert.attempt : ""}${alert.part ? ", parte " + alert.part : ""}</p>
+    <p class="document-alerts-where">${t("ext.document_alerts.step_label")} <strong>${alert.step_id || "—"}</strong>${alert.attempt
+      ? t("ext.document_alerts.attempt", { attempt: alert.attempt }) : ""}${alert.part
+      ? t("ext.document_alerts.part", { part: alert.part }) : ""}</p>
     <dl class="document-alerts-facts">
-      <${Fact} label="Fuente">
-        <span class="document-alerts-line"><strong>${name}</strong> · ${kindText(source.kind)}${source.trust === "untrusted" ? " (no confiable)" : ""}</span>
+      <${Fact} label=${t("ext.document_alerts.source")}>
+        <span class="document-alerts-line"><strong>${name}</strong> · ${kindText(source.kind)}${source.trust === "untrusted" ? " (" + t("ext.document_alerts.untrusted") + ")" : ""}</span>
         ${source.ref && source.ref !== name ? html`<span class="document-alerts-line document-alerts-meta">${source.ref}</span>` : null}
-        ${origins.length > 0 ? html`<span class="document-alerts-line document-alerts-meta">Viene de: ${origins.join(", ")}</span>` : null}
+        ${origins.length > 0 ? html`<span class="document-alerts-line document-alerts-meta">${t("ext.document_alerts.origins", { origins: origins.join(", ") })}</span>` : null}
       <//>
-      <${Fact} label="Política aplicada">${policyText(alert)}${POLICIES[alert.policy] ? html` <span class="document-alerts-meta">(${alert.policy})</span>` : null}<//>
-      <${Fact} label="Gravedad">${severityText(alert.max_severity)}${codes.length > 0 ? " · " + codes.join(", ") : ""}<//>
+      <${Fact} label=${t("ext.document_alerts.policy_applied")}>${policyText(alert)}${POLICIES[alert.policy] ? html` <span class="document-alerts-meta">(${alert.policy})</span>` : null}<//>
+      <${Fact} label=${t("ext.document_alerts.severity")}>${severityText(alert.max_severity)}${codes.length > 0 ? " · " + codes.join(", ") : ""}<//>
     </dl>
     ${fragments.length > 0 ? html`<div class="document-alerts-fragments">
-      <p class="document-alerts-label">${fragments.length === 1 ? "Fragmento en cuarentena" : "Fragmentos en cuarentena · " + fragments.length}</p>
+      <p class="document-alerts-label">${fragments.length === 1 ? t("ext.document_alerts.fragment.one")
+        : t("ext.document_alerts.fragment.many", { count: fragments.length })}</p>
       ${fragments.map((fragment, index) => html`<${Fragment} key=${fragment.sha256 || index} fragment=${fragment} />`)}
     </div>` : null}
     ${state.note ? html`<p class="document-alerts-note">${state.note}</p>` : null}
-    ${alert.decision ? html`<p class="document-alerts-meta">Decisión: ${alert.decision === "approved" ? "aprobada" : "rechazada"}${alert.decided_by ? " · declarado por " + alert.decided_by : ""}${alert.channel ? " (" + alert.channel + ")" : ""}</p>` : null}
+    ${alert.decision ? html`<p class="document-alerts-meta">${t("ext.document_alerts.decision", {
+      decision: alert.decision === "approved" ? t("ext.document_alerts.decision.approved") : t("ext.document_alerts.decision.rejected"),
+    })}${alert.decided_by ? " · " + t("ext.document_alerts.decided_by", { person: alert.decided_by }) : ""}${alert.channel ? " (" + alert.channel + ")" : ""}</p>` : null}
     ${showRun && alert.run_id ? html`<p class="document-alerts-run">
-      <a class="document-alerts-run-link" href=${routeHref("runs", alert.run_id)} ...${helpFor("document_alerts.open_run", { scope })}>Abrir la ejecución</a>
+      <a class="document-alerts-run-link" href=${routeHref("runs", alert.run_id)} ...${helpFor("document_alerts.open_run", { scope })}>${t("ext.document_alerts.open_run")}</a>
       <${Help} topic="document_alerts.open_run" compact=${true} scope=${scope} />
     </p>` : null}
   </li>`;

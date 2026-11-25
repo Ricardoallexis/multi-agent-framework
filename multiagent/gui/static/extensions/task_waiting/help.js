@@ -2,35 +2,35 @@
 // SPDX-License-Identifier: Apache-2.0
 export const HELP = {
   "task_waiting.view": {
-    "title": "Esperan tu decisión",
-    "hint": "Preguntas de tareas que necesitan tu respuesta; también puedes consultar las demás esperas.",
+    "title": "Waiting for your decision",
+    "hint": "Task questions that need your answer, plus other waits.",
     "more": [
-      "Cada tarjeta muestra la pregunta, a quién espera, desde cuándo y su referencia.",
-      "Esta vista solo consulta datos: no aprueba ni resuelve ninguna espera."
+      "Each card shows the question, who it is waiting for, when it started, and its reference.",
+      "This view only reads data; it does not approve or resolve any wait."
     ]
   },
   "task_waiting.panel": {
-    "title": "Preguntas pendientes",
-    "hint": "Tareas de todo el sistema que esperan tu decisión, independientemente de la sesión abierta.",
+    "title": "Waiting questions",
+    "hint": "Tasks across the system that need your decision, no matter which session is open.",
     "more": [
-      "La insignia de espera es independiente del estado de ejecución de la tarea.",
-      "Consultar el panel no responde la pregunta ni autoriza una ejecución."
+      "The wait badge is separate from the task's run state.",
+      "Viewing this panel does not answer the question or authorize a run."
     ]
   },
   "task_waiting.refresh": {
-    "title": "Actualizar esperas",
-    "hint": "Vuelve a consultar las esperas sin cambiar las tareas.",
+    "title": "Refresh waits",
+    "hint": "Check for waits again without changing tasks.",
     "more": [
-      "La lista se actualiza periódicamente mientras la pestaña está visible.",
-      "Si una consulta falla, los datos anteriores se conservan con un aviso."
+      "The list updates regularly while the tab is visible.",
+      "If a request fails, the previous data stays visible with a notice."
     ]
   },
   "task_waiting.others": {
-    "title": "Otras esperas",
-    "hint": "Tareas que esperan a un agente, otra tarea, una cuota o una ventana de integración.",
+    "title": "Other waits",
+    "hint": "Tasks waiting for an agent, another task, a quota, or an integration window.",
     "more": [
-      "Estas esperas no son preguntas dirigidas al usuario.",
-      "La tarjeta conserva el estado de la tarea y muestra el destinatario de la espera."
+      "These waits are not questions for you.",
+      "The card keeps the task state and shows who or what it is waiting for."
     ]
   }
 };

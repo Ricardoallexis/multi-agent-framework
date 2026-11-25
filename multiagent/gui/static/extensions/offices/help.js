@@ -4,145 +4,145 @@
 
 export const HELP = {
   "offices.view": {
-    "title": "Oficinas",
-    "hint": "Reúne tus oficinas, sus áreas y el estado de cada puesto.",
+    "title": "Offices",
+    "hint": "See your offices, their areas, and the status of each role.",
     "more": [
-      "El coordinador, los equipos y sus áreas muestran el estado que informa el programa.",
-      "Los avisos señalan qué falta y cómo corregirlo; la lista se actualiza cada cuatro segundos.",
-      "Los permisos del equipo son declaraciones, no garantías de lo que puede hacer."
+      "The coordinator, teams, and their areas show the status reported by the app.",
+      "Notices show what is missing and how to fix it. The list updates every four seconds.",
+      "Team permissions are declarations, not guarantees of what a team can do."
     ]
   },
   "offices.plan": {
-    "title": "Plan de la oficina",
-    "hint": "Abre el plan que el coordinador repartió entre las áreas.",
+    "title": "Office plan",
+    "hint": "Open the plan the coordinator shared with the areas.",
     "more": [
-      "Ahí ves cada tarea, el área que la hace y su estado.",
-      "Desde esta vista solo lo abres; no cambia nada."
+      "See each task, the area responsible for it, and its status.",
+      "Opening the plan here does not change anything."
     ]
   },
   "offices.member_state": {
-    "title": "Estado del puesto",
-    "hint": "El estado indica qué hace ahora cada agente o persona.",
+    "title": "Role status",
+    "hint": "The status shows what each agent or person is doing now.",
     "more": [
-      "«Libre» significa que no hay un trabajo activo para ese puesto.",
-      "El estado cambia cuando llegan datos nuevos."
+      "Available means there is no active work for that role.",
+      "The status changes when new data arrives."
     ]
   },
   "offices.degraded": {
-    "title": "Oficina que funciona a medias",
-    "hint": "El aviso explica qué falta y muestra una forma de corregirlo.",
+    "title": "Office needs attention",
+    "hint": "The notice explains what is missing and how to fix it.",
     "more": [
-      "Un equipo puede necesitar aprobación o un área puede necesitar un agente.",
-      "Si cambió una oficina, vuelve a importarla después de revisar el aviso."
+      "A team may need approval, or an area may need an agent.",
+      "If an office changed, review the notice and import it again."
     ]
   },
   "offices.declared": {
-    "title": "Permisos declarados",
-    "hint": "El equipo declara permisos, pero verlos no significa que se hagan valer.",
+    "title": "Declared permissions",
+    "hint": "A team can declare permissions, but that does not make them effective.",
     "more": [
-      "El programa no garantiza esos permisos durante el trabajo.",
-      "Consulta la descripción del equipo antes de confiar en sus declaraciones."
+      "The app does not enforce these permissions while work is running.",
+      "Read the team description before relying on its declarations."
     ]
   },
   "offices.levels": {
-    "title": "Nivel del área",
-    "hint": "El nivel indica cómo se limita el uso de los datos del área.",
+    "title": "Area level",
+    "hint": "The level shows how the use of area data is limited.",
     "more": [
-      "Normal y Sensible son niveles distintos; Solo local nunca sale del equipo.",
-      "Sin nivel indica que el área no declara uno."
+      "Normal and Sensitive are different levels. Local only never leaves your computer.",
+      "No level set means the area has not declared a level."
     ]
   },
   "offices.import_office": {
-    "title": "Importar una oficina",
-    "hint": "Elige un archivo .zip para revisar la oficina antes de instalarla.",
+    "title": "Import an office",
+    "hint": "Choose a .zip file to review the office before installing it.",
     "more": [
-      "También puedes reimportar una oficina o añadir un área a una oficina que ya tienes.",
-      "En el modo avanzado puedes escribir la ruta local de una carpeta; el navegador no ofrece un selector seguro.",
-      "Revisar o elegir una carpeta no ejecuta el código de la oficina."
+      "You can also import an office again or add an area to an office you already have.",
+      "In advanced mode, you can enter a local folder path. Browsers do not provide a safe folder picker.",
+      "Reviewing or choosing a folder does not run office code."
     ]
   },
   "offices.card": {
-    "title": "Ficha de la oficina",
-    "hint": "Revisa los workflows, contratos YAML con esquema válido, roles y requisitos de cada área.",
+    "title": "Office review card",
+    "hint": "Review each area's workflows, valid YAML contracts, roles, and requirements.",
     "more": [
-      "Al instalar, también se aprueban los equipos que aparecen en la ficha.",
-      "Un workflow sin role: puede ejecutarse aunque el equipo siga propuesto; los que declaran puestos necesitan un equipo aprobado.",
-      "La ficha lee functions.py y contracts.py sin ejecutarlos: solo reconoce llamadas estáticas a register_function y no verifica sus contratos antes de aprobar.",
-      "La revisión de SkillSpector tiene un alcance limitado; si no hay escáner instalado, no se hizo la revisión, y eso no significa que no haya hallazgos."
+      "Installing also approves the teams shown on this card.",
+      "A workflow without role: can run even if its team is only proposed. Workflows with roles need an approved team.",
+      "The card reads functions.py and contracts.py without running them. It only recognizes static register_function calls and does not verify their contracts before approval.",
+      "SkillSpector checks only a limited scope. If no scanner is installed, no scan was done; that does not mean there are no findings."
     ]
   },
   "offices.install": {
-    "title": "Instalar oficina",
-    "hint": "La oficina se instala después de revisar esta ficha.",
+    "title": "Install office",
+    "hint": "The office is installed after you review this card.",
     "more": [
-      "Si hace falta, primero puedes permitir una consulta de seguridad.",
-      "Asume los riesgos solo si revisaste lo que trae la oficina."
+      "If needed, you can allow a security scan first.",
+      "Accept the risks only after reviewing what the office includes."
     ]
   },
   "offices.export": {
-    "title": "Exportar oficina o área",
-    "hint": "Guarda una oficina o un área como archivo .zip.",
+    "title": "Export office or area",
+    "hint": "Save an office or area as a .zip file.",
     "more": [
-      "El archivo se prepara en esta computadora y se descarga aquí.",
-      "Los avisos indican qué podría no funcionar en otra computadora."
+      "The file is prepared on this computer and downloaded here.",
+      "Notices show what may not work on another computer."
     ]
   },
   "offices.include_code": {
-    "title": "Incluir código",
-    "hint": "El código propio solo se incluye al exportar desde el modo avanzado.",
+    "title": "Include code",
+    "hint": "Custom code is included only when exporting in advanced mode.",
     "more": [
-      "El archivo puede contener instrucciones que ejecuta un agente activado.",
-      "Revisa el código antes de compartir el archivo."
+      "The file may contain instructions that an active agent can run.",
+      "Review the code before sharing the file."
     ]
   },
   "offices.remove": {
-    "title": "Quitar oficina o área",
-    "hint": "Quitarla solo la saca de la lista de oficinas.",
+    "title": "Remove office or area",
+    "hint": "Removing it only takes it off the office list.",
     "more": [
-      "Se conservan sus datos y las copias guardadas.",
-      "La confirmación aparece antes de quitarla."
+      "Its data and saved copies are kept.",
+      "You are asked to confirm before it is removed."
     ]
   },
   "offices.ask": {
-    "title": "Pedir a la oficina",
-    "hint": "Abre «Nueva sesión» con esta oficina elegida.",
+    "title": "Ask the office",
+    "hint": "Open New session with this office selected.",
     "more": [
-      "«Pídele algo a la oficina» deja que el coordinador prepare un borrador del plan.",
-      "«Pedir a esta área» abre sus opciones en Sesión única.",
-      "Abrir esta pantalla no guarda ni ejecuta nada."
+      "Ask the office lets the coordinator prepare a draft plan.",
+      "Ask this area opens its options in Single session.",
+      "Opening this screen does not save or run anything."
     ]
   },
   "offices.privacy": {
-    "title": "Privacidad de la oficina",
-    "hint": "Ajusta los niveles de cada área y el permiso para modelos de la nube.",
+    "title": "Office privacy",
+    "hint": "Set each area's level and permission to use cloud models.",
     "more": [
-      "Subir el nivel o quitar el permiso de nube se aplica al momento.",
-      "Bajar un nivel o permitir modelos de la nube requiere un código de un solo uso.",
-      "Un área Sensible o Solo local nunca usa la nube, aunque el permiso esté activo."
+      "Raising a level or removing cloud permission takes effect right away.",
+      "Lowering a level or allowing cloud models requires a one-time code.",
+      "Sensitive and Local only areas never use the cloud, even when permission is on."
     ]
   },
   "offices.privacy_note": {
-    "title": "Lo que esta opción no libera",
-    "hint": "La nota explica qué protecciones siguen vigentes.",
+    "title": "What this setting does not allow",
+    "hint": "The note explains which protections still apply.",
     "more": [
-      "El nivel del área y el permiso de nube son ajustes separados.",
-      "Esta opción no autoriza destinos ni permite enviar datos a un destino concreto."
+      "The area level and cloud permission are separate settings.",
+      "This setting does not approve destinations or allow data to be sent to a specific destination."
     ]
   },
   "offices.lower": {
-    "title": "Bajar el nivel",
-    "hint": "Este cambio necesita una aprobación de un solo uso.",
+    "title": "Lower the level",
+    "hint": "This change needs one-time approval.",
     "more": [
-      "El nivel no cambia hasta completar la aprobación.",
-      "Cancelar rechaza la aprobación y conserva el nivel actual."
+      "The level does not change until approval is complete.",
+      "Cancel rejects the approval and keeps the current level."
     ]
   },
   "offices.level_question": {
-    "title": "Pregunta de privacidad",
-    "hint": "La primera petición a un área sin nivel pregunta qué opción guardar.",
+    "title": "Privacy question",
+    "hint": "The first request to an area without a level asks which setting to save.",
     "more": [
-      "La opción elegida se guarda y la petición se repite una sola vez.",
-      "Si vuelve a fallar, verás el error y no se vuelve a preguntar."
+      "The chosen setting is saved, and the request is tried again once.",
+      "If it fails again, you see the error and are not asked again."
     ]
   }
 };

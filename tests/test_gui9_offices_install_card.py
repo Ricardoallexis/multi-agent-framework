@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from multiagent.gui import STATIC_DIR
+from tests.gui_text import ui_text
 
 EXT = STATIC_DIR / "extensions" / "offices"
 NODE = shutil.which("node")
@@ -77,20 +78,22 @@ def test_card_view_keeps_declarations_separate_and_marks_unavailable_scan():
 
 
 def test_card_and_chat_present_one_scan_warning_and_local_requirements():
-    importer = (EXT / "import.js").read_text(encoding="utf-8")
-    model = (EXT / "import-model.js").read_text(encoding="utf-8")
+    importer = ui_text(EXT / "import.js")
+    raw_importer = (EXT / "import.js").read_text(encoding="utf-8")
+    model = ui_text(EXT / "import-model.js")
     help_text = (EXT / "help.js").read_text(encoding="utf-8")
     new_session = (STATIC_DIR / "js" / "new-session.js").read_text(encoding="utf-8")
 
-    assert importer.count("No hay escáner de oficinas disponible: no se hizo la revisión.") == 1
+    assert raw_importer.count('t("ext.offices.import.scanner_unavailable")') == 1
+    assert "No hay escáner de oficinas disponible: no se hizo la revisión." in importer
     assert "view.code.scanUnavailable" in importer
     assert "Este workflow no requiere un puesto del equipo; puede ejecutarse sin un equipo aprobado." in importer
     assert "Este workflow necesita herramientas de archivos locales. Configura FILE_TOOLS_ROOT" in importer
     assert "advanced && html`<p>Herramientas requeridas:" in importer
     assert "El navegador no ofrece un selector seguro de carpetas." in importer
     assert "showIncludeCode && html`<label class=\"offices-import-field\">Ruta local de la carpeta" in importer
-    assert "not_installed" not in model.split("const SCAN_TEXT", 1)[1].split("});", 1)[0]
-    assert "el navegador no ofrece un selector seguro" in help_text
+    assert '"not_installed":' not in model.split("const SCAN_KEYS", 1)[1].split("});", 1)[0]
+    assert "Browsers do not provide a safe folder picker." in help_text
     assert "file_tools_configured" in new_session
     assert "if (fileToolsMissing) blockers.push" in new_session
     assert "Este workflow necesita herramientas de archivos locales. Configura FILE_TOOLS_ROOT" in new_session
