@@ -69,7 +69,8 @@ def run_node(root, body):
 
 def rows(root, mode, draft=DRAFT, catalog=CATALOG):
     return run_node(root, f"""
-      import {{ planDraftRows }} from "./js/plan-draft-model.js";
+      Object.defineProperty(globalThis, 'navigator', {{value: {{language: 'es-MX'}}, configurable: true}});
+      const {{ planDraftRows }} = await import("./js/plan-draft-model.js");
       console.log(JSON.stringify(planDraftRows({json.dumps(draft)}, {json.dumps(mode)}, {json.dumps(catalog)})));
     """)
 
@@ -102,8 +103,9 @@ def test_rows_show_ids_in_advanced(node_root):
 @needs_node
 def test_save_body_confirms(node_root):
     result = run_node(node_root, f"""
-      import {{ planSaveBody, PLAN_SAVE_LABEL }} from "./js/plan-draft-model.js";
-      console.log(JSON.stringify({{ body: planSaveBody({json.dumps(DRAFT)}), label: PLAN_SAVE_LABEL }}));
+      Object.defineProperty(globalThis, 'navigator', {{value: {{language: 'es-MX'}}, configurable: true}});
+      const {{ planSaveBody, planSaveLabel }} = await import("./js/plan-draft-model.js");
+      console.log(JSON.stringify({{ body: planSaveBody({json.dumps(DRAFT)}), label: planSaveLabel() }}));
     """)
     assert result["body"] == {"draft": DRAFT, "confirmed": True} and result["label"] == "Guardar el plan"
 

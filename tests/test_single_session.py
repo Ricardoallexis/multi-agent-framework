@@ -18,6 +18,7 @@ from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
+from tests.gui_text import ui_text
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERAL = ROOT / "examples" / "bundles" / "general"
@@ -25,7 +26,7 @@ MODEL = ROOT / "multiagent" / "gui" / "static" / "js" / "new-session-model.js"
 
 
 def test_single_session_enters_through_one_box_and_executor_still_requires_review():
-    view = (MODEL.parent / "new-session.js").read_text(encoding="utf-8")
+    view = ui_text(MODEL.parent / "new-session.js")
     assert 'option value="single">Sesión única</option>' in view
     assert view.count('<textarea id="ns-composer-input"') == 1
     assert "Usar un ejecutor" in view[view.index('class="ns-plus-menu"'):view.index('</div>`}', view.index('class="ns-plus-menu"'))]

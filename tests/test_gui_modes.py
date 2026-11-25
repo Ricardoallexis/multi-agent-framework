@@ -156,9 +156,9 @@ def test_scripts_follow_escaping_help_and_conditional_send_rules():
     assert "OperatingModeSelect" in create_src
     assert "buildCreateRunBody" in create_src
     assert 'if (operatingMode) body.operating_mode = operatingMode;' in create_src
-    assert 'value: "", label: "Sin modo"' in create_src
-    assert 'value: "supervised", label: "Supervisado"' in create_src
-    assert 'value: "autonomous", label: "Autónomo"' in create_src
+    assert 'value: "", label: "create_run.operating_mode_none"' in create_src
+    assert 'value: "supervised", label: "create_run.operating_mode_supervised"' in create_src
+    assert 'value: "autonomous", label: "create_run.operating_mode_autonomous"' in create_src
     assert 'helpFor("create.operating_mode")' in create_src
     assert 'topic="create.operating_mode"' in create_src
 
@@ -237,8 +237,9 @@ def test_create_and_detail_components_handle_modes_and_escape_hostile_strings(no
     })
 
     out = _run_node(node_root, WALKER + f"""
-      import {{ OperatingModeSelect, OPERATING_MODES, buildCreateRunBody }} from "./js/create-run.js";
-      import {{ RunOperatingMode }} from "./js/run-detail.js";
+      Object.defineProperty(globalThis, "navigator", {{ value: {{ language: "es-MX" }}, configurable: true }});
+      const {{ OperatingModeSelect, OPERATING_MODES, buildCreateRunBody }} = await import("./js/create-run.js");
+      const {{ RunOperatingMode }} = await import("./js/run-detail.js");
       const data = {payload};
 
       const baseArgs = {{
@@ -286,9 +287,9 @@ def test_create_and_detail_components_handle_modes_and_escape_hostile_strings(no
     """)
 
     assert out["operatingModes"] == [
-        {"value": "", "label": "Sin modo"},
-        {"value": "supervised", "label": "Supervisado"},
-        {"value": "autonomous", "label": "Autónomo"},
+        {"value": "", "label": "create_run.operating_mode_none"},
+        {"value": "supervised", "label": "create_run.operating_mode_supervised"},
+        {"value": "autonomous", "label": "create_run.operating_mode_autonomous"},
     ]
     assert out["bodyNoneHasKey"] is False
     assert out["bodySup"]["operating_mode"] == "supervised"

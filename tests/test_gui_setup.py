@@ -414,7 +414,7 @@ def test_apps_extension_has_no_key_input_and_meets_rwd_rules():
 def test_new_session_picker_links_to_apps_only_when_that_view_is_loaded():
     # «Conectar otro» (INS-T05) sits under the picker of «Nueva sesión». Shared code may not import an extension, so the
     # core draws the link itself and only while the «apps» view is registered; it only navigates.
-    source = (STATIC_DIR / "js" / "new-session.js").read_text(encoding="utf-8")
+    source = ui_text((STATIC_DIR / "js" / "new-session.js"))
     assert 'import { isRegisteredView } from "./extensions.js";' in source
     block = re.search(r'\$\{isRegisteredView\("apps"\) && html`(.*?)`\}', source, re.S)
     assert block, "the link must depend on the apps view being registered"

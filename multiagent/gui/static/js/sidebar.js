@@ -22,6 +22,7 @@ import { onChoiceChange, readMoreNoticeSeen, readPinnedSections, writeHelpMode, 
 import { PendingLink } from "./pending.js";
 import { Icon } from "./ui/icon.js";
 import { StatusChip } from "./ui/status-chip.js";
+import { t } from "./i18n.js";
 
 const SESSION_LIMIT = 100;
 const RUN_LIMIT = 50;
@@ -53,7 +54,7 @@ function Group({ group, route, now }) {
     <summary class="group-head" title=${group.folders.join("\n") || group.name}>
       <span class="group-name">${group.name}</span>
       <span class="group-counts">${counts.map((entry) => html`<span key=${entry.app} class=${"count src-" + entry.app}>
-        <span aria-hidden="true">${entry.label} ${entry.count}</span><span class="sr-only">${entry.count} de ${entry.label}</span></span>`)}</span>
+        <span aria-hidden="true">${entry.label} ${entry.count}</span><span class="sr-only">${t("shell.group_count", { count: entry.count, label: entry.label })}</span></span>`)}</span>
     </summary>
     <ul class="group-items">
       ${group.items.map((item) => html`<${Item} key=${item.key} item=${item} current=${isCurrent(item, route)} now=${now} />`)}
@@ -87,7 +88,7 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
       sessions: ok(sessions) ? sessions.value.sessions : previous.sessions,
       hint: ok(sessions) ? sessions.value.hint || null : previous.hint,
       runs: ok(runs) ? runs.value : previous.runs,
-      failed: [ok(sessions) ? "" : "sesiones", ok(runs) ? "" : "ejecuciones"].filter(Boolean),
+      failed: [ok(sessions) ? "" : t("shell.sessions"), ok(runs) ? "" : t("shell.runs")].filter(Boolean),
       loaded: true,
     }));
   }
@@ -97,7 +98,7 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
     setActivityData((previous) => ({ ...previous, loading: true, failed: false }));
     try {
       const answer = await apiGet("/gui/api/activities", token);
-      if (!Array.isArray(answer?.projects)) throw new Error("Respuesta de actividades inválida.");
+      if (!Array.isArray(answer?.projects)) throw new Error(t("shell.invalid_activities_response"));
       if (mine === activityTicket.current) {
         setActivityData({ projects: answer.projects, loaded: true, loading: false, failed: false });
       }
@@ -153,12 +154,15 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
   };
 
   let summary = "";
-  if (activitiesMode && (!activityData.loaded || activityData.loading)) summary = "Cargando las actividades…";
-  else if (activitiesMode && activityData.failed) summary = "No se pudieron cargar las actividades.";
-  else if (activitiesMode && items.length === 0) summary = "Todavía no hay actividades abiertas.";
-  else if (!activitiesMode && !data.loaded) summary = "Cargando la lista…";
-  else if (!activitiesMode && items.length === 0) summary = "Todavía no hay sesiones ni ejecuciones.";
-  else summary = shown + (shown === 1 ? " elemento" : " elementos") + " en " + groups.length + (groups.length === 1 ? " proyecto." : " proyectos.");
+  if (activitiesMode && (!activityData.loaded || activityData.loading)) summary = t("shell.loading_activities");
+  else if (activitiesMode && activityData.failed) summary = t("shell.activities_failed");
+  else if (activitiesMode && items.length === 0) summary = t("shell.no_open_activities");
+  else if (!activitiesMode && !data.loaded) summary = t("shell.loading_list");
+  else if (!activitiesMode && items.length === 0) summary = t("shell.no_sessions_or_runs");
+  else summary = t("shell.list_summary", {
+    count: shown, item_label: shown === 1 ? t("shell.item") : t("shell.items"),
+    projects: groups.length, project_label: groups.length === 1 ? t("shell.project") : t("shell.projects"),
+  });
 
   const paletteEntries = [
     ...sectionEntries(navigation, pendingTabs(registeredViews().filter((view) => visibleIn(view, mode)), [], false)
@@ -171,25 +175,25 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
     <div class="side-top">
       <div class="side-new">
         <button type="button" class="btn side-new-btn" data-nav aria-current=${route.section === NEW_SECTION ? "page" : null}
-          ...${helpFor("shell.new_session")} onClick=${() => navigate(NEW_SECTION)}><span aria-hidden="true">+ </span>Nueva sesión</button>
+          ...${helpFor("shell.new_session")} onClick=${() => navigate(NEW_SECTION)}><span aria-hidden="true">+ </span>${t("shell.new_session")}</button>
         <${Help} topic="shell.new_session" compact=${true} />
       </div>
       <div class="side-search">
         <button type="button" class="side-search-btn" aria-keyshortcuts="Control+K" ...${helpFor("shell.search")}
-          onClick=${() => setPaletteOpen(true)}><${Icon} name="search" />Buscar<kbd class="side-kbd">Ctrl K</kbd></button>
+          onClick=${() => setPaletteOpen(true)}><${Icon} name="search" />${t("shell.search")}<kbd class="side-kbd">Ctrl K</kbd></button>
         <${Help} topic="shell.search" compact=${true} />
       </div>
-      <div class="views" aria-label="Secciones">
+      <div class="views" aria-label=${t("shell.sections")}>
         <div class="side-pending"><${PendingLink} current=${route.section === "pending" || navigation.pending.some((section) => section.id === route.section)} /></div>
         ${navigation.primary.map((s) => html`<button key=${s.id} type="button" data-nav data-help-exempt="navigation"
           aria-current=${s.id === route.section ? "page" : null} onClick=${() => navigate(s.id)}>
           <${Icon} name=${s.icon} />${s.label}</button>`)}
         <button type="button" class="side-more-button" aria-expanded=${moreOpen ? "true" : "false"} aria-controls="side-more"
-          ...${helpFor("shell.more")} onClick=${toggleMore}><${Icon} name="dots" />Más</button>
+          ...${helpFor("shell.more")} onClick=${toggleMore}><${Icon} name="dots" />${t("shell.more")}</button>
         <${Help} topic="shell.more" compact=${true} />
         ${!noticeSeen && html`<div class="side-more-notice">
-          <p>Las demás secciones están en «Más». Puedes fijarlas en la barra.</p>
-          <button type="button" class="btn secondary" ...${helpFor("shell.more_notice")} onClick=${dismissNotice}>Entendido</button>
+          <p>${t("shell.more_notice")}</p>
+          <button type="button" class="btn secondary" ...${helpFor("shell.more_notice")} onClick=${dismissNotice}>${t("shell.understood")}</button>
           <${Help} topic="shell.more_notice" compact=${true} />
         </div>`}
         <div id="side-more" class="side-more-list" hidden=${!moreOpen}>
@@ -197,23 +201,22 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
             aria-current=${s.id === route.section ? "page" : null} onClick=${() => navigate(s.id)}>
             <${Icon} name=${s.icon} />${s.label}</button>`)}
           ${navigation.more.some((s) => s.action === "help") && html`<button type="button" class="side-help-row" data-nav
-            ...${helpFor("shell.help_mode", { scope: "more" })} onClick=${() => writeHelpMode(true)}><${Icon} name="help" />Ayuda</button>
+            ...${helpFor("shell.help_mode", { scope: "more" })} onClick=${() => writeHelpMode(true)}><${Icon} name="help" />${t("shell.help")}</button>
           <${Help} topic="shell.help_mode" scope="more" compact=${true} />`}
         </div>
       </div>
     </div>
-    <div class="side-sessions-head"><span>Sesiones</span><span class="side-head-actions">
+    <div class="side-sessions-head"><span>${t("shell.sessions_heading")}</span><span class="side-head-actions">
       <button type="button" class="side-activities" aria-pressed=${activitiesMode ? "true" : "false"}
-        ...${helpFor("shell.activities")} onClick=${() => setActivitiesMode((enabled) => !enabled)}>Actividades</button>
+        ...${helpFor("shell.activities")} onClick=${() => setActivitiesMode((enabled) => !enabled)}>${t("shell.activities")}</button>
       <${Help} topic="shell.activities" compact=${true} />
       <button type="button" data-nav data-help-exempt="navigation"
-        aria-current=${route.section === "sessions" ? "page" : null} onClick=${() => navigate("sessions")}>Ver todas</button></span></div>
+        aria-current=${route.section === "sessions" ? "page" : null} onClick=${() => navigate("sessions")}>${t("shell.view_all")}</button></span></div>
     <p class="muted small side-summary" aria-live="polite"
       aria-busy=${activitiesMode ? (activityData.loaded && !activityData.loading ? "false" : "true") : (data.loaded ? "false" : "true")}>${summary}</p>
-    ${activitiesMode && activityData.failed && html`<p class="message error small" role="alert">No se pudieron leer las actividades. Vuelve a activar el filtro para reintentarlo.</p>`}
-    ${!activitiesMode && data.failed.length > 0 && html`<p class="message error small" role="alert">No se pudo leer la lista de ${data.failed.join(" ni de ")}; se reintentará sola.</p>`}
-    ${!activitiesMode && data.loaded && data.hint && data.sessions.length === 0 && html`<p class="muted small">Las sesiones de Claude, Codex y Copilot necesitan carpetas
-      permitidas (gui_session_roots). En «Sesiones» se explica cómo.</p>`}
+    ${activitiesMode && activityData.failed && html`<p class="message error small" role="alert">${t("shell.activities_read_failed")}</p>`}
+    ${!activitiesMode && data.failed.length > 0 && html`<p class="message error small" role="alert">${t("shell.list_read_failed", { kinds: data.failed.join(t("shell.or")) })}</p>`}
+    ${!activitiesMode && data.loaded && data.hint && data.sessions.length === 0 && html`<p class="muted small">${t("shell.session_roots_hint")}</p>`}
     <div class="side-groups">
       ${groups.map((group) => html`<${Group} key=${group.key} group=${group} route=${route} now=${now} />`)}
     </div>

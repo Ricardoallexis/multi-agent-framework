@@ -46,7 +46,8 @@ def css_text() -> str:
 
 def run_node(script: str, data: dict | None = None) -> dict:
     """Run a module script that can ``import`` the chat model (``MODEL``) and read ``DATA``; it prints one JSON object."""
-    prelude = (f'import * as m from {json.dumps((JS / "new-session-model.js").as_uri())};\n'
+    prelude = ("Object.defineProperty(globalThis, 'navigator', {value: {language: 'es-MX'}, configurable: true});\n"
+               f'const m = await import({json.dumps((JS / "new-session-model.js").as_uri())});\n'
                "const DATA = JSON.parse(process.env.DATA || 'null');\n"
                "globalThis.fetch = () => { throw new Error('the model must not touch the network'); };\n")
     done = subprocess.run([NODE, "--input-type=module", "-e", prelude + script], capture_output=True, text=True,
@@ -133,9 +134,14 @@ def test_the_chat_replaces_the_form_at_new_and_the_form_stays_available():
 def test_the_model_is_pure_and_matching_is_deterministic_with_no_dead_hooks():
     model = source("new-session-model.js")
     imports = re.findall(r'^import\b.*$', model, re.M)
-    assert all(re.match(r'^import\s+\{[^}]+\}\s+from\s+"\./quota-text\.js";?$', line) for line in imports), imports
+    assert imports == [
+        'import { formatQuotaLines } from "./quota-text.js";',
+        'import { currentLanguage, t } from "./i18n.js";',
+    ]
     quota_text = source("quota-text.js")
-    assert not re.search(r"^import\b", quota_text, re.M)
+    assert re.findall(r"^import\b.*$", quota_text, re.M) == [
+        'import { currentLanguage, t } from "./i18n.js";',
+    ]
     for forbidden in ("fetch(", "apiPost", "apiGet", "document.", "window.", "localStorage"):
         assert forbidden not in model, forbidden
         assert forbidden not in quota_text, forbidden
@@ -210,7 +216,7 @@ def test_every_chat_control_is_covered_by_the_help_rules_and_its_topics_exist():
         assert re.search(rf'topic="{re.escape(key)}"', chat_topics), key        # every topic that guides a control also draws its hint
     assert "data-help-exempt" not in chat                               # no control of the chat is exempt
     assert "Por ahora abre el formulario" not in read_js("help-text.js")          # «Nueva sesión» no longer opens the form
-    assert "Lanzar" in " ".join(HELP["shell.new_session"]["more"])
+    assert "Launch" in " ".join(HELP["shell.new_session"]["more"])
 
 
 # --- the pure model (Node) -----------------------------------------------------------------------------------------------

@@ -52,7 +52,8 @@ def test_mode_is_remembered_and_blocked_storage_falls_back_to_orchestrator():
 def test_model_selector_counts_disconnected_without_selecting_them():
     uri = json.dumps((JS / "model-picker-model.js").as_uri())
     out = run_node(f"""
-      import {{buildModelPicker}} from {uri};
+      Object.defineProperty(globalThis, 'navigator', {{value: {{language: 'es-MX'}}, configurable: true}});
+      const {{buildModelPicker}} = await import({uri});
       const empty = buildModelPicker({{connections: []}});
       const listed = buildModelPicker({{connections: [
         {{id:'ollama', enabled:true, available:true}},
@@ -72,7 +73,8 @@ def test_model_selector_counts_disconnected_without_selecting_them():
 def test_project_selector_prefills_but_still_asks_and_run_requires_confirmation():
     uri = json.dumps((JS / "new-session-model.js").as_uri())
     out = run_node(f"""
-      import * as m from {uri};
+      Object.defineProperty(globalThis, 'navigator', {{value: {{language: 'es-MX'}}, configurable: true}});
+      const m = await import({uri});
       const picked = m.reduce(m.createConversation(), {{type:'pick', workflow:{{id:'sample',bundle:'general'}},
         spec:{{inputs:[]}}, project:'Proyecto reciente'}});
       const answered = m.reduce(picked, {{type:'send',text:'Proyecto reciente'}});

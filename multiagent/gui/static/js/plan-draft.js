@@ -8,8 +8,9 @@ import { html, useEffect, useState } from "../vendor/htm-preact-standalone.modul
 import { ApiError, apiPost } from "./api.js";
 import { currentMode, onModeChange } from "./gui-mode.js";
 import { Help, helpFor } from "./help.js";
+import { t } from "./i18n.js";
 import {
-  FALLBACK_TEXT, PLAN_CANCEL_LABEL, PLAN_SAVED_NOTE, PLAN_SAVE_LABEL, PLAN_SAVE_PATH,
+  FALLBACK_TEXT, PLAN_SAVE_PATH,
   planDraftRows, planSaveBody, planSaveFailure, teamRows,
 } from "./plan-draft-model.js";
 
@@ -20,7 +21,7 @@ export function PlanDraftBody({ draft, mode, catalog }) {
   return html`<div class="plan-draft-body">
     ${draft.goal && html`<p class="plan-draft-goal"><strong>${draft.goal}</strong></p>`}
     ${FALLBACK_TEXT[draft.fallback_reason] && html`<p class="muted small plan-draft-fallback" role="status">
-      ${FALLBACK_TEXT[draft.fallback_reason]} <${Help} topic="chat.office_plan" compact=${true} /></p>`}
+      ${t(FALLBACK_TEXT[draft.fallback_reason])} <${Help} topic="chat.office_plan" compact=${true} /></p>`}
     <ol class="plan-draft-tasks">${rows.map((row) => html`<li key=${row.id} class="plan-draft-task">
       <strong>${row.title}</strong>
       ${row.workflowText && html`<p class="muted small plan-draft-workflow">${row.workflowText}</p>`}
@@ -29,9 +30,9 @@ export function PlanDraftBody({ draft, mode, catalog }) {
         <dt>${item.label}</dt><dd>${item.value}</dd></div>`)}</dl>`}
     </li>`)}</ol>
     ${teams.length > 0 && html`<div class="plan-draft-teams">
-      <h5>Equipos que se propondrán</h5>
+      <h5>${t("new_session.teams_to_propose")}</h5>
       <ul>${teams.map((team) => html`<li key=${team.bundle}>${team.bundle}${team.rolesText ? ": " + team.rolesText : ""}</li>`)}</ul>
-      <p class="muted small">Cada equipo queda propuesto, no aprobado: el plan no se puede aprobar hasta que apruebes el equipo.</p>
+      <p class="muted small">${t("new_session.team_proposed_not_approved")}</p>
     </div>`}
   </div>`;
 }
@@ -52,14 +53,14 @@ export function PlanDraftCard({ token, draft, catalog = [], onSaved, onCancel })
       setBusy(false);
     }
   }
-  return html`<section class="ns-msg ns-bot plan-draft" role="group" aria-label="Borrador del plan">
-    <h4>Borrador del plan</h4><${Help} topic="chat.plan_draft" compact=${true} />
+  return html`<section class="ns-msg ns-bot plan-draft" role="group" aria-label=${t("new_session.plan_draft")}>
+    <h4>${t("new_session.plan_draft")}</h4><${Help} topic="chat.plan_draft" compact=${true} />
     <${PlanDraftBody} draft=${draft} mode=${mode} catalog=${catalog} />
-    <p class="muted small">${PLAN_SAVED_NOTE}</p>
+    <p class="muted small">${t("new_session.plan_saved_note")}</p>
     ${error && html`<p class="message error" role="alert">${error}</p>`}
     <div class="actions">
-      <button type="button" class="btn" disabled=${busy} ...${helpFor("chat.plan_save")} onClick=${save}>${PLAN_SAVE_LABEL}</button>
-      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.plan_save")} onClick=${() => { if (onCancel) onCancel(); }}>${PLAN_CANCEL_LABEL}</button>
+      <button type="button" class="btn" disabled=${busy} ...${helpFor("chat.plan_save")} onClick=${save}>${t("new_session.save_plan")}</button>
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.plan_save")} onClick=${() => { if (onCancel) onCancel(); }}>${t("new_session.cancel")}</button>
       <${Help} topic="chat.plan_save" compact=${true} />
     </div>
   </section>`;

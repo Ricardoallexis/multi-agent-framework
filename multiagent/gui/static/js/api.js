@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Calls to /gui/api with the local token. POST bodies are always JSON.
 import { authHeaders } from "./auth.js";
+import { t } from "./i18n.js";
 
 export class ApiError extends Error {
   constructor({ status = 0, code = "network_error", message = "", details = {} }) {
@@ -23,7 +24,7 @@ async function request(method, path, token, body) {
   try {
     response = await fetch(path, options);
   } catch (_) {
-    throw new ApiError({ code: "network_error", message: "No se pudo contactar con el servidor local." });
+    throw new ApiError({ code: "network_error", message: t("shell.local_server_unreachable") });
   }
   let payload = null;
   try { payload = await response.json(); } catch (_) { /* empty or non-JSON body */ }

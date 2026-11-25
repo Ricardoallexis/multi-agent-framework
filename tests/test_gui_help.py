@@ -144,6 +144,10 @@ def test_topics_make_unique_element_ids():
 MARKUP_IN_TEXT = re.compile(r"[<>`]|\$\{|https?:|javascript:", re.I)
 
 
+# The assertions below read Spanish text: select it before any module loads, whatever language the host has.
+SPANISH_NAVIGATOR = ["--import", "data:text/javascript,Object.defineProperty(globalThis,'navigator',{value:{language:'es-MX'},configurable:true})"]
+
+
 def spanish_help(static_dir=STATIC_DIR) -> dict:
     """IDI phase B: the ``help.<topic>`` entries of the ``es`` dictionaries (``static/i18n/es/*.js`` and the ``es`` of each
     ``extensions/<name>/i18n.js``), keyed by topic. The help fragments hold the English base; the Spanish lives here."""
@@ -155,7 +159,7 @@ def spanish_help(static_dir=STATIC_DIR) -> dict:
     imports += [f"import e{i} from {json.dumps(path.as_uri())};" for i, path in enumerate(extensions)]
     sources = [f"v{i}" for i in range(len(views))] + [f"e{i}.es" for i in range(len(extensions))]
     script = "\n".join(imports) + f"\nconsole.log(JSON.stringify([{', '.join(sources)}]));"
-    run = subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True,
+    run = subprocess.run([NODE, *SPANISH_NAVIGATOR, "--input-type=module", "-e", script], capture_output=True, text=True,
                          encoding="utf-8", cwd=static_dir, timeout=60)
     assert run.returncode == 0, run.stderr
     found: dict = {}
@@ -204,6 +208,15 @@ def test_each_execution_mode_has_a_hint_and_matches_the_form():
     assert re.findall(r"^\s*(\w+):", labels, re.M) == modes
     assert list(MODE_HINTS) == modes
     for mode, hint in MODE_HINTS.items():
+        assert hint.strip() and len(hint) <= MAX_HINT and not MARKUP_IN_TEXT.search(hint), mode
+    dictionary = (STATIC_DIR / "i18n" / "es" / "create-run.js").read_text(encoding="utf-8")
+    spanish_hints = {
+        key: json.loads(value)
+        for key, value in re.findall(r'"([^"\\]+)"\s*:\s*("(?:\\.|[^"\\])*")', dictionary)
+        if key.startswith("create_run.mode_hint_")
+    }
+    assert set(spanish_hints) == {f"create_run.mode_hint_{mode}" for mode in modes}
+    for mode, hint in spanish_hints.items():
         assert hint.strip() and len(hint) <= MAX_HINT and not FORBIDDEN_IN_TEXT.search(hint), mode
     # "create.mode" explains every mode, one sentence each
     assert len(HELP["create.mode"]["more"]) == len(modes)
@@ -358,7 +371,7 @@ def test_the_places_the_user_asked_about_are_covered():
     assert not [topic for topic in asked if topic not in topics]
     # one explanation per execution mode, and one per app that a session can be opened in
     mode_text = " ".join(HELP["create.mode"]["more"])
-    for label in ("Automático", "Modelo local", "Modelo en la nube", "Guiado por una persona"):
+    for label in ("Automatic", "Local model", "Cloud model", "Human guided"):
         assert label in mode_text
     assert {"open.claude", "open.codex", "open.copilot"} <= set(HELP)
 
@@ -399,7 +412,7 @@ def test_entries_built_from_data_follow_the_same_rules():
         modes: Object.keys(MODE_HINTS).map((mode) => modeHelpEntry(mode)),
       }));
     """ % json.dumps((JS / "help-text.js").as_uri())
-    run = subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True,
+    run = subprocess.run([NODE, *SPANISH_NAVIGATOR, "--input-type=module", "-e", script], capture_output=True, text=True,
                          encoding="utf-8", timeout=60)
     assert run.returncode == 0, run.stderr
     out = json.loads(run.stdout)
@@ -415,8 +428,17 @@ def test_entries_built_from_data_follow_the_same_rules():
     assert "opciones" in choice["more"][0] and not any(s.startswith("Ejemplo") for s in choice["more"])
     assert derived["more"][0] == "Admite texto libre." and not any(s.startswith("Ejemplo") for s in derived["more"])
     assert "no se ejecutan" in skipped["more"][1]
-    assert [e["hint"] for e in out["modes"]] == list(MODE_HINTS.values())
-    assert all(e["more"] == HELP["create.mode"]["more"] for e in out["modes"])
+    create_run_es = (STATIC_DIR / "i18n" / "es" / "create-run.js").read_text(encoding="utf-8")
+    spanish_mode_hints = {
+        key: json.loads(value)
+        for key, value in re.findall(r'"([^"\\]+)"\s*:\s*("(?:\\.|[^"\\])*")', create_run_es)
+        if key.startswith("create_run.mode_hint_")
+    }
+    assert [entry["hint"] for entry in out["modes"]] == [
+        spanish_mode_hints[f"create_run.mode_hint_{mode}"] for mode in MODE_HINTS
+    ]
+    spanish_mode_help = spanish_help()["create.mode"]
+    assert all(entry["more"] == spanish_mode_help["more"] for entry in out["modes"])
 
 
 # --- the views that tasks add: static/extensions/<name>/ (FLU-T04) ------------------------------------------------------

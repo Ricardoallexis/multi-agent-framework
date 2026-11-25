@@ -29,9 +29,13 @@ def file_url(path: Path) -> str:
     return json.dumps(path.as_uri())
 
 
+# The assertions below read Spanish text: select it before any module loads, whatever language the host has.
+SPANISH_NAVIGATOR = ["--import", "data:text/javascript,Object.defineProperty(globalThis,'navigator',{value:{language:'es-MX'},configurable:true})"]
+
+
 def run_node(script: str):
     result = subprocess.run(
-        [NODE, "--input-type=module", "-e", script],
+        [NODE, *SPANISH_NAVIGATOR, "--input-type=module", "-e", script],
         capture_output=True,
         text=True,
         encoding="utf-8",

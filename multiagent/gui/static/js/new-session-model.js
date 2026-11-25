@@ -16,6 +16,7 @@
 // empty answer) falls back to the deterministic matching of names and descriptions, and the chat says which one it used.
 // Nothing here calls a model or the network, and nothing runs before «Lanzar».
 import { formatQuotaLines } from "./quota-text.js";
+import { currentLanguage, t } from "./i18n.js";
 
 export const COMMANDS = ["workflow", "continuar", "ayuda"];
 export const MAX_SUGGESTIONS = 4;
@@ -37,25 +38,25 @@ export function singleSessionModels(connections, routing) {
       if (row.limit || row.reason === "limit_reached" || row.reason === "quota_paused") {
         reason = limitReachedText(row.limit || row.resets_at || row.paused_until);
       } else if (row.reason === "key_invalid") {
-        reason = "Clave inválida.";
+        reason = t("new_session.key_invalid");
       } else if (row.reason === "no_access") {
-        reason = "Sin acceso.";
+        reason = t("new_session.no_access");
       } else if (row.reason === "key_missing") {
-        reason = "Falta configurar la clave.";
+        reason = t("new_session.key_missing");
       } else if (row.reason === "disabled") {
-        reason = "No está habilitado.";
+        reason = t("new_session.disabled");
       } else if (row.reason === "unreachable") {
-        reason = "No responde.";
+        reason = t("new_session.unreachable");
       } else if (row.reason === "tls_certificate") {
-        reason = "No se pudo verificar el certificado TLS.";
+        reason = t("new_session.tls_certificate");
       } else {
-        reason = "La conexión no está habilitada y disponible.";
+        reason = t("new_session.connection_unavailable");
       }
     } else if (!matches.length) {
-      reason = "Este proveedor no tiene un modelo admitido en el catálogo del paquete general.";
+      reason = t("new_session.model_not_in_catalog");
     }
     const status = row.id === "gemini" && eligible
-      ? (row.verification === "verified" ? "Conectado" : "Sin comprobar")
+      ? (row.verification === "verified" ? t("new_session.connected") : t("new_session.not_checked"))
       : null;
     const limit = !eligible && (row.limit || row.reason === "limit_reached" || row.reason === "quota_paused")
       ? buildLimitNotice(
@@ -68,7 +69,7 @@ export function singleSessionModels(connections, routing) {
       models: eligible ? matches : [],
       reason,
       status,
-      quotaNote: row.id === "gemini" ? "La API de Gemini no informa la cuota." : null,
+      quotaNote: row.id === "gemini" ? t("new_session.gemini_quota_unavailable") : null,
       limit,
     };
   });
@@ -108,11 +109,11 @@ const CONNECTION_LABELS = {
 const MODEL_PROVIDER_IDS = new Set(["gemini", "openai", "ollama"]);
 const EXECUTOR_PROVIDER_IDS = new Set(["claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"]);
 
-const LIMIT_TIME_FORMAT = new Intl.DateTimeFormat("es", {
+const LIMIT_TIME_FORMATS = Object.fromEntries(["en", "es"].map((language) => [language, new Intl.DateTimeFormat(language, {
   hour: "2-digit",
   minute: "2-digit",
   hourCycle: "h23",
-});
+})]));
 
 export function connectionLabel(id) {
   return CONNECTION_LABELS[id] || String(id || "");
@@ -123,7 +124,7 @@ export function limitTimeText(resetsAt) {
   if (typeof resetsAt === "string" && !resetsAt.trim()) return "";
   const date = resetsAt instanceof Date ? resetsAt : new Date(resetsAt);
   if (Number.isNaN(date.getTime())) return "";
-  return LIMIT_TIME_FORMAT.format(date);
+  return LIMIT_TIME_FORMATS[currentLanguage()].format(date);
 }
 
 export function limitReachedText(limitOrResetsAt) {
@@ -131,15 +132,15 @@ export function limitReachedText(limitOrResetsAt) {
     ? limitOrResetsAt.resets_at
     : limitOrResetsAt;
   const hhmm = limitTimeText(raw);
-  return hhmm ? "Límite alcanzado · vuelve a las " + hhmm : "Límite alcanzado · sin hora conocida";
+  return hhmm ? t("new_session.limit_resets_at", { time: hhmm }) : t("new_session.limit_no_reset");
 }
 
 export function quotaWarningText(warning) {
   if (!warning || typeof warning.remaining_percent !== "number" || !Number.isFinite(warning.remaining_percent)) {
     return null;
   }
-  const pct = String(Math.round(warning.remaining_percent * 10) / 10).replace(".", ",");
-  return "Quedan " + pct + " %; bajo el piso del 15 %";
+  const pct = String(Math.round(warning.remaining_percent * 10) / 10).replace(".", currentLanguage() === "es" ? "," : ".");
+  return t("new_session.quota_warning", { percent: pct });
 }
 
 export function buildLimitNotice(limit, connectionsPayload = null) {
@@ -203,8 +204,7 @@ export function selectSingleExecutorSuggestion(suggestion, task) {
 
 // SEC-T04: secret review holding and resending with approval_id for POST /gui/api/new-session/interpret.
 export const SECRET_REVIEW_REASON = "secret_review_required";
-export const SECRET_REVIEW_NOTICE =
-  "Este mensaje lleva algo con forma de secreto: apruébalo en «Aprobaciones».";
+export const secretReviewNotice = () => t("new_session.secret_review_notice");
 
 export function isSecretReviewRequired(interpretation) {
   return Boolean(interpretation && interpretation.reason === SECRET_REVIEW_REASON);
@@ -218,7 +218,7 @@ export function interpretBody(text, { confirmCloud = false, approvalId = "" } = 
 
 export function officeOptions(payload) {
   const offices = Array.isArray(payload?.offices) ? payload.offices : [];
-  return [{ value: "", label: "Ninguna" }, ...offices
+  return [{ value: "", label: t("new_session.no_office") }, ...offices
     .filter((office) => office && typeof office.id === "string" && office.id)
     .map((office) => ({ value: office.id, label: String(office.name || office.id) }))];
 }
@@ -258,10 +258,10 @@ export function officeWorkflowGroups(area, workflows) {
 
 // The words of the «Oficinas» view (extensions/offices/model.js, LEVEL_TEXT); shared code cannot import a view.
 export const OFFICE_LEVEL_TEXT = Object.freeze({
-  non_sensitive: "Normal",
-  sensitive: "Sensible",
-  restricted: "Solo local",
-  none: "Sin nivel",
+  get non_sensitive() { return t("new_session.privacy_normal"); },
+  get sensitive() { return t("new_session.privacy_sensitive"); },
+  get restricted() { return t("new_session.privacy_local_only"); },
+  get none() { return t("new_session.privacy_no_level"); },
 });
 
 // The strictest level among the areas of the scene.
@@ -321,10 +321,10 @@ export function officeExecutionModes(modes, cloudAllowed = true) {
   return cloudAllowed ? choices : choices.filter((value) => value !== "cloud");
 }
 
-export const OFFICE_LEVEL_REQUIRED_TEXT = "Esta área todavía no tiene nivel de privacidad: elígelo en «Privacidad»";
+export const OFFICE_LEVEL_REQUIRED_TEXT = "new_session.office_level_required";
 
 export function officeLevelRequiredText(failure) {
-  return failure?.details?.reason === "office_level_required" ? OFFICE_LEVEL_REQUIRED_TEXT : "";
+  return failure?.details?.reason === "office_level_required" ? t(OFFICE_LEVEL_REQUIRED_TEXT) : "";
 }
 
 export function createSecretReview({ text, requestText, confirmCloud = false, approvalId = "" }) {
@@ -345,9 +345,9 @@ export function secretResendRequest(pending) {
 }
 
 export const STARTERS = [
-  { id: "workflow", label: "Trabajar en un workflow" },
-  { id: "continuar", label: "Continuar una ejecución" },
-  { id: "ayuda", label: "Ayuda" },
+  { id: "workflow", get label() { return t("new_session.starter_workflow"); } },
+  { id: "continuar", get label() { return t("new_session.starter_continue"); } },
+  { id: "ayuda", get label() { return t("new_session.starter_help"); } },
 ];
 export const SOURCE_MODEL = "model";
 export const SOURCE_KEYWORDS = "keywords";
@@ -394,14 +394,14 @@ export const entryKey = (entry) => (entry.bundle || "") + "|" + entry.id;
 const byOrigin = (a, b) => compare(a.bundle || "", b.bundle || "") || compare(a.id, b.id);
 
 export function originLabel(entry) {
-  return entry.bundle ? "Bundle «" + entry.bundle + "»" : "Incluido con el framework";
+  return entry.bundle ? t("new_session.bundle_origin", { name: entry.bundle }) : t("new_session.framework_origin");
 }
 
 // The line a workflow card shows under its name.
 export function cardDescription(entry) {
   if (entry.description) return entry.description;
-  if (entry.unreadable) return "No se pudo leer este workflow; al elegirlo se verá el motivo.";
-  return entry.described ? "Este workflow no trae descripción." : "Leyendo la descripción…";
+  if (entry.unreadable) return t("new_session.workflow_unreadable");
+  return entry.described ? t("new_session.workflow_no_description") : t("new_session.reading_description");
 }
 
 // Workflows that match the text, best first: [{ entry, score, matched }]. The name weighs double the description.
@@ -446,16 +446,16 @@ export function parseCommand(text) {
 // --- questions --------------------------------------------------------------------------------------------------
 
 function derivedDescription(item) {
-  const parts = ["El workflow no describe esta entrada."];
-  if (item.used_in && item.used_in.length) parts.push("Se usa en: " + item.used_in.join(", ") + ".");
-  if (item.prompt_line) parts.push("En el prompt: «" + item.prompt_line + "».");
+  const parts = [t("new_session.derived_input")];
+  if (item.used_in && item.used_in.length) parts.push(t("new_session.input_used_in", { locations: item.used_in.join(", ") }));
+  if (item.prompt_line) parts.push(t("new_session.input_prompt_line", { line: item.prompt_line }));
   return parts.join(" ");
 }
 
 const PROJECT_QUESTION = {
-  key: PROJECT_KEY, source: "project", name: "project", label: "Proyecto", kind: "text", choices: [], required: true,
-  description: "Nombre con el que se agrupa esta ejecución en la lista (mínimo 2 letras).",
-  example: "Informe trimestral",
+  key: PROJECT_KEY, source: "project", name: "project", get label() { return t("new_session.project"); }, kind: "text", choices: [], required: true,
+  get description() { return t("new_session.project_description"); },
+  get example() { return t("new_session.project_example"); },
 };
 
 // One question per input of the workflow, in the order the server sends them, and the project name last. The optional
@@ -481,14 +481,14 @@ export function buildQuestions(spec) {
 export function validateAnswer(question, raw) {
   const value = String(raw === null || raw === undefined ? "" : raw).trim();
   if (question.source === "project") {
-    if (value.length < PROJECT_MIN) return { error: "El nombre del proyecto necesita al menos " + PROJECT_MIN + " letras." };
-    if (value.length > PROJECT_MAX) return { error: "El nombre del proyecto admite hasta " + PROJECT_MAX + " caracteres." };
+    if (value.length < PROJECT_MIN) return { error: t("new_session.project_too_short", { count: PROJECT_MIN }) };
+    if (value.length > PROJECT_MAX) return { error: t("new_session.project_too_long", { count: PROJECT_MAX }) };
     return { value };
   }
-  if (!value) return question.required ? { error: "Esta entrada es obligatoria: escribe un valor." } : { value: "" };
+  if (!value) return question.required ? { error: t("new_session.required_answer") } : { value: "" };
   if (question.kind === "choice") {
     const hit = question.choices.find((choice) => normalize(choice) === normalize(value));
-    return hit === undefined ? { error: "Elige una de las opciones: " + question.choices.join(", ") + "." } : { value: hit };
+    return hit === undefined ? { error: t("new_session.choose_from_options", { choices: question.choices.join(", ") }) } : { value: hit };
   }
   return { value };
 }
@@ -516,33 +516,38 @@ export const progress = (state) => ({ n: state.index + 1, total: state.questions
 function questionLine(state) {
   const question = state.questions[state.index];
   const { n, total } = progress(state);
-  return "Pregunta " + n + " de " + total + ": " + question.label + (question.required ? "" : " (opcional)");
+  return t("new_session.question_line", {
+    number: n, total, label: question.label, optional: question.required ? "" : " " + t("new_session.optional_parenthetical"),
+  });
 }
 
-export const HELP_MESSAGE = "Puedo guiarte para lanzar un workflow o retomar una ejecución. Escribe en tus palabras lo que " +
-  "necesitas, o usa los comandos: /workflow (muestra los workflows; con texto detrás, los que encajan), /continuar " +
-  "(ejecuciones que puedes retomar) y /ayuda. Nada se ejecuta hasta que pulses «Lanzar».";
+export const helpMessageText = () => t("new_session.help_message");
+
+// Lower-cases the first letter so the numbered question line reads inside a sentence in either language.
+function lowerFirst(text) { return text.replace(/^./, (c) => c.toLowerCase()); }
 
 function helpMessage(state) {
   const question = currentQuestion(state);
-  if (!question) return HELP_MESSAGE;
-  return HELP_MESSAGE + "\nAhora estás en la " + questionLine(state).replace(/^P/, "p") + ". Responde en la caja de abajo" +
-    (question.required ? "." : " o pulsa «Omitir».");
+  if (!question) return t("new_session.help_message");
+  return t("new_session.help_message_with_question", {
+    help: t("new_session.help_message"), question: lowerFirst(questionLine(state)),
+    optional_action: question.required ? "." : t("new_session.optional_skip_suffix"),
+  });
 }
 
 // Why the model was not used, for the line that tells the operator the words were compared instead.
 const FALLBACK_REASONS = {
-  disabled: "la interpretación con modelo está desactivada",
-  no_workflows: "no hay workflows que ofrecerle al modelo",
-  model_error: "el modelo no respondió",
-  refused: "la política de salida del framework no dejó enviar el texto",
-  cloud_confirmation_required: "no se confirmó el envío a la nube",
-  limit_reached: "se alcanzó el límite de uso",
-  budget_cut: "se alcanzó un tope de presupuesto",
-  invalid_output: "el modelo devolvió una respuesta que no encaja con los workflows",
-  no_match: "el modelo no encontró un workflow que encaje",
+  disabled: "new_session.fallback_disabled",
+  no_workflows: "new_session.fallback_no_workflows",
+  model_error: "new_session.fallback_model_error",
+  refused: "new_session.fallback_refused",
+  cloud_confirmation_required: "new_session.fallback_cloud_confirmation",
+  limit_reached: "new_session.fallback_limit",
+  budget_cut: "new_session.fallback_budget",
+  invalid_output: "new_session.fallback_invalid_output",
+  no_match: "new_session.fallback_no_match",
 };
-export const fallbackReason = (reason) => FALLBACK_REASONS[reason] || "no se pudo usar el modelo";
+export const fallbackReason = (reason) => t(FALLBACK_REASONS[reason] || "new_session.fallback_unavailable");
 
 // The proposal of the server when it is usable here: its workflow is in the catalog. Inputs are kept as text; the ones the
 // workflow does not ask are ignored when the workflow is picked.
@@ -561,35 +566,34 @@ function usableProposal(interpretation, catalog) {
 function suggest(state, text, catalog, interpretation) {
   const all = sortCatalog(catalog || []);
   if (all.length === 0) {
-    return { ...say(state, "assistant", "No hay workflows disponibles en este servidor. Puedes probar «Ver como formulario»."), phase: "choose", suggestions: [], source: "", proposal: null, showAll: true };
+    return { ...say(state, "assistant", t("new_session.no_workflows_form")), phase: "choose", suggestions: [], source: "", proposal: null, showAll: true };
   }
   const proposed = usableProposal(interpretation, all);
   if (proposed) {
     const filled = Object.keys(proposed.inputs).length;
     const note = (proposed.explanation ? " " + proposed.explanation : "") +
-      (filled ? " Rellené " + filled + (filled === 1 ? " entrada" : " entradas") + " con lo que escribiste; las revisarás antes de lanzar." : "");
-    return { ...say(state, "assistant", "Interpretado con un modelo: propongo «" + proposed.entry.id + "»." + note + " Elígelo para continuar; nada se ejecuta hasta que pulses «Lanzar»."),
+      (filled ? " " + t(filled === 1 ? "new_session.prefilled_one" : "new_session.prefilled_many", { count: filled }) : "");
+    return { ...say(state, "assistant", t("new_session.model_proposal", { id: proposed.entry.id, note })),
       phase: "choose", suggestions: [{ key: proposed.key, matched: [] }], source: SOURCE_MODEL, showAll: false,
       proposal: { key: proposed.key, inputs: proposed.inputs, project: proposed.project } };
   }
   const why = !interpretation ? "" : " (" + fallbackReason(interpretation.source === SOURCE_KEYWORDS ? interpretation.reason : "invalid_output") + ")";
   const found = matchWorkflows(text, all, { limit: MAX_SUGGESTIONS });
   const source = SOURCE_KEYWORDS;
-  const how = interpretation ? "Comparé las palabras con los nombres y descripciones" + why + ". " : "";
+  const how = interpretation ? t("new_session.compared_words", { reason: why }) + " " : "";
   if (found.length === 0) {
-    return { ...say(state, "assistant", how + "No encontré un workflow que encaje con eso. Estos son todos los disponibles: elige uno o prueba con otras palabras."),
+    return { ...say(state, "assistant", how + t("new_session.no_matching_workflow")),
       phase: "choose", suggestions: everyone(all), source: "", proposal: null, showAll: true };
   }
-  return { ...say(state, "assistant", how + "Creo que " + (found.length === 1 ? "este workflow encaja" : "estos workflows encajan") +
-    " con lo que escribiste. Elige uno o sigue describiendo lo que necesitas."),
+  return { ...say(state, "assistant", how + t(found.length === 1 ? "new_session.match_one" : "new_session.match_many")),
   phase: "choose", suggestions: found.map((item) => ({ key: entryKey(item.entry), matched: item.matched })), source, proposal: null, showAll: false };
 }
 
 function listAll(state, catalog) {
   const all = sortCatalog(catalog || []);
   const message = all.length === 0
-    ? "No hay workflows disponibles en este servidor. Puedes probar «Ver como formulario»."
-    : "Estos son los workflows disponibles. Elige uno o descríbeme lo que necesitas.";
+    ? t("new_session.no_workflows_form")
+    : t("new_session.all_workflows");
   return { ...say(state, "assistant", message), phase: "choose", source: "", suggestions: everyone(all), showAll: true };
 }
 
@@ -597,7 +601,7 @@ function onCommand(state, action) {
   const echoed = say(state, "user", action.echo || "/" + action.name + (action.rest ? " " + action.rest : ""));
   if (action.name === "ayuda") return say(echoed, "assistant", helpMessage(state));
   const fresh = clearWorkflow(echoed);
-  if (action.name === "continuar") return { ...say(fresh, "assistant", "Estas son las ejecuciones que puedes retomar."), phase: "continue", suggestions: [], source: "" };
+  if (action.name === "continuar") return { ...say(fresh, "assistant", t("new_session.runs_to_continue")), phase: "continue", suggestions: [], source: "" };
   return action.rest ? suggest(fresh, action.rest, action.catalog, action.interpretation) : listAll(fresh, action.catalog);
 }
 
@@ -611,7 +615,7 @@ function advance(state, value, echo) {
     next = { ...next, index: following };
     return say(next, "assistant", questionLine(next));
   }
-  return say({ ...next, phase: "confirm" }, "assistant", "Revisa el resumen y lánzalo cuando quieras. Nada se ejecuta hasta que pulses «Lanzar».");
+  return say({ ...next, phase: "confirm" }, "assistant", t("new_session.review_before_launch"));
 }
 
 function onAnswer(state, text) {
@@ -619,25 +623,25 @@ function onAnswer(state, text) {
   if (!question) return state;
   const checked = validateAnswer(question, text);
   if (checked.error) return { ...state, error: checked.error };
-  return advance(state, checked.value, checked.value || "(sin respuesta)");
+  return advance(state, checked.value, checked.value || t("new_session.no_answer"));
 }
 
 function onSkip(state) {
   const question = currentQuestion(state);
   if (!question || question.required) return state;
-  return advance(state, "", "(omitida)");
+  return advance(state, "", t("new_session.skipped"));
 }
 
 function onBack(state) {
   if (state.phase !== "ask" || state.index === 0) return state;
   const back = { ...state, index: state.index - 1, pendingPrefill: [], error: "" };
-  return say(back, "assistant", "Volvemos a la " + questionLine(back).replace(/^P/, "p") + ". Tu respuesta anterior está en la caja.");
+  return say(back, "assistant", t("new_session.previous_question_message", { question: lowerFirst(questionLine(back)) }));
 }
 
 function onEdit(state) {
   if (state.phase !== "confirm") return state;
   const back = { ...state, phase: "ask", index: 0, pendingPrefill: [], error: "" };
-  return say(say(back, "assistant", "Repasemos tus respuestas. Cada una aparece en la caja: pulsa Intro para conservarla o escribe otra."), "assistant", questionLine(back));
+  return say(say(back, "assistant", t("new_session.edit_answers")), "assistant", questionLine(back));
 }
 
 // The answers a model proposal gives for this workflow: only inputs it asks, each one checked like an answer typed by hand.
@@ -664,8 +668,9 @@ function onPick(state, action) {
   const fromBox = String(action.project || "").trim();
   if (fromBox) answers[PROJECT_KEY] = fromBox;
   const confirmFromBox = (key) => Boolean(fromBox) && key === PROJECT_KEY;
-  const next = say(say(state, "user", "Elijo «" + workflow.id + "»"), "assistant",
-    prefilled ? "Perfecto. Usé la propuesta del modelo para " + prefilled + (prefilled === 1 ? " respuesta" : " respuestas") + "; compruébalas." : "Perfecto. Te pregunto lo necesario, una cosa a la vez.");
+  const next = say(say(state, "user", t("new_session.choose_workflow_echo", { id: workflow.id })), "assistant",
+    prefilled ? t(prefilled === 1 ? "new_session.prefill_confirm_one" : "new_session.prefill_confirm_many", { count: prefilled })
+      : t("new_session.ask_one_at_a_time"));
   const first = questions.findIndex((question) => question.required && (confirmFromBox(question.key) || !answers[question.key]));
   const started = {
     ...next, phase: first === -1 && prefilled ? "confirm" : "ask", index: first === -1 ? 0 : first, error: "", answers,
@@ -673,7 +678,7 @@ function onPick(state, action) {
     workflow: { id: workflow.id, bundle: workflow.bundle || null, description: spec.description || workflow.description || "" },
     questions, inputNames: (spec.inputs || []).map((item) => item.name),
   };
-  if (started.phase === "confirm") return say(started, "assistant", "Revisa el resumen y lánzalo cuando quieras. Nada se ejecuta hasta que pulses «Lanzar».");
+  if (started.phase === "confirm") return say(started, "assistant", t("new_session.review_before_launch"));
   return say(started, "assistant", questionLine(started));
 }
 
@@ -698,8 +703,7 @@ export function reduce(state, action) {
       if (state.phase === "ask") return onAnswer(state, text);
       if (!text) return state;
       if (state.phase === "confirm" || state.phase === "launched") {
-        return say(say(state, "user", text), "assistant",
-          "Para seguir usa los botones del resumen: «Lanzar», «Editar» o «Ver como formulario». Escribe /workflow para empezar con otro workflow.");
+        return say(say(state, "user", text), "assistant", t("new_session.use_summary_buttons"));
       }
       return suggest(clearWorkflow(say(state, "user", text)), text, action.catalog, action.interpretation);
     }
@@ -714,13 +718,13 @@ export function reduce(state, action) {
       return next;
     }
     case "show_all": {
-      const shown = say(state, "assistant", "Estos son todos los workflows disponibles.");
+      const shown = say(state, "assistant", t("new_session.all_workflows_shown"));
       return { ...shown, phase: "choose", source: "", proposal: null, suggestions: everyone(action.catalog), showAll: true };
     }
     case "skip": return onSkip(state);
     case "back": return onBack(state);
     case "edit": return onEdit(state);
-    case "launched": return say({ ...state, phase: "launched", runId: action.runId }, "assistant", "La ejecución está creada. Seguimos aquí su avance.");
+    case "launched": return say({ ...state, phase: "launched", runId: action.runId }, "assistant", t("new_session.run_created"));
     case "notice": return say(state, "assistant", String(action.text || ""));
     case "typing": return state.error ? { ...state, error: "" } : state;
     default: return state;

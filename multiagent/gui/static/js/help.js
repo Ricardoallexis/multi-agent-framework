@@ -8,6 +8,7 @@
 import { html, useState } from "../vendor/htm-preact-standalone.module.js";
 import { registeredHelp } from "./extensions.js";
 import { localizedHelp } from "./help-text.js";
+import { t } from "./i18n.js";
 
 const slug = (text) => String(text).replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 const baseId = (topic, scope) => "help-" + slug(topic) + (scope ? "-" + slug(scope) : "");
@@ -41,7 +42,7 @@ export function Help({ topic, entry = null, hint = null, compact = false, scope 
     <div class="hint-row">
       <span id=${id + "-hint"} class="hint-text" hidden=${compact && !open}>${hint || data.hint}</span>
       <button type="button" class="help-toggle" aria-expanded=${open ? "true" : "false"} aria-controls=${id + "-more"}
-        aria-label=${"Más información: " + data.title} title="Qué es esto" onClick=${() => setOpen(!open)}>?</button>
+        aria-label=${t("shell.more_information", { title: data.title })} title=${t("shell.what_is_this")} onClick=${() => setOpen(!open)}>?</button>
     </div>
     <div id=${id + "-more"} class="help-more" hidden=${!open}>${sentences.join(" ")}</div>
   </div>`;

@@ -4,10 +4,18 @@
 // the installation, so nothing is remembered in the browser: this module holds the value of the page and tells its listeners
 // when it changes. A view is shown in simple mode only when it says `mode: "simple"`; a view with no mode is advanced (L4).
 import { apiPost } from "./api.js";
+import { html } from "../vendor/htm-preact-standalone.module.js";
+import { t } from "./i18n.js";
 
 export const MODES = ["simple", "advanced"];
 export const DEFAULT_MODE = "simple";
-export const ADVANCED_ONLY_TEXT = "Esta vista es del modo avanzado";
+
+// Resolve the text at render time to avoid calling i18n during the module import cycle.
+function advancedOnlyText() {
+  return t("shell.advanced_only");
+}
+
+export const ADVANCED_ONLY_TEXT = html`<${advancedOnlyText} />`;
 
 let current = DEFAULT_MODE;
 const listeners = new Set();

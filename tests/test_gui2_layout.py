@@ -291,8 +291,12 @@ def test_stylesheet_has_visible_focus_touch_targets_and_reduced_motion():
 
 # --- the logic, run with Node ------------------------------------------------------------------------------------
 
+# The assertions below read Spanish text: select it before any module loads, whatever language the host has.
+SPANISH_NAVIGATOR = ["--import", "data:text/javascript,Object.defineProperty(globalThis,'navigator',{value:{language:'es-MX'},configurable:true})"]
+
+
 def run_node(script: str):
-    run = subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True,
+    run = subprocess.run([NODE, *SPANISH_NAVIGATOR, "--input-type=module", "-e", script], capture_output=True, text=True,
                          encoding="utf-8", timeout=60)
     assert run.returncode == 0, run.stderr
     return json.loads(run.stdout)

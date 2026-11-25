@@ -26,8 +26,12 @@ def read(name: str) -> str:
     return ui_text(JS / name)
 
 
+# The assertions below read Spanish text: select it before any module loads, whatever language the host has.
+SPANISH_NAVIGATOR = ["--import", "data:text/javascript,Object.defineProperty(globalThis,'navigator',{value:{language:'es-MX'},configurable:true})"]
+
+
 def run_node(source: str):
-    result = subprocess.run([NODE, "--input-type=module", "-e", source], capture_output=True, text=True, encoding="utf-8",
+    result = subprocess.run([NODE, *SPANISH_NAVIGATOR, "--input-type=module", "-e", source], capture_output=True, text=True, encoding="utf-8",
                             cwd=STATIC_DIR, timeout=30, check=True)
     return json.loads(result.stdout)
 
@@ -213,13 +217,14 @@ def test_visible_in_and_the_mode_holder():
       let refused = "";
       try { await saveMode("tok", "expert", post); } catch (e) { refused = e.message; }
       console.log(JSON.stringify({
-        MODES, DEFAULT_MODE, ADVANCED_ONLY_TEXT, start, heard, after: currentMode(), calls, saved,
+        MODES, DEFAULT_MODE, ADVANCED_ONLY_TEXT: ADVANCED_ONLY_TEXT.type(), start, heard, after: currentMode(), calls, saved,
         simpleShows: [visibleIn({ mode: "simple" }, "simple"), visibleIn({ mode: "advanced" }, "simple"), visibleIn({}, "simple"), visibleIn(null, "simple")],
         advancedShows: [visibleIn({ mode: "advanced" }, "advanced"), visibleIn({}, "advanced")],
         refused,
       }));
     """ % uri("gui-mode.js"))
     assert out["MODES"] == ["simple", "advanced"] and out["DEFAULT_MODE"] == "simple" and out["start"] == "simple"
+    assert out["ADVANCED_ONLY_TEXT"] == "Esta vista es del modo avanzado"
     assert out["heard"] == ["advanced"]   # an invalid value and a repeat are not changes; a removed listener hears nothing
     assert out["calls"] == [["/gui/api/settings/mode", "tok", {"mode": "advanced"}]]
     assert out["saved"] == {"mode": "advanced"} and out["after"] == "advanced"   # saveMode followed the answer
@@ -246,7 +251,8 @@ def test_pin_list_offers_only_visible_sections_in_simple_and_keeps_the_pins():
 
 
 def test_advanced_only_text_and_the_line_with_its_button():
-    assert 'ADVANCED_ONLY_TEXT = "Esta vista es del modo avanzado"' in read("gui-mode.js")
+    assert "ADVANCED_ONLY_TEXT = html`<${advancedOnlyText} />`" in read("gui-mode.js")
+    assert "Esta vista es del modo avanzado" in read("gui-mode.js")
     main = read("main.js")
     assert "<p class=\"advanced-only-text\">${ADVANCED_ONLY_TEXT}</p>" in main
     assert "Activar modo avanzado" in main and 'saveMode(token, "advanced")' in main

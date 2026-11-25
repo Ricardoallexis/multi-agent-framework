@@ -22,10 +22,11 @@ needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 def run_node(script: str, data: dict | None = None) -> dict:
     prelude = (
-        f'import * as qt from {json.dumps((JS / "quota-text.js").as_uri())};\n'
-        f'import * as picker from {json.dumps((JS / "model-picker-model.js").as_uri())};\n'
-        f'import * as session from {json.dumps((JS / "new-session-model.js").as_uri())};\n'
-        f'import * as apps from {json.dumps((EXT_APPS / "model.js").as_uri())};\n'
+        "Object.defineProperty(globalThis, 'navigator', {value: {language: 'es-MX'}, configurable: true});\n"
+        f'const qt = await import({json.dumps((JS / "quota-text.js").as_uri())});\n'
+        f'const picker = await import({json.dumps((JS / "model-picker-model.js").as_uri())});\n'
+        f'const session = await import({json.dumps((JS / "new-session-model.js").as_uri())});\n'
+        f'const apps = await import({json.dumps((EXT_APPS / "model.js").as_uri())});\n'
         "globalThis.fetch = () => { throw new Error('pure model must not use network'); };\n"
         "const DATA = JSON.parse(process.env.DATA || 'null');\n"
     )
@@ -43,8 +44,9 @@ def run_node(script: str, data: dict | None = None) -> dict:
 
 def test_quota_text_module_is_pure_and_has_no_dom_or_network():
     src = ui_text((JS / "quota-text.js"))
-    assert "import " not in src
-    for forbidden in ("fetch(", "apiPost", "apiGet", "document.", "window.", "localStorage", "innerHTML"):
+    assert 'import { currentLanguage, t } from "./i18n.js";' in src
+    src = src.replace('import { currentLanguage, t } from "./i18n.js";', "")
+    for forbidden in ("import ", "fetch(", "apiPost", "apiGet", "document.", "window.", "localStorage", "innerHTML"):
         assert forbidden not in src, forbidden
 
 

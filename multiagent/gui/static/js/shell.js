@@ -9,6 +9,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { Help, helpFor } from "./help.js";
 import { Icon } from "./ui/icon.js";
+import { t } from "./i18n.js";
 import { instanceLabel, onInstanceLabelChange } from "./instance.js";   // PRV-T01
 import { navigate } from "./route.js";
 import { NARROW_QUERY, defaultPanelOpen, isHelpKey, onChoiceChange, readAccent, readHelpMode, readPanelOpen, writeHelpMode, writePanelOpen } from "./shell-state.js";
@@ -124,30 +125,30 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
   };
 
   return html`<div class="app" data-help=${helpOn ? "on" : "off"} data-accent=${accent} data-drawer=${drawerOpen ? "open" : "closed"} data-panel=${panelShown ? "open" : "closed"}>
-    <a class="skip-link" href="#main-content" onClick=${skip}>Saltar al contenido</a>
+    <a class="skip-link" href="#main-content" onClick=${skip}>${t("shell.skip_link")}</a>
     <header class="topbar">
       <div class="menu-only">
         <button type="button" class="tool-btn" ref=${menuButton} aria-expanded=${drawerOpen ? "true" : "false"} aria-controls="sidebar"
-          ...${helpFor("shell.menu")} onClick=${toggleDrawer}><span class="burger" aria-hidden="true"></span>Menú</button>
+          ...${helpFor("shell.menu")} onClick=${toggleDrawer}><span class="burger" aria-hidden="true"></span>${t("shell.menu")}</button>
         <${Help} topic="shell.menu" compact=${true} />
       </div>
       <h1>Multi-Agent</h1>
       ${label && html`<span class="badge instance" title=${label}>${label}</span><${Help} topic="shell.instance_label" compact=${true} />`}
-      ${mock && html`<span class="badge mock" title="Resultados sintéticos, sin llamadas a modelos">MOCK</span>`}
+      ${mock && html`<span class="badge mock" title=${t("shell.mock_title")}>MOCK</span>`}
     </header>
     <div class="scrim" hidden=${!drawerOpen} onClick=${() => closeDrawer(true)}></div>
-    <nav id="sidebar" class="sidebar" aria-label="Sesiones y ejecuciones" ref=${sidebarBox} onClick=${onSidebarClick}>
+    <nav id="sidebar" class="sidebar" aria-label=${t("shell.nav_label")} ref=${sidebarBox} onClick=${onSidebarClick}>
       ${sidebar}
       <div class="side-footer">
         <span class=${"side-connection " + status} role="status" aria-live="polite"><span class="side-connection-dot" aria-hidden="true"></span>${statusText}</span>
         <div class="side-footer-tools">
         <div class="panel-tool">
-          <button type="button" class="tool-btn" data-nav ...${helpFor("shell.customize")} onClick=${() => navigate("customize")}><${Icon} name="settings" />Personalizar</button>
+          <button type="button" class="tool-btn" data-nav           ...${helpFor("shell.customize")} onClick=${() => navigate("customize")}><${Icon} name="settings" />${t("shell.customize")}</button>
           <${Help} topic="shell.customize" compact=${true} />
         </div>
         <div class="panel-tool help-tool">
           <button type="button" class="tool-btn" aria-pressed=${helpOn ? "true" : "false"}
-            ...${helpFor("shell.help_mode")} onClick=${toggleHelp}><${Icon} name="help" />Ayuda</button>
+            ...${helpFor("shell.help_mode")} onClick=${toggleHelp}><${Icon} name="help" />${t("shell.help")}</button>
           <${Help} topic="shell.help_mode" compact=${true} />
         </div>
         </div>
@@ -156,11 +157,11 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
     <main id="main-content" class="content" tabindex="-1" ref=${mainBox} inert=${drawerOpen}>
       ${hasSubject && html`<div class="content-toolbar"><div class="panel-tool">
         <button type="button" class="tool-btn" aria-expanded=${panelOpen ? "true" : "false"} aria-controls="right-panel"
-          ...${helpFor("shell.panel")} onClick=${togglePanel}><${Icon} name="panel" />Contexto${!panelOpen && contextDot && html`<span class="context-dot" aria-hidden="true"></span><span class="sr-only"> (hay contenido)</span>`}</button>
+          ...${helpFor("shell.panel")} onClick=${togglePanel}><${Icon} name="panel" />${t("shell.panel")}${!panelOpen && contextDot && html`<span class="context-dot" aria-hidden="true"></span><span class="sr-only">${t("shell.panel_has_content")}</span>`}</button>
         <${Help} topic="shell.panel" compact=${true} />
       </div></div>`}
       ${children}
     </main>
-    <aside id="right-panel" class="rightpanel" aria-label="Contexto de la sesión" hidden=${!panelShown} inert=${drawerOpen}>${panel}</aside>
+    <aside id="right-panel" class="rightpanel" aria-label=${t("shell.panel_aria")} hidden=${!panelShown} inert=${drawerOpen}>${panel}</aside>
   </div>`;
 }

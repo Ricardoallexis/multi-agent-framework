@@ -254,6 +254,7 @@ def run_node(script: str) -> Any:
         pytest.skip("Node is not installed")
     module = (ROOT / "multiagent" / "gui" / "static" / "js" / "new-session-model.js").as_uri()
     source = f"""
+      Object.defineProperty(globalThis, 'navigator', {{value: {{language: 'es-MX'}}, configurable: true}});
       const m = await import({json.dumps(module)});
       {script}
     """

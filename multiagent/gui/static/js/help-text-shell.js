@@ -4,613 +4,618 @@
 // entries the run form builds from data (execution modes, workflow inputs).
 // One part of the help catalog: help-text.js joins every part into HELP, so a view's texts live in one file.
 // Strict JSON under the rules of help-text.js: { title, hint, more }, keys as the views pass them to <Help topic=...>.
+import { t } from "./i18n.js";
 
 export const HELP = {
   "create.back": {
-    "title": "Volver",
-    "hint": "Cierra el formulario sin crear nada.",
+    "title": "Back",
+    "hint": "Close the form without creating a run.",
     "more": [
-      "Vuelves a la pantalla desde la que abriste el formulario: la lista de ejecuciones o el chat de nueva sesión.",
-      "Lo que escribiste en el formulario se descarta."
+      "Return to the screen where you opened the form: the runs list or the new-session chat.",
+      "Your form entries are discarded."
     ]
   },
   "create.bundle": {
-    "title": "Origen del workflow",
-    "hint": "De dónde salen los workflows: los incluidos o los de un bundle.",
+    "title": "Workflow source",
+    "hint": "Choose included workflows or workflows from a bundle.",
     "more": [
-      "«Workflows incluidos» son los que trae el framework.",
-      "Un bundle es una carpeta con workflows propios que registraste al arrancar la interfaz con la opción --bundle nombre=carpeta.",
-      "Al cambiar el origen se vacía el workflow elegido y se carga la lista del nuevo origen."
+      "Included workflows come with the framework.",
+      "A bundle is a folder of workflows that you registered when starting the interface with --bundle name=folder.",
+      "Changing the source clears the selected workflow and loads the workflows from the new source."
     ]
   },
   "create.workflow": {
     "title": "Workflow",
-    "hint": "La receta que se va a ejecutar: una serie de pasos con sus prompts.",
+    "hint": "The workflow to run: a series of steps and their prompts.",
     "more": [
-      "Al elegirlo aparecen su descripción, sus pasos y las entradas que pide.",
-      "Los pasos se ejecutan en orden y algunos se saltan solos según la configuración.",
-      "Es obligatorio."
+      "When you choose one, its description, steps, and required inputs appear.",
+      "Steps run in order, and some may be skipped based on the settings.",
+      "You must choose a workflow."
     ]
   },
   "create.steps": {
-    "title": "Pasos del workflow",
-    "hint": "Los pasos que recorrerá la ejecución, en este orden.",
+    "title": "Workflow steps",
+    "hint": "The steps this run will follow, in order.",
     "more": [
-      "Cada paso produce un resultado que puede usar el siguiente.",
-      "«Se salta por defecto» significa que ese paso solo se ejecuta si una condición lo pide, por ejemplo una búsqueda web.",
-      "Aquí solo se muestran: no se ejecuta ninguno hasta crear la ejecución."
+      "Each step produces a result that the next step can use.",
+      "“Skipped by default” means a step runs only when a condition calls for it, such as a web search.",
+      "This list is for review only. No step runs until you create the run."
     ]
   },
   "create.project": {
-    "title": "Proyecto",
-    "hint": "Un nombre para reconocer esta ejecución en la lista.",
+    "title": "Project",
+    "hint": "A name to recognize this run in the list.",
     "more": [
-      "Es solo una etiqueta tuya: no cambia lo que hace el workflow.",
-      "Necesita entre 2 y 120 caracteres.",
-      "Sirve para agrupar ejecuciones del mismo trabajo."
+      "This is your label and does not change what the workflow does.",
+      "Use between 2 and 120 characters.",
+      "Use it to group runs for the same work."
     ]
   },
   "create.inputs.required": {
-    "title": "Entradas obligatorias",
-    "hint": "Datos que el workflow necesita sí o sí.",
+    "title": "Required inputs",
+    "hint": "Information the workflow needs.",
     "more": [
-      "Cada entrada es un hueco {nombre} de los prompts que se rellena con tu texto.",
-      "Mientras falte alguna no se puede crear la ejecución, y el campo se marca al salir de él sin rellenar.",
-      "Debajo de cada campo ves su descripción y, si existe, un ejemplo en gris."
+      "Each input fills a {name} placeholder in the prompts with your text.",
+      "You cannot create the run while a required input is empty. An empty field is marked when you leave it.",
+      "Each field shows its description and, when available, an example."
     ]
   },
   "create.inputs.optional": {
-    "title": "Entradas opcionales",
-    "hint": "Datos que puedes dejar vacíos.",
+    "title": "Optional inputs",
+    "hint": "Information you can leave blank.",
     "more": [
-      "Si los dejas vacíos, el hueco queda en blanco en el prompt.",
-      "La vista previa avisa de cuáles quedan vacíos.",
-      "Rellénalos cuando quieras orientar más al modelo."
+      "If you leave an input blank, its placeholder stays empty in the prompt.",
+      "The preview lists any inputs you left blank.",
+      "Fill them in when you want to give the model more direction."
     ]
   },
   "create.inputs.context": {
-    "title": "Contexto adicional opcional",
-    "hint": "Apoyo extra: notas o antecedentes que ayudan, pero no hacen falta.",
+    "title": "Optional context",
+    "hint": "Extra notes or background that may help but are not required.",
     "more": [
-      "Son las entradas cuyo nombre termina en _context, y nunca son obligatorias.",
-      "Están plegadas para no estorbar; ábrelas solo si te sirven."
+      "These inputs have names ending in _context and are never required.",
+      "They are collapsed to keep the form short. Open them only when useful."
     ]
   },
   "create.mode": {
-    "title": "Cómo se ejecuta",
-    "hint": "Quién ejecuta cada paso: el framework con un modelo, o tú a mano.",
+    "title": "How it runs",
+    "hint": "Choose whether the framework or a person handles each step.",
     "more": [
-      "Automático: cada paso usa el modelo que el workflow le asigna (local, salvo que haga falta búsqueda web).",
-      "Modelo local: todos los pasos usan un modelo de tu equipo y no se envía nada a la nube.",
-      "Modelo en la nube: usa modelos de un proveedor externo; puede costar dinero y no vale con contenido sensible.",
-      "Guiado por una persona: el framework no llama a ningún modelo; tú copias el prompt, lo usas donde quieras y pegas la respuesta."
+      "Automatic: each step uses the model assigned by the workflow, usually on your device unless it needs web search.",
+      "Local model: every step uses a model on your device, and nothing is sent to the cloud.",
+      "Cloud model: uses an outside provider, may cost money, and cannot be used with sensitive content.",
+      "Human guided: the framework does not call a model. Copy the prompt, use it where you like, and paste the answer."
     ]
   },
   "create.operating_mode": {
-    "title": "Modo",
-    "hint": "Opcional: fija si la ejecución pide revisión entre roles o permite escrituras del rol.",
+    "title": "Operating mode",
+    "hint": "Optional: ask for reviews between roles or allow role writes.",
     "more": [
-      "«Sin modo» usa el modo del equipo aprobado si tiene uno, o el comportamiento habitual sin modo.",
-      "«Supervisado» pide aprobación humana en cada entrega entre roles y en cada escritura de herramienta.",
-      "«Autónomo» deja pasar escrituras ordinarias permitidas al rol dentro de los límites de la ejecución.",
-      "Lo destructivo, lo externo y aprobar un plan siguen esperando siempre a una persona."
+      "No mode uses the approved team mode, if there is one, or the usual behavior without a mode.",
+      "Supervised asks a person to approve each handoff between roles and each tool write.",
+      "Autonomous allows ordinary writes permitted for the role, within the run's limits.",
+      "Destructive and external actions, and plan approval, always wait for a person."
     ]
   },
   "create.sensitive": {
-    "title": "Contenido sensible",
-    "hint": "Márcalo si el texto no debe salir de tu equipo.",
+    "title": "Sensitive content",
+    "hint": "Select this if the text must stay on your device.",
     "more": [
-      "En modo automático obliga a usar solo modelos locales.",
-      "En modo «Modelo en la nube» la ejecución se rechaza.",
-      "En modo guiado se añade un aviso de privacidad al principio del prompt que vas a copiar."
+      "Automatic mode then uses local models only.",
+      "Cloud model mode rejects the run.",
+      "Human-guided mode adds a privacy notice to the prompt you copy."
     ]
   },
   "create.confirm_real": {
-    "title": "Confirmar modelos reales",
-    "hint": "El servidor no está en modo Mock: puede usar modelos reales.",
+    "title": "Confirm real models",
+    "hint": "The server is not in Mock mode and may use real models.",
     "more": [
-      "En modo Mock los resultados son sintéticos y no cuestan nada; aquí no.",
-      "Una ejecución con modelos reales puede tardar y tener coste según el proveedor.",
-      "Marca la casilla para confirmar que lo entiendes; sin ella no se puede crear."
+      "Mock mode uses synthetic results at no cost; this run may not.",
+      "A run with real models may take time and may cost money, depending on the provider.",
+      "Select the box to confirm you understand. You cannot create the run without it."
     ]
   },
   "create.submit": {
-    "title": "Crear ejecución",
-    "hint": "Crea la ejecución y la deja en cola para que el servidor la tome.",
+    "title": "Create run",
+    "hint": "Create the run and add it to the server's queue.",
     "more": [
-      "Se activa cuando el workflow, el proyecto y las entradas obligatorias están completos.",
-      "Si no se activa, el mensaje de encima dice qué falta.",
-      "Pulsarlo dos veces con los mismos datos no crea dos ejecuciones."
+      "This button is available when the workflow, project, and required inputs are ready.",
+      "If it is unavailable, the message above explains what is missing.",
+      "Pressing it twice with the same details does not create two runs."
     ]
   },
   "create.cancel": {
-    "title": "Cancelar",
-    "hint": "Descarta el formulario sin crear nada.",
+    "title": "Cancel",
+    "hint": "Discard the form without creating a run.",
     "more": [
-      "Vuelves a la lista de ejecuciones.",
-      "Lo que escribiste se pierde."
+      "Return to the runs list.",
+      "Your entries are discarded."
     ]
   },
 
   "preview.panel": {
-    "title": "Vista previa del prompt",
-    "hint": "Así quedará el prompt de cada paso con lo que escribiste.",
+    "title": "Prompt preview",
+    "hint": "See each step's prompt with the text you entered.",
     "more": [
-      "Solo se muestra: no se ejecuta nada ni se guarda nada.",
-      "Al ejecutar, el framework añade al final de cada prompt las instrucciones del formato de respuesta.",
-      "Los pasos que dependen de resultados anteriores salen con esos huecos vacíos hasta que se ejecuten."
+      "This is only a preview. Nothing runs or is saved.",
+      "When a run starts, the framework adds response-format instructions to the end of each prompt.",
+      "Prompts that need earlier results show those placeholders as empty until the earlier steps run."
     ]
   },
   "preview.copy": {
-    "title": "Copiar este prompt",
-    "hint": "Copia el prompt de este paso al portapapeles.",
+    "title": "Copy this prompt",
+    "hint": "Copy this step's prompt to the clipboard.",
     "more": [
-      "Sirve para probarlo en otra herramienta antes de ejecutar.",
-      "Si el navegador bloquea el portapapeles, selecciona el texto y pulsa Ctrl+C."
+      "Use it to try the prompt in another tool before running it.",
+      "If your browser blocks clipboard access, select the text and press Ctrl+C."
     ]
   },
 
   "shell.menu": {
-    "title": "Menú de sesiones",
-    "hint": "Abre o cierra la lista de sesiones en pantallas estrechas.",
+    "title": "Session menu",
+    "hint": "Show or hide the session list on narrow screens.",
     "more": [
-      "En pantallas estrechas la lista de sesiones se oculta para dejar sitio al contenido.",
-      "Este botón la muestra como un cajón sobre la pantalla y vuelve a ocultarla.",
-      "También se cierra con la tecla Esc o al elegir un elemento de la lista."
+      "On narrow screens, the session list is hidden to make room for the content.",
+      "This button opens the list as a drawer over the page and closes it again.",
+      "The drawer also closes when you press Esc or choose an item."
     ]
   },
   "shell.help_mode": {
-    "title": "Modo ayuda",
-    "hint": "Muestra u oculta los «?» y las pistas de cada control.",
+    "title": "Help mode",
+    "hint": "Show or hide the “?” buttons and hints for each control.",
     "more": [
-      "Apagado, solo se ven los «?» de los títulos y de las aprobaciones; la ayuda sigue disponible para los lectores de pantalla.",
-      "También se cambia con la tecla F1.",
-      "Este navegador recuerda el modo que dejaste."
+      "When off, only the “?” buttons on headings and approvals are visible. Screen readers can still access the help.",
+      "You can also toggle it with F1.",
+      "This browser remembers your choice."
     ]
   },
   "shell.panel": {
-    "title": "Contexto",
-    "hint": "Muestra u oculta el panel de contexto de la sesión o la ejecución abierta.",
+    "title": "Context",
+    "hint": "Show or hide context for the open session or run.",
     "more": [
-      "Empieza cerrado y solo aparece con una sesión o una ejecución abierta.",
-      "Reúne los cambios, los subagentes, los tokens y las fuentes, y solo dibuja las tarjetas con contenido.",
-      "Un punto junto al botón avisa de que, con el panel cerrado, hay algo que ver.",
-      "En pantallas estrechas aparece debajo del contenido."
+      "It starts closed and appears only when a session or run is open.",
+      "It groups changes, subagents, tokens, and sources, and shows cards only when they have content.",
+      "A dot by the button means there is something to see while the panel is closed.",
+      "On narrow screens, the panel appears below the content."
     ]
   },
   "shell.new_session": {
-    "title": "Nueva sesión",
-    "hint": "Empieza un trabajo nuevo con un chat guiado.",
+    "title": "New session",
+    "hint": "Start new work with a guided chat.",
     "more": [
-      "Describes lo que necesitas o eliges una opción, y el chat te pregunta las entradas del workflow de una en una.",
-      "No se ejecuta nada hasta que pulsas «Lanzar» en el resumen final.",
-      "Si prefieres el formulario completo, lo abres desde el propio chat con «Ver como formulario»."
+      "Describe what you need or choose an option. The chat asks for workflow inputs one at a time.",
+      "Nothing runs until you select “Launch” in the final summary.",
+      "To use the full form instead, select “View as form” in the chat."
     ]
   },
   "chat.welcome": {
-    "title": "Chat de nueva sesión",
-    "hint": "Aquí empiezas un trabajo: escribes lo que necesitas o eliges una opción.",
+    "title": "New-session chat",
+    "hint": "Start work here by describing what you need or choosing an option.",
     "more": [
-      "El chat propone workflows, te pregunta las entradas una a una y al final muestra un resumen.",
-      "Un modelo puede interpretar tu texto y proponer un workflow; si es de nube, el chat pide confirmación antes de enviarlo.",
-      "Si no lo envías, el chat compara las palabras con los nombres y descripciones de los workflows.",
-      "La ejecución solo se crea cuando pulsas «Lanzar»."
+      "The chat suggests workflows, asks for inputs one at a time, and then shows a summary.",
+      "A model can read your text and suggest a workflow. If it is a cloud model, the chat asks before sending your text.",
+      "If you do not send it, the chat compares your words with workflow names and descriptions.",
+      "The run is created only when you select “Launch”."
     ]
   },
   "chat.office": {
-    "title": "Oficina",
-    "hint": "Elige la oficina o una opción de sus áreas.",
+    "title": "Office",
+    "hint": "Choose an office or one of its area options.",
     "more": [
-      "El selector muestra solo las oficinas instaladas.",
-      "En Sesión única, las opciones aparecen agrupadas por área; al elegir una, te preguntaré sus datos.",
-      "Al pedir algo a la oficina, el coordinador puede preparar un plan."
+      "The picker shows installed offices only.",
+      "In Single session, options are grouped by area. After you choose one, I will ask for its inputs.",
+      "When you ask an office to do something, its coordinator may prepare a plan."
     ]
   },
   "chat.starters": {
-    "title": "Opciones de inicio",
-    "hint": "Atajos para empezar sin escribir.",
+    "title": "Ways to start",
+    "hint": "Shortcuts to get started without typing.",
     "more": [
-      "«Trabajar en un workflow» muestra los workflows disponibles.",
-      "«Continuar una ejecución» lista las que puedes retomar.",
-      "«Ayuda» explica cómo funciona el chat y sus comandos."
+      "“Work on a workflow” shows the available workflows.",
+      "“Continue a run” lists runs you can pick up.",
+      "“Help” explains the chat and its commands."
     ]
   },
   "chat.composer": {
-    "title": "Caja de escritura",
-    "hint": "Escribe aquí tu petición o tu respuesta; Intro la envía.",
+    "title": "Message box",
+    "hint": "Type your request or answer here. Press Enter to send it.",
     "more": [
-      "Intro envía el mensaje y Mayús+Intro añade una línea nueva.",
-      "Puedes escribir los comandos /workflow, /continuar y /ayuda.",
-      "Durante las preguntas, lo que escribes es la respuesta a la entrada que se muestra."
+      "Enter sends the message, and Shift+Enter adds a new line.",
+      "You can type the commands /workflow, /continuar, and /ayuda.",
+      "When a question appears, your text answers the input shown."
     ]
   },
   "chat.send": {
-    "title": "Enviar mensaje",
-    "hint": "Envía lo que escribiste en la caja.",
+    "title": "Send message",
+    "hint": "Send the text in the message box.",
     "more": [
-      "Hace lo mismo que pulsar Intro dentro de la caja.",
-      "En una pregunta opcional, enviar la caja vacía equivale a omitirla."
+      "This does the same as pressing Enter in the message box.",
+      "For an optional question, sending an empty box skips it."
     ]
   },
   "chat.cloud_confirm": {
-    "title": "Enviar a la nube",
-    "hint": "Permite enviar este texto al modelo de nube indicado para proponer un workflow.",
+    "title": "Send to cloud model",
+    "hint": "Allow this text to be sent to the named cloud model to suggest a workflow.",
     "more": [
-      "El texto y el catálogo de workflows se envían al modelo que aparece en la pregunta.",
-      "Si eliges «No enviar», el chat compara las palabras sin llamar al modelo.",
-      "Cada llamada cuenta en el uso y respeta los topes de presupuesto."
+      "Your text and the workflow catalog are sent to the model named in the prompt.",
+      "If you choose “Do not send”, the chat compares words without calling the model.",
+      "Each model call counts toward usage and follows budget limits."
     ]
   },
   "chat.skip": {
-    "title": "Omitir pregunta",
-    "hint": "Deja vacía esta entrada opcional y pasa a la siguiente.",
+    "title": "Skip question",
+    "hint": "Leave this optional input blank and go to the next one.",
     "more": [
-      "Solo aparece en las entradas opcionales.",
-      "Su hueco queda en blanco en el prompt.",
-      "Con «Editar» en el resumen puedes volver a rellenarla."
+      "This option appears only for optional inputs.",
+      "Its placeholder stays empty in the prompt.",
+      "Select “Edit” in the summary to fill it in later."
     ]
   },
   "chat.back": {
-    "title": "Pregunta anterior",
-    "hint": "Vuelve a la pregunta anterior sin perder lo respondido.",
+    "title": "Previous question",
+    "hint": "Go back without losing your answer.",
     "more": [
-      "Tu respuesta anterior aparece en la caja para que la corrijas.",
-      "Volver atrás no ejecuta nada."
+      "Your previous answer appears in the box so you can change it.",
+      "Going back does not run anything."
     ]
   },
   "chat.restart": {
-    "title": "Empezar de nuevo",
-    "hint": "Descarta esta conversación y vuelve al inicio.",
+    "title": "Start over",
+    "hint": "Discard this conversation and return to the start.",
     "more": [
-      "Se borran las respuestas dadas hasta ahora.",
-      "No afecta a ninguna ejecución que ya hayas creado."
+      "Your answers so far are discarded.",
+      "This does not affect runs you already created."
     ]
   },
   "chat.form": {
-    "title": "Ver como formulario",
-    "hint": "Pasa al formulario completo con lo que ya respondiste.",
+    "title": "View as form",
+    "hint": "Open the full form with your answers so far.",
     "more": [
-      "El formulario tiene los mismos campos y además los ajustes avanzados.",
-      "Lo que respondiste en el chat aparece ya escrito en él.",
-      "Si vuelves al chat, los cambios hechos en el formulario no se copian de vuelta."
+      "The form has the same fields, plus advanced settings.",
+      "Your chat answers are already filled in.",
+      "If you return to the chat, changes made in the form are not copied back."
     ]
   },
   "chat.suggestion": {
-    "title": "Elegir un workflow",
-    "hint": "Pulsa una tarjeta para trabajar con ese workflow.",
+    "title": "Choose a workflow",
+    "hint": "Select a card to work with that workflow.",
     "more": [
-      "Cada tarjeta muestra el nombre, la descripción y el origen del workflow.",
-      "Al elegir uno empiezan las preguntas; todavía no se ejecuta nada.",
-      "Si ninguno encaja, escribe otras palabras o usa «Ver todos los workflows»."
+      "Each card shows the workflow name, description, and source.",
+      "Choosing one starts the questions. Nothing runs yet.",
+      "If none fit, try different words or select “Show all workflows”."
     ]
   },
   "chat.all": {
-    "title": "Ver todos los workflows",
-    "hint": "Muestra la lista completa, sin filtrar por tu texto.",
+    "title": "Show all workflows",
+    "hint": "Show the full list without filtering by your text.",
     "more": [
-      "Úsalo cuando ninguna propuesta encaje.",
-      "Las tarjetas son las mismas, ordenadas por origen y nombre."
+      "Use this when none of the suggestions fit.",
+      "The same cards appear, sorted by source and name."
     ]
   },
   "chat.choice": {
-    "title": "Elegir una opción",
-    "hint": "Pulsa la opción que quieres como respuesta.",
+    "title": "Choose an option",
+    "hint": "Select the option you want to use as your answer.",
     "more": [
-      "Esta entrada solo admite las opciones mostradas.",
-      "También puedes escribir el nombre de la opción en la caja."
+      "This input accepts only the options shown.",
+      "You can also type the option name in the message box."
     ]
   },
   "chat.runs": {
-    "title": "Ejecuciones para continuar",
-    "hint": "Pulsa una para abrir su hilo y seguir donde quedó.",
+    "title": "Runs to continue",
+    "hint": "Select one to open its thread and pick up where it stopped.",
     "more": [
-      "Primero aparecen las que esperan una acción tuya o se interrumpieron.",
-      "Si no hay ninguna, se muestran las más recientes.",
-      "Abrir el hilo no modifica la ejecución."
+      "Runs waiting for your action or interrupted runs appear first.",
+      "If there are none, the most recent runs appear.",
+      "Opening a thread does not change the run."
     ]
   },
   "chat.question": {
-    "title": "Pregunta del chat",
-    "hint": "Cada pregunta corresponde a una entrada del workflow.",
+    "title": "Chat question",
+    "hint": "Each question is one workflow input.",
     "more": [
-      "Ves su nombre, para qué sirve y un ejemplo.",
-      "Responde en la caja de abajo.",
-      "Puedes volver a la pregunta anterior y, si la entrada es opcional, omitirla."
+      "You can see its name, what it is for, and an example.",
+      "Answer in the box below.",
+      "You can return to the previous question or skip this one if it is optional."
     ]
   },
   "chat.confirm": {
-    "title": "Resumen antes de lanzar",
-    "hint": "Revisa tus respuestas y el prompt antes de crear la ejecución.",
+    "title": "Review before launch",
+    "hint": "Review your answers and the prompt before creating the run.",
     "more": [
-      "La vista previa es el texto que recibirá cada paso con tus respuestas.",
-      "No se crea ninguna ejecución hasta que pulses «Lanzar».",
-      "Con «Editar» vuelves a las preguntas y con «Ver como formulario» pasas al formulario."
+      "The preview shows the text each step will receive with your answers.",
+      "The run is not created until you select “Launch”.",
+      "Select “Edit” to return to the questions or “View as form” to open the form."
     ]
   },
   "chat.routing": {
-    "title": "Ajustes de ejecución",
-    "hint": "Configura el modo y las preferencias de cada paso antes de lanzar.",
+    "title": "Run settings",
+    "hint": "Set the mode and preferences for each step before launch.",
     "more": [
-      "Puedes elegir por paso el modo supervisado, automático o único, activar el perfil ECO y ajustar el nivel, modelo y esfuerzo.",
-      "Estas preferencias se guardan al crear la ejecución y se validan con el catálogo ECO, las reglas de privacidad, los límites de nivel y el presupuesto.",
-      "Los chips muestran preferencias, no garantizan qué modelo se usará efectivamente; la vista previa solo muestra el prompt y no ejecuta nada."
+      "For each step, you can choose supervised, automatic, or single mode, enable the ECO profile, and set level, model, and effort.",
+      "These preferences are saved with the run and checked against the ECO catalog, privacy rules, level limits, and budget.",
+      "The chips show preferences, not a promise of which model will run. The preview only shows the prompt."
     ]
   },
   "chat.session_mode": {
-    "title": "Tipo de sesión",
-    "hint": "Elige Orquestador o Sesión única antes de empezar.",
+    "title": "Session type",
+    "hint": "Choose Orchestrator or Single session before you start.",
     "more": [
-      "Orquestador conserva las preguntas del workflow, el equipo y el plan actuales.",
-      "Sesión única permite elegir un modelo del paquete general o un ejecutor conectado.",
-      "Puedes volver a elegir el modo antes de lanzar."
+      "Orchestrator keeps the current workflow questions, team, and plan.",
+      "Single session lets you choose a model from the general bundle or a connected executor.",
+      "You can change the mode before launch."
     ]
   },
   "chat.connect_other": {
-    "title": "Conectar otro",
-    "hint": "Abre «Apps y agentes» para ver qué le falta a cada app o modelo.",
+    "title": "Connect another",
+    "hint": "Open “Apps and agents” to see what each app or model needs.",
     "more": [
-      "Allí cada app y cada modelo muestra solo el paso que le falta: instalarlo, iniciar sesión, configurar la clave o habilitarlo.",
-      "Este enlace solo cambia de pantalla: no instala, no inicia sesión y no habilita nada."
+      "Each app and model shows only the step it needs: install it, sign in, set a key, or enable it.",
+      "This link only changes the screen. It does not install, sign in, or enable anything."
     ]
   },
   "chat.single_model": {
-    "title": "Modelo para la tarea",
-    "hint": "Elige un modelo admitido y conectado.",
+    "title": "Task model",
+    "hint": "Choose a supported, connected model.",
     "more": [
-      "Solo aparecen modelos del catálogo del paquete general cuyo proveedor está conectado.",
-      "Si un proveedor no tiene un modelo admitido, se muestra el motivo.",
-      "El servidor valida de nuevo la elección al revisar y lanzar."
+      "Only models in the general bundle catalog with a connected provider appear.",
+      "If a provider has no supported model, the reason is shown.",
+      "The server checks your choice again when you review and launch."
     ]
   },
   "chat.single_task": {
-    "title": "Tarea de sesión única",
-    "hint": "Escribe una tarea de texto libre y revísala antes de lanzar.",
+    "title": "Single-session task",
+    "hint": "Write a task in your own words and review it before launch.",
     "more": [
-      "La tarea pasa al único paso del workflow ask_once.",
-      "Revisar muestra el prompt y comprueba el modelo sin ejecutar nada.",
-      "Lanzar crea la ejecución y abre su hilo."
+      "The task becomes the only step in the ask_once workflow.",
+      "Review shows the prompt and checks the model without running anything.",
+      "Launch creates the run and opens its thread."
     ]
   },
   "chat.model_picker": {
-    "title": "Modelos y ejecutores conectados",
-    "hint": "Elige una opción comprobada para la próxima sesión única.",
+    "title": "Connected models and executors",
+    "hint": "Choose a checked option for the next single session.",
     "more": [
-      "La lista muestra cuándo se comprobó cada conexión y la cuota de cada ejecutor.",
-      "Esta elección no lanza nada ni cambia el enrutamiento del workflow actual."
+      "The list shows when each connection was checked and each executor's quota.",
+      "This choice does not launch anything or change the current workflow routing."
     ]
   },
   "chat.model_choice": {
-    "title": "Elegir modelo o ejecutor",
-    "hint": "Solo se pueden elegir opciones habilitadas y conectadas.",
+    "title": "Choose a model or executor",
+    "hint": "Only enabled and connected options can be selected.",
     "more": [
-      "Las opciones sin conexión aparecen plegadas con el motivo y el paso pendiente.",
-      "Antigravity usa tu suscripción y pide aprobación en cada lanzamiento."
+      "Unavailable options are collapsed and show the reason and the next step.",
+      "Antigravity uses your subscription and asks for approval at each launch."
     ]
   },
   "chat.model_disconnected": {
-    "title": "Opciones no conectadas",
-    "hint": "Muestra las opciones que todavía no se pueden elegir.",
+    "title": "Unavailable options",
+    "hint": "Show options that cannot be chosen yet.",
     "more": [
-      "Cada opción indica el paso pendiente o el motivo que la bloquea.",
-      "Vuelve a comprobarla desde Apps y agentes después de completar ese paso."
+      "Each option shows the missing step or the reason it is blocked.",
+      "After you complete the step, check it again from Apps and agents."
     ]
   },
   "chat.model_retry": {
-    "title": "Reintentar conexiones",
-    "hint": "Vuelve a leer el estado de conexión que guarda el servidor.",
+    "title": "Check connections again",
+    "hint": "Read the connection status from the server again.",
     "more": [
-      "No inicia ninguna sesión ni ejecuta un modelo.",
-      "Si sigue fallando, comprueba que el servidor local está disponible."
+      "This does not start a session or run a model.",
+      "If it still fails, check that the local server is available."
     ]
   },
   "chat.launch": {
-    "title": "Lanzar",
-    "hint": "Crea la ejecución con estas respuestas.",
+    "title": "Launch",
+    "hint": "Create a run with these answers.",
     "more": [
-      "Es el único botón del chat que ejecuta algo.",
-      "Si el servidor no está en modo Mock, antes debes confirmar que puede usar modelos reales.",
-      "Al crearla, el chat sigue el avance de la ejecución."
+      "This is the only chat button that starts a run.",
+      "If the server is not in Mock mode, you must first confirm that real models may be used.",
+      "After the run is created, the chat follows its progress."
     ]
   },
   "chat.edit": {
-    "title": "Editar respuestas",
-    "hint": "Vuelve a las preguntas con tus respuestas ya escritas.",
+    "title": "Edit answers",
+    "hint": "Return to the questions with your answers filled in.",
     "more": [
-      "Cada pregunta aparece con tu respuesta anterior en la caja.",
-      "Pulsa Intro para conservarla o escribe otra."
+      "Each question shows your previous answer in the box.",
+      "Press Enter to keep it or type a new answer."
     ]
   },
   "chat.retry": {
-    "title": "Reintentar la lista de workflows",
-    "hint": "Vuelve a pedir la lista cuando falló.",
+    "title": "Reload workflows",
+    "hint": "Request the workflow list again after an error.",
     "more": [
-      "Este botón solo aparece si no se pudo leer la lista de workflows.",
-      "Si el fallo continúa, abre el formulario con «Ver como formulario»."
+      "This button appears only when the workflow list could not be read.",
+      "If the error continues, open the form with “View as form”."
     ]
   },
 
   "shell.search": {
-    "title": "Buscar",
-    "hint": "Abre la búsqueda (Ctrl K) para encontrar una sección, una sesión, una ejecución o una ayuda.",
+    "title": "Search",
+    "hint": "Open search (Ctrl K) to find a section, session, run, or help topic.",
     "more": [
-      "Busca en el título, el proyecto, la aplicación y el estado de cada elemento.",
-      "No distingue mayúsculas ni acentos, y pide que aparezcan todas las palabras escritas.",
-      "Solo abre pantallas y explica: no busca dentro de las conversaciones."
+      "Search checks each item's title, project, app, and status.",
+      "It ignores capitalization and accents, and looks for every word you enter.",
+      "It only opens screens and help. It does not search inside conversations."
     ]
   },
   "shell.activities": {
-    "title": "Actividades",
-    "hint": "Muestra en la lista las actividades abiertas de tus proyectos, en lugar de las sesiones y ejecuciones.",
+    "title": "Activities",
+    "hint": "Show open project activities in the list instead of sessions and runs.",
     "more": [
-      "Cada actividad lleva su estado y quién trabaja en ella; al elegirla se abre el tablero de su proyecto.",
-      "Las actividades no cuentan en el avance del proyecto.",
-      "Vuelve a pulsar el botón para ver otra vez las sesiones y ejecuciones."
+      "Each activity shows its status and who is working on it. Selecting one opens its project board.",
+      "Activities do not count toward project progress.",
+      "Select the button again to return to sessions and runs."
     ]
   },
 
   "chat.executor_launch": {
-    "title": "Lanzar con un ejecutor",
-    "hint": "Revisa ejecutor, modelo, esfuerzo y cuota antes de aprobar.",
+    "title": "Launch with an executor",
+    "hint": "Review the executor, model, effort, and quota before approval.",
     "more": [
-      "La tarea y la selección no inician nada; primero se muestra una confirmación con los ajustes y la cuota restante.",
-      "Solo «Aprobar y lanzar» envía la confirmación explícita al servidor.",
-      "Antigravity muestra su aviso y respeta el interruptor, el uso de créditos desactivado y sus pisos de cuota.",
-      "El seguimiento consulta el estado de la tarea y enlaza su sesión en Sesiones."
+      "The task and selection do not start anything. First, a confirmation shows the settings and remaining quota.",
+      "Only “Approve and launch” sends your confirmation to the server.",
+      "Antigravity shows its notice and follows its switch, disabled credit use, and quota thresholds.",
+      "Tracking checks the task status and links to its session in Sessions."
     ]
   },
 
   "chat.limit_notice": {
-    "title": "Límite alcanzado",
-    "hint": "Aviso cuando un modelo o ejecutor agota su cuota o ritmo.",
+    "title": "Usage limit reached",
+    "hint": "Shown when a model or executor reaches its quota or rate limit.",
     "more": [
-      "Muestra «vuelve a las HH:MM» en tu hora local si hay dato, o «sin hora conocida».",
-      "Nunca cambia de modelo ni de ejecutor por su cuenta en un mensaje nuevo.",
-      "Las sugerencias disponibles aparecen como botones para que elijas tú."
+      "It shows “resets at HH:MM” in your local time when available, or “no reset time known”.",
+      "A new message never switches models or executors on its own.",
+      "Available suggestions appear as buttons for you to choose."
     ]
   },
   "chat.limit_suggestion": {
-    "title": "Sugerencia alternativa",
-    "hint": "Cambia la selección a otra opción disponible sin enviar nada.",
+    "title": "Alternative suggestion",
+    "hint": "Select another available option without sending anything.",
     "more": [
-      "Conserva el texto que ya escribiste en la caja.",
-      "Solo cambia el modelo o ejecutor elegido; enviar o lanzar sigue siendo tuyo."
+      "Your text in the message box is kept.",
+      "Only the selected model or executor changes. You still choose when to send or launch."
     ]
   },
   "chat.connection_checks": {
-    "title": "Estado de Gemini y Copilot",
-    "hint": "Gemini «Sin comprobar» se prueba al enviar; Copilot usa su caché del mes.",
+    "title": "Gemini and Copilot status",
+    "hint": "Gemini marked “Not checked” is tested when you send; Copilot uses its cache for the month.",
     "more": [
-      "«Sin comprobar» significa que Gemini tiene clave y es elegible, pero aún no respondió en esta sesión.",
-      "Copilot solo es elegible cuando su caché local del mes está vigente; sin caché válida sigue sin comprobarse.",
-      "Puedes revisar el detalle de cada conexión en «Apps y agentes»."
+      "“Not checked” means Gemini has a key and can be used, but has not replied in this session.",
+      "Copilot can be used only while its local cache for the month is current. Without a valid cache, it remains unchecked.",
+      "You can review each connection in “Apps and agents”."
     ]
   },
   "shell.more": {
-    "title": "Más secciones",
-    "hint": "Muestra las secciones que no están fijadas en la barra.",
-    "more": ["Aquí siguen disponibles las demás pantallas.", "Abrir una sección solo cambia la vista.", "Puedes fijar las que uses con frecuencia."]
+    "title": "More sections",
+    "hint": "Show sections that are not pinned to the bar.",
+    "more": ["The other screens are available here.", "Opening a section only changes the view.", "You can pin the sections you use often."]
   },
   "shell.more_notice": {
-    "title": "Entendido",
-    "hint": "Cierra este aviso de primera visita.",
-    "more": ["Las secciones siguen disponibles en «Más».", "El aviso no vuelve a salir en este navegador.", "Si el almacenamiento está bloqueado, vuelve en la próxima carga."]
+    "title": "Got it",
+    "hint": "Close this first-visit notice.",
+    "more": ["The sections are still available under “More”.", "This notice will not appear again in this browser.", "If storage is blocked, the notice may return on the next load."]
   },
 
   "chat.box_menu": {
-    "title": "Más opciones",
-    "hint": "Abre las otras formas de empezar.",
-    "more": ["Puedes usar un ejecutor o abrir el formulario completo.", "Elegir una opción no lanza nada."]
+    "title": "More options",
+    "hint": "Open other ways to get started.",
+    "more": ["You can use an executor or open the full form.", "Choosing an option does not launch anything."]
   },
   "chat.project_select": {
-    "title": "Proyecto de la sesión",
-    "hint": "Elige un proyecto reciente o confírmalo durante el flujo.",
-    "more": ["La pregunta de proyecto sigue en el flujo guiado.", "Puedes corregir el nombre antes de lanzar.", "El lanzamiento con ejecutor no usa proyectos."]
+    "title": "Session project",
+    "hint": "Choose a recent project or confirm one during the flow.",
+    "more": ["The guided flow still asks for a project.", "You can change the name before launch.", "Launching with an executor does not use projects."]
   },
   "palette.search": {
-    "title": "Buscar en todo",
-    "hint": "Escribe para encontrar una sección, una sesión, una ejecución o un texto de ayuda.",
+    "title": "Search everywhere",
+    "hint": "Type to find a section, session, run, or help text.",
     "more": [
-      "Las flechas cambian de resultado, Intro lo abre y Esc cierra la ventana.",
-      "No distingue mayúsculas ni acentos, y pide que aparezcan todas las palabras escritas.",
-      "Solo abre pantallas y explica: no aprueba ni lanza nada."
+      "Use the arrow keys to change results, Enter to open one, and Esc to close the dialog.",
+      "Search ignores case and accents, and requires all entered words to appear.",
+      "It only opens screens and explains controls; it never approves or starts anything."
     ]
   },
   "palette.close": {
-    "title": "Cerrar la búsqueda",
-    "hint": "Cierra la ventana y vuelve a donde estabas.",
-    "more": ["Es lo mismo que pulsar Esc.", "No cambia nada."]
+    "title": "Close search",
+    "hint": "Close the dialog and return to where you were.",
+    "more": ["This does the same as Esc.", "Nothing else changes."]
   },
   "customize.pin": {
-    "title": "Fijar en la barra",
-    "hint": "Pone esta sección entre las fijas de la barra lateral.",
-    "more": ["Vuelve a pulsar para soltarla: pasa otra vez a «Más».", "Soltarla no quita la sección: sigue en «Más» y en la búsqueda."]
+    "title": "Pin to the bar",
+    "hint": "Add this section to the pinned items in the sidebar.",
+    "more": ["Select it again to unpin it and move it under “More”.", "Unpinning does not remove the section. It remains under “More” and in search."]
   },
   "customize.card": {
-    "title": "Cuándo se ve la tarjeta",
-    "hint": "Automática: solo con algo que mostrar. Siempre: aunque esté vacía. Nunca: oculta.",
-    "more": ["Lo urgente se ve en cualquier modo.", "Es la tarjeta del panel «Contexto»; cambiarlo no borra sus datos."]
+    "title": "When to show the card",
+    "hint": "Automatic: when it has content. Always: even when empty. Never: hidden.",
+    "more": ["Urgent items appear in every mode.", "This controls a card in the “Context” panel. Changing it does not delete its data."]
   },
   "customize.help": {
-    "title": "Mostrar siempre los «?»",
-    "hint": "Deja a la vista las ayudas «?» de cada control.",
-    "more": ["Es el mismo interruptor que «Ayuda» y la tecla F1.", "Apagado, las ayudas siguen disponibles al activarlo."]
+    "title": "Always show help buttons",
+    "hint": "Keep the “?” help buttons visible for each control.",
+    "more": ["This is the same setting as “Help” and the F1 key.", "When hidden, help is still available when you turn it on."]
   },
   "customize.reset": {
-    "title": "Restablecer",
-    "hint": "Vuelve a los valores por defecto de la barra, las tarjetas, la ayuda y el color.",
-    "more": ["Suelta las secciones fijadas, deja las tarjetas en su modo inicial, apaga el modo ayuda y vuelve al color Neutro.", "No toca sesiones, ejecuciones ni datos."]
+    "title": "Reset",
+    "hint": "Restore the default bar, card, help, and color settings.",
+    "more": ["Unpin sections, restore the default card settings, turn off help mode, and return to the Neutral color.", "Sessions, runs, and data are not changed."]
   },
   "shell.customize": {
-    "title": "Personalizar",
-    "hint": "Abre la pantalla para elegir qué se ve.",
-    "more": ["Se puede fijar secciones en la barra, elegir las tarjetas de «Contexto» y dejar la ayuda a la vista.", "Solo cambia lo que se muestra."]
+    "title": "Customize",
+    "hint": "Open the screen to choose what is shown.",
+    "more": ["Pin sections to the bar, choose which “Context” cards appear, and keep help visible.", "This only changes what you see."]
   },
   "customize.accent": {
-    "title": "Paleta de colores",
-    "hint": "Elige el color de los botones principales, los enlaces y la selección.",
-    "more": ["Neutro es el de siempre. Los fondos, el texto y los avisos no cambian con la paleta.", "Se recuerda en este navegador."]
+    "title": "Color palette",
+    "hint": "Choose the color for primary buttons, links, and selections.",
+    "more": ["Neutral is the usual color. The palette does not change backgrounds, text, or notices.", "This browser remembers your choice."]
   },
   "customize.language": {
-    "title": "Idioma",
-    "hint": "Elige el idioma de la interfaz en este navegador.",
-    "more": ["Automático usa el idioma del navegador: español si empieza por es, inglés en otro caso.", "El cambio se aplica al momento y se recuerda en este navegador."]
+    "title": "Language",
+    "hint": "Choose the language of this interface in this browser.",
+    "more": ["Automatic uses the browser language: Spanish when it begins with es, English otherwise.", "The change applies immediately and is saved in this browser."]
   },
 
   "customize.advanced_mode": {
-    "title": "Modo avanzado",
-    "hint": "Muestra todas las secciones. Apagado, la barra solo trae lo esencial.",
-    "more": ["Es un ajuste de esta instalación: vale en todos los navegadores y se guarda en el servidor.", "Apagarlo esconde las secciones avanzadas, no las borra: las que fijaste siguen fijadas para cuando lo vuelvas a encender.", "La GUI se redibuja al cambiarlo, sin recargar la página."]
+    "title": "Advanced mode",
+    "hint": "Show all sections. When off, the bar shows only the essentials.",
+    "more": ["This setting applies to this installation in every browser and is saved on the server.", "Turning it off hides advanced sections but does not remove them. Pinned sections stay pinned if you turn it on again.", "The interface updates when you change this setting; you do not need to reload the page."]
   },
   "shell.advanced_only": {
-    "title": "Vista del modo avanzado",
-    "hint": "Esta pantalla solo se muestra en el modo avanzado.",
-    "more": ["Pulsa «Activar modo avanzado» para verla. Puedes volver al modo simple desde «Personalizar».", "No se pierde nada: la dirección sigue igual."]
+    "title": "Advanced-mode view",
+    "hint": "This screen is available only in advanced mode.",
+    "more": ["Select “Turn on advanced mode” to see it. You can return to simple mode in “Customize”.", "Nothing is lost, and the address stays the same."]
   },
 
   "chat.plan_draft": {
-    "title": "Borrador del plan",
-    "hint": "Tu pedido necesita varios pasos: esto es lo que se guardaría. Todavía no se guardó nada.",
-    "more": ["Cada tarea muestra su paso y los textos que recibiría. Si un paquete necesita un equipo que nadie aprobó, aquí se dice cuál se propondrá.", "Mientras no pulses «Guardar el plan», no se crea nada y no se llama al servidor.", "En el modo avanzado cada tarea muestra además su workflow y su paquete."]
+    "title": "Plan draft",
+    "hint": "Your request needs several steps. Review what would be saved; nothing has been saved yet.",
+    "more": ["Each task shows its step and the text it would receive. If a bundle needs a team that has not been approved, the draft names the team to propose.", "Nothing is created and the server is not called until you select “Save plan”.", "In advanced mode, each task also shows its workflow and bundle."]
   },
   "chat.office_plan": {
-    "title": "Plan por defecto de la oficina",
-    "hint": "El aviso explica por qué se preparó este plan.",
+    "title": "Office default plan",
+    "hint": "The notice explains why this plan was prepared.",
     "more": [
-      "El borrador solo muestra lo que se guardaría; no aprueba ni ejecuta nada.",
-      "«Guardar el plan» lo conserva para que lo revises después."
+      "The draft only shows what would be saved. It does not approve or run anything.",
+      "“Save plan” stores it for you to review later."
     ]
   },
   "chat.plan_save": {
-    "title": "Guardar el plan",
-    "hint": "«Guardar el plan» lo guarda para que lo revises. «Cancelar» lo descarta.",
-    "more": ["Guardar no aprueba nada: abre el hilo del plan, donde están «Aprobar» y «Rechazar».", "Cuando guardas, los equipos que faltan quedan propuestos, no aprobados. Aprobar el plan antes que el equipo da un aviso en el hilo.", "«Cancelar» solo cierra el borrador: no se guarda ni se pierde nada más."]
+    "title": "Save plan",
+    "hint": "“Save plan” stores it for review. “Cancel” discards it.",
+    "more": ["Saving does not approve anything. It opens the plan thread, where you can select “Approve” or “Reject”.", "Missing teams are proposed, not approved, when you save. The thread warns you if you try to approve the plan before the team.", "“Cancel” only closes the draft. It does not save it or remove anything else."]
   },
 
   "shell.instance_label": {
-    "title": "Etiqueta de esta instancia",
-    "hint": "Es el nombre que se puso a esta instancia. También aparece en el título de la pestaña.",
-    "more": ["Se cambia con el ajuste INSTANCE_LABEL y el servidor se reinicia para que la tome.", "Sirve para distinguir dos instancias abiertas a la vez. Es solo texto: no cambia dónde se guardan los datos."]
+    "title": "Instance label",
+    "hint": "The name set for this instance. It also appears in the tab title.",
+    "more": ["Change it with the INSTANCE_LABEL setting, then restart the server to apply it.", "It helps tell two open instances apart. It is only a label and does not change where data is saved."]
   }
 };
 
 // One-line hint of each execution mode: the hint of "create.mode" changes with the mode that is selected.
 // Keep the keys equal to the modes of the form (auto, local, cloud, human_guided). Also strict JSON.
 export const MODE_HINTS = {
-  "auto": "Automático: cada paso usa el modelo que le asigna el workflow.",
-  "local": "Modelo local: todo se ejecuta en tu equipo, sin enviar nada a la nube.",
-  "cloud": "Modelo en la nube: usa un proveedor externo; puede costar dinero.",
-  "human_guided": "Guiado por una persona: copias el prompt y pegas la respuesta, sin llamar a ningún modelo."
+  "auto": "Automatic: each step uses the model assigned by the workflow.",
+  "local": "Local model: everything runs on your device, with nothing sent to the cloud.",
+  "cloud": "Cloud model: uses an outside provider and may cost money.",
+  "human_guided": "Human guided: copy the prompt and paste the answer without calling a model."
 };
 
+const CREATE_MODE_HELP_KEY = "help.create.mode";
+
 const KIND_SENTENCE = {
-  long_text: "Admite texto largo, de varias líneas.",
-  choice: "Se elige una de las opciones de la lista.",
-  text: "Admite una línea de texto.",
+  long_text: "Accepts long text with multiple lines.",
+  choice: "Choose one option from the list.",
+  text: "Accepts a single line of text.",
 };
 
 // The entry of "create.mode" with the hint of the selected mode.
 export function modeHelpEntry(mode) {
-  return { ...HELP["create.mode"], hint: MODE_HINTS[mode] || HELP["create.mode"].hint };
+  const translated = t(CREATE_MODE_HELP_KEY);
+  const base = typeof translated === "object" ? translated : HELP["create.mode"];
+  return { ...base, hint: MODE_HINTS[mode] ? t("create_run.mode_hint_" + mode) : base.hint };
 }
 
 // The entry of one declared or derived workflow input (the server sends its name, kind, example and use).
@@ -618,17 +623,17 @@ export function modeHelpEntry(mode) {
 export function fieldHelpEntry(item) {
   const required = Boolean(item.required);
   const more = [];
-  more.push(item.source === "declared" ? (KIND_SENTENCE[item.type] || KIND_SENTENCE.text) : "Admite texto libre.");
-  if (required) more.push("Es obligatoria: sin ella no se puede crear la ejecución.");
-  else if (item.skipped_only) more.push("Es opcional porque solo la usan pasos que no se ejecutan con esta configuración.");
-  else more.push("Es opcional: si la dejas vacía, su hueco queda en blanco en el prompt.");
+  more.push(item.source === "declared" ? t("create_run.field_kind_" + (KIND_SENTENCE[item.type] ? item.type : "text")) : t("create_run.field_kind_derived"));
+  if (required) more.push(t("create_run.field_required"));
+  else if (item.skipped_only) more.push(t("create_run.field_optional_skipped"));
+  else more.push(t("create_run.field_optional"));
   if (item.example && item.type !== "choice") {
     const example = String(item.example).replace(/\s+/g, " ").trim().slice(0, 100).replace(/[.\s]+$/, "");
-    if (example) more.push("Ejemplo: " + example + ".");
+    if (example) more.push(t("create_run.field_example", { example }));
   }
   return {
     title: item.label || item.name,
-    hint: required ? "Obligatoria: el workflow no puede arrancar sin ella." : "Opcional: puedes dejarla vacía.",
+    hint: required ? t("create_run.field_required_hint") : t("create_run.field_optional_hint"),
     more,
   };
 }

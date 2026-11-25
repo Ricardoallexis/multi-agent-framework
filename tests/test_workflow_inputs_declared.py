@@ -28,6 +28,7 @@ from multiagent.gui.token import ensure_token
 from multiagent.prompts import PromptManager
 from multiagent.services import ApplicationServices
 from multiagent.services import workflow_inputs
+from tests.gui_text import ui_text
 from multiagent.workflow_validation import (
     WorkflowDefinitionError, parse_workflow_document, validate_workflow_definition,
 )
@@ -416,7 +417,7 @@ def test_client_code_for_inputs_injects_no_html(name):
 
 
 def test_create_run_shows_description_example_and_the_right_control():
-    text = (STATIC_DIR / "js" / "create-run.js").read_text(encoding="utf-8")
+    text = ui_text(STATIC_DIR / "js" / "create-run.js")
     assert "spec.description" in text and "item.description" in text           # workflow and field descriptions
     assert "placeholder=" in text and "exampleText(item)" in text              # example as placeholder text
     assert re.search(r'item\.type === "choice"', text) and "<select" in text   # choice -> select

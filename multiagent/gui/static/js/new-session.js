@@ -18,7 +18,7 @@ import { ModelPicker } from "./model-picker.js";
 import { buildModelPicker } from "./model-picker-model.js";
 import { askLevelOnce, LEVEL_OPTIONS, QUESTION_LINES } from "./office-level-question.js";
 import {
-  PROJECT_KEY, SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_NOTICE, SECRET_REVIEW_REASON, answerRows, buildLimitNotice,
+  PROJECT_KEY, SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_REASON, answerRows, buildLimitNotice,
   cardDescription, connectionLabel, createConversation, createSecretReview, currentQuestion, executorLaunchBody, formSeed, inputsPath,
   cardOrigin, interpretBody, isSecretReviewRequired, loadCatalog, officeAllowsCloud, officeConnectionData,
   officeExecutionModes, officeLevelRequiredText, officeLimitNotice, officeModelOptions, officeModelValue, officeOptions,
@@ -28,14 +28,14 @@ import {
   selectSingleExecutorSuggestion, selectSingleModelSuggestion, singleSessionBody, singleSessionModels, suggestedEntries,
 } from "./new-session-model.js";
 import { PlanDraftCard } from "./plan-draft.js";   // ARR3-T02
-import { PLAN_NOTICE, isPlanSuggested } from "./plan-draft-model.js";
+import { isPlanSuggested } from "./plan-draft-model.js";
 import { navigate, officeHref, routeHref, threadHref, useRoute } from "./route.js";
 import { readNewSessionMode, writeNewSessionMode } from "./shell-state.js";
 import { RunThread } from "./thread.js";
 import { MODE_LABELS, errorText, exampleText, fmtDate, statusInfo } from "./text.js";
+import { t } from "./i18n.js";
 
 const MODES = Object.keys(MODE_LABELS);
-const FREE_PLACEHOLDER = "Ej.: quiero resumir un documento";
 const SINGLE_PREVIEW_PATH = "/gui/api/runs/preview";
 const SINGLE_RUN_PATH = "/gui/api/runs";
 const EXECUTOR_LAUNCH_PATH = "/gui/api/executors/launch";
@@ -46,10 +46,32 @@ const asError = (failure) => (failure instanceof ApiError ? failure : new ApiErr
 // A touch screen does not get the soft keyboard pushed up just by opening the screen.
 const finePointer = () => { try { return window.matchMedia("(pointer: fine)").matches; } catch (_) { return true; } };
 const prefillOf = (state) => { const question = currentQuestion(state); return question ? state.answers[question.key] || "" : ""; };
+const displayKnownStepId = (id) => id === "answer" ? t("new_session.answer_step") : String(id);
+const displayKnownModel = (id) => id === "local_default" ? t("new_session.local_default_model") : String(id);
+const EXECUTOR_FAILURE_KEYS = {
+  quota: "new_session.executor_failure_quota",
+  blocked_open_session: "new_session.executor_failure_blocked_open_session",
+  authentication: "new_session.executor_failure_authentication",
+  permission_denied: "new_session.executor_failure_permission_denied",
+  other: "new_session.executor_failure_other",
+};
+const displayExecutorNote = (note) => {
+  const raw = String(note);
+  const failure = /^failure:\s*([a-z_]+)(.*)$/.exec(raw);
+  const key = failure && EXECUTOR_FAILURE_KEYS[failure[1]];
+  return key ? t(key) + failure[2] : raw;
+};
+const displayExecutorEvidence = (evidence) => {
+  const raw = String(evidence);
+  const stderrPrefix = "stderr: ";
+  return raw.startsWith(stderrPrefix)
+    ? t("new_session.executor_stderr", { stderr: "" }) + raw.slice(stderrPrefix.length)
+    : raw;
+};
 
 function OfficeWorkflowPicker({ groups, areas, disabled, onPick }) {
   const names = new Map((areas || []).map((area) => [area.id, area.name || area.id]));
-  return html`<section class="ns-office-workflows" aria-label="Lo que sabe hacer la oficina">
+  return html`<section class="ns-office-workflows" aria-label=${t("new_session.office_workflows_aria")}>
     ${groups.map((group) => html`<div key=${group.area} class="ns-office-area">
       <h4>${names.get(group.area) || group.area}</h4>
       <div class="ns-office-workflow-list">
@@ -74,15 +96,15 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
 }
 
 function Messages({ messages }) {
-  return html`<div class="ns-thread" role="log" aria-label="Conversación">
+  return html`<div class="ns-thread" role="log" aria-label=${t("new_session.conversation")}>
     ${messages.map((message) => html`<div key=${message.id} class=${"ns-msg " + (message.role === "user" ? "ns-user" : "ns-bot")}>
-      <span class="sr-only">${message.role === "user" ? "Tú: " : "Asistente: "}</span>${message.text}</div>`)}
+      <span class="sr-only">${message.role === "user" ? t("new_session.you_prefix") : t("new_session.assistant_prefix")}</span>${message.text}</div>`)}
   </div>`;
 }
 
 function Starters({ disabled, onPick }) {
   return html`<div class="ns-starters">
-    <div class="ns-chips" role="group" aria-label="Opciones de inicio">
+    <div class="ns-chips" role="group" aria-label=${t("new_session.starter_options")}>
       ${STARTERS.map((starter) => html`<button key=${starter.id} type="button" class="ns-chip" disabled=${disabled}
         ...${helpFor("chat.starters")} onClick=${() => onPick(starter)}>${starter.label}</button>`)}
     </div>
@@ -92,32 +114,32 @@ function Starters({ disabled, onPick }) {
 
 function Cards({ items, source, disabled, canShowAll, onPick, onShowAll }) {
   return html`<div class="ns-suggest">
-    <div class="ns-cards" role="group" aria-label="Workflows">
+    <div class="ns-cards" role="group" aria-label=${t("new_session.workflows")}>
       ${items.map(({ entry, matched }) => html`<button key=${entry.bundle + "|" + entry.id} type="button" class="ns-card" disabled=${disabled}
         ...${helpFor("chat.suggestion")} onClick=${() => onPick(entry)}>
         <span class="ns-card-name">${entry.id}</span>
         <span class="ns-card-desc">${cardDescription(entry)}</span>
-        ${cardOrigin(entry, currentMode()) && html`<span class="ns-card-meta">Origen: ${cardOrigin(entry, currentMode())}</span>`}
-        ${source === SOURCE_MODEL && html`<span class="ns-card-meta">Propuesto por: un modelo</span>`}
-        ${source === SOURCE_KEYWORDS && html`<span class="ns-card-meta">Propuesto por: comparación de palabras</span>`}
-        ${matched.length > 0 && html`<span class="ns-card-meta">Coincide con: ${matched.join(", ")}</span>`}
+        ${cardOrigin(entry, currentMode()) && html`<span class="ns-card-meta">${t("new_session.origin", { origin: cardOrigin(entry, currentMode()) })}</span>`}
+        ${source === SOURCE_MODEL && html`<span class="ns-card-meta">${t("new_session.proposed_by_model")}</span>`}
+        ${source === SOURCE_KEYWORDS && html`<span class="ns-card-meta">${t("new_session.proposed_by_matching")}</span>`}
+        ${matched.length > 0 && html`<span class="ns-card-meta">${t("new_session.matches_terms", { terms: matched.join(", ") })}</span>`}
       </button>`)}
     </div>
     <div class="ns-row">
       <${Help} topic="chat.suggestion" compact=${true} />
-      ${canShowAll && html`<button type="button" class="btn secondary" disabled=${disabled} ...${helpFor("chat.all")} onClick=${onShowAll}>Ver todos los workflows</button>
+      ${canShowAll && html`<button type="button" class="btn secondary" disabled=${disabled} ...${helpFor("chat.all")} onClick=${onShowAll}>${t("new_session.show_all_workflows")}</button>
         <${Help} topic="chat.all" compact=${true} />`}
     </div>
   </div>`;
 }
 
 function RunsList({ runs }) {
-  if (runs === null) return html`<p class="muted" aria-busy="true">Cargando ejecuciones…</p>`;
+  if (runs === null) return html`<p class="muted" aria-busy="true">${t("new_session.loading_runs")}</p>`;
   if (runs.error) return html`<p class="message error" role="alert">${errorText(runs.error)}</p>`;
   return html`<div class="ns-suggest">
     <p class="muted">${runs.runs.length === 0
-      ? "Todavía no hay ejecuciones. Elige «Trabajar en un workflow» para crear la primera."
-      : runs.resumable ? "Pulsa una para abrir su hilo y seguir donde quedó." : "No hay ejecuciones por retomar; estas son las más recientes."}</p>
+      ? t("new_session.no_runs_to_continue")
+      : runs.resumable ? t("new_session.open_run_to_continue") : t("new_session.no_resumable_runs")}</p>
     <ul class="ns-run-list">
       ${runs.runs.map((run) => {
         const info = statusInfo(run.status);
@@ -133,12 +155,12 @@ function RunsList({ runs }) {
 }
 
 function QuestionCard({ question, n, total, disabled, onChoose }) {
-  return html`<section class="ns-question" aria-label="Pregunta actual">
-    <p class="ns-q-count">Pregunta ${n} de ${total} · ${question.required ? "obligatoria" : "opcional"}</p>
+  return html`<section class="ns-question" aria-label=${t("new_session.current_question")}>
+    <p class="ns-q-count">${t("new_session.question_progress", { number: n, total, required: t(question.required ? "new_session.required" : "new_session.optional") })}</p>
     <p class="ns-q-label">${question.label}</p>
     <p id="ns-q-desc" class="ns-q-desc">${question.description}</p>
-    ${question.example && html`<p id="ns-q-example" class="ns-q-example">Ejemplo: <span class="ns-example">${question.example}</span></p>`}
-    ${question.kind === "choice" && html`<div class="ns-chips" role="group" aria-label="Opciones">
+    ${question.example && html`<p id="ns-q-example" class="ns-q-example">${t("new_session.example")}: <span class="ns-example">${question.example}</span></p>`}
+    ${question.kind === "choice" && html`<div class="ns-chips" role="group" aria-label=${t("new_session.options")}>
       ${question.choices.map((choice) => html`<button key=${choice} type="button" class="ns-chip" disabled=${disabled}
         ...${helpFor("chat.choice")} onClick=${() => onChoose(choice)}>${choice}</button>`)}
     </div>
@@ -153,12 +175,12 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
     fileToolsNotice, fileToolsMissing } = state;
   const cloudAllowed = state.cloudAllowed !== false;
   const blockers = [];
-  if (!mock && !confirmReal) blockers.push("Confirma que entiendes que el servidor no está en modo Mock.");
-  if (fileToolsMissing) blockers.push("Configura FILE_TOOLS_ROOT y reinicia la aplicación.");
+  if (!mock && !confirmReal) blockers.push(t("create_run.blocker_confirm_real"));
+  if (fileToolsMissing) blockers.push(t("new_session.blocker_file_tools"));
   const routingSteps = routing && Array.isArray(routing.steps) ? routing.steps : [];
   const changedRoutes = Object.entries(routingOverrides).filter(([, override]) => Object.keys(override).length > 0);
-  if (previewing) blockers.push("Espera a que se validen las preferencias.");
-  if (previewError) blockers.push("Corrige las preferencias o las entradas indicadas por la vista previa.");
+  if (previewing) blockers.push(t("new_session.blocker_wait_preferences"));
+  if (previewError) blockers.push(t("new_session.blocker_fix_preview"));
   const setRouteOverride = (step, field, value) => {
     setRoutingOverrides((current) => {
       const next = { ...current };
@@ -170,84 +192,87 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
       return next;
     });
   };
-  return html`<section class="ns-confirm panel" aria-label="Resumen antes de lanzar" tabindex="-1" ref=${boxRef}>
-    <p class="ns-confirm-title"><strong>Listo para lanzar: ${conv.workflow.id}</strong> ${cardOrigin(conv.workflow, currentMode()) && html`<span class="muted">· ${cardOrigin(conv.workflow, currentMode())}</span>`}</p>
+  return html`<section class="ns-confirm panel" aria-label=${t("new_session.summary_before_launch")} tabindex="-1" ref=${boxRef}>
+    <p class="ns-confirm-title"><strong>${t("new_session.ready_to_launch", { workflow: conv.workflow.id })}</strong> ${cardOrigin(conv.workflow, currentMode()) && html`<span class="muted">· ${cardOrigin(conv.workflow, currentMode())}</span>`}</p>
     <${Help} topic="chat.confirm" />
     <dl class="ns-answers">
       ${answerRows(conv).map((row) => html`<div key=${row.key} class="ns-answer"><dt>${row.label}</dt>
-        <dd>${row.empty ? html`<span class="muted">(sin respuesta)</span>` : row.value}</dd></div>`)}
+        <dd>${row.empty ? html`<span class="muted">${t("new_session.no_answer")}</span>` : row.value}</dd></div>`)}
     </dl>
-    <section class="ns-routing" aria-label="Enrutamiento del workflow">
-      <div class="ns-row"><strong>Modelo y esfuerzo previstos</strong><${Help} topic="chat.routing" compact=${true} /></div>
-      ${routingLoading && html`<p class="muted small" role="status">Leyendo el perfil y el modelo previstos…</p>`}
+    <section class="ns-routing" aria-label=${t("new_session.workflow_routing")}>
+      <div class="ns-row"><strong>${t("new_session.expected_model_effort")}</strong><${Help} topic="chat.routing" compact=${true} /></div>
+      ${routingLoading && html`<p class="muted small" role="status">${t("new_session.loading_expected_profile")}</p>`}
       ${routingError && html`<p class="message error" role="alert">${errorText(routingError)}</p>`}
-      ${routing && routingSteps.length === 0 && html`<p class="muted small">El servidor no devolvió pasos de routing; se muestran los prompts disponibles.</p>`}
+      ${routing && routingSteps.length === 0 && html`<p class="muted small">${t("new_session.no_routing_steps")}</p>`}
       ${routingSteps.map((step) => html`<div key=${step.step_id} class="ns-routing-step">
-        <span class="ns-card-name">${step.step_id}</span>
-        ${step.status === "function" ? html`<p class="hint">Función ${step.function}; se ejecuta sin modelo.</p>` : html`
-        <div class="ns-chips" role="group" aria-label=${"Ajustes del paso " + step.step_id}>
-          ${[["mode", "Modo", step.mode_options || []], ["profile_id", "Perfil", step.profile_options || []],
-             ["level", "Nivel", step.level_options || []]].map(([field, label, options]) => html`
+        <span class="ns-card-name">${displayKnownStepId(step.step_id)}</span>
+        ${step.status === "function" ? html`<p class="hint">${t("new_session.function_step", { name: step.function })}</p>` : html`
+        <div class="ns-chips" role="group" aria-label=${t("new_session.step_settings", { step: displayKnownStepId(step.step_id) })}>
+          ${[["mode", "new_session.mode", step.mode_options || []], ["profile_id", "new_session.profile", step.profile_options || []],
+             ["level", "new_session.level", step.level_options || []]].map(([field, labelKey, options]) => {
+            const label = t(labelKey);
+            return html`
             <label class="ns-route-chip" key=${field}>${label}
-              <select class="ns-chip" aria-label=${label + " del paso " + step.step_id}
+              <select class="ns-chip" aria-label=${t("new_session.label_for_step", { label, step: displayKnownStepId(step.step_id) })}
                 disabled=${busy || routingLoading || options.length === 0 || (field !== "profile_id" && !step.profile_id)} ...${helpFor("chat.routing")}
                 value=${(routingOverrides[step.step_id] || {})[field] || ""}
                 onChange=${(event) => setRouteOverride(step, field, event.target.value)}>
-                <option value="">Según workflow${step[field] ? " (" + step[field] + ")" : ""}</option>
+                <option value="">${t("new_session.workflow_default")}${step[field] ? " (" + step[field] + ")" : ""}</option>
                 ${options.map((value) => html`<option key=${value} value=${value}>${field === "mode"
-                  ? ({ supervised: "Supervisado", automatic: "Automático", single: "Único" }[value] || value) : value}</option>`)}
+                  ? ({ supervised: t("new_session.mode_supervised"), automatic: t("new_session.mode_automatic"), single: t("new_session.mode_single") }[value] || value) : value}</option>`)}
               </select>
-            </label>`)}
-          <label class="ns-route-chip">Modelo
-            <select class="ns-chip" aria-label=${"Modelo del paso " + step.step_id} disabled=${busy || routingLoading ||
+            </label>`;
+          })}
+          <label class="ns-route-chip">${t("new_session.model")}
+            <select class="ns-chip" aria-label=${t("new_session.step_model", { step: displayKnownStepId(step.step_id) })} disabled=${busy || routingLoading ||
               !step.profile_id || officeModelOptions(step, routing, cloudAllowed).length === 0}
               ...${helpFor("chat.routing")} value=${officeModelValue(step, routingOverrides, routing, cloudAllowed)}
               onChange=${(event) => setRouteOverride(step, "model", event.target.value)}>
-              <option value="">Predeterminado${officeModelOptions(step, routing, cloudAllowed).includes(step.model)
-                ? " (" + step.model + ")" : ""}</option>
-              ${officeModelOptions(step, routing, cloudAllowed).map((model) => html`<option key=${model} value=${model}>${model}</option>`)}
+              <option value="">${t("new_session.default")}${officeModelOptions(step, routing, cloudAllowed).includes(step.model)
+                ? " (" + displayKnownModel(step.model) + ")" : ""}</option>
+              ${officeModelOptions(step, routing, cloudAllowed).map((model) => html`<option key=${model} value=${model}>${displayKnownModel(model)}</option>`)}
             </select>
           </label>
-          <label class="ns-route-chip">Esfuerzo
-            <select class="ns-chip" aria-label=${"Esfuerzo del paso " + step.step_id} disabled=${busy || routingLoading || !step.profile_id}
+          <label class="ns-route-chip">${t("new_session.effort")}
+            <select class="ns-chip" aria-label=${t("new_session.step_effort", { step: displayKnownStepId(step.step_id) })} disabled=${busy || routingLoading || !step.profile_id}
               ...${helpFor("chat.routing")} value=${routingOverrides[step.step_id] &&
                 Object.prototype.hasOwnProperty.call(routingOverrides[step.step_id], "effort")
                 ? routingOverrides[step.step_id].effort || "" : step.effort || ""}
               onChange=${(event) => setRouteOverride(step, "effort", event.target.value)}>
-              <option value="">Predeterminado</option>
+              <option value="">${t("new_session.default")}</option>
               ${(step.effort_options || []).map((effort) => html`<option key=${effort} value=${effort}>${effort}</option>`)}
             </select>
           </label>
         </div>
         `}
-        ${step.status !== "function" && step.status !== "selected" && step.status !== "catalog_default" && html`<p class="hint">El router informó: ${(step.reason_codes || []).join(", ") || step.status}.</p>`}
+        ${step.status !== "function" && step.status !== "selected" && step.status !== "catalog_default" && html`<p class="hint">${t("new_session.router_reported", { reasons: (step.reason_codes || []).join(", ") || step.status })}</p>`}
       </div>`)}
     </section>
     <div class="two">
-      <div><label for="ns-mode">Cómo se ejecuta</label>
+      <div><label for="ns-mode">${t("create_run.execution_mode")}</label>
         <${Help} topic="create.mode" entry=${modeHelpEntry(mode)} />
         <select id="ns-mode" ...${helpFor("create.mode")} value=${mode} disabled=${busy || changedRoutes.length > 0} onChange=${(event) => setMode(event.target.value)}>
-          ${officeExecutionModes(MODES, cloudAllowed).map((value) => html`<option key=${value} value=${value}>${MODE_LABELS[value]}</option>`)}
+          ${officeExecutionModes(MODES, cloudAllowed).map((value) => html`<option key=${value} value=${value}>${t("create_run.execution_mode_" + value)}</option>`)}
         </select></div>
       <div class="check"><label><input type="checkbox" checked=${sensitive} disabled=${busy || changedRoutes.length > 0} ...${helpFor("create.sensitive")}
-        onChange=${(event) => setSensitive(event.target.checked)} /> Contenido sensible (no se enviará a la nube)</label>
+        onChange=${(event) => setSensitive(event.target.checked)} /> ${t("create_run.sensitive_content")}</label>
         <${Help} topic="create.sensitive" /></div>
     </div>
     ${!mock && html`<div class="notice check"><label><input type="checkbox" checked=${confirmReal} disabled=${busy} ...${helpFor("create.confirm_real")}
-      onChange=${(event) => setConfirmReal(event.target.checked)} /> Entiendo que el servidor no está en modo Mock y esta ejecución puede usar modelos reales.</label>
+      onChange=${(event) => setConfirmReal(event.target.checked)} /> ${t("create_run.confirm_real_text")}</label>
       <${Help} topic="create.confirm_real" /></div>`}
     <${PreviewPanel} preview=${preview} error=${previewError} loading=${previewing} />
     ${launchError && html`<p class="message error" role="alert">${errorText(launchError)}</p>`}
     ${fileToolsNotice && fileToolsMissing && html`<p class="message error small" role="alert">${fileToolsNotice}</p>`}
     ${fileToolsNotice && !fileToolsMissing && html`<p class="hint" role="status">${fileToolsNotice}</p>`}
-    <p id="ns-blockers" class="hint" role="status">${blockers.length ? "No se puede lanzar todavía. " + blockers.join(" ") : "Todo listo: nada se ejecuta hasta que pulses «Lanzar»."}</p>
+    <p id="ns-blockers" class="hint" role="status">${blockers.length ? t("new_session.blockers_summary", { blockers: blockers.join(" ") }) : t("new_session.launch_ready")}</p>
     ${changedRoutes.length > 0 && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.routing")}
-      onClick=${() => setRoutingOverrides({})}>Revertir ajustes de routing</button>`}
+      onClick=${() => setRoutingOverrides({})}>${t("new_session.reset_routing")}</button>`}
     <div class="actions">
       <button type="button" class="btn" disabled=${busy || blockers.length > 0} ...${helpFor("chat.launch", { also: "ns-blockers" })}
-        onClick=${onLaunch}>${busy ? "Lanzando…" : "Lanzar"}</button>
+        onClick=${onLaunch}>${busy ? t("new_session.launching") : t("new_session.launch")}</button>
       <${Help} topic="chat.launch" compact=${true} />
-      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.edit")} onClick=${onEdit}>Editar</button>
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.edit")} onClick=${onEdit}>${t("new_session.edit")}</button>
       <${Help} topic="chat.edit" compact=${true} />
     </div>
   </section>`;
@@ -257,10 +282,10 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
 function LimitBanner({ notice, connections, busy, onSelectSuggestion }) {
   const view = notice && notice.text ? notice : buildLimitNotice(notice, connections);
   if (!view) return null;
-  return html`<div class="ns-msg ns-bot notice" role="status" aria-label="Límite alcanzado">
+  return html`<div class="ns-msg ns-bot notice" role="status" aria-label=${t("new_session.limit_reached")}>
     <p>${view.text}</p>
     <${Help} topic="chat.limit_notice" compact=${true} />
-    ${view.suggestions.length > 0 && html`<div class="ns-chips" role="group" aria-label="Alternativas disponibles">
+    ${view.suggestions.length > 0 && html`<div class="ns-chips" role="group" aria-label=${t("new_session.available_alternatives")}>
       ${view.suggestions.map((item) => html`<button key=${item.id} type="button" class="ns-chip" disabled=${busy}
         ...${helpFor("chat.limit_suggestion")} onClick=${() => onSelectSuggestion(item)}>${item.label}</button>`)}
     </div>
@@ -289,32 +314,32 @@ function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows
         // Esc closes the menu from «＋» as well as from inside it, and the focus goes back to «＋». An open help text
         // inside the wrap closes first (it prevents the default).
         if (event.key === "Escape" && menuOpen && !event.defaultPrevented) { event.preventDefault(); setMenuOpen(false); menuButton.current?.focus(); }
-      }}><button type="button" ref=${menuButton} class="ns-plus" aria-label="Más opciones" aria-expanded=${menuOpen ? "true" : "false"}
+      }}><button type="button" ref=${menuButton} class="ns-plus" aria-label=${t("new_session.more_options")} aria-expanded=${menuOpen ? "true" : "false"}
         ...${helpFor("chat.box_menu")} onClick=${() => setMenuOpen(!menuOpen)}>＋</button>
         <${Help} topic="chat.box_menu" compact=${true} />
-        ${menuOpen && html`<div class="ns-plus-menu" role="group" aria-label="Opciones de inicio">
+        ${menuOpen && html`<div class="ns-plus-menu" role="group" aria-label=${t("new_session.starter_options")}>
           ${allowExecutor && html`<button type="button" disabled=${executorActive} ...${helpFor("chat.executor_launch")}
-            onClick=${() => { setMenuOpen(false); onExecutor(); }}>Usar un ejecutor</button>
+            onClick=${() => { setMenuOpen(false); onExecutor(); }}>${t("new_session.use_executor")}</button>
           <${Help} topic="chat.executor_launch" compact=${true} />`}
-          ${allowForm && plusMenuEntries(currentMode()).includes("form") && html`<button type="button" ...${helpFor("chat.form")} onClick=${() => { setMenuOpen(false); onForm(); }}>Ver como formulario</button>
+          ${allowForm && plusMenuEntries(currentMode()).includes("form") && html`<button type="button" ...${helpFor("chat.form")} onClick=${() => { setMenuOpen(false); onForm(); }}>${t("new_session.view_as_form")}</button>
             <${Help} topic="chat.form" compact=${true} />`}
         </div>`}
       </div>
-      <div class="ns-box-select"><label for="ns-mode-select">Modo</label><select id="ns-mode-select" aria-label="Modo de sesión" value=${mode} ...${helpFor("chat.session_mode")}
-        onChange=${(event) => onMode(event.target.value)}><option value="orchestrator">Orquestador</option>
-        <option value="single">Sesión única</option></select><${Help} topic="chat.session_mode" compact=${true} /></div>
+      <div class="ns-box-select"><label for="ns-mode-select">${t("new_session.mode")}</label><select id="ns-mode-select" aria-label=${t("new_session.session_mode")} value=${mode} ...${helpFor("chat.session_mode")}
+        onChange=${(event) => onMode(event.target.value)}><option value="orchestrator">${t("new_session.orchestrator")}</option>
+        <option value="single">${t("new_session.single_session")}</option></select><${Help} topic="chat.session_mode" compact=${true} /></div>
       ${modelControl}
-      <div class="ns-box-select"><label for="ns-project-select">Proyecto</label><select id="ns-project-select" aria-label="Proyecto" value=${executorActive ? "" : project} disabled=${executorActive}
+      <div class="ns-box-select"><label for="ns-project-select">${t("new_session.project")}</label><select id="ns-project-select" aria-label=${t("new_session.project")} value=${executorActive ? "" : project} disabled=${executorActive}
         ...${helpFor("chat.project_select")} onChange=${(event) => onProject(event.target.value)}>
-        <option value="">${executorActive ? "No aplica al ejecutor" : "Elegir al confirmar"}</option>
+        <option value="">${executorActive ? t("new_session.not_for_executor") : t("new_session.choose_on_confirm")}</option>
         ${projects.map((name) => html`<option key=${name} value=${name}>${name}</option>`)}</select>
         <${Help} topic="chat.project_select" compact=${true} /></div>
-      <button type="submit" class="btn ns-send" disabled=${disabled} ...${helpFor("chat.send")}>Enviar</button>
+      <button type="submit" class="btn ns-send" disabled=${disabled} ...${helpFor("chat.send")}>${t("new_session.send")}</button>
       <${Help} topic="chat.send" compact=${true} />
     </div>
     ${(onBack || onSkip) && html`<div class="ns-composer-row">
-      ${onBack && html`<button type="button" class="btn secondary" disabled=${disabled} ...${helpFor("chat.back")} onClick=${onBack}>Pregunta anterior</button><${Help} topic="chat.back" compact=${true} />`}
-      ${onSkip && html`<button type="button" class="btn secondary" disabled=${disabled} ...${helpFor("chat.skip")} onClick=${onSkip}>Omitir</button><${Help} topic="chat.skip" compact=${true} />`}
+      ${onBack && html`<button type="button" class="btn secondary" disabled=${disabled} ...${helpFor("chat.back")} onClick=${onBack}>${t("new_session.previous_question")}</button><${Help} topic="chat.back" compact=${true} />`}
+      ${onSkip && html`<button type="button" class="btn secondary" disabled=${disabled} ...${helpFor("chat.skip")} onClick=${onSkip}>${t("new_session.skip")}</button><${Help} topic="chat.skip" compact=${true} />`}
     </div>`}
   </form>`;
 }
@@ -393,50 +418,50 @@ function SingleSession({
   };
   const edit = () => { setReady(false); setPreview(null); setError(null); };
   const disconnectedCount = buildModelPicker(connections).disconnected.length;
-  const modelControl = html`<div class="ns-box-select"><label for="ns-single-model">Modelo</label><select id="ns-single-model" aria-label="Modelo de sesión única" value=${model}
+  const modelControl = html`<div class="ns-box-select"><label for="ns-single-model">${t("new_session.model")}</label><select id="ns-single-model" aria-label=${t("new_session.single_session_model")} value=${model}
     ...${helpFor("chat.single_model")} onChange=${(event) => {
       if (event.target.value === "connect") { location.hash = routeHref("apps"); return; }
       setModel(event.target.value); setConfirmCloud(false); edit();
-    }}><option value="">${choices.some((choice) => choice.models.length) ? "Elegir modelo" : "Conecta un modelo"}</option>
-    ${choices.map((choice) => choice.models.map((item) => html`<option key=${item.id} value=${item.id}>${connectionLabel(choice.provider)} · ${item.id}</option>`))}
-    <option value="connect">Conectar otro… (${disconnectedCount} sin conectar)</option></select>
+    }}><option value="">${choices.some((choice) => choice.models.length) ? t("model_picker.choose_model") : t("model_picker.connect_model")}</option>
+    ${choices.map((choice) => choice.models.map((item) => html`<option key=${item.id} value=${item.id}>${connectionLabel(choice.provider)} · ${displayKnownModel(item.id)}</option>`))}
+    <option value="connect">${t("model_picker.connect_another", { count: disconnectedCount })}</option></select>
     <${Help} topic="chat.single_model" compact=${true} /></div>`;
   return html`<div class="ns">
-    <div class="ns-intro"><h3 class="ns-title">Sesión única</h3>
-      <p class="ns-lead">Describe una tarea sencilla y elige un modelo del paquete general.</p>
+    <div class="ns-intro"><h3 class="ns-title">${t("new_session.single_session")}</h3>
+      <p class="ns-lead">${t("new_session.single_session_lead")}</p>
     </div>
     <${SessionBox} task=${task} onTask=${(value) => { updateTask(value); edit(); }} onSubmit=${check}
-      disabled=${ready || busy} label="Tarea" placeholder="Describe tu tarea" rows=${5} mode="single" onMode=${onMode}
+      disabled=${ready || busy} label=${t("new_session.task")} placeholder=${t("new_session.task_placeholder")} rows=${5} mode="single" onMode=${onMode}
       modelControl=${modelControl} project=${project} projects=${projects} onProject=${onProject}
       onExecutor=${() => onSwitchExecutor("", task)} onForm=${onForm} />
     <${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />
-    ${mock && html`<p class="muted small ns-mock-note">Modo MOCK: respuestas sintéticas, sin modelos.</p>`}
-    <section class="ns-single-model-details" aria-label="Estado del modelo">
-      ${!catalogPreview && !error && html`<p role="status">Leyendo modelos del paquete…</p>`}
+    ${mock && html`<p class="muted small ns-mock-note">${t("new_session.mock_note")}</p>`}
+    <section class="ns-single-model-details" aria-label=${t("new_session.model_status")}>
+      ${!catalogPreview && !error && html`<p role="status">${t("new_session.loading_catalog_models")}</p>`}
       ${choices.map((choice) => html`<p key=${choice.provider} class="muted small">${connectionLabel(choice.provider)}${choice.status ? " · " + choice.status : ""}
         ${choice.quotaNote ? " · " + choice.quotaNote : ""}${choice.reason ? " · " + choice.reason : ""}</p>`)}
-      ${catalogPreview && choices.length === 0 && html`<p role="status">No hay proveedores de modelos conectados.</p>`}
-      <p class="muted small ns-row">Estado de Gemini y Copilot <${Help} topic="chat.connection_checks" compact=${true} /></p>
+      ${catalogPreview && choices.length === 0 && html`<p role="status">${t("new_session.no_connected_providers")}</p>`}
+      <p class="muted small ns-row">${t("new_session.provider_status")} <${Help} topic="chat.connection_checks" compact=${true} /></p>
     </section>
     ${error && html`<p class="message error" role="alert">${errorText(error)}</p>`}
-    ${ready && html`<section class="ns-confirm panel" aria-label="Resumen antes de lanzar">
-      <p><strong>Modelo:</strong> ${model}</p><p><strong>Proyecto:</strong> ${project || "Sesión única"}</p>
-      <p><strong>Tarea:</strong> ${task}</p>
+    ${ready && html`<section class="ns-confirm panel" aria-label=${t("new_session.summary_before_launch")}>
+      <p><strong>${t("new_session.model")}:</strong> ${displayKnownModel(model)}</p><p><strong>${t("new_session.project")}:</strong> ${project || t("new_session.single_session")}</p>
+      <p><strong>${t("new_session.task")}:</strong> ${task}</p>
       <${PreviewPanel} preview=${preview} error=${null} loading=${false} />
       ${cloudSelected && html`<label class="check"><input type="checkbox" checked=${confirmCloud}
         ...${helpFor("chat.cloud_confirm")} onChange=${(event) => setConfirmCloud(event.target.checked)} />
-        Confirmo enviar esta tarea al modelo en la nube.</label><${Help} topic="chat.cloud_confirm" compact=${true} />`}
+        ${t("new_session.confirm_cloud_task")}</label><${Help} topic="chat.cloud_confirm" compact=${true} />`}
       ${!mock && html`<label class="check"><input type="checkbox" checked=${confirmReal}
         ...${helpFor("create.confirm_real")} onChange=${(event) => setConfirmReal(event.target.checked)} />
-        Entiendo que esta ejecución puede usar modelos reales.</label>`}
+        ${t("new_session.confirm_real_single")}</label>`}
       <button type="button" class="btn" disabled=${busy || !selected || (!mock && !confirmReal) || (cloudSelected && !confirmCloud)}
-        ...${helpFor("chat.launch")} onClick=${launch}>${busy ? "Lanzando…" : "Lanzar"}</button>
+        ...${helpFor("chat.launch")} onClick=${launch}>${busy ? t("new_session.launching") : t("new_session.launch")}</button>
       <${Help} topic="chat.launch" compact=${true} />
-      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.edit")} onClick=${edit}>Editar</button>
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.edit")} onClick=${edit}>${t("new_session.edit")}</button>
       <${Help} topic="chat.edit" compact=${true} />
     </section>`}
     ${!ready && html`<button type="button" class="btn" disabled=${busy || !task.trim() || !selected}
-      ...${helpFor("chat.single_task")} onClick=${check}>Revisar y lanzar</button><${Help} topic="chat.single_task" compact=${true} />`}
+      ...${helpFor("chat.single_task")} onClick=${check}>${t("new_session.review_and_launch")}</button><${Help} topic="chat.single_task" compact=${true} />`}
   </div>`;
 }
 
@@ -562,42 +587,42 @@ function SingleExecutorSession({
     claude_cli: "claude", codex_cli: "codex", copilot_cli: "copilot", antigravity_cli: "antigravity",
   };
   const activeLimit = limitNotice || (selectedConnection?.limit ? buildLimitNotice(selectedConnection.limit, connections) : null);
-  const modelControl = html`<div class="ns-box-select"><label for="ns-executor-model">Modelo</label><select id="ns-executor-model" aria-label="Modelo del ejecutor" value=${model}
+  const modelControl = html`<div class="ns-box-select"><label for="ns-executor-model">${t("new_session.model")}</label><select id="ns-executor-model" aria-label=${t("new_session.executor_model")} value=${model}
     disabled=${!selectedAvailable || busy} ...${helpFor("chat.executor_launch")}
-    onChange=${(event) => { setModel(event.target.value); edit(); }}><option value="">Elige un modelo</option>
+    onChange=${(event) => { setModel(event.target.value); edit(); }}><option value="">${t("new_session.choose_model")}</option>
     ${models.map((value) => html`<option key=${value} value=${value}>${value}</option>`)}</select></div>`;
 
   return html`<div class="ns">
     <div class="ns-intro">
-      <h3 class="ns-title">Sesión única con ejecutor</h3>
-      <p class="ns-lead">Describe la tarea, elige un ejecutor y revisa cuota y ajustes antes de aprobar el lanzamiento.</p>
+      <h3 class="ns-title">${t("new_session.single_executor_session")}</h3>
+      <p class="ns-lead">${t("new_session.single_executor_lead")}</p>
       ${!launched && html`<button type="button" class="btn secondary" ...${helpFor("chat.executor_launch")}
-        onClick=${onBack}>Volver a Sesión única con modelo</button><${Help} topic="chat.executor_launch" compact=${true} />`}
+        onClick=${onBack}>${t("new_session.back_to_model_session")}</button><${Help} topic="chat.executor_launch" compact=${true} />`}
     </div>
     ${!launched && html`<${SessionBox} task=${task} onTask=${(value) => { updateTask(value); edit(); }}
       onSubmit=${() => { if (canReview) setReady(true); }} disabled=${ready || busy}
-      label="Tarea" placeholder="Describe tu tarea" rows=${5} maxLength=${4000} executorActive=${true}
+      label=${t("new_session.task")} placeholder=${t("new_session.task_placeholder")} rows=${5} maxLength=${4000} executorActive=${true}
       mode="single" onMode=${onMode}
       modelControl=${modelControl} project=${project} projects=${projects} onProject=${onProject}
       onExecutor=${() => {}} onForm=${onForm} />`}
     <${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />
-    ${mock && html`<p class="muted small ns-mock-note">Modo MOCK: respuestas sintéticas, sin modelos.</p>`}
+    ${mock && html`<p class="muted small ns-mock-note">${t("new_session.mock_note")}</p>`}
     ${connectionError && html`<div class="ns-row"><p class="message error" role="alert">${errorText(connectionError)}</p>
-      <button type="button" class="btn secondary" ...${helpFor("chat.executor_launch")} onClick=${onRetry}>Reintentar conexiones</button>
+      <button type="button" class="btn secondary" ...${helpFor("chat.executor_launch")} onClick=${onRetry}>${t("new_session.retry_connections")}</button>
       <${Help} topic="chat.executor_launch" compact=${true} /></div>`}
-    ${connectionLoading && html`<p class="muted small" role="status">Comprobando conexiones de ejecutores…</p>`}
-    ${composer.loading && html`<p class="muted small" role="status">Leyendo los modelos y esfuerzos admitidos…</p>`}
+    ${connectionLoading && html`<p class="muted small" role="status">${t("new_session.checking_executor_connections")}</p>`}
+    ${composer.loading && html`<p class="muted small" role="status">${t("new_session.loading_models_efforts")}</p>`}
     ${composer.error && html`<p class="message error" role="alert">${errorText(composer.error)}</p>`}
     ${!launched && html`
-      <section class="ns-executor-picker panel" aria-label="Ejecutores conectados">
-        <strong>Ejecutor</strong><${Help} topic="chat.executor_launch" compact=${true} />
-        ${choices.length === 0 && !connectionLoading && html`<p class="muted small" role="status">No hay ejecutores conectados.</p>`}
+      <section class="ns-executor-picker panel" aria-label=${t("new_session.connected_executors")}>
+        <strong>${t("new_session.executor")}</strong><${Help} topic="chat.executor_launch" compact=${true} />
+        ${choices.length === 0 && !connectionLoading && html`<p class="muted small" role="status">${t("new_session.no_connected_executors")}</p>`}
         ${choices.map((item) => {
           const option = composer.options.find((candidate) => candidate.executor_id === item.id);
           const selectable = item.selectable && option?.available === true;
           const reason = !item.selectable ? item.reason : !option
-            ? "No hay opciones de modelo admitidas para este ejecutor."
-            : !option.available ? "No hay opciones de modelo y esfuerzo disponibles." : null;
+            ? t("new_session.no_supported_models")
+            : !option.available ? t("new_session.no_model_effort_options") : null;
           const connection = (connections?.connections || []).find((candidate) => candidate.id === item.id);
           return html`<label key=${item.id} class=${"ns-executor-choice" + (selectable ? "" : " ns-picker-unavailable")}>
             <input type="radio" name="single-executor" value=${item.id} checked=${executorId === item.id}
@@ -612,57 +637,57 @@ function SingleExecutorSession({
         })}
       </section>
       <div class="ns-executor-fields">
-        ${efforts.length > 0 && html`<label>Esfuerzo
+        ${efforts.length > 0 && html`<label>${t("new_session.effort")}
           <select value=${effort} disabled=${busy || !selectedAvailable}
             ...${helpFor("chat.executor_launch")}
             onChange=${(event) => { setEffort(event.target.value); edit(); }}>
-            <option value="">Elige un esfuerzo</option>
+            <option value="">${t("new_session.choose_effort")}</option>
             ${efforts.map((value) => html`<option key=${value} value=${value}>${value}</option>`)}
           </select>
           <${Help} topic="chat.executor_launch" compact=${true} />
         </label>`}
       </div>
       ${launchError && html`<p class="message error" role="alert">${errorText(launchError)}</p>`}
-      ${ready && html`<section class="ns-confirm panel" aria-label="Confirmación de lanzamiento">
-        <h4>Confirma este lanzamiento</h4>
+      ${ready && html`<section class="ns-confirm panel" aria-label=${t("new_session.launch_confirmation")}>
+        <h4>${t("new_session.confirm_this_launch")}</h4>
         <dl class="ns-answers">
-          <div class="ns-answer"><dt>Ejecutor</dt><dd>${selected?.label || executorLabels[executorId] || executorId}</dd></div>
-          <div class="ns-answer"><dt>Modelo</dt><dd>${model}</dd></div>
-          <div class="ns-answer"><dt>Esfuerzo</dt><dd>${effort || "Predeterminado"}</dd></div>
-          <div class="ns-answer"><dt>Cuota restante</dt><dd>${quotaRemainingLines(selectedConnection?.quota).join(" · ")}</dd></div>
-          <div class="ns-answer"><dt>Tarea</dt><dd>${task}</dd></div>
+          <div class="ns-answer"><dt>${t("new_session.executor")}</dt><dd>${selected?.label || executorLabels[executorId] || executorId}</dd></div>
+          <div class="ns-answer"><dt>${t("new_session.model")}</dt><dd>${displayKnownModel(model)}</dd></div>
+          <div class="ns-answer"><dt>${t("new_session.effort")}</dt><dd>${effort || t("new_session.default")}</dd></div>
+          <div class="ns-answer"><dt>${t("new_session.remaining_quota")}</dt><dd>${quotaRemainingLines(selectedConnection?.quota).join(" · ")}</dd></div>
+          <div class="ns-answer"><dt>${t("new_session.task")}</dt><dd>${task}</dd></div>
         </dl>
         ${selected?.warning && html`<p class="notice ns-picker-notice" role="status">${selected.warning}</p>`}
         ${selected?.agyNotice && html`<p class="notice ns-picker-notice">${selected.agyNotice}</p>`}
-        <p class="hint" role="status">Nada se lanza hasta que pulses «Aprobar y lanzar».</p>
+        <p class="hint" role="status">${t("new_session.nothing_until_approve_launch")}</p>
         <button type="button" class="btn" disabled=${busy || !canReview}
-          ...${helpFor("chat.executor_launch")} onClick=${launch}>${busy ? "Lanzando…" : "Aprobar y lanzar"}</button>
+          ...${helpFor("chat.executor_launch")} onClick=${launch}>${busy ? t("new_session.launching") : t("new_session.approve_and_launch")}</button>
         <${Help} topic="chat.executor_launch" compact=${true} />
-        <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.executor_launch")} onClick=${edit}>Editar</button>
+        <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.executor_launch")} onClick=${edit}>${t("new_session.edit")}</button>
         <${Help} topic="chat.executor_launch" compact=${true} />
       </section>`}
       ${!ready && html`<button type="button" class="btn" disabled=${!canReview}
-        ...${helpFor("chat.executor_launch")} onClick=${() => setReady(true)}>Revisar lanzamiento</button>
+        ...${helpFor("chat.executor_launch")} onClick=${() => setReady(true)}>${t("new_session.review_launch")}</button>
         <${Help} topic="chat.executor_launch" compact=${true} />`}
     `}
-    ${launched && html`<section class="ns-executor-tracking panel" aria-label="Seguimiento del ejecutor">
-      <h4>Seguimiento de la tarea</h4>
+    ${launched && html`<section class="ns-executor-tracking panel" aria-label=${t("new_session.executor_tracking")}>
+      <h4>${t("new_session.task_tracking")}</h4>
       ${tracking.error && html`<p class="message error" role="alert">${errorText(tracking.error)}</p>`}
-      ${tracking.data?.task && html`<p role="status">Estado: ${tracking.data.task.state} · ${tracking.data.task.status}</p>`}
+      ${tracking.data?.task && html`<p role="status">${t("new_session.status")}: ${tracking.data.task.state} · ${tracking.data.task.status}</p>`}
       ${tracking.data?.latest_result && html`<div class="ns-executor-response">
-        <strong>Respuesta del ejecutor</strong>
+        <strong>${t("new_session.executor_response")}</strong>
         <p>${tracking.data.latest_result.summary}</p>
       </div>`}
-      ${(latestAttempt?.outcome || launched.launch?.outcome) && html`<p>Último intento: ${latestAttempt?.outcome || launched.launch?.outcome}</p>`}
+      ${(latestAttempt?.outcome || launched.launch?.outcome) && html`<p>${t("new_session.last_attempt")}: ${latestAttempt?.outcome || launched.launch?.outcome}</p>`}
       ${(latestAttempt?.evidence || launched.launch?.evidence) && html`<p class="message error" role="alert">
-        ${latestAttempt?.evidence || launched.launch.evidence}</p>`}
-      ${(latestAttempt?.notes || launched.launch?.notes || []).map((note) => html`<p class="muted small" key=${note}>${note}</p>`)}
-      ${sessions.length === 0 && html`<p class="muted small">Esperando que el ejecutor registre su sesión…</p>`}
+        ${displayExecutorEvidence(latestAttempt?.evidence || launched.launch.evidence)}</p>`}
+      ${(latestAttempt?.notes || launched.launch?.notes || []).map((note) => html`<p class="muted small" key=${note}>${displayExecutorNote(note)}</p>`)}
+      ${sessions.length === 0 && html`<p class="muted small">${t("new_session.waiting_for_session")}</p>`}
       ${sessions.map((session) => {
         const source = sessionLinks[session.executor_id];
         return source && session.readable && html`<p key=${session.session_id}><a class="btn secondary"
           href=${routeHref("sessions", source + ":" + session.session_id)}
-          ...${helpFor("chat.executor_launch")}>Abrir sesión en Sesiones</a>
+          ...${helpFor("chat.executor_launch")}>${t("new_session.open_session_in_sessions")}</a>
           <${Help} topic="chat.executor_launch" compact=${true} /></p>`;
       })}
     </section>`}
@@ -1010,8 +1035,8 @@ export function NewSession({ token, mock }) {
   const fileToolsMissing = usesFileTools && currentOfficeDetail?.file_tools_configured !== true;
   const fileToolsNotice = usesFileTools
     ? fileToolsMissing
-      ? "Este workflow necesita herramientas de archivos locales. Configura FILE_TOOLS_ROOT y reinicia la aplicación antes de ejecutarlo."
-      : "Este workflow usa herramientas locales de archivos."
+      ? t("new_session.file_tools_missing")
+      : t("new_session.file_tools_used")
     : "";
   const settledCatalog = async () => {
     const pending = officeId ? officeCatalogRun.current : catalogRun.current;
@@ -1123,7 +1148,7 @@ export function NewSession({ token, mock }) {
     if (isPlanSuggested(interpretation)) {       // ARR3-T02: the draft card asks to confirm before anything is saved
       setLimitNotice(null);
       setPlanDraft(interpretation.plan_draft);
-      dispatch({ type: "notice", text: PLAN_NOTICE }, { keepDraft: true });
+      dispatch({ type: "notice", text: t("new_session.plan_notice") }, { keepDraft: true });
       setDraft(keptDraft);
       return;
     }
@@ -1158,8 +1183,8 @@ export function NewSession({ token, mock }) {
         if (replyIsStale(startKey)) return;
         entries = loaded.entries;
         if (entries.length === 0 && loaded.error) {
-          const label = officeId ? "No se pudieron leer las opciones de la oficina: " : "No se pudo leer la lista de workflows: ";
-          dispatch({ type: "notice", text: label + errorText(loaded.error) }, { keepDraft: true });
+          const label = officeId ? "new_session.office_options_failed" : "new_session.workflow_list_failed";
+          dispatch({ type: "notice", text: t(label, { error: errorText(loaded.error) }) }, { keepDraft: true });
           return;
         }
       } finally { setBusy(false); }
@@ -1267,7 +1292,7 @@ export function NewSession({ token, mock }) {
       const loaded = await settledCatalog();
       entries = loaded.entries;
       if (entries.length === 0 && loaded.error) {
-        dispatch({ type: "notice", text: "No se pudo leer la lista de workflows: " + errorText(loaded.error) }, { keepDraft: true });
+        dispatch({ type: "notice", text: t("new_session.workflow_list_failed", { error: errorText(loaded.error) }) }, { keepDraft: true });
         return;
       }
       if (replyIsStale(startKey)) return;
@@ -1332,7 +1357,7 @@ export function NewSession({ token, mock }) {
       resendSecret();
     } else if (decision === "rejected") {
       clearSecret();
-      dispatch({ type: "notice", text: "La aprobación fue rechazada; puedes editar el texto antes de enviarlo." }, { keepDraft: true });
+      dispatch({ type: "notice", text: t("new_session.approval_rejected") }, { keepDraft: true });
     }
   }, [pendingSecret]);
 
@@ -1345,7 +1370,7 @@ export function NewSession({ token, mock }) {
         const loaded = await settledCatalog();
         entries = loaded.entries;
         if (entries.length === 0 && loaded.error) {
-          dispatch({ type: "notice", text: "No se pudo leer la lista de workflows: " + errorText(loaded.error) }, { keepDraft: true });
+          dispatch({ type: "notice", text: t("new_session.workflow_list_failed", { error: errorText(loaded.error) }) }, { keepDraft: true });
           return;
         }
       } finally { setBusy(false); }
@@ -1361,7 +1386,7 @@ export function NewSession({ token, mock }) {
       const spec = await apiGet(inputsPath(entry), token);
       dispatch({ type: "pick", workflow: entry, spec, project });
     } catch (failure) {
-      dispatch({ type: "notice", text: "No se pudieron leer las entradas de «" + entry.id + "»: " + errorText(asError(failure)) }, { keepDraft: true });
+      dispatch({ type: "notice", text: t("new_session.workflow_inputs_failed", { id: entry.id, error: errorText(asError(failure)) }) }, { keepDraft: true });
     } finally { setBusy(false); }
   }
 
@@ -1391,7 +1416,7 @@ export function NewSession({ token, mock }) {
 
   function openForm() {
     if (sessionKind === "orchestrator" && Object.values(routingOverrides).some((override) => Object.keys(override).length > 0)) {
-      setLaunchError(new ApiError({ message: "No se puede abrir el formulario porque no admite estos ajustes de modelo/esfuerzo. Revierte los cambios primero." }));
+      setLaunchError(new ApiError({ message: t("new_session.form_routing_unsupported") }));
       return;
     }
     const seed = sessionKind === "orchestrator" ? formSeed(store.current, { mode, sensitive }) : {
@@ -1469,14 +1494,13 @@ export function NewSession({ token, mock }) {
   const canSkip = question !== null && !question.required;
   const canBack = question !== null && conv.index > 0;
   const rows = question ? (question.kind === "long_text" ? 5 : 2) : 2;
-  const placeholder = question ? exampleText({ example: question.example, type: question.kind }) || "" : FREE_PLACEHOLDER;
-  const label = question ? "Tu respuesta: " + question.label : "Escribe qué quieres hacer";
+  const placeholder = question ? exampleText({ example: question.example, type: question.kind }) || "" : t("new_session.free_placeholder");
+  const label = question ? t("new_session.your_answer", { label: question.label }) : t("new_session.what_to_do");
   const officeOptionCount = officeGroups.reduce((count, group) => count + group.items.length, 0);
-  const status = activeCatalog.error ? "" : officeId && (officeList.loading || officeLoading || activeCatalog.loading) ? "Leyendo las opciones de la oficina…"
-    : officeId ? officeOptionCount + (officeOptionCount === 1
-      ? " opción de la oficina disponible." : " opciones de la oficina disponibles.")
-      : activeCatalog.loading ? "Leyendo los workflows disponibles…"
-        : activeCatalog.entries.length + (activeCatalog.entries.length === 1 ? " workflow disponible." : " workflows disponibles.");
+  const status = activeCatalog.error ? "" : officeId && (officeList.loading || officeLoading || activeCatalog.loading) ? t("new_session.loading_office_options")
+    : officeId ? t(officeOptionCount === 1 ? "new_session.office_option_one" : "new_session.office_option_many", { count: officeOptionCount })
+      : activeCatalog.loading ? t("new_session.loading_workflows")
+        : t(activeCatalog.entries.length === 1 ? "new_session.workflow_count_one" : "new_session.workflow_count_many", { count: activeCatalog.entries.length });
   const pickerHelp = {
     picker: html`<${Help} topic="chat.model_picker" compact=${true} />`,
     choice: html`<${Help} topic="chat.model_choice" compact=${true} />`,
@@ -1494,22 +1518,22 @@ export function NewSession({ token, mock }) {
 
   return html`<div class="ns">
     ${officeList.offices.length > 0 && html`<div class="ns-office-select">
-      <label for="ns-office-select">Oficina</label>
+      <label for="ns-office-select">${t("new_session.office")}</label>
       <select id="ns-office-select" value=${officeId} ...${helpFor("chat.office", { scope: "office-select" })}
         onChange=${(event) => selectOffice(event.target.value)}>
         ${officeChoices.map((item) => html`<option key=${item.value || "none"} value=${item.value}>${item.label}</option>`)}
       </select>
       <${Help} topic="chat.office" compact=${true} scope="office-select" />
-      ${officeId && currentOfficeScene && html`<p class="muted small" role="status">Privacidad más alta: ${officeLevelText(currentOfficeScene)}.</p>`}
+      ${officeId && currentOfficeScene && html`<p class="muted small" role="status">${t("new_session.highest_privacy", { level: officeLevelText(currentOfficeScene) })}</p>`}
     </div>`}
-    ${officeList.error && html`<p class="message error small" role="alert">No se pudo leer la lista de oficinas: ${errorText(officeList.error)}</p>`}
-    ${unknownOfficeNotice && html`<p class="message error small" role="alert">Esa oficina ya no está.</p>`}
-    ${officeError && html`<p class="message error small" role="alert">No se pudo leer la oficina: ${errorText(officeError)}</p>`}
+    ${officeList.error && html`<p class="message error small" role="alert">${t("new_session.office_list_failed", { error: errorText(officeList.error) })}</p>`}
+    ${unknownOfficeNotice && html`<p class="message error small" role="alert">${t("new_session.office_unavailable")}</p>`}
+    ${officeError && html`<p class="message error small" role="alert">${t("new_session.office_failed", { error: errorText(officeError) })}</p>`}
     <div class="ns-intro">
-      <h3 class="ns-title">¿Qué quieres hacer?</h3>
+      <h3 class="ns-title">${t("new_session.welcome_title")}</h3>
       <p class="ns-lead">${officeSingle
-        ? "Elige lo que sabe hacer la oficina o describe lo que necesitas. Te guío paso a paso y nada se ejecuta sin que lo confirmes."
-        : "Escribe en tus palabras lo que necesitas, o elige una opción. Te guío paso a paso y nada se ejecuta sin que lo confirmes."}</p>
+        ? t("new_session.office_welcome")
+        : t("new_session.chat_welcome")}</p>
       <${Help} topic="chat.welcome" />
     </div>
     <${SessionBox} task=${draft} onTask=${typing} onSubmit=${submit}
@@ -1522,69 +1546,71 @@ export function NewSession({ token, mock }) {
       onBack=${canBack ? () => dispatch({ type: "back" }) : null}
       onSkip=${canSkip ? () => dispatch({ type: "skip" }) : null} />
     ${noConnectedModels && html`${isRegisteredView("apps") && html`<a class="btn secondary small" href=${routeHref("apps")}
-      ...${helpFor("chat.connect_other")}>Conectar otro</a>`}`}
+      ...${helpFor("chat.connect_other")}>${t("model_picker.connect_another_short")}</a>`}`}
     <${LimitBanner} notice=${activeLimitNotice} connections=${connectionData} busy=${busy} onSelectSuggestion=${pickOrchestratorSuggestion} />
-    ${mock && html`<p class="muted small ns-mock-note">Modo MOCK: respuestas sintéticas, sin modelos.</p>`}
+    ${mock && html`<p class="muted small ns-mock-note">${t("new_session.mock_note")}</p>`}
     ${conv.phase === "welcome" && !officeSingle && html`<${Starters} disabled=${busy} onPick=${chooseStarter} />`}
     ${(conv.phase === "welcome" || conv.phase === "choose") && html`<p class="muted small" role="status" aria-live="polite">${status}</p>`}
     ${officeSingle && currentOfficeDetail && conv.phase === "welcome" && !activeCatalog.loading && !activeCatalog.error && html`<${OfficeWorkflowPicker}
       groups=${officeGroups} areas=${currentOfficeDetail?.areas || []} disabled=${busy || officeLoading}
       onPick=${pickOfficeWorkflow} />`}
     ${activeCatalog.error && html`<div class="ns-row"><p class="message error" role="alert">
-      ${officeId ? "No se pudieron leer las opciones de la oficina" : "No se pudo leer la lista de workflows"}: ${errorText(activeCatalog.error)}</p>
-      <button type="button" class="btn secondary" ...${helpFor("chat.retry")} onClick=${() => { retryCatalog(); if (composer.current) composer.current.focus(); }}>Reintentar</button>
+      ${officeId
+        ? t("new_session.office_options_failed", { error: errorText(activeCatalog.error) })
+        : t("new_session.workflow_list_failed", { error: errorText(activeCatalog.error) })}</p>
+      <button type="button" class="btn secondary" ...${helpFor("chat.retry")} onClick=${() => { retryCatalog(); if (composer.current) composer.current.focus(); }}>${t("new_session.retry")}</button>
       <${Help} topic="chat.retry" compact=${true} /></div>`}
     <${Messages} messages=${conv.messages} />
     ${planDraft && html`<${PlanDraftCard} token=${token} draft=${planDraft} catalog=${activeCatalog.entries}
       onSaved=${(href) => { setPlanDraft(null); location.hash = href; }} onCancel=${() => setPlanDraft(null)} />`}
-    ${officeLevelQuestion && html`<div class="ns-msg ns-bot notice" role="group" aria-label="Pregunta de privacidad">
-      <p>¿Qué tan privados son los datos de ${officeLevelQuestion.areaName}?</p>
+    ${officeLevelQuestion && html`<div class="ns-msg ns-bot notice" role="group" aria-label=${t("new_session.privacy_question")}>
+      <p>${t("new_session.privacy_question_text", { area: officeLevelQuestion.areaName })}</p>
       <div class="actions">
         ${LEVEL_OPTIONS.map((option) => html`<button key=${option.value} type="button" class="btn secondary"
           disabled=${busy} ...${helpFor("chat.office", { scope: "office-level-question" })}
           onClick=${() => chooseOfficeLevel(option.value)}>${QUESTION_LINES[option.value]}</button>`)}
         <button type="button" class="btn secondary" disabled=${busy}
-          ...${helpFor("chat.office", { scope: "office-level-question" })} onClick=${cancelOfficeLevelQuestion}>Cancelar</button>
+          ...${helpFor("chat.office", { scope: "office-level-question" })} onClick=${cancelOfficeLevelQuestion}>${t("new_session.cancel")}</button>
         <${Help} topic="chat.office" compact=${true} scope="office-level-question" />
       </div>
     </div>`}
     ${officeLevelNotice && html`<div class="ns-msg ns-bot notice" role="alert">
       ${officeLevelNotice.text && html`<p>${officeLevelNotice.text}</p>`}
       ${officeLevelNotice.officeId && html`<a class="btn secondary small" href=${routeHref("offices", officeLevelNotice.officeId)}
-        ...${helpFor("chat.office", { scope: "office-privacy-link" })}>Privacidad</a>
+        ...${helpFor("chat.office", { scope: "office-privacy-link" })}>${t("new_session.privacy")}</a>
         <${Help} topic="chat.office" compact=${true} scope="office-privacy-link" />`}
     </div>`}
     ${sourceUpdateAvailable && html`<div class="ns-msg ns-bot notice" role="status">
-        <p>Hay una actualización disponible para esta oficina.</p>
+        <p>${t("new_session.office_update_available")}</p>
         ${OfficeSourceUpdateView && html`<${OfficeSourceUpdateView} key=${officeId} token=${token} officeId=${officeId}
           onDone=${(detail) => { if (detail?.id === officeId) setOfficeDetail(detail); }} />`}
         ${sourceUpdateLoadFailed && html`<p><a href=${routeHref("offices")} ...${helpFor("chat.office", { scope: "office-source-update-review" })}>
-          Abre «Oficinas» para revisar la actualización.</a></p>`}
+          ${t("new_session.open_offices_to_review_update")}</a></p>`}
         ${sourceUpdateLoadFailed && html`<${Help} topic="chat.office" compact=${true} scope="office-source-update-review" />`}
       </div>`}
     ${currentOfficeDetail?.source_update?.tracked && !currentOfficeDetail.source_update.available && html`
       <div class="ns-msg ns-bot notice" role="status">
-        <p>La carpeta de origen no está disponible. No se instaló ningún cambio.</p>
+        <p>${t("new_session.source_folder_unavailable")}</p>
       </div>`}
-    ${pendingCloud && html`<div class="ns-msg ns-bot" role="group" aria-label="Confirmación de envío a la nube">
-      <p>¿Enviar este texto a ${pendingCloud.interpretation.model} (nube)?</p>
+    ${pendingCloud && html`<div class="ns-msg ns-bot" role="group" aria-label=${t("new_session.cloud_send_confirmation")}>
+      <p>${t("new_session.send_text_to_cloud_model", { model: pendingCloud.interpretation.model })}</p>
       <div class="actions">
         <button type="button" class="btn" disabled=${busy} ...${helpFor("chat.cloud_confirm")}
-          onClick=${() => answerCloud(true)}>Enviar</button>
+          onClick=${() => answerCloud(true)}>${t("new_session.send")}</button>
         <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.cloud_confirm")}
-          onClick=${() => answerCloud(false)}>No enviar</button>
+          onClick=${() => answerCloud(false)}>${t("new_session.do_not_send")}</button>
         <${Help} topic="chat.cloud_confirm" compact=${true} />
       </div>
     </div>`}
-    ${pendingSecret && html`<div class="ns-msg ns-bot notice" role="alert" aria-label="Revisión de secreto requerida">
-      <p>${SECRET_REVIEW_NOTICE}</p>
-      <p><a href=${routeHref("approvals", pendingSecret.approvalId || undefined)}>Ir a «Aprobaciones»</a></p>
+    ${pendingSecret && html`<div class="ns-msg ns-bot notice" role="alert" aria-label=${t("new_session.secret_review_required")}>
+      <p>${t("new_session.secret_review_notice")}</p>
+      <p><a href=${routeHref("approvals", pendingSecret.approvalId || undefined)}>${t("new_session.go_to_approvals")}</a></p>
       <div class="actions">
         <button type="button" class="btn" disabled=${busy} ...${helpFor("chat.send", { scope: "secret-resend" })}
-          onClick=${resendSecret}>Reenviar</button>
+          onClick=${resendSecret}>${t("new_session.resend")}</button>
         <${Help} topic="chat.send" compact=${true} scope="secret-resend" />
         <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.edit", { scope: "secret-edit" })}
-          onClick=${cancelSecret}>Editar mensaje</button>
+          onClick=${cancelSecret}>${t("new_session.edit_message")}</button>
         <${Help} topic="chat.edit" compact=${true} scope="secret-edit" />
       </div>
     </div>`}
@@ -1600,7 +1626,7 @@ export function NewSession({ token, mock }) {
     <div class="ns-end" ref=${endMark}></div>
     <div class="ns-tools">
       ${conv.phase !== "welcome" && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.restart")}
-        onClick=${restart}>Empezar de nuevo</button>
+        onClick=${restart}>${t("new_session.start_over")}</button>
         <${Help} topic="chat.restart" compact=${true} />`}
     </div>
   </div>`;

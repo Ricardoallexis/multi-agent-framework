@@ -503,7 +503,8 @@ def _run_node_utc(script: str, data: dict | None = None) -> dict:
     assert node is not None
     js = STATIC_DIR / "js"
     prelude = (
-        f'import * as m from {__import__("json").dumps((js / "new-session-model.js").as_uri())};\n'
+        "Object.defineProperty(globalThis, 'navigator', {value: {language: 'es-MX'}, configurable: true});\n"
+        f'const m = await import({__import__("json").dumps((js / "new-session-model.js").as_uri())});\n'
         "const DATA = JSON.parse(process.env.DATA || 'null');\n"
         "globalThis.fetch = () => { throw new Error('the model must not touch the network'); };\n"
     )
@@ -626,16 +627,14 @@ def test_cuo_t06_scripts_pass_node_check_and_keep_run_detail_limit_only():
     detail = ui_text(js / "run-detail.js")
     assert "limitReachedText(view.limit)" in detail and "Reintentar" in detail
     assert 'helpFor("run.limit_retry")' in detail
-    chat = (js / "new-session.js").read_text(encoding="utf-8")
+    chat = source("new-session.js")
     assert "Confirmo enviar esta tarea al modelo en la nube." in chat
     assert "LimitBanner" in chat and "acceptWarning" in chat
 
 
 def test_single_session_rows_use_app_labels_and_the_status_help_has_a_label():
     """QA 2026-11-20 at 390 px: the rows said «gemini: …» and the status «?» stood alone under the picker."""
-    from multiagent.gui import STATIC_DIR
-
-    chat = (STATIC_DIR / "js" / "new-session.js").read_text(encoding="utf-8")
+    chat = source("new-session.js")
     assert "${choice.provider}:" not in chat and "${choice.provider} ·" not in chat
     assert chat.count("connectionLabel(choice.provider)") == 2
     assert 'Estado de Gemini y Copilot <${Help} topic="chat.connection_checks"' in chat
@@ -643,7 +642,5 @@ def test_single_session_rows_use_app_labels_and_the_status_help_has_a_label():
 
 def test_single_session_status_help_has_a_visible_label():
     """GUI test 2026-11-20: 98bec8d labelled the orchestrator's status «?», but single session kept its own lone «?»."""
-    from multiagent.gui import STATIC_DIR
-
-    chat = (STATIC_DIR / "js" / "new-session.js").read_text(encoding="utf-8")
+    chat = source("new-session.js")
     assert 'Estado de Gemini y Copilot <${Help} topic="chat.connection_checks"' in chat

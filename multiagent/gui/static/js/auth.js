@@ -1,6 +1,7 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Local token handling: read it from the URL fragment once, keep it in sessionStorage.
+import { t } from "./i18n.js";
 const KEY = "multiagent.gui.token";
 let approvalSessionError = "";
 
@@ -26,9 +27,9 @@ export function loadToken() {
       }).then(async response => {
         if (!response.ok) {
           const detail = await response.json().catch(() => ({}));
-          reportApprovalSessionError(detail?.detail?.message || "Reinicia la GUI para tomar las aprobaciones.");
+          reportApprovalSessionError(detail?.detail?.message || t("shell.restart_for_approvals"));
         }
-      }).catch(() => reportApprovalSessionError("No se pudo iniciar la sesión de aprobaciones."));
+      }).catch(() => reportApprovalSessionError(t("shell.approval_session_failed")));
     }
     return match;
   }

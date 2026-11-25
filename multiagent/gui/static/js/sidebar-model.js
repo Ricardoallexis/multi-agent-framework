@@ -6,11 +6,14 @@ import { sessionTitle, statusInfo as sessionStatus } from "./session-text.js";
 import { statusInfo as runStatus } from "./text.js";
 import { DEFAULT_LABELS, labelEntry, labelSet, statusText } from "./ui/labels.js";
 import { visibleIn } from "./gui-mode.js";
+import { t } from "./i18n.js";
 
 // GUI3-T03: one route per navigation section. Extensions with no group remain reachable in Más.
 // SIM-T02: in simple mode only the sections that say `mode: "simple"` are listed (a pinned advanced one stays pinned, it just is
 // not shown), «Más» ends with the «Ayuda» row (it turns help mode on, it is not a view), and every row carries its mode.
-export const HELP_ROW = { id: "help", label: "Ayuda", icon: "help", mode: "simple", action: "help" };
+export const HELP_ROW = {
+  id: "help", get label() { return t("shell.help"); }, icon: "help", mode: "simple", action: "help",
+};
 
 // INI-T03: while a step of «Inicio» is missing (startPending), `start` leads the primary list, right after «Buscar»; otherwise it is in «Más».
 export function navigationSections(builtins, extensions, pinned = [], mode = "advanced", startPending = false) {
@@ -40,11 +43,11 @@ export const APPS = [
   { id: "claude", label: "Claude" },
   { id: "codex", label: "Codex" },
   { id: "copilot", label: "Copilot" },
-  { id: "workflow", label: "Workflows" },
-  { id: "activity", label: "Actividades" },
+  { id: "workflow", get label() { return t("shell.workflows"); } },
+  { id: "activity", get label() { return t("shell.activities"); } },
 ];
 const APP_LABEL = Object.fromEntries(APPS.map((app) => [app.id, app.label]));
-export const appLabel = (id) => APP_LABEL[id] || String(id);
+export const appLabel = (id) => (id === "workflow" ? t("shell.workflows") : id === "activity" ? t("shell.activities") : APP_LABEL[id] || String(id));
 
 // The three generic dot states used by sessions and runs; activity dots use their API-provided task labels.
 export const DOTS = Object.fromEntries(Object.keys(DEFAULT_LABELS.dot).map((dot) => [dot, DEFAULT_LABELS.dot[dot].text]));
@@ -59,7 +62,8 @@ const RUN_DOT = {
 };
 export const runDot = (status) => RUN_DOT[status] || "finished";
 
-export const NO_PROJECT = "Sin proyecto";
+export const NO_PROJECT = "shell.no_project";
+const noProjectLabel = () => t(NO_PROJECT);
 
 // Last part of a folder path, for both kinds of separator; "" when there is none.
 export function folderName(path) {
@@ -79,7 +83,7 @@ export function sessionItems(sessions) {
       const dot = sessionDot(session.status);
       return {
         key: session.id, kind: "session", app: session.source, title: sessionTitle(session),
-        project: folderName(session.cwd) || NO_PROJECT, folder: session.cwd || "",
+        project: folderName(session.cwd) || noProjectLabel(), folder: session.cwd || "",
         dot, detail: sessionStatus(session.status).label, updatedAt: session.updated_at || session.created_at || null,
         route: ["sessions", session.id],
       };
@@ -93,7 +97,7 @@ export function runItems(runs, mode = "advanced") {
     const dot = runDot(run.status);
     return {
       key: "run:" + run.id, kind: "run", app: "workflow", title: run.workflow_id || run.id,
-      project: String(run.project_name || "").trim() || NO_PROJECT, folder: "",
+      project: String(run.project_name || "").trim() || noProjectLabel(), folder: "",
       dot, detail: runStatus(run.status).label, updatedAt: run.updated_at || run.created_at || null,
       route: [section, run.id],
     };
@@ -111,7 +115,7 @@ export function activityItems(projects) {
         key: "activity:" + activity.id, kind: "activity", app: "activity", title: activity.title,
         project: project.title || project.name, projectId: project.project_id, folder: "",
         dot: key, dotLabels: { [key]: activity.label }, detail: activity.label.text,
-        who: activity.assignee_info?.name || activity.assignee_info?.app || activity.assignee || activity.preferred || "Sin asignar",
+        who: activity.assignee_info?.name || activity.assignee_info?.app || activity.assignee || activity.preferred || t("shell.unassigned"),
         updatedAt: activity.updated_at || activity.created_at || null,
         route: ["project", project.project_id],
       };
@@ -164,7 +168,7 @@ export const isCurrent = (item, route) => (item.route[0] === "new/run"
 
 // Counts of one group in display order, only the apps that have items: [{ app, label, count }].
 export function countsOf(group) {
-  const known = APPS.filter((app) => group.counts[app.id]).map((app) => ({ app: app.id, label: app.label, count: group.counts[app.id] }));
+  const known = APPS.filter((app) => group.counts[app.id]).map((app) => ({ app: app.id, label: appLabel(app.id), count: group.counts[app.id] }));
   const others = Object.keys(group.counts).filter((id) => !APP_LABEL[id]).map((id) => ({ app: id, label: appLabel(id), count: group.counts[id] }));
   return known.concat(others);
 }

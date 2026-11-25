@@ -26,8 +26,9 @@ needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 def run_node(script: str, data: dict | None = None) -> dict:
     """Run an ES module script in Node with network calls blocked."""
     prelude = (
-        f'import * as approvals from {json.dumps((EXT_DIR / "model.js").as_uri())};\n'
-        f'import * as ns from {json.dumps((JS_DIR / "new-session-model.js").as_uri())};\n'
+        "Object.defineProperty(globalThis, 'navigator', {value: {language: 'es-MX'}, configurable: true});\n"
+        f'const approvals = await import({json.dumps((EXT_DIR / "model.js").as_uri())});\n'
+        f'const ns = await import({json.dumps((JS_DIR / "new-session-model.js").as_uri())});\n'
         "const DATA = JSON.parse(process.env.DATA || 'null');\n"
         "globalThis.fetch = () => { throw new Error('network calls are forbidden in pure model tests'); };\n"
     )
@@ -236,7 +237,7 @@ def test_no_approve_all_action_and_new_session_secret_review_resend():
         held, resend, firstBody, resendBody,
         userMessagesCount: sentOnce.messages.filter((m) => m.role === "user").length,
         userMessageText: sentOnce.messages[0].text,
-        notice: ns.SECRET_REVIEW_NOTICE,
+        notice: ns.secretReviewNotice(),
       }));
     """)
     assert not any("approveall" in name.lower() or "approve_all" in name.lower() or "batch" in name.lower()

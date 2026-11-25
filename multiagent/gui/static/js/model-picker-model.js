@@ -3,6 +3,7 @@
 // Connection facts -> the ordered, selectable choices of Nueva sesión. No DOM or network.
 import { formatQuotaLines } from "./quota-text.js";
 import { limitReachedText, quotaWarningText } from "./new-session-model.js";
+import { t } from "./i18n.js";
 
 export const MODEL_IDS = ["gemini", "openai", "ollama"];
 export const EXECUTOR_IDS = ["claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"];
@@ -12,18 +13,18 @@ const LABELS = {
   claude_cli: "Claude", codex_cli: "Codex", copilot_cli: "Copilot", antigravity_cli: "Antigravity (agy)",
 };
 const STEPS = {
-  install: "Falta instalarlo.", session: "Falta iniciar sesión.", key: "Falta configurar la clave.",
-  enable: "Falta habilitarlo.",
+  install: "model_picker.step_install", session: "model_picker.step_session", key: "model_picker.step_key",
+  enable: "model_picker.step_enable",
 };
 const REASONS = {
-  disabled: "No está habilitado.", notice_not_accepted: "Falta aceptar el aviso de agy.",
-  quota_paused: "Límite alcanzado · sin hora conocida", quota_below_pause_floor: "Queda menos del 10 % de cuota.",
-  quota_below_launch_floor: "Queda menos del 15 % de cuota.", usage_unavailable: "No se pudo comprobar la cuota.",
-  session_unverifiable: "No se puede comprobar la sesión sin gastar cuota.",
-  status_unknown: "No se pudo comprobar la conexión.", reachability_unknown: "No se pudo comprobar el acceso.",
-  unreachable: "No responde.", tls_certificate: "No se pudo verificar el certificado TLS.",
-  not_installed: "No está instalado.", session_missing: "Falta iniciar sesión.", key_missing: "Falta configurar la clave.",
-  key_invalid: "Clave inválida.", no_access: "Sin acceso.", limit_reached: "Límite alcanzado · sin hora conocida",
+  disabled: "model_picker.disabled", notice_not_accepted: "model_picker.notice_not_accepted",
+  quota_paused: "model_picker.quota_paused", quota_below_pause_floor: "model_picker.quota_below_pause_floor",
+  quota_below_launch_floor: "model_picker.quota_below_launch_floor", usage_unavailable: "model_picker.usage_unavailable",
+  session_unverifiable: "model_picker.session_unverifiable",
+  status_unknown: "model_picker.status_unknown", reachability_unknown: "model_picker.reachability_unknown",
+  unreachable: "model_picker.unreachable", tls_certificate: "model_picker.tls_certificate",
+  not_installed: "model_picker.not_installed", session_missing: "model_picker.session_missing", key_missing: "model_picker.key_missing",
+  key_invalid: "model_picker.key_invalid", no_access: "model_picker.no_access", limit_reached: "model_picker.quota_paused",
 };
 
 export function quotaLines(quota) {
@@ -38,12 +39,12 @@ function choice(row) {
     ? null
     : limited
       ? limitReachedText(row.limit || row.resets_at || row.paused_until)
-      : (STEPS[row.missing_step] || REASONS[row.reason] || "No está conectado.");
+      : (STEPS[row.missing_step] || REASONS[row.reason] ? t(STEPS[row.missing_step] || REASONS[row.reason]) : t("model_picker.not_connected"));
   const verificationLabel = id === "gemini" && selectable
-    ? (row.verification === "verified" ? "Conectado" : "Sin comprobar")
+    ? (row.verification === "verified" ? t("model_picker.connected") : t("model_picker.not_checked"))
     : null;
   const quota = id === "gemini"
-    ? ["La API de Gemini no informa la cuota."]
+    ? [t("model_picker.gemini_quota_unavailable")]
     : quotaLines(row.quota);
   return {
     id, kind: MODEL_IDS.includes(id) ? "model" : "executor", label: LABELS[id],
@@ -52,7 +53,7 @@ function choice(row) {
     warning: quotaWarningText(row.warning),
     reason,
     agyNotice: id === "antigravity_cli"
-      ? "Usa tu suscripción de agy. Revisa las condiciones de tu plan y mantén desactivados los créditos de IA. Respeta la cuota; no uses cuentas compartidas o de terceros. Cada lanzamiento pide aprobación."
+      ? t("model_picker.agy_notice")
       : null,
   };
 }
@@ -67,6 +68,6 @@ export function buildModelPicker(payload, selectedId = null) {
     models: connected.filter((item) => item.kind === "model"),
     executors: connected.filter((item) => item.kind === "executor"),
     disconnected, selectedId: connected.some((item) => item.id === selectedId) ? selectedId : null,
-    empty: connected.length ? null : "No hay modelos ni ejecutores conectados para elegir.",
+    empty: connected.length ? null : t("model_picker.empty"),
   };
 }

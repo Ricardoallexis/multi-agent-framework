@@ -29,7 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def run_node(script: str, data: dict) -> dict:
     prelude = (
-        f'import * as m from {json.dumps((JS / "model-picker-model.js").as_uri())};\n'
+        "Object.defineProperty(globalThis, 'navigator', {value: {language: 'es-MX'}, configurable: true});\n"
+        f'const m = await import({json.dumps((JS / "model-picker-model.js").as_uri())});\n'
         "globalThis.fetch = () => { throw new Error('pure model must not use network'); };\n"
         "const DATA = JSON.parse(process.env.DATA);\n"
     )

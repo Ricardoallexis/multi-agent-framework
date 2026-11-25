@@ -3,15 +3,17 @@
 // ARR3-T02: pure helpers of the plan draft that «Nueva sesión» shows when a request needs more than one workflow
 // (interpret answers reason "plan_suggested" with a plan_draft, ARR3-T01). No DOM and no network: every text returned is
 // plain text, and the card draws it as text nodes. In simple mode the rows carry descriptions and texts, never workflow ids.
-export const PLAN_SAVE_LABEL = "Guardar el plan";
-export const PLAN_CANCEL_LABEL = "Cancelar";
+import { t } from "./i18n.js";
+
+export const planSaveLabel = () => t("new_session.save_plan");
+export const planCancelLabel = () => t("new_session.cancel");
 export const PLAN_SAVE_PATH = "/gui/api/new-session/plan/save";
 export const PLAN_SUGGESTED_REASON = "plan_suggested";
-export const PLAN_NOTICE = "Tu pedido necesita varios pasos, así que preparé un plan. Revísalo: no se guarda ni se aprueba nada hasta que lo confirmes.";
-export const PLAN_SAVED_NOTE = "Guardar no aprueba el plan: la decisión de aprobarlo o rechazarlo la tomas después, en el hilo del plan.";
+export const planNotice = () => t("new_session.plan_notice");
+export const planSavedNote = () => t("new_session.plan_saved_note");
 export const FALLBACK_TEXT = {
-  office_not_normal: "Esta oficina tiene áreas que no salen de tu equipo: preparé su plan por defecto",
-  mock: "En modo de prueba (sin gasto) uso el plan por defecto de la oficina",
+  office_not_normal: "new_session.plan_fallback_office",
+  mock: "new_session.plan_fallback_mock",
 };
 
 const MAX_VALUE_CHARS = 2000;
@@ -62,7 +64,7 @@ export function planDraftRows(draft, mode = "simple", catalog = []) {
         ? [description, task.workflow + (task.bundle ? " (" + task.bundle + ")" : "")].filter(Boolean).join(" · ")
         : description,
       inputs,
-      dependsOnText: after.length ? "Va después de: " + after.join(", ") : "",
+      dependsOnText: after.length ? t("new_session.plan_depends_on", { tasks: after.join(", ") }) : "",
     };
     if (advanced) { row.workflow = task.workflow; row.bundle = task.bundle || null; }
     return row;
@@ -81,7 +83,7 @@ export const planSaveBody = (draft) => ({ draft, confirmed: true });
 // The text of a failed save: the 409 and 422 of the server say what is wrong with the draft.
 export function planSaveFailure(error) {
   const details = (error && error.details) || {};
-  if (error && error.status === 422) return "El borrador ya no es válido. Vuelve a escribir tu pedido para preparar otro.";
-  if (error && error.status === 409 && details.reason === "confirmation_required") return "Falta confirmar el guardado. Vuelve a pulsar «" + PLAN_SAVE_LABEL + "».";
-  return (error && error.message) || "No se pudo guardar el plan.";
+  if (error && error.status === 422) return t("new_session.plan_invalid");
+  if (error && error.status === 409 && details.reason === "confirmation_required") return t("new_session.plan_confirm_save");
+  return (error && error.message) || t("new_session.plan_save_failed");
 }
