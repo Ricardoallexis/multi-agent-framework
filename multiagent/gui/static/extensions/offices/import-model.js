@@ -47,8 +47,7 @@ const scanText = (value) => typeof value === "string" && Object.prototype.hasOwn
   : "";
 
 function areaLevel(area) {
-  if (area?.local_only || area?.data_class === "restricted"
-    || (typeof area?.requires?.note === "string" && area.requires.note.includes("Solo local"))) {
+  if (area?.local_only || area?.data_class === "restricted") {
     return "Solo local";
   }
   if (area?.sensitivity === "sensitive" || area?.data_class === "sensitive") return "Sensible";

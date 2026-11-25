@@ -174,6 +174,22 @@ def test_card_uses_plain_levels_and_declaration_names():
     }
 
 
+def test_card_marks_every_area_local_only_when_the_office_is(gui, tmp_path):
+    folder = write_office(tmp_path / "office-local", areas=("one", "two"))
+    document = (folder / "office.yaml").read_text(encoding="utf-8")
+    (folder / "office.yaml").write_text(document + "local_only: true\n", encoding="utf-8")
+    staged = post(gui, "/stage-zip", zip_body(folder))
+    assert staged.status_code == 200, staged.text
+    card = staged.json()
+    assert [area["local_only"] for area in card["areas"]] == [True, True]
+    out = run_node(f"""
+      import {{ cardView }} from {file_url(EXT / "import-model.js")};
+      const card = cardView({json.dumps(card)});
+      console.log(JSON.stringify(card.areas.map((area) => area.level)));
+    """)
+    assert out == ["Solo local", "Solo local"]
+
+
 def test_install_in_one_click_with_two_decisions_at_most(gui, tmp_path):
     folder = write_office(tmp_path / "three", areas=("one", "two", "three"))
     staged = post(gui, "/stage-zip", zip_body(folder))

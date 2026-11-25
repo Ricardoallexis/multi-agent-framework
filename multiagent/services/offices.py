@@ -1736,7 +1736,8 @@ class OfficeServices:
             if area is not None:
                 folder = folders[area_id]
                 data = {"id": area.id, "name": area.name, "sensitivity": area.sensitivity,
-                        "local_only": area.local_only, "requires": requirements.get(area_id, {}),
+                        "local_only": area.local_only or definition.local_only,
+                        "requires": requirements.get(area_id, {}),
                         "members": self._area_members(folder), "declares": self._area_declares(folder, root)}
             else:
                 old_record = self._read()[office_id]["definition"]
@@ -1744,7 +1745,8 @@ class OfficeServices:
                 bundle = area_bundle_name(office_id, area_id)
                 folder = self._services._bundles.get(bundle)
                 data = {"id": area_id, "name": record["name"], "sensitivity": record.get("sensitivity"),
-                        "local_only": bool(record.get("local_only")), "requires": requirements.get(area_id, {}),
+                        "local_only": bool(record.get("local_only")) or definition.local_only,
+                        "requires": requirements.get(area_id, {}),
                         "members": self._area_members(folder) if folder is not None else [],
                         "declares": self._area_declares(folder, folder) if folder is not None else
                         {"workflows": [], "contracts": [], "roles": []}}
