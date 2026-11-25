@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import re
 
-PLAN_SEPARATORS = ("y luego", "y después", "después", "luego")
-# Longest first, so "y luego" is one separator and not "y" plus "luego".
+PLAN_SEPARATORS = ("y luego", "y después", "después", "luego", "and then", "after that", "then")
+# Longest first, so "y luego" is one separator and not "y" plus "luego" (and "and then" is not "and" plus "then").
 _SPLIT = re.compile(r"\b(?:" + "|".join(re.escape(item) for item in sorted(PLAN_SEPARATORS, key=len, reverse=True)) + r")\b",
                     re.IGNORECASE)
 _EDGES = " \t\r\n,;"

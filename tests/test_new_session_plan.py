@@ -23,7 +23,7 @@ from multiagent.services import ApplicationServices
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERAL = ROOT / "examples" / "bundles" / "general"
-TWO_PARTS = "Resume el documento y luego revisa la especificación contra los criterios"
+TWO_PARTS = "Summarize the document in plain language and then review the specification against the criteria"
 
 
 def make(tmp_path, bundle=GENERAL, adapter=None, **options):
@@ -68,13 +68,16 @@ def test_split_request():
     assert split_request("Resume el informe") == ["Resume el informe"]
     assert split_request("Haz esto, Y DESPUÉS, haz aquello; luego lo otro") == ["Haz esto", "haz aquello", "lo otro"]
     assert split_request("luego   ") == [] and split_request("") == []
-    assert PLAN_SEPARATORS == ("y luego", "y después", "después", "luego")
+    assert split_request("Summarize the report and then draft an email") == ["Summarize the report", "draft an email"]
+    assert split_request("Do this, THEN do that; after that the rest") == ["Do this", "do that", "the rest"]
+    assert split_request("Strengthen the authentication") == ["Strengthen the authentication"]   # whole words only
+    assert PLAN_SEPARATORS == ("y luego", "y después", "después", "luego", "and then", "after that", "then")
 
 
 # --- interpret -------------------------------------------------------------------------------------------------------------
 
 def test_single_request_unchanged(services):
-    answer = services.new_session.interpret("Resume el documento por favor")
+    answer = services.new_session.interpret("Summarize the document in plain language please")
     assert answer["source"] == "model" and answer["reason"] == "" and "plan_draft" not in answer
     assert answer["proposal"]["workflow_id"] == "summarize_document"
 
@@ -88,13 +91,13 @@ def test_two_workflows_suggest_a_plan(services):
     assert [task["workflow"] for task in draft["tasks"]] == ["summarize_document", "review_checklist"]
     first, second = draft["tasks"]
     assert first["depends_on"] == [] and second["depends_on"] == [first["id"]]
-    assert first["inputs"] == {"document_text": "Resume el documento"}
+    assert first["inputs"] == {"document_text": "Summarize the document in plain language"}
     assert draft["proposal"]["schema"] == "multiagent.plan_proposal/1" and draft["teams"] == []
     assert answer["proposal"]["workflow_id"]      # the single-workflow proposal stays available
 
 
 def test_parts_without_a_workflow_stay_a_single_request(services):
-    answer = services.new_session.interpret("Resume el documento y luego zzz qqq")
+    answer = services.new_session.interpret("Summarize the document in plain language and then zzz qqq")
     assert answer["reason"] == "" and "plan_draft" not in answer
 
 
@@ -135,7 +138,7 @@ def test_save_creates_proposal_not_approved(env):
 def test_role_bundle_without_team_proposes_team(tmp_path):
     made = make(tmp_path, role_bundle(tmp_path))
     try:
-        draft = made.new_session.draft_plan("Resume el documento")
+        draft = made.new_session.draft_plan("Summarize the document in plain language")
         assert draft["teams"] == [{"bundle": "general", "roles": ["analyst", "writer"], "action": "propose"}]
         assert made.teams.approved("general") is None
         saved = made.new_session.save_plan(draft)
@@ -165,7 +168,7 @@ def test_tampered_draft_rejected(env):
 def test_tampered_teams_in_the_draft_are_ignored(tmp_path):
     made = make(tmp_path, role_bundle(tmp_path))
     try:
-        draft = made.new_session.draft_plan("Resume el documento")
+        draft = made.new_session.draft_plan("Summarize the document in plain language")
         draft["teams"] = []
         assert len(made.new_session.save_plan(draft)["team_versions"]) == 1
     finally:

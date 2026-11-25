@@ -194,7 +194,8 @@ the HTTP API, **Nueva sesión** can prepare one (next paragraph).
 **Nueva sesión** can prepare a plan. When the request needs more than one workflow
 ("summarize the report, then draft an email"), the chat suggests a plan instead of a
 single workflow and shows its tasks and the teams it lacks. In Mock the plan comes from the
-parts of the request: it is split at `y luego`, `y después`, `después` and `luego`, each
+parts of the request: it is split at `and then`, `after that` and `then` (and at the Spanish
+`y luego`, `y después`, `después` and `luego`), each
 part takes the workflow that shares the most words with it, and each task depends on the
 previous one. With a real model the `model` planner drafts it, after the same cloud
 confirmation and secret review as the chat. Drafting saves nothing. Saving needs a

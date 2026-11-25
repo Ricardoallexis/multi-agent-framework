@@ -1182,8 +1182,8 @@ mode. It holds the result of the run as Markdown and a «Guardar como Markdown»
 
 ## Plan from Nueva sesión
 
-When the free text of «Nueva sesión» needs more than one workflow (for example «Resume este texto
-y luego redacta un correo»), the server answers `plan_suggested` and the chat shows a **Borrador
+When the free text of «Nueva sesión» needs more than one workflow (for example "Summarize this text,
+then draft an email"), the server answers `plan_suggested` and the chat shows a **Borrador
 del plan** card instead of one workflow. It is built from `plan_draft` of `POST
 /gui/api/new-session/interpret` (see [Planning](PLANNING.md#gui)).
 

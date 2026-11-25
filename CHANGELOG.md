@@ -164,6 +164,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 
 ### Fixed
 
+- New session in Mock splits an English request into plan parts at "and then", "after that" and "then" too (the Spanish separators still work), so the English general example suggests a plan again.
 - Cloud only with confirmation, also for callers of `RunServices.create` that skip the API and the GUI: a run or a step in `cloud` mode, or a cloud model preference, needs `confirm_cloud`, checked on the request as the person sent it, so in a sensitive area the confirmation still does nothing. A step in `local`, or in `auto` with sensitive data, is refused when the catalog does not mark `local_default` or `local_reasoning` as local (`invalid_definition`, `local_model_not_local`), and a catalog with a `gemini` or `openai` model that is not `tier: cloud` no longer loads.
 - The Ollama adapter builds its HTTP client on first use, so building the system (also in Mock) no longer creates one; `reset_client` keeps its behaviour and builds nothing before the first use.
 - Closing the services (`services.runs.close()`) could return with a run thread still alive: the worker stop waited for a finishing run while that run's plan hook waited for the lock the close held. `close()` now stops the package workers without holding the lock and waits for their run threads, and the services build no package runtime after closing (`invalid_state`, `details.reason = "services_closed"`) until the API's lifespan reopens them.

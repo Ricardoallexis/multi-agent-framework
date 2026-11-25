@@ -29,7 +29,7 @@ GENERAL_BUNDLE = ROOT / "examples" / "bundles" / "general"
 JS = STATIC_DIR / "js"
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
-TWO_PARTS = "Resume el documento y luego revisa la especificación contra los criterios"
+TWO_PARTS = "Summarize the document in plain language and then review the specification against the criteria"
 
 DRAFT = {
     "schema": "maf.new-session-plan/1", "goal": "Resume este texto y luego redacta un correo", "group_id": "chat-abc123def456",
@@ -259,7 +259,7 @@ def test_save_opens_plan_thread(env, node_root):
 
 def test_c10_regression_in_flow(role_env):
     env = role_env
-    answer = interpret(env, "Resume el documento y luego revisa la especificación contra los criterios")
+    answer = interpret(env, TWO_PARTS)
     draft = answer["plan_draft"]
     assert draft["teams"] == [{"bundle": "general", "roles": ["analyst", "writer"], "action": "propose"}]
     saved = env.client.post("/gui/api/new-session/plan/save", headers=env.auth, json={"draft": draft, "confirmed": True}).json()

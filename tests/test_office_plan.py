@@ -283,8 +283,8 @@ def test_draft_saves_nothing_and_save_needs_confirmation(world):
 def test_without_office_nothing_changes(world):
     start, _tmp = world
     services = start("without-office", bundles={"general": GENERAL})
-    draft = services.new_session.draft_plan("Resume el documento")
-    interpreted = services.new_session.interpret("Resume el documento")
+    draft = services.new_session.draft_plan("Summarize the document in plain language")
+    interpreted = services.new_session.interpret("Summarize the document in plain language")
     assert draft["planner"] == "deterministic" and draft["group_id"].startswith("chat-")
     assert "office" not in draft and "fallback_reason" not in draft
     assert interpreted["source"] == "model" and interpreted["reason"] == ""
