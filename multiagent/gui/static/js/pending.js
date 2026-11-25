@@ -5,6 +5,7 @@ import { html, useEffect, useRef, useState } from "../vendor/htm-preact-standalo
 import { apiGet, apiPost } from "./api.js";
 import { loadToken } from "./auth.js";
 import { Help, helpFor } from "./help.js";
+import { t, currentLanguage, onLanguageChange } from "./i18n.js";
 import { readNotificationsEnabled, writeNotificationsEnabled } from "./shell-state.js";
 import { ALL_TAB, PENDING_SECTION, countPending, createPendingStore, newlyPending, pendingTabs, routeTab, tabRoute } from "./pending-model.js";
 import { messageId, messagePath } from "./inbox-model.js";
@@ -16,13 +17,15 @@ import { Tabs } from "./ui/tabs.js";
 const PENDING_PATH = "/gui/api/pending";
 let memoryNotifications = false;
 const TYPE_LABELS = {
-  approval: "Aprobación",
-  run: "Ejecución",
-  team: "Equipo",
-  plan: "Plan",
-  continuity: "Continuidad",
-  task: "Tarea",
+  approval: t("pending.approval"), run: t("pending.run"), team: t("pending.team"),
+  plan: t("pending.plan"), continuity: t("pending.continuity"), task: t("pending.task"),
 };
+onLanguageChange(() => {
+  Object.assign(TYPE_LABELS, { approval: t("pending.approval"), run: t("pending.run"), team: t("pending.team"),
+    plan: t("pending.plan"), continuity: t("pending.continuity"), task: t("pending.task") });
+});
+const reasonText = (reason) => reason === "review" ? t("pending.review")
+  : reason === "credits_exhausted" ? t("pending.credits_exhausted") : reason;
 
 function notificationPermission() {
   try { return "Notification" in window ? window.Notification.permission : "unsupported"; } catch (_) { return "unsupported"; }
@@ -41,7 +44,7 @@ function storeNotificationsEnabled(value) {
 function notifyNewItems(items) {
   if (notificationPermission() !== "granted" || !notificationsEnabled()) return;
   for (const item of items) {
-    try { new window.Notification("Pendiente nuevo", { body: item.title }); } catch (_) { /* notifications can be blocked */ }
+    try { new window.Notification(t("pending.new"), { body: item.title }); } catch (_) { /* notifications can be blocked */ }
   }
 }
 
@@ -52,9 +55,9 @@ function itemHref(href) {
 }
 
 function formatSince(value) {
-  if (!value) return "Sin fecha";
+  if (!value) return t("pending.no_date");
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? String(value) : new Intl.DateTimeFormat("es-MX", {
+  return Number.isNaN(date.valueOf()) ? String(value) : new Intl.DateTimeFormat(currentLanguage() === "es" ? "es-MX" : "en", {
     dateStyle: "medium", timeStyle: "short",
   }).format(date);
 }
@@ -98,8 +101,8 @@ export function PendingLink({ current = false }) {
     document.title = pageTitle(count);
   }, [count, label]);
   return html`<a class="side-link" href=${"#" + PENDING_SECTION} aria-current=${current ? "page" : null}>
-    <${Icon} name="inbox" />Pendientes
-    <span class="pending-count" aria-label=${count + (count === 1 ? " pendiente" : " pendientes")}>${count}</span>
+    <${Icon} name="inbox" />${t("pending.title")}
+    <span class="pending-count" aria-label=${count + (count === 1 ? t("pending.single") : t("pending.plural"))}>${count}</span>
   </a>
   <${Help} topic="pending.toggle" compact=${true} />`;
 }
@@ -111,7 +114,7 @@ export function PendingScreen({ views, route, token, status, mock }) {
   const tabs = pendingTabs(views, items, !loading);
   const selected = routeTab(route, tabs) || ALL_TAB;
   const entry = selected === ALL_TAB ? null : views.find((candidate) => candidate.id === selected);
-  return html`<${Tabs} id="pending" label="Pendientes" className="pending-tabs" selected=${selected} tabs=${tabs}
+  return html`<${Tabs} id="pending" label=${t("pending.title")} className="pending-tabs" selected=${selected} tabs=${tabs}
     onSelect=${(tabId) => navigate(...tabRoute(tabId))} ...${helpFor("pending.tabs")}
     after=${html`<${Help} topic="pending.tabs" compact=${true} />`}>
     ${!entry ? html`<${PendingAll} />` : html`
@@ -138,17 +141,17 @@ function PendingAll() {
     try {
       await apiPost(messagePath("runs", cancelId), loadToken(),
         { message_id: cancelMessageId.current, kind: "cancel", text: "" });
-      setNotice("Cancelación guardada. Se aplicará en la siguiente frontera de trabajo.");
+      setNotice(t("pending.cancel_saved"));
       setCancelId(null); cancelMessageId.current = null; reload();
     } catch (failure) {
       setCancelError(failure?.details?.reason === "availability_disabled"
-        ? "La política de disponibilidad está apagada en este servidor." : failure.message);
+        ? t("pending.policy_disabled") : failure.message);
     } finally { setCancelBusy(false); }
   };
 
   const onNotificationsClick = async () => {
     if (!("Notification" in window)) {
-      setNotice("Este navegador no permite avisos.");
+      setNotice(t("pending.notifications_unsupported"));
       return;
     }
     let nextPermission = window.Notification.permission;
@@ -160,70 +163,70 @@ function PendingAll() {
       const next = !enabled;
       storeNotificationsEnabled(next);
       setEnabled(next);
-      setNotice(next ? "Avisos activados en este navegador." : "Avisos desactivados.");
+      setNotice(next ? t("pending.notifications_on") : t("pending.notifications_off"));
     } else {
       storeNotificationsEnabled(false);
       setEnabled(false);
-      setNotice("No se activaron los avisos; puedes cambiar el permiso en el navegador.");
+      setNotice(t("pending.notifications_denied"));
     }
   };
 
-  return html`<section class="pending-all" aria-label="Todo">
+  return html`<section class="pending-all" aria-label=${t("pending.all")}>
       <div class="pending-actions">
         <span class="pending-control">
-          <button type="button" class="btn secondary small" ...${helpFor("pending.refresh")} onClick=${reload}>Actualizar</button>
+          <button type="button" class="btn secondary small" ...${helpFor("pending.refresh")} onClick=${reload}>${t("pending.refresh")}</button>
           <${Help} topic="pending.refresh" compact=${true} />
         </span>
         <span class="pending-control">
           <button type="button" class="btn secondary small" aria-pressed=${enabled ? "true" : "false"}
             disabled=${permission === "unsupported" || permission === "denied"}
             ...${helpFor("pending.notifications")} onClick=${onNotificationsClick}>
-            ${enabled ? "Desactivar avisos" : "Activar avisos"}
+            ${enabled ? t("pending.disable_notifications") : t("pending.enable_notifications")}
           </button>
           <${Help} topic="pending.notifications" compact=${true} />
         </span>
       </div>
       <p class="pending-status" role="status" aria-live="polite">
-        ${loading ? "Leyendo pendientes…" : count === 1 ? "1 pendiente." : count + " pendientes."}
+        ${loading ? t("pending.reading") : count === 1 ? t("pending.one_count") : t("pending.count", { count })}
       </p>
       ${notice && html`<p class="pending-notice" role="status">${notice}</p>`}
-      ${error && html`<p class="pending-error" role="alert">No se pudieron actualizar los pendientes: ${error.message}</p>`}
+      ${error && html`<p class="pending-error" role="alert">${t("pending.error_prefix")}${error.message}</p>`}
       ${items.length ? html`<ul class="pending-items">
         ${items.map((item) => html`<li class="pending-item" key=${item.id}>
           <div class="pending-item-main">
-            <span class="pending-type">${TYPE_LABELS[item.type] || "Pendiente"}</span>
+            <span class="pending-type">${TYPE_LABELS[item.type] || t("pending.item")}</span>
             <a href=${itemHref(item.href)} ...${helpFor("pending.open", { scope: item.id })}>
               ${item.title}
             </a>
-            ${item.reason && html`<span class="pending-reason">${item.reason}</span>`}
+            ${item.reason && html`<span class="pending-reason">${reasonText(item.reason)}</span>`}
             <time class="pending-since" dateTime=${item.since || null}>${formatSince(item.since)}</time>
           </div>
           <${Help} topic="pending.open" compact=${true} scope=${item.id} />
         </li>`)}
-      </ul>` : !loading && !error && html`<p class="pending-empty">No hay pendientes.</p>`}
-      <section class="pending-background" aria-label="En fondo">
-        <h3>En fondo</h3>
+      </ul>` : !loading && !error && html`<p class="pending-empty">${t("pending.no_items")}</p>`}
+      <section class="pending-background" aria-label=${t("pending.background")}>
+        <h3>${t("pending.background")}</h3>
         <${Help} topic="pending.background" compact=${true} />
-        <p class="muted">${policy.enabled ? "Puedes pedir cancelar una ejecución en curso." : policy.reason}</p>
+        <p class="muted">${policy.enabled ? t("pending.can_cancel") : policy.reason}</p>
         ${cancelError && html`<p role="alert">${cancelError}</p>`}
         ${background.length ? html`<ul class="pending-items">
           ${background.map((item) => html`<li class="pending-item pending-background-item" key=${item.id}>
-            <div class="pending-item-main"><span class="pending-type">${item.reason}</span>
+            <div class="pending-item-main"><span class="pending-type">${reasonText(item.reason)}</span>
               <a href=${itemHref(item.href)} ...${helpFor("pending.open", { scope: item.id })}>${item.title}</a>
               <time class="pending-since" dateTime=${item.since || null}>${formatSince(item.since)}</time>
             </div>
             <button type="button" class="btn secondary small" disabled=${!policy.enabled || cancelBusy}
               ...${helpFor("pending.cancel", { scope: item.id })}
-              onClick=${() => { setCancelId(item.id.slice(4)); setCancelError(""); cancelMessageId.current = null; }}>Cancelar</button>
+              onClick=${() => { setCancelId(item.id.slice(4)); setCancelError(""); cancelMessageId.current = null; }}>${t("pending.cancel")}</button>
             <${Help} topic="pending.cancel" compact=${true} scope=${item.id} />
           </li>`)}
-        </ul>` : !loading && !error && html`<p class="pending-empty">No hay ejecuciones en fondo.</p>`}
-        ${cancelId && html`<div class="pending-background-confirm" role="group" aria-label="Confirmar cancelación">
-          <p>¿Pedir la cancelación de esta ejecución?</p>
+        </ul>` : !loading && !error && html`<p class="pending-empty">${t("pending.no_background")}</p>`}
+        ${cancelId && html`<div class="pending-background-confirm" role="group" aria-label=${t("pending.confirm_cancel")}>
+          <p>${t("pending.cancel_confirm")}</p>
           <button type="button" class="btn danger" disabled=${cancelBusy} ...${helpFor("pending.cancel_confirm")}
-            onClick=${cancelBackground}>Sí, cancelar</button>
+            onClick=${cancelBackground}>${t("pending.yes_cancel")}</button>
           <button type="button" class="btn secondary" disabled=${cancelBusy} ...${helpFor("pending.cancel_back")}
-            onClick=${() => { setCancelId(null); cancelMessageId.current = null; }}>Volver</button>
+            onClick=${() => { setCancelId(null); cancelMessageId.current = null; }}>${t("pending.back")}</button>
           <${Help} topic="pending.cancel_confirm" compact=${true} />
           <${Help} topic="pending.cancel_back" compact=${true} />
         </div>`}

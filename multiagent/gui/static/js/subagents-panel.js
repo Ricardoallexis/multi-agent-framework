@@ -1,19 +1,20 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Subagents panel (GUI2-T04): the subagents, spawned threads and workers of one session, in two tabs
-// ("Activos" / "Terminados"). Everything it shows is plain text (no HTML); an item opens that child's
+// (Active / Finished). Everything it shows is plain text (no HTML); an item opens that child's
 // conversation through the existing hash route (#sessions/<id>). It refreshes from the lightweight
 // "children" events of /gui/api/stream?session=<id>&only=children and, if that stream is down, every 10 s.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet } from "./api.js";
 import { authHeaders } from "./auth.js";
 import { Help, helpFor } from "./help.js";
+import { t } from "./i18n.js";
 import { routeHref } from "./route.js";
 import { parseBlock } from "./stream.js";
 import { errorText } from "./text.js";
 import { sourceLabel } from "./session-text.js";
 import {
-  GROUPS, NO_CONVERSATION, PAGE_SIZE, activityText, childLabels, childTitle, childrenWarning, countsText, detailText,
+  GROUPS, PAGE_SIZE, activityText, childLabels, childTitle, childrenWarning, countsText, detailText,
   groupOf, initials,
 } from "./subagents-text.js";
 import { LevelBadge } from "./ui/level-badge.js";
@@ -96,7 +97,7 @@ function Item({ child, sessionId, currentId, now }) {
       <span class="sub-detail muted small">${detailText(child, false)}<${LevelBadge} level=${child.level} /></span>
       <span class="sub-state small"><${StatusChip} status=${child.status} labels=${childLabels(child)} variant="inline" /></span>
       <span class="sub-activity muted small">${activityText(child, now)}</span>
-      ${!child.link_id && !href && html`<span class="muted small">${NO_CONVERSATION}</span>`}
+      ${!child.link_id && !href && html`<span class="muted small">${t("subagents.no_conversation")}</span>`}
     </span>`;
   return html`<li>${href
     ? html`<a class="sub-item" href=${href} aria-current=${current ? "page" : null}
@@ -172,33 +173,33 @@ export function SubagentsPanel({ token, sessionId, currentId = null, onContent }
   // The title "Subagentes" and its "?" (topic "subagents.panel") belong to the section of the right panel that holds this panel.
   return html`<div class="sub-panel">
     ${viewingChild && html`<div class="header-tools back-bar">
-      <a class="btn secondary small" href=${routeHref("sessions", sessionId)} ...${helpFor("subagents.back")}>← Volver a la sesión principal</a>
+      <a class="btn secondary small" href=${routeHref("sessions", sessionId)} ...${helpFor("subagents.back")}>${t("subagents.back")}</a>
       <${Help} topic="subagents.back" compact=${true} />
     </div>`}
     <div class="sub-head">
-      <p class="muted small sub-counts" role="status" aria-live="polite">${data.loaded ? countsText(counts) : "Cargando subagentes…"}${
-        stream === "failed" ? ". Sin actualización en vivo; se revisa cada 10 segundos." : ""}</p>
+      <p class="muted small sub-counts" role="status" aria-live="polite">${data.loaded ? countsText(counts) : t("subagents.loading")}${
+        stream === "failed" ? t("subagents.stream_failed") : ""}</p>
       <div class="header-tools">
-        <button type="button" class="btn secondary small" ...${helpFor("subagents.refresh")} onClick=${refresh}>Actualizar</button>
+        <button type="button" class="btn secondary small" ...${helpFor("subagents.refresh")} onClick=${refresh}>${t("subagents.refresh")}</button>
         <${Help} topic="subagents.refresh" compact=${true} />
       </div>
     </div>
-    <${Tabs} id="sub" label="Estado de los subagentes" selected=${tab} onSelect=${setTab} ...${helpFor("subagents.tabs")}
+    <${Tabs} id="sub" label=${t("subagents.tabs")} selected=${tab} onSelect=${setTab} ...${helpFor("subagents.tabs")}
       tabs=${GROUPS.map((entry) => ({ id: entry.id, label: entry.label, count: counts[entry.id] }))}
       after=${html`<${Help} topic="subagents.tabs" compact=${true} />`}
       panelProps=${{ "aria-busy": data.loaded ? "false" : "true" }}>
-      ${error && html`<div class="message error" role="alert">No se pudieron listar los subagentes: ${errorText(error)}
-        <button type="button" class="btn secondary small" ...${helpFor("subagents.retry")} onClick=${refresh}>Reintentar</button>
+      ${error && html`<div class="message error" role="alert">${t("subagents.list_error")}${errorText(error)}
+        <button type="button" class="btn secondary small" ...${helpFor("subagents.retry")} onClick=${refresh}>${t("subagents.retry")}</button>
         <${Help} topic="subagents.retry" compact=${true} /></div>`}
       ${data.loaded && shown.length === 0 && !error && html`<p class="muted">${noChildren
-        ? "Esta sesión no ha lanzado subagentes." : group.empty}</p>`}
+        ? t("subagents.none") : group.empty}</p>`}
       ${visible.length > 0 && html`<${Help} topic="subagents.item" />
         <ul class="sub-list" aria-label=${group.label}>
           ${visible.map((child) => html`<${Item} key=${child.id} child=${child} sessionId=${sessionId} currentId=${currentId} now=${now} />`)}
         </ul>`}
       ${shown.length > PAGE_SIZE && html`<div class="header-tools sub-more-row">
         <button type="button" class="sub-more" aria-expanded=${expanded[tab] ? "true" : "false"} ...${helpFor("subagents.more")}
-          onClick=${() => setExpanded({ ...expanded, [tab]: !expanded[tab] })}>${expanded[tab] ? "Ver menos" : "Ver " + hidden + " más"}</button>
+          onClick=${() => setExpanded({ ...expanded, [tab]: !expanded[tab] })}>${expanded[tab] ? t("subagents.show_less") : t("subagents.show_prefix") + hidden + t("subagents.more")}</button>
         <${Help} topic="subagents.more" compact=${true} />
       </div>`}
     <//>

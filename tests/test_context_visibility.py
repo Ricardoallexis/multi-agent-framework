@@ -6,15 +6,16 @@ import sqlite3
 from pathlib import Path
 
 from tools.evals.routing import export_runs
+from gui_text import ui_text
 
 ROOT = Path(__file__).resolve().parents[1]
 GUI = ROOT / "multiagent" / "gui" / "static" / "js"
 
 
 def test_context_events_are_rendered_in_run_and_session_details():
-    run_detail = (GUI / "run-detail.js").read_text(encoding="utf-8")
-    session_detail = (GUI / "session-detail.js").read_text(encoding="utf-8")
-    text = (GUI / "session-text.js").read_text(encoding="utf-8")
+    run_detail = ui_text(GUI / "run-detail.js")
+    session_detail = ui_text(GUI / "session-detail.js")
+    text = ui_text(GUI / "session-text.js")
 
     assert "contextEventText(event.type, event.payload)" in run_detail
     assert "contextEventText(event && event.type, payload)" in session_detail
@@ -24,7 +25,8 @@ def test_context_events_are_rendered_in_run_and_session_details():
         "Contexto compactado", "antes ", "después ", "instantánea ",
     ):
         assert words in text
-    assert "Aviso de contexto" not in run_detail and "Aviso de contexto" not in session_detail
+    assert "Aviso de contexto" not in (GUI / "run-detail.js").read_text(encoding="utf-8")
+    assert "Aviso de contexto" not in (GUI / "session-detail.js").read_text(encoding="utf-8")
 
 
 def _export_db(path: Path, events: list[tuple[str, dict]]):

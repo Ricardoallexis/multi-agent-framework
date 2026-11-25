@@ -85,7 +85,7 @@ def run(*, port: int = 0, real: bool = False, no_browser: bool = False,
     print(f"Token file: {settings.gui_token_file}")
     print("Mode: " + ("REAL models (provider calls may cost money)" if real else "Mock (synthetic results)"))
     if launcher and not real:
-        print("To use real models: Inicio › Pasar a modelos reales")
+        print("To use real models: Start › Switch to real models")
     registered = app.state.services.bundle_names()  # the --bundle options and the installed packages (PAQ-T01)
     if registered:
         print(f"Bundles: {', '.join(registered)}")

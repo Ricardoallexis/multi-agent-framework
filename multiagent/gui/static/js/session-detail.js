@@ -1,6 +1,6 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// One session: summary header, items paged with "cargar más" and live follow over the SSE stream. Its subagents are listed
+// One session: summary header, items paged with Load more and live follow over the SSE stream. Its subagents are listed
 // by the right panel of the shell (subagents-mount.js), not here.
 // Session content is untrusted text: it is only ever rendered as text nodes (see session-items.js).
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
@@ -8,6 +8,7 @@ import { ApiError, apiGet } from "./api.js";
 import { debounce } from "./bus.js";
 import { currentMode } from "./gui-mode.js";   // SIM-T03
 import { Help, helpFor } from "./help.js";
+import { t } from "./i18n.js";
 import { OpenInApp } from "./open-in-app.js";
 import { routeHref } from "./route.js";
 import { Items } from "./session-items.js";
@@ -31,20 +32,20 @@ const isCursorReset = (warnings) => (warnings || []).some((w) => String(w).start
 export function frameworkItem(event, mode = "advanced") {
   const payload = event && typeof event.payload === "object" && event.payload ? event.payload : {};
   const text = contextEventText(event && event.type, payload)
-    || String(event.type || "evento") + (mode !== "simple" && Object.keys(payload).length ? " " + JSON.stringify(payload) : "");
+    || String(event.type || t("sessions.event")) + (mode !== "simple" && Object.keys(payload).length ? " " + JSON.stringify(payload) : "");
   return { cursor: String(event.id), timestamp: event.ts || null, kind: "system", model: payload.model || null,
     text: text.slice(0, 20000), truncated: text.length > 20000, tool: null, files: [], usage: null, child_id: null };
 }
 
 const FOLLOW_TEXT = {
-  waiting: "Sin seguimiento en vivo: carga el resto de la sesión para seguirla.",
-  paused: "En pausa",
-  connecting: "Conectando…",
-  live: "En vivo",
-  reconnecting: "Reconectando…",
-  offline: "Sin conexión; reintentando…",
-  ended: "Seguimiento terminado",
-  failed: "No se pudo seguir en vivo",
+  waiting: "sessions.follow_waiting",
+  paused: "sessions.follow_paused",
+  connecting: "sessions.follow_connecting",
+  live: "sessions.follow_live",
+  reconnecting: "sessions.follow_reconnecting",
+  offline: "sessions.follow_offline",
+  ended: "sessions.follow_ended",
+  failed: "sessions.follow_failed",
 };
 
 function Header({ token, summary, onRefresh }) {
@@ -55,25 +56,25 @@ function Header({ token, summary, onRefresh }) {
       <span class=${"badge src src-" + summary.source}>${sourceLabel(summary.source)}</span>
       <span class="badge">${surfaceLabel(summary.surface)}</span>
       <${StatusChip} status=${summary.status} labels="session" />
-      ${summary.parent_id && html`<span class="badge">Subagente</span>`}
+      ${summary.parent_id && html`<span class="badge">${t("sessions.subagent")}</span>`}
     </p>
-    ${summary.parent_id && html`<p>Es un subagente de <a href=${routeHref("sessions", summary.parent_id)}>su sesión principal</a>.</p>`}
+    ${summary.parent_id && html`<p>${t("sessions.parent_sentence")} <a href=${routeHref("sessions", summary.parent_id)}>${t("sessions.main_session")}</a>.</p>`}
     <dl class="facts">
-      <dt>Carpeta</dt><dd>${summary.cwd || (isRun ? "No aplica a las ejecuciones del framework" : "No consta")}</dd>
-      <dt>Creada</dt><dd>${fmtDate(summary.created_at)}</dd>
-      <dt>Última actualización</dt><dd>${relativeTime(summary.updated_at)} (${fmtDate(summary.updated_at)})</dd>
-      <dt>Modelos</dt><dd>${modelsText(summary.models)}</dd>
-      <dt>Tokens</dt><dd>${tokensText(summary.tokens)}</dd>
-      <dt>Subagentes</dt><dd>${summary.child_count}</dd>
-      <dt>Identificador</dt><dd><code>${summary.id}</code></dd>
+      <dt>${t("sessions.cwd")}</dt><dd>${summary.cwd || (isRun ? t("sessions.run_no_folder") : t("sessions.not_recorded"))}</dd>
+      <dt>${t("sessions.created")}</dt><dd>${fmtDate(summary.created_at)}</dd>
+      <dt>${t("sessions.last_updated")}</dt><dd>${relativeTime(summary.updated_at)} (${fmtDate(summary.updated_at)})</dd>
+      <dt>${t("sessions.models_heading")}</dt><dd>${modelsText(summary.models)}</dd>
+      <dt>${t("sessions.tokens_heading")}</dt><dd>${tokensText(summary.tokens)}</dd>
+      <dt>${t("sessions.subagents_heading")}</dt><dd>${summary.child_count}</dd>
+      <dt>${t("sessions.id_heading")}</dt><dd><code>${summary.id}</code></dd>
     </dl>
     <${Help} topic="session.facts" />
     <div class="header-actions">
-      ${isRun && html`<a class="btn secondary" href=${routeHref("runs", summary.native_id)} ...${helpFor("session.run_link")}>Ver la ejecución en «Ejecuciones»</a>
+      ${isRun && html`<a class="btn secondary" href=${routeHref("runs", summary.native_id)} ...${helpFor("session.run_link")}>${t("sessions.view_run")}</a>
         <${Help} topic="session.run_link" compact=${true} />`}
-      <button type="button" class="btn secondary small" ...${helpFor("session.refresh")} onClick=${onRefresh}>Actualizar datos</button>
+      <button type="button" class="btn secondary small" ...${helpFor("session.refresh")} onClick=${onRefresh}>${t("sessions.refresh_details")}</button>
       <${Help} topic="session.refresh" compact=${true} />
-      <a class="btn secondary small" href=${routeHref("tree", summary.id)} ...${helpFor("agent_tree.open")}>Árbol de agentes</a>
+      <a class="btn secondary small" href=${routeHref("tree", summary.id)} ...${helpFor("agent_tree.open")}>${t("sessions.agent_tree")}</a>
       <${Help} topic="agent_tree.open" compact=${true} />
     </div>
     <div id="open-in-app-slot" class="open-in-app-slot"><${OpenInApp} token=${token} summary=${summary} /></div>
@@ -169,7 +170,7 @@ export function SessionDetail({ token, sessionId, onBack }) {
       onStatus: (value, info) => {
         if (value === "connected") setFollow({ state: "live", message: "" });
         else if (value === "reconnecting" || value === "offline") setFollow({ state: value, message: "" });
-        else if (value === "unauthorized") setFollow({ state: "failed", message: "El token de acceso ya no es válido." });
+        else if (value === "unauthorized") setFollow({ state: "failed", message: t("sessions.auth_expired") });
         else if (value === "failed") setFollow({ state: "failed", message: info && info.message ? info.message : "" });
       },
       onEvent: (event) => {
@@ -204,52 +205,52 @@ export function SessionDetail({ token, sessionId, onBack }) {
   const allWarnings = [...new Set([...(summary ? summary.warnings || [] : []), ...warnings])];
   const followState = !page.done ? "waiting" : paused ? "paused" : follow.state;
   const retryable = followState === "failed" || followState === "ended";
-  const followText = FOLLOW_TEXT[followState] + (follow.message && retryable ? ": " + follow.message : "");
+  const followText = t(FOLLOW_TEXT[followState]) + (follow.message && retryable ? ": " + follow.message : "");
 
-  const back = html`<div class="header-tools back-bar"><button type="button" class="btn secondary small" ...${helpFor("session.back")} onClick=${onBack}>← Volver a la lista</button>
+  const back = html`<div class="header-tools back-bar"><button type="button" class="btn secondary small" ...${helpFor("session.back")} onClick=${onBack}>${t("sessions.back")}</button>
       <${Help} topic="session.back" compact=${true} />
-      <span class="muted small"> Atajo: tecla Esc</span></div>`;
+      <span class="muted small">${t("sessions.esc_shortcut")}</span></div>`;
   if (error && !summary) {
     return html`<article class="session-detail" aria-labelledby="session-title" tabindex="-1" ref=${article}>
       ${back}
-      <h3 id="session-title">No se pudo abrir la sesión</h3>
+      <h3 id="session-title">${t("sessions.open_error")}</h3>
       <p class="message error" role="alert">${errorText(error)}</p>
     </article>`;
   }
   return html`<article class="session-detail" aria-labelledby="session-title" tabindex="-1" ref=${article}>
     ${back}
-    ${!summary && html`<h3 id="session-title">Sesión</h3><p class="muted" aria-busy="true">Cargando la sesión…</p>`}
+    ${!summary && html`<h3 id="session-title">${t("sessions.session")}</h3><p class="muted" aria-busy="true">${t("sessions.loading_session")}</p>`}
     ${summary && html`<${Header} token=${token} summary=${summary} onRefresh=${refreshSummary} />`}
-    <section class="panel live-bar" aria-label="Seguimiento en vivo">
+    <section class="panel live-bar" aria-label=${t("sessions.live_follow")}>
       <span class=${"badge live live-" + followState} role="status" aria-live="polite">${followText}</span>
       ${page.done && !retryable && html`<button type="button" class="btn secondary small" ...${helpFor("session.pause")} onClick=${() => setPaused(!paused)}>
-        ${paused ? "Reanudar seguimiento" : "Pausar seguimiento"}</button>
+        ${paused ? t("sessions.resume") : t("sessions.pause")}</button>
         <${Help} topic="session.pause" compact=${true} />`}
       ${page.done && retryable && html`<button type="button" class="btn secondary small" ...${helpFor("session.retry")} onClick=${() => { setPaused(false); setRetry(retry + 1); }}>
-        Reintentar</button>
+        ${t("sessions.retry")}</button>
         <${Help} topic="session.retry" compact=${true} />`}
       <${Help} topic="session.live" />
     </section>
     ${allWarnings.length > 0 && html`<details class="panel" open=${allWarnings.length <= 3}>
-      <summary>Avisos de lectura (${allWarnings.length})</summary>
+      <summary>${t("sessions.read_warnings")}${allWarnings.length})</summary>
       <${Help} topic="session.warnings" />
       <ul class="warnings">${allWarnings.map((warning) => html`<li key=${warning} class="note small">${warningText(warning)}</li>`)}</ul>
     </details>`}
     <section class="panel" aria-labelledby="items-title">
-      <h4 id="items-title">Contenido de la sesión</h4>
+      <h4 id="items-title">${t("sessions.content")}</h4>
       <${Help} topic="session.items" />
       ${items.some((item) => item.kind === "reasoning_omitted") && html`<${Help} topic="session.reasoning" />`}
-      ${itemsError && html`<div class="message error" role="alert">No se pudo leer el contenido: ${errorText(itemsError)}
-        <button type="button" class="btn secondary small" ...${helpFor("session.items_retry")} onClick=${() => loadPage(cursor.current)}>Reintentar</button>
+      ${itemsError && html`<div class="message error" role="alert">${t("sessions.content_error")}${errorText(itemsError)}
+        <button type="button" class="btn secondary small" ...${helpFor("session.items_retry")} onClick=${() => loadPage(cursor.current)}>${t("sessions.retry")}</button>
         <${Help} topic="session.items_retry" compact=${true} /></div>`}
-      ${!page.loaded && !itemsError && html`<p class="muted" aria-busy="true">Cargando el contenido…</p>`}
-      ${page.loaded && items.length === 0 && html`<p class="muted">Esta sesión no tiene mensajes que mostrar todavía.</p>`}
+      ${!page.loaded && !itemsError && html`<p class="muted" aria-busy="true">${t("sessions.loading_content")}</p>`}
+      ${page.loaded && items.length === 0 && html`<p class="muted">${t("sessions.no_messages")}</p>`}
       ${items.length > 0 && html`<${Items} items=${items} mode=${currentMode()} />`}
       ${page.loaded && !page.done && html`<div><button type="button" class="btn secondary" disabled=${loadingMore} ...${helpFor("session.more")}
-        onClick=${() => loadPage(cursor.current)}>${loadingMore ? "Cargando…" : "Cargar más"}</button>
-        <span class="muted small"> Mostrando ${items.length} elementos; hay más.</span>
+        onClick=${() => loadPage(cursor.current)}>${loadingMore ? t("sessions.loading_more") : t("sessions.load_more")}</button>
+        <span class="muted small">${t("sessions.showing_items")}${items.length}${t("sessions.items_more")}</span>
         <${Help} topic="session.more" /></div>`}
-      ${page.done && items.length > 0 && html`<p class="muted small">${items.length} elementos${followState === "live" ? "; los nuevos aparecen al final." : "."}</p>`}
+      ${page.done && items.length > 0 && html`<p class="muted small">${items.length}${t("sessions.items")}${followState === "live" ? t("sessions.new_at_end") : "."}</p>`}
     </section>
   </article>`;
 }

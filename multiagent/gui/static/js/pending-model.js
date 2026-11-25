@@ -1,5 +1,6 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
+import { t } from "./i18n.js";
 // Pure helpers for the pending inbox: ordering, counting and notification candidates.
 import { PENDING_TYPES } from "./extensions.js";
 
@@ -49,7 +50,7 @@ export function countsByType(items) {
 // count (the API does not count it). `counts` is null until the first answer, so no tab claims a number before it is known.
 export function pendingTabs(views, items, loaded = true) {
   const counts = loaded ? countsByType(items) : null;
-  const tabs = [{ id: ALL_TAB, label: "Todo", ...(counts ? { count: countPending(items) } : {}) }];
+  const tabs = [{ id: ALL_TAB, label: t("pending.all"), ...(counts ? { count: countPending(items) } : {}) }];
   for (const view of Array.isArray(views) ? views : []) {
     if (!view || view.group !== "pending") continue;
     const tab = { id: view.id, label: view.label };

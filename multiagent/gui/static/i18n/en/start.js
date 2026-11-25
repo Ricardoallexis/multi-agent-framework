@@ -1,3 +1,25 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-export default {};
+export default {
+  "start.real_models_note": "Real models may cost money or use your quota. You can return to Mock here.",
+  "start.try_mock_note": "When it finishes, the document will appear in the thread.",
+  "start.checking": "Checking…",
+  "start.install_example": "Install the example office",
+  "start.import_office": "Import an office",
+  "start.try_mock": "Try in Mock",
+  "start.connect_agent": "Connect an agent",
+  "start.activate_agent": "Activate an agent",
+  "start.real_models": "Switch to real models",
+  "start.run_your_data": "Run with your data",
+  "start.back_to_mock": "Return to Mock",
+  "start.action_error": "Could not complete the action.",
+  "start.done": "Done.",
+  "start.copied": "Copied.",
+  "start.copy_error": "Could not copy.",
+  "start.read_error": "Could not read the status. It will retry automatically.",
+  "start.update_error": "Could not update the status. It will retry automatically.",
+  "start.no_steps": "No steps remain.",
+  "start.cancel": "Cancel",
+  "start.times": "Times",
+  "start.copy": "Copy",
+};

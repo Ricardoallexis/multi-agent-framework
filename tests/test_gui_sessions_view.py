@@ -157,7 +157,10 @@ def test_texts_are_spanish_and_cover_the_required_states():
     assert "recortado" in items  # the truncated flag
     for label in ("Claude", "Codex", "Copilot", "Framework"):
         assert f'label: "{label}"' in text
-    assert "Load more" not in sessions + detail and "Back to list" not in detail
+    # The person sees no English here: check the text without the JS comments (the repository's comments are English).
+    def strip(source):
+        return re.sub(r"/\*.*?\*/|^\s*//.*$", "", source, flags=re.S | re.M)
+    assert "Load more" not in strip(sessions) + strip(detail) and "Back to list" not in strip(detail)
 
 
 def test_tool_calls_and_kinds_the_api_can_send_are_all_handled():

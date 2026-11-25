@@ -3,6 +3,7 @@
 // One item of a session, by kind. Everything a session holds is untrusted: it is rendered only as text
 // nodes (never as HTML), the model's reasoning is never shown, and long results start collapsed.
 import { html } from "../vendor/htm-preact-standalone.module.js";
+import { t, currentLanguage } from "./i18n.js";
 import { routeHref } from "./route.js";
 import { kindLabel, tokensText } from "./session-text.js";
 import { fmtDate } from "./text.js";
@@ -18,7 +19,7 @@ function When({ item }) {
 }
 
 function Truncated({ item }) {
-  return item.truncated ? html`<p class="note small">El texto estaba recortado en el origen: aquí se ve solo el principio.</p>` : null;
+  return item.truncated ? html`<p class="note small">${t("sessions.truncated")}</p>` : null;
 }
 
 function Message({ item, who, mode = "advanced" }) {
@@ -26,9 +27,9 @@ function Message({ item, who, mode = "advanced" }) {
   return html`<li class=${"item msg " + item.kind}>
     <div class="item-head"><strong>${who}</strong>${item.model && html`<span class="muted small"> · ${item.model}</span>`}
       <${When} item=${item} /></div>
-    <div class="message-text">${item.text || html`<span class="muted">(sin texto)</span>`}</div>
+    <div class="message-text">${item.text || html`<span class="muted">${t("sessions.no_text")}</span>`}</div>
     <${Truncated} item=${item} />
-    ${usage && usage !== "desconocido" && html`<p class="muted small">Tokens de este mensaje: ${usage}</p>`}
+    ${usage && usage !== t("sessions.unknown") && html`<p class="muted small">${t("sessions.message_tokens")}${usage}</p>`}
   </li>`;
 }
 
@@ -36,19 +37,19 @@ function ToolCall({ item }) {
   const tool = item.tool || {};
   const files = item.files || [];
   return html`<li class="item tool-call">
-    <div class="item-head"><strong>Herramienta</strong> <code>${tool.name || "sin nombre"}</code><${When} item=${item} /></div>
+    <div class="item-head"><strong>${t("sessions.tool")}</strong> <code>${tool.name || t("sessions.no_name")}</code><${When} item=${item} /></div>
     ${tool.summary && html`<div class="tool-summary">${tool.summary}</div>`}
-    ${files.length > 0 && html`<p class="muted small">Archivos: ${files.slice(0, MAX_FILES).join(", ")}${files.length > MAX_FILES ? " y " + (files.length - MAX_FILES) + " más" : ""}</p>`}
+    ${files.length > 0 && html`<p class="muted small">${t("sessions.files")}${files.slice(0, MAX_FILES).join(", ")}${files.length > MAX_FILES ? t("sessions.more_files") + (files.length - MAX_FILES) + t("sessions.more") : ""}</p>`}
   </li>`;
 }
 
 function ToolResult({ item }) {
   const text = item.text || "";
-  const size = text ? " (" + text.length.toLocaleString("es") + " caracteres)" : "";
+  const size = text ? t("sessions.character_count", { count: text.length.toLocaleString(currentLanguage()) }) : "";
   return html`<li class="item tool-result">
     <details>
-      <summary>Resultado de herramienta${size}<${When} item=${item} /></summary>
-      ${text ? html`<pre class="data" tabindex="0">${text}</pre>` : html`<p class="muted">(sin contenido)</p>`}
+      <summary>${t("sessions.tool_result")}${size}<${When} item=${item} /></summary>
+      ${text ? html`<pre class="data" tabindex="0">${text}</pre>` : html`<p class="muted">${t("sessions.no_content")}</p>`}
       <${Truncated} item=${item} />
     </details>
   </li>`;
@@ -71,27 +72,27 @@ function Note({ item, label, extra }) {
 function Subagent({ item }) {
   const linked = typeof item.child_id === "string" && CHILD_ID.test(item.child_id);
   return html`<li class="item note-item subagent">
-    <p class="note small"><span class="note-label">Subagente</span>${item.text && html`<span> · ${item.text}</span>`}
-      ${linked && html` · <a href=${routeHref("sessions", item.child_id)}>Abrir el subagente</a>`}
+    <p class="note small"><span class="note-label">${t("sessions.subagent")}</span>${item.text && html`<span> · ${item.text}</span>`}
+      ${linked && html` · <a href=${routeHref("sessions", item.child_id)}>${t("sessions.open_subagent")}</a>`}
       <${When} item=${item} /></p>
   </li>`;
 }
 
 export function Item({ item, mode = "advanced" }) {
   switch (item.kind) {
-    case "user_message": return html`<${Message} item=${item} who="Usuario" mode=${mode} />`;
-    case "assistant_message": return html`<${Message} item=${item} who="Asistente" mode=${mode} />`;
+    case "user_message": return html`<${Message} item=${item} who=${t("sessions.user")} mode=${mode} />`;
+    case "assistant_message": return html`<${Message} item=${item} who=${t("sessions.assistant")} mode=${mode} />`;
     case "tool_call": return html`<${ToolCall} item=${item} />`;
     case "tool_result": return html`<${ToolResult} item=${item} />`;
     case "reasoning_omitted":
-      return html`<${Note} item=${item} label="Razonamiento omitido" extra=${html` <span class="muted">(el visor no muestra el razonamiento del modelo)</span>`} />`;
-    case "compaction": return html`<${Note} item=${item} label="Contexto compactado" />`;
-    case "system": return html`<${Note} item=${item} label="Sistema" />`;
+      return html`<${Note} item=${item} label=${t("sessions.reasoning_omitted")} extra=${html` <span class="muted">${t("sessions.viewer_omits_reasoning")}</span>`} />`;
+    case "compaction": return html`<${Note} item=${item} label=${t("sessions.context_compacted")} />`;
+    case "system": return html`<${Note} item=${item} label=${t("sessions.system")} />`;
     case "subagent": return html`<${Subagent} item=${item} />`;
     case "usage":
-      return html`<${Note} item=${{ ...item, text: "Tokens: " + tokensText(item.usage) }} label=${kindLabel("usage")} />`;
+      return html`<${Note} item=${{ ...item, text: t("sessions.tokens") + tokensText(item.usage) }} label=${kindLabel("usage")} />`;
     default:
-      return html`<${Note} item=${{ ...item, text: "" }} label="Registro de un tipo que este visor no conoce" />`;
+      return html`<${Note} item=${{ ...item, text: "" }} label=${t("sessions.unknown_item")} />`;
   }
 }
 
@@ -100,7 +101,7 @@ function WorkBlock({ block, mode }) {
   return html`<li class="item work-fold">
     <details>
       <summary>${workLabel(block)}</summary>
-      <ol class="items work-items" aria-label="Trabajo realizado">
+      <ol class="items work-items" aria-label=${t("sessions.work_done")}>
         ${block.entries.map((entry) => html`<${Item} key=${entry.index} item=${entry.item} mode=${mode} />`)}
       </ol>
     </details>
@@ -108,7 +109,7 @@ function WorkBlock({ block, mode }) {
 }
 
 export function Items({ items, mode = "advanced" }) {
-  return html`<ol class="items" aria-label="Contenido de la sesión">
+  return html`<ol class="items" aria-label=${t("sessions.content")}>
     ${foldWork(items).map((block) => (block.fold
       ? html`<${WorkBlock} key=${"w" + block.start} block=${block} mode=${mode} />`
       : html`<${Item} key=${block.index} item=${block.item} mode=${mode} />`))}

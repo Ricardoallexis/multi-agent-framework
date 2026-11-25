@@ -7,6 +7,7 @@
 import { html, useCallback, useEffect, useState } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet, apiPost } from "./api.js";
 import { Help, helpFor } from "./help.js";
+import { t } from "./i18n.js";
 import { currentMode, onModeChange } from "./gui-mode.js";
 import { REMOVE_NOTICE, ZIP_UPLOAD_MAX_BYTES, bytesToBase64, folderBody, packageErrorText, packageNameFromFile, packageRows,
          zipBody } from "./packages-model.js";
@@ -62,23 +63,23 @@ export function Packages({ token }) {
     setName(packageNameFromFile(file.name));
   };
   const installZip = async () => {
-    if (await act(() => apiPost(BASE + "/zip", token, zipBody(name, zip.filename, zip.base64, trust)), "Paquete instalado.")) {
+    if (await act(() => apiPost(BASE + "/zip", token, zipBody(name, zip.filename, zip.base64, trust)), t("packages.installed"))) {
       setZip(null);
       setName("");
       setTrust(false);
     }
   };
   const installFolder = async () => {
-    if (await act(() => apiPost(BASE + "/folder", token, folderBody(name, folder, trust)), "Paquete instalado.")) {
+    if (await act(() => apiPost(BASE + "/folder", token, folderBody(name, folder, trust)), t("packages.installed"))) {
       setFolder("");
       setName("");
       setTrust(false);
     }
   };
-  const installExample = () => act(() => apiPost(BASE + "/example", token, {}), "Paquete de ejemplo instalado.");
+  const installExample = () => act(() => apiPost(BASE + "/example", token, {}), t("packages.example_installed"));
   const remove = async (target) => {
     setRemoving(null);
-    await act(() => apiPost(BASE + "/" + encodeURIComponent(target) + "/remove", token, {}), "Se quitó de la lista. Sus datos se conservan.");
+    await act(() => apiPost(BASE + "/" + encodeURIComponent(target) + "/remove", token, {}), t("packages.removed"));
   };
   const reinstall = async (target, event) => {
     const file = event.target.files && event.target.files[0];
@@ -87,40 +88,40 @@ export function Packages({ token }) {
     const read = await readZip(file);
     if (read.error) { setMessage({ kind: "error", text: read.error }); return; }
     await act(() => apiPost(BASE + "/" + encodeURIComponent(target) + "/reinstall-zip", token, { filename: read.filename, zip_base64: read.base64 }),
-      "Paquete reinstalado.");
+      t("packages.reinstalled"));
   };
 
   const rows = packageRows(payload, mode);
   const advanced = mode === "advanced";
   return html`<div class="packages">
-    <section class="packages-block" aria-label="Instalar un paquete">
-      <h3 class="packages-title">Instalar un paquete</h3>
+    <section class="packages-block" aria-label=${t("packages.install")}>
+      <h3 class="packages-title">${t("packages.install")}</h3>
       <${Help} topic="packages.install_zip" />
       <div class="packages-form">
-        <label class="packages-field">Archivo .zip
+        <label class="packages-field">${t("packages.zip_file")}
           <input type="file" accept=".zip,application/zip" disabled=${busy} ...${helpFor("packages.install_zip")} onChange=${chooseFile} />
         </label>
-        ${zip && html`<label class="packages-field">Nombre del paquete
+        ${zip && html`<label class="packages-field">${t("packages.package_name")}
           <input type="text" value=${name} maxlength="120" disabled=${busy} ...${helpFor("packages.install_zip")}
             onInput=${(event) => setName(event.target.value)} />
         </label>`}
         ${zip && advanced && html`<label class="check-inline">
           <input type="checkbox" checked=${trust} disabled=${busy} ...${helpFor("packages.trust_functions")}
             onChange=${(event) => setTrust(event.target.checked)} />
-          Confiar en las funciones de este paquete</label>`}
+          ${t("packages.trust_functions")}</label>`}
         ${zip && html`<button type="button" class="btn" disabled=${busy || !name} ...${helpFor("packages.install_zip")}
-          onClick=${installZip}>Instalar</button>`}
+          onClick=${installZip}>${t("packages.install_button")}</button>`}
       </div>
       ${payload && payload.example_available && html`<div class="packages-example">
-        <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("packages.example")} onClick=${installExample}>Instalar el paquete de ejemplo</button>
+        <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("packages.example")} onClick=${installExample}>${t("packages.install_example")}</button>
         <${Help} topic="packages.example" compact=${true} />
       </div>`}
       ${advanced && html`<div class="packages-form packages-folder">
-        <label class="packages-field">Instalar desde una carpeta
-          <input type="text" value=${folder} placeholder="Carpeta del paquete" disabled=${busy}
+        <label class="packages-field">${t("packages.install_folder")}
+          <input type="text" value=${folder} placeholder=${t("packages.package_folder")} disabled=${busy}
             ...${helpFor("packages.install_zip", { scope: "folder" })} onInput=${(event) => setFolder(event.target.value)} />
         </label>
-        <label class="packages-field">Nombre del paquete
+        <label class="packages-field">${t("packages.package_name")}
           <input type="text" value=${name} maxlength="120" disabled=${busy} ...${helpFor("packages.install_zip", { scope: "folder" })}
             onInput=${(event) => setName(event.target.value)} />
         </label>
@@ -128,17 +129,17 @@ export function Packages({ token }) {
         <label class="check-inline">
           <input type="checkbox" checked=${trust} disabled=${busy} ...${helpFor("packages.trust_functions", { scope: "folder" })}
             onChange=${(event) => setTrust(event.target.checked)} />
-          Confiar en las funciones de este paquete</label>
+          ${t("packages.trust_functions")}</label>
         <${Help} topic="packages.trust_functions" scope="folder" compact=${true} />
         <button type="button" class="btn secondary" disabled=${busy || !folder.trim() || !name} ...${helpFor("packages.install_zip", { scope: "folder" })}
-          onClick=${installFolder}>Instalar desde una carpeta</button>
+          onClick=${installFolder}>${t("packages.install_folder")}</button>
       </div>`}
       ${zip && advanced && html`<${Help} topic="packages.trust_functions" compact=${true} />`}
       ${message && html`<p class=${"message small" + (message.kind === "error" ? " error" : "")} role=${message.kind === "error" ? "alert" : "status"}>${message.text}</p>`}
     </section>
-    <section class="packages-block" aria-label="Paquetes instalados">
-      <h3 class="packages-title">Paquetes instalados</h3>
-      ${payload && rows.length === 0 && html`<p class="muted small">Todavía no hay paquetes instalados.</p>`}
+    <section class="packages-block" aria-label=${t("packages.installed_heading")}>
+      <h3 class="packages-title">${t("packages.installed_heading")}</h3>
+      ${payload && rows.length === 0 && html`<p class="muted small">${t("packages.no_packages")}</p>`}
       <ul class="packages-list">
         ${rows.map((row) => html`<li key=${row.name} class=${"package-row" + (row.degraded ? " degraded" : "")}>
           <div class="package-main">
@@ -160,7 +161,7 @@ export function Packages({ token }) {
           ${removing === row.name && html`<div class="package-confirm" role="alert">
             <p class="small">${REMOVE_NOTICE}</p>
             <button type="button" class="btn" disabled=${busy} ...${helpFor("packages.remove", { scope: row.name })} onClick=${() => remove(row.name)}>${row.removeLabel}</button>
-            <button type="button" class="btn secondary" ...${helpFor("packages.remove", { scope: row.name })} onClick=${() => setRemoving(null)}>Cancelar</button>
+            <button type="button" class="btn secondary" ...${helpFor("packages.remove", { scope: row.name })} onClick=${() => setRemoving(null)}>${t("packages.cancel")}</button>
           </div>`}
         </li>`)}
       </ul>

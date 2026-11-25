@@ -1,3 +1,31 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-export default {};
+export default {
+  "help.start.steps": {"title":"Pasos de Inicio","hint":"Solo se muestran los pasos que faltan, en orden. Cada uno trae su botón.","more":["El producto comprueba cada paso por lo que hay de verdad en tu equipo; no hay nada que marcar a mano.","Un paso hecho no vuelve a aparecer. «Conectar» y «Activar» te llevan a «Apps y agentes»: aquí no se activa nada.","Esta lista se actualiza sola cada pocos segundos."]},
+  "help.start.times": {"title":"Tiempos de Inicio","hint":"La hora de cada paso hecho y los minutos desde el inicio.","more":["«Copiar» pone este texto tal cual en el portapapeles. No copia ninguna configuración.","Quien observa la prueba descuenta las descargas con su propio cronómetro."]},
+  "help.start.real_models": {"title":"Pasar a modelos reales","hint":"Cambia el ajuste de modelos a reales. Se aplica al abrir Iniciar de nuevo.","more":["Los modelos reales pueden costar dinero o usar tu cuota. Antes de cambiar, esta pantalla te pide confirmar.","Se ofrece cuando ya probaste en Mock y ves el documento en el hilo.","Puedes volver a Mock aquí mismo cuando quieras."]},
+  "help.start.office_example": {"title":"Instalar la oficina de ejemplo","hint":"Solo se ofrece en una copia del proyecto.","more":["La oficina se copia cuando pulsas el botón; no se instala al abrir el programa.","Sus equipos quedan propuestos y no se aprueba ninguno."]},
+  "help.start.office_import": {"title":"Importar una oficina","hint":"Abre «Oficinas» para importar una oficina propia.","more":["En una copia instalada del framework, importa una oficina propia desde un archivo.","Sus equipos quedan propuestos hasta que tú los apruebes."]},
+
+  "start.real_models_note": "Los modelos reales pueden costar dinero o usar tu cuota. Puedes volver a Mock aquí mismo",
+  "start.try_mock_note": "Cuando termine, verás el documento en el hilo",
+  "start.checking": "Comprobando…",
+  "start.install_example": "Instalar la oficina de ejemplo",
+  "start.import_office": "Importar una oficina",
+  "start.try_mock": "Probar en Mock",
+  "start.connect_agent": "Conectar un agente",
+  "start.activate_agent": "Activar un agente",
+  "start.real_models": "Pasar a modelos reales",
+  "start.run_your_data": "Correr con tus datos",
+  "start.back_to_mock": "Volver a Mock",
+  "start.action_error": "No se pudo completar la acción.",
+  "start.done": "Listo.",
+  "start.copied": "Copiado.",
+  "start.copy_error": "No se pudo copiar.",
+  "start.read_error": "No se pudo leer el estado. Se reintentará sola.",
+  "start.update_error": "No se pudo actualizar; se reintentará sola.",
+  "start.no_steps": "No falta ningún paso.",
+  "start.cancel": "Cancelar",
+  "start.times": "Tiempos",
+  "start.copy": "Copiar",
+};

@@ -1,7 +1,8 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
+import { t } from "./i18n.js";
 // Folds the work of a session (GUI2-T02): a run of consecutive tool calls, tool results, omitted-reasoning markers and
-// usage notes becomes one block "Trabajó N min · K herramientas" that opens to show the items. Pure functions (no DOM,
+// usage notes becomes one block "Worked N min · K tools" that opens to show the items. Pure functions (no DOM,
 // no Preact) so they can be checked on their own; session-items.js draws the blocks.
 
 // Kinds that belong to the work of the model. Messages, system notes, compactions, subagent notices and unknown kinds
@@ -49,10 +50,10 @@ export function foldWork(items) {
   return blocks;
 }
 
-// "Trabajó 3 min · 5 herramientas". Under half a minute it says "menos de 1 min"; without timestamps, no duration.
+// "Worked 3 min · 5 tools". Under half a minute it says "under 1 min"; without timestamps, no duration.
 export function workLabel(block) {
-  const tools = block.tools === 1 ? "1 herramienta" : block.tools + " herramientas";
-  if (block.seconds === null) return "Trabajó · " + tools;
-  const time = block.seconds < 30 ? "menos de 1 min" : Math.max(1, Math.round(block.seconds / 60)) + " min";
-  return "Trabajó " + time + " · " + tools;
+  const tools = block.tools === 1 ? t("sessions.one_tool") : block.tools + t("sessions.many_tools");
+  if (block.seconds === null) return t("sessions.worked_no_time") + tools;
+  const time = block.seconds < 30 ? t("sessions.less_minute") : Math.max(1, Math.round(block.seconds / 60)) + " min";
+  return t("sessions.worked") + time + " · " + tools;
 }

@@ -1,10 +1,11 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// "Sesiones": the unified list of Claude, Codex, Copilot sessions and framework runs, plus one session's detail.
+// Sessions: the unified list of Claude, Codex, Copilot sessions and framework runs, plus one session's detail.
 // The list stays mounted (hidden) while a detail is open, so filters, loaded pages and scroll survive the trip.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet } from "./api.js";
 import { Help, helpFor } from "./help.js";
+import { t } from "./i18n.js";
 import { navigate, routeHref } from "./route.js";
 import { SessionDetail } from "./session-detail.js";
 import {
@@ -48,42 +49,42 @@ const hasFilters = (filters) => Object.values(filters).some((value) => value !==
 
 function Filters({ draft, showSubagents, onChange, onSubmit, onClear, onToggleSubagents }) {
   const field = (key, immediate) => (event) => onChange(key, event.target.value, immediate);
-  return html`<form class="filters" role="search" aria-label="Filtrar sesiones" onSubmit=${onSubmit}>
+  return html`<form class="filters" role="search" aria-label=${t("sessions.filter")} onSubmit=${onSubmit}>
     <div class="filter-grid">
-      <div><label for="sf-source">Origen</label>
+      <div><label for="sf-source">${t("sessions.source")}</label>
         <${Help} topic="sessions.source" />
         <select id="sf-source" ...${helpFor("sessions.source")} value=${draft.source} onChange=${field("source", true)}>
-          <option value="">Todos</option>
+          <option value="">${t("sessions.all_sources")}</option>
           ${SOURCES.map((s) => html`<option key=${s.id} value=${s.id}>${s.label}</option>`)}
         </select></div>
-      <div><label for="sf-surface">Superficie</label>
+      <div><label for="sf-surface">${t("sessions.surface")}</label>
         <${Help} topic="sessions.surface" />
         <select id="sf-surface" ...${helpFor("sessions.surface")} value=${draft.surface} onChange=${field("surface", true)}>
-          <option value="">Todas</option>
+          <option value="">${t("sessions.all_surfaces")}</option>
           ${SURFACES.map((s) => html`<option key=${s.id} value=${s.id}>${s.label}</option>`)}
         </select></div>
-      <div><label for="sf-text">Título contiene</label>
+      <div><label for="sf-text">${t("sessions.title_contains")}</label>
         <${Help} topic="sessions.text" />
         <input id="sf-text" type="search" maxlength="200" ...${helpFor("sessions.text")} value=${draft.text} onInput=${field("text", false)} /></div>
-      <div><label for="sf-cwd">Carpeta (dentro de)</label>
+      <div><label for="sf-cwd">${t("sessions.folder_within")}</label>
         <${Help} topic="sessions.cwd" />
         <input id="sf-cwd" type="text" maxlength="1000" ...${helpFor("sessions.cwd")} value=${draft.cwd} onInput=${field("cwd", false)} /></div>
-      <div><label for="sf-since">Actualizada desde</label>
+      <div><label for="sf-since">${t("sessions.updated_since")}</label>
         <${Help} topic="sessions.since" />
         <input id="sf-since" type="date" ...${helpFor("sessions.since")} value=${draft.since} onChange=${field("since", true)} /></div>
-      <div><label for="sf-until">Actualizada hasta</label>
+      <div><label for="sf-until">${t("sessions.updated_until")}</label>
         <${Help} topic="sessions.until" />
         <input id="sf-until" type="date" ...${helpFor("sessions.until")} value=${draft.until} onChange=${field("until", true)} /></div>
     </div>
     <div class="check-block">
       <label class="check-inline"><input type="checkbox" checked=${showSubagents} ...${helpFor("sessions.subagents")}
-        onChange=${(event) => onToggleSubagents(event.target.checked)} /> Incluir subagentes en la lista</label>
+        onChange=${(event) => onToggleSubagents(event.target.checked)} /> ${t("sessions.include_subagents")}</label>
       <${Help} topic="sessions.subagents" />
     </div>
     <div class="actions">
-      <button type="submit" class="btn small" ...${helpFor("sessions.search")}>Buscar</button>
+      <button type="submit" class="btn small" ...${helpFor("sessions.search")}>${t("sessions.search")}</button>
       <${Help} topic="sessions.search" compact=${true} />
-      <button type="button" class="btn secondary small" ...${helpFor("sessions.clear")} onClick=${onClear}>Limpiar filtros</button>
+      <button type="button" class="btn secondary small" ...${helpFor("sessions.clear")} onClick=${onClear}>${t("sessions.clear")}</button>
       <${Help} topic="sessions.clear" compact=${true} />
     </div>
   </form>`;
@@ -95,8 +96,8 @@ function RootsHelp({ hint }) {
     <p>${ROOTS_HELP.intro}</p>
     <${Help} topic="sessions.roots" />
     <ol>${ROOTS_HELP.steps.map((step) => html`<li key=${step}>${step}</li>`)}</ol>
-    <p>Ejemplo: <code>${ROOTS_HELP.example}</code></p>
-    ${hint && html`<p class="muted small">Aviso del servidor: <code>${hint}</code></p>`}
+    <p>${t("sessions.example")}<code>${ROOTS_HELP.example}</code></p>
+    ${hint && html`<p class="muted small">${t("sessions.server_warning")}<code>${hint}</code></p>`}
   </section>`;
 }
 
@@ -106,13 +107,13 @@ function Row({ session, now }) {
       <span class="row-top">
         <span class=${"badge src src-" + session.source}>${sourceLabel(session.source)}</span>
         <span class="badge">${surfaceLabel(session.surface)}</span>
-        ${session.parent_id && html`<span class="badge">Subagente</span>`}
+        ${session.parent_id && html`<span class="badge">${t("sessions.subagent")}</span>`}
         <span class="session-title">${sessionTitle(session)}</span>
         <${StatusChip} status=${session.status} labels="session" />
       </span>
-      <span class="row-line muted small">Carpeta: ${session.cwd || (session.source === "framework" ? "no aplica" : "no consta")}</span>
-      <span class="row-line small">Actualizada ${relativeTime(session.updated_at, now)} · ${fmtDate(session.updated_at)}</span>
-      <span class="row-line small">Modelos: ${modelsText(session.models)} · Tokens: ${tokensText(session.tokens, { brief: true })} · Subagentes: ${session.child_count}</span>
+      <span class="row-line muted small">${t("sessions.folder")}${session.cwd || (session.source === "framework" ? t("sessions.no_folder_run") : t("sessions.no_folder"))}</span>
+      <span class="row-line small">${t("sessions.updated")}${relativeTime(session.updated_at, now)} · ${fmtDate(session.updated_at)}</span>
+      <span class="row-line small">${t("sessions.models")}${modelsText(session.models)} · ${t("sessions.tokens")}${tokensText(session.tokens, { brief: true })} · ${t("sessions.subagents")}${session.child_count}</span>
     </a>
   </li>`;
 }
@@ -218,15 +219,15 @@ function SessionList({ token }) {
   const rows = visible(data.sessions);
   const noRoots = data.loaded && Boolean(data.hint) && data.sessions.length === 0;
   let summary = "";
-  if (loading && !data.loaded) summary = "Cargando sesiones…";
-  else if (loading) summary = "Actualizando la lista…";
-  else if (data.loaded && !noRoots) summary = rows.length === 0 ? "Sin resultados." : "Mostrando " + rows.length + (rows.length === 1 ? " sesión" : " sesiones") + (data.next ? "; hay más." : ".");
+  if (loading && !data.loaded) summary = t("sessions.loading");
+  else if (loading) summary = t("sessions.updating");
+  else if (data.loaded && !noRoots) summary = rows.length === 0 ? t("sessions.no_results") : t("sessions.showing") + rows.length + (rows.length === 1 ? t("sessions.one_session") : t("sessions.many_sessions")) + (data.next ? t("sessions.more_suffix") : ".");
 
   return html`<section class="session-list" aria-labelledby="sessions-title">
     <div class="row">
-      <h3 id="sessions-title" tabindex="-1">Todas las sesiones</h3>
+      <h3 id="sessions-title" tabindex="-1">${t("sessions.all_sessions")}</h3>
       <div class="header-tools">
-        <button type="button" class="btn secondary small" ...${helpFor("sessions.refresh")} onClick=${() => setReload((value) => value + 1)} disabled=${loading}>Actualizar la lista</button>
+        <button type="button" class="btn secondary small" ...${helpFor("sessions.refresh")} onClick=${() => setReload((value) => value + 1)} disabled=${loading}>${t("sessions.refresh")}</button>
         <${Help} topic="sessions.refresh" compact=${true} />
       </div>
     </div>
@@ -235,23 +236,23 @@ function SessionList({ token }) {
       onToggleSubagents=${setShowSubagents} />
     <p class="muted" role="status" aria-live="polite" aria-busy=${loading ? "true" : "false"}>${summary}</p>
     ${error && html`<div class="message error" role="alert">${errorText(error)}
-      <button type="button" class="btn secondary small" ...${helpFor("sessions.retry")} onClick=${() => setReload((value) => value + 1)}>Reintentar</button>
+      <button type="button" class="btn secondary small" ...${helpFor("sessions.retry")} onClick=${() => setReload((value) => value + 1)}>${t("sessions.retry")}</button>
       <${Help} topic="sessions.retry" compact=${true} /></div>`}
     ${noRoots && html`<${RootsHelp} hint=${data.hint} />`}
     ${data.loaded && !noRoots && rows.length === 0 && !loading && html`<div class="panel"><p>${hasFilters(applied)
-      ? "Ninguna sesión coincide con esos filtros. Prueba a quitar alguno."
-      : "No se encontraron sesiones en las carpetas permitidas. Si esperabas ver alguna, revisa que sus carpetas estén dentro de gui_session_roots."}</p>
+      ? t("sessions.empty_filtered")
+      : t("sessions.empty_allowed")}</p>
       <${Help} topic="sessions.empty" /></div>`}
     ${data.warnings.length > 0 && !noRoots && html`<details class="panel">
-      <summary>Avisos de las fuentes (${data.warnings.length})</summary>
+      <summary>${t("sessions.source_warnings")}${data.warnings.length})</summary>
       <${Help} topic="sessions.warnings" />
       <ul class="warnings">${data.warnings.map((warning) => html`<li key=${warning} class="note small">${warningText(warning)}</li>`)}</ul>
     </details>`}
-    ${rows.length > 0 && html`<ul class="session-rows" aria-label="Sesiones">
+    ${rows.length > 0 && html`<ul class="session-rows" aria-label=${t("sessions.sessions")}>
       ${rows.map((session) => html`<${Row} key=${session.id} session=${session} now=${now} />`)}
     </ul>`}
     ${data.next && html`<div><button type="button" class="btn secondary" disabled=${loadingMore || loading} ...${helpFor("sessions.more")} onClick=${loadMore}>
-      ${loadingMore ? "Cargando…" : "Cargar más"}</button>
+      ${loadingMore ? t("sessions.loading_more") : t("sessions.load_more")}</button>
       <${Help} topic="sessions.more" /></div>`}
   </section>`;
 }

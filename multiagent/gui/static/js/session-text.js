@@ -1,7 +1,8 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// Texts and formatters of the sessions screen (Spanish). The server sends codes and facts; the wording lives here.
+// Texts and formatters of the sessions screen. The server sends codes and facts; the wording lives here.
 import { legacyInfo } from "./ui/labels.js";
+import { t, currentLanguage } from "./i18n.js";
 
 export const SOURCES = [
   { id: "claude", label: "Claude" },
@@ -12,10 +13,10 @@ export const SOURCES = [
 ];
 
 export const SURFACES = [
-  { id: "desktop", label: "Escritorio" },
-  { id: "cli", label: "CLI (terminal)" },
+  { id: "desktop", get label() { return t("sessions.desktop"); } },
+  { id: "cli", get label() { return t("sessions.cli"); } },
   { id: "framework", label: "Framework" },
-  { id: "unknown", label: "Desconocida" },
+  { id: "unknown", get label() { return t("sessions.unknown_surface"); } },
 ];
 
 const label = (list, id, fallback) => (list.find((entry) => entry.id === id) || { label: fallback || String(id) }).label;
@@ -29,29 +30,29 @@ export const statusInfo = (id) => legacyInfo("session", id);
 export function sessionTitle(session) {
   if (session.title) return session.title;
   const native = String(session.native_id || session.id);
-  if (session.parent_id) return "Subagente " + native.slice(native.lastIndexOf(":") + 1);
-  return "Sin título (" + native.slice(0, 8) + ")";
+  if (session.parent_id) return t("sessions.subagent") + " " + native.slice(native.lastIndexOf(":") + 1);
+  return t("sessions.no_title") + native.slice(0, 8) + ")";
 }
 
-const number = (value) => value.toLocaleString("es");
+const number = (value) => value.toLocaleString(currentLanguage());
 const known = (value) => typeof value === "number" && Number.isFinite(value);
-const percent = (value) => (value * 100).toLocaleString("es", { maximumFractionDigits: 2 }) + "%";
+const percent = (value) => (value * 100).toLocaleString(currentLanguage(), { maximumFractionDigits: 2 }) + "%";
 
 export function contextEventText(type, payload = {}) {
   if (!payload || typeof payload !== "object") payload = {};
-  const step = typeof payload.step_id === "string" && payload.step_id ? "paso «" + payload.step_id + "»" : "";
+  const step = typeof payload.step_id === "string" && payload.step_id ? t("sessions.step") + payload.step_id + t("sessions.step_end") : "";
   if (type === "context_warning") {
-    const facts = ["Aviso de contexto", step];
-    if (known(payload.ratio)) facts.push("fracción medida " + percent(payload.ratio));
-    if (known(payload.warning_at)) facts.push("aviso desde " + percent(payload.warning_at));
-    if (known(payload.threshold)) facts.push("umbral de compactación " + percent(payload.threshold));
+    const facts = [t("sessions.context_warning"), step];
+    if (known(payload.ratio)) facts.push(t("sessions.measured_fraction") + percent(payload.ratio));
+    if (known(payload.warning_at)) facts.push(t("sessions.warning_at") + percent(payload.warning_at));
+    if (known(payload.threshold)) facts.push(t("sessions.compaction_threshold") + percent(payload.threshold));
     return facts.filter(Boolean).join(" · ");
   }
   if (type === "context_compacted") {
-    const facts = ["Contexto compactado", step];
-    if (known(payload.tokens_before)) facts.push("antes " + number(payload.tokens_before) + " tokens");
-    if (known(payload.tokens_after)) facts.push("después " + number(payload.tokens_after) + " tokens");
-    if (typeof payload.summary_ref === "string" && payload.summary_ref) facts.push("instantánea " + payload.summary_ref);
+    const facts = [t("sessions.context_compacted"), step];
+    if (known(payload.tokens_before)) facts.push(t("sessions.before") + number(payload.tokens_before) + " tokens");
+    if (known(payload.tokens_after)) facts.push(t("sessions.after") + number(payload.tokens_after) + " tokens");
+    if (typeof payload.summary_ref === "string" && payload.summary_ref) facts.push(t("sessions.snapshot") + payload.summary_ref);
     return facts.filter(Boolean).join(" · ");
   }
   return null;
@@ -59,22 +60,19 @@ export function contextEventText(type, payload = {}) {
 
 // {input, output, cache_read, cache_write, total?} or null (unknown: never shown as 0).
 export function tokensText(tokens, { brief = false } = {}) {
-  if (!tokens) return "desconocido";
+  if (!tokens) return t("sessions.unknown");
   const parts = [];
-  if (known(tokens.input)) parts.push("entrada " + number(tokens.input));
-  if (known(tokens.output)) parts.push("salida " + number(tokens.output));
+  if (known(tokens.input)) parts.push(t("sessions.input") + number(tokens.input));
+  if (known(tokens.output)) parts.push(t("sessions.output") + number(tokens.output));
   if (!brief) {
-    if (known(tokens.cache_read)) parts.push("caché leída " + number(tokens.cache_read));
-    if (known(tokens.cache_write)) parts.push("caché escrita " + number(tokens.cache_write));
+    if (known(tokens.cache_read)) parts.push(t("sessions.cache_read") + number(tokens.cache_read));
+    if (known(tokens.cache_write)) parts.push(t("sessions.cache_write") + number(tokens.cache_write));
   }
-  if (known(tokens.total) && !parts.length) parts.push("total " + number(tokens.total));
-  return parts.length ? parts.join(" · ") : "desconocido";
+  if (known(tokens.total) && !parts.length) parts.push(t("sessions.total") + number(tokens.total));
+  return parts.length ? parts.join(" · ") : t("sessions.unknown");
 }
 
-export const modelsText = (models) => (models && models.length ? models.join(", ") : "sin indicar");
-
-const RELATIVE = typeof Intl !== "undefined" && Intl.RelativeTimeFormat
-  ? new Intl.RelativeTimeFormat("es", { numeric: "auto" }) : null;
+export const modelsText = (models) => (models && models.length ? models.join(", ") : t("sessions.not_reported"));
 
 export function relativeTime(value, now = Date.now()) {
   if (!value) return "—";
@@ -82,7 +80,7 @@ export function relativeTime(value, now = Date.now()) {
   if (Number.isNaN(then)) return String(value);
   const seconds = (then - now) / 1000;
   const abs = Math.abs(seconds);
-  if (abs < 45) return "justo ahora";
+  if (abs < 45) return t("sessions.just_now");
   const units = [["minute", 60, 60], ["hour", 3600, 24], ["day", 86400, 30], ["month", 2592000, 12], ["year", 31536000, Infinity]];
   let size = 60;
   let unit = "minute";
@@ -92,32 +90,34 @@ export function relativeTime(value, now = Date.now()) {
     if (abs / perUnit < limit) break;
   }
   const amount = Math.round(seconds / size);
-  return RELATIVE ? RELATIVE.format(amount, unit) : "hace " + Math.abs(amount) + " " + unit;
+  const relative = typeof Intl !== "undefined" && Intl.RelativeTimeFormat
+    ? new Intl.RelativeTimeFormat(currentLanguage(), { numeric: "auto" }) : null;
+  return relative ? relative.format(amount, unit) : t("sessions.ago", { amount: Math.abs(amount), unit });
 }
 
 const KIND = {
-  user_message: "Usuario",
-  assistant_message: "Asistente",
-  reasoning_omitted: "Razonamiento omitido",
-  tool_call: "Herramienta",
-  tool_result: "Resultado de herramienta",
-  system: "Sistema",
-  subagent: "Subagente",
-  compaction: "Compactación de contexto",
-  usage: "Uso de tokens",
-  unknown: "Registro desconocido",
+  user_message: "sessions.user",
+  assistant_message: "sessions.assistant",
+  reasoning_omitted: "sessions.reasoning_omitted",
+  tool_call: "sessions.tool",
+  tool_result: "sessions.tool_result",
+  system: "sessions.system",
+  subagent: "sessions.subagent",
+  compaction: "sessions.compaction",
+  usage: "sessions.token_usage",
+  unknown: "sessions.unknown_record",
 };
-export const kindLabel = (kind) => KIND[kind] || KIND.unknown;
+export const kindLabel = (kind) => t(KIND[kind] || KIND.unknown);
 
 const WARNINGS = {
-  no_allowed_roots: () => "Todavía no hay carpetas permitidas (gui_session_roots).",
-  source_unavailable: (rest) => "Fuente no disponible" + (rest ? " (" + rest + ")" : "") + "; se muestran las demás.",
-  cursor_reset: () => "El archivo de la sesión cambió y se volvió a leer desde el principio.",
-  broken_json_lines: (rest) => "Líneas dañadas omitidas: " + rest + ".",
-  oversized_lines_skipped: (rest) => "Líneas demasiado grandes omitidas: " + rest + ".",
-  unknown_record_types: (rest) => "Registros de un tipo que este visor no conoce: " + rest + ".",
-  session_file_unavailable: () => "El archivo de la sesión no está disponible.",
-  no_local_history: () => "Esta sesión no tiene historial local.",
+  no_allowed_roots: () => t("sessions.no_roots"),
+  source_unavailable: (rest) => t("sessions.source_unavailable") + (rest ? " (" + rest + ")" : "") + t("sessions.other_sources"),
+  cursor_reset: () => t("sessions.cursor_reset"),
+  broken_json_lines: (rest) => t("sessions.broken_lines") + rest + ".",
+  oversized_lines_skipped: (rest) => t("sessions.oversized_lines") + rest + ".",
+  unknown_record_types: (rest) => t("sessions.unknown_types") + rest + ".",
+  session_file_unavailable: () => t("sessions.file_unavailable"),
+  no_local_history: () => t("sessions.no_history"),
 };
 
 // The reader sends "<code>: <detail>" or just "<code>".
@@ -131,12 +131,8 @@ export function warningText(warning) {
 }
 
 export const ROOTS_HELP = {
-  title: "Todavía no hay carpetas permitidas",
-  intro: "Por privacidad, el visor no muestra ninguna sesión hasta que indiques qué carpetas de trabajo se pueden ver. " +
-    "Solo aparecen las sesiones cuya carpeta esté dentro de una de ellas.",
-  steps: [
-    "Define la opción gui_session_roots (variable de entorno GUI_SESSION_ROOTS, o la misma línea en el archivo .env de la carpeta local del framework) con una o varias carpetas, separadas por «;» o como lista JSON.",
-    "Vuelve a arrancar la interfaz con python -m multiagent.gui y recarga esta página.",
-  ],
-  example: "GUI_SESSION_ROOTS=C:\\proyectos;D:\\trabajo",
+  get title() { return t("sessions.roots_title"); },
+  get intro() { return t("sessions.roots_intro_1") + t("sessions.roots_intro_2"); },
+  get steps() { return [t("sessions.roots_step_1"), t("sessions.roots_step_2")]; },
+  get example() { return t("sessions.roots_example"); },
 };

@@ -3,24 +3,26 @@
 // CNT-T16 consumes CNT-T15's independent wait metadata. Reading it never changes the task lifecycle or an approval gate.
 import { useEffect, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet } from "./api.js";
+import { t, currentLanguage } from "./i18n.js";
 
 export const WAITING_PATH = "/api/v1/tasks?waiting_for=all";
 export const WAITING_POLL_MS = 20000;
-const WHO = { user: "Tu decisión", agent: "Agente", task: "Tarea", quota: "Cuota", window: "Ventana de integración" };
+const WHO = { user: "task_waiting.user", agent: "task_waiting.agent", task: "task_waiting.task",
+  quota: "task_waiting.quota", window: "task_waiting.window" };
 
 export function waitingTasks(data) {
-  if (!Array.isArray(data)) throw new Error("La lista de esperas no es válida.");
+  if (!Array.isArray(data)) throw new Error(t("task_waiting.invalid_list"));
   return data.filter((task) => task && typeof task.id === "string" && task.waiting &&
     Object.hasOwn(WHO, task.waiting.who));
 }
 
 export function waitingForUser(tasks) { return tasks.filter((task) => task.waiting.who === "user"); }
-export function waitBadge(wait) { return wait.who === "user" ? "Espera tu decisión" : "En espera · " + WHO[wait.who]; }
-export function waitRecipient(wait) { return WHO[wait.who] + (wait.target ? ": " + wait.target : ""); }
+export function waitBadge(wait) { return wait.who === "user" ? t("task_waiting.awaiting_you") : t("task_waiting.waiting") + t(WHO[wait.who]); }
+export function waitRecipient(wait) { return t(WHO[wait.who]) + (wait.target ? ": " + wait.target : ""); }
 export async function readWaiting(token, get = apiGet) { return waitingTasks(await get(WAITING_PATH, token)); }
 export function waitDate(value) {
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? String(value) : new Intl.DateTimeFormat("es-MX", {
+  return Number.isNaN(date.valueOf()) ? String(value) : new Intl.DateTimeFormat(currentLanguage() === "es" ? "es-MX" : "en", {
     dateStyle: "medium", timeStyle: "short",
   }).format(date);
 }

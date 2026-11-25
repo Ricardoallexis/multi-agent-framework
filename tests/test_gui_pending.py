@@ -131,7 +131,7 @@ def test_endpoint_requires_the_gui_token_and_drops_a_run_that_stops_waiting(env)
 
 def test_shell_wires_help_and_requests_notifications_only_from_an_opt_in_click():
     pending = ui_text((JS / "pending.js"))
-    model = ui_text((JS / "pending-model.js"))
+    model = (JS / "pending-model.js").read_text(encoding="utf-8")
     shell = ui_text((JS / "shell.js"))
     sidebar = ui_text((JS / "sidebar.js"))
     help_text = ui_text((JS / "help-text.js"))

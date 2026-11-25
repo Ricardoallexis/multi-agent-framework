@@ -19,7 +19,7 @@ needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 
 def test_ui_text_tracks_converted_and_unconverted_views():
-    plain = JS / "sessions.js"
+    plain = JS / "route.js"
     assert ui_text(plain) == plain.read_text(encoding="utf-8")
     assert "Sesiones" in ui_text(JS / "main.js")
     assert "Sessions" in ui_text(JS / "main.js", lang="en")

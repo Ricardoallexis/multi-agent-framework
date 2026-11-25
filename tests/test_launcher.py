@@ -382,7 +382,7 @@ def test_launcher_in_mock_says_how_to_use_real_models(launcher_env, monkeypatch,
     gui_main.run(port=8123, no_browser=True, launcher=True)
     out = capsys.readouterr().out
     assert started and "Mock (synthetic results)" in out
-    assert "To use real models: Inicio › Pasar a modelos reales" in out
+    assert "To use real models: Start › Switch to real models" in out
     gui_main.run(port=8123, no_browser=True)  # without --launcher the line is not printed
     assert "To use real models" not in capsys.readouterr().out
 

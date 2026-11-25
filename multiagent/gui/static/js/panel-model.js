@@ -1,5 +1,6 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
+import { t } from "./i18n.js";
 // Logic of the right-panel sections «Cambios», «Tokens» and «Fuentes» (GUI2-T05). Pure functions (no DOM, no Preact,
 // no fetch) so they can be checked on their own; panel-data.js loads the data and panel-changes/tokens/sources.js draw it.
 //
@@ -14,7 +15,7 @@ export const PAGE_ITEMS = 200;       // items per request, like the session scre
 export const PAGES_PER_TICK = 10;    // pages read in one round, so a long session fills in little by little
 export const MAX_ITEMS = 20000;      // items analysed per session
 export const MAX_PATHS = 300;        // distinct paths kept per list
-export const SHOWN = 8;              // rows shown before «Ver más»
+export const SHOWN = 8;              // rows shown before Show more
 
 const KNOWN = (value) => typeof value === "number" && Number.isFinite(value);
 const COUNT = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
@@ -311,7 +312,7 @@ const orNull = (sum) => (sum.reported > 0 ? sum : null);
 function group(children) {
   const groups = new Map();
   for (const child of children) {
-    const model = TEXT(child.model) || "modelo sin indicar";
+    const model = TEXT(child.model) || t("panel.no_model");
     const key = model + "|" + (child.level || "");
     if (!groups.has(key)) groups.set(key, { model, level: child.level || null, children: [] });
     groups.get(key).children.push(child);
@@ -332,8 +333,8 @@ export function sessionTokens(summary, children) {
   const all = sumTokens([main].concat(list === null ? [] : list.map((child) => child.tokens)));
   return {
     kind: "session",
-    orchestrator: { label: sub ? "Esta conversación (subagente)" : "Orquestador (la sesión)", models: summary ? summary.models || [] : [], tokens: main },
-    workers: { label: "Trabajadores", count: list === null ? null : list.length, tokens: workers ? orNull(workers) : null,
+    orchestrator: { label: sub ? t("panel.current_subagent") : t("panel.orchestrator_session"), models: summary ? summary.models || [] : [], tokens: main },
+    workers: { label: t("panel.workers"), count: list === null ? null : list.length, tokens: workers ? orNull(workers) : null,
       unreported: workers ? workers.unreported : 0, readable: list !== null },
     total: orNull(all), incomplete: all.unreported > 0 || list === null,
     byModel: list === null ? [] : group(list),
@@ -347,7 +348,7 @@ export function priceEvidence(records) {
   for (const record of Array.isArray(records) ? records : []) {
     const basis = record && record.cost_basis;
     if (!basis || typeof basis !== "object" || !basis.input || !basis.output) continue;
-    const model = TEXT(record.model) || TEXT(basis.model_id) || "modelo sin indicar";
+    const model = TEXT(record.model) || TEXT(basis.model_id) || t("panel.no_model");
     const before = byModel.get(model);
     byModel.set(model, { model, currency: TEXT(basis.currency) || "USD", input: basis.input, output: basis.output,
       calls: (before ? before.calls : 0) + 1, pricedAt: TEXT(basis.priced_at) });
@@ -376,7 +377,7 @@ export function runTokens(usage) {
     cache_read: null, cache_write: null, total: null, reported: 0, unreported: 0 } : null;
   const reported = Boolean(sum) && (sum.input !== null || sum.output !== null);
   const byModel = (totals && Array.isArray(totals.by_model) ? totals.by_model : []).map((entry) => ({
-    model: TEXT(entry.model) || "modelo sin indicar", level: null, count: KNOWN(entry.records) ? entry.records : 0,
+    model: TEXT(entry.model) || t("panel.no_model"), level: null, count: KNOWN(entry.records) ? entry.records : 0,
     tokens: KNOWN(entry.tokens_in) || KNOWN(entry.tokens_out)
       ? { input: KNOWN(entry.tokens_in) ? entry.tokens_in : null, output: KNOWN(entry.tokens_out) ? entry.tokens_out : null } : null,
     unreported: KNOWN(entry.records_without_usage) ? entry.records_without_usage : 0,
@@ -384,8 +385,8 @@ export function runTokens(usage) {
   const calls = run && KNOWN(run.records) ? run.records : 0;
   return {
     kind: "run",
-    orchestrator: { label: "Orquestador (el motor del workflow)", models: [], tokens: null, noModel: true },
-    workers: { label: "Trabajadores (los pasos)", count: calls, tokens: reported ? sum : null,
+    orchestrator: { label: t("panel.orchestrator_run"), models: [], tokens: null, noModel: true },
+    workers: { label: t("panel.workers_steps"), count: calls, tokens: reported ? sum : null,
       unreported: run && KNOWN(run.records_without_usage) ? run.records_without_usage : 0, readable: usage !== null, failed: run && KNOWN(run.failed) ? run.failed : 0 },
     total: reported ? sum : null, incomplete: Boolean(run) && KNOWN(run.records_without_usage) && run.records_without_usage > 0,
     byModel,

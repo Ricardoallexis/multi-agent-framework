@@ -1,16 +1,17 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// «Contexto» panel (GUI2-T02, GUI3-T04): context of the session or run open in the centre, in four sections. The shell (shell.js) puts it in
+// Context panel (GUI2-T02, GUI3-T04): context of the session or run open in the centre, in four sections. The shell (shell.js) puts it in
 // <aside id="right-panel"> and owns the collapse button; this file draws the sections and their help. Each section
 // holds a slot component from panel-slots.js, which shows an empty state until the task that owns it fills it
-// («Subagentes» already holds the subagents panel of GUI2-T04; its "?" uses that task's topic "subagents.panel").
+// (Subagents already holds the subagents panel of GUI2-T04; its "?" uses that task's topic "subagents.panel").
 // Sections registered with registerSlot (panel-slots.js, FLU-T04) follow the four fixed ones.
-// GUI3-T04: a card is drawn by its mode («Automática», «Siempre», «Nunca», context-model.js) and by what it reported; a card
-// that is not drawn stays in the DOM, hidden, so it keeps loading its data and the dot beside «Contexto» knows about it.
+// GUI3-T04: a card is drawn by its mode (Automatic, Always, Never, context-model.js) and by what it reported; a card
+// that is not drawn stays in the DOM, hidden, so it keeps loading its data and the dot beside Context knows about it.
 import { html, useEffect, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
 import { anyContent, ownContents, sameContent, shownCards } from "./context-model.js";
 import { Help } from "./help.js";
 import { usePanelData } from "./panel-data.js";
+import { t } from "./i18n.js";
 import { subjectOf } from "./panel-model.js";
 import { ChangesSlot, SourcesSlot, SubagentsSlot, TokensSlot, registeredSlots } from "./panel-slots.js";
 import { onChoiceChange, readCardModes } from "./shell-state.js";
@@ -50,21 +51,21 @@ export function RightPanel({ token, route, onDot }) {
   const dot = Boolean(subject) && anyContent(cards, modes, contents);
   useEffect(() => { if (typeof onDot === "function") onDot(dot); }, [dot]);
   return html`<div class="rp">
-    <h2 class="sr-only">Contexto de la sesión</h2>
+    <h2 class="sr-only">${t("panel.context")}</h2>
     <section class="rp-section" aria-labelledby="panel-changes-title" hidden=${!shown.changes}>
-      <div class="rp-head"><h3 id="panel-changes-title">Cambios</h3><${Help} topic="panel.changes" compact=${true} /></div>
+      <div class="rp-head"><h3 id="panel-changes-title">${t("panel.changes_heading")}</h3><${Help} topic="panel.changes" compact=${true} /></div>
       <${ChangesSlot} ...${slot} />
     </section>
     <section class="rp-section" aria-labelledby="panel-subagents-title" hidden=${!shown.subagents}>
-      <div class="rp-head"><h3 id="panel-subagents-title">Subagentes</h3><${Help} topic="subagents.panel" compact=${true} /></div>
+      <div class="rp-head"><h3 id="panel-subagents-title">${t("panel.subagents_heading")}</h3><${Help} topic="subagents.panel" compact=${true} /></div>
       <${SubagentsSlot} ...${slot} onContent=${reporter("subagents")} />
     </section>
     <section class="rp-section" aria-labelledby="panel-tokens-title" hidden=${!shown.tokens}>
-      <div class="rp-head"><h3 id="panel-tokens-title">Tokens</h3><${Help} topic="panel.tokens" compact=${true} /></div>
+      <div class="rp-head"><h3 id="panel-tokens-title">${t("panel.tokens_heading")}</h3><${Help} topic="panel.tokens" compact=${true} /></div>
       <${TokensSlot} ...${slot} />
     </section>
     <section class="rp-section" aria-labelledby="panel-sources-title" hidden=${!shown.sources}>
-      <div class="rp-head"><h3 id="panel-sources-title">Fuentes</h3><${Help} topic="panel.sources" compact=${true} /></div>
+      <div class="rp-head"><h3 id="panel-sources-title">${t("panel.sources_heading")}</h3><${Help} topic="panel.sources" compact=${true} /></div>
       <${SourcesSlot} ...${slot} />
     </section>
     ${extra.map((entry) => html`<${ExtraSection} key=${entry.name} entry=${entry} slot=${slot} shown=${shown[entry.name]} onContent=${reporter(entry.name)} />`)}

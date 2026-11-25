@@ -547,7 +547,7 @@ def test_the_new_code_depends_only_on_shared_helpers_never_on_the_views():
         imported = set(re.findall(r'from "\./([a-z-]+\.js)"', read(name)))
         assert imported <= allowed, (name, imported - allowed)
     for name in ("panel-text.js", "panel-model.js"):      # the pure modules import nothing but each other: they run under Node
-        assert set(re.findall(r'from "([^"]+)"', read(name))) <= {"./panel-text.js"}, name
+        assert set(re.findall(r'from "([^"]+)"', read(name))) <= {"./panel-text.js", "./i18n.js"}, name
     assert "vendor" not in read("panel-text.js") + read("panel-model.js")
 
 
@@ -653,7 +653,8 @@ def test_texts_are_spanish_and_never_zero_for_unknown():
     for label in ("desconocido", "Leyendo la sesión", "no constan", "sin precio", "Costo estimado", "Evidencia de precio",
                   "Orquestador", "Trabajadores"):
         assert label in text + tokens + read("panel-model.js"), label
-    assert re.search(r'export const UNKNOWN = "desconocido"', text)
+    assert "desconocido" in ui_text(JS / "panel-text.js", lang="es")
+    assert "unknown" in ui_text(JS / "panel-text.js", lang="en")
 
 
 # --- served files ---------------------------------------------------------------------------------------------------

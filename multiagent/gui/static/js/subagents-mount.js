@@ -6,6 +6,7 @@
 // Open a subagent's own conversation and the panel keeps listing its siblings (those of the main session).
 import { html, useState, useEffect } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet } from "./api.js";
+import { t } from "./i18n.js";
 import { SubagentsPanel } from "./subagents-panel.js";
 
 const CLAUDE_SUBAGENT = /^(claude:[0-9a-fA-F-]{36}):agent-[A-Za-z0-9_-]{1,64}$/;
@@ -35,7 +36,7 @@ export function SubagentsMount({ token, openId = null, onContent }) {
   const listed = useListedSession(token, openId);
   useEffect(() => { if (!listed && typeof onContent === "function") onContent({ has: false }); }, [listed, onContent]);   // GUI3-T04
   if (!listed) {
-    return html`<p class="muted small slot-empty">${openId ? "Buscando la sesión principal…" : "Abre una sesión para ver sus subagentes."}</p>`;
+    return html`<p class="muted small slot-empty">${openId ? t("subagents.finding_main") : t("subagents.open_session")}</p>`;
   }
   return html`<${SubagentsPanel} key=${listed} token=${token} sessionId=${listed} currentId=${openId} onContent=${onContent} />`;
 }

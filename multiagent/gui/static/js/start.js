@@ -7,6 +7,7 @@
 import { html, useCallback, useEffect, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet, apiPost } from "./api.js";
 import { Help, helpFor } from "./help.js";
+import { t } from "./i18n.js";
 import { CHECKING_TEXT, EXAMPLE_OFFICE_ID, EXAMPLE_PATH, OFFICES_PATH, POLL_MS, START_PATH, backToMockAction,
   copyTimes, startRows, timesText } from "./start-model.js";
 
@@ -37,7 +38,7 @@ export function useStartStatus(token) {
   return value;
 }
 
-const errorText = (error) => (error && error.message) || "No se pudo completar la acción.";
+const errorText = (error) => (error && error.message) || t("start.action_error");
 
 export function Start({ token }) {
   const { status, failed } = useStartStatus(token);
@@ -77,7 +78,7 @@ export function Start({ token }) {
     try {
       const answer = await apiPost(action.path, token, action.body || {});
       if (action.path.endsWith("/settings/models")) setSwitched(answer && answer.models === "real" ? "real" : null);
-      setMessage({ kind: "ok", text: (answer && answer.text) || "Listo." });
+      setMessage({ kind: "ok", text: (answer && answer.text) || t("start.done") });
       setAsking(null);
       if (action.path === EXAMPLE_PATH) await loadOffices();
       await refreshStart(token);
@@ -90,9 +91,9 @@ export function Start({ token }) {
   const press = (action) => (action.confirm ? setAsking(action) : run(action));
   const copy = async () => {
     try {
-      setCopied((await copyTimes(status, (text) => navigator.clipboard.writeText(text))) ? "Copiado." : "");
+      setCopied((await copyTimes(status, (text) => navigator.clipboard.writeText(text))) ? t("start.copied") : "");
     } catch (_) {
-      setCopied("No se pudo copiar.");
+      setCopied(t("start.copy_error"));
     }
   };
 
@@ -102,9 +103,9 @@ export function Start({ token }) {
   return html`<div class="start">
     <${Help} topic="start.steps" />
     ${!status && !failed && html`<p class="muted small" role="status" aria-busy="true">${CHECKING_TEXT}</p>`}
-    ${!status && failed && html`<p class="message error small" role="alert">No se pudo leer el estado. Se reintentará sola.</p>`}
-    ${status && failed && html`<p class="message error small" role="alert">No se pudo actualizar; se reintentará sola.</p>`}
-    ${status && rows.length === 0 && html`<p class="muted" role="status">No falta ningún paso.</p>`}
+    ${!status && failed && html`<p class="message error small" role="alert">${t("start.read_error")}</p>`}
+    ${status && failed && html`<p class="message error small" role="alert">${t("start.update_error")}</p>`}
+    ${status && rows.length === 0 && html`<p class="muted" role="status">${t("start.no_steps")}</p>`}
     <ol class="start-steps">
       ${rows.map((row) => html`<li key=${row.id} class="start-step">
         <span class="start-step-title">${row.title}</span>
@@ -123,8 +124,8 @@ export function Start({ token }) {
         ${row.actions.some((action) => action.confirm) && html`<${Help} topic="start.real_models" scope=${row.id} compact=${true} />`}
         ${asking && row.actions.some((action) => action.label === asking.label) && html`<div class="start-confirm" role="alert">
           <p class="small">${asking.note}</p>
-          <button type="button" class="btn" disabled=${busy} ...${helpFor("start.real_models", { scope: row.id })} onClick=${() => run(asking)}>Pasar a modelos reales</button>
-          <button type="button" class="btn secondary" ...${helpFor("start.real_models", { scope: row.id })} onClick=${() => setAsking(null)}>Cancelar</button>
+          <button type="button" class="btn" disabled=${busy} ...${helpFor("start.real_models", { scope: row.id })} onClick=${() => run(asking)}>${t("start.real_models")}</button>
+          <button type="button" class="btn secondary" ...${helpFor("start.real_models", { scope: row.id })} onClick=${() => setAsking(null)}>${t("start.cancel")}</button>
         </div>`}
       </li>`)}
     </ol>
@@ -133,11 +134,11 @@ export function Start({ token }) {
       <${Help} topic="start.real_models" scope="back" compact=${true} />
     </div>`}
     ${message && html`<p class=${"message small" + (message.kind === "error" ? " error" : "")} role=${message.kind === "error" ? "alert" : "status"}>${message.text}</p>`}
-    <section class="start-times" aria-label="Tiempos">
-      <h3 class="start-times-title">Tiempos</h3>
+    <section class="start-times" aria-label=${t("start.times")}>
+      <h3 class="start-times-title">${t("start.times")}</h3>
       <${Help} topic="start.times" />
       <pre class="start-times-text">${text || CHECKING_TEXT}</pre>
-      <button type="button" class="btn secondary" disabled=${!text} ...${helpFor("start.times")} onClick=${copy}>Copiar</button>
+      <button type="button" class="btn secondary" disabled=${!text} ...${helpFor("start.times")} onClick=${copy}>${t("start.copy")}</button>
       ${copied && html`<span class="muted small" role="status">${copied}</span>`}
     </section>
   </div>`;

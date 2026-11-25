@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: «Inicio», «Sesiones», «Paquetes», «Pendientes», «Uso», «Evaluación», the «Contexto» panel and the subagents follow the language selector (English base, Spanish translation), help included. The double-click start's console hint names the English labels (Start › Switch to real models). Titles, names, ids and codes stay as they are.
 - GUI: «Ejecuciones», the run detail and actions, the run thread and the shared status, progress and level labels follow the language selector (English base, Spanish translation), help included. Messages, payloads, ids and codes stay as they are.
 - GUI: «Equipos», «Planes», the work map and the agent tree follow the language selector (English base, Spanish translation), help included; a plan that cannot be approved for a missing team names the package. Ids, codes and data are unchanged.
 - An office installed from a folder remembers that folder locally (never in exports or API answers). When the folder changes, «Nueva sesión» says an update is available and «Actualizar oficina» opens the usual install card with the area and file changes; nothing installs until the person approves it, and a folder that changes after the review invalidates the card. Work data and privacy settings stay. Typing a folder path stays in advanced mode; `.zip` import and export stay in both modes.
