@@ -22,8 +22,11 @@ def read(name: str) -> str:
     return ui_text(JS / name)
 
 
+SPANISH_NAVIGATOR = ["--import", "data:text/javascript,Object.defineProperty(globalThis,'navigator',{value:{language:'es-MX'},configurable:true})"]
+
+
 def run_node(source: str) -> dict:
-    result = subprocess.run([NODE, "--input-type=module", "-e", source], capture_output=True, text=True, encoding="utf-8",
+    result = subprocess.run([NODE, *SPANISH_NAVIGATOR, "--input-type=module", "-e", source], capture_output=True, text=True, encoding="utf-8",
                             cwd=STATIC_DIR, timeout=30, check=True)
     return json.loads(result.stdout)
 
@@ -58,7 +61,7 @@ def test_finds_sections_pending_tabs_sessions_runs_and_help_without_case_or_acce
         tab: searchPalette(entries, "decisiones").map((entry) => [entry.kind, entry.route]),
         session: labels(searchPalette(entries, "CARRITO")),
         run: labels(searchPalette(entries, "review tienda")),
-        help: searchPalette(entries, "demas pantallas").map((entry) => [entry.kind, entry.label]),
+        help: searchPalette(entries, "no estan fijadas").map((entry) => [entry.kind, entry.label]),
         none: searchPalette(entries, "zzzz").length,
         both: labels(searchPalette(entries, "tienda")),
       }));

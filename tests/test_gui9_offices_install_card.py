@@ -83,6 +83,7 @@ def test_card_and_chat_present_one_scan_warning_and_local_requirements():
     model = ui_text(EXT / "import-model.js")
     help_text = (EXT / "help.js").read_text(encoding="utf-8")
     new_session = (STATIC_DIR / "js" / "new-session.js").read_text(encoding="utf-8")
+    new_session_es = (STATIC_DIR / "i18n" / "es" / "new-session.js").read_text(encoding="utf-8")
 
     assert raw_importer.count('t("ext.offices.import.scanner_unavailable")') == 1
     assert "No hay escáner de oficinas disponible: no se hizo la revisión." in importer
@@ -95,7 +96,8 @@ def test_card_and_chat_present_one_scan_warning_and_local_requirements():
     assert '"not_installed":' not in model.split("const SCAN_KEYS", 1)[1].split("});", 1)[0]
     assert "Browsers do not provide a safe folder picker." in help_text
     assert "file_tools_configured" in new_session
-    assert "if (fileToolsMissing) blockers.push" in new_session
-    assert "Este workflow necesita herramientas de archivos locales. Configura FILE_TOOLS_ROOT" in new_session
+    assert 'if (fileToolsMissing) blockers.push(t("new_session.blocker_file_tools"))' in new_session
+    assert 't("new_session.file_tools_missing")' in new_session
+    assert '"new_session.file_tools_missing": "Este workflow necesita herramientas de archivos locales. Configura FILE_TOOLS_ROOT' in new_session_es
     assert '${fileToolsNotice && fileToolsMissing && html`<p class="message error small" role="alert">' in new_session
     assert '${fileToolsNotice && !fileToolsMissing && html`<p class="hint" role="status">' in new_session
