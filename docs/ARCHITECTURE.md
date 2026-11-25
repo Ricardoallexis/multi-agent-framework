@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Multi-Agent Framework is a domain-neutral runtime for teams of AI agents, humans, models, and tools. Today it coordinates declared workflows composed of specialized agents, and combines local execution, cloud providers, and human participation without coupling workflow logic to a specific model provider. The planned evolution (teams, planning, delegation, optional backends) is described in [`COMPARISON.md`](COMPARISON.md) and the [roadmap](../ROADMAP.md). This page describes the current code.
+Multi-Agent Framework is a domain-neutral runtime for teams of AI agents, humans, models, and tools. Today it coordinates declared workflows composed of specialized agents, and combines local execution, cloud providers, and human participation without coupling workflow logic to a specific model provider. The current code also includes task and team-definition foundations; runtime role use is partial, while fuller planning, delegation, and optional backends remain on the [roadmap](../ROADMAP.md). See [`COMPARISON.md`](COMPARISON.md) for the release, checkout, and roadmap distinctions. This page describes the current code, which may include changes not yet published in a release.
 
 ## Main components
 
 ```text
-main.py / CLI / Python callers
+main.py / CLI / Python callers / local GUI (/gui/)
   -> FastAPI app (HTTP API)
   -> ApplicationServices (multiagent/services/)
       -> definitions (workflows, agents, bundles)
@@ -109,4 +109,6 @@ editable mode and from bundled package resources in an installed wheel.
 
 ## Frontend
 
-The current `F00` release does not include a UI. A future frontend should consume the public API rather than access SQLite or internal engine implementations directly.
+The local operator GUI at `/gui/` is the supported local interface for 1.0. It is served by the local API and calls the same application services as the HTTP API and the CLI (the CLI reaches them through the HTTP API); it is an operator view, not a separate orchestration layer. The GUI defaults to Mock mode and the server binds to loopback. See [`GUI.md`](GUI.md) for its views and controls.
+
+The current checkout may contain additional GUI work under `[Unreleased]` in the changelog. That work is not part of the published 1.0 surface until released.
