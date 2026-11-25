@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,6 +38,8 @@ from multiagent.run_request import RunRequest
 from multiagent.run_service import RunService
 from multiagent.schema_utils import estimate_tokens_conservative
 from multiagent.workflow_engine import WorkflowEngine
+
+NOW = datetime(2026, 11, 25, 9, 30, tzinfo=timezone(timedelta(hours=-6)))  # fixes the prompt date
 
 CONTRACTS = '''\
 from pydantic import Field
@@ -79,6 +82,12 @@ SUMMARY_WINDOW = 8000
 
 
 # --- the throwaway bundle -------------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def fixed_prompt_clock(monkeypatch):
+    """Prompts carry today's date (WFL-T03); pin it so runs compared to each other never straddle midnight."""
+    monkeypatch.setattr(cw, "local_now", lambda: NOW)
+
 
 def price(amount, *, provenance="local_no_charge", source="local, no charge"):
     side = {"amount": amount, "denominator": 1_000_000, "unit": "token", "currency": "USD", "source": source,
@@ -322,17 +331,17 @@ def test_without_a_state_the_context_is_exactly_the_plain_one():
     a, c = rec("a"), rec("c")
     parts = cw.build_context_parts(
         inputs={"topic": "T", "count": 3}, prior_outputs=[("a", a), ("b", None), ("c", c)],
-        previous_output={"x": 1}, revision_feedback="fb")
+        previous_output={"x": 1}, revision_feedback="fb", now=NOW)
     context = cw.StepContext(parts)
     assert context.variables() == {
         "topic": "T", "count": 3, "a_output": a.text, "b_output": "", "c_output": c.text,
         "previous_output": json.dumps({"x": 1}, ensure_ascii=False, indent=2), "revision_feedback": "fb"}
     assert list(context.variables()) == ["topic", "count", "a_output", "b_output", "c_output", "previous_output",
                                          "revision_feedback"]
-    assert context.sections() == [] and context.summary_ref is None
+    assert context.sections() == [cw.current_date_text(NOW)] and context.summary_ref is None
     assert [part.kind for part in parts] == [
         cw.KIND_INPUT, cw.KIND_INPUT, cw.KIND_STEP_OUTPUT, cw.KIND_STEP_OUTPUT, cw.KIND_STEP_OUTPUT,
-        cw.KIND_PREVIOUS_OUTPUT, cw.KIND_REVISION_FEEDBACK]
+        cw.KIND_PREVIOUS_OUTPUT, cw.KIND_REVISION_FEEDBACK, cw.KIND_CURRENT_DATE]
     part = context.part("a_output")
     assert (part.ref, part.sha256, part.summarized) == ("step:a:1", a.sha256, False)
     # A step with no earlier output and no previous attempt gets empty texts, as it always did.
@@ -350,7 +359,8 @@ def test_a_state_replaces_older_outputs_with_marks_and_adds_the_summary_section(
     variables = context.variables()
     assert variables["a_output"] == cw.summarized_mark(a.sha256) and variables["b_output"] == b.text
     assert variables["topic"] == "T"
-    (section,) = context.sections()
+    date_section, section = context.sections()
+    assert date_section.startswith("Today's date: ")
     assert section.startswith("## Context summary") and f"Summary reference: {state.summary_ref}" in section
     assert state.summary["objective"] in section
     assert context.summary_ref == state.summary_ref
@@ -910,12 +920,14 @@ def test_the_context_of_a_step_is_assembled_in_one_place_from_ordered_parts(tmp_
     assert [(part.name, part.kind, part.summarized) for part in context.parts] == [
         ("topic", "input", False), ("a_output", "step_output", True), ("b_output", "step_output", True),
         ("c_output", "step_output", False), ("previous_output", "previous_output", False),
-        ("revision_feedback", "revision_feedback", False), ("context_summary", "context_summary", False)]
+        ("revision_feedback", "revision_feedback", False), ("current_date", "current_date", False),
+        ("context_summary", "context_summary", False)]
     assert context.part("c_output").ref == "step:c:1" and context.part("a_output").sha256 == content_sha256({"text": filler("a")})
-    assert context.summary_ref == state.summary_ref and len(context.sections()) == 1
+    assert context.summary_ref == state.summary_ref and len(context.sections()) == 2
     plain = system.engine._context_for_step(
         run_id, "d", run["request"], "", brand_version=None, prior_step_ids=["a", "b", "c"])
-    assert plain.sections() == [] and plain.variables()["a_output"] == cw.output_text({"text": filler("a")})
+    assert [part.kind for part in plain.parts if part.placement == cw.PLACEMENT_SECTION] == [cw.KIND_CURRENT_DATE]
+    assert plain.variables()["a_output"] == cw.output_text({"text": filler("a")})
 
 
 def cw_settings(system):

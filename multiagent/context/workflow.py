@@ -10,7 +10,8 @@ The context of a step as ordered parts
 --------------------------------------
 :func:`build_context_parts` returns the context of one step as an ordered tuple of :class:`ContextPart`:
 the run inputs, the output of every earlier step (``{step}_output``), ``previous_output``,
-``revision_feedback`` and, once the run was compacted, the ``context_summary`` section. Each part says what it
+``revision_feedback``, the ``current_date`` section (WFL-T03: today's date, never summarized) and, once the
+run was compacted, the ``context_summary`` section. Each part says what it
 is (``kind``), where it goes (a template variable or a section appended to the prompt) and, when it comes
 from a step, its reference and hash. :class:`StepContext` turns the parts into the template variables
 (:meth:`StepContext.variables`) and the sections appended to the prompt (:meth:`StepContext.sections`).
@@ -36,6 +37,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
@@ -67,17 +69,43 @@ REASON_INTERNAL_ERROR = "internal_error"
 SUMMARY_MEDIA_TYPE = "application/vnd.multiagent.context-summary+json"
 ORIGINAL_MEDIA_TYPE = "application/json"
 SUMMARY_SECTION = "context_summary"
+CURRENT_DATE_SECTION = "current_date"
 
 KIND_INPUT = "input"
 KIND_STEP_OUTPUT = "step_output"
 KIND_PREVIOUS_OUTPUT = "previous_output"
 KIND_REVISION_FEEDBACK = "revision_feedback"
 KIND_CONTEXT_SUMMARY = "context_summary"
+KIND_CURRENT_DATE = "current_date"       # WFL-T03: today's date and its UTC offset, from the clock of this machine
 KIND_PROJECT_MEMORY = "project_memory"   # S12.A1: an entry of the project memory, already quoted as data
 PLACEMENT_VARIABLE = "variable"   # fills a ``{name}`` of the prompt template
 PLACEMENT_SECTION = "section"     # appended to the prompt after the template and the active skills
 
 PINNED_INPUTS = "request.inputs"
+
+
+_WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def local_now() -> datetime:
+    """The clock of the prompt date: the local time of this machine, with its UTC offset. Tests replace it."""
+    return datetime.now().astimezone()
+
+
+def current_date_text(now: datetime | None = None) -> str:
+    """The sentence that tells a model today's date: ISO date, weekday and the local offset from UTC.
+
+    ``now`` must carry a time zone; without it the local clock (:func:`local_now`) is used. The weekday is
+    spelled here, not by the locale, so the text does not depend on the language of the machine.
+    """
+    moment = now if now is not None else local_now()
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        moment = moment.astimezone()
+    minutes = int(moment.utcoffset().total_seconds() // 60)
+    sign = "-" if minutes < 0 else "+"
+    hours, rest = divmod(abs(minutes), 60)
+    return (f"Today's date: {moment.date().isoformat()} ({_WEEKDAYS[moment.weekday()]}), "
+            f"local time UTC{sign}{hours:02d}:{rest:02d}.")
 
 
 def step_ref(step_id: str, attempt: int) -> str:
@@ -220,12 +248,16 @@ def _state_applies(state: CompactionState | None,
 
 def build_context_parts(*, inputs: Mapping[str, Any], prior_outputs: Sequence[tuple[str, OutputRecord | None]],
                         previous_output: Mapping[str, Any] | None, revision_feedback: str,
-                        state: CompactionState | None = None) -> tuple[ContextPart, ...]:
+                        state: CompactionState | None = None,
+                        now: datetime | None = None) -> tuple[ContextPart, ...]:
     """The ordered context of one step of a generic workflow run.
 
     ``prior_outputs`` lists the earlier steps in workflow order with their latest completed output (``None``
     for a step that has none, which the prompt shows as an empty text). Without ``state``, or when it does not
-    apply (:func:`_state_applies`), this is exactly the context the engine always built.
+    apply (:func:`_state_applies`), this is exactly the context the engine always built, plus the
+    ``current_date`` section (WFL-T03): today's date, from ``now`` or the local clock. It is a section, never a
+    template variable, so it is not an input a person is asked for; it is not a step output, so a compaction
+    never replaces or summarizes it.
     """
     active = state if _state_applies(state, prior_outputs) else None
     parts: list[ContextPart] = [ContextPart(name, value, KIND_INPUT) for name, value in inputs.items()]
@@ -241,6 +273,7 @@ def build_context_parts(*, inputs: Mapping[str, Any], prior_outputs: Sequence[tu
     parts.append(ContextPart("previous_output", output_text(previous_output) if previous_output is not None else "",
                              KIND_PREVIOUS_OUTPUT))
     parts.append(ContextPart("revision_feedback", revision_feedback, KIND_REVISION_FEEDBACK))
+    parts.append(ContextPart(CURRENT_DATE_SECTION, current_date_text(now), KIND_CURRENT_DATE, PLACEMENT_SECTION))
     if active is not None:
         parts.append(ContextPart(
             SUMMARY_SECTION, render_summary_for_prompt(active.summary, ref=active.summary_ref),
@@ -462,11 +495,12 @@ _ACCOUNTING_FIELDS = ("tokens_before", "summary_calls", "tokens_in", "tokens_out
 
 
 __all__ = [
-    "EVENT_CONTEXT_COMPACTED", "EVENT_CONTEXT_COMPACTION_SKIPPED", "KIND_CONTEXT_SUMMARY", "KIND_INPUT",
+    "CURRENT_DATE_SECTION", "EVENT_CONTEXT_COMPACTED", "EVENT_CONTEXT_COMPACTION_SKIPPED", "KIND_CONTEXT_SUMMARY",
+    "KIND_CURRENT_DATE", "KIND_INPUT",
     "KIND_PREVIOUS_OUTPUT", "KIND_REVISION_FEEDBACK", "KIND_STEP_OUTPUT", "ORIGINAL_MEDIA_TYPE",
     "PINNED_INPUTS", "PLACEMENT_SECTION", "PLACEMENT_VARIABLE", "REASON_INTERNAL_ERROR", "SUMMARY_MEDIA_TYPE",
     "SUMMARY_SECTION", "CompactionPlan", "CompactionState", "ContextPart", "OutputRecord", "ReplacedOutput",
-    "StepContext", "build_context_parts", "check_pinned_in_context", "compacted_event", "latest_compaction_event",
-    "minimum_summary_tokens", "next_state", "output_text", "plan_compaction", "resolve_compaction_state",
+    "StepContext", "build_context_parts", "check_pinned_in_context", "compacted_event", "current_date_text",
+    "latest_compaction_event", "local_now", "minimum_summary_tokens", "next_state", "output_text", "plan_compaction", "resolve_compaction_state",
     "skipped_event", "step_ref", "summarized_mark",
 ]

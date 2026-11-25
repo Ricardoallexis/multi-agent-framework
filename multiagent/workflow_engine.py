@@ -36,7 +36,7 @@ from .context.summary import (
 )
 from .context.workflow import (
     EVENT_CONTEXT_COMPACTED, EVENT_CONTEXT_COMPACTION_SKIPPED, KIND_CONTEXT_SUMMARY, KIND_INPUT, KIND_PREVIOUS_OUTPUT,
-    KIND_PROJECT_MEMORY, PLACEMENT_SECTION,
+    KIND_CURRENT_DATE, KIND_PROJECT_MEMORY, PLACEMENT_SECTION,
     KIND_REVISION_FEEDBACK, KIND_STEP_OUTPUT, ORIGINAL_MEDIA_TYPE, REASON_INTERNAL_ERROR, SUMMARY_MEDIA_TYPE,
     CompactionPlan, CompactionState, ContextPart, OutputRecord, StepContext, build_context_parts,
     check_pinned_in_context, compacted_event, minimum_summary_tokens, next_state, output_text, plan_compaction,
@@ -1772,7 +1772,7 @@ class WorkflowEngine:
     @staticmethod
     def _part_provenance(part: ContextPart, compaction: CompactionState | None) -> Provenance | None:
         """Where a context part comes from, or ``None`` when it is the user's own (then it is not touched)."""
-        if part.kind in (KIND_INPUT, KIND_REVISION_FEEDBACK, KIND_PROJECT_MEMORY):   # memory arrives quoted already
+        if part.kind in (KIND_INPUT, KIND_REVISION_FEEDBACK, KIND_PROJECT_MEMORY, KIND_CURRENT_DATE):   # memory arrives quoted already
             return None
         try:
             if part.kind in (KIND_STEP_OUTPUT, KIND_PREVIOUS_OUTPUT):

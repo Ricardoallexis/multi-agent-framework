@@ -39,6 +39,7 @@ import re
 import string
 from typing import Any, Mapping
 
+from ..context.workflow import StepContext, build_context_parts
 from ..prompts import PromptManager
 from ..workflow_validation import WorkflowIssue
 from ..workflows import DEFAULT_INPUT_TYPE, WorkflowDefinition, WorkflowInput, condition_is_true
@@ -195,6 +196,9 @@ def preview(definition: WorkflowDefinition, prompts: PromptManager, spec: Mappin
     named (``contract``), not rendered.
     """
     request = _request_for(definition, inputs)
+    # The context sections the engine appends to every step prompt (today's date), from the same function.
+    sections = StepContext(build_context_parts(
+        inputs=inputs, prior_outputs=[], previous_output=None, revision_feedback="")).sections()
     steps = []
     for index, step in enumerate(definition.steps):
         skipped = not condition_is_true(step.when, request)
@@ -223,6 +227,7 @@ def preview(definition: WorkflowDefinition, prompts: PromptManager, spec: Mappin
             except (TypeError, ValueError) as exc:
                 raise ServiceError(INVALID_REQUEST, f"The prompt of step '{step.id}' could not be rendered: {exc}",
                                    status=422, details={"step_id": step.id}) from exc
+            text += "".join("\n\n" + section for section in sections)
             text += ("\n\n## Active skill\n" + skills) if skills else ""
             if sensitive and execution_mode == "human_guided":
                 text = ("# PRIVACY WARNING\nThis run is marked SENSITIVE. Review your data-handling policy "
