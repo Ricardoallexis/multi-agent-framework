@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 from multiagent.bootstrap import build_system
 from multiagent.config import Settings
-from multiagent.contracts import RunStatus, SocialPostRequest
+from multiagent.contracts import PipelineMode, RunStatus, SocialPostRequest
 from multiagent.gui.continuity_api import RUN_LIMIT_VERSION, run_limit_state
 
 NOW = datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc)
@@ -75,16 +75,6 @@ def test_the_allowance_is_granted_once_per_correction(tmp_path, backend):
     system.run_service.changes(run_id, "Two")
     system.worker.process_once()
     assert len(events(system, run_id, "correction_allowance")) == 2
-
-
-def test_the_automatic_limit_still_stops_a_run_nobody_corrected(tmp_path, backend):
-    system, run_id = first_review(tmp_path, backend)
-    assert not events(system, run_id, "correction_allowance")
-    with system.db.connect() as conn:
-        conn.execute("UPDATE runs SET max_llm_calls=llm_calls WHERE id=?", (run_id,))
-        conn.commit()
-    system.run_service.approve(run_id)                      # no correction: nothing is granted
-    assert not events(system, run_id, "correction_allowance")
 
 
 def test_the_allowance_is_bounded_by_the_configured_limits(tmp_path, backend):
@@ -177,6 +167,150 @@ def test_a_review_without_a_cut_keeps_its_three_actions(tmp_path):
 
     system, run_id = first_review(tmp_path)
     assert _decision(system.run_service.get(run_id), {})["actions"] == ["approve", "changes", "reject"]
+
+
+# --------------------------------------------------------------------------- review round 5 (H1-H5)
+
+FIXTURE_WORKFLOWS = Path(__file__).parent / "fixtures" / "workflows"
+
+
+def multi_step(tmp_path, backend, **extra):
+    """The four-step ``g2_intermediate`` workflow (checkpoints after ``strategy`` and ``design``), stopped at ``strategy``."""
+    from multiagent.workflows import WorkflowCatalog
+
+    settings = Settings(_env_file=None, local_dir=tmp_path / "local", worker_enabled=False, gemini_api_key="",
+                        openai_api_key="", openai_enabled=False, execution_backend=backend, **extra)
+    system = build_system(settings, dry_run=True)
+    system.engine.workflows = WorkflowCatalog(settings, workflows_dir=FIXTURE_WORKFLOWS / "g2_intermediate")
+    run = system.run_service.create_social_post(SocialPostRequest(
+        project_name="lim-r5", objective="Explain durable execution", topic="Checkpoint", use_brand_context=False, pipeline_mode=PipelineMode.FULL))
+    system.engine.process_run(run["id"])
+    return system, run["id"]
+
+
+def spend_calls(system, run_id):
+    with system.db.connect() as conn:
+        conn.execute("UPDATE runs SET max_llm_calls=llm_calls WHERE id=?", (run_id,))
+        conn.commit()
+
+
+def test_the_time_limit_really_rises_and_is_still_finite(tmp_path, backend):
+    system, run_id = first_review(tmp_path, backend)
+    assert system.run_service.get(run_id)["max_run_seconds"] == 300
+    system.store.update_run(run_id, active_seconds=100)
+    system.run_service.changes(run_id, "Shorter")
+    system.worker.process_once()
+    grant = events(system, run_id, "correction_allowance")[0]["payload"]
+    assert grant["max_run_seconds"] == 401 and system.run_service.get(run_id)["max_run_seconds"] == 401
+
+
+def test_the_cursor_goes_back_to_the_reviewed_step_after_a_cut(tmp_path, backend):
+    system, run_id = multi_step(tmp_path, backend)
+    assert system.run_service.get(run_id)["waiting_step"] == "strategy"
+    system.run_service.approve(run_id)
+    spend_calls(system, run_id)
+    cut_run = system.engine.process_run(run_id)
+    assert cut_run["waiting_reason"] == "budget_exhausted" and cut_run["error"] == "max_llm_calls reached"
+    assert cut_run["waiting_step"] == "strategy" and cut_run["current_step"] > 1      # the cursor is on the step that could not run
+    queued = system.run_service.changes(run_id, "Clarify the strategy")
+    assert queued["current_step"] == 1                                                  # back on the reviewed step
+    revised = system.engine.process_run(run_id)
+    assert (revised["waiting_step"], revised["waiting_attempt"]) == ("strategy", 2)
+    assert revised["waiting_reason"] == "review" and revised["budget_exhausted"] == 0
+
+
+def test_a_spent_allowance_cuts_the_run_again_and_an_approval_grants_nothing(tmp_path, backend):
+    system, run_id = multi_step(tmp_path, backend, max_llm_calls=1)      # one call of margin per correction
+    system.run_service.approve(run_id)
+    spend_calls(system, run_id)
+    system.engine.process_run(run_id)                                    # cut at the step after strategy
+    system.run_service.changes(run_id, "Clarify the strategy")
+    revised = system.engine.process_run(run_id)                          # the correction spends its one call
+    assert revised["llm_calls"] == revised["max_llm_calls"] and len(events(system, run_id, "correction_allowance")) == 1
+    system.run_service.approve(run_id)                                   # no new revision: nothing is granted
+    stopped = system.engine.process_run(run_id)
+    assert stopped["waiting_reason"] == "budget_exhausted" and stopped["error"] == "max_llm_calls reached"
+    assert len(events(system, run_id, "correction_allowance")) == 1
+
+
+def test_resuming_without_a_new_revision_grants_nothing(tmp_path, backend):
+    system, run_id = first_review(tmp_path, backend)
+    system.run_service.changes(run_id, "Shorter")
+    system.worker.process_once()
+    for _ in range(2):                                    # a restart or another approval re-queues the same wait
+        system.store.update_run(run_id, status="queued", waiting_reason="", waiting_step="", waiting_attempt=None)
+        system.engine.process_run(run_id)
+    assert len(events(system, run_id, "correction_allowance")) == 1
+
+
+def test_an_attempt_nobody_asked_for_is_still_cut_by_max_iterations(tmp_path, backend):
+    system, run_id = first_review(tmp_path, backend)
+    for number in range(3):                                # attempts 2, 3 and 4: all asked for by the person
+        system.run_service.changes(run_id, f"Change {number}")
+        system.worker.process_once()
+    with system.db.connect() as conn:                      # forget that a person asked: attempt 5 is automatic
+        conn.execute("DELETE FROM run_events WHERE run_id=? AND event_type IN ('human_revision','correction_allowance')",
+                     (run_id,))
+        conn.commit()
+    system.store.update_run(run_id, status="queued", waiting_reason="", waiting_step="", waiting_attempt=None,
+                            budget_exhausted=0)
+    stopped = system.engine.process_run(run_id)
+    assert stopped["waiting_reason"] == "budget_exhausted" and stopped["error"].startswith("Maximum revision count")
+
+
+@pytest.mark.parametrize("attempt", [None, "3", 3.0, True, 3.5])
+def test_a_revision_without_an_integer_attempt_covers_nothing(attempt):
+    from multiagent.call_guards import person_correction_pending
+
+    odd = [{"event_type": "human_revision", "payload": {"step_id": "create", "attempt": attempt}}]
+    assert person_correction_pending(odd, "create", 4) is False
+
+
+def test_only_the_last_of_two_revisions_counts():
+    from multiagent.call_guards import person_correction_pending
+
+    two = [{"event_type": "human_revision", "payload": {"step_id": "create", "attempt": 2}},
+           {"event_type": "human_revision", "payload": {"step_id": "create", "attempt": 3}}]
+    assert person_correction_pending(two, "create", 4) is True
+    assert person_correction_pending(two, "create", 5) is False
+
+
+def test_a_cut_flag_with_a_review_wait_still_offers_changes_when_the_run_limits_cut_it():
+    from multiagent.gui.threads_api import _decision
+
+    run = {"budget_exhausted": 1, "waiting_reason": "review", "error": "max_llm_calls reached", "events": []}
+    assert _decision(run, {})["actions"] == ["approve", "changes", "reject"]
+    quota = {**run, "events": [{"event_type": "model_attempt", "payload": {"error_type": "QuotaExceeded"}}]}
+    assert _decision(quota, {})["actions"] == ["approve", "reject"]
+
+
+def test_an_attempt_a_guard_stopped_before_the_call_is_not_the_providers_answer():
+    from multiagent.call_guards import cut_by_run_limits
+
+    def attempt(error_type, **extra):
+        return {"event_type": "model_attempt", "payload": {"error_type": error_type, **extra}}
+
+    preflight = attempt("BudgetExceeded", stage="preflight", provider_invoked=False)
+    cut = {"error": "max_llm_calls reached"}
+    assert cut_by_run_limits({**cut, "events": [attempt("QuotaExceeded", provider_invoked=True), preflight]}) is False
+    assert cut_by_run_limits({**cut, "events": [preflight]}) is True
+    assert cut_by_run_limits({**cut, "events": []}) is True
+
+
+def test_the_profile_invocation_limit_counts_from_the_last_correction():
+    from multiagent.call_guards import PROCEED, RunLimitsGuard, Stop
+
+    guard = RunLimitsGuard("eco", {"max_provider_invocations": 1})
+    reserved = {"event_type": "routing_dispatch_reserved", "payload": {"profile_id": "eco"}}
+    revision = {"event_type": "human_revision", "payload": {"step_id": "create", "attempt": 1}}
+
+    def check(*found):
+        return guard.check(None, {"events": list(found), "llm_calls": 0, "max_llm_calls": 10})
+
+    assert isinstance(check(reserved), Stop)                  # nobody corrected: counted as always
+    assert check(reserved, revision) is PROCEED               # the correction has its own margin
+    assert isinstance(check(reserved, revision, reserved), Stop)
+    assert check() is PROCEED
 
 
 # --------------------------------------------------------------------------- the limit state

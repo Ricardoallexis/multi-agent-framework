@@ -18,6 +18,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from ..call_guards import cut_by_run_limits
 from ..contracts import ExecutionMode, HumanStepSubmission, RevisionComment
 from ..run_request import FunctionStepRequestError, RunRequest, RoutingPreference
 from ..routing_preferences import preference_request, validate_run_preferences
@@ -327,6 +328,10 @@ def run_view(services, run: dict[str, Any]) -> dict[str, Any]:
             "max_seconds": int(run.get("max_run_seconds") or 0),
             "budget_exhausted": bool(run.get("budget_exhausted")),
         },
+        # LIM-T01: false only when an exhausted run was cut by the provider's quota or another guard; a cut by the run's own
+        # call or time limits still takes a correction (the same criterion as ``RunService.changes``).
+        "corrections_allowed": not (run.get("budget_exhausted") or run.get("waiting_reason") == "budget_exhausted")
+        or cut_by_run_limits(run),
         "pending_human": ({"step_id": pending["step_id"], "attempt": pending["attempt"],
                            "expected_contract": pending["expected_contract"]} if _awaits_human_step(run, pending) else None),
         "history": history,

@@ -37,6 +37,7 @@ the rest of the package at run time (the context guard is imported inside :func:
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -290,8 +291,13 @@ class RunLimitsGuard:
 
     def check(self, call: CallContext, state: RunState) -> Verdict:
         if self.profile_id is not None:
+            # A correction the person asked for has its own margin: only the dispatches after the last ``human_revision``
+            # count. A run nobody corrected counts them all, as it always did.
+            events = list(state.get("events", []))
+            since = max((position for position, event in enumerate(events) if event.get("event_type") == "human_revision"),
+                        default=-1) + 1
             used = sum(
-                1 for event in state.get("events", [])
+                1 for event in events[since:]
                 if event.get("event_type") == "routing_dispatch_reserved"
                 and event.get("payload", {}).get("profile_id") == self.profile_id
             )
@@ -311,11 +317,16 @@ def cut_by_run_limits(run: Mapping[str, Any]) -> bool:
     """Whether the cut of an exhausted run came from the run's own call or time limits (LIM-T01).
 
     Those are automatic limits, so the person may still ask for a correction. A cut by the provider's quota (the last
-    model attempt failed with ``QuotaExceeded`` or ``RateLimitExceeded``) or by any other guard is not. One criterion for
-    ``RunService.changes`` and for the actions the thread offers."""
+    model attempt that reached the provider failed with ``QuotaExceeded`` or ``RateLimitExceeded``) or by any other guard
+    is not. An attempt a guard stopped before the call (``provider_invoked`` false, ``stage`` ``preflight``) says nothing
+    about the provider and is skipped. The two error names are those of ``services.limits.LIMIT_ERRORS``, written here
+    because the engine does not import services. One criterion for ``RunService.changes`` and for the actions the
+    thread offers."""
     if not str(run.get("error") or "").startswith(("max_llm_calls reached", "max_run_seconds reached")):
         return False
-    attempts = [event.get("payload") or {} for event in run.get("events") or [] if event.get("event_type") == "model_attempt"]
+    attempts = [payload for event in run.get("events") or [] if event.get("event_type") == "model_attempt"
+                for payload in [event.get("payload") or {}]
+                if payload.get("provider_invoked") is not False and payload.get("stage") != "preflight"]
     return not (attempts and attempts[-1].get("error_type") in ("QuotaExceeded", "RateLimitExceeded"))
 
 
@@ -351,10 +362,20 @@ def grant_correction_allowance(store: Any, settings: Any, run_id: str, run: Mapp
         return
     calls = max(int(run["max_llm_calls"]), int(run["llm_calls"]) + int(settings.max_llm_calls))
     seconds = max(int(run["max_run_seconds"]), int(base_active) + 1 + int(settings.max_run_seconds))
-    with store.db.tx() as conn:
+    payload = {"max_llm_calls": calls, "max_run_seconds": seconds}
+    from .db.database import utcnow          # imported here: the database module does not import this one
+
+    with store.db.tx() as conn:               # the new limits and the event that records them, or neither
         conn.execute("UPDATE runs SET max_llm_calls=?, max_run_seconds=?, budget_exhausted=0 WHERE id=?",
                      (calls, seconds, run_id))
-    store.db.log_event(run_id, "correction_allowance", {"max_llm_calls": calls, "max_run_seconds": seconds})
+        cursor = conn.execute("INSERT INTO run_events(run_id,ts,event_type,payload_json) VALUES(?,?,?,?)",
+                              (run_id, utcnow(), "correction_allowance", json.dumps(payload, ensure_ascii=False)))
+        event_id = cursor.lastrowid
+    for listener in tuple(getattr(store.db, "event_listeners", ())):      # what ``Database.log_event`` tells the live views
+        try:
+            listener(run_id, "correction_allowance", payload, event_id)
+        except Exception:  # noqa: BLE001 - a listener never fails a run
+            pass
 
 
 # ---------------------------------------------------------------------------------------------------------

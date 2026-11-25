@@ -121,9 +121,12 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
   if (view.terminal) {
     body = html`<p class="muted">Esta ejecución terminó; no queda ninguna acción por hacer.</p>`;
   } else if (waiting && (waiting.reason === "review" || waiting.reason === "approval_pending" || waiting.reason === "budget_exhausted" || waiting.reason === "")) {
-    const exhausted = waiting.reason === "budget_exhausted" || view.counters.budget_exhausted;
+    const cut = waiting.reason === "budget_exhausted" || view.counters.budget_exhausted;
+    // The server says whether a correction is still possible (a cut by the run's own limits allows it).
+    const exhausted = cut && view.corrections_allowed === false;
     body = html`<div>
       ${exhausted && html`<p class="notice">El presupuesto está agotado: puedes aprobar el resultado que ya existe, rechazarlo o cancelar. Pedir cambios o regenerar ya no es posible.</p>`}
+      ${cut && !exhausted && html`<p class="notice">Se alcanzó el tope de la ejecución. Puedes aprobar el resultado que ya existe, rechazarlo o pedir una corrección: cada corrección tiene su propio margen.</p>`}
       <p class="muted">Revisa el resultado del paso en «Resultados» y decide.</p>
       <div class="action-item">
         <button type="button" class="btn" disabled=${busy} ...${helpFor("human.approve")} onClick=${() => act(runPath(id, "approve"), {},
