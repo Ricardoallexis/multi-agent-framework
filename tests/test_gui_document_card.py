@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """ARR3-T06: the result document card of the run thread. The pure model and the card body run under Node."""
 from __future__ import annotations
+from tests.gui_text import ui_text
 
 import json
 import os
@@ -41,7 +42,7 @@ def test_card_shows_pre_text():
     """, hostile)
     assert result == {"pres": 1, "text": hostile, "cls": "document-text", "html": False}
     for name in ("document-card.js", "document-model.js"):
-        assert not re.search(r"innerHTML|dangerouslySetInnerHTML|insertAdjacentHTML|outerHTML", (JS / name).read_text(encoding="utf-8"))
+        assert not re.search(r"innerHTML|dangerouslySetInnerHTML|insertAdjacentHTML|outerHTML", ui_text((JS / name)))
 
 
 @needs_node
@@ -98,11 +99,11 @@ def test_no_card_without_document():
 
 def test_card_in_both_modes():
     # The card depends on the run alone: the thread mounts it for a completed run whatever the simple or advanced mode is.
-    thread = (JS / "thread.js").read_text(encoding="utf-8")
+    thread = ui_text((JS / "thread.js"))
     assert 'thread.status === "completed" && html`<${DocumentCard} token=${token} runId=${runId} />`' in thread
     for name in ("document-card.js", "document-model.js"):
-        assert not re.search(r"\bmode\b|showRawOutput|data-mode", (JS / name).read_text(encoding="utf-8")), name
+        assert not re.search(r"\bmode\b|showRawOutput|data-mode", ui_text((JS / name))), name
     # SIM-T03 passes the mode to ThreadCard in thread.js; the line that mounts DocumentCard stays free of it.
     mount = next(line for line in thread.splitlines() if "<${DocumentCard}" in line)
     assert not re.search(r"\bmode\b|showRawOutput|data-mode", mount), mount
-    assert '"/gui/api/runs/"' not in (JS / "document-card.js").read_text(encoding="utf-8")  # the path comes from runPath
+    assert '"/gui/api/runs/"' not in ui_text((JS / "document-card.js"))  # the path comes from runPath

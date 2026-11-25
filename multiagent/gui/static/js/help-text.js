@@ -1,13 +1,14 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Contextual help (GUI-T12): every control and section of the screen has a short hint (one line, always visible)
-// and a longer explanation (2 to 4 sentences, behind the "?" button). Spanish, plain text, no jargon.
-//
-// To edit a text, change it here and nothing else. The block below is strict JSON on purpose, so that a test can
-// read it without running the browser: double quotes, no trailing commas, no comments, one sentence per line.
+// and a longer explanation (2 to 4 sentences, behind the "?" button). Plain text, no jargon.
+// This legacy Spanish catalog is a fallback while entries move to per-view language dictionaries.
+// The block below is strict JSON so static tests can read it without running the browser:
+// double quotes, no trailing commas, no comments, one sentence per line.
 // Each entry is { title, hint, more }: title names the control for screen readers, hint is the visible line and
 // more is the list of sentences that opens with the "?" button. The key is what the view passes to <Help topic=...>.
 // tests/test_gui_help.py checks that every control of the views has an entry and that the texts stay short.
+import { t } from "./i18n.js";
 
 export const HELP = {
 
@@ -2028,6 +2029,11 @@ export const HELP = {
     "hint": "Elige el color de los botones principales, los enlaces y la selección.",
     "more": ["Neutro es el de siempre. Los fondos, el texto y los avisos no cambian con la paleta.", "Se recuerda en este navegador."]
   },
+  "customize.language": {
+    "title": "Idioma",
+    "hint": "Elige el idioma de la interfaz en este navegador.",
+    "more": ["Automático usa el idioma del navegador: español si empieza por es, inglés en otro caso.", "El cambio se aplica al momento y se recuerda en este navegador."]
+  },
   "plan.auto_advance": {
     "title": "El plan avanza solo",
     "hint": "Cuando termina un run del plan o aceptas una de sus tareas, las que esperaban arrancan solas.",
@@ -2117,6 +2123,14 @@ export const HELP = {
     "more": ["Se cambia con el ajuste INSTANCE_LABEL y el servidor se reinicia para que la tome.", "Sirve para distinguir dos instancias abiertas a la vez. Es solo texto: no cambia dónde se guardan los datos."]
   }
 };
+
+// Prefer a view's language dictionary. The legacy catalog remains as a fallback
+// until every view has been moved to its own dictionary.
+export function localizedHelp(topic) {
+  const key = "help." + topic;
+  const translated = t(key);
+  return typeof translated === "object" ? translated : HELP[topic];
+}
 
 // One-line hint of each execution mode: the hint of "create.mode" changes with the mode that is selected.
 // Keep the keys equal to the modes of the form (auto, local, cloud, human_guided). Also strict JSON.

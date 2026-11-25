@@ -19,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR, events
 from multiagent.gui.security import CSP
 from multiagent.gui.token import ensure_token
@@ -676,7 +677,7 @@ def test_children_stream_route_for_a_framework_run(world):
 # --- the new client code (static) --------------------------------------------------------------------------
 
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text((JS / name))
 
 
 def used(text: str, name: str) -> set[str]:
@@ -722,7 +723,7 @@ def test_the_new_code_depends_only_on_shared_helpers_never_on_the_session_views(
 def test_panel_markup_is_accessible_and_keyboard_driven():
     panel, text = read("subagents-panel.js"), read("subagents-text.js")
     # the tabs are the shared Tabs component (GUI2-T11): the roles, aria attributes and keys live in ui/tabs.js
-    tabs = (JS / "ui" / "tabs.js").read_text(encoding="utf-8")
+    tabs = ui_text((JS / "ui" / "tabs.js"))
     assert 'import { Tabs } from "./ui/tabs.js"' in panel and "<${Tabs}" in panel and 'helpFor("subagents.tabs")' in panel
     assert 'role="tablist"' in tabs and 'role="tab"' in tabs and 'role="tabpanel"' in tabs
     assert "aria-selected" in tabs and "aria-controls" in tabs and "tabindex" in tabs
@@ -738,14 +739,14 @@ def test_panel_markup_is_accessible_and_keyboard_driven():
 
 def test_status_is_never_colour_only_and_all_texts_are_spanish():
     text, panel = read("subagents-text.js"), read("subagents-panel.js")
-    labels = (JS / "ui" / "labels.js").read_text(encoding="utf-8")
+    labels = ui_text((JS / "ui" / "labels.js"))
     # the words of the statuses are in the shared label map (GUI2-T11); the panel draws them with StatusChip, text next to the mark
     for label in ("Trabajando", "Ejecutando prueba", "Sin actividad", "Terminado", "Detenido", "Estado desconocido"):
         assert f'text: "{label}"' in labels, label
     for label in ("Activos", "Terminados", "Esperando a una persona"):
         assert label in text, label
     assert '<${StatusChip} status=${child.status} labels=${childLabels(child)} variant="inline" />' in panel
-    chip = (JS / "ui" / "status-chip.js").read_text(encoding="utf-8")
+    chip = ui_text((JS / "ui" / "status-chip.js"))
     assert '<span class="status-text">${text}</span>' in chip and 'aria-hidden="true"' in chip   # the mark is decoration
     css = (STATIC_DIR / "subagents-panel.css").read_text(encoding="utf-8")
     sheet = (STATIC_DIR / "app.css").read_text(encoding="utf-8")

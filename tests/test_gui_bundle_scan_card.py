@@ -11,6 +11,7 @@ import subprocess
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from test_gui_extensions import check_extension_code, check_extension_styles
 from test_gui_help import check_extensions
@@ -245,7 +246,7 @@ def test_bundle_load_ack_body_and_recommendation():
 
 
 def test_bundle_ack_control_is_required_and_rejection_stays_available():
-    source = (EXT_DIR / "bundle-scan.js").read_text(encoding="utf-8")
+    source = ui_text((EXT_DIR / "bundle-scan.js"))
     assert 'const [riskAck, setRiskAck] = useState(false)' in source
     assert 'onChange=${(event) => setRiskAck(event.currentTarget.checked)}' in source
     assert 'disabled=${!canApproveBundleLoad(riskAck, busy, sessionUnavailable)}' in source
@@ -255,8 +256,8 @@ def test_bundle_ack_control_is_required_and_rejection_stays_available():
 
 
 def test_bundle_scan_extension_static_rules():
-    bundle_scan_src = (EXT_DIR / "bundle-scan.js").read_text(encoding="utf-8")
-    index_src = (EXT_DIR / "index.js").read_text(encoding="utf-8")
+    bundle_scan_src = ui_text((EXT_DIR / "bundle-scan.js"))
+    index_src = ui_text((EXT_DIR / "index.js"))
     assert not re.search(r"<h[123]\b", bundle_scan_src)
     assert not re.search(r"<h[123]\b", index_src)
     assert "fetch(" not in bundle_scan_src

@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -129,13 +130,13 @@ def test_endpoint_requires_the_gui_token_and_drops_a_run_that_stops_waiting(env)
 
 
 def test_shell_wires_help_and_requests_notifications_only_from_an_opt_in_click():
-    pending = (JS / "pending.js").read_text(encoding="utf-8")
-    model = (JS / "pending-model.js").read_text(encoding="utf-8")
-    shell = (JS / "shell.js").read_text(encoding="utf-8")
-    sidebar = (JS / "sidebar.js").read_text(encoding="utf-8")
-    help_text = (JS / "help-text.js").read_text(encoding="utf-8")
+    pending = ui_text((JS / "pending.js"))
+    model = ui_text((JS / "pending-model.js"))
+    shell = ui_text((JS / "shell.js"))
+    sidebar = ui_text((JS / "sidebar.js"))
+    help_text = ui_text((JS / "help-text.js"))
     style = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
-    main = (JS / "main.js").read_text(encoding="utf-8")
+    main = ui_text((JS / "main.js"))
     assert 'import { PendingLink } from "./pending.js"' in sidebar and "<${PendingLink} current=" in sidebar
     assert 'import { PendingScreen } from "./pending.js"' in main and "<${PendingScreen}" in main
     assert "side-pending" in sidebar and "side-footer" in shell

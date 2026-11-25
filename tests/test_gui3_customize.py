@@ -11,6 +11,7 @@ import subprocess
 import pytest
 
 from multiagent.gui import STATIC_DIR
+from gui_text import ui_text
 
 JS = STATIC_DIR / "js"
 NODE = shutil.which("node")
@@ -18,7 +19,7 @@ needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text(JS / name)
 
 
 def run_node(source: str) -> dict:
@@ -116,7 +117,7 @@ def test_the_screen_has_its_three_blocks_and_every_control_is_labelled():
     source = read("customize.js")
     assert 'aria-pressed=${row.pinned ? "true" : "false"}' in source
     # The row shows the name once and a short «Fijar» beside it; the button's name still says which section it pins.
-    assert 'aria-label=${"Fijar " + row.label}' in source and ">Fijar</button>" in source and "Fijar ${row.label}" not in source
+    assert 't("customize.pin_label", { name: row.label })' in source and ">Fijar</button>" in source and "Fijar ${row.label}" not in source
     assert "<fieldset" in source and "<legend>" in source and 'type="radio"' in source and "CARD_MODES.map" in source
     assert "Mostrar siempre los «?»" in source and "writeHelpMode(event.target.checked)" in source     # the state of T02, not a copy
     assert "Restablecer" in source and "resetChoices" in source and "no guarda las preferencias" in source

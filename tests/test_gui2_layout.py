@@ -18,9 +18,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.security import CSP
 from multiagent.gui.token import ensure_token
+from gui_text import ui_text
 from session_fixtures import (
     CLAUDE_ID,
     add_framework_run,
@@ -44,7 +46,7 @@ NEW_HELP_TOPICS = ["shell.menu", "shell.panel", "shell.new_session", "shell.sear
 
 
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text(JS / name)
 
 
 def css() -> str:
@@ -172,7 +174,7 @@ def test_sidebar_has_new_session_search_groups_and_readable_status():
     assert 'class="side-sessions-head"' in sidebar and 'Ver todas' in sidebar
     assert 'navigation.primary.map' in sidebar and 'navigation.more.filter(' in sidebar
     # the status is text too: the dot is a StatusChip (GUI2-T11) whose component says the words for screen readers
-    chip = (JS / "ui" / "status-chip.js").read_text(encoding="utf-8")
+    chip = ui_text((JS / "ui" / "status-chip.js"))
     assert '<${StatusChip} status=${item.dot} labels="dot" variant="dot"' in sidebar
     assert 'class="sr-only"' in chip and "Estado: " in chip and 'aria-hidden="true"' in chip
     assert 'aria-current=${current ? "page" : null}' in sidebar

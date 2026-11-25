@@ -23,6 +23,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.security import CSP
 from multiagent.gui.token import ensure_token
@@ -39,11 +40,11 @@ TONES = ["success", "active", "info", "attention", "warning", "danger", "muted",
 
 
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text((JS / name))
 
 
 def ui(name: str) -> str:
-    return (UI / name).read_text(encoding="utf-8")
+    return ui_text((UI / name))
 
 
 def sheet() -> str:

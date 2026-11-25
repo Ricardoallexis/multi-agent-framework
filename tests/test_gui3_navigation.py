@@ -10,6 +10,7 @@ import subprocess
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 
 JS = STATIC_DIR / "js"
@@ -92,7 +93,7 @@ def test_pins_and_more_notice_work_with_blocked_storage():
 
 
 def test_more_disclosure_and_notice_remain_accessible():
-    sidebar = (JS / "sidebar.js").read_text(encoding="utf-8")
+    sidebar = ui_text((JS / "sidebar.js"))
     assert 'aria-controls="side-more"' in sidebar and 'aria-expanded=${moreOpen ? "true" : "false"}' in sidebar
     assert 'hidden=${!moreOpen}' in sidebar
     assert 'readMoreNoticeSeen' in sidebar and 'writeMoreNoticeSeen()' in sidebar

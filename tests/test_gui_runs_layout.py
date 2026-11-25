@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from test_gui_rwd import PHONE_QUERY, all_media, read_sheet
 from test_gui2_layout import rule
@@ -44,7 +45,7 @@ def _run_node(script: str) -> dict:
 
 
 def test_runs_layout_module_is_pure_and_free_of_dom_or_network():
-    src = (JS / "runs-layout.js").read_text(encoding="utf-8")
+    src = ui_text((JS / "runs-layout.js"))
     assert not re.search(r"^import\b", src, re.M)
     for forbidden in ("fetch(", "apiGet", "apiPost", "document.", "window.", "localStorage"):
         assert forbidden not in src, forbidden
@@ -115,10 +116,10 @@ def test_runs_layout_master_detail_and_action_first_rules():
 
 
 def test_master_detail_action_order_fixed_bar_and_chat_shortcut():
-    runs = (JS / "runs.js").read_text(encoding="utf-8")
-    detail = (JS / "run-detail.js").read_text(encoding="utf-8")
-    actions = (JS / "human-actions.js").read_text(encoding="utf-8")
-    help_text = (JS / "help-text.js").read_text(encoding="utf-8")
+    runs = ui_text((JS / "runs.js"))
+    detail = ui_text((JS / "run-detail.js"))
+    actions = ui_text((JS / "human-actions.js"))
+    help_text = ui_text((JS / "help-text.js"))
 
     assert "computeRunsLayout(" in runs
     assert "hidden=${!layout.showList}" in runs and "hidden=${!layout.showDetail}" in runs
@@ -150,7 +151,7 @@ def test_fixed_bar_reserves_bottom_padding_and_scripts_are_safe():
     assert "position: fixed" in bar_rule and "bottom: 0" in bar_rule
 
     for name in TOUCHED_SCRIPTS:
-        src = (JS / name).read_text(encoding="utf-8")
+        src = ui_text((JS / name))
         for pattern, label in FORBIDDEN:
             assert not re.search(pattern, src), f"{name}: {label}"
 

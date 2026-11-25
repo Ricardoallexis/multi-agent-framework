@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import INSTANCE_LABEL_MAX, Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -25,7 +26,7 @@ needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text((JS / name))
 
 
 def run_node(source: str):

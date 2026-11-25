@@ -22,7 +22,9 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
+from gui_text import ui_text
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
 
@@ -174,12 +176,12 @@ def test_missing_things_are_not_found_and_bad_ids_are_invalid(env):
 # --- the view, as text -------------------------------------------------------------------------------------------
 
 def test_the_view_is_wired_into_the_routes_the_menu_and_the_help():
-    view = (JS / "teams.js").read_text(encoding="utf-8")
-    main = (JS / "main.js").read_text(encoding="utf-8")
+    view = ui_text((JS / "teams.js"))
+    main = ui_text(JS / "main.js")
     assert 'import { Teams } from "./teams.js"' in main and '{ id: "teams", label: "Equipos", icon: "person", mode: "advanced" }' in main
     assert re.search(r"<\$\{Teams\}[^>]*route=\$\{route\}", main)
-    assert '"teams"' in (JS / "route.js").read_text(encoding="utf-8")
-    assert '"teams"' in (JS / "extensions.js").read_text(encoding="utf-8")
+    assert '"teams"' in ui_text((JS / "route.js"))
+    assert '"teams"' in ui_text((JS / "extensions.js"))
     for path in ("/gui/api/teams", "/org-chart", "/versions", '"/" + action'):
         assert path in view, path
     for bad in ("innerHTML", "dangerouslySetInnerHTML", "__html", "eval(", "style="):
@@ -187,7 +189,7 @@ def test_the_view_is_wired_into_the_routes_the_menu_and_the_help():
     # the page never names the actor or the channel: the router does
     assert "user:operator" not in view and '"gui"' not in view and "{ note:" in view
     assert not re.search(r"\b(actor|channel|decided_by)\s*:", view)
-    help_text = (JS / "help-text.js").read_text(encoding="utf-8")
+    help_text = ui_text((JS / "help-text.js"))
     for topic in set(re.findall(r'topic="(teams\.\w+)"', view) + re.findall(r'helpFor\("(teams\.\w+)"', view)):
         assert f'"{topic}":' in help_text, topic
     # both decisions go through the shared confirmation, and the Mermaid text has its own Copy button
@@ -208,6 +210,7 @@ def test_every_script_passes_node_check():
 def node_root(tmp_path_factory):
     root = tmp_path_factory.mktemp("teams-static")
     shutil.copytree(JS, root / "js")
+    shutil.copytree(STATIC_DIR / "i18n", root / "i18n")
     shutil.copytree(STATIC_DIR / "vendor", root / "vendor")
     (root / "package.json").write_text('{"type":"module"}', encoding="utf-8")
     return root

@@ -25,6 +25,17 @@ function writeStored(key, value) {
   try { window.localStorage.setItem(key, value); } catch (_) { /* storage blocked: not remembered */ }
 }
 
+const LANGUAGE_KEY = "multiagent.gui.language";
+
+export function readLanguagePreference() {
+  const value = readStored(LANGUAGE_KEY);
+  return value === "en" || value === "es" ? value : "auto";
+}
+
+export function writeLanguagePreference(choice) {
+  writeStored(LANGUAGE_KEY, choice);
+}
+
 export function readPanelOpen(fallback) {
   const value = readStored(PANEL_KEY);
   if (value === "open") return true;

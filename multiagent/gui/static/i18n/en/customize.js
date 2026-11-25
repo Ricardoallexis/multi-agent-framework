@@ -1,0 +1,41 @@
+// Copyright 2026 Ricardoallexis and contributors
+// SPDX-License-Identifier: Apache-2.0
+export default {
+  "customize.storage_warning": "This browser does not save preferences: they apply while this page remains open.",
+  "customize.mode": "Mode",
+  "customize.advanced": "Advanced mode",
+  "customize.mode_error": "Could not change the mode. Try again.",
+  "customize.sidebar": "Sidebar",
+  "customize.sidebar_info": "Pinned sections appear in the sidebar beside the fixed sections. The others remain under More and Ctrl K.",
+  "customize.pin": "Pin",
+  "customize.pin_label": "Pin {name}",
+  "customize.context": "Context",
+  "customize.context_info": "When each panel card appears: Automatic only when it has content, Always even when empty, Never hides it. Urgent items always appear.",
+  "customize.auto": "Automatic",
+  "customize.always": "Always",
+  "customize.never": "Never",
+  "customize.card_changes": "Changes",
+  "customize.card_subagents": "Subagents",
+  "customize.card_tokens": "Tokens",
+  "customize.card_sources": "Sources",
+  "customize.colors": "Colors",
+  "customize.colors_info": "The color of primary buttons, links and the selection. Backgrounds, text and notices do not change.",
+  "customize.palette": "Palette",
+  "customize.neutral": "Neutral",
+  "customize.accent_neutral": "Neutral",
+  "customize.accent_azul": "Blue",
+  "customize.accent_verde": "Green",
+  "customize.accent_violeta": "Violet",
+  "customize.help": "Help",
+  "customize.show_help": "Always show the “?” help buttons",
+  "customize.reset": "Reset",
+  "customize.language": "Language",
+  "customize.language_auto": "Automatic",
+  "customize.language_en": "English",
+  "customize.language_es": "Español",
+  "help.customize.language": {
+    "title": "Language",
+    "hint": "Choose the language of this interface in this browser.",
+    "more": ["Automatic uses the browser language: Spanish when it begins with es, English otherwise.", "The change applies immediately and is saved in this browser."]
+  }
+};

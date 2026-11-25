@@ -17,6 +17,7 @@ import test_installed_packages as base
 import test_installed_zip as zips
 from multiagent.api import create_app
 from multiagent.gui import STATIC_DIR
+from gui_text import ui_text
 from multiagent.gui.packages_api import BODY_MAX_BYTES
 from multiagent.gui.token import ensure_token
 from multiagent.services import installed
@@ -28,7 +29,7 @@ PATH = "/gui/api/packages"
 
 
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text(JS / name)
 
 
 def run_node(source: str):

@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -181,21 +182,21 @@ def test_the_thread_shows_what_the_plan_did_by_itself_and_offers_the_advance_aft
     append_plan_event(env, saved["id"], "plan.advanced", advanced=[{"task_id": "review", "state": "running", "run_id": "r2"}])
     page = thread(env, saved["id"]).json()
     events = [entry for entry in page["entries"] if entry["kind"] == "plan_event"]
-    assert [entry["event"] for entry in events] == ["plan.advanced"] and events[0]["text"].startswith("El plan avanzó: arrancó review")
+    assert [entry["event"] for entry in events] == ["plan.advanced"] and events[0]["text"].startswith("The plan advanced: started review.")
     assert page["can_advance"] is False and events[0]["ts"]
     append_plan_event(env, saved["id"], "plan.advance_failed", reason="invalid_state: busy")
     page = thread(env, saved["id"]).json()
     events = [entry for entry in page["entries"] if entry["kind"] == "plan_event"]
     assert [entry["event"] for entry in events] == ["plan.advanced", "plan.advance_failed"]
-    assert events[1]["text"] == "No se pudo avanzar el plan: invalid_state: busy." and page["can_advance"] is True
+    assert events[1]["text"] == "Could not advance the plan: invalid_state: busy." and page["can_advance"] is True
     assert page["cursor"] == page["entries"][-1]["seq"]
     append_plan_event(env, saved["id"], "plan.advanced", advanced=[])       # a later advance clears the offer
     assert thread(env, saved["id"]).json()["can_advance"] is False
 
 
 def test_the_thread_view_has_the_plan_events_the_advance_and_its_help():
-    view = (JS / "plan-thread.js").read_text(encoding="utf-8")
-    help_text = (JS / "help-text.js").read_text(encoding="utf-8")
+    view = ui_text((JS / "plan-thread.js"))
+    help_text = ui_text((JS / "help-text.js"))
     for expected in ('entry.kind === "plan_event"', "Avanzar el plan", '"/advance"', 'topic="plan.auto_advance"',
                      'helpFor("plan.auto_advance")', "setInterval(load, 4000)", "clearInterval(timer)", "<${Confirm}", "Sí, avanzar"):
         assert expected in view, expected
@@ -210,6 +211,7 @@ def test_the_thread_view_has_the_plan_events_the_advance_and_its_help():
 def node_root(tmp_path_factory):
     root = tmp_path_factory.mktemp("plan-thread-static")
     shutil.copytree(JS, root / "js")
+    shutil.copytree(STATIC_DIR / "i18n", root / "i18n")
     shutil.copytree(STATIC_DIR / "vendor", root / "vendor")
     (root / "package.json").write_text('{"type":"module"}', encoding="utf-8")
     return root
@@ -283,11 +285,11 @@ def test_the_plan_model_writes_every_part_as_text(node_root):
 
 
 def test_the_view_is_wired_into_the_page_without_touching_the_new_session():
-    main, plans, view = [(JS / name).read_text(encoding="utf-8") for name in ("main.js", "plans.js", "plan-thread.js")]
+    main, plans, view = [ui_text((JS / name)) for name in ("main.js", "plans.js", "plan-thread.js")]
     assert 'import { PlanThread } from "./plan-thread.js";' in main and "CHT-T06" in main
     assert 'route.kind === "plan"' in main and 'route.kind !== "plan"' in main
     assert 'import { TaskInputs } from "./plan-thread.js";' in plans and "<${TaskInputs}" in plans
     assert "/gui/api/threads/plans/" in view and "/gui/api/plan-proposals/" in view
     assert "expected_revision: revision" in view and "approveBlock(entry)" in view
     assert "dangerouslySetInnerHTML" not in view and "localStorage" not in view
-    assert "export function ReadableValue" in (JS / "thread-cards.js").read_text(encoding="utf-8")
+    assert "export function ReadableValue" in ui_text((JS / "thread-cards.js"))

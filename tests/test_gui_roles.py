@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -124,8 +125,8 @@ def test_gui_run_detail_and_attempts_routes_require_token_and_expose_roles_only_
 # --- static checks ------------------------------------------------------------------------------------------------
 
 def test_run_detail_and_help_follow_escaping_conditional_rendering_and_help_rules():
-    detail = (JS / "run-detail.js").read_text(encoding="utf-8")
-    help_text = (JS / "help-text.js").read_text(encoding="utf-8")
+    detail = ui_text((JS / "run-detail.js"))
+    help_text = ui_text((JS / "help-text.js"))
 
     for bad in ("innerHTML", "dangerouslySetInnerHTML", "__html", "eval(", "style=", "document.write", "fetch("):
         assert bad not in detail, bad
@@ -159,6 +160,7 @@ def test_touched_scripts_pass_node_check():
 def node_root(tmp_path_factory):
     root = tmp_path_factory.mktemp("roles-static")
     shutil.copytree(JS, root / "js")
+    shutil.copytree(STATIC_DIR / "i18n", root / "i18n")
     shutil.copytree(STATIC_DIR / "vendor", root / "vendor")
     (root / "package.json").write_text('{"type":"module"}', encoding="utf-8")
     return root

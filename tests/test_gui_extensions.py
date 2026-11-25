@@ -27,7 +27,9 @@ from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.db.database import Database
 from multiagent.db.store import Store
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
+from gui_text import ui_text
 from multiagent.gui.extensions import discover_extensions, extension_dirs
 from multiagent.gui.security import CSP
 from multiagent.gui.token import ensure_token
@@ -221,21 +223,21 @@ def test_no_shared_file_names_an_extension_and_the_page_has_one_script_and_leadi
 def test_the_only_dynamic_import_is_the_guarded_one_in_extensions_js():
     users = sorted(path.name for path in JS.rglob("*.js") if re.search(r"\bimport\s*\(", path.read_text(encoding="utf-8")))
     assert users == ["extensions.js"]
-    source = (JS / "extensions.js").read_text(encoding="utf-8")
+    source = ui_text((JS / "extensions.js"))
     assert "ENTRY_URL.exec(" in source and "import(`/gui/static/extensions/${id}/index.js`)" in source      # constant path + validated id
     assert r"ENTRY_URL = /^\/gui\/static\/extensions\/([a-z][a-z_]{0,39})\/index\.js$/;" in source     # the only URLs it imports
 
 
 def test_reserved_names_match_the_built_in_routes_and_slots():
-    extensions = (JS / "extensions.js").read_text(encoding="utf-8")
+    extensions = ui_text((JS / "extensions.js"))
     sections = re.findall(r'"(\w+)"', re.search(r"RESERVED_SECTIONS = \[(.*?)\]", extensions)[1])
-    route = (JS / "route.js").read_text(encoding="utf-8")
+    route = ui_text((JS / "route.js"))
     built_in = re.findall(r'"(\w+)"', re.search(r"const SECTION_IDS = \[(.*?)\]", route)[1])
     assert sorted(sections) == sorted([*built_in, "new"])
     assert "customize" in sections and "customize" in built_in    # GUI3-T07
     assert {"packages", "start"} <= set(sections) and {"packages", "start"} <= set(built_in)    # PAQ-T02, INI-T03
     slots = re.findall(r'"(\w+)"', re.search(r"RESERVED_SLOTS = \[(.*?)\]", extensions)[1])
-    panel = (JS / "right-panel.js").read_text(encoding="utf-8") + (JS / "panel-slots.js").read_text(encoding="utf-8")
+    panel = ui_text((JS / "right-panel.js")) + ui_text((JS / "panel-slots.js"))
     assert sorted(slots) == sorted(set(re.findall(r'data-slot="(\w+)"', panel)))
 
 
@@ -635,14 +637,14 @@ def test_a_slow_or_hung_extension_does_not_hold_the_first_render_and_a_late_one_
 
 
 def test_the_page_draws_whatever_the_extension_list_does():
-    main = (JS / "main.js").read_text(encoding="utf-8")
+    main = ui_text(JS / "main.js")
     assert "const start = () => render(" in main and ".then(start, start)" in main                  # drawn after success AND after failure
     assert re.search(r"catch \(_\) \{\s*start\(\);", main)                                         # and if loadExtensions itself could not start
     assert "getJSON(\"/gui/api/extensions\", token, signal)" in main                              # the request can be cancelled
-    assert "export async function getJSON(path, token, signal)" in (JS / "auth.js").read_text(encoding="utf-8")
+    assert "export async function getJSON(path, token, signal)" in ui_text((JS / "auth.js"))
     assert "extensionFailures()" in main and "No se pudo cargar:" in main                          # the notice comes from the registry
-    assert "useRegistry();" in main and "subscribeRegistry" in (JS / "route.js").read_text(encoding="utf-8")   # late arrivals redraw
-    budget = int(re.search(r"export const LOAD_BUDGET_MS = (\d+);", (JS / "extensions.js").read_text(encoding="utf-8"))[1])
+    assert "useRegistry();" in main and "subscribeRegistry" in ui_text((JS / "route.js"))   # late arrivals redraw
+    budget = int(re.search(r"export const LOAD_BUDGET_MS = (\d+);", ui_text((JS / "extensions.js")))[1])
     assert 1000 <= budget <= 5000
     assert "current?.label" in main
 
@@ -769,7 +771,7 @@ def test_real_extension_views_have_a_single_title_and_reachable_help():
         "project": ("Proyectos", "extensions/project/index.js"),
         "task_waiting": ("Esperan tu decisión", "extensions/task_waiting/index.js"),
     }
-    main = (JS / "main.js").read_text(encoding="utf-8")
+    main = ui_text((JS / "main.js"))
     assert "<${Help}" in main and "topic=${entry.topic}" in main
     for ext_id, (label, rel_path) in expected.items():
         source = (STATIC_DIR / rel_path).read_text(encoding="utf-8")

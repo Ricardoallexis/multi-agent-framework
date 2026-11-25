@@ -20,6 +20,7 @@ from collections import Counter
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.extensions import HELP_FILE, extension_dirs
 
@@ -94,7 +95,7 @@ FORBIDDEN_IN_TEXT = re.compile(r"[<>`]|\$\{|https?:|javascript:|\b(?:the|and|cli
 
 
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text((JS / name))
 
 
 def json_block(name: str, source: str | None = None) -> dict:

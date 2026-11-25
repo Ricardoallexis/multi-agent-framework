@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.extensions import discover_extensions
 from multiagent.gui.token import ensure_token
@@ -172,8 +173,8 @@ def test_project_help_follows_the_rules_and_every_text_is_used():
 
 
 def test_project_view_is_accessible_by_construction():
-    index = (PROJECT_DIR / "index.js").read_text(encoding="utf-8")
-    parts = (PROJECT_DIR / "parts.js").read_text(encoding="utf-8")
+    index = ui_text((PROJECT_DIR / "index.js"))
+    parts = ui_text((PROJECT_DIR / "parts.js"))
     # The shared components draw role=tabpanel / role=progressbar (tests/test_gui2_components.py); the view must use them.
     assert "<${Tabs}" in index and "helpFor(\"project.tabs\")" in index
     assert parts.count("<${Progress}") >= 1 and "<${Progress}" in index
@@ -192,7 +193,7 @@ def test_project_view_is_accessible_by_construction():
 
 
 def test_the_panel_card_follows_the_screen_and_cleans_up_after_itself():
-    index = (PROJECT_DIR / "index.js").read_text(encoding="utf-8")
+    index = ui_text((PROJECT_DIR / "index.js"))
     assert index.count('addEventListener(CHANGED') == 1 and index.count('removeEventListener(CHANGED') == 1
     assert "announce()" in index and "announce)" in index          # after a decision and after «Actualizar»
     assert "alive = false" in index                                 # an answer that arrives after the card closed is dropped
@@ -201,7 +202,7 @@ def test_the_panel_card_follows_the_screen_and_cleans_up_after_itself():
 def test_project_view_has_no_hand_made_copy_of_the_label_table():
     # The words and tones of the states come from the core with every task (label.text / label.tone): no table in the page.
     for name in ("index.js", "parts.js", "model.js"):
-        text = (PROJECT_DIR / name).read_text(encoding="utf-8")
+        text = ui_text((PROJECT_DIR / name))
         assert 'labels="run"' not in text and "Bloqueada" not in text and "Terminada" not in text, name
 
 

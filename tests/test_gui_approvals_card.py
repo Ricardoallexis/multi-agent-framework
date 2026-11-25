@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from test_gui_extensions import check_extension_code, check_extension_styles
 from test_gui_help import check_extensions
@@ -251,10 +252,10 @@ def test_no_approve_all_action_and_new_session_secret_review_resend():
 
 
 def test_extension_static_rules_single_title_and_no_shortcuts():
-    index_src = (EXT_DIR / "index.js").read_text(encoding="utf-8")
-    model_src = (EXT_DIR / "model.js").read_text(encoding="utf-8")
-    ns_src = (JS_DIR / "new-session.js").read_text(encoding="utf-8")
-    ns_model_src = (JS_DIR / "new-session-model.js").read_text(encoding="utf-8")
+    index_src = ui_text((EXT_DIR / "index.js"))
+    model_src = ui_text((EXT_DIR / "model.js"))
+    ns_src = ui_text((JS_DIR / "new-session.js"))
+    ns_model_src = ui_text((JS_DIR / "new-session-model.js"))
     assert not re.search(r"<h[123]\b", index_src)
     assert 'topic: "approvals.view"' in index_src and 'owner: "approvals"' in index_src
     assert 'topic="approvals.view"' not in index_src
@@ -300,8 +301,8 @@ def test_memory_cards_show_the_entry_title_as_text_and_the_plain_words():
     assert (trust["approveLabel"], trust["rejectLabel"]) == ("Aprobar", "Rechazar")
     assert "apunte" in delete["reason"] and "borra" in delete["reason"] and delete["entryTitle"] == "Apunte sin título"
     assert out["plain"] == [False, ""]
-    index_src = (EXT_DIR / "index.js").read_text(encoding="utf-8")
-    help_src = (EXT_DIR / "help.js").read_text(encoding="utf-8")
+    index_src = ui_text((EXT_DIR / "index.js"))
+    help_src = ui_text((EXT_DIR / "help.js"))
     for kind, words in (("memory_trust", "apunte"), ("memory_delete", "El apunte se borra")):
         topic = help_src[help_src.index(f'"approvals.{kind}"'):]
         topic = topic[:topic.index("},")]
@@ -332,8 +333,8 @@ def test_a_clashing_memory_card_shows_the_pair_as_text_and_the_plain_words():
     for word in ("contradice", "apunte", "fiable", "Pendientes", "borres"):
         assert word in clash["reason"]
     assert out["plain"] is None and out["broken"] is None and out["foreign"] is None
-    index_src = (EXT_DIR / "index.js").read_text(encoding="utf-8")
-    help_src = (EXT_DIR / "help.js").read_text(encoding="utf-8")
+    index_src = ui_text((EXT_DIR / "index.js"))
+    help_src = ui_text((EXT_DIR / "help.js"))
     topic = help_src[help_src.index('"approvals.memory_clash"'):]
     topic = topic[:topic.index("},")]
     for words in ("El apunte nuevo pasa a fiable", "Pendientes", "Nada se borra con este clic"):

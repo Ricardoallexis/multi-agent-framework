@@ -10,7 +10,9 @@ import subprocess
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
+from gui_text import ui_text
 
 JS = STATIC_DIR / "js"
 NODE = shutil.which("node")
@@ -174,8 +176,8 @@ def test_the_three_counted_extensions_declare_their_type_and_nothing_else_change
 
 
 def test_the_screen_uses_tabs_with_label_and_help_and_the_row_is_a_link_to_the_same_poll():
-    pending = (JS / "pending.js").read_text(encoding="utf-8")
-    main = (JS / "main.js").read_text(encoding="utf-8")
+    pending = ui_text((JS / "pending.js"))
+    main = ui_text(JS / "main.js")
     assert re.search(r'<\$\{Tabs\} id="pending" label="Pendientes"', pending) and 'helpFor("pending.tabs")' in pending
     assert 'topic="pending.tabs"' in pending
     # the row and the «Todo» tab read the one store; neither polls by itself
@@ -189,8 +191,8 @@ def test_the_screen_uses_tabs_with_label_and_help_and_the_row_is_a_link_to_the_s
 
 
 def test_the_pending_views_leave_more_for_the_tabs():
-    sidebar = (JS / "sidebar.js").read_text(encoding="utf-8")
-    model = (JS / "sidebar-model.js").read_text(encoding="utf-8")
+    sidebar = ui_text((JS / "sidebar.js"))
+    model = ui_text((JS / "sidebar-model.js"))
     assert "navigation.pending.some(" in sidebar and 'section.group === "pending"' in model
 
 

@@ -6,6 +6,7 @@ import subprocess
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 
 JS = STATIC_DIR / "js"
@@ -139,9 +140,9 @@ def test_finished_task_keeps_linked_session_and_child_link_projection():
 
 
 def test_map_route_mount_privacy_and_mobile_list_are_wired():
-    view = (JS / "work-map.js").read_text(encoding="utf-8")
-    route = (JS / "route.js").read_text(encoding="utf-8")
-    main = (JS / "main.js").read_text(encoding="utf-8")
+    view = ui_text((JS / "work-map.js"))
+    route = ui_text((JS / "route.js"))
+    main = ui_text((JS / "main.js"))
     css = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
     assert 'apiGet("/gui/api/map?only=all", token)' in view
     assert run_node(f'import {{ parseRoute }} from {json.dumps((JS / "route.js").as_uri())}; console.log(JSON.stringify(parseRoute("#map")));') == {"section": "map", "id": None}

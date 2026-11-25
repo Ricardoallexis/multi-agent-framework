@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from test_gui_rwd import PHONE_QUERY, all_media, read_sheet
 from test_gui2_layout import rule
@@ -108,8 +109,8 @@ def test_run_detail_tabs_layout_and_sections():
 
 
 def test_run_detail_uses_tabs_without_new_routes_or_conversation_tab():
-    detail = (JS / "run-detail.js").read_text(encoding="utf-8")
-    route = (JS / "route.js").read_text(encoding="utf-8")
+    detail = ui_text((JS / "run-detail.js"))
+    route = ui_text((JS / "route.js"))
 
     assert 'import { Tabs } from "./ui/tabs.js";' in detail
     assert '<${Tabs} id="rundetail"' in detail
@@ -171,7 +172,7 @@ def test_apps_rows_open_only_for_pending_step_and_collapsed_rows_keep_status_and
 
 
 def test_apps_collapsible_card_markup_targets_and_copy_console_untouched():
-    apps_js = (EXT_APPS / "index.js").read_text(encoding="utf-8")
+    apps_js = ui_text((EXT_APPS / "index.js"))
     apps_css = read_sheet(EXT_APPS / "style.css")
 
     assert '<details class="apps-card-details"' in apps_js

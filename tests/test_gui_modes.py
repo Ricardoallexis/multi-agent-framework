@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -143,9 +144,9 @@ def test_gui_create_run_with_and_without_operating_mode_and_detail(env):
 # --- static checks ------------------------------------------------------------------------------------------------
 
 def test_scripts_follow_escaping_help_and_conditional_send_rules():
-    create_src = (JS / "create-run.js").read_text(encoding="utf-8")
-    detail_src = (JS / "run-detail.js").read_text(encoding="utf-8")
-    help_src = (JS / "help-text.js").read_text(encoding="utf-8")
+    create_src = ui_text((JS / "create-run.js"))
+    detail_src = ui_text((JS / "run-detail.js"))
+    help_src = ui_text((JS / "help-text.js"))
 
     for name, src in (("create-run.js", create_src), ("run-detail.js", detail_src), ("help-text.js", help_src)):
         for bad in ("innerHTML", "outerHTML", "insertAdjacentHTML", "dangerouslySetInnerHTML", "__html", "eval(",
@@ -187,6 +188,7 @@ def test_touched_scripts_pass_node_check():
 def node_root(tmp_path_factory):
     root = tmp_path_factory.mktemp("modes-static")
     shutil.copytree(JS, root / "js")
+    shutil.copytree(STATIC_DIR / "i18n", root / "i18n")
     shutil.copytree(STATIC_DIR / "vendor", root / "vendor")
     (root / "package.json").write_text('{"type":"module"}', encoding="utf-8")
     return root

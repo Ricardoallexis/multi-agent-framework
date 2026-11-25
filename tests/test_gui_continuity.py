@@ -25,6 +25,7 @@ import test_gui_extensions as gui_extensions
 import test_quota_hold as hold_tests
 from multiagent.api import create_app
 from multiagent.executors.registry import ExecutorRegistry
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR, continuity_api
 from multiagent.gui.extensions import discover_extensions
 from multiagent.gui.security import CSP
@@ -385,10 +386,10 @@ def test_the_stylesheet_is_light_dark_and_phone_safe():
 
 
 def test_the_extension_registers_a_screen_a_panel_section_and_a_tab_of_uso():
-    index = re.sub(r"^\s*//.*$", "", (EXT / "index.js").read_text(encoding="utf-8"), flags=re.M)
+    index = re.sub(r"^\s*//.*$", "", ui_text((EXT / "index.js")), flags=re.M)
     assert 'registerView({ id: "continuity", owner: "continuity"' in index and 'registerSlot("continuity", ContinuitySlot' in index
     assert 'registerUsageSection({ id: "continuity", owner: "continuity"' in index and 'registerHelp(HELP, "continuity")' in index
-    usage = (JS / "usage.js").read_text(encoding="utf-8")
+    usage = ui_text((JS / "usage.js"))
     assert "registeredUsageSections()" in usage and "extraSection.component" in usage and "extensions/" not in usage
     for shared in JS.rglob("*.js"):
         imports = "".join(re.findall(r"""\bfrom\s+["']([^"']+)["']""", shared.read_text(encoding="utf-8")))
@@ -396,7 +397,7 @@ def test_the_extension_registers_a_screen_a_panel_section_and_a_tab_of_uso():
 
 
 def test_the_card_is_a_labelled_group_with_pressed_buttons_a_confirmation_and_no_cancel():
-    card = (EXT / "card.js").read_text(encoding="utf-8")
+    card = ui_text((EXT / "card.js"))
     assert 'role="group" aria-labelledby=${titleId}' in card and "aria-pressed=" in card and 'role="img" aria-label="Reloj' in card
     assert 'role=${message.kind === "error" ? "alert" : "status"}' in card and 'role="status">${view.decision}' in card
     assert 'data-help-exempt="confirm"' in card and "Escape" in card and "Volver" in card         # Esc goes back; the focus starts on «Volver»

@@ -1,0 +1,41 @@
+// Copyright 2026 Ricardoallexis and contributors
+// SPDX-License-Identifier: Apache-2.0
+export default {
+  "customize.storage_warning": "Este navegador no guarda las preferencias: se aplican mientras esta página siga abierta.",
+  "customize.mode": "Modo",
+  "customize.advanced": "Modo avanzado",
+  "customize.mode_error": "No se pudo cambiar el modo. Inténtalo de nuevo.",
+  "customize.sidebar": "Barra lateral",
+  "customize.sidebar_info": "Las secciones fijadas salen en la barra, junto a las fijas. Las demás siguen en «Más» y en Ctrl K.",
+  "customize.pin": "Fijar",
+  "customize.pin_label": "Fijar {name}",
+  "customize.context": "Contexto",
+  "customize.context_info": "Cuándo se dibuja cada tarjeta del panel: «Automática» solo si tiene algo que mostrar, «Siempre» aunque esté vacía, «Nunca» oculta. Lo urgente se ve siempre.",
+  "customize.auto": "Automática",
+  "customize.always": "Siempre",
+  "customize.never": "Nunca",
+  "customize.card_changes": "Cambios",
+  "customize.card_subagents": "Subagentes",
+  "customize.card_tokens": "Tokens",
+  "customize.card_sources": "Fuentes",
+  "customize.colors": "Colores",
+  "customize.colors_info": "El color de los botones principales, los enlaces y la selección. Los fondos, el texto y los avisos no cambian.",
+  "customize.palette": "Paleta",
+  "customize.neutral": "Neutro",
+  "customize.accent_neutral": "Neutro",
+  "customize.accent_azul": "Azul",
+  "customize.accent_verde": "Verde",
+  "customize.accent_violeta": "Violeta",
+  "customize.help": "Ayuda",
+  "customize.show_help": "Mostrar siempre los «?»",
+  "customize.reset": "Restablecer",
+  "customize.language": "Idioma",
+  "customize.language_auto": "Automático",
+  "customize.language_en": "English",
+  "customize.language_es": "Español",
+  "help.customize.language": {
+    "title": "Idioma",
+    "hint": "Elige el idioma de la interfaz en este navegador.",
+    "more": ["Automático usa el idioma del navegador: español si empieza por es, inglés en otro caso.", "El cambio se aplica al momento y se recuerda en este navegador."]
+  }
+};

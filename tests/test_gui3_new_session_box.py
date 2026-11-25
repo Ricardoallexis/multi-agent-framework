@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 
 
@@ -86,8 +87,8 @@ def test_project_selector_prefills_but_still_asks_and_run_requires_confirmation(
 
 @needs_node
 def test_one_box_menu_and_limit_banners_stay_visible_in_each_mode():
-    view = (JS / "new-session.js").read_text(encoding="utf-8")
-    picker = (JS / "model-picker.js").read_text(encoding="utf-8")
+    view = ui_text((JS / "new-session.js"))
+    picker = ui_text((JS / "model-picker.js"))
     css = (STATIC_DIR / "new-session.css").read_text(encoding="utf-8")
     assert view.count('<textarea id="ns-composer-input"') == 1
     assert 'id="single-task"' not in view and 'id="single-executor-task"' not in view
@@ -104,7 +105,7 @@ def test_one_box_menu_and_limit_banners_stay_visible_in_each_mode():
 
 def test_escape_closes_the_plus_menu_from_its_button_too():
     # Esc closes the «＋» menu with the focus on the button as well as inside the menu, and gives the focus back to «＋».
-    view = (JS / "new-session.js").read_text(encoding="utf-8")
+    view = ui_text((JS / "new-session.js"))
     wrap = view[view.index('<div class="ns-plus-wrap"'):view.index('class="ns-plus"')]
     assert 'event.key === "Escape" && menuOpen' in wrap and "menuButton.current?.focus()" in wrap
     menu = view[view.index('class="ns-plus-menu"'):view.index('</div>`}', view.index('class="ns-plus-menu"'))]

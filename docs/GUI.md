@@ -7,6 +7,38 @@ or a separate orchestration layer.
 
 For copying prompts to an external model, checking responses, and submitting them in the GUI, see [Human-guided execution](HUMAN_GUIDED.md).
 
+## Language
+
+The GUI chooses English or Spanish automatically from the browser language. A
+browser language beginning with `es` selects Spanish; any other language selects
+English. In **Customize → Language**, choose **Automatic**, **English**, or
+**Español**. The choice is stored in this browser, like the color palette, and
+the page updates immediately. If browser storage is unavailable, the choice
+lasts until the page is closed.
+
+English is the base language. Each converted view has a plain ES module in
+`multiagent/gui/static/i18n/en/` and a matching Spanish module in
+`i18n/es/`. Both modules use the same `view.key` entries, for example
+`sessions.empty`. To convert another view, copy its current Spanish labels
+into the Spanish module, write the English equivalents, replace visible
+literals with `t("view.key")`, and import both modules in `js/i18n.js`.
+`t()` falls back to English, then to the key. Help entries use `help.*` keys
+and are read through `localizedHelp()`.
+
+Static GUI tests that search for visible text should call
+`tests.gui_text.ui_text(path, lang="es")` instead of reading the source file
+directly. It returns unchanged source for a view that has not been converted
+and includes the selected dictionary text for a converted view. This keeps
+the same assertions valid when the view is converted later. Source structure
+checks can continue to read the file directly.
+
+To add a language, create a plain ES module for each view under
+`multiagent/gui/static/i18n/<language>/`, using the same `view.key` entries as
+the English modules. Import and register those modules in `js/i18n.js`, add the
+language to the selector in `js/customize-model.js`, and extend
+`currentLanguage()` to recognize it. Keep the English entry as the fallback for
+missing translations.
+
 ## Start
 
 From an installed project environment, run either command, or use

@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR, open_in_app
 from multiagent.gui.token import ensure_token
 from session_fixtures import (
@@ -360,7 +361,7 @@ def test_the_setting_defaults_to_on_and_reads_the_environment(monkeypatch):
 
 # -------- the client code (read as text) --------
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text((JS / name))
 
 
 def js_regex(source: str, name: str) -> re.Pattern:

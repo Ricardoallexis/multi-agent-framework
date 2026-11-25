@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from test_gui2_layout import media, rule
 
@@ -151,11 +152,11 @@ def test_right_panel_starts_collapsed_under_phone_and_tablet_breakpoints():
     assert "position: static" in rule(tablet, ".rightpanel")
     assert "display: none !important" in rule(app, "[hidden]")
 
-    shell = (JS / "shell.js").read_text(encoding="utf-8")
+    shell = ui_text((JS / "shell.js"))
     assert "readPanelOpen(defaultPanelOpen())" in shell
     assert "hidden=${!panelShown}" in shell
 
-    state = (JS / "shell-state.js").read_text(encoding="utf-8")
+    state = ui_text((JS / "shell-state.js"))
     assert 'WIDE_QUERY = "(min-width: 900px)"' in state
 
     if NODE is not None:
@@ -237,7 +238,7 @@ def test_view_teams_rwd():
     """Equipos: team list table, version table, and Mermaid <pre> wrap or scroll inside their containers.
 
     Manual QA at 390 px and 768 px: open #teams and a team detail; verify table horizontal scroll and Mermaid block."""
-    teams = (JS / "teams.js").read_text(encoding="utf-8")
+    teams = ui_text((JS / "teams.js"))
     assert '<div class="usage-table-wrap"><table class="usage-table">' in teams
     assert '<pre class="data"' in teams
     app = read_sheet(STATIC_DIR / "app.css")
@@ -249,7 +250,7 @@ def test_view_plans_rwd():
     """Planes: proposal/task tables wrap in .usage-table-wrap, two-column fields stack on tablet, facts stack on phone.
 
     Manual QA at 390 px and 768 px: open #plans and a plan detail with 'Editar tareas' open."""
-    plans = (JS / "plans.js").read_text(encoding="utf-8")
+    plans = ui_text((JS / "plans.js"))
     assert plans.count('<div class="usage-table-wrap"><table class="usage-table">') == 2
     app = read_sheet(STATIC_DIR / "app.css")
     tablet = all_media(app, TABLET_QUERY)
@@ -263,9 +264,9 @@ def test_view_runs_list_and_detail_rwd():
     """Ejecuciones (lista y detalle): master-detail stacks under tablet cut, compare grids shrink, external JSON <pre> scrolls.
 
     Manual QA at 390 px and 768 px: open #runs, select a run with comparison diffs, technical events, and external output."""
-    runs = (JS / "runs.js").read_text(encoding="utf-8")
-    detail = (JS / "run-detail.js").read_text(encoding="utf-8")
-    ext_out = (JS / "external-output.js").read_text(encoding="utf-8")
+    runs = ui_text((JS / "runs.js"))
+    detail = ui_text((JS / "run-detail.js"))
+    ext_out = ui_text((JS / "external-output.js"))
     assert 'class="runs"' in runs and 'class="runs-side"' in runs and 'class="runs-main"' in runs
     assert 'class="compare-values"' in detail and '<pre class="json">' in ext_out
     app = read_sheet(STATIC_DIR / "app.css")
@@ -282,7 +283,7 @@ def test_view_results_evaluation_rwd():
     """Resultados (Evaluación): evaluation set, runs, and case comparison tables sit inside .usage-table-wrap.
 
     Manual QA at 390 px and 768 px: open #evaluation and an evaluation set detail."""
-    evaluation = (JS / "evaluation.js").read_text(encoding="utf-8")
+    evaluation = ui_text((JS / "evaluation.js"))
     assert evaluation.count('<div class="usage-table-wrap"><table class="usage-table">') == 3
     app = read_sheet(STATIC_DIR / "app.css")
     assert "min-width: 0" in rule(app, ".usage-table-wrap")
@@ -293,7 +294,7 @@ def test_view_usage_rwd():
     """Uso: plan/cost grids use min(100%, 280px), token table scrolls, and refresh control goes full-width on phone.
 
     Manual QA at 390 px and 768 px: open #usage and switch between 'Planes', 'Global', and 'API y presupuesto'."""
-    usage = (JS / "usage.js").read_text(encoding="utf-8")
+    usage = ui_text((JS / "usage.js"))
     assert '<div class="usage-table-wrap"><table class="usage-table">' in usage
     app = read_sheet(STATIC_DIR / "app.css")
     assert "minmax(min(100%, 280px), 1fr)" in rule(app, ".usage-grid")
@@ -306,8 +307,8 @@ def test_view_sessions_rwd():
     """Sesiones: filter grid fits down to 360 px, session items wrap timestamps on phone, and <pre> blocks scroll.
 
     Manual QA at 390 px and 768 px: open #sessions, expand filters, and open a session with tool results."""
-    sessions = (JS / "sessions.js").read_text(encoding="utf-8")
-    items = (JS / "session-items.js").read_text(encoding="utf-8")
+    sessions = ui_text((JS / "sessions.js"))
+    items = ui_text((JS / "session-items.js"))
     assert 'class="filter-grid"' in sessions and '<pre class="data"' in items
     app = read_sheet(STATIC_DIR / "app.css")
     assert "minmax(min(100%, 190px), 1fr)" in rule(app, ".filter-grid")
@@ -382,7 +383,7 @@ def test_view_offices_rwd():
 def test_apps_key_names_break_at_underscores_without_changing_copied_text():
     """Apps y agentes: API setting names break only at underscores; manual QA covers 375, 390, and 768 px."""
     apps_css = read_sheet(EXT / "apps" / "style.css")
-    apps_js = (EXT / "apps" / "index.js").read_text(encoding="utf-8")
+    apps_js = ui_text((EXT / "apps" / "index.js"))
     key_rule = rule(apps_css, ".apps-key-name")
     assert "word-break: normal" in key_rule and "overflow-wrap: normal" in key_rule
     assert 'return html`<span class="apps-key-name">${provider}_<wbr />API_<wbr />KEY</span>`' in apps_js

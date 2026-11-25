@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.security import CSP
 from test_gui_extensions import check_extension_code, check_extension_styles
@@ -53,7 +54,7 @@ def test_extension_has_help_scoped_theme_styles_and_no_mutations():
     check_extensions(STATIC_DIR)
     check_extension_code(STATIC_DIR)
     check_extension_styles(STATIC_DIR)
-    entry = (EXT / "index.js").read_text(encoding="utf-8")
+    entry = ui_text((EXT / "index.js"))
     assert re.search(r'registerView\(\{ id: "task_waiting"', entry)
     assert 'registerSlot("task_waiting"' in entry
     source = entry + JS.read_text(encoding="utf-8")

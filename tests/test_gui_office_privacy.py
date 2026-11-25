@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -139,7 +140,7 @@ def test_rows_and_note(env):
 
 
 def test_note_has_no_destinations():
-    source = (EXT / "privacy.js").read_text(encoding="utf-8")
+    source = ui_text((EXT / "privacy.js"))
     assert "Permitir enviar" not in source
     assert "destination" not in source.lower()
     assert 'class="offices-privacy-note"' in source and "payload.note" in source
@@ -312,7 +313,7 @@ def test_question_lines():
 
 
 def test_no_question_in_advanced_mode():
-    source = (JS / "new-session.js").read_text(encoding="utf-8")
+    source = ui_text((JS / "new-session.js"))
     assert 'currentMode() === "simple" && officeId' in source
     assert 'routeHref("offices", officeLevelNotice.officeId)' in source
     assert "await askLevelOnce({" in source
@@ -320,7 +321,7 @@ def test_no_question_in_advanced_mode():
 
 
 def test_question_blocks_new_submission():
-    source = (JS / "new-session.js").read_text(encoding="utf-8")
+    source = ui_text((JS / "new-session.js"))
     assert "pendingSecret || officeLevelQuestion || (!asking && !trimmed)" in source
     assert "disabled=${busy || pendingCloud || pendingSecret || officeLevelQuestion" in source
 
@@ -387,7 +388,7 @@ def test_sensitive_area_says_never_cloud():
       }});
       console.log(JSON.stringify(row));
     """)
-    source = (EXT / "privacy.js").read_text(encoding="utf-8")
+    source = ui_text((EXT / "privacy.js"))
     assert out["dataClass"] == "sensitive" and out["cloudEffective"] is True
     assert "Esta área nunca usa la nube, aunque se permita." in source
     assert 'row.dataClass === "sensitive" || row.dataClass === "restricted"' in source

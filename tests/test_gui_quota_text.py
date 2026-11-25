@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 
 JS = STATIC_DIR / "js"
@@ -41,7 +42,7 @@ def run_node(script: str, data: dict | None = None) -> dict:
 
 
 def test_quota_text_module_is_pure_and_has_no_dom_or_network():
-    src = (JS / "quota-text.js").read_text(encoding="utf-8")
+    src = ui_text((JS / "quota-text.js"))
     assert "import " not in src
     for forbidden in ("fetch(", "apiPost", "apiGet", "document.", "window.", "localStorage", "innerHTML"):
         assert forbidden not in src, forbidden

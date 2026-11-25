@@ -33,36 +33,35 @@ import { Start } from "./start.js";   // INI-T03
 import { setInstanceLabel } from "./instance.js";   // PRV-T01
 import { ADVANCED_ONLY_TEXT, currentMode, onModeChange, saveMode, setCurrentMode, visibleIn } from "./gui-mode.js";   // SIM-T02
 import { extensionFailures, loadExtensions, registeredViews, registryVersion, subscribeRegistry } from "./extensions.js";
+import { onLanguageChange, t } from "./i18n.js";
 
 const STATUS_TEXT = {
-  connected: "Conectado",
-  reconnecting: "Reconectando…",
-  offline: "Sin conexión",
-  unauthorized: "Token no válido",
+  connected: t("main.connected"),
+  reconnecting: t("main.reconnecting"),
+  offline: t("main.offline"),
+  unauthorized: t("main.unauthorized"),
 };
 
 // "Sesiones" is the main screen and the default one.
 const SECTIONS = [
-  { id: "sessions", label: "Sesiones", icon: "inbox", mode: "simple" },
-  { id: "runs", label: "Ejecuciones", icon: "run", mode: "advanced" },
-  { id: "usage", label: "Uso", icon: "chart", mode: "simple" },
-  { id: "evaluation", label: "Evaluación", icon: "check", mode: "advanced" },
-  { id: "teams", label: "Equipos", icon: "person", mode: "advanced" },
-  { id: "plans", label: "Planes", icon: "file", mode: "advanced" },
-  { id: "map", label: "Mapa", icon: "map", mode: "advanced" },
-  { id: "customize", label: "Personalizar", icon: "settings", mode: "simple" },   // GUI3-T07: reached from «Más», the gear of the sidebar and Ctrl+K
-  { id: "packages", label: "Paquetes", icon: "file", mode: "simple" },   // PAQ-T02: reached from «Más»
-  { id: "start", label: "Inicio", icon: "check", mode: "simple" },   // INI-T03: in the sidebar while a step is missing, in «Más» after
+  { id: "sessions", label: t("main.sessions"), icon: "inbox", mode: "simple" },
+  { id: "runs", label: t("main.runs"), icon: "run", mode: "advanced" },
+  { id: "usage", label: t("main.usage"), icon: "chart", mode: "simple" },
+  { id: "evaluation", label: t("main.evaluation"), icon: "check", mode: "advanced" },
+  { id: "teams", label: t("main.teams"), icon: "person", mode: "advanced" },
+  { id: "plans", label: t("main.plans"), icon: "file", mode: "advanced" },
+  { id: "map", label: t("main.map"), icon: "map", mode: "advanced" },
+  { id: "customize", label: t("main.customize"), icon: "settings", mode: "simple" },   // GUI3-T07: reached from «Más», the gear of the sidebar and Ctrl+K
+  { id: "packages", label: t("main.packages"), icon: "file", mode: "simple" },   // PAQ-T02: reached from «Más»
+  { id: "start", label: t("main.start"), icon: "check", mode: "simple" },   // INI-T03: in the sidebar while a step is missing, in «Más» after
 ];
 // The built-in screens, then the ones extensions registered (by their `order`).
-const allSections = () => [...SECTIONS, ...registeredViews().map((view) => ({ id: view.id, label: view.label, group: view.group, icon: view.icon, mode: view.mode }))];
+const allSections = () => [...SECTIONS.map((section) => ({ ...section, label: t("main." + section.id) })), ...registeredViews().map((view) => ({ id: view.id, label: view.label, group: view.group, icon: view.icon, mode: view.mode }))];
 
 // "#new" is not a section of its own: it shows the guided chat of a new session (new-session.js), which falls back to the
 // create-run form on request.
-const NEW_TITLE = "Nueva sesión";
 // "#tree/<session id>" (GUI2-T08) is a second view of one session: it has no entry in the sidebar of its own.
 const TREE_SECTION = "tree";
-const TREE_TITLE = "Árbol de agentes";
 
 // SIM-T02: in simple mode a route of an advanced view shows one line instead of the view (the address does not change).
 function AdvancedOnly({ token }) {
@@ -70,17 +69,16 @@ function AdvancedOnly({ token }) {
   const enable = () => { setFailed(false); saveMode(token, "advanced").catch(() => setFailed(true)); };
   return html`<div class="advanced-only">
     <p class="advanced-only-text">${ADVANCED_ONLY_TEXT}</p>
-    <button type="button" class="btn" ...${helpFor("shell.advanced_only")} onClick=${enable}>Activar modo avanzado</button>
+    <button type="button" class="btn" ...${helpFor("shell.advanced_only")} onClick=${enable}>${t("main.advanced_only")}</button>
     <${Help} topic="shell.advanced_only" compact=${true} />
-    ${failed && html`<p class="message error small" role="alert">No se pudo cambiar el modo. Inténtalo de nuevo.</p>`}
+    ${failed && html`<p class="message error small" role="alert">${t("main.mode_error")}</p>`}
   </div>`;
 }
 
 function NoToken() {
   return html`<main class="notice">
-    <h1>Falta el token de acceso</h1>
-    <p>Abre esta interfaz con el enlace que imprime <code>python -m multiagent.gui</code>;
-      incluye el token después de <code>#token=</code>.</p>
+    <h1>${t("main.missing_token")}</h1>
+    <p>${t("main.open_link")} <code>python -m multiagent.gui</code>${t("main.token_fragment")} <code>#token=</code>.</p>
   </main>`;
 }
 
@@ -96,6 +94,11 @@ function useRegistry() {
 
 function App({ token }) {
   useRegistry();
+  const [, setLanguageVersion] = useState(0);
+  useEffect(() => onLanguageChange(() => {
+    for (const key of Object.keys(STATUS_TEXT)) STATUS_TEXT[key] = t("main." + key);
+    setLanguageVersion((version) => version + 1);
+  }), []);
   const route = useRoute();
   const failed = extensionFailures();
   const [status, setStatus] = useState("reconnecting");
@@ -133,7 +136,7 @@ function App({ token }) {
   const hasSubject = Boolean(subjectOf(context, context.section === "sessions" ? context.id : null));   // a session or a run is open
   return html`<${Shell} status=${status} statusText=${STATUS_TEXT[status]} mock=${mock} sidebar=${sidebar} panel=${panel}
     hasSubject=${hasSubject} contextDot=${contextDot}>
-    ${section === "usage" ? html`<h2 id="usage-title">Uso</h2>` : html`<h2>${creating ? NEW_TITLE : tree ? TREE_TITLE : inPending ? "Pendientes" : current?.label}</h2>`}
+    ${section === "usage" ? html`<h2 id="usage-title">${t("main.usage")}</h2>` : html`<h2>${creating ? t("main.new_session") : tree ? t("main.agent_tree") : inPending ? t("main.pending") : current?.label}</h2>`}
     ${blocked && html`<${AdvancedOnly} token=${token} />`}
     ${!blocked && entry?.topic && html`<${Help} key=${entry.id} topic=${entry.topic} />`}
     <${Sessions} token=${token} route=${route} active=${section === "sessions" && !blocked} />
@@ -152,8 +155,8 @@ function App({ token }) {
     ${!blocked && section === "start" && html`<${Start} token=${token} />`}
     ${inPending && html`<${PendingScreen} views=${pendingViews} route=${route} token=${token} status=${status} mock=${mock} />`}
     ${views.map((view) => !blocked && !inPending && section === view.id && html`<${view.component} key=${view.id} token=${token} status=${status} mock=${mock} route=${route} />`)}
-    ${failed.length > 0 && html`<p class="muted small" role="status">No se pudo cargar: ${failed.map((item) => item.id).join(", ")}.</p>`}
-    ${lastEvent && html`<p class="muted small">Último evento recibido: ${lastEvent}</p>`}
+    ${failed.length > 0 && html`<p class="muted small" role="status">${t("main.load_failed")} ${failed.map((item) => item.id).join(", ")}.</p>`}
+    ${lastEvent && html`<p class="muted small">${t("main.latest_event")} ${lastEvent}</p>`}
   <//>`;
 }
 

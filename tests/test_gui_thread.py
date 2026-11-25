@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The run chat uses the thread API, keeps its cursor, and offers only accepted decisions."""
 from __future__ import annotations
+from tests.gui_text import ui_text
 
 import json
 import os
@@ -20,7 +21,7 @@ needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 
 def source(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text((JS / name))
 
 
 def run_node(name: str, script: str, data: dict | None = None) -> dict:

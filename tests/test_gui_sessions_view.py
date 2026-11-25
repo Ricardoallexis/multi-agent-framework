@@ -12,7 +12,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
+from gui_text import ui_text
 from multiagent.gui.security import CSP
 from multiagent.gui.token import ensure_token
 from session_fixtures import (
@@ -45,7 +47,7 @@ FORBIDDEN = [
 
 
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text(JS / name)
 
 
 # --- the new files are there and clean ------------------------------------------------------------
@@ -199,7 +201,7 @@ def test_client_files_are_served_with_the_csp(world, name):
     assert response.headers["content-security-policy"] == CSP
     assert "require-trusted-types-for 'script'" in CSP and "script-src 'self'" in CSP
     assert response.headers["x-content-type-options"] == "nosniff"
-    assert response.text == (JS / name).read_text(encoding="utf-8").replace("\r\n", "\n") or response.content
+    assert response.text == ui_text((JS / name)).replace("\r\n", "\n") or response.content
 
 
 def test_the_page_and_its_stylesheet_are_served_without_a_token(world):

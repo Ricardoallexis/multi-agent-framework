@@ -14,6 +14,7 @@ import subprocess
 import pytest
 
 from multiagent.gui import STATIC_DIR
+from gui_text import ui_text
 
 JS = STATIC_DIR / "js"
 NODE = shutil.which("node")
@@ -22,7 +23,7 @@ SIX = ["approvals", "apps", "continuity", "document_alerts", "project", "task_wa
 
 
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text(JS / name)
 
 
 def run_node(source: str):

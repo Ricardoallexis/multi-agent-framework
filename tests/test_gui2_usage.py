@@ -9,6 +9,7 @@ import subprocess
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 
 JS = STATIC_DIR / "js"
@@ -19,6 +20,7 @@ NODE = shutil.which("node")
 def node_root(tmp_path_factory):
     root = tmp_path_factory.mktemp("usage-static")
     shutil.copytree(JS, root / "js")
+    shutil.copytree(STATIC_DIR / "i18n", root / "i18n")
     shutil.copytree(STATIC_DIR / "vendor", root / "vendor")
     (root / "package.json").write_text('{"type":"module"}', encoding="utf-8")
     return root
@@ -123,7 +125,7 @@ def test_tokens_and_costs_show_unknown_values_and_render_untrusted_names_as_text
 
 
 def test_usage_view_uses_all_three_gui_routes_and_contains_no_inline_style_or_html_injection():
-    source = (JS / "usage.js").read_text(encoding="utf-8")
+    source = ui_text((JS / "usage.js"))
     css = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
     for path in ("/gui/api/usage/plans", "/gui/api/usage/tokens?", "/gui/api/usage/costs"):
         assert path in source

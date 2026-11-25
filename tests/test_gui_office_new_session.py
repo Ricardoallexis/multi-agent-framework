@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -69,7 +70,7 @@ def test_a_late_reply_never_lands_on_another_office():
     # Copilot's review of VOF-T03: a reply that came back after the route changed set the cloud question on the new
     # screen, and «Enviar» there posted confirm_cloud: true with the other office. No render harness here, so the
     # wiring is checked: each handler keeps its route key and checks it after every await.
-    source = (JS / "new-session.js").read_text(encoding="utf-8").replace("\r\n", "\n")
+    source = ui_text((JS / "new-session.js")).replace("\r\n", "\n")
     assert "const replyIsStale = (startKey) => !alive.current || officeRouteKey.current !== startKey;" in source
     for name in ("submit", "answerCloud", "resendSecret"):
         body = source.split(f"  async function {name}(", 1)[1].split("\n  }\n", 1)[0]
@@ -120,7 +121,7 @@ def test_selector_hidden_without_offices():
       console.log(JSON.stringify(officeOptions({{ offices: [] }})));
     """)
     assert out == [{"value": "", "label": "Ninguna"}]
-    source = (JS / "new-session.js").read_text(encoding="utf-8")
+    source = ui_text((JS / "new-session.js"))
     assert 'officeList.offices.length > 0 && html`<div class="ns-office-select">' in source
 
 
@@ -136,7 +137,7 @@ def test_orchestrator_sends_the_office():
         "approval_id": None,
         "office": "cafe",
     }
-    source = (JS / "new-session.js").read_text(encoding="utf-8")
+    source = ui_text((JS / "new-session.js"))
     assert "officeRequestBody(text, officeId, confirmCloud)" in source
     assert "(entries.length > 0 || officeId)" in source
 
@@ -163,7 +164,7 @@ def test_single_session_offers_office_workflows():
         ],
         "one": [{"area": "menu", "items": [{"id": "weekly_menu", "label": "Weekly menu"}]}],
     }
-    source = (JS / "new-session.js").read_text(encoding="utf-8")
+    source = ui_text((JS / "new-session.js"))
     assert "OfficeWorkflowPicker" in source and "groups=${officeGroups}" in source
     assert 'item.bundle === officeId + "__" + area' in source
     assert "officeArea || (!routeChanged && sessionKind === \"single\")" in source
@@ -282,7 +283,7 @@ def test_unknown_office_and_level_required_without_privacy_screen():
         "Esta área todavía no tiene nivel de privacidad: elígelo en «Privacidad»",
         "",
     ]
-    source = (JS / "new-session.js").read_text(encoding="utf-8")
+    source = ui_text((JS / "new-session.js"))
     assert 'if (!officeList.offices.some((office) => office.id === officeId))' in source
     assert 'navigate("new")' in source and "Esa oficina ya no está." in source
     assert "officeLevelRequiredText(failure)" in source and "dispatch({ type: \"notice\", text }, { keepDraft: true })" in source

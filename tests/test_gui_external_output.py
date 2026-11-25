@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.external_output import sha256
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.run_request import RunRequest
@@ -118,8 +119,8 @@ JS = STATIC_DIR / "js"
 
 
 def test_the_block_is_wired_and_never_reads_evidence_content_as_text():
-    source = (JS / "external-output.js").read_text(encoding="utf-8")
-    actions = (JS / "human-actions.js").read_text(encoding="utf-8")
+    source = ui_text((JS / "external-output.js"))
+    actions = ui_text((JS / "human-actions.js"))
     assert "<${ExternalOutput}" in actions
     assert '"external-output/preview"' in source and '"external-output/confirm"' in source
     assert "<${Confirm}" in source and "details.reason" in source and "details.problems" in source

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -425,8 +426,8 @@ def test_client_loads_only_same_origin_code_and_no_polling_every_two_seconds():
 
 
 def test_client_texts_are_spanish_and_name_the_counters_clearly():
-    text = (STATIC_DIR / "js" / "text.js").read_text(encoding="utf-8")
-    run_detail = (STATIC_DIR / "js" / "run-detail.js").read_text(encoding="utf-8")
+    text = ui_text((STATIC_DIR / "js" / "text.js"))
+    run_detail = ui_text((STATIC_DIR / "js" / "run-detail.js"))
     assert "Llamadas al modelo" in run_detail and "máximo" in run_detail
     assert "no matching step" not in text + run_detail and "Model calls" not in text + run_detail
     assert "Todos los pasos terminaron" in text + run_detail

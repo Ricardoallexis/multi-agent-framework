@@ -21,7 +21,9 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
+from gui_text import ui_text
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
 
@@ -226,11 +228,11 @@ def test_revision_conflict_and_closed_transition_and_existing_task_conflict(env)
 # --- the view, as text -------------------------------------------------------------------------------------------
 
 def test_the_view_is_wired_into_routes_sidebar_and_help():
-    view = (JS / "plans.js").read_text(encoding="utf-8")
-    main = (JS / "main.js").read_text(encoding="utf-8")
-    route = (JS / "route.js").read_text(encoding="utf-8")
-    extensions = (JS / "extensions.js").read_text(encoding="utf-8")
-    help_text = (JS / "help-text.js").read_text(encoding="utf-8")
+    view = ui_text((JS / "plans.js"))
+    main = ui_text(JS / "main.js")
+    route = ui_text((JS / "route.js"))
+    extensions = ui_text((JS / "extensions.js"))
+    help_text = ui_text((JS / "help-text.js"))
 
     assert 'import { Plans } from "./plans.js"' in main and '{ id: "plans", label: "Planes", icon: "file", mode: "advanced" }' in main
     assert re.search(r"<\$\{Plans\}[^>]*route=\$\{route\}", main)
@@ -266,6 +268,7 @@ def test_every_touched_script_passes_node_check():
 def node_root(tmp_path_factory):
     root = tmp_path_factory.mktemp("plans-static")
     shutil.copytree(JS, root / "js")
+    shutil.copytree(STATIC_DIR / "i18n", root / "i18n")
     shutil.copytree(STATIC_DIR / "vendor", root / "vendor")
     (root / "package.json").write_text('{"type":"module"}', encoding="utf-8")
     return root

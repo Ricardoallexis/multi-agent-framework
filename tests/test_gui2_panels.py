@@ -19,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.security import CSP
 from multiagent.gui.token import ensure_token
@@ -35,7 +36,7 @@ NEW_TOPICS = ["panel.changes", "panel.tokens", "panel.sources", "panel.retry", "
 
 
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text((JS / name))
 
 
 def css() -> str:
@@ -524,7 +525,7 @@ def test_new_files_exist_and_are_wired_into_the_slots_of_the_right_panel():
     assert re.search(r"const slot = \{ token, route, sessionId \};", panel)                  # the contract of GUI2-T02 is intact
     assert 'id="subagents-slot" class="slot" data-slot="subagents"' in slots                  # the T04 slot is untouched
     assert "<${Panel} key=${subject.key} token=${token} subject=${subject} />" in slots      # one instance per session or run
-    assert read("main.js").count("RightPanel") == 2                                           # the shell composes it as before
+    assert (JS / "main.js").read_text(encoding="utf-8").count("RightPanel") == 2               # the shell composes it as before
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     assert '<link rel="stylesheet" href="/gui/static/panels.css">' in html and "style=" not in html
 

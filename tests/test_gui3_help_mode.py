@@ -13,6 +13,7 @@ import subprocess
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 
 JS = STATIC_DIR / "js"
@@ -20,7 +21,7 @@ NODE = shutil.which("node")
 
 
 def read(path) -> str:
-    return path.read_text(encoding="utf-8")
+    return ui_text(path)
 
 
 def help_mode_block() -> str:

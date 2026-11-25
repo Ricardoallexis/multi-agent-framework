@@ -5,9 +5,16 @@
 // is no entry that approves, allows or launches anything, and nothing here talks to the server.
 import { matches as itemMatches } from "./sidebar-model.js";
 import { visibleIn } from "./gui-mode.js";
+import { t } from "./i18n.js";
 
 export const MAX_RESULTS = 30;
-export const KINDS = { section: "Sección", tab: "Pestaña", session: "Sesión", run: "Ejecución", help: "Ayuda" };
+export const KINDS = {
+  get section() { return t("palette.kind_section"); },
+  get tab() { return t("palette.kind_tab"); },
+  get session() { return t("palette.kind_session"); },
+  get run() { return t("palette.kind_run"); },
+  get help() { return t("palette.kind_help"); },
+};
 
 // Lower case without accents, so "ejecucion" finds "Ejecución".
 const plain = (text) => String(text || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -37,7 +44,7 @@ export function sectionEntries(navigation, tabs = [], mode = "advanced") {
   }
   for (const tab of tabs) {
     if (tab.mode !== undefined && !visibleIn(tab, mode)) continue;
-    add({ key: "tab:" + tab.id, kind: "tab", label: "Pendientes › " + tab.label, route: tab.route });
+    add({ key: "tab:" + tab.id, kind: "tab", label: t("palette.pending_prefix") + tab.label, route: tab.route });
   }
   return entries;
 }
@@ -53,6 +60,7 @@ export function itemEntries(items, mode = "advanced") {
 // The help texts: a title, a hint and an explanation, shown as text.
 export function helpEntries(help) {
   return Object.entries(help || {})
+    .map(([key, entry]) => [key, t("help." + key) === "help." + key ? entry : t("help." + key)])
     .filter(([, entry]) => entry && typeof entry.title === "string")
     .map(([key, entry]) => ({
       key: "help:" + key, kind: "help", label: entry.title, route: null, hint: entry.hint || "",

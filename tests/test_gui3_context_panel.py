@@ -11,6 +11,7 @@ import subprocess
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 
 JS = STATIC_DIR / "js"
@@ -121,7 +122,7 @@ def test_card_modes_are_remembered_and_fall_back_without_storage():
 
 @needs_node
 def test_a_closed_panel_without_subject_has_no_toggle_and_the_aside_stays():
-    shell = (JS / "shell.js").read_text(encoding="utf-8")
+    shell = ui_text((JS / "shell.js"))
     assert "hasSubject = false" in shell and "panelOpen && hasSubject" in shell
     toolbar = shell[shell.index("${hasSubject && html`<div class=\"content-toolbar\">"):shell.index("${children}")]
     assert 'aria-expanded=${panelOpen ? "true" : "false"}' in toolbar and 'aria-controls="right-panel"' in toolbar
@@ -130,7 +131,7 @@ def test_a_closed_panel_without_subject_has_no_toggle_and_the_aside_stays():
     # the aside is outside the condition: it is always in the DOM, so aria-controls points at something
     aside = re.search(r'<aside id="right-panel"[^>]*>', shell)[0]
     assert "hidden=${!panelShown}" in aside and shell.index(aside) > shell.index("${children}")
-    main = (JS / "main.js").read_text(encoding="utf-8")
+    main = ui_text((JS / "main.js"))
     assert "subjectOf(context" in main and "hasSubject=${hasSubject}" in main and "onDot=${setContextDot}" in main
     out = run_node(f"""
       import {{ subjectOf }} from {uri(JS / "panel-model.js")};
@@ -142,7 +143,7 @@ def test_a_closed_panel_without_subject_has_no_toggle_and_the_aside_stays():
 
 @needs_node
 def test_slots_that_do_not_report_are_drawn_and_the_panel_honours_the_modes():
-    panel = (JS / "right-panel.js").read_text(encoding="utf-8")
+    panel = ui_text((JS / "right-panel.js"))
     assert "readCardModes()" in panel and "shownCards(cards, modes, contents)" in panel
     assert "defaultMode: entry.defaultMode" in panel                            # the mode a card registered
     assert panel.count("hidden=${!shown.") == 4 and "hidden=${!shown}" in panel   # not drawn means hidden, never unmounted
@@ -170,7 +171,7 @@ def test_the_extension_slots_report_their_content_and_task_waiting_starts_in_nev
     # with no run open, «Alertas de documentos» says it has nothing, through a component that draws nothing
     alerts = (static / "document_alerts/index.js").read_text(encoding="utf-8")
     assert "<${ContentReport} onContent=${onContent} has=${false} />" in alerts
-    report = (JS / "context-report.js").read_text(encoding="utf-8")
+    report = ui_text((JS / "context-report.js"))
     assert re.search(r"export function ContentReport\(\{ onContent, has = false, urgent = false \}\) \{\s*useContentReport\(onContent, has, urgent\);\s*return null;", report)
     waiting =(static / "task_waiting/index.js").read_text(encoding="utf-8")
     assert re.search(r'registerSlot\("task_waiting".*?defaultMode: "never"', waiting, re.S)
@@ -182,7 +183,7 @@ def test_the_extension_slots_report_their_content_and_task_waiting_starts_in_nev
 
 
 def test_the_subagents_panel_reports_whether_it_has_subagents():
-    panel = (JS / "subagents-panel.js").read_text(encoding="utf-8")
-    mount = (JS / "subagents-mount.js").read_text(encoding="utf-8")
+    panel = ui_text((JS / "subagents-panel.js"))
+    mount = ui_text((JS / "subagents-mount.js"))
     assert "onContent({ has: data.loaded && data.children.length > 0 })" in panel
     assert "onContent({ has: false })" in mount and "onContent=${onContent}" in mount

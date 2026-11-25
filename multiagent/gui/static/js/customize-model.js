@@ -4,9 +4,15 @@
 // draws them and shell-state.js remembers the result.
 import { CARD_MODES, modeOf, normalizeModes } from "./context-model.js";
 import { visibleIn } from "./gui-mode.js";
+import { t } from "./i18n.js";
 
 export const CUSTOMIZE_SECTION = "customize";
-export const MODE_LABELS = { auto: "Automática", always: "Siempre", never: "Nunca" };
+export const LANGUAGE_CHOICES = ["auto", "en", "es"];
+export const MODE_LABELS = {
+  get auto() { return t("customize.auto"); },
+  get always() { return t("customize.always"); },
+  get never() { return t("customize.never"); },
+};
 
 // The sections a person can pin: the ones that are not already fixed and not this screen. A section is pinned when its id is in `pinned`.
 // SIM-T02: in simple mode the advanced sections are not offered; a pin already made stays in `pinned` untouched.
@@ -32,10 +38,10 @@ export function togglePinned(pinned, id) {
 
 // The four cards of the panel and the ones extensions registered, each with the mode in effect.
 export const OWN_CARDS = [
-  { name: "changes", title: "Cambios" },
-  { name: "subagents", title: "Subagentes" },
-  { name: "tokens", title: "Tokens" },
-  { name: "sources", title: "Fuentes" },
+  { name: "changes", get title() { return t("customize.card_changes"); } },
+  { name: "subagents", get title() { return t("customize.card_subagents"); } },
+  { name: "tokens", get title() { return t("customize.card_tokens"); } },
+  { name: "sources", get title() { return t("customize.card_sources"); } },
 ];
 
 export function cardRows(extraSlots, modes) {
@@ -54,10 +60,10 @@ export function withCardMode(modes, name, mode) {
 // The accent palettes of the «Colores» block. The ids and names live here; the colours live only in app.css (a block per
 // palette, `.app[data-accent="<id>"]`), so nothing here repeats a value. «Neutro» is the default and has no block: it is :root.
 export const ACCENTS = [
-  { id: "neutral", label: "Neutro" },
-  { id: "azul", label: "Azul" },
-  { id: "verde", label: "Verde" },
-  { id: "violeta", label: "Violeta" },
+  { id: "neutral", get label() { return t("customize.accent_neutral"); } },
+  { id: "azul", get label() { return t("customize.accent_azul"); } },
+  { id: "verde", get label() { return t("customize.accent_verde"); } },
+  { id: "violeta", get label() { return t("customize.accent_violeta"); } },
 ];
 export const DEFAULT_ACCENT = "neutral";
 

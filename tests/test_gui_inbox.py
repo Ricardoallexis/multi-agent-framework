@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -121,8 +122,8 @@ def test_pure_inbox_rules_and_view_wiring():
         "disabled": "policy off", "empty": "Escribe un mensaje.", "note": "",
         "path": "/gui/api/runs/a%2Fb/messages",
     }
-    thread = (JS / "thread.js").read_text(encoding="utf-8")
-    pending = (JS / "pending.js").read_text(encoding="utf-8")
+    thread = ui_text((JS / "thread.js"))
+    pending = ui_text((JS / "pending.js"))
     assert "<${RunInbox}" in thread and 'messagePath("runs", runId)' in thread
     assert 'messagePath("runs", cancelId)' in pending and "pending.background" in pending
-    assert "approve" not in (JS / "inbox-model.js").read_text(encoding="utf-8")
+    assert "approve" not in ui_text((JS / "inbox-model.js"))

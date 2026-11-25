@@ -11,6 +11,7 @@ import subprocess
 import pytest
 
 from multiagent.gui import STATIC_DIR
+from gui_text import ui_text
 
 JS = STATIC_DIR / "js"
 NODE = shutil.which("node")
@@ -18,7 +19,7 @@ needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 
 def read(name: str) -> str:
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text(JS / name)
 
 
 def run_node(source: str) -> dict:
@@ -101,7 +102,7 @@ def test_arrows_stop_at_the_ends_enter_opens_and_other_keys_do_nothing():
 
 
 def test_the_dialog_is_native_closes_with_esc_and_gives_the_focus_back():
-    palette = read("command-palette.js")
+    palette = (JS / "command-palette.js").read_text(encoding="utf-8")
     assert "<dialog" in palette and "showModal()" in palette and 'addEventListener("close"' in palette
     assert "before.current = document.activeElement" in palette and "back.focus()" in palette
     assert 'role="combobox"' in palette and 'role="listbox"' in palette and 'role="option"' in palette
@@ -137,7 +138,7 @@ def test_the_old_fixed_field_is_gone_and_the_search_row_shows_the_shortcut():
 def test_dialog_opens_before_paint_so_the_first_keys_reach_the_field():
     # The dialog opens and takes the focus in a layout effect: keys typed right after Ctrl+K or the «Buscar» row land in
     # the field instead of the page (a plain effect waits for the next frame, and a hidden tab may delay it).
-    palette = (JS / "command-palette.js").read_text(encoding="utf-8")
+    palette = ui_text(JS / "command-palette.js")
     opening = palette[:palette.index("box.showModal()")]
     assert opening.rstrip().rfind("useLayoutEffect(") > opening.rstrip().rfind("useEffect(")
 
@@ -145,7 +146,7 @@ def test_dialog_opens_before_paint_so_the_first_keys_reach_the_field():
 def test_one_escape_closes_the_dialog_even_with_text_in_the_field():
     # A search field spends the first Esc clearing itself: the field's own handler closes the dialog on the first one
     # (unless an open help text took it first), and the focus goes back through the dialog's "close" event.
-    palette = (JS / "command-palette.js").read_text(encoding="utf-8")
+    palette = ui_text(JS / "command-palette.js")
     handler = palette[palette.index("const onKeyDown"):palette.index("const optionId")]
     assert 'event.key === "Escape"' in handler and "!event.defaultPrevented" in handler
     assert "event.preventDefault()" in handler and "dialog.current.close()" in handler

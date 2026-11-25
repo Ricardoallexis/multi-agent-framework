@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.offices_api import BODY_MAX_BYTES
 from multiagent.gui.token import ensure_token
@@ -200,7 +201,7 @@ def test_install_in_one_click_with_two_decisions_at_most(gui, tmp_path):
     for area in ("one", "two", "three"):
         team = gui.services.teams.approved(f"demo__{area}")
         assert team is not None and team["status"] == "approved"
-        assert team["note"].startswith("aprobado al instalar la oficina demo ")
+        assert team["note"].startswith("approved when installing office demo ")
 
 
 def test_install_without_decision_is_refused(gui, tmp_path):
@@ -241,7 +242,7 @@ def test_risk_ack_only_when_asked(gui, tmp_path):
       console.log(JSON.stringify([false, true].map((required) =>
         cardView({{ risk_ack_required: required }}).riskAckRequired)));
     """)
-    source = (EXT / "import.js").read_text(encoding="utf-8")
+    source = ui_text((EXT / "import.js"))
     assert view == [False, True]
     assert 'view.riskAckRequired && html`<label class="check-inline offices-risk-ack">' in source
 
@@ -292,7 +293,7 @@ def test_remove_confirmation_shows_data_retention_notice():
       import {{ REMOVE_NOTICE }} from {file_url(EXT / "import-model.js")};
       console.log(JSON.stringify(REMOVE_NOTICE));
     """)
-    source = (EXT / "index.js").read_text(encoding="utf-8")
+    source = ui_text((EXT / "index.js"))
     assert out == "Se quita de la lista. Se conservan sus datos"
     assert '<p class="small">${REMOVE_NOTICE}</p>' in source
     assert 'result?.kept_data !== true' in source
@@ -366,7 +367,7 @@ def test_include_code_only_in_advanced_mode():
       console.log(JSON.stringify(["simple", "advanced"].map(includeCodeVisible)));
     """)
     assert out == [False, True]
-    source = (EXT / "index.js").read_text(encoding="utf-8")
+    source = ui_text((EXT / "index.js"))
     assert 'showIncludeCode && html`<label class="check-inline offices-include-code">' in source
     assert "Incluir código" in source
 

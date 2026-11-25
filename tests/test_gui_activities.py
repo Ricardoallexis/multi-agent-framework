@@ -9,6 +9,7 @@ import subprocess
 
 import pytest
 
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from test_gui_help import NODE
 from test_gui_project import auth, env
@@ -66,7 +67,7 @@ def test_activities_route_requires_the_gui_token(env):
 
 
 def test_sidebar_activities_filter_uses_token_route_and_accessible_toggle():
-    sidebar = (JS / "sidebar.js").read_text(encoding="utf-8")
+    sidebar = ui_text((JS / "sidebar.js"))
     assert 'apiGet("/gui/api/activities", token)' in sidebar
     assert 'aria-pressed=${activitiesMode ? "true" : "false"}' in sidebar
     assert ">Actividades</button>" in sidebar

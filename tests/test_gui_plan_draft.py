@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -52,6 +53,7 @@ CATALOG = [{"id": "summarize_document", "bundle": "general", "description": "Res
 def node_root(tmp_path_factory):
     root = tmp_path_factory.mktemp("plan-draft-static")
     shutil.copytree(JS, root / "js")
+    shutil.copytree(STATIC_DIR / "i18n", root / "i18n")
     shutil.copytree(STATIC_DIR / "vendor", root / "vendor")
     (root / "package.json").write_text('{"type":"module"}', encoding="utf-8")
     return root
@@ -139,7 +141,7 @@ def test_draft_text_is_plain(node_root):
     """)
     assert evil in result and result.count(evil) == 2 and "HTML-INJECTED" not in result
     for name in ("plan-draft.js", "plan-draft-model.js"):
-        source = (JS / name).read_text(encoding="utf-8")
+        source = ui_text((JS / name))
         for bad in ("innerHTML", "__html", "dangerouslySetInnerHTML", "style="):
             assert bad not in source, (name, bad)
 
@@ -186,13 +188,13 @@ def test_every_script_passes_node_check():
 
 
 def test_wiring_and_help():
-    shell = (JS / "new-session.js").read_text(encoding="utf-8")
-    card = (JS / "plan-draft.js").read_text(encoding="utf-8")
-    help_text = (JS / "help-text.js").read_text(encoding="utf-8")
+    shell = ui_text((JS / "new-session.js"))
+    card = ui_text((JS / "plan-draft.js"))
+    help_text = ui_text((JS / "help-text.js"))
     assert 'import { PlanDraftCard } from "./plan-draft.js";' in shell and "isPlanSuggested(interpretation)" in shell
     assert '"chat.plan_draft"' in help_text and '"chat.plan_save"' in help_text
     assert 'topic="chat.plan_draft"' in card and 'helpFor("chat.plan_save")' in card
-    assert "/gui/api/new-session/plan/save" in (JS / "plan-draft-model.js").read_text(encoding="utf-8")
+    assert "/gui/api/new-session/plan/save" in ui_text((JS / "plan-draft-model.js"))
     assert "ARR3-T02" in (STATIC_DIR / "app.css").read_text(encoding="utf-8")
 
 

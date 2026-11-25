@@ -20,7 +20,9 @@ from fastapi.testclient import TestClient
 from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.evaluation import load_eval_set
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
+from gui_text import ui_text
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
 from test_evaluation_regression import WORKFLOW_SET, broken_workflows
@@ -132,11 +134,11 @@ def test_the_routes_only_read(env):
 # --- the view, as text -------------------------------------------------------------------------------------------
 
 def test_the_view_is_wired_into_the_routes_the_menu_and_the_help():
-    view = (JS / "evaluation.js").read_text(encoding="utf-8")
-    main = (JS / "main.js").read_text(encoding="utf-8")
+    view = ui_text((JS / "evaluation.js"))
+    main = ui_text(JS / "main.js")
     assert 'import { Evaluation } from "./evaluation.js"' in main and '{ id: "evaluation", label: "Evaluación", icon: "check", mode: "advanced" }' in main
     assert re.search(r"<\$\{Evaluation\}[^>]*route=\$\{route\}", main)
-    assert '"evaluation"' in (JS / "route.js").read_text(encoding="utf-8")
+    assert '"evaluation"' in ui_text((JS / "route.js"))
     for path in ("/gui/api/evaluations", "/comparison?", "/runs?"):
         assert path in view, path
     # read only: it never sends anything
@@ -144,7 +146,7 @@ def test_the_view_is_wired_into_the_routes_the_menu_and_the_help():
     for bad in ("innerHTML", "dangerouslySetInnerHTML", "__html", "eval(", "style="):
         assert bad not in view, bad
     for topic in re.findall(r'topic="(evaluation\.\w+)"', view) + re.findall(r'helpFor\("(evaluation\.\w+)"', view):
-        assert topic in (JS / "help-text.js").read_text(encoding="utf-8"), topic
+        assert topic in ui_text((JS / "help-text.js")), topic
 
 
 # --- the view, rendered (needs Node) -----------------------------------------------------------------------------
@@ -153,6 +155,7 @@ def test_the_view_is_wired_into_the_routes_the_menu_and_the_help():
 def node_root(tmp_path_factory):
     root = tmp_path_factory.mktemp("evaluation-static")
     shutil.copytree(JS, root / "js")
+    shutil.copytree(STATIC_DIR / "i18n", root / "i18n")
     shutil.copytree(STATIC_DIR / "vendor", root / "vendor")
     (root / "package.json").write_text('{"type":"module"}', encoding="utf-8")
     return root

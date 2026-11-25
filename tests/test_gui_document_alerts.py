@@ -39,6 +39,7 @@ from multiagent.document_trust import (
     derive,
     screen,
 )
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.document_alerts_api import alerts_from_events
 from multiagent.gui.security import CSP
@@ -330,10 +331,10 @@ def test_the_route_only_reads(env):
 # --- registerSlot, the page and the hygiene of the folder -----------------------------------------------------------------
 
 def test_the_slot_is_added_by_the_folder_and_panel_slots_js_does_not_know_it():
-    panel_slots = (JS / "panel-slots.js").read_text(encoding="utf-8")
+    panel_slots = ui_text((JS / "panel-slots.js"))
     assert "document_alerts" not in panel_slots and "document-alerts" not in panel_slots
     assert re.search(r"export\s*\{\s*registerSlot\s*,\s*registeredSlots\s*\}\s*from\s*['\"]\./extensions\.js['\"];", panel_slots)
-    index = (FOLDER / "index.js").read_text(encoding="utf-8")
+    index = ui_text((FOLDER / "index.js"))
     assert re.search(r'\bregisterSlot\(\s*"document_alerts"\s*,\s*DocumentAlertsCard\b', index)
     assert re.search(r'\bregisterView\(\{\s*id:\s*"document_alerts"', index)
 

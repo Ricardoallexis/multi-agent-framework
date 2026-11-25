@@ -16,6 +16,7 @@ import yaml
 
 from multiagent.executors.antigravity import AntigravityAdapter, NOTICE_ID
 from multiagent.executors.registry import ExecutorRegistry
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR, continuity_api
 from multiagent.routing.executor_capabilities import validate_executor_config
 from multiagent.services.executors import ExecutorServices
@@ -79,8 +80,8 @@ def test_agy_quota_floor_disables_choice_with_notice_and_empty_state():
 
 
 def test_picker_is_wired_to_read_only_connections_and_has_phone_rules():
-    view = (JS / "new-session.js").read_text(encoding="utf-8")
-    component = (JS / "model-picker.js").read_text(encoding="utf-8")
+    view = ui_text((JS / "new-session.js"))
+    component = ui_text((JS / "model-picker.js"))
     css = (STATIC_DIR / "new-session.css").read_text(encoding="utf-8")
     assert 'apiGet("/gui/api/connections", token)' in view
     assert "<${ModelPicker}" in view
@@ -202,7 +203,7 @@ def test_gemini_five_states_and_agy_floor_warning_in_picker():
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
 def test_picker_scripts_pass_node_check_and_render_warning_and_gemini_quota():
-    component = (JS / "model-picker.js").read_text(encoding="utf-8")
+    component = ui_text((JS / "model-picker.js"))
     assert "item.verificationLabel" in component
     assert "item.warning" in component
     assert "selected.quota.map" in component and "item.quota.map" in component

@@ -22,6 +22,7 @@ from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.db.database import Database
 from multiagent.db.store import Store
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.security import CSP, require_json, require_token
 from multiagent.gui.setup_api import add_setup_routes, permission_status
@@ -240,7 +241,7 @@ def test_console_route_respects_allow_launch_and_non_windows_and_agy_info(tmp_pa
     agy = linux_client.post("/gui/api/setup/console", headers=headers,
                             json={"id": "antigravity_cli", "step": "login"})
     assert agy.status_code == 200  # nothing to open, so nothing to wait for
-    assert "Inicia sesión tú en agy" in agy.json()["plan"]["message"]
+    assert "Sign in to agy yourself" in agy.json()["plan"]["message"]
 
 
 def test_apps_extension_is_discovered_and_served_on_real_app(tmp_path):
@@ -521,6 +522,6 @@ def test_apps_card_shows_the_certificate_button_only_with_tls_fix():
     assert by_id["codex_cli"]["tlsFix"] is None and by_id["codex_cli"]["canProbe"] is False
     assert by_id["openai"]["canProbe"] is True and by_id["ollama"]["canProbe"] is True
     assert "certificado" in by_id["openai"]["action"]["detail"] and ".pem" in by_id["openai"]["action"]["detail"]
-    source = (EXT_APPS / "index.js").read_text(encoding="utf-8")
+    source = ui_text((EXT_APPS / "index.js"))
     assert "item.tlsFix.label" in source and "/tls-trust" in source and "/probe" in source
     assert 'helpFor("apps.tls_fix"' in source and 'helpFor("apps.probe"' in source

@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
 from multiagent.config import Settings
+from tests.gui_text import ui_text
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -191,6 +192,7 @@ def test_deciding_from_the_card_uses_the_existing_routes_and_fixes_actor_and_cha
 def node_root(tmp_path_factory):
     root = tmp_path_factory.mktemp("team-card-static")
     shutil.copytree(JS, root / "js")
+    shutil.copytree(STATIC_DIR / "i18n", root / "i18n")
     shutil.copytree(STATIC_DIR / "vendor", root / "vendor")
     (root / "package.json").write_text('{"type":"module"}', encoding="utf-8")
     return root
@@ -276,7 +278,7 @@ def test_the_card_model_writes_every_part_as_text(node_root):
 # --- the wiring (static) -----------------------------------------------------------------------------------------------
 
 def read(name):
-    return (JS / name).read_text(encoding="utf-8")
+    return ui_text((JS / name))
 
 
 def test_the_chat_view_the_card_and_equipos_are_wired_together():

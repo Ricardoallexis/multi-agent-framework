@@ -7,7 +7,7 @@
 // A control that deliberately has no help says why with data-help-exempt (see tests/test_gui_help.py).
 import { html, useState } from "../vendor/htm-preact-standalone.module.js";
 import { registeredHelp } from "./extensions.js";
-import { HELP } from "./help-text.js";
+import { localizedHelp } from "./help-text.js";
 
 const slug = (text) => String(text).replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 const baseId = (topic, scope) => "help-" + slug(topic) + (scope ? "-" + slug(scope) : "");
@@ -26,7 +26,7 @@ export function helpFor(topic, { also = "", scope = "" } = {}) {
 // always: the block stays visible when help mode is off (GUI3-T02), for the help of a screen title that does not follow the <h2>.
 export function Help({ topic, entry = null, hint = null, compact = false, scope = "", always = false }) {
   const [open, setOpen] = useState(false);
-  const data = entry || HELP[topic] || registeredHelp(topic);   // the texts of an extension come from its own help.js
+  const data = entry || localizedHelp(topic) || registeredHelp(topic);
   if (!data) return null;
   const id = baseId(topic, scope);
   const sentences = Array.isArray(data.more) ? data.more : [data.more];
