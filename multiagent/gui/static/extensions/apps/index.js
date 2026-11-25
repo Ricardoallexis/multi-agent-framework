@@ -8,33 +8,34 @@ import { registerHelp, registerView } from "../../js/extensions.js";
 import { currentMode } from "../../js/gui-mode.js";   // SIM-T03
 import { Help, helpFor } from "../../js/help.js";
 import { errorText, fmtDate } from "../../js/text.js";
+import { t } from "../../js/i18n.js";
 import { StatusChip } from "../../js/ui/status-chip.js";
 import { HELP } from "./help.js";
 import { buildAppsView } from "./model.js";
-import { STOP_ALL_CONFIRM, activationNote } from "./activation-model.js";   // EJE-T02
+import { activationNote, stopAllConfirmText } from "./activation-model.js";   // EJE-T02
 import { activateExecutor, deactivateExecutor, requestActivation, stopAllExecutors } from "./activation.js";
 
 registerHelp(HELP, "apps");
 
-const CHIP_LABELS = {
-  ok: { text: "Listo", tone: "success", shape: "disc", explanation: "Listo para usar." },
-  waiting: { text: "Falta un paso", tone: "warning", shape: "diamond", explanation: "Falta completar un paso." },
-  unknown: { text: "Sin verificar", tone: "neutral", shape: "ring", explanation: "No se puede comprobar sin gastar." },
-  error: { text: "No disponible", tone: "danger", shape: "square", explanation: "No disponible en este momento." },
-  conflict: { text: "Estado en conflicto; vuelve a comprobarlo", tone: "danger", shape: "square",
-    explanation: "La activación y la última comprobación no coinciden." },
-  unverified: { text: "Sin comprobar", tone: "neutral", shape: "ring", explanation: "Clave configurada; se comprueba con el primer mensaje." },
-  connected: { text: "Conectado", tone: "success", shape: "disc", explanation: "Conectado y comprobado con una respuesta reciente." },
-  key_invalid: { text: "Clave inválida", tone: "danger", shape: "square", explanation: "El proveedor rechazó la clave configurada." },
-  no_access: { text: "Sin acceso", tone: "danger", shape: "square", explanation: "No se pudo conectar con el proveedor." },
-  limit_reached: { text: "Límite alcanzado", tone: "danger", shape: "square", explanation: "Se alcanzó el límite de uso." },
+const chipLabels = () => ({
+  ok: { text: t("ext.apps.status.ready"), tone: "success", shape: "disc", explanation: t("ext.apps.chip.ready") },
+  waiting: { text: t("ext.apps.status.missing_step"), tone: "warning", shape: "diamond", explanation: t("ext.apps.chip.missing_step") },
+  unknown: { text: t("ext.apps.status.unknown"), tone: "neutral", shape: "ring", explanation: t("ext.apps.chip.unknown") },
+  error: { text: t("ext.apps.reason.unavailable"), tone: "danger", shape: "square", explanation: t("ext.apps.chip.unavailable") },
+  conflict: { text: t("ext.apps.status.conflict"), tone: "danger", shape: "square",
+    explanation: t("ext.apps.chip.conflict") },
+  unverified: { text: t("ext.apps.status.unverified"), tone: "neutral", shape: "ring", explanation: t("ext.apps.chip.unverified") },
+  connected: { text: t("ext.apps.status.connected"), tone: "success", shape: "disc", explanation: t("ext.apps.chip.connected") },
+  key_invalid: { text: t("ext.apps.status.key_invalid"), tone: "danger", shape: "square", explanation: t("ext.apps.chip.key_invalid") },
+  no_access: { text: t("ext.apps.status.no_access"), tone: "danger", shape: "square", explanation: t("ext.apps.chip.no_access") },
+  limit_reached: { text: t("ext.apps.status.limit_reached"), tone: "danger", shape: "square", explanation: t("ext.apps.chip.limit_reached") },
   // EJE-T02: the five states of an executor («Activar»).
-  not_installed: { text: "No instalado", tone: "danger", shape: "square", explanation: "La aplicación no está instalada." },
-  no_session: { text: "Instalado, sin sesión", tone: "warning", shape: "diamond", explanation: "Falta iniciar sesión en la aplicación." },
-  ready: { text: "Listo para activar", tone: "warning", shape: "diamond", explanation: "Instalado y con sesión; falta que lo actives tú." },
-  active: { text: "Activo", tone: "success", shape: "disc", explanation: "Lo activaste tú y el framework puede lanzarlo." },
-  paused: { text: "En pausa", tone: "warning", shape: "diamond", explanation: "Quedó en pausa; hay que revisar y activarlo otra vez." },
-};
+  not_installed: { text: t("ext.apps.activation.state.not_installed"), tone: "danger", shape: "square", explanation: t("ext.apps.chip.not_installed") },
+  no_session: { text: t("ext.apps.activation.state.no_session"), tone: "warning", shape: "diamond", explanation: t("ext.apps.chip.no_session") },
+  ready: { text: t("ext.apps.activation.state.ready"), tone: "warning", shape: "diamond", explanation: t("ext.apps.chip.activation_ready") },
+  active: { text: t("ext.apps.activation.state.active"), tone: "success", shape: "disc", explanation: t("ext.apps.chip.active") },
+  paused: { text: t("ext.apps.activation.state.paused"), tone: "warning", shape: "diamond", explanation: t("ext.apps.chip.paused") },
+});
 
 const CONSOLE_POLL_MS = 4000;
 
@@ -50,10 +51,10 @@ function settingText(text) {
 
 function consoleErrorText(error) {
   if (!error) return "";
-  if (error.code === "console_already_open") return "Ya hay otra consola de configuración abierta. Ciérrala antes de abrir otra.";
-  if (error.code === "launch_disabled") return "Abrir consola está desactivado (gui_allow_launch). Copia el comando y ejecútalo tú.";
-  if (error.code === "launch_unsupported") return "Abrir consola visible solo está disponible en Windows. Copia el comando y ejecútalo tú.";
-  if (error.code === "effect_not_authorized") return "La política activa no autorizó abrir la consola.";
+  if (error.code === "console_already_open") return t("ext.apps.console.already_open");
+  if (error.code === "launch_disabled") return t("ext.apps.console.launch_disabled");
+  if (error.code === "launch_unsupported") return t("ext.apps.console.launch_unsupported");
+  if (error.code === "effect_not_authorized") return t("ext.apps.console.effect_not_authorized");
   return errorText(error);
 }
 
@@ -71,10 +72,10 @@ function CopyBlock({ label, text, scope, statusText }) {
     ${label && html`<p class="apps-snippet-label">${label}</p>`}
     <pre class="data">${settingText(text)}</pre>
     <div class="apps-actions">
-      <button type="button" class="btn secondary small" ...${helpFor("apps.copy", { scope })} onClick=${copy}>Copiar</button>
+      <button type="button" class="btn secondary small" ...${helpFor("apps.copy", { scope })} onClick=${copy}>${t("ext.apps.copy")}</button>
       <${Help} topic="apps.copy" compact=${true} scope=${scope} />
       <span class="apps-status-line muted" role="status" aria-live="polite">
-        ${copied === "ok" ? (statusText || "Copiado al portapapeles.") : copied === "failed" ? "No se pudo copiar; selecciónalo y cópialo a mano." : ""}
+        ${copied === "ok" ? (statusText || t("ext.apps.copy.copied")) : copied === "failed" ? t("ext.apps.copy.failed") : ""}
       </span>
     </div>
   </div>`;
@@ -98,7 +99,7 @@ function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDon
       setResult(state);
       onDone();
     } else {
-      setError(new ApiError({ code: "console_failed", message: "No se pudo seguir la consola." }));
+      setError(new ApiError({ code: "console_failed", message: t("ext.apps.console.poll_failed") }));
     }
     setConsoleId(null);
     onBusyChange(false);
@@ -149,33 +150,33 @@ function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDon
     <p class="apps-step-text">${action.detail}</p>
     ${!canOpen && html`
       <p class="apps-status-line muted">${!allowLaunch
-        ? "El visor tiene desactivado abrir consolas (gui_allow_launch)."
-        : "Abrir consola visible solo está disponible en Windows."}</p>
-      ${action.commandText && html`<${CopyBlock} label="Comando oficial para ejecutar en tu terminal:" text=${action.commandText} scope=${item.id + "-cmd"} />`}
+        ? t("ext.apps.console.disabled")
+        : t("ext.apps.console.windows_only")}</p>
+      ${action.commandText && html`<${CopyBlock} label=${t("ext.apps.console.official_command_terminal")} text=${action.commandText} scope=${item.id + "-cmd"} />`}
     `}
     ${canOpen && phase === "idle" && html`<div class="apps-actions">
       <button type="button" class="btn" disabled=${busyAny} ...${helpFor("apps.open_console", { scope: item.id })}
-        onClick=${() => { setError(null); setResult(null); setPhase("confirm"); }}>Abrir consola</button>
+        onClick=${() => { setError(null); setResult(null); setPhase("confirm"); }}>${t("ext.apps.console.open")}</button>
       <${Help} topic="apps.open_console" compact=${true} scope=${item.id} />
     </div>`}
-    ${canOpen && phase !== "idle" && html`<div class="apps-confirm" role="group" aria-label=${"Confirmar abrir consola para " + item.label}>
-      <p>Se abrirá una consola visible de Windows${action.commandText ? html` con el comando <code>${action.commandText}</code>` : ""}.
-        ${action.source ? ` (Fuente: ${action.source}${action.sourceDate ? ", " + action.sourceDate : ""}).` : ""}
-        Pulsa Enter dentro de la consola para ejecutarlo; no se leen credenciales.</p>
+    ${canOpen && phase !== "idle" && html`<div class="apps-confirm" role="group" aria-label=${t("ext.apps.console.confirm_label", { name: item.label })}>
+      <p>${t("ext.apps.console.confirm_before")}${action.commandText ? html` ${t("ext.apps.console.command")} <code>${action.commandText}</code>` : ""}.
+        ${action.source ? ` (${t("ext.apps.console.source")}: ${action.source}${action.sourceDate ? ", " + action.sourceDate : ""}).` : ""}
+        ${t("ext.apps.console.confirm_after")}</p>
       <div class="apps-actions">
         <button type="button" class="btn" ref=${confirmRef} data-help-exempt="confirm" disabled=${phase === "running"} onClick=${launch}>
-          ${phase === "running" ? "Consola abierta…" : "Confirmar y abrir consola"}
+          ${phase === "running" ? t("ext.apps.console.opened") : t("ext.apps.console.confirm_open")}
         </button>
         <button type="button" class="btn secondary" data-help-exempt="confirm" disabled=${phase === "running"}
-          onClick=${() => setPhase("idle")}>Cancelar</button>
+          onClick=${() => setPhase("idle")}>${t("ext.apps.cancel")}</button>
       </div>
     </div>`}
     ${result && html`<p class="message ok apps-status-line" role="status">
-      Consola cerrada (código ${result.console_exit_code ?? 0}). Estado actualizado; pulsa «Volver a comprobar» si hace falta.
+      ${t("ext.apps.console.closed", { code: result.console_exit_code ?? 0 })}
     </p>`}
     ${error && html`<div role="alert">
       <p class="message error apps-status-line">${consoleErrorText(error)}</p>
-      ${action.commandText && html`<${CopyBlock} label="Comando oficial:" text=${action.commandText} scope=${item.id + "-errcmd"} />`}
+      ${action.commandText && html`      <${CopyBlock} label=${t("ext.apps.console.official_command")} text=${action.commandText} scope=${item.id + "-errcmd"} />`}
     </div>`}
   </div>`;
 }
@@ -183,7 +184,7 @@ function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDon
 function MissingStep({ item, allowLaunch, consoleSupported, token, onRecheck, busyAny, onBusyChange }) {
   const action = item.action;
   if (!action) {
-    return html`<p class="apps-status-line message ok">Todo listo para usar.</p>`;
+    return html`<p class="apps-status-line message ok">${t("ext.apps.all_ready")}</p>`;
   }
   if (action.kind === "console") {
     return html`<${ConsoleStep} item=${item} action=${action} allowLaunch=${allowLaunch} consoleSupported=${consoleSupported}
@@ -199,7 +200,7 @@ function MissingStep({ item, allowLaunch, consoleSupported, token, onRecheck, bu
     return html`<div class="apps-step">
       <p class="apps-step-title">${action.title}</p>
       <p class="apps-step-text">${settingText(action.detail)}</p>
-      <${CopyBlock} label=${`Nombre del ajuste para ${action.file}:`} text=${`${action.setting}=`} scope=${item.id + "-key"} />
+      <${CopyBlock} label=${t("ext.apps.setting_name_for", { file: action.file })} text=${`${action.setting}=`} scope=${item.id + "-key"} />
     </div>`;
   }
   if (action.kind === "enable_executor") {   // EJE-T02: the button is in the activation panel of the card
@@ -213,7 +214,7 @@ function MissingStep({ item, allowLaunch, consoleSupported, token, onRecheck, bu
     return html`<div class="apps-step">
       <p class="apps-step-title">${action.title}</p>
       <p class="apps-step-text">${action.detail}</p>
-      <${CopyBlock} label=${`En ${action.file}:`} text=${action.line} scope=${item.id + "-enable"} />
+      <${CopyBlock} label=${t("ext.apps.in_file", { file: action.file })} text=${action.line} scope=${item.id + "-enable"} />
     </div>`;
   }
   return html`<div class="apps-step">
@@ -287,12 +288,12 @@ function ActivationPanel({ item, token, onChanged }) {
       ? html`<${Help} topic="apps.paused" compact=${true} scope=${scope} />` : ""}</p>`}
     ${phase !== "note" && (can("activate") || can("review") || can("deactivate")) && html`<div class="apps-actions">
       ${can("activate") && html`<button type="button" class="btn" disabled=${busy} ...${helpFor("apps.activate", { scope })}
-        onClick=${openNote}>${phase === "requesting" ? "Preparando…" : "Activar"}</button>
+        onClick=${openNote}>${phase === "requesting" ? t("ext.apps.activation.preparing") : t("ext.apps.activation.activate")}</button>
       <${Help} topic="apps.activate" compact=${true} scope=${scope} />`}
       ${can("review") && html`<button type="button" class="btn" disabled=${busy} ...${helpFor("apps.paused", { scope: scope + "-review" })}
-        onClick=${openNote}>${phase === "requesting" ? "Preparando…" : "Revisar y activar"}</button>`}
+        onClick=${openNote}>${phase === "requesting" ? t("ext.apps.activation.preparing") : t("ext.apps.activation.review_activate")}</button>`}
       ${can("deactivate") && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("apps.deactivate", { scope })}
-        onClick=${turnOff}>${phase === "working" ? "Desactivando…" : "Desactivar"}</button>
+        onClick=${turnOff}>${phase === "working" ? t("ext.apps.activation.deactivating") : t("ext.apps.activation.deactivate")}</button>
       <${Help} topic="apps.deactivate" compact=${true} scope=${scope} />`}
     </div>`}
     ${phase === "note" && note && html`<div class="apps-confirm apps-activation-note" role="group" aria-label=${note.title}>
@@ -300,10 +301,10 @@ function ActivationPanel({ item, token, onChanged }) {
       ${note.lines.map((line, index) => html`<p key=${index} class="apps-step-text">${line}</p>`)}
       <div class="apps-actions">
         <button type="button" class="btn" ref=${confirmRef} data-help-exempt="confirm" onClick=${accept}>${note.confirmLabel}</button>
-        <button type="button" class="btn secondary" data-help-exempt="confirm" onClick=${cancelNote}>Cancelar</button>
+        <button type="button" class="btn secondary" data-help-exempt="confirm" onClick=${cancelNote}>${t("ext.apps.cancel")}</button>
       </div>
     </div>`}
-    ${phase === "working" && html`<p class="apps-status-line muted" role="status">Un momento…</p>`}
+    ${phase === "working" && html`<p class="apps-status-line muted" role="status">${t("ext.apps.activation.working")}</p>`}
     ${message && html`<p class=${"message apps-status-line " + (message.ok ? "ok" : "error")} role=${message.ok ? "status" : "alert"}>${message.text}</p>`}
   </div>`;
 }
@@ -324,16 +325,16 @@ function StopAll({ token, onChanged }) {
   return html`<div class="apps-stop-all">
     ${phase === "idle" && html`<div class="apps-actions">
       <button type="button" class="btn secondary" ...${helpFor("apps.stop_all")}
-        onClick=${() => { setMessage(null); setPhase("confirm"); }}>Apagar todos</button>
+        onClick=${() => { setMessage(null); setPhase("confirm"); }}>${t("ext.apps.activation.stop_all.button")}</button>
       <${Help} topic="apps.stop_all" compact=${true} />
     </div>`}
-    ${phase !== "idle" && html`<div class="apps-confirm" role="group" aria-label="Confirmar Apagar todos">
-      <p>${STOP_ALL_CONFIRM}.</p>
+    ${phase !== "idle" && html`<div class="apps-confirm" role="group" aria-label=${t("ext.apps.activation.stop_all.aria_label")}>
+      <p>${stopAllConfirmText()}.</p>
       <div class="apps-actions">
         <button type="button" class="btn" data-help-exempt="confirm" disabled=${phase === "working"} onClick=${stop}>
-          ${phase === "working" ? "Apagando…" : "Sí, apagar todos"}</button>
+          ${phase === "working" ? t("ext.apps.activation.stop_all.working") : t("ext.apps.activation.stop_all.confirm_button")}</button>
         <button type="button" class="btn secondary" data-help-exempt="confirm" disabled=${phase === "working"}
-          onClick=${() => setPhase("idle")}>Cancelar</button>
+          onClick=${() => setPhase("idle")}>${t("ext.apps.cancel")}</button>
       </div>
     </div>`}
     ${message && html`<p class=${"message apps-status-line " + (message.ok ? "ok" : "error")} role=${message.ok ? "status" : "alert"}>${message.text}</p>`}
@@ -391,20 +392,20 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, on
       <summary class="apps-card-summary">
         <span class="apps-card-head">
           <strong class="apps-card-name">${item.label}</strong>
-          <${StatusChip} status=${item.chip.status} labels=${CHIP_LABELS} variant="inline" />
+          <${StatusChip} status=${item.chip.status} labels=${chipLabels()} variant="inline" />
         </span>
         ${item.missingLine && html`<span class="apps-card-missing">${item.missingLine}</span>`}
       </summary>
       <div class="apps-card-body">
         <dl class="apps-facts">
-          <dt>Instalada</dt><dd>${item.installed}</dd>
-          <dt>Versión</dt><dd>${item.version}</dd>
-          <dt>Sesión</dt><dd>${settingText(item.session)}</dd>
-          <dt>Estado</dt><dd>${item.enabled}</dd>
-          <dt>Permisos</dt><dd>${item.permissions}</dd>
-          ${item.quota.length > 0 && html`<dt>Cuota</dt><dd class="apps-quota">${item.quota.map((line) => html`<span key=${line}>${line}</span>`)}</dd>`}
-          ${item.reasonText && html`<dt>Motivo</dt><dd>${item.reasonText}</dd>`}
-          <dt>Comprobado</dt><dd>${item.checkedAt ? fmtDate(item.checkedAt) : "Sin fecha"}</dd>
+          <dt>${t("ext.apps.field.installed")}</dt><dd>${item.installed}</dd>
+          <dt>${t("ext.apps.field.version")}</dt><dd>${item.version}</dd>
+          <dt>${t("ext.apps.field.session")}</dt><dd>${settingText(item.session)}</dd>
+          <dt>${t("ext.apps.field.status")}</dt><dd>${item.enabled}</dd>
+          <dt>${t("ext.apps.field.permissions")}</dt><dd>${item.permissions}</dd>
+          ${item.quota.length > 0 && html`<dt>${t("ext.apps.field.quota")}</dt><dd class="apps-quota">${item.quota.map((line) => html`<span key=${line}>${line}</span>`)}</dd>`}
+          ${item.reasonText && html`<dt>${t("ext.apps.field.reason")}</dt><dd>${item.reasonText}</dd>`}
+          <dt>${t("ext.apps.field.checked")}</dt><dd>${item.checkedAt ? fmtDate(item.checkedAt) : t("ext.apps.no_date")}</dd>
         </dl>
         ${item.warning && html`<p class="apps-notice" role="status">${item.warning}</p>`}
         ${!(item.activation && item.activation.state === "active") && html`<${MissingStep} item=${item} allowLaunch=${allowLaunch}
@@ -413,8 +414,8 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, on
           token=${token} onChanged=${onActivationChanged} />`}
         ${(item.tlsFix || item.tlsRevert) && html`<div class="apps-step apps-tls">
           <p class="apps-step-text">${item.tlsFix
-            ? "Si confías en este equipo, los clientes de los proveedores pueden usar el almacén de certificados del sistema. El cambio queda registrado."
-            : "Esta herramienta usa los certificados del sistema, por decisión tuya. Puedes volver a los de siempre."}</p>
+            ? t("ext.apps.tls.system_store")
+            : t("ext.apps.tls.revert")}</p>
           <div class="apps-actions">
             ${item.tlsFix && html`<button type="button" class="btn" disabled=${checking} ...${helpFor("apps.tls_fix", { scope: item.id })}
               onClick=${() => setTrust(item.tlsFix)}>${item.tlsFix.label}</button>`}
@@ -426,10 +427,10 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, on
         ${checkError && html`<p class="message error apps-status-line" role="alert">${errorText(checkError)}</p>`}
         <div class="apps-card-foot">
           <button type="button" class="btn secondary" disabled=${checking} ...${helpFor("apps.recheck", { scope: item.id })}
-            onClick=${recheck}>${checking ? "Comprobando…" : "Volver a comprobar"}</button>
+            onClick=${recheck}>${checking ? t("ext.apps.checking") : t("ext.apps.recheck")}</button>
           <${Help} topic="apps.recheck" compact=${true} scope=${item.id} />
           ${item.canProbe && html`<button type="button" class="btn secondary" disabled=${checking} ...${helpFor("apps.probe", { scope: item.id })}
-            onClick=${probe}>${checking ? "Probando…" : "Probar conexión"}</button>
+            onClick=${probe}>${checking ? t("ext.apps.probing") : t("ext.apps.probe")}</button>
           <${Help} topic="apps.probe" compact=${true} scope=${item.id} />`}
         </div>
       </div>
@@ -498,22 +499,22 @@ export function AppsView({ token }) {
 
   const view = buildAppsView(connections, setupStatus, currentMode(), activations);
 
-  return html`<section class="apps-view" aria-label="Apps y agentes" aria-busy=${loading ? "true" : "false"}>
+  return html`<section class="apps-view" aria-label=${t("ext.apps.view")} aria-busy=${loading ? "true" : "false"}>
     <div class="apps-head">
       <div class="apps-toolbar">
         <button type="button" class="btn secondary" disabled=${loading} ...${helpFor("apps.refresh")} onClick=${loadAll}>
-          ${loading ? "Actualizando…" : "Actualizar"}
+          ${loading ? t("ext.apps.refreshing") : t("ext.apps.refresh")}
         </button>
         <${Help} topic="apps.refresh" compact=${true} />
       </div>
     </div>
-    ${error && html`<p class="message error" role="alert">No se pudo leer el estado de las conexiones: ${errorText(error)}</p>`}
-    ${setupWarning && html`<p class="message" role="status">No se pudo leer el estado de plantillas: ${errorText(setupWarning)}</p>`}
-    ${loading && !connections && html`<p class="muted" role="status">Comprobando apps y modelos…</p>`}
-    ${!loading && !error && view.empty && html`<p class="muted">No hay herramientas configuradas para mostrar.</p>`}
+    ${error && html`<p class="message error" role="alert">${t("ext.apps.read_connections_failed")}: ${errorText(error)}</p>`}
+    ${setupWarning && html`<p class="message" role="status">${t("ext.apps.read_templates_failed")}: ${errorText(setupWarning)}</p>`}
+    ${loading && !connections && html`<p class="muted" role="status">${t("ext.apps.loading")}</p>`}
+    ${!loading && !error && view.empty && html`<p class="muted">${t("ext.apps.empty")}</p>`}
     ${view.executors.length > 0 && html`<section class="apps-section" aria-labelledby="apps-executors-title">
       <div class="apps-section-head">
-        <h4 id="apps-executors-title">Apps y ejecutores</h4><${Help} topic="apps.executors" />
+        <h4 id="apps-executors-title">${t("ext.apps.executors")}</h4><${Help} topic="apps.executors" />
       </div>
       ${view.canStopAll && html`<${StopAll} token=${token} onChanged=${() => handleActivationChanged(null)} />`}
       <ul class="apps-grid">
@@ -524,7 +525,7 @@ export function AppsView({ token }) {
     </section>`}
     ${view.models.length > 0 && html`<section class="apps-section" aria-labelledby="apps-models-title">
       <div class="apps-section-head">
-        <h4 id="apps-models-title">Modelos</h4><${Help} topic="apps.models" />
+        <h4 id="apps-models-title">${t("ext.apps.models")}</h4><${Help} topic="apps.models" />
       </div>
       <ul class="apps-grid">
         ${view.models.map((item) => html`<${ToolCard} key=${item.id} item=${item}
@@ -535,4 +536,4 @@ export function AppsView({ token }) {
   </section>`;
 }
 
-registerView({ id: "apps", label: "Apps y agentes", topic: "apps.view", component: AppsView, order: 70, owner: "apps", group: "primary", icon: "apps", mode: "simple" });
+registerView({ id: "apps", label: t("ext.apps.view"), topic: "apps.view", component: AppsView, order: 70, owner: "apps", group: "primary", icon: "apps", mode: "simple" });

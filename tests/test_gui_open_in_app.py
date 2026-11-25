@@ -463,7 +463,7 @@ def test_notes_for_each_app_are_shown():
     assert "solo después de cerrar y volver a abrir la app" in client and 'NOTE_REOPEN("Claude")' in client
     assert 'NOTE_REOPEN(app.label)' in client and 'summary.source === "copilot"' in client
     assert "bloquea las escrituras mientras la app tiene el hilo abierto" in client and "solo lee" in client  # Codex
-    assert "Abrir en ${app.label}" in client and "Abrir en Claude" in client
+    assert 't("open.link.button", { app: app.label })' in client and "Abrir en {app}" in client and "Abrir en Claude" in client
 
 
 def test_framework_runs_keep_their_link_and_get_no_app_button():

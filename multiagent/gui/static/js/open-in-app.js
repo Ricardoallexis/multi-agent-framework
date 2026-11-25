@@ -7,6 +7,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet, apiPost } from "./api.js";
 import { Help, helpFor } from "./help.js";
+import { t } from "./i18n.js";
 import { errorText } from "./text.js";
 
 const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -41,18 +42,18 @@ export function commandTarget(summary) {
 }
 
 const ERRORS = {
-  launch_disabled: "El visor tiene desactivado el lanzamiento (gui_allow_launch). Copia el comando y ejecútalo tú.",
-  claude_not_found: "No se encontró el comando «claude» en el PATH. Instala Claude Code o añádelo al PATH y reintenta.",
-  launch_unsupported: "Abrir la consola solo es posible en Windows. Copia el comando y ejecútalo tú.",
-  launch_failed: "No se pudo iniciar el comando «claude».",
-  too_many_launches: "Se acaba de abrir otra sesión. Espera un par de segundos y reintenta.",
-  unsupported_source: "Esta sesión no es de Claude; se abre con su propio enlace.",
-  invalid_open_target: "Esta sesión no tiene un identificador válido para abrirla.",
-  not_found: "La sesión ya no está disponible.",
+  launch_disabled: () => t("open.error.launch_disabled"),
+  claude_not_found: () => t("open.error.claude_not_found"),
+  launch_unsupported: () => t("open.error.launch_unsupported"),
+  launch_failed: () => t("open.error.launch_failed"),
+  too_many_launches: () => t("open.error.too_many_launches"),
+  unsupported_source: () => t("open.error.unsupported_source"),
+  invalid_open_target: () => t("open.error.invalid_open_target"),
+  not_found: () => t("open.error.not_found"),
 };
-const launchErrorText = (error) => ERRORS[error.code] || errorText(error);
+const launchErrorText = (error) => ERRORS[error.code]?.() || errorText(error);
 
-const NOTE_REOPEN = (app) => app + " muestra lo nuevo de la sesión solo después de cerrar y volver a abrir la app.";
+const NOTE_REOPEN = (app) => t("open.note_reopen", { app });
 
 function CopyCommand({ command, cwd }) {
   const [copied, setCopied] = useState("");
@@ -65,11 +66,11 @@ function CopyCommand({ command, cwd }) {
     }
   }
   return html`<div class="open-copy">
-    <p class="note small">Ejecuta este comando en una terminal${cwd ? html`, dentro de la carpeta <code>${cwd}</code>` : ""}:</p>
+    <p class="note small">${t("open.copy.instructions")}${cwd ? html`, ${t("open.copy.folder")} <code>${cwd}</code>` : ""}:</p>
     <p><code class="command">${command}</code>
-      <button type="button" class="btn secondary small" ...${helpFor("open.copy", { scope: "command" })} onClick=${copy}>Copiar comando</button></p>
+      <button type="button" class="btn secondary small" ...${helpFor("open.copy", { scope: "command" })} onClick=${copy}>${t("open.copy.button")}</button></p>
     <${Help} topic="open.copy" scope="command" compact=${true} />
-    <p class="note small" role="status" aria-live="polite">${copied === "ok" ? "Comando copiado." : copied === "failed" ? "No se pudo copiar: selecciónalo y cópialo a mano." : ""}</p>
+    <p class="note small" role="status" aria-live="polite">${copied === "ok" ? t("open.copy.copied") : copied === "failed" ? t("open.copy.failed") : ""}</p>
   </div>`;
 }
 
@@ -77,12 +78,12 @@ function LinkOpen({ summary, url }) {
   const app = LINK_APPS.get(summary.source);
   const asks = Boolean(summary.open_in_app.needs_confirmation);
   return html`<div class="open-in-app">
-    <a class="btn secondary" href=${url} ...${helpFor("open." + summary.source)}>Abrir en ${app.label}</a>
+    <a class="btn secondary" href=${url} ...${helpFor("open." + summary.source)}>${t("open.link.button", { app: app.label })}</a>
     <${Help} topic=${"open." + summary.source} />
     <ul class="open-notes note small">
-      ${asks && html`<li>${app.label} pedirá confirmación antes de abrir la sesión.</li>`}
+      ${asks && html`<li>${t("open.link.confirm", { app: app.label })}</li>`}
       ${summary.source === "copilot" && html`<li>${NOTE_REOPEN(app.label)}</li>`}
-      ${summary.source === "codex" && html`<li>Codex bloquea las escrituras mientras la app tiene el hilo abierto; este visor solo lee, así que no le afecta.</li>`}
+      ${summary.source === "codex" && html`<li>${t("open.codex.read_only")}</li>`}
     </ul>
   </div>`;
 }
@@ -123,27 +124,24 @@ function ClaudeOpen({ token, summary, command }) {
   </ul>`;
   if (allow === false) {
     return html`<div class="open-in-app">
-      <p class="note small">Abrir la app desde el visor está desactivado o no es posible aquí (opción gui_allow_launch, solo Windows).</p>
+      <p class="note small">${t("open.claude.disabled")}</p>
       <${CopyCommand} command=${command} cwd=${summary.cwd} />
       ${notes}
     </div>`;
   }
   return html`<div class="open-in-app">
     ${step === "idle" && html`<button type="button" class="btn secondary" ...${helpFor("open.claude")}
-      onClick=${() => { setResult(null); setError(null); setStep("confirm"); }}>Abrir en Claude</button>`}
+      onClick=${() => { setResult(null); setError(null); setStep("confirm"); }}>${t("open.claude.button")}</button>`}
     <${Help} topic="open.claude" />
-    ${step !== "idle" && html`<div class="panel open-confirm" role="group" aria-label="Confirmar la apertura en Claude">
-      <p>Se abrirá una consola nueva de Windows con <code class="command">${command}</code>, en tu carpeta personal
-        (nunca en la carpeta de la sesión, por seguridad). ¿Continuar?</p>
+    ${step !== "idle" && html`<div class="panel open-confirm" role="group" aria-label=${t("open.claude.confirm_label")}>
+      <p>${t("open.claude.confirm_before")} <code class="command">${command}</code>${t("open.claude.confirm_after")}</p>
       <div class="actions">
         <button type="button" class="btn" ref=${confirmButton} data-help-exempt="confirm" disabled=${step === "sending"} onClick=${launch}>
-          ${step === "sending" ? "Abriendo…" : "Abrir"}</button>
-        <button type="button" class="btn secondary" data-help-exempt="confirm" disabled=${step === "sending"} onClick=${() => setStep("idle")}>Cancelar</button>
+          ${step === "sending" ? t("open.claude.opening") : t("open.claude.open")}</button>
+        <button type="button" class="btn secondary" data-help-exempt="confirm" disabled=${step === "sending"} onClick=${() => setStep("idle")}>${t("open.claude.cancel")}</button>
       </div>
     </div>`}
-    ${result && html`<p class="message ok" role="status">Se lanzó <code class="command">${result.command.join(" ")}</code> en una consola
-      nueva (carpeta: tu carpeta personal). Si la app ya estaba abierta, ciérrala y
-      vuelve a abrirla para ver lo nuevo.</p>`}
+    ${result && html`<p class="message ok" role="status">${t("open.claude.launched_before")} <code class="command">${result.command.join(" ")}</code>${t("open.claude.launched_after")}</p>`}
     ${error && html`<div role="alert"><p class="message error">${launchErrorText(error)}</p>
       <${CopyCommand} command=${command} cwd=${summary.cwd} /></div>`}
     ${notes}
@@ -157,6 +155,6 @@ export function OpenInApp({ token, summary }) {
   const command = commandTarget(summary);
   if (command) return html`<${ClaudeOpen} token=${token} summary=${summary} command=${command} />`;
   return html`<p class="note small">${summary.parent_id
-    ? "Un subagente no se abre por separado: abre su sesión principal."
-    : "Esta sesión no tiene un identificador válido para abrirla en su app."}</p>`;
+    ? t("open.subagent")
+    : t("open.invalid_session")}</p>`;
 }

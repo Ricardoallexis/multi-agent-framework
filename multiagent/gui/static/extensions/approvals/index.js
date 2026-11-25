@@ -9,12 +9,13 @@ import { getApprovalSessionError } from "../../js/auth.js";
 import { registerHelp, registerView } from "../../js/extensions.js";
 import { Help, helpFor } from "../../js/help.js";
 import { errorText, fmtDate } from "../../js/text.js";
+import { t } from "../../js/i18n.js";
 import { HELP } from "./help.js";
 import {
-  SESSION_UNAVAILABLE_NOTICE,
   describeApproval,
   hasSelectedApproval,
   orderApprovals,
+  sessionUnavailableNotice,
   submitApprovalDecision,
 } from "./model.js";
 import { BundleScanCard, BundleScanStatus, isBundleScanApproval } from "./bundle-scan.js";
@@ -66,52 +67,52 @@ function ApprovalCard({ item, token, selected, sessionUnavailable, onSessionUnav
     </div>
     <p class="approvals-reason">${view.reason}</p>
     ${view.conflict ? html`<dl class="approvals-facts approvals-clash">
-      <dt>Apunte nuevo</dt><dd><strong class="approvals-clash-title">${view.conflict.new.title}</strong>
+      <dt>${t("ext.approvals.new_note")}</dt><dd><strong class="approvals-clash-title">${view.conflict.new.title}</strong>
         <span class="approvals-clash-body">${view.conflict.new.body}</span></dd>
-      <dt>Tu apunte</dt><dd><strong class="approvals-clash-title">${view.conflict.existing.title}</strong>
+      <dt>${t("ext.approvals.your_note")}</dt><dd><strong class="approvals-clash-title">${view.conflict.existing.title}</strong>
         <span class="approvals-clash-body">${view.conflict.existing.body}</span></dd>
     </dl>` : view.memory ? html`<dl class="approvals-facts">
-      <dt>Apunte</dt><dd>${view.entryTitle}</dd>
+      <dt>${t("ext.approvals.note")}</dt><dd>${view.entryTitle}</dd>
     </dl>` : html`<dl class="approvals-facts">
-      <dt>Destino</dt><dd>${view.destination}</dd>
-      <dt>Origen</dt><dd>${view.location}</dd>
-      <dt>Tipos</dt><dd>${view.typesText}</dd>
-      <dt>Muestra enmascarada</dt><dd><code class="approvals-sample">${view.maskedSample}</code></dd>
+      <dt>${t("ext.approvals.destination")}</dt><dd>${view.destination}</dd>
+      <dt>${t("ext.approvals.origin")}</dt><dd>${view.location}</dd>
+      <dt>${t("ext.approvals.types")}</dt><dd>${view.typesText}</dd>
+      <dt>${t("ext.approvals.masked_sample")}</dt><dd><code class="approvals-sample">${view.maskedSample}</code></dd>
     </dl>`}
     ${cardError && html`<div class="approvals-card-error" role="alert">
       <p class="message error">${cardError.message}</p>
       ${cardError.retryable && html`<div class="approvals-retry">
         <button type="button" class="btn secondary approvals-btn" disabled=${busy || sessionUnavailable}
-          ...${helpFor("approvals.retry_code", { scope })} onClick=${() => decide(cardError.decision)}>Intentar de nuevo</button>
+          ...${helpFor("approvals.retry_code", { scope })} onClick=${() => decide(cardError.decision)}>${t("ext.approvals.try_again")}</button>
         <${Help} topic="approvals.retry_code" compact=${true} scope=${scope} />
       </div>`}
     </div>`}
-    <div class="approvals-actions" role="group" aria-label=${"Decisión para " + view.title}>
+    <div class="approvals-actions" role="group" aria-label=${t("ext.approvals.decision_for", { title: view.title })}>
       ${view.kind === "memory_trust" && view.conflict && html`<span class="approvals-action">
         <button type="button" class="btn approvals-btn" disabled=${busy || sessionUnavailable}
           ...${helpFor("approvals.memory_clash", { scope })} onClick=${() => decide("approve")}>
-          ${busy ? "Enviando…" : view.approveLabel}
+          ${busy ? t("ext.approvals.sending") : view.approveLabel}
         </button>
         <${Help} topic="approvals.memory_clash" compact=${true} scope=${scope} />
       </span>`}
       ${view.kind === "memory_trust" && !view.conflict && html`<span class="approvals-action">
         <button type="button" class="btn approvals-btn" disabled=${busy || sessionUnavailable}
           ...${helpFor("approvals.memory_trust", { scope })} onClick=${() => decide("approve")}>
-          ${busy ? "Enviando…" : view.approveLabel}
+          ${busy ? t("ext.approvals.sending") : view.approveLabel}
         </button>
         <${Help} topic="approvals.memory_trust" compact=${true} scope=${scope} />
       </span>`}
       ${view.kind === "memory_delete" && html`<span class="approvals-action">
         <button type="button" class="btn approvals-btn" disabled=${busy || sessionUnavailable}
           ...${helpFor("approvals.memory_delete", { scope })} onClick=${() => decide("approve")}>
-          ${busy ? "Enviando…" : view.approveLabel}
+          ${busy ? t("ext.approvals.sending") : view.approveLabel}
         </button>
         <${Help} topic="approvals.memory_delete" compact=${true} scope=${scope} />
       </span>`}
       ${!view.memory && html`<span class="approvals-action">
         <button type="button" class="btn approvals-btn" disabled=${busy || sessionUnavailable}
           ...${helpFor("approvals.approve", { scope })} onClick=${() => decide("approve")}>
-          ${busy ? "Enviando…" : view.approveLabel}
+          ${busy ? t("ext.approvals.sending") : view.approveLabel}
         </button>
         <${Help} topic="approvals.approve" compact=${true} scope=${scope} />
       </span>`}
@@ -178,29 +179,30 @@ export function ApprovalsView({ token, route }) {
 
   function handleDecided(id, decision) {
     setItems((current) => current.filter((item) => item.id !== id));
-    setNotice(decision === "approve" ? "Solicitud aprobada una sola vez." : "Solicitud rechazada.");
+    setNotice(decision === "approve" ? t("ext.approvals.approved_once") : t("ext.approvals.rejected"));
     load({ silent: true });
   }
 
-  return html`<section class="approvals-view" aria-label="Aprobaciones" aria-busy=${loading ? "true" : "false"}>
+  return html`<section class="approvals-view" aria-label=${t("ext.approvals.view")} aria-busy=${loading ? "true" : "false"}>
     <div class="approvals-toolbar">
       <span class="approvals-action">
         <button type="button" class="btn secondary approvals-btn" disabled=${refreshing}
           ...${helpFor("approvals.refresh")} onClick=${() => { setNotice(""); load(); }}>
-          ${refreshing ? "Actualizando…" : "Actualizar"}
+          ${refreshing ? t("ext.approvals.refreshing") : t("ext.approvals.refresh")}
         </button>
         <${Help} topic="approvals.refresh" compact=${true} />
       </span>
       <p class="approvals-count muted" role="status" aria-live="polite">
-        ${loading ? "Leyendo aprobaciones pendientes…"
-          : ordered.length === 0 ? "No hay aprobaciones pendientes."
-          : ordered.length === 1 ? "1 aprobación pendiente." : ordered.length + " aprobaciones pendientes."}
+        ${loading ? t("ext.approvals.loading")
+          : ordered.length === 0 ? t("ext.approvals.pending.none")
+          : ordered.length === 1 ? t("ext.approvals.pending.one")
+          : t("ext.approvals.pending.many", { count: ordered.length })}
       </p>
     </div>
-    ${sessionUnavailable && html`<p class="approvals-notice message error" role="alert">${SESSION_UNAVAILABLE_NOTICE}</p>`}
+    ${sessionUnavailable && html`<p class="approvals-notice message error" role="alert">${sessionUnavailableNotice()}</p>`}
     ${notice && html`<p class="message ok approvals-status" role="status">${notice}</p>`}
-    ${error && html`<p class="message error approvals-status" role="alert">No se pudieron leer las aprobaciones: ${errorText(error)}</p>`}
-    ${missingSelected && html`<p class="approvals-missing muted" role="status">La solicitud seleccionada ya no está pendiente.</p>`}
+    ${error && html`<p class="message error approvals-status" role="alert">${t("ext.approvals.read_failed")}: ${errorText(error)}</p>`}
+    ${missingSelected && html`<p class="approvals-missing muted" role="status">${t("ext.approvals.selected_not_pending")}</p>`}
     ${ordered.length > 0 && html`<ul class="approvals-list help-always">
       ${ordered.map((item) => html`<${isBundleScanApproval(item) ? BundleScanCard : ApprovalCard} key=${item.id} item=${item} token=${token}
         selected=${Boolean(selectedId && item.id === selectedId)}
@@ -215,7 +217,7 @@ export function ApprovalsView({ token, route }) {
 
 registerView({
   id: "approvals",
-  label: "Aprobaciones",
+  label: t("ext.approvals.view"),
   topic: "approvals.view",
   component: ApprovalsView,
   order: 45,

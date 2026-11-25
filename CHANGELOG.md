@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: «Apps y agentes», the approvals, continuity and «Abrir en la app» follow the language selector (English base, Spanish translation), help included. Server messages, error output, names, ids and codes stay as data.
 - GUI: «Inicio», «Sesiones», «Paquetes», «Pendientes», «Uso», «Evaluación», the «Contexto» panel and the subagents follow the language selector (English base, Spanish translation), help included. The double-click start's console hint names the English labels (Start › Switch to real models). Titles, names, ids and codes stay as they are.
 - GUI: «Ejecuciones», the run detail and actions, the run thread and the shared status, progress and level labels follow the language selector (English base, Spanish translation), help included. Messages, payloads, ids and codes stay as they are.
 - GUI: «Equipos», «Planes», the work map and the agent tree follow the language selector (English base, Spanish translation), help included; a plan that cannot be approved for a missing team names the package. Ids, codes and data are unchanged.

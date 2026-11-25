@@ -1,5 +1,7 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
+import "./i18n.js";
+import { t } from "../../js/i18n.js";
 // Bundle scan approval cards (osv_query, bundle_load) and live scan status for «Aprobaciones» (SKL-T03).
 // Pure view-model helpers are exported with no DOM or network dependency so Node tests can verify them directly.
 import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
@@ -13,36 +15,47 @@ export const BUNDLE_SCAN_KINDS = Object.freeze(["osv_query", "bundle_load"]);
 export const SCAN_POLL_MS = 3000;
 export const IDLE_SCAN_POLL_MS = 10000;
 export const MAX_DISPLAY_FINDINGS = 10;
-export const SCANNING_NOTICE = "Escaneando · unos 25 s por carpeta";
-export const FALSE_POSITIVE_NOTE =
-  "Sin LLM, SkillSpector busca palabras y patrones: muchos hallazgos altos son falsos positivos. Revisa los principales antes de decidir";
+export const scanningNotice = () => t("ext.approvals.scanning_notice");
+export const SCANNING_NOTICE = t("ext.approvals.scanning_notice");
+export const falsePositiveNote = () => t("ext.approvals.false_positive_note");
 
-export const VERDICT_LABELS = Object.freeze({
-  safe: { text: "Seguro", tone: "success", explanation: "SkillSpector no encontró riesgos bloqueantes y cubrió el 100 %." },
-  caution: { text: "Con avisos", tone: "warning", explanation: "SkillSpector encontró avisos para revisar." },
-  do_not_install: { text: "No instalar", tone: "danger", explanation: "SkillSpector recomienda no instalar este bundle." },
-  not_analyzed: { text: "Sin analizar", tone: "warning", explanation: "No se analizó el 100 % del bundle; requiere confirmación." },
-  running: { text: "Escaneando", tone: "active", pulse: true, explanation: SCANNING_NOTICE },
-});
+const verdictKeys = {
+  safe: ["ext.approvals.verdict.safe", "success"],
+  caution: ["ext.approvals.verdict.caution", "warning"],
+  do_not_install: ["ext.approvals.verdict.do_not_install", "danger"],
+  not_analyzed: ["ext.approvals.verdict.not_analyzed", "warning"],
+  running: ["ext.approvals.verdict.running", "active"],
+};
+export const VERDICT_LABELS = Object.freeze(Object.fromEntries(Object.entries(verdictKeys).map(([key, [textKey, tone]]) => [
+  key,
+  Object.defineProperties({ tone, ...(key === "running" ? { pulse: true } : {}) }, {
+    text: { enumerable: true, get: () => t(textKey) },
+    explanation: { enumerable: true, get: () => key === "running" ? scanningNotice() : t("ext.approvals.verdict." + key + ".explanation") },
+  }),
+])));
 
-export const FINDING_LEVEL_LABELS = Object.freeze({
-  critical: { text: "Crítico", rank: 0, tone: "danger" },
-  high: { text: "Alto", rank: 1, tone: "danger" },
-  medium: { text: "Medio", rank: 2, tone: "warning" },
-  low: { text: "Bajo", rank: 3, tone: "info" },
-  info: { text: "Informativo", rank: 4, tone: "muted" },
-});
+const findingLevels = {
+  critical: [0, "danger"],
+  high: [1, "danger"],
+  medium: [2, "warning"],
+  low: [3, "info"],
+  info: [4, "muted"],
+};
+export const FINDING_LEVEL_LABELS = Object.freeze(Object.fromEntries(Object.entries(findingLevels).map(([key, [rank, tone]]) => [
+  key,
+  Object.defineProperties({ rank, tone }, { text: { enumerable: true, get: () => t("ext.approvals.finding." + key) } }),
+])));
 
 const REASON_MESSAGES = Object.freeze({
-  osv_rejected: "No se permitió consultar api.osv.dev.",
-  coverage_below_100: "La cobertura del análisis fue menor al 100 %.",
-  coverage_unknown: "No se pudo determinar la cobertura del análisis.",
-  verdict_not_understood: "No se entendió el veredicto devuelto por SkillSpector.",
-  unsigned_interpreter: "El intérprete de Python de SkillSpector no tiene firma válida.",
-  timeout: "El escaneo agotó el tiempo máximo.",
-  output_truncated: "La salida del escaneo superó el límite permitido.",
-  bundle_scan_off: "El escaneo de bundles está desactivado.",
-  mock_mode: "Ejecución en modo Mock sin ruta de SkillSpector configurada.",
+  osv_rejected: "ext.approvals.scan_reason.osv_rejected",
+  coverage_below_100: "ext.approvals.scan_reason.coverage_below_100",
+  coverage_unknown: "ext.approvals.scan_reason.coverage_unknown",
+  verdict_not_understood: "ext.approvals.scan_reason.verdict_not_understood",
+  unsigned_interpreter: "ext.approvals.scan_reason.unsigned_interpreter",
+  timeout: "ext.approvals.scan_reason.timeout",
+  output_truncated: "ext.approvals.scan_reason.output_truncated",
+  bundle_scan_off: "ext.approvals.scan_reason.bundle_scan_off",
+  mock_mode: "ext.approvals.scan_reason.mock_mode",
 });
 
 const scopeOf = (id) => String(id).replace(/[^A-Za-z0-9_-]+/g, "-");
@@ -82,31 +95,31 @@ export function parseOsvLocation(location) {
     : detail.split(",").map((part) => part.trim()).filter(Boolean);
   const manifestsText = manifests.length > 0
     ? manifests.join(", ")
-    : "No se encontraron manifiestos en la carpeta";
+    : t("ext.approvals.manifests_none");
   const outboundSummary = manifests.length > 0
-    ? "Nombres y versiones de los paquetes de los manifiestos: " + manifests.join(", ")
-    : "Nombres y versiones de los paquetes (no se encontraron manifiestos declarados en la carpeta)";
+    ? t("ext.approvals.package_names_from", { manifests: manifests.join(", ") })
+    : t("ext.approvals.package_names_none");
   return { host, manifests, manifestsText, outboundSummary };
 }
 
 export function describeOsvQuery(item, scan = null) {
   const row = item && typeof item === "object" ? item : {};
-  const bundle = extractBundleName(row, scan) || "Bundle sin nombre";
+  const bundle = extractBundleName(row, scan) || t("ext.approvals.unnamed_bundle");
   const osv = parseOsvLocation(row.location);
   return {
     id: cleanText(row.id),
     kind: "osv_query",
-    title: "Consulta a api.osv.dev",
+    title: t("ext.approvals.osv_title"),
     bundle,
     destinationHost: osv.host,
     manifests: osv.manifests,
     manifestsText: osv.manifestsText,
     outboundSummary: osv.outboundSummary,
-    rejectionConsequence: "Si no se permite, el bundle queda «sin analizar».",
+    rejectionConsequence: t("ext.approvals.osv_rejection_consequence"),
     fingerprint: cleanText(row.sha256 || (scan && scan.fingerprint)),
     createdAt: typeof row.created_at === "string" ? row.created_at : "",
-    approveLabel: "Permitir la consulta",
-    rejectLabel: "No permitir",
+    approveLabel: t("ext.approvals.osv_allow"),
+    rejectLabel: t("ext.approvals.osv_deny"),
   };
 }
 
@@ -118,7 +131,7 @@ export function formatCoverage(coverage) {
     const folder = cleanText(rawFolder) || ".";
     if (typeof rawPercent === "number" && Number.isFinite(rawPercent)) {
       if (rawPercent < 0) {
-        return { folder, percent: null, unanalyzed: true, text: "sin analizar" };
+        return { folder, percent: null, unanalyzed: true, text: t("ext.approvals.not_analyzed_lower") };
       }
       const percent = Math.round(rawPercent * 10) / 10;
       const unanalyzed = percent < 100;
@@ -126,10 +139,10 @@ export function formatCoverage(coverage) {
         folder,
         percent,
         unanalyzed,
-        text: unanalyzed ? percent + " % · sin analizar" : percent + " %",
+        text: unanalyzed ? t("ext.approvals.coverage_unanalyzed", { percent }) : percent + " %",
       };
     }
-    return { folder, percent: null, unanalyzed: true, text: "sin analizar" };
+    return { folder, percent: null, unanalyzed: true, text: t("ext.approvals.not_analyzed_lower") };
   });
   const hasEntries = entries.length > 0;
   const allComplete = hasEntries && entries.every((entry) => !entry.unanalyzed);
@@ -161,15 +174,16 @@ export function selectTopFindings(findings, limit = MAX_DISPLAY_FINDINGS) {
     if (!raw || typeof raw !== "object") return;
     const rawLevel = cleanText(raw.level || raw.severity).toLowerCase();
     const levelInfo = FINDING_LEVEL_LABELS[rawLevel] || {
-      text: rawLevel || "Sin nivel",
+      text: rawLevel || t("ext.approvals.no_level"),
       rank: 99,
       tone: "muted",
     };
-    const rule = cleanText(raw.rule || raw.rule_id || raw.id || raw.check) || "Regla sin nombre";
+    const rule = cleanText(raw.rule || raw.rule_id || raw.id || raw.check) || t("ext.approvals.unnamed_rule");
     const file = cleanText(raw.file || raw.path || raw.filename);
     const rawLine = raw.line !== undefined ? raw.line : raw.line_number;
     const line = typeof rawLine === "number" && Number.isInteger(rawLine) ? rawLine : null;
-    const fileText = file ? (line !== null ? file + ":" + line : file) : (line !== null ? "línea " + line : "Archivo no indicado");
+    const fileText = file ? (line !== null ? file + ":" + line : file)
+      : (line !== null ? t("ext.approvals.line_number", { line }) : t("ext.approvals.file_not_indicated"));
     const collapsed = cleanText(raw.message || raw.description || raw.title).replace(/\s+/g, " ");
     const summary = collapsed.length > 200 ? collapsed.slice(0, 199) + "…" : collapsed;
     normalized.push({
@@ -198,29 +212,29 @@ export function selectTopFindings(findings, limit = MAX_DISPLAY_FINDINGS) {
 export function formatScanReason(reason) {
   const key = cleanText(reason);
   if (!key) return "";
-  return REASON_MESSAGES[key] || "Motivo: " + key;
+  return REASON_MESSAGES[key] ? t(REASON_MESSAGES[key]) : t("ext.approvals.reason_prefix", { reason: key });
 }
 
 export function describeBundleLoad(item, scan = null) {
   const row = item && typeof item === "object" ? item : {};
-  const bundle = extractBundleName(row, scan) || "Bundle sin nombre";
+  const bundle = extractBundleName(row, scan) || t("ext.approvals.unnamed_bundle");
   return {
     id: cleanText(row.id),
     kind: "bundle_load",
-    title: "Veredicto de SkillSpector",
+    title: t("ext.approvals.scan_title"),
     bundle,
     verdict: formatVerdict(scan),
     recommendationText: scan && (scan.recommendation === "do_not_install" || scan.state === "do_not_install")
-      ? "Recomendación de SkillSpector: no instalar" : "",
+      ? t("ext.approvals.recommend_not_install") : "",
     reasonText: formatScanReason(scan && scan.reason),
     coverage: formatCoverage(scan && scan.coverage),
     findings: selectTopFindings(scan && scan.findings),
-    note: FALSE_POSITIVE_NOTE,
+    note: falsePositiveNote(),
     toolVersion: cleanText(scan && scan.tool_version),
     fingerprint: cleanText(row.sha256 || (scan && scan.fingerprint)),
     createdAt: typeof row.created_at === "string" ? row.created_at : "",
-    approveLabel: "Cargar este bundle",
-    rejectLabel: "No cargar",
+    approveLabel: t("ext.approvals.bundle_allow"),
+    rejectLabel: t("ext.approvals.bundle_deny"),
   };
 }
 
@@ -236,7 +250,7 @@ function CardError({ cardError, busy, sessionUnavailable, scope, onRetry }) {
     <p class="message error">${cardError.message}</p>
     ${cardError.retryable && html`<div class="approvals-retry">
       <button type="button" class="btn secondary approvals-btn" disabled=${busy || sessionUnavailable}
-        ...${helpFor("approvals.retry_code", { scope })} onClick=${() => onRetry(cardError.decision)}>Intentar de nuevo</button>
+        ...${helpFor("approvals.retry_code", { scope })} onClick=${() => onRetry(cardError.decision)}>${t("ext.approvals.try_again")}</button>
       <${Help} topic="approvals.retry_code" compact=${true} scope=${scope} />
     </div>`}
   </div>`;
@@ -278,19 +292,19 @@ function OsvQueryCard({ item, token, selected, sessionUnavailable, onSessionUnav
       <p id=${titleId} class="approvals-card-title"><strong>${view.title}</strong></p>
       <time class="approvals-time muted small" dateTime=${view.createdAt || null}>${fmtDate(view.createdAt)}</time>
     </div>
-    <p class="approvals-reason">Antes de analizar el bundle, SkillSpector necesita consultar vulnerabilidades de paquetes en internet.</p>
+    <p class="approvals-reason">${t("ext.approvals.osv_reason")}</p>
     <dl class="approvals-facts">
-      <dt>Bundle</dt><dd>${view.bundle}</dd>
-      <dt>A dónde sale</dt><dd><code>${view.destinationHost}</code></dd>
-      <dt>Qué saldrá</dt><dd>${view.outboundSummary}</dd>
-      <dt>Si no permites</dt><dd>${view.rejectionConsequence}</dd>
+      <dt>${t("ext.approvals.bundle")}</dt><dd>${view.bundle}</dd>
+      <dt>${t("ext.approvals.destination_label")}</dt><dd><code>${view.destinationHost}</code></dd>
+      <dt>${t("ext.approvals.outbound_label")}</dt><dd>${view.outboundSummary}</dd>
+      <dt>${t("ext.approvals.if_denied")}</dt><dd>${view.rejectionConsequence}</dd>
     </dl>
     <${CardError} cardError=${cardError} busy=${busy} sessionUnavailable=${sessionUnavailable} scope=${scope} onRetry=${decide} />
-    <div class="approvals-actions" role="group" aria-label=${"Decisión para " + view.title}>
+    <div class="approvals-actions" role="group" aria-label=${t("ext.approvals.decision_for", { title: view.title })}>
       <span class="approvals-action">
         <button type="button" class="btn approvals-btn" disabled=${busy || sessionUnavailable}
           ...${helpFor("approvals.osv_allow", { scope })} onClick=${() => decide("approve")}>
-          ${busy ? "Enviando…" : view.approveLabel}
+          ${busy ? t("ext.approvals.sending") : view.approveLabel}
         </button>
         <${Help} topic="approvals.osv_allow" compact=${true} scope=${scope} />
       </span>
@@ -308,14 +322,14 @@ function OsvQueryCard({ item, token, selected, sessionUnavailable, onSessionUnav
 function ScanDetails({ view }) {
   return html`<div class="approvals-scan-body">
     <div class="approvals-scan-verdict">
-      <span class="approvals-scan-bundle">Bundle: <strong>${view.bundle}</strong></span>
+      <span class="approvals-scan-bundle">${t("ext.approvals.bundle")}: <strong>${view.bundle}</strong></span>
       <${StatusChip} status=${view.verdict.key} labels=${VERDICT_LABELS} />
     </div>
     ${view.recommendationText && html`<p class="approvals-reason">${view.recommendationText}</p>`}
-    ${view.verdict.key === "do_not_install" && !view.coverage.allComplete && html`<p class="approvals-reason">Cobertura parcial</p>`}
+    ${view.verdict.key === "do_not_install" && !view.coverage.allComplete && html`<p class="approvals-reason">${t("ext.approvals.partial_coverage")}</p>`}
     ${view.reasonText && html`<p class="approvals-reason">${view.reasonText}</p>`}
     <div class="approvals-scan-section">
-      <p class="approvals-scan-label">Cobertura</p>
+      <p class="approvals-scan-label">${t("ext.approvals.coverage")}</p>
       ${view.coverage.hasEntries
         ? html`<ul class="approvals-coverage">
             ${view.coverage.entries.map((entry) => html`<li key=${entry.folder} class="approvals-coverage-item">
@@ -323,10 +337,10 @@ function ScanDetails({ view }) {
               <span class=${"approvals-coverage-value" + (entry.unanalyzed ? " approvals-coverage-unanalyzed" : "")}>${entry.text}</span>
             </li>`)}
           </ul>`
-        : html`<p class="muted small approvals-scan-empty">Sin datos de cobertura (sin analizar).</p>`}
+        : html`<p class="muted small approvals-scan-empty">${t("ext.approvals.coverage_empty")}</p>`}
     </div>
     <div class="approvals-scan-section">
-      <p class="approvals-scan-label">Hallazgos principales</p>
+      <p class="approvals-scan-label">${t("ext.approvals.findings_heading")}</p>
       ${view.findings.items.length > 0
         ? html`<ul class="approvals-findings">
             ${view.findings.items.map((finding, idx) => html`<li key=${idx + "-" + finding.rule} class="approvals-finding">
@@ -338,9 +352,9 @@ function ScanDetails({ view }) {
               ${finding.summary && html`<p class="approvals-finding-line">${finding.summary}</p>`}
             </li>`)}
           </ul>`
-        : html`<p class="muted small approvals-scan-empty">Sin hallazgos registrados.</p>`}
+        : html`<p class="muted small approvals-scan-empty">${t("ext.approvals.findings_empty")}</p>`}
       ${view.findings.hidden > 0 && html`<p class="muted small approvals-scan-more">
-        Mostrando ${view.findings.items.length} de ${view.findings.total} hallazgos.
+        ${t("ext.approvals.findings_count", { shown: view.findings.items.length, total: view.findings.total })}
       </p>`}
     </div>
     <p class="notice check approvals-scan-note">${view.note}</p>
@@ -417,8 +431,8 @@ function BundleLoadCard({ item, token, selected, sessionUnavailable, onSessionUn
       <p id=${titleId} class="approvals-card-title"><strong>${view.title}</strong></p>
       <time class="approvals-time muted small" dateTime=${view.createdAt || null}>${fmtDate(view.createdAt)}</time>
     </div>
-    ${scanLoading && html`<p class="muted small approvals-scan-loading">Leyendo el resultado del escaneo…</p>`}
-    ${scanError && html`<p class="message error">No se pudo leer el estado del escaneo: ${errorText(scanError)}</p>`}
+    ${scanLoading && html`<p class="muted small approvals-scan-loading">${t("ext.approvals.scan_loading")}</p>`}
+    ${scanError && html`<p class="message error">${t("ext.approvals.scan_read_failed")}: ${errorText(scanError)}</p>`}
     <${ScanDetails} view=${view} />
     <${CardError} cardError=${cardError} busy=${busy} sessionUnavailable=${sessionUnavailable} scope=${scope} onRetry=${decide} />
     <div class="approvals-risk-ack">
@@ -426,15 +440,15 @@ function BundleLoadCard({ item, token, selected, sessionUnavailable, onSessionUn
         <input type="checkbox" checked=${riskAck} disabled=${busy || sessionUnavailable}
           ...${helpFor("approvals.bundle_risk", { scope })}
           onChange=${(event) => setRiskAck(event.currentTarget.checked)} />
-        <span>Asumo los riesgos de cargar este bundle</span>
+        <span>${t("ext.approvals.risk_ack")}</span>
       </label>
       <${Help} topic="approvals.bundle_risk" compact=${true} scope=${scope} />
     </div>
-    <div class="approvals-actions" role="group" aria-label=${"Decisión para " + view.title}>
+    <div class="approvals-actions" role="group" aria-label=${t("ext.approvals.decision_for", { title: view.title })}>
       <span class="approvals-action">
         <button type="button" class="btn approvals-btn" disabled=${!canApproveBundleLoad(riskAck, busy, sessionUnavailable)}
           ...${helpFor("approvals.bundle_allow", { scope })} onClick=${() => decide("approve")}>
-          ${busy ? "Enviando…" : view.approveLabel}
+          ${busy ? t("ext.approvals.sending") : view.approveLabel}
         </button>
         <${Help} topic="approvals.bundle_allow" compact=${true} scope=${scope} />
       </span>
@@ -529,11 +543,11 @@ export function BundleScanStatus({ token, items, onRefresh }) {
   return html`<ul class="approvals-list approvals-scan-live help-always">
     ${runningScans.map((scan) => html`<li key=${"running-" + scan.bundle} class="approvals-card approvals-scan-running" role="status" aria-live="polite">
       <div class="approvals-card-head">
-        <p class="approvals-card-title"><strong>Escaneo de bundle</strong></p>
+        <p class="approvals-card-title"><strong>${t("ext.approvals.scan_live_title")}</strong></p>
         <${StatusChip} status="running" labels=${VERDICT_LABELS} />
       </div>
-      <p class="approvals-reason">Bundle: <strong>${scan.bundle}</strong></p>
-      <p class="approvals-scan-progress">${SCANNING_NOTICE}</p>
+      <p class="approvals-reason">${t("ext.approvals.bundle")}: <strong>${scan.bundle}</strong></p>
+      <p class="approvals-scan-progress">${scanningNotice()}</p>
     </li>`)}
     ${cautionScans.map((scan) => {
       const view = describeBundleLoad({ id: "caution-" + scan.bundle }, scan);

@@ -118,8 +118,13 @@ def test_extension_keys_start_with_the_extension_prefix():
         if not name.startswith("extensions/"):
             continue
         prefix = f"ext.{name.split('/')[1]}."
+        help_source = (STATIC_DIR / name.removesuffix("/i18n.js") / "help.js").read_text(encoding="utf-8")
+        help_topics = set(re.findall(r'^\s*"([^"]+)":\s*\{', help_source, re.M))
         for lang, keys in langs.items():
-            assert all(key.startswith(prefix) for key in keys), (name, lang, [k for k in keys if not k.startswith(prefix)])
+            invalid = [key for key in keys if not key.startswith(prefix) and not (
+                lang == "es" and key.startswith("help.") and key.removeprefix("help.") in help_topics
+            )]
+            assert not invalid, (name, lang, invalid)
 
 
 @needs_node

@@ -604,7 +604,7 @@ def test_the_extension_loads_through_the_page_loader_and_registers_everything():
     assert out["report"] == {"loaded": ["continuity"], "failed": []}
     assert out["view"] == ["continuity", "Decisiones"] and out["slot"] == ["continuity", "Continuidad", "continuity.slot"]
     assert out["usage"] == ["continuity", "Continuidad"] and out["route"] == {"section": "continuity", "id": None}
-    assert out["help"] == "Esperar hasta la hora indicada" and out["reserved"] == ["plans", "global", "costs"]
+    assert out["help"] == "Wait until the shown time" and out["reserved"] == ["plans", "global", "costs"]
     assert out["refused"] == ["registerUsageSection"] * 5          # reserved, duplicate, bad id, empty label, no component
 
 

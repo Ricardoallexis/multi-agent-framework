@@ -1,66 +1,66 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// Help texts of the continuity screens (CNT-T06). Strict JSON, like js/help-text.js, with every key under "continuity.".
+// Help texts of the continuity screens (CNT-T06). Spanish copies live in the extension dictionary.
 
 export const HELP = {
   "continuity.view": {
-    "title": "Decisiones de continuidad",
-    "hint": "Tareas que esperan porque una aplicación alcanzó su límite de uso.",
+    "title": "Continuity decisions",
+    "hint": "Tasks waiting because an app reached its usage limit.",
     "more": [
-      "Cada tarjeta dice quién alcanzó el límite, cuándo se restablece y de dónde sale esa hora.",
-      "Nada se hace solo: cada opción pide tu confirmación antes de guardarse.",
-      "Cuando llega la hora, la tarea se reanuda sola si no pediste delegarla."
+      "Each card shows which app reached its limit, when it resets, and where that time came from.",
+      "Nothing happens on its own: each choice asks you to confirm before it is saved.",
+      "When the time arrives, the task resumes on its own unless you asked to hand it off."
     ]
   },
   "continuity.slot": {
-    "title": "Continuidad de esta sesión",
-    "hint": "Muestra si la tarea de esta sesión espera por un límite de uso.",
+    "title": "Continuity for this session",
+    "hint": "Shows whether this session's task is waiting because of a usage limit.",
     "more": [
-      "Si la sesión no espera nada, aquí no hay nada que decidir.",
-      "Si espera, verás la misma tarjeta de decisión que en la pantalla de decisiones."
+      "If the session is not waiting, there is nothing to decide here.",
+      "If it is waiting, you will see the same decision card as on the decisions screen."
     ]
   },
   "continuity.usage": {
-    "title": "Política de continuidad",
-    "hint": "Cómo actúa el framework cuando una aplicación alcanza su límite.",
+    "title": "Continuity policy",
+    "hint": "How the framework responds when an app reaches its limit.",
     "more": [
-      "Muestra el modo, cuánto se espera antes de proponer otro agente y cuántos traspasos se permiten.",
-      "Los valores son los predeterminados del framework; esta pantalla solo los muestra.",
-      "Pasar la tarea a otro agente nunca ocurre durante una integración."
+      "Shows the mode, how long to wait before suggesting another agent, and how many hand-offs are allowed.",
+      "These are the framework defaults; this screen only displays them.",
+      "A task is never handed off during an integration."
     ]
   },
   "continuity.wait": {
-    "title": "Esperar hasta la hora indicada",
-    "hint": "Acepta que la tarea espere hasta que se restablezca el límite.",
+    "title": "Wait until the shown time",
+    "hint": "Choose to wait until the limit resets.",
     "more": [
-      "Pide una confirmación antes de guardar tu decisión.",
-      "La tarea sigue pausada y se reanuda sola poco después de la hora indicada.",
-      "La hora viene de la aplicación o, si no la dio, de una pausa configurada."
+      "You must confirm before your choice is saved.",
+      "The task stays paused and resumes on its own shortly after the shown time.",
+      "The time comes from the app or, if the app did not provide one, from a configured pause."
     ]
   },
   "continuity.delegate": {
-    "title": "Delegar a otro agente",
-    "hint": "Pide que otro agente tome la tarea en lugar de esperar.",
+    "title": "Hand off to another agent",
+    "hint": "Ask another agent to take the task instead of waiting.",
     "more": [
-      "Pide una confirmación que dice a quién se delega y qué se enviaría.",
-      "Se enviaría el sobre de la tarea y el parche guardado, nunca la conversación.",
-      "Hoy solo se guarda tu decisión: la tarea no se reanuda sola hasta que se traspase o vuelvas a esperar."
+      "A confirmation tells you who would receive the task and what would be sent.",
+      "The task envelope and saved patch would be sent, never the conversation.",
+      "For now, only your choice is saved: the task will not resume on its own until it is handed off or you choose to wait."
     ]
   },
   "continuity.later": {
-    "title": "Decidir después",
-    "hint": "Cierra las opciones sin cambiar nada.",
+    "title": "Decide later",
+    "hint": "Close the choices without changing anything.",
     "more": [
-      "La tarea sigue en espera y la decisión queda pendiente.",
-      "Puedes volver a abrir las opciones cuando quieras."
+      "The task keeps waiting, and your decision stays pending.",
+      "You can reopen the choices whenever you want."
     ]
   },
   "continuity.refresh": {
-    "title": "Actualizar",
-    "hint": "Vuelve a leer las tareas que esperan.",
+    "title": "Refresh",
+    "hint": "Read the waiting tasks again.",
     "more": [
-      "La lista también se actualiza sola cada cierto tiempo.",
-      "Actualizar no cambia ninguna tarea."
+      "The list also refreshes on its own from time to time.",
+      "Refreshing does not change any task."
     ]
   }
 };

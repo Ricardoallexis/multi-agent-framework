@@ -784,7 +784,7 @@ def test_real_extension_views_have_a_single_title_and_reachable_help():
     main = ui_text((JS / "main.js"))
     assert "<${Help}" in main and "topic=${entry.topic}" in main
     for ext_id, (label, rel_path) in expected.items():
-        source = (STATIC_DIR / rel_path).read_text(encoding="utf-8")
+        source = ui_text(STATIC_DIR / rel_path)
         assert not re.search(r"<h[123]\b", source), f"{rel_path} must rely on main.js <h2> instead of drawing its own title"
         assert f'aria-label="{label}"' in source, f"{rel_path} missing section aria-label"
         assert f'topic="{ext_id}.view"' not in source, f"{rel_path} must not duplicate {ext_id}.view help"
@@ -816,6 +816,6 @@ def test_real_extension_views_have_a_single_title_and_reachable_help():
 
 def test_the_seven_extensions_declare_simple_mode():   # SIM-T02: a view with no mode is advanced (L4)
     for name in ("approvals", "apps", "continuity", "document_alerts", "offices", "project", "task_waiting"):
-        source = (STATIC_DIR / "extensions" / name / "index.js").read_text(encoding="utf-8")
+        source = ui_text(STATIC_DIR / "extensions" / name / "index.js")
         call = re.search(r"registerView\(\{(.*?)\}\);", source, re.S)[1]
         assert re.search(r'\bmode:\s*"simple"', call), name

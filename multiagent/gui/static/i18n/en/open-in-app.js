@@ -1,3 +1,33 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-export default {};
+export default {
+  "open.error.launch_disabled": "App launching is disabled in this viewer (gui_allow_launch). Copy the command and run it yourself.",
+  "open.error.claude_not_found": "The «claude» command was not found on PATH. Install Claude Code or add it to PATH, then try again.",
+  "open.error.launch_unsupported": "Opening a console is only available on Windows. Copy the command and run it yourself.",
+  "open.error.launch_failed": "Could not start the «claude» command.",
+  "open.error.too_many_launches": "Another session just opened. Wait a few seconds and try again.",
+  "open.error.unsupported_source": "This is not a Claude session; open it with its own link.",
+  "open.error.invalid_open_target": "This session does not have a valid ID to open.",
+  "open.error.not_found": "This session is no longer available.",
+  "open.note_reopen": "{app} shows new session activity only after you close and reopen the app.",
+  "open.copy.instructions": "Run this command in a terminal",
+  "open.copy.folder": "inside the folder",
+  "open.copy.button": "Copy command",
+  "open.copy.copied": "Command copied.",
+  "open.copy.failed": "Could not copy it. Select and copy it manually.",
+  "open.link.button": "Open in {app}",
+  "open.link.confirm": "{app} will ask before opening the session.",
+  "open.codex.read_only": "Codex blocks writes while the app has the thread open. This viewer only reads, so it is not affected.",
+  "open.claude.disabled": "Opening the app from this viewer is disabled or unavailable here (gui_allow_launch option, Windows only).",
+  "open.claude.button": "Open in Claude",
+  "open.claude.confirm_label": "Confirm opening in Claude",
+  "open.claude.confirm_before": "A new Windows console will open with",
+  "open.claude.confirm_after": ", in your home folder (never in the session folder, for security). Continue?",
+  "open.claude.opening": "Opening…",
+  "open.claude.open": "Open",
+  "open.claude.cancel": "Cancel",
+  "open.claude.launched_before": "Started",
+  "open.claude.launched_after": " in a new console (folder: your home folder). If the app was already open, close and reopen it to see new activity.",
+  "open.subagent": "A subagent cannot be opened separately. Open its parent session instead.",
+  "open.invalid_session": "This session does not have a valid ID to open in its app."
+};

@@ -6,11 +6,13 @@
 //   CardView      pure drawing of a card from props (no hooks, so the Node tests call it): card, ui = { confirming, later }, busy, message
 //   DecisionCard  the card with its state: opens the confirmation, sends the decision and tells the page when the card changed
 // All text is shown as plain text; the card never draws what the server sends as markup.
+import "./i18n.js";
 import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiPost } from "../../js/api.js";
 import { Help, helpFor } from "../../js/help.js";
+import { t } from "../../js/i18n.js";
 import {
-  HISTORY_NOTE, confirmText, decisionBody, decisionErrorText, decisionPath, describeCard, isStale, newDecisionId,
+  confirmText, decisionBody, decisionErrorText, decisionPath, describeCard, historyNote, isStale, newDecisionId,
 } from "./model.js";
 
 const idPart = (value) => String(value).replace(/[^A-Za-z0-9_-]+/g, "-");
@@ -27,7 +29,7 @@ export function ConfirmBox({ text, busy, onConfirm, onBack }) {
     <div class="actions">
       <button type="button" class="btn continuity-btn" data-help-exempt="confirm" disabled=${busy} onClick=${onConfirm}>${text.yes}</button>
       <button type="button" class="btn secondary continuity-btn" data-help-exempt="confirm" ref=${back} disabled=${busy}
-        onClick=${onBack}>Volver</button>
+        onClick=${onBack}>${t("ext.continuity.back")}</button>
     </div>
   </div>`;
 }
@@ -45,23 +47,23 @@ export function CardView({ card, ui = {}, now = new Date(), busy = false, messag
     <h4 id=${titleId} class="continuity-card-title">${view.title}</h4>
     <p class="continuity-task muted small">${view.task}</p>
     <ul class="continuity-facts">
-      <li class="continuity-reset"><span class="continuity-clock" role="img" aria-label="Reloj: hora local del restablecimiento">◷</span>
+      <li class="continuity-reset"><span class="continuity-clock" role="img" aria-label=${t("ext.continuity.clock.aria_label")}>◷</span>
         <span>${view.reset}</span></li>
       <li>${view.checkpoint}</li>
-      <li>${view.handoffs}${view.exhausted ? ". Ya no quedan traspasos para esta tarea." : ""}</li>
+      <li>${view.handoffs}${view.exhausted ? t("ext.continuity.exhausted_handoffs") : ""}</li>
     </ul>
-    <p class="continuity-note muted small">${HISTORY_NOTE}</p>
+    <p class="continuity-note muted small">${historyNote()}</p>
     ${view.decision && html`<p class="continuity-decision" role="status">${view.decision}</p>`}
     ${view.blocked && html`<p class="continuity-note continuity-blocked" role="status">${view.blocked}</p>`}
     ${confirming
       ? html`<${ConfirmBox} key=${confirming.decisionId} text=${confirmText(card, confirming, now)} busy=${busy} onConfirm=${onConfirm} onBack=${onBack} />`
       : ui.later
-        ? html`<div class="continuity-actions" role="group" aria-label="Decisión pendiente">
-            <p class="continuity-note muted small">Sin decidir: la tarea sigue en espera y la decisión queda pendiente.</p>
+        ? html`<div class="continuity-actions" role="group" aria-label=${t("ext.continuity.pending_decision")}>
+            <p class="continuity-note muted small">${t("ext.continuity.pending_note")}</p>
             <span class="continuity-option"><button type="button" class="btn secondary continuity-btn" ...${helpFor("continuity.later", { scope })}
-              onClick=${onReopen}>Decidir ahora</button><${Help} topic="continuity.later" scope=${scope} compact=${true} /></span>
+              onClick=${onReopen}>${t("ext.continuity.decide_now")}</button><${Help} topic="continuity.later" scope=${scope} compact=${true} /></span>
           </div>`
-        : html`<div class="continuity-actions" role="group" aria-label="Qué quieres hacer con esta tarea">
+        : html`<div class="continuity-actions" role="group" aria-label=${t("ext.continuity.actions_label")}>
             ${view.wait && html`<span class="continuity-option"><button type="button" class="btn continuity-btn" aria-pressed=${pressedWait}
               disabled=${busy} ...${helpFor("continuity.wait", { scope })} onClick=${() => onChoose({ kind: "wait" })}>${view.wait}</button>
               <${Help} topic="continuity.wait" scope=${scope} compact=${true} /></span>`}
@@ -72,14 +74,14 @@ export function CardView({ card, ui = {}, now = new Date(), busy = false, messag
               <${Help} topic="continuity.delegate" scope=${scope + "-" + idPart(candidate.id)} compact=${true} />
               <span class="continuity-option-note muted small">${candidate.note}</span></span>`)}
             ${!hasChoices && html`<p class="continuity-note muted small">${view.exhausted
-              ? "No hay otra opción: ya no quedan traspasos."
-              : "No hay otra opción: reanuda la tarea cuando la aplicación vuelva a estar disponible."}</p>`}
+              ? t("ext.continuity.no_option_exhausted")
+              : t("ext.continuity.no_option_unavailable")}</p>`}
             <span class="continuity-option"><button type="button" class="btn secondary continuity-btn" ...${helpFor("continuity.later", { scope })}
-              disabled=${busy} onClick=${onLater}>Decidir después</button>
+              disabled=${busy} onClick=${onLater}>${t("ext.continuity.decide_later")}</button>
               <${Help} topic="continuity.later" scope=${scope} compact=${true} /></span>
           </div>`}
     ${message && html`<p class=${"message " + message.kind} role=${message.kind === "error" ? "alert" : "status"}>${message.text}</p>`}
-    ${showOpen && card.session_ref && html`<p class="continuity-open small"><a class="continuity-link" href=${"#sessions/" + encodeURIComponent(card.session_ref)}>Abrir la sesión</a></p>`}
+    ${showOpen && card.session_ref && html`<p class="continuity-open small"><a class="continuity-link" href=${"#sessions/" + encodeURIComponent(card.session_ref)}>${t("ext.continuity.open_session")}</a></p>`}
   </article>`;
 }
 
@@ -115,7 +117,7 @@ export function DecisionCard({ token, card, showOpen = true, onChanged = () => {
     try {
       const answer = await apiPost(decisionPath(card.task_id), token, decisionBody(card, choice.kind, choice.executor_id, choice.decisionId));
       setUi({ confirming: null, later: false });
-      setMessage({ kind: "ok", text: choice.kind === "wait" ? "Decisión guardada: la tarea espera." : "Decisión guardada: pediste delegar la tarea." });
+      setMessage({ kind: "ok", text: choice.kind === "wait" ? t("ext.continuity.saved_wait") : t("ext.continuity.saved_delegate") });
       onChanged(answer.card || null);
     } catch (error) {
       const failure = error instanceof ApiError ? error : new ApiError({ message: String(error) });

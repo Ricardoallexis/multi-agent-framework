@@ -1,43 +1,43 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
+import "./i18n.js";
+import { t } from "../../js/i18n.js";
 // Pure view-model and one-use challenge/decision protocol for the «Aprobaciones» extension (SEC-T04).
 // No DOM, no Preact, and no network calls: callers inject `post` so Node tests can run without fetch.
 
-export const SESSION_UNAVAILABLE_NOTICE =
-  "Las aprobaciones se activan en la pestaña que abrió «multiagent gui». Si no es esta, reinicia la GUI.";
-export const EXPIRED_CODE_NOTICE =
-  "El código de un solo uso venció o ya no es válido. Inténtalo de nuevo.";
+export const sessionUnavailableNotice = () => t("ext.approvals.session_unavailable");
+export const expiredCodeNotice = () => t("ext.approvals.expired_code");
 
 const KIND_INFO = {
   secret_send: {
-    label: "Envío con forma de secreto",
-    reason: "Se detectó contenido con forma de secreto antes de enviarlo.",
-    approveLabel: "Aprobar este envío",
-    rejectLabel: "Rechazar",
+    label: "ext.approvals.kind.secret_send",
+    reason: "ext.approvals.reason.secret_send",
+    approveLabel: "ext.approvals.approve_send",
+    rejectLabel: "ext.approvals.reject",
   },
   osv_query: {
-    label: "Consulta a OSV.dev",
-    reason: "Se consultarán los paquetes declarados en api.osv.dev antes de escanear el bundle.",
-    approveLabel: "Aprobar este envío",
-    rejectLabel: "Rechazar",
+    label: "ext.approvals.kind.osv_query",
+    reason: "ext.approvals.reason.osv_query",
+    approveLabel: "ext.approvals.approve_send",
+    rejectLabel: "ext.approvals.reject",
   },
   bundle_load: {
-    label: "Carga de bundle externo",
-    reason: "El resultado del escaneo requiere confirmación antes de cargar el bundle.",
-    approveLabel: "Aprobar este envío",
-    rejectLabel: "Rechazar",
+    label: "ext.approvals.kind.bundle_load",
+    reason: "ext.approvals.reason.bundle_load",
+    approveLabel: "ext.approvals.approve_send",
+    rejectLabel: "ext.approvals.reject",
   },
   memory_trust: {
-    label: "Marcar un apunte del proyecto como fiable",
-    reason: "Alguien escribió este apunte diciendo que es tuyo. Si lo apruebas, se tratará como fiable.",
-    approveLabel: "Aprobar",
-    rejectLabel: "Rechazar",
+    label: "ext.approvals.kind.memory_trust",
+    reason: "ext.approvals.reason.memory_trust",
+    approveLabel: "ext.approvals.approve",
+    rejectLabel: "ext.approvals.reject",
   },
   memory_delete: {
-    label: "Borrar un apunte del proyecto",
-    reason: "Se pidió borrar este apunte. Si lo apruebas, se borra y no se puede deshacer.",
-    approveLabel: "Aprobar",
-    rejectLabel: "Rechazar",
+    label: "ext.approvals.kind.memory_delete",
+    reason: "ext.approvals.reason.memory_delete",
+    approveLabel: "ext.approvals.approve",
+    rejectLabel: "ext.approvals.reject",
   },
 };
 
@@ -47,13 +47,12 @@ export const MEMORY_KINDS = Object.freeze(["memory_trust", "memory_delete"]);
 export function memoryEntryTitle(location) {
   const title = location && typeof location === "object" && !Array.isArray(location) ? location.title : "";
   const clean = typeof title === "string" ? title.trim() : "";
-  return clean || "Apunte sin título";
+  return clean || t("ext.approvals.untitled_note");
 }
 
 // MEM-T02: a memory_trust that clashes with an entry the person confirmed carries both texts, already cut by the server.
 // They are data written by someone else: only ever shown as text, and cut again here so a large answer cannot flood the card.
-export const CLASH_REASON =
-  "Este apunte contradice uno que confirmaste. Si lo apruebas, el nuevo pasa a fiable y el tuyo queda en Pendientes para que lo borres.";
+const clashReason = () => t("ext.approvals.clash_reason");
 const CLASH_TITLE_MAX = 80;
 const CLASH_BODY_MAX = 240;
 const cutText = (value, max) => {
@@ -64,7 +63,7 @@ export function memoryClash(row) {
   const pair = row && typeof row === "object" ? row.conflict : null;
   if (!pair || typeof pair !== "object" || Array.isArray(pair)) return null;
   const side = (entry) => entry && typeof entry === "object" && !Array.isArray(entry)
-    ? { title: cutText(entry.title, CLASH_TITLE_MAX) || "Apunte sin título", body: cutText(entry.body, CLASH_BODY_MAX) }
+    ? { title: cutText(entry.title, CLASH_TITLE_MAX) || t("ext.approvals.untitled_note"), body: cutText(entry.body, CLASH_BODY_MAX) }
     : null;
   const fresh = side(pair.new);
   const existing = side(pair.existing);
@@ -72,17 +71,17 @@ export function memoryClash(row) {
 }
 
 const SECRET_TYPE_LABELS = {
-  private_key: "Clave privada",
-  secret_key: "Clave secreta",
-  bearer: "Token Bearer",
-  long_token: "Token largo",
+  private_key: "ext.approvals.secret.private_key",
+  secret_key: "ext.approvals.secret.secret_key",
+  bearer: "ext.approvals.secret.bearer",
+  long_token: "ext.approvals.secret.long_token",
 };
 
 const LOCATION_LABELS = {
-  new_session: "Nueva sesión",
-  planner: "Planificador",
-  planning: "Planificador",
-  executor: "Ejecutor",
+  new_session: "ext.approvals.location.new_session",
+  planner: "ext.approvals.location.planner",
+  planning: "ext.approvals.location.planner",
+  executor: "ext.approvals.location.executor",
 };
 
 const MASK_MARKERS = /[*…•]/;
@@ -92,17 +91,17 @@ export const decisionPath = (id) => "/gui/api/approvals/" + encodeURIComponent(i
 
 export function formatSecretTypes(secretTypes, kind) {
   const list = Array.isArray(secretTypes)
-    ? secretTypes.map((item) => SECRET_TYPE_LABELS[item] || String(item || "").trim()).filter(Boolean)
+    ? secretTypes.map((item) => SECRET_TYPE_LABELS[item] ? t(SECRET_TYPE_LABELS[item]) : String(item || "").trim()).filter(Boolean)
     : [];
   if (list.length > 0) return list;
-  if (kind === "osv_query") return ["Consulta a OSV.dev"];
-  if (kind === "bundle_load") return ["Carga de bundle externo"];
-  return ["Sin tipos indicados"];
+  if (kind === "osv_query") return [t("ext.approvals.kind.osv_query")];
+  if (kind === "bundle_load") return [t("ext.approvals.kind.bundle_load")];
+  return [t("ext.approvals.no_types")];
 }
 
 export function formatDestination(destination) {
-  if (typeof destination === "string") return destination.trim() || "Sin destino indicado";
-  if (!destination || typeof destination !== "object" || Array.isArray(destination)) return "Sin destino indicado";
+  if (typeof destination === "string") return destination.trim() || t("ext.approvals.no_destination");
+  if (!destination || typeof destination !== "object" || Array.isArray(destination)) return t("ext.approvals.no_destination");
   if (destination.executor || destination.executor_id) {
     const parts = [destination.executor || destination.executor_id, destination.model].filter(Boolean);
     if (parts.length > 0) return parts.join(" · ");
@@ -115,37 +114,37 @@ export function formatDestination(destination) {
   const pairs = Object.entries(destination)
     .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "")
     .map(([key, value]) => key + ": " + String(value));
-  return pairs.length > 0 ? pairs.join(" · ") : "Sin destino indicado";
+  return pairs.length > 0 ? pairs.join(" · ") : t("ext.approvals.no_destination");
 }
 
 export function formatLocation(location) {
   if (typeof location === "string") {
     const clean = location.trim();
-    return LOCATION_LABELS[clean] || clean || "Sin origen indicado";
+    return LOCATION_LABELS[clean] ? t(LOCATION_LABELS[clean]) : clean || t("ext.approvals.no_origin");
   }
-  if (!location || typeof location !== "object" || Array.isArray(location)) return "Sin origen indicado";
+  if (!location || typeof location !== "object" || Array.isArray(location)) return t("ext.approvals.no_origin");
   const parts = [];
   const runId = location.run || location.run_id;
   const stepId = location.step || location.step_id;
-  if (runId) parts.push("Ejecución " + runId + (stepId ? " · paso " + stepId : ""));
-  else if (stepId) parts.push("Paso " + stepId);
-  if (location.task || location.task_id) parts.push("Tarea " + (location.task || location.task_id));
-  if (location.plan || location.plan_id) parts.push("Plan " + (location.plan || location.plan_id));
-  if (location.bundle) parts.push("Bundle " + location.bundle);
+  if (runId) parts.push(t("ext.approvals.location.run", { id: runId }) + (stepId ? t("ext.approvals.location.step_suffix", { id: stepId }) : ""));
+  else if (stepId) parts.push(t("ext.approvals.location.step", { id: stepId }));
+  if (location.task || location.task_id) parts.push(t("ext.approvals.location.task", { id: location.task || location.task_id }));
+  if (location.plan || location.plan_id) parts.push(t("ext.approvals.location.plan", { id: location.plan || location.plan_id }));
+  if (location.bundle) parts.push(t("ext.approvals.location.bundle", { name: location.bundle }));
   const surface = location.surface || location.source;
-  if (surface) parts.push(LOCATION_LABELS[surface] || String(surface));
+  if (surface) parts.push(LOCATION_LABELS[surface] ? t(LOCATION_LABELS[surface]) : String(surface));
   if (parts.length > 0) return parts.join(" · ");
   const pairs = Object.entries(location)
     .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "")
     .map(([key, value]) => key + ": " + String(value));
-  return pairs.length > 0 ? pairs.join(" · ") : "Sin origen indicado";
+  return pairs.length > 0 ? pairs.join(" · ") : t("ext.approvals.no_origin");
 }
 
 // Never display an unmasked string, even if malformed data arrives.
 export function safeMaskedSample(sample) {
-  if (typeof sample !== "string" || !sample.trim()) return "Sin muestra";
+  if (typeof sample !== "string" || !sample.trim()) return t("ext.approvals.no_sample");
   const text = sample.trim();
-  if (!MASK_MARKERS.test(text)) return "[muestra omitida: sin enmascarar]";
+  if (!MASK_MARKERS.test(text)) return t("ext.approvals.unmasked_sample");
   return text.length > 160 ? text.slice(0, 159) + "…" : text;
 }
 
@@ -154,9 +153,9 @@ export function describeApproval(item) {
   const kind = String(row.kind || "secret_send");
   const info = KIND_INFO[kind] || {
     label: kind,
-    reason: "Esta acción requiere tu confirmación en Aprobaciones.",
-    approveLabel: "Aprobar este envío",
-    rejectLabel: "Rechazar",
+    reason: "ext.approvals.reason.unknown",
+    approveLabel: "ext.approvals.approve_send",
+    rejectLabel: "ext.approvals.reject",
   };
   const types = formatSecretTypes(row.secret_types, kind);
   const memory = MEMORY_KINDS.includes(kind);
@@ -167,8 +166,8 @@ export function describeApproval(item) {
     entryTitle: memory ? memoryEntryTitle(row.location) : "",
     id: String(row.id || ""),
     kind,
-    title: info.label,
-    reason: conflict ? CLASH_REASON : info.reason,
+    title: info.label.startsWith("ext.approvals.") ? t(info.label) : info.label,
+    reason: conflict ? clashReason() : t(info.reason),
     destination: formatDestination(row.destination),
     location: formatLocation(row.location),
     types,
@@ -177,8 +176,8 @@ export function describeApproval(item) {
     createdAt: typeof row.created_at === "string" ? row.created_at : "",
     sha256: typeof row.sha256 === "string" ? row.sha256 : "",
     state: String(row.state || "pending"),
-    approveLabel: info.approveLabel,
-    rejectLabel: info.rejectLabel,
+    approveLabel: t(info.approveLabel),
+    rejectLabel: t(info.rejectLabel),
   };
 }
 
@@ -211,10 +210,10 @@ export function isExpiredChallengeError(error) {
 
 export function approvalErrorInfo(error) {
   if (isSessionUnavailableError(error)) {
-    return { sessionUnavailable: true, retryable: false, stale: false, message: SESSION_UNAVAILABLE_NOTICE };
+    return { sessionUnavailable: true, retryable: false, stale: false, message: sessionUnavailableNotice() };
   }
   if (isExpiredChallengeError(error)) {
-    return { sessionUnavailable: false, retryable: true, stale: false, message: EXPIRED_CODE_NOTICE };
+    return { sessionUnavailable: false, retryable: true, stale: false, message: expiredCodeNotice() };
   }
   const details = error && error.details && typeof error.details === "object" ? error.details : {};
   if (details.reason === "already_decided" || (error && error.status === 404)) {
@@ -222,7 +221,7 @@ export function approvalErrorInfo(error) {
       sessionUnavailable: false,
       retryable: false,
       stale: true,
-      message: "Esta solicitud ya fue decidida o ya no está pendiente.",
+      message: t("ext.approvals.already_decided"),
     };
   }
   if (error && error.status === 409 && error.code === "invalid_state") {
@@ -230,14 +229,14 @@ export function approvalErrorInfo(error) {
       sessionUnavailable: false,
       retryable: false,
       stale: true,
-      message: error.message || "Esta solicitud ya no está pendiente.",
+      message: error.message || t("ext.approvals.not_pending"),
     };
   }
   return {
     sessionUnavailable: false,
     retryable: false,
     stale: false,
-    message: (error && error.message) || "No se pudo completar la acción.",
+    message: (error && error.message) || t("ext.approvals.action_failed"),
   };
 }
 
@@ -255,7 +254,7 @@ export async function submitApprovalDecision({ item, decision, post, riskAck = f
         sessionUnavailable: false,
         retryable: true,
         stale: false,
-        message: "El servidor no entregó un código de un solo uso válido.",
+        message: t("ext.approvals.code_missing"),
       };
     }
     if (item.sha256 && challenge.sha256 && challenge.sha256 !== item.sha256) {
@@ -264,7 +263,7 @@ export async function submitApprovalDecision({ item, decision, post, riskAck = f
         sessionUnavailable: false,
         retryable: false,
         stale: true,
-        message: "El contenido de la solicitud cambió; actualiza la lista antes de decidir.",
+        message: t("ext.approvals.content_changed"),
       };
     }
     const body = { code: challenge.code, decision };

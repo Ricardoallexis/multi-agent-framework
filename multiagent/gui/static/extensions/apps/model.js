@@ -1,9 +1,11 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Pure view-model for «Apps y agentes» (#apps): transforms /gui/api/connections and /gui/api/setup/status without DOM or network.
+import "./i18n.js";
+import { t } from "../../js/i18n.js";
 import { formatQuotaLines } from "../../js/quota-text.js";
 import { limitReachedText, quotaWarningText } from "../../js/new-session-model.js";
-import { MANUAL_ENABLE_TEXT, activationView } from "./activation-model.js";   // EJE-T02
+import { activationView, manualEnableText } from "./activation-model.js";   // EJE-T02
 
 export const EXECUTOR_IDS = ["claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"];
 export const MODEL_IDS = ["gemini", "openai", "ollama"];
@@ -19,39 +21,36 @@ const LABELS = {
 };
 
 const REASONS = {
-  not_installed: "No está instalado.",
-  disabled: "No está habilitado.",
-  notice_not_accepted: "Falta aceptar el aviso de agy.",
-  session_missing: "Falta iniciar sesión.",
-  key_missing: "Falta configurar la clave.",
-  key_invalid: "Clave inválida.",
-  no_access: "Sin acceso.",
-  limit_reached: "Límite alcanzado · sin hora conocida",
-  status_unknown: "No se pudo comprobar la conexión.",
-  version_check_failed: "Falló la comprobación de versión.",
-  session_unverifiable: "No se puede comprobar la sesión sin gastar cuota.",
-  reachability_unknown: "El acceso no se prueba sin gastar.",
-  unreachable: "No responde.",
-  tls_certificate: "No se pudo verificar el certificado TLS.",
-  quota_paused: "Límite alcanzado · sin hora conocida",
-  quota_below_pause_floor: "Queda menos del 10 % de cuota.",
-  quota_below_launch_floor: "Queda menos del 15 % de cuota.",
-  usage_unavailable: "No se pudo comprobar la cuota.",
+  not_installed: "ext.apps.reason.not_installed",
+  disabled: "ext.apps.reason.disabled",
+  notice_not_accepted: "ext.apps.reason.notice_not_accepted",
+  session_missing: "ext.apps.reason.session_missing",
+  key_missing: "ext.apps.reason.key_missing",
+  key_invalid: "ext.apps.reason.key_invalid",
+  no_access: "ext.apps.reason.no_access",
+  limit_reached: "ext.apps.reason.limit_reached",
+  status_unknown: "ext.apps.reason.status_unknown",
+  version_check_failed: "ext.apps.reason.version_check_failed",
+  session_unverifiable: "ext.apps.reason.session_unverifiable",
+  reachability_unknown: "ext.apps.reason.reachability_unknown",
+  unreachable: "ext.apps.reason.unreachable",
+  tls_certificate: "ext.apps.reason.tls_certificate",
+  quota_paused: "ext.apps.reason.quota_paused",
+  quota_below_pause_floor: "ext.apps.reason.quota_below_pause_floor",
+  quota_below_launch_floor: "ext.apps.reason.quota_below_launch_floor",
+  usage_unavailable: "ext.apps.reason.usage_unavailable",
 };
+const reasonText = (reason) => REASONS[reason] ? t(REASONS[reason]) : t("ext.apps.reason.unavailable");
 
-export const AGY_NOTICE =
-  "Usa tu suscripción de agy. Revisa las condiciones de tu plan y mantén desactivados los créditos de IA. " +
-  "Respeta la cuota que muestra agy /usage; no uses cuentas compartidas o de terceros.";
+export const agyNotice = () => t("ext.apps.agy_notice");
 
 // EJE-T02: the person turns an executor on with «Activar» (one by one, after the fixed note of the server).
-export const EXECUTOR_ENABLE_NOTICE =
-  "Activar un ejecutor permite que el framework lance esta app bajo tu supervisión y usando tu suscripción. " +
-  "Solo lo activas tú, desde aquí y de uno en uno.";
+export const executorEnableNotice = () => t("ext.apps.executor_enable_notice");
 
 const VERSION_FAILURES = {
-  timed_out: "no respondió a tiempo",
-  probe_failed: "no se pudo ejecutar",
-  uninterpretable: "respuesta no reconocida",
+  timed_out: "ext.apps.version_failure.timed_out",
+  probe_failed: "ext.apps.version_failure.probe_failed",
+  uninterpretable: "ext.apps.version_failure.uninterpretable",
 };
 
 export function quotaLines(quota) {
@@ -59,58 +58,59 @@ export function quotaLines(quota) {
 }
 
 function installedLabel(row, kind) {
-  if (kind === "model") return row.id === "ollama" ? "Local" : "No aplica (API)";
+  if (kind === "model") return row.id === "ollama" ? t("ext.apps.installed.local") : t("ext.apps.installed.not_applicable");
   if (row.installed === true) {
     if (row.detection_context === "packaged_process" && row.windows_package_path === true) {
-      return "Encontrado en el contexto de esta app; no se verificó su disponibilidad fuera de ella";
+      return t("ext.apps.installed.packaged");
     }
-    return "Sí";
+    return t("ext.apps.yes");
   }
-  if (row.installed === false) return "No";
-  return "Desconocido";
+  if (row.installed === false) return t("ext.apps.no");
+  return t("ext.apps.unknown");
 }
 
 function sessionLabel(row, kind) {
   if (kind === "model") {
     if (row.id === "ollama") {
-      if (row.reachable === true) return "Responde";
-      if (row.reachable === false) return "No responde";
-      return "Desconocido";
+      if (row.reachable === true) return t("ext.apps.session.reachable");
+      if (row.reachable === false) return t("ext.apps.session.unreachable");
+      return t("ext.apps.unknown");
     }
     const setting = row.key_setting || (row.id === "gemini" ? "GEMINI_API_KEY" : "OPENAI_API_KEY");
     const file = row.key_file || ".local/.env";
     return row.key_configured
-      ? `Clave configurada (${setting} en ${file})`
-      : `Falta clave (${setting} en ${file})`;
+      ? t("ext.apps.session.key_configured", { setting, file })
+      : t("ext.apps.session.key_missing", { setting, file });
   }
-  if (row.session === "signed_in") return row.id === "antigravity_cli" ? "Iniciada (por /usage)" : "Iniciada";
-  if (row.session === "signed_out") return "No iniciada";
-  if (row.id === "copilot_cli") return "No comprobable sin gastar cuota";
-  if (row.id === "antigravity_cli") return "Desconocida (requiere /usage)";
-  return "Desconocida";
+  if (row.session === "signed_in") return row.id === "antigravity_cli" ? t("ext.apps.session.signed_in_usage") : t("ext.apps.session.signed_in");
+  if (row.session === "signed_out") return t("ext.apps.session.signed_out");
+  if (row.id === "copilot_cli") return t("ext.apps.session.unverifiable");
+  if (row.id === "antigravity_cli") return t("ext.apps.session.unknown_usage");
+  return t("ext.apps.unknown");
 }
 
 function enabledLabel(row) {
   if (row.id === "antigravity_cli") {
-    if (row.enabled && row.notice_accepted) return "Habilitado y aviso aceptado";
-    if (row.enabled && !row.notice_accepted) return "En catálogo, pero falta aceptar el aviso";
-    return "Deshabilitado";
+    if (row.enabled && row.notice_accepted) return t("ext.apps.enabled.notice_accepted");
+    if (row.enabled && !row.notice_accepted) return t("ext.apps.enabled.notice_missing");
+    return t("ext.apps.disabled");
   }
-  return row.enabled ? "Habilitado" : "Deshabilitado";
+  return row.enabled ? t("ext.apps.enabled") : t("ext.apps.disabled");
 }
 
 export function permissionSummary(id, perm, kind) {
-  if (kind === "model") return "No aplica";
-  if (!perm) return "Sin información de plantillas";
+  if (kind === "model") return t("ext.apps.not_applicable");
+  if (!perm) return t("ext.apps.permissions.unknown");
   if (perm.mode === "template") {
     if (perm.active) {
-      return `Activa en ${perm.active_path}` + (perm.local_present ? ` (con ${perm.local_path})` : "");
+      return t("ext.apps.permissions.active", { path: perm.active_path }) +
+        (perm.local_present ? t("ext.apps.permissions.local", { path: perm.local_path }) : "");
     }
-    return `Inactiva · plantilla en ${perm.template_path} (guía: ${perm.guide})`;
+    return t("ext.apps.permissions.inactive", { path: perm.template_path, guide: perm.guide });
   }
-  if (perm.mode === "per_run") return `Opciones por ejecución (guía: ${perm.guide})`;
-  if (perm.mode === "supervised_modes") return `Modos supervisados (--mode plan / --mode auto; guía: ${perm.guide})`;
-  return "Sin datos";
+  if (perm.mode === "per_run") return t("ext.apps.permissions.per_run", { guide: perm.guide });
+  if (perm.mode === "supervised_modes") return t("ext.apps.permissions.supervised", { guide: perm.guide });
+  return t("ext.apps.no_data");
 }
 
 function consoleAction(row, step, title, detail, setupStatus, { optional = false } = {}) {
@@ -130,14 +130,14 @@ function consoleAction(row, step, title, detail, setupStatus, { optional = false
 
 // SIM-T03: simple mode never shows a line to paste or a command to copy. The steps that edit a file (enable an executor or a model,
 // an API key) say that they belong to advanced mode; the console steps keep their button and lose the command text.
-export const ADVANCED_STEP_TEXT = "Este paso se hace en modo avanzado";
+export const advancedStepText = () => t("ext.apps.advanced_step");
 // EJE-T02: «Activar» is not a file edit, so an executor keeps its button in both modes.
 const ADVANCED_STEP_KINDS = ["enable_model", "key"];
 
 export function missingAction(row, kind, setupStatus, mode = "advanced") {
   const action = advancedAction(row, kind, setupStatus);
   if (mode !== "simple" || !action) return action;
-  if (ADVANCED_STEP_KINDS.includes(action.kind)) return { kind: "advanced_only", title: action.title, text: ADVANCED_STEP_TEXT };
+  if (ADVANCED_STEP_KINDS.includes(action.kind)) return { kind: "advanced_only", title: action.title, text: advancedStepText() };
   if (action.kind === "console") {
     const { commandText, ...rest } = action;
     return rest;
@@ -156,15 +156,15 @@ function advancedAction(row, kind, setupStatus) {
     if (row.id === "antigravity_cli") {
       return {
         kind: "info",
-        title: "Falta instalar Antigravity (agy)",
-        detail: "Instala agy desde su distribución oficial y asegúrate de que esté en el PATH. Luego pulsa «Volver a comprobar».",
+        title: t("ext.apps.install.agy.title"),
+        detail: t("ext.apps.install.agy.detail"),
       };
     }
     return consoleAction(
       row,
       "install",
-      "Falta instalarlo",
-      "Abre una consola visible con el comando oficial y pulsa Enter dentro de la consola para ejecutarlo.",
+      t("ext.apps.install.title"),
+      t("ext.apps.install.detail"),
       setupStatus,
     );
   }
@@ -174,15 +174,15 @@ function advancedAction(row, kind, setupStatus) {
       // EJE-T02: no line to paste and no «Copiar»; the button «Activar» (activation.js) does it. The manual way is a sentence.
       return {
         kind: "enable_executor",
-        title: "Listo para activar",
-        notice: isAgy ? AGY_NOTICE : EXECUTOR_ENABLE_NOTICE,
-        manualText: MANUAL_ENABLE_TEXT,
+        title: t("ext.apps.activation.state.ready"),
+        notice: isAgy ? agyNotice() : executorEnableNotice(),
+        manualText: manualEnableText(),
       };
     }
     return {
       kind: "enable_model",
-      title: "Falta habilitarlo",
-      detail: "Añade esta línea en .local/.env, reinicia la aplicación y pulsa «Volver a comprobar».",
+      title: t("ext.apps.enable_model.title"),
+      detail: t("ext.apps.enable_model.detail"),
       file: ".local/.env",
       line: "OPENAI_ENABLED=true",
       copyText: "OPENAI_ENABLED=true",
@@ -192,15 +192,15 @@ function advancedAction(row, kind, setupStatus) {
     if (row.id === "antigravity_cli") {
       return {
         kind: "info",
-        title: "Falta iniciar sesión",
-        detail: "Inicia sesión tú en agy desde tu terminal; su sesión no se puede comprobar sin gastar. Luego pulsa «Volver a comprobar».",
+        title: t("ext.apps.login.agy.title"),
+        detail: t("ext.apps.login.agy.detail"),
       };
     }
     return consoleAction(
       row,
       "login",
-      "Falta iniciar sesión",
-      "Abre una consola visible para iniciar sesión en la app y luego vuelve a comprobar.",
+      t("ext.apps.login.title"),
+      t("ext.apps.login.detail"),
       setupStatus,
     );
   }
@@ -209,18 +209,18 @@ function advancedAction(row, kind, setupStatus) {
     const file = row.key_file || ".local/.env";
     return {
       kind: "key",
-      title: "Falta configurar la clave",
+      title: t("ext.apps.reason.key_missing"),
       setting,
       file,
-      detail: `Añade ${setting} en ${file}, reinicia la aplicación y pulsa «Volver a comprobar». Nunca escribas la clave aquí.`,
+      detail: t("ext.apps.key_missing.detail", { setting, file }),
     };
   }
   if (row.id === "copilot_cli" && row.reason === "session_unverifiable") {
     return consoleAction(
       row,
       "login",
-      "Sesión sin comprobar",
-      "No se puede comprobar la sesión de Copilot sin gastar cuota. Si aún no iniciaste sesión, puedes abrir una consola para hacerlo.",
+      t("ext.apps.login.unverified.title"),
+      t("ext.apps.login.unverified.detail"),
       setupStatus,
       { optional: true },
     );
@@ -228,25 +228,22 @@ function advancedAction(row, kind, setupStatus) {
   if (row.reason === "reachability_unknown") {
     return {
       kind: "info",
-      title: "Acceso sin comprobar",
-      detail: "La clave está configurada; el acceso no se prueba sin gastar cuota.",
+      title: t("ext.apps.reachability_unknown.title"),
+      detail: t("ext.apps.reachability_unknown.detail"),
     };
   }
   if (row.reason === "tls_certificate") {
     return {
       kind: "info",
-      title: REASONS.tls_certificate,
-      detail:
-        "No se pudo verificar el certificado TLS. Un antivirus o un proxy puede estar cambiando los certificados. " +
-        "Si confías en este equipo, usa el botón de certificados del sistema. " +
-        "En modo avanzado también puedes elegir tu propio archivo .pem con PROVIDER_TLS_TRUST=file:RUTA en .local/.env.",
+      title: t(REASONS.tls_certificate),
+      detail: t("ext.apps.tls_certificate.detail"),
     };
   }
   if (row.reason === "unreachable") {
     return {
       kind: "info",
-      title: REASONS.unreachable,
-      detail: "Ollama no respondió a su comprobación. Comprueba el servicio local y pulsa «Volver a comprobar».",
+      title: t(REASONS.unreachable),
+      detail: t("ext.apps.unreachable.detail"),
     };
   }
   if (row.reason === "key_invalid") {
@@ -254,33 +251,33 @@ function advancedAction(row, kind, setupStatus) {
     const file = row.key_file || ".local/.env";
     return {
       kind: "key",
-      title: "Clave inválida",
+      title: t(REASONS.key_invalid),
       setting,
       file,
-      detail: `El proveedor rechazó ${setting} en ${file}. Revisa la clave, reinicia la aplicación y pulsa «Volver a comprobar». Nunca escribas la clave aquí.`,
+      detail: t("ext.apps.key_invalid.detail", { setting, file }),
     };
   }
   if (row.reason === "no_access") {
     return {
       kind: "info",
-      title: "Sin acceso",
-      detail: "No se pudo conectar con el proveedor. Revisa tu conexión o certificados y pulsa «Volver a comprobar».",
+      title: t(REASONS.no_access),
+      detail: t("ext.apps.no_access.detail"),
     };
   }
   if (row.limit || row.reason === "limit_reached" || row.reason === "quota_paused") {
     const limitText = limitReachedText(row.limit || row.resets_at || row.paused_until);
     return {
       kind: "info",
-      title: "Límite alcanzado",
-      detail: `${limitText}. Después pulsa «Volver a comprobar».`,
+      title: t(REASONS.limit_reached),
+      detail: t("ext.apps.limit_reached.detail", { limit: limitText }),
     };
   }
   return {
     kind: "info",
-    title: REASONS[row.reason] || "No disponible",
+    title: reasonText(row.reason),
     detail: row.paused_until
-      ? `En pausa hasta ${row.paused_until}. Después pulsa «Volver a comprobar».`
-      : "Revisa el estado mostrado arriba y pulsa «Volver a comprobar».",
+      ? t("ext.apps.paused_until", { when: row.paused_until })
+      : t("ext.apps.recheck_detail"),
   };
 }
 
@@ -297,28 +294,28 @@ function statusChipFor(row, view = null) {
   if (row.id === "gemini") {
     if (row.available === true) {
       return row.verification === "verified"
-        ? { status: "connected", label: "Conectado" }
-        : { status: "unverified", label: "Sin comprobar" };
+        ? { status: "connected", label: t("ext.apps.status.connected") }
+        : { status: "unverified", label: t("ext.apps.status.unverified") };
     }
-    if (row.reason === "key_invalid") return { status: "key_invalid", label: "Clave inválida" };
-    if (row.reason === "no_access") return { status: "no_access", label: "Sin acceso" };
-    if (row.reason === "limit_reached") return { status: "limit_reached", label: "Límite alcanzado" };
+    if (row.reason === "key_invalid") return { status: "key_invalid", label: t("ext.apps.status.key_invalid") };
+    if (row.reason === "no_access") return { status: "no_access", label: t("ext.apps.status.no_access") };
+    if (row.reason === "limit_reached") return { status: "limit_reached", label: t("ext.apps.status.limit_reached") };
   }
   if (row.available !== true && (row.limit || row.reason === "limit_reached" || row.reason === "quota_paused")) {
-    return { status: "limit_reached", label: "Límite alcanzado" };
+    return { status: "limit_reached", label: t("ext.apps.status.limit_reached") };
   }
   if (view?.state === "conflict") {
-    return { status: "conflict", label: "Estado en conflicto; vuelve a comprobarlo" };
+    return { status: "conflict", label: t("ext.apps.status.conflict") };
   }
   if (view && ACTIVATION_CHIPS[view.state]) {
     return { status: ACTIVATION_CHIPS[view.state], label: view.label };
   }
-  if (row.available === true) return { status: "ok", label: "Listo" };
-  if (row.missing_step) return { status: "waiting", label: "Falta un paso" };
+  if (row.available === true) return { status: "ok", label: t("ext.apps.status.ready") };
+  if (row.missing_step) return { status: "waiting", label: t("ext.apps.status.missing_step") };
   if (row.reason === "session_unverifiable" || row.reason === "reachability_unknown") {
-    return { status: "unknown", label: "Sin verificar" };
+    return { status: "unknown", label: t("ext.apps.status.unknown") };
   }
-  return { status: "error", label: "No disponible" };
+  return { status: "error", label: t("ext.apps.reason.unavailable") };
 }
 
 export function isPendingStep(row) {
@@ -345,7 +342,7 @@ function buildEntry(row, kind, setupStatus, mode, activation = null) {
   const conflict = activationViewModel?.state === "ready" &&
     (row.installed === false || ["probe_failed", "timed_out", "uninterpretable"].includes(row.version_result));
   const view = conflict
-    ? { ...activationViewModel, state: "conflict", label: "Estado en conflicto; vuelve a comprobarlo", actions: [] }
+    ? { ...activationViewModel, state: "conflict", label: t("ext.apps.status.conflict"), actions: [] }
     : activationViewModel;
   // Without the answer of the server the chip stays what it was: an executor enabled by hand is «Listo», not «Listo para activar».
   const chip = statusChipFor(row, activationRow ? view : null);
@@ -354,7 +351,7 @@ function buildEntry(row, kind, setupStatus, mode, activation = null) {
     ? null
     : limited
       ? limitReachedText(row.limit || row.resets_at || row.paused_until)
-      : (REASONS[row.reason] || row.reason || "No disponible.");
+      : (REASONS[row.reason] ? t(REASONS[row.reason]) : row.reason || t("ext.apps.reason.unavailable") + ".");
   const action = missingAction(row, kind, setupStatus, mode);
   return {
     id: row.id,
@@ -366,14 +363,14 @@ function buildEntry(row, kind, setupStatus, mode, activation = null) {
     chip,
     installed: installedLabel(row, kind),
     version: row.version || (kind === "model" && row.id !== "ollama"
-      ? "No aplica"
+      ? t("ext.apps.not_applicable")
       : ["probe_failed", "timed_out", "uninterpretable"].includes(row.version_result)
-        ? `Versión no comprobada · ${VERSION_FAILURES[row.version_result]}`
-        : "Sin dato"),
+        ? t("ext.apps.version_unchecked", { reason: t(VERSION_FAILURES[row.version_result]) })
+        : t("ext.apps.no_data")),
     session: sessionLabel(row, kind),
     enabled: enabledLabel(row),
     permissions: permissionSummary(row.id, perm, kind),
-    quota: row.id === "gemini" ? ["La API de Gemini no informa la cuota."] : quotaLines(row.quota),
+    quota: row.id === "gemini" ? [t("ext.apps.gemini.no_quota")] : quotaLines(row.quota),
     warning: quotaWarningText(row.warning),
     canProbe: kind === "model",
     activation: view,

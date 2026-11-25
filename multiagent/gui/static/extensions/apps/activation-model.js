@@ -1,17 +1,22 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
+import "./i18n.js";
+import { t } from "../../js/i18n.js";
 // Pure view-model of «Activar» for the executor cards of «Apps y agentes» (EJE-T02): the five states, the fixed note and the
 // texts of the answers. No DOM and no network. Everything here is plain text; the note of the server is never HTML.
 
 export const STATES = ["not_installed", "no_session", "ready", "active", "paused"];
 
-export const STATE_LABELS = {
-  not_installed: "No instalado",
-  no_session: "Instalado, sin sesión",
-  ready: "Listo para activar",
-  active: "Activo",
-  paused: "En pausa",
+const STATE_KEYS = {
+  not_installed: "ext.apps.activation.state.not_installed",
+  no_session: "ext.apps.activation.state.no_session",
+  ready: "ext.apps.activation.state.ready",
+  active: "ext.apps.activation.state.active",
+  paused: "ext.apps.activation.state.paused",
 };
+export const STATE_LABELS = Object.defineProperties({}, Object.fromEntries(
+  Object.entries(STATE_KEYS).map(([state, key]) => [state, { enumerable: true, get: () => t(key) }]),
+));
 
 // The names the server uses in the note (``services/executor_activations.py``).
 export const EXECUTOR_NAMES = {
@@ -21,20 +26,20 @@ export const EXECUTOR_NAMES = {
   antigravity_cli: "Antigravity (agy)",
 };
 
-export const STOP_ALL_CONFIRM = "Detiene lo que esté corriendo y pone todos en pausa";
-export const STOP_ALL_PAUSED_TEXT = "En pausa: la apagaste con \"Apagar todos\"";
-export const FOREIGN_KILL_SWITCH_TEXT =
-  "agy está apagado por un archivo que no puso la app; quítalo tú para activarlo";
-export const MANUAL_ENABLE_TEXT = "También puedes encenderlo a mano en catalog/models.yaml";
+export const STOP_ALL_CONFIRM = t("ext.apps.activation.stop_all.confirm");
+export const stopAllConfirmText = () => t("ext.apps.activation.stop_all.confirm");
+const stopAllPausedText = () => t("ext.apps.activation.stop_all.paused");
+const foreignKillSwitchText = () => t("ext.apps.activation.foreign_switch");
+export const manualEnableText = () => t("ext.apps.activation.manual_enable");
 
 export function executorName(executorId) {
-  return EXECUTOR_NAMES[executorId] || String(executorId || "el ejecutor");
+  return EXECUTOR_NAMES[executorId] || String(executorId || t("ext.apps.activation.executor"));
 }
 
 const FIELD_TEXT = {
-  path: (change) => "Cambió la ruta de la aplicación",
-  major: (change) => `Cambió la versión ${change.from} → ${change.to}`,
-  account: (change) => "Cambió la cuenta",
+  path: () => t("ext.apps.activation.change.path"),
+  major: (change) => t("ext.apps.activation.change.major", { from: change.from, to: change.to }),
+  account: () => t("ext.apps.activation.change.account"),
 };
 
 // «Cambió la versión 2 → 3»; several changes are joined with « · ».
@@ -68,7 +73,7 @@ function stateFromConnection(row) {
 export function activationView(row, activation) {
   const known = activation && STATES.includes(activation.state);
   const state = known ? activation.state : stateFromConnection(row);
-  const label = STATE_LABELS[state];
+  const label = t(STATE_KEYS[state]);
   const foreign = Boolean(activation && activation.kill_switch_foreign);
   let actions = [];
   let detail = "";
@@ -79,21 +84,21 @@ export function activationView(row, activation) {
   } else if (state === "active") {
     actions = ["deactivate"];
     const when = shortDate(activation && activation.activated_at);
-    detail = when ? `Activado por ti el ${when}` : "Activado por ti";
+    detail = when ? t("ext.apps.activation.active_at", { when }) : t("ext.apps.activation.active");
   } else if (state === "paused") {
     actions = ["review"];
     const paused = activation && activation.paused;
     if (paused && paused.reason === "stopped_by_person") {
-      detail = STOP_ALL_PAUSED_TEXT;
+      detail = stopAllPausedText();
     } else {
       const changes = changesText((paused && paused.changes) || (activation && activation.changes));
-      detail = changes || "En pausa: la aplicación cambió desde que la activaste";
+      detail = changes || t("ext.apps.activation.paused_changed");
     }
   }
   if (foreign && (state === "ready" || state === "paused")) {
     // A switch a person made by hand: «Activar» would not start anything, so it is not offered.
     actions = actions.filter((action) => action !== "activate" && action !== "review");
-    detail = detail ? `${detail}. ${FOREIGN_KILL_SWITCH_TEXT}` : FOREIGN_KILL_SWITCH_TEXT;
+    detail = detail ? `${detail}. ${foreignKillSwitchText()}` : foreignKillSwitchText();
   }
   return { state, label, actions, detail, foreignKillSwitch: foreign };
 }
@@ -103,21 +108,22 @@ export function activationNote(payload, executorId) {
   const name = executorName(executorId);
   const raw = payload && typeof payload === "object" ? (payload.text ?? payload.note) : "";
   const text = typeof raw === "string" ? raw : "";
-  return { title: `Activar ${name}`, text, lines: text.split("\n").filter((line) => line.trim() !== ""), confirmLabel: `Activar ${name}` };
+  const label = t("ext.apps.activation.activate_name", { name });
+  return { title: label, text, lines: text.split("\n").filter((line) => line.trim() !== ""), confirmLabel: label };
 }
 
 export function stopAllText(result) {
   const stopped = Array.isArray(result?.stopped_tasks) ? result.stopped_tasks.length : 0;
   const paused = Array.isArray(result?.paused) ? result.paused.length : 0;
   const parts = [
-    stopped === 1 ? "Se detuvo 1 tarea" : `Se detuvieron ${stopped} tareas`,
-    paused === 1 ? "1 ejecutor quedó en pausa" : `${paused} ejecutores quedaron en pausa`,
+    stopped === 1 ? t("ext.apps.activation.stop_all.stopped_one") : t("ext.apps.activation.stop_all.stopped_many", { count: stopped }),
+    paused === 1 ? t("ext.apps.activation.stop_all.paused_one") : t("ext.apps.activation.stop_all.paused_many", { count: paused }),
   ];
   let text = parts.join("; ") + ".";
   if (result?.kill_switch === "foreign") {
-    text += " El archivo de apagado de agy no lo puso la app; no se tocó.";
+    text += " " + t("ext.apps.activation.stop_all.foreign_switch");
   } else if (result?.kill_switch === "failed") {
-    text += " No se pudo escribir el apagado de agy.";
+    text += " " + t("ext.apps.activation.stop_all.write_failed");
   }
   return text;
 }

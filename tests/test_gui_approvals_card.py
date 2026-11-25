@@ -302,9 +302,9 @@ def test_memory_cards_show_the_entry_title_as_text_and_the_plain_words():
     assert "apunte" in delete["reason"] and "borra" in delete["reason"] and delete["entryTitle"] == "Apunte sin título"
     assert out["plain"] == [False, ""]
     index_src = ui_text((EXT_DIR / "index.js"))
-    help_src = ui_text((EXT_DIR / "help.js"))
+    help_src = ui_text((EXT_DIR / "i18n.js"))
     for kind, words in (("memory_trust", "apunte"), ("memory_delete", "El apunte se borra")):
-        topic = help_src[help_src.index(f'"approvals.{kind}"'):]
+        topic = help_src[help_src.index(f'"help.approvals.{kind}"'):]
         topic = topic[:topic.index("},")]
         assert words in topic and "envío" not in topic and "nota" not in topic.lower()
     assert 'helpFor("approvals.memory_trust"' in index_src and 'helpFor("approvals.memory_delete"' in index_src
@@ -334,8 +334,8 @@ def test_a_clashing_memory_card_shows_the_pair_as_text_and_the_plain_words():
         assert word in clash["reason"]
     assert out["plain"] is None and out["broken"] is None and out["foreign"] is None
     index_src = ui_text((EXT_DIR / "index.js"))
-    help_src = ui_text((EXT_DIR / "help.js"))
-    topic = help_src[help_src.index('"approvals.memory_clash"'):]
+    help_src = ui_text((EXT_DIR / "i18n.js"))
+    topic = help_src[help_src.index('"help.approvals.memory_clash"'):]
     topic = topic[:topic.index("},")]
     for words in ("El apunte nuevo pasa a fiable", "Pendientes", "Nada se borra con este clic"):
         assert words in topic

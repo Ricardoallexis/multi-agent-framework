@@ -8,6 +8,7 @@
 // The data comes from multiagent/gui/continuity_api.py; the node «En espera · hasta HH:MM» of the agent tree comes from the
 // children of the session (the tree already draws that state, js/agent-tree-model.js).
 import "./i18n.js";
+import { t } from "../../js/i18n.js";
 import { registerHelp, registerUsageSection, registerView } from "../../js/extensions.js";
 import { registerSlot } from "../../js/panel-slots.js";
 import { HELP } from "./help.js";
@@ -16,6 +17,6 @@ import { ContinuitySlot } from "./slot.js";
 import { ContinuityView } from "./view.js";
 
 registerHelp(HELP, "continuity");
-registerView({ id: "continuity", owner: "continuity", group: "pending", pendingType: "continuity", icon: "shield", label: "Decisiones", topic: "continuity.view", component: ContinuityView, order: 50, mode: "simple" });
-registerSlot("continuity", ContinuitySlot, { title: "Continuidad", topic: "continuity.slot", owner: "continuity", order: 50 });
-registerUsageSection({ id: "continuity", owner: "continuity", label: "Continuidad", component: ContinuityPolicy, order: 50 });
+registerView({ id: "continuity", owner: "continuity", group: "pending", pendingType: "continuity", icon: "shield", label: t("ext.continuity.navigation.decisions"), topic: "continuity.view", component: ContinuityView, order: 50, mode: "simple" });
+registerSlot("continuity", ContinuitySlot, { title: t("ext.continuity.navigation.continuity"), topic: "continuity.slot", owner: "continuity", order: 50 });
+registerUsageSection({ id: "continuity", owner: "continuity", label: t("ext.continuity.navigation.continuity"), component: ContinuityPolicy, order: 50 });

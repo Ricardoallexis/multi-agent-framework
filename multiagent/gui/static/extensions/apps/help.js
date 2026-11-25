@@ -1,132 +1,132 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// Help texts of «Apps y agentes» (INS-T05): strict JSON under "apps." (see js/help-text.js).
+// Help texts of the apps extension: English fallback content for registered topics.
 
 export const HELP = {
   "apps.view": {
-    "title": "Apps y agentes",
-    "hint": "Estado de cada modelo y ejecutor, y solo el paso que falta.",
+    "title": "Apps and agents",
+    "hint": "See each model and executor status, and only the step that is missing.",
     "more": [
-      "Muestra si cada herramienta está instalada, con sesión o clave, habilitada y sus plantillas de permisos.",
-      "Las filas con un paso pendiente empiezan abiertas y las demás se despliegan al pulsarlas.",
-      "Nunca pide ni escribe claves secretas. Un ejecutor solo se activa cuando lo pulsas tú."
+      "See whether each tool is installed, signed in or configured with a key, enabled, and using its permission template.",
+      "Rows with a missing step open automatically. Click other rows to expand them.",
+      "The app never asks for or writes secret keys. An executor starts only when you activate it."
     ]
   },
   "apps.refresh": {
-    "title": "Actualizar lista",
-    "hint": "Vuelve a leer el estado guardado de conexiones y plantillas.",
+    "title": "Refresh the list",
+    "hint": "Read the saved connection and template status again.",
     "more": [
-      "Esta lectura no gasta cuota de modelos ni abre consolas.",
-      "Para volver a medir una herramienta concreta usa su botón de comprobar."
+      "This does not use model quota or open a console.",
+      "To check one tool again, use its check button."
     ]
   },
   "apps.executors": {
-    "title": "Apps y ejecutores",
-    "hint": "Aplicaciones de línea de comandos y estado de sus plantillas.",
+    "title": "Apps and executors",
+    "hint": "Command-line apps and the status of their templates.",
     "more": [
-      "Incluye Claude, Codex, Copilot y Antigravity (agy) con su versión, sesión y permisos.",
-      "Solo muestra la acción del primer paso que falte en cada app."
+      "Includes Claude, Codex, Copilot, and Antigravity (agy), with their version, sign-in, and permissions.",
+      "Each app shows only the action for its first missing step."
     ]
   },
   "apps.models": {
-    "title": "Modelos",
-    "hint": "Proveedores Gemini, OpenAI y Ollama con el mismo esquema.",
+    "title": "Models",
+    "hint": "Gemini, OpenAI, and Ollama use the same layout.",
     "more": [
-      "Para Gemini y OpenAI indica el nombre del ajuste en el archivo local, nunca el valor de la clave.",
-      "Para Ollama muestra si el servicio local responde y su versión."
+      "For Gemini and OpenAI, it shows the setting name in the local file, never the key value.",
+      "For Ollama, it shows whether the local service responds and its version."
     ]
   },
   "apps.recheck": {
-    "title": "Volver a comprobar",
-    "hint": "Vuelve a medir el estado actual de esta herramienta.",
+    "title": "Check again",
+    "hint": "Check this tool's current status again.",
     "more": [
-      "Comprueba instalación, sesión, respuesta local o cuota sin generar con ningún modelo.",
-      "Úsalo después de instalar, iniciar sesión o reiniciar tras cambiar la configuración."
+      "Checks installation, sign-in, local response, or quota without generating model output.",
+      "Use it after installing, signing in, or restarting after a settings change."
     ]
   },
   "apps.open_console": {
-    "title": "Abrir consola",
-    "hint": "Abre una consola visible en este equipo con el comando oficial.",
+    "title": "Open a console",
+    "hint": "Open a visible console on this computer with the official command.",
     "more": [
-      "Pide confirmación antes de abrir y solo permite una consola a la vez.",
-      "Dentro de la consola debes pulsar Enter para ejecutar el comando; el servidor nunca corre instalaciones ocultas.",
-      "La página no se queda esperando: dice «Consola abierta…» y consulta el estado cada pocos segundos. Al cerrar la consola, vuelve a medir y actualiza la fila."
+      "It asks first and allows only one console at a time.",
+      "Press Enter in the console to run the command. The server never runs a hidden installation.",
+      "The page does not wait: it says “Console open…” and checks the status every few seconds. When you close the console, it checks again and updates the row."
     ]
   },
   "apps.probe": {
-    "title": "Probar conexión",
-    "hint": "Hace una consulta que no genera texto para ver si el proveedor responde.",
+    "title": "Test the connection",
+    "hint": "Make a request that does not generate text to see whether the provider responds.",
     "more": [
-      "Pide la lista de modelos de Gemini u OpenAI, o la salud de Ollama. No gasta cuota de generación.",
-      "Solo corre cuando la pulsas: «Volver a comprobar» no sale a internet para Gemini ni OpenAI.",
-      "Si falla por el certificado, la tarjeta ofrece el botón de certificados del sistema."
+      "It asks Gemini or OpenAI for the model list, or checks Ollama's health. It does not use generation quota.",
+      "It runs only when you click it. “Check again” does not contact Gemini or OpenAI.",
+      "If a certificate check fails, the card offers a button to use system certificates."
     ]
   },
   "apps.tls_fix": {
-    "title": "Certificados de los proveedores",
-    "hint": "Elige qué certificados usan Gemini, OpenAI y Ollama para verificar la conexión.",
+    "title": "Provider certificates",
+    "hint": "Choose which certificates Gemini, OpenAI, and Ollama use to check the connection.",
     "more": [
-      "Un antivirus o un proxy que inspecciona TLS hace fallar la verificación. Con los certificados del sistema, la conexión usa el almacén de este equipo.",
-      "Es una decisión tuya y queda registrada. Vale para todos los proveedores; no cambia a los ejecutores.",
-      "«Volver a los certificados de siempre» deja los que traen los clientes. Elegir un archivo .pem propio es del modo avanzado, en .local/.env."
+      "An antivirus or proxy that inspects TLS can make verification fail. With system certificates, the connection uses this computer's certificate store.",
+      "This is your choice and is recorded. It applies to all providers, not executors.",
+      "“Use the usual certificates” restores the certificates included with the clients. Choosing your own .pem file is an advanced setting in .local/.env."
     ]
   },
   "apps.advanced_step": {
-    "title": "Pasos del modo avanzado",
-    "hint": "Este paso edita un archivo de configuración, y eso se hace en modo avanzado.",
+    "title": "Advanced-mode steps",
+    "hint": "This step changes a settings file, so it is available in advanced mode.",
     "more": [
-      "Habilitar un modelo y poner una clave de API son cambios en archivos de este equipo.",
-      "Activa el modo avanzado en «Personalizar» para ver las líneas exactas. El visor nunca edita esos archivos por ti."
+      "Enabling a model and adding an API key change files on this computer.",
+      "Turn on advanced mode in Customize to see the exact lines. The viewer never edits those files for you."
     ]
   },
   "apps.copy": {
-    "title": "Copiar líneas",
-    "hint": "Copia estas líneas al portapapeles para pegarlas tú mismo.",
+    "title": "Copy lines",
+    "hint": "Copy these lines to the clipboard so you can paste them yourself.",
     "more": [
-      "El servidor nunca edita el catálogo ni el archivo local por su cuenta.",
-      "Pégalas donde corresponda si decides habilitar esta herramienta, luego reinicia la aplicación. Un ejecutor se activa con «Activar»."
+      "The server never edits the catalog or local file by itself.",
+      "If you choose to enable this tool, paste the lines where they belong and restart the app. Activate an executor with “Activate”."
     ]
   },
   "apps.activate": {
-    "title": "Activar un ejecutor",
-    "hint": "Lee una nota fija y, si la aceptas, deja que el framework lance esta app.",
+    "title": "Activate an executor",
+    "hint": "Read a fixed notice. If you accept it, the framework can start this app.",
     "more": [
-      "Solo lo activas tú, desde aquí y de uno en uno. Ni la línea de comandos, ni la API, ni los planes, ni los agentes pueden hacerlo.",
-      "La activación se guarda en un ajuste local fuera del repositorio. El catálogo sigue con todo apagado.",
-      "Puedes desactivarla cuando quieras."
+      "Only you can activate it here, one at a time. The command line, API, plans, and agents cannot do this.",
+      "Activation is saved in a local setting outside the repository. The catalog stays off.",
+      "You can deactivate it at any time."
     ]
   },
   "apps.activation_note": {
-    "title": "Nota de activación",
-    "hint": "Dice qué aplicación y qué cuenta se usan, y qué implica activarla.",
+    "title": "Activation notice",
+    "hint": "It says which app and account will be used, and what activation means.",
     "more": [
-      "Cada lanzamiento gasta tu suscripción y tu cuota. El agente lee y escribe en la carpeta de trabajo, y rigen las condiciones del proveedor.",
-      "El botón de la nota es la aprobación: el código de un solo uso dura dos minutos. Si vence, pulsa «Activar» otra vez.",
-      "«Cancelar» cierra la nota sin activar nada."
+      "Each launch uses your subscription and quota. The agent can read and write in the work folder, and the provider's terms apply.",
+      "The notice button is your approval. Its one-time code lasts two minutes. If it expires, click “Activate” again.",
+      "“Cancel” closes the notice without activating anything."
     ]
   },
   "apps.deactivate": {
-    "title": "Desactivar",
-    "hint": "Apaga este ejecutor al momento, sin nota.",
+    "title": "Deactivate",
+    "hint": "Turn off this executor now, without a notice.",
     "more": [
-      "El framework deja de poder lanzarlo hasta que lo actives otra vez.",
-      "Lo que ya esté corriendo no se detiene con este botón: para eso está «Apagar todos»."
+      "The framework cannot start it again until you activate it.",
+      "This button does not stop anything already running. Use “Turn all off” for that."
     ]
   },
   "apps.stop_all": {
-    "title": "Apagar todos",
-    "hint": "Detiene lo que esté corriendo y pone todos los ejecutores en pausa.",
+    "title": "Turn all off",
+    "hint": "Stop running work and pause all executors.",
     "more": [
-      "Pide confirmación antes. Después, cada ejecutor se vuelve a activar a mano, uno por uno.",
-      "Para agy también escribe un archivo de apagado. Si ese archivo no lo puso la app, no lo toca."
+      "It asks first. Afterward, activate each executor again by hand, one at a time.",
+      "For agy, it also writes a switch-off file. If the app did not create that file, it leaves it alone."
     ]
   },
   "apps.paused": {
-    "title": "Ejecutor en pausa",
-    "hint": "Quedó en pausa y hay que revisar y activarlo otra vez.",
+    "title": "Executor paused",
+    "hint": "It is paused and must be reviewed before you activate it again.",
     "more": [
-      "Pasa si cambió la ruta de la aplicación, su versión principal o la cuenta, o si pulsaste «Apagar todos».",
-      "«Revisar y activar» muestra la nota otra vez. Una versión menor nueva no pausa nada."
+      "This happens if the app path, major version, or account changed, or if you clicked “Turn all off”.",
+      "“Review and activate” shows the notice again. A new minor version does not pause it."
     ]
   }
 };

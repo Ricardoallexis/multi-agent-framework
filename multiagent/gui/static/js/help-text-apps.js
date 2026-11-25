@@ -6,40 +6,40 @@
 
 export const HELP = {
   "open.claude": {
-    "title": "Abrir en Claude",
-    "hint": "Abre esta sesión en la app de escritorio de Claude.",
+    "title": "Open in Claude",
+    "hint": "Open this session in the Claude desktop app.",
     "more": [
-      "Lanza una consola nueva de Windows con «claude --desktop --resume» y el identificador de la sesión; antes te pide confirmar.",
-      "La consola se abre en tu carpeta personal, nunca en la de la sesión, por seguridad.",
-      "Claude muestra lo nuevo solo después de cerrar y volver a abrir la app.",
-      "Si el lanzamiento está desactivado (opción gui_allow_launch) o no usas Windows, copia el comando y ejecútalo tú."
+      "This opens a new Windows console with «claude --desktop --resume» and the session ID; you must confirm first.",
+      "For security, the console opens in your home folder, never in the session folder.",
+      "Claude shows new activity only after you close and reopen the app.",
+      "If launching is disabled (gui_allow_launch option) or you are not on Windows, copy and run the command yourself."
     ]
   },
   "open.codex": {
-    "title": "Abrir en Codex",
-    "hint": "Abre este hilo en la app de Codex mediante un enlace.",
+    "title": "Open in Codex",
+    "hint": "Open this thread in the Codex app with a link.",
     "more": [
-      "El botón es un enlace que abre la app de Codex ya instalada; no lanza ningún programa desde aquí.",
-      "Si hace falta, Codex pide confirmación antes de abrir la sesión.",
-      "Mientras la app tiene el hilo abierto bloquea las escrituras, pero este visor solo lee y no le afecta."
+      "The button is a link to the installed Codex app; this page does not start a program.",
+      "Codex may ask before opening the session.",
+      "Codex blocks writes while the app has the thread open, but this viewer only reads, so it is not affected."
     ]
   },
 
   "open.copilot": {
-    "title": "Abrir en Copilot",
-    "hint": "Abre esta sesión en la app de Copilot mediante un enlace.",
+    "title": "Open in Copilot",
+    "hint": "Open this session in the Copilot app with a link.",
     "more": [
-      "El botón es un enlace que abre la app de Copilot ya instalada; no lanza ningún programa desde aquí.",
-      "Si hace falta, Copilot pide confirmación antes de abrir la sesión.",
-      "Copilot muestra lo nuevo de la sesión solo después de cerrar y volver a abrir la app."
+      "The button is a link to the installed Copilot app; this page does not start a program.",
+      "Copilot may ask before opening the session.",
+      "Copilot shows new session activity only after you close and reopen the app."
     ]
   },
   "open.copy": {
-    "title": "Copiar comando",
-    "hint": "Copia el comando para ejecutarlo tú en una terminal.",
+    "title": "Copy command",
+    "hint": "Copy the command to run it yourself in a terminal.",
     "more": [
-      "Se usa cuando el visor no puede lanzar la app por sí mismo.",
-      "Ejecútalo dentro de la carpeta que se indica junto al comando, si aparece."
+      "Use this when the viewer cannot open the app itself.",
+      "Run it inside the folder shown next to the command, if one is shown."
     ]
   }
 };

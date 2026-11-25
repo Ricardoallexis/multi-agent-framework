@@ -15,6 +15,7 @@ import pytest
 
 from multiagent.gui import STATIC_DIR
 from multiagent.services.executor_activations import STATES as SERVER_STATES
+from tests.gui_text import ui_text
 
 APPS = STATIC_DIR / "extensions" / "apps"
 NODE = shutil.which("node")
@@ -164,9 +165,9 @@ def test_note_from_server_as_text():
     assert result["title"] == "Activar Codex" and result["confirmLabel"] == "Activar Codex"
     assert result["text"] == "Vas a activar <b>Codex</b>.\nGasta tu cuota."          # kept as the server sent it: text, not markup
     assert result["lines"] == ["Vas a activar <b>Codex</b>.", "Gasta tu cuota."]
-    source = (APPS / "index.js").read_text(encoding="utf-8")
+    source = ui_text(APPS / "index.js")
     for name in ("activation.js", "activation-model.js", "index.js"):
-        text = (APPS / name).read_text(encoding="utf-8")
+        text = ui_text(APPS / name)
         assert "innerHTML" not in text and "dangerouslySetInnerHTML" not in text and "style=" not in text, name
     assert "note.lines.map" in source and "${note.title}" in source      # the note is drawn as text nodes
 
@@ -280,16 +281,16 @@ def test_foreign_kill_switch_line():
 
 def test_activation_does_not_import_approvals_extension():
     for name in ("activation.js", "activation-model.js"):
-        source = (APPS / name).read_text(encoding="utf-8")
+        source = ui_text(APPS / name)
         imports = re.findall(r'^\s*import\b[^;]*?from\s+"([^"]+)"', source, re.M)
         assert all("approvals" not in path for path in imports), (name, imports)
         assert "extensions/approvals" not in source.replace("// ", "").split("export", 1)[1], name
     # it calls the routes of the approvals by its own paths
-    flow = (APPS / "activation.js").read_text(encoding="utf-8")
+    flow = ui_text(APPS / "activation.js")
     assert "/approvals/" in flow and "challenge" in flow and "decision" in flow
 
 
 def test_no_route_that_activates_outside_the_gui():
     """Rule 1: nothing but the browser routes can activate. The extension only calls ``/gui/api``."""
-    flow = (APPS / "activation.js").read_text(encoding="utf-8")
+    flow = ui_text(APPS / "activation.js")
     assert "/api/v1" not in flow and "const GUI = \"/gui/api\"" in flow

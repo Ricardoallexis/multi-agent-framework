@@ -1,112 +1,112 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// Contextual help for the «Aprobaciones» extension (SEC-T04): strict JSON under "approvals.".
+// Help texts for the approvals extension: English fallback content for registered topics.
 
 export const HELP = {
   "approvals.view": {
-    "title": "Aprobaciones",
-    "hint": "Aquí decides envíos con forma de secreto, consultas externas y cargas reservadas.",
+    "title": "Approvals",
+    "hint": "Review secret-like content, external requests, and restricted bundle loads here.",
     "more": [
-      "Se frenan los envíos con claves o tokens a modelos externos o ejecutores, y consultas externas como OSV.dev.",
-      "Solo se aprueban aquí con sesión de navegador y un código de un solo uso para evitar que otro proceso apruebe por ti.",
-      "Un proceso del mismo usuario podría leer cookies o consola del navegador; abre esta ventana solo tú y rechaza si dudas."
+      "Sends containing keys or tokens to external models or executors, and external requests such as OSV.dev, are stopped.",
+      "Approve only here, with a browser session and a one-time code, so another process cannot approve for you.",
+      "A process running as you could read browser cookies or console output. Open this page yourself, and reject if unsure."
     ]
   },
   "approvals.refresh": {
-    "title": "Actualizar aprobaciones",
-    "hint": "Vuelve a leer las solicitudes pendientes desde el servidor local.",
+    "title": "Refresh approvals",
+    "hint": "Read pending requests from the local server again.",
     "more": [
-      "Esta lectura no aprueba, rechaza ni consume ninguna solicitud.",
-      "Úsala para comprobar si apareció una solicitud nueva o si otra ya cambió."
+      "This does not approve, reject, or use up any request.",
+      "Use it to check for a new request or see whether another request changed."
     ]
   },
   "approvals.approve": {
-    "title": "Aprobar este envío",
-    "hint": "Pide un código de un solo uso y autoriza solo esta solicitud exacta.",
+    "title": "Approve this send",
+    "hint": "Request a one-time code and authorize only this exact request.",
     "more": [
-      "El código vale una sola vez durante 120 segundos para el contenido y destino mostrados.",
-      "No recuerda la decisión ni autoriza futuros envíos o cambios en el texto."
+      "The code works once for the shown content and destination, and expires after 120 seconds.",
+      "The decision is not remembered and does not authorize later sends or text changes."
     ]
   },
   "approvals.memory_trust": {
-    "title": "Aprobar este apunte",
-    "hint": "El apunte pasa a fiable: se tratará como un apunte que tú confirmaste.",
+    "title": "Approve this note",
+    "hint": "The note becomes trusted, as if you had confirmed it yourself.",
     "more": [
-      "Usa un código de un solo uso y vale solo para este apunte, con este texto.",
-      "Si no lo escribiste tú, pulsa Rechazar: el apunte se queda como no fiable."
+      "A one-time code applies only to this note and its current text.",
+      "If you did not write it, click Reject. The note stays untrusted."
     ]
   },
   "approvals.memory_clash": {
-    "title": "Aprobar el apunte nuevo",
-    "hint": "El apunte nuevo pasa a fiable y el tuyo queda en Pendientes para que decidas si lo borras.",
+    "title": "Approve the new note",
+    "hint": "The new note becomes trusted. Your note stays in Pending so you can decide whether to delete it.",
     "more": [
-      "Mientras no decidas, los dos apuntes se tratan como fiables. Nada se borra con este clic.",
-      "Usa un código de un solo uso y vale solo para este apunte, con este texto.",
-      "Si el apunte nuevo no es cierto, pulsa Rechazar: sigue como no fiable y no se usa."
+      "Until you decide, both notes are treated as trusted. This click does not delete anything.",
+      "A one-time code applies only to this note and its current text.",
+      "If the new note is not true, click Reject. It stays untrusted and is not used."
     ]
   },
   "approvals.memory_delete": {
-    "title": "Aprobar el borrado",
-    "hint": "El apunte se borra y no se puede deshacer.",
+    "title": "Approve deletion",
+    "hint": "The note will be deleted and cannot be restored.",
     "more": [
-      "Usa un código de un solo uso y vale solo para este apunte.",
-      "Si no pediste borrarlo, pulsa Rechazar: el apunte se queda como está."
+      "A one-time code applies only to this note.",
+      "If you did not request deletion, click Reject. The note stays as it is."
     ]
   },
   "approvals.reject": {
-    "title": "Rechazar solicitud",
-    "hint": "Niega esta solicitud para que nada reservado salga ni se cargue.",
+    "title": "Reject a request",
+    "hint": "Deny this request so no restricted content is sent or loaded.",
     "more": [
-      "La solicitud queda cerrada como rechazada y no puede reutilizarse.",
-      "También usa la sesión del navegador para dejar constancia en el historial."
+      "The request is closed as rejected and cannot be reused.",
+      "The browser session also records the decision in the history."
     ]
   },
   "approvals.retry_code": {
-    "title": "Intentar de nuevo",
-    "hint": "Pide un código nuevo de un solo uso cuando el anterior venció.",
+    "title": "Try again",
+    "hint": "Request a new one-time code if the previous one expired.",
     "more": [
-      "Cada intento genera un código distinto válido por 120 segundos.",
-      "Si el problema sigue tras reiniciar el servidor, recarga desde «multiagent gui»."
+      "Each attempt creates a different code that is valid for 120 seconds.",
+      "If the problem continues after restarting the server, reload from “multiagent gui”."
     ]
   },
   "approvals.osv_allow": {
-    "title": "Permitir la consulta",
-    "hint": "Autoriza una consulta de paquetes a api.osv.dev para escanear este bundle.",
+    "title": "Allow the request",
+    "hint": "Allow a package lookup at api.osv.dev to scan this bundle.",
     "more": [
-      "Solo envía nombres y versiones de los paquetes declarados en los manifiestos indicados.",
-      "Vale una sola vez para esta huella mediante código de un solo uso."
+      "Only package names and versions declared in the listed manifests are sent.",
+      "A one-time code allows this once for this fingerprint."
     ]
   },
   "approvals.osv_deny": {
-    "title": "No permitir",
-    "hint": "Niega la consulta a api.osv.dev; el bundle quedará sin analizar.",
+    "title": "Deny the request",
+    "hint": "Deny the request to api.osv.dev. The bundle will remain unanalyzed.",
     "more": [
-      "No se ejecutará SkillSpector ni saldrán datos de paquetes hacia internet.",
-      "Al cargar el bundle se pedirá confirmación manual porque quedó sin analizar."
+      "SkillSpector will not run, and package data will not be sent over the internet.",
+      "Loading the bundle will require manual confirmation because it was not analyzed."
     ]
   },
   "approvals.bundle_allow": {
-    "title": "Cargar este bundle",
-    "hint": "Autoriza cargar esta versión exacta del bundle tras revisar el veredicto.",
+    "title": "Load this bundle",
+    "hint": "Allow this exact version of the bundle to load after you review the result.",
     "more": [
-      "Solo vale para esta huella; cualquier cambio en los archivos volverá a pedir revisión.",
-      "Usa el código de un solo uso de la sesión abierta en esta pestaña."
+      "This applies only to this fingerprint. Any file change will require another review.",
+      "It uses a one-time code from the session open in this tab."
     ]
   },
   "approvals.bundle_risk": {
-    "title": "Asumo los riesgos",
-    "hint": "Confirma que revisaste el resultado antes de cargar este bundle.",
+    "title": "I accept the risks",
+    "hint": "Confirm that you reviewed the result before loading this bundle.",
     "more": [
-      "SkillSpector puede recomendar no instalarlo o no haberlo analizado por completo.",
-      "El servidor exige esta confirmación para cada carga que requiere tu aprobación."
+      "SkillSpector may recommend against installing it or may not have analyzed it fully.",
+      "The server requires this confirmation for every load that needs your approval."
     ]
   },
   "approvals.bundle_deny": {
-    "title": "No cargar",
-    "hint": "Mantiene bloqueada la carga de este bundle para su huella actual.",
+    "title": "Do not load",
+    "hint": "Keep this bundle fingerprint blocked from loading.",
     "more": [
-      "Los contratos del bundle no se importarán ni se ejecutarán.",
-      "La decisión queda registrada en el historial de aprobaciones."
+      "The bundle's contracts will not be imported or run.",
+      "The decision is recorded in the approvals history."
     ]
   }
 };
