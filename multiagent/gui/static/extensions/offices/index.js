@@ -4,7 +4,7 @@
 import "./i18n.js";
 import { html, useEffect, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { apiGet, apiPost } from "../../js/api.js";
-import { currentMode } from "../../js/gui-mode.js";
+import { currentMode, onModeChange } from "../../js/gui-mode.js";
 import { registerHelp, registerView } from "../../js/extensions.js";
 import { Help, helpFor } from "../../js/help.js";
 import { officeHref, planThreadHref, teamThreadHref } from "../../js/route.js";
@@ -38,9 +38,8 @@ function fixHref(entry, action) {
   return action.href;
 }
 
-function DegradedLine({ entry }) {
+function DegradedLine({ entry, simple }) {
   const action = degradedAction(entry);
-  const simple = currentMode() === "simple";
   const href = fixHref(entry, action);
   return html`<li class="offices-degraded">
     <span>Funciona a medias: ${degradedMessage(entry.code)}</span>
@@ -60,15 +59,15 @@ function OfficeAskButton({ officeId, area = null }) {
   </div>`;
 }
 
-function OfficeCard({ office, detail, detailError, scene, offline, token, onImport, onChanged, privacyOpenFor }) {
+function OfficeCard({ office, detail, detailError, scene, offline, token, onImport, onChanged, privacyOpenFor, mode }) {
   const rows = officeRows(scene, detail?.requirements);
-  const simple = currentMode() === "simple";
+  const simple = mode === "simple";
   const [busy, setBusy] = useState(false);
   const [includeCode, setIncludeCode] = useState(false);
   const [message, setMessage] = useState(null);
   const [removing, setRemoving] = useState(null);
   const [privacyOpen, setPrivacyOpen] = useState(false);
-  const showIncludeCode = includeCodeVisible(currentMode());
+  const showIncludeCode = includeCodeVisible(mode);
   const officeScope = office.id;
 
   useEffect(() => setPrivacyOpen(privacyOpenFor === office.id), [privacyOpenFor, office.id]);
@@ -153,14 +152,14 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
               <div class="offices-actions">
                 <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.export", { scope: officeScope + "-" + row.id })}
                   onClick=${() => doExport(row.id)}>Exportar área</button>
+                <${Help} topic="offices.export" compact=${true} scope=${officeScope + "-" + row.id} />
                 <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.remove", { scope: officeScope + "-" + row.id })}
                   onClick=${() => setRemoving("area:" + row.id)}>Quitar</button>
-                <${Help} topic="offices.export" compact=${true} scope=${officeScope + "-" + row.id} />
                 <${Help} topic="offices.remove" compact=${true} scope=${officeScope + "-" + row.id} />
               </div>
               ${removeConfirmation("area:" + row.id, row.id)}
               ${row.degraded.length > 0 && html`<ul class="offices-degraded-list">
-                ${row.degraded.map((entry) => html`<${DegradedLine} key=${entry.code} entry=${entry} />`)}
+                ${row.degraded.map((entry) => html`<${DegradedLine} key=${entry.code} entry=${entry} simple=${simple} />`)}
               </ul>`}
             </div>`
           : html`<div key=${row.key} class="offices-row offices-member">
@@ -175,16 +174,17 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
     <div class="offices-actions offices-office-actions">
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.export", { scope: officeScope })}
         onClick=${() => doExport()}>Exportar oficina</button>
-      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: officeScope })}
+      <${Help} topic="offices.export" compact=${true} scope=${officeScope} />
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: officeScope + "-reimport" })}
         onClick=${() => onImport({ reimport: office.id })}>Reimportar</button>
-      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: officeScope })}
+      <${Help} topic="offices.import_office" compact=${true} scope=${officeScope + "-reimport"} />
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: officeScope + "-add-area" })}
         onClick=${() => onImport({ into: office.id })}>Añadir un área</button>
+      <${Help} topic="offices.import_office" compact=${true} scope=${officeScope + "-add-area"} />
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.privacy", { scope: officeScope })}
         onClick=${() => setPrivacyOpen((open) => !open)}>Privacidad</button>
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.remove", { scope: officeScope })}
         onClick=${() => setRemoving("office")}>Quitar</button>
-      <${Help} topic="offices.export" compact=${true} scope=${officeScope} />
-      <${Help} topic="offices.import_office" compact=${true} scope=${officeScope} />
       <${Help} topic="offices.privacy" compact=${true} scope=${officeScope} />
       <${Help} topic="offices.remove" compact=${true} scope=${officeScope} />
     </div>
@@ -203,6 +203,7 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
 }
 
 export function OfficesView({ token, route }) {
+  const [mode, setMode] = useState(currentMode);
   const [offices, setOffices] = useState(null);
   const [details, setDetails] = useState({});
   const [detailErrors, setDetailErrors] = useState({});
@@ -212,6 +213,8 @@ export function OfficesView({ token, route }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [importTarget, setImportTarget] = useState(null);
   const privacyOpenFor = route?.id || null;
+
+  useEffect(() => onModeChange(setMode), []);
 
   useEffect(() => {
     let active = true;
@@ -288,9 +291,9 @@ export function OfficesView({ token, route }) {
   };
   return html`<section class="offices-view" aria-label="Oficinas">
     <div class="offices-actions offices-import-entry">
-      <button type="button" class="btn" ...${helpFor("offices.import_office")} onClick=${() => startImport()}>
+      <button type="button" class="btn" ...${helpFor("offices.import_office", { scope: "import-office" })} onClick=${() => startImport()}>
         Importar una oficina</button>
-      <${Help} topic="offices.import_office" compact=${true} />
+      <${Help} topic="offices.import_office" compact=${true} scope="import-office" />
     </div>
     ${importTarget !== null && html`<${ImportOffice} token=${token} into=${importTarget.into || null}
       reimport=${importTarget.reimport || null} onDone=${finishImport} />`}
@@ -301,6 +304,7 @@ export function OfficesView({ token, route }) {
       ${offices.map((office) => html`<${OfficeCard} key=${office.id} office=${office}
         detail=${details[office.id]} detailError=${detailErrors[office.id]}
         scene=${scenes[office.id]} offline=${Boolean(offline[office.id])} token=${token}
+        mode=${mode}
         onImport=${startImport} onChanged=${() => setRefreshKey((current) => current + 1)}
         privacyOpenFor=${privacyOpenFor} />`)}
     </div>`}

@@ -13,6 +13,7 @@ offices nothing is created and nothing new is read. Nothing here returns an abso
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
 import re
@@ -316,6 +317,43 @@ class OfficeServices:
                 raise self._not_installed(office_id)
             return self._public(entry, self._services.installed._read())
 
+    @service_errors
+    def source_update_status(self, office_id: str) -> dict[str, Any]:
+        office_id = self._check_id(office_id, "office_id")
+        with self._lock:
+            entry = self._read().get(office_id)
+        if entry is None:
+            raise self._not_installed(office_id)
+        source = entry.get("source")
+        if not isinstance(source, dict):
+            return {"tracked": False, "available": False, "changed": False}
+        path, expected = source.get("path"), source.get("fingerprint")
+        if (not isinstance(path, str) or not Path(path).is_absolute()
+                or not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None):
+            return {"tracked": True, "available": False, "changed": False}
+        current = self._source_fingerprint(path)
+        if current is None:
+            return {"tracked": True, "available": False, "changed": False}
+        return {"tracked": True, "available": True, "changed": current != expected}
+
+    @service_errors
+    def stage_source_update(self, office_id: str) -> dict[str, Any]:
+        office_id = self._check_id(office_id, "office_id")
+        with self._lock:
+            entry = self._read().get(office_id)
+        if entry is None:
+            raise self._not_installed(office_id)
+        status = self.source_update_status(office_id)
+        source = entry.get("source")
+        if not status["tracked"] or not status["available"] or not isinstance(source, dict):
+            raise self._install_error("office_source_unavailable", "The remembered source folder is unavailable",
+                                      office=office_id)
+        if not status["changed"]:
+            raise self._install_error("office_source_unchanged", "The remembered office source has no changes",
+                                      office=office_id)
+        return self._create_stage(folder=Path(source["path"]), data=None, filename="", into=None,
+                                  reimport=office_id, source_update=True)
+
     def office_of(self, bundle: str) -> tuple[str, str] | None:
         """``(office id, area id)`` of an installed package that is an area of an office, or ``None``."""
         try:
@@ -507,14 +545,35 @@ class OfficeServices:
                                payload={"office": office_id, "channel": channel, **payload})
 
     def _entry(self, office: OfficeDefinition, record: dict[str, Any], *, version: int, actor: str, channel: str,
-               registered: dict[str, dict[str, Any]]) -> dict[str, Any]:
+               registered: dict[str, dict[str, Any]], source: dict[str, str] | None = None,
+               approval_id: str | None = None) -> dict[str, Any]:
         areas = {area_bundle_name(record["id"], area["id"]):
                  registered.get(area_bundle_name(record["id"], area["id"]), {}).get("fingerprint")
                  for area in record["areas"]}
         fingerprint = sha256(canonical_json({"definition": record, "areas": areas}))
-        return {"version": version, "fingerprint": fingerprint, "installed_at": utcnow(), "installed_by": actor,
-                "channel": channel, "level": "data", "path": f"{_OFFICES_DIR}/{record['id']}/v{version}",
-                "warnings": list(office.warnings), "definition": record}
+        entry = {"version": version, "fingerprint": fingerprint, "installed_at": utcnow(), "installed_by": actor,
+                 "channel": channel, "level": "data", "path": f"{_OFFICES_DIR}/{record['id']}/v{version}",
+                 "warnings": list(office.warnings), "definition": record}
+        if source is not None:
+            path, source_fingerprint = source.get("path"), source.get("fingerprint")
+            if (not isinstance(path, str) or not Path(path).is_absolute()
+                    or not isinstance(source_fingerprint, str)
+                    or re.fullmatch(r"[0-9a-f]{64}", source_fingerprint) is None):
+                raise ValueError("The installed office source reference is invalid")
+            entry["source"] = {
+                "path": path, "fingerprint": source_fingerprint, "version": version,
+                "approved_at": utcnow(), "approved_by": actor, "approval_id": approval_id,
+            }
+        return entry
+
+    @staticmethod
+    def _stage_origin(metadata: dict[str, Any]) -> dict[str, str] | None:
+        path, fingerprint = metadata.get("source_path"), metadata.get("source_fingerprint")
+        if path is None:
+            return None
+        if not isinstance(path, str) or not isinstance(fingerprint, str):
+            raise ValueError("The staged office source reference is invalid")
+        return {"path": path, "fingerprint": fingerprint}
 
     def _rollback(self, office_id: str, bundles: list[str], *, actor: str, channel: str) -> None:
         """Take the areas of a failed install out of the registry again; the original error is the one that counts."""
@@ -641,6 +700,7 @@ class OfficeServices:
             entry = self._entry(definition, record, version=version, actor=actor, channel=channel,
                                 registered=installed._read())
             self._carry_privacy(entry, target)
+            self._carry_source(entry, target)
             offices[into] = entry
             self._write(offices)
             self._event("office.reimported", into, actor=actor, channel=channel, version=version, added=[area.id],
@@ -836,6 +896,7 @@ class OfficeServices:
                 new = self._entry(definition, record, version=version, actor=actor, channel=channel,
                                   registered=installed._read())
                 self._carry_privacy(new, entry, drop=area_id)
+                self._carry_source(new, entry)
                 offices[office_id] = new
                 self._write(offices)
                 self._event("office.reimported", office_id, actor=actor, channel=channel, version=version, added=[],
@@ -1245,6 +1306,12 @@ class OfficeServices:
         if privacy.get("areas") or privacy.get("office"):
             entry["privacy"] = {key: value for key, value in privacy.items() if value}
 
+    @staticmethod
+    def _carry_source(entry: dict[str, Any], previous: dict[str, Any]) -> None:
+        source = previous.get("source")
+        if isinstance(source, dict):
+            entry["source"] = dict(source)
+
     def _highest_levels(self, previous: dict[str, Any], record: dict[str, Any]) -> dict[str, Any] | None:
         """The ``privacy`` of a reimported office: for each area it had, the highest of its level and the new
         declaration (``sensitive`` over ``normal`` over nothing; ``local_only`` is added, never removed). An area that
@@ -1399,6 +1466,26 @@ class OfficeServices:
             raise self._install_error("office_stage_not_found", "Office preparation not found")
         return self._root / _STAGING / stage_id
 
+    def _source_fingerprint(self, path: str) -> str | None:
+        source = Path(path)
+        if not source.is_absolute() or _is_link_or_junction(source) or not source.is_dir():
+            return None
+        try:
+            resolved = source.resolve(strict=True)
+            if resolved != source or resolved.is_relative_to(self._root.resolve()):
+                return None
+            for current, directories, files in os.walk(resolved, followlinks=False):
+                if any(_is_link_or_junction(Path(current) / name) for name in (*directories, *files)):
+                    return None
+            self._check_limits(resolved)
+            return BundleScanServices.fingerprint(resolved)
+        except OSError:
+            return None
+        except ServiceError as exc:
+            if exc.details.get("reason") == "office_too_large":
+                return None
+            raise
+
     def _stage_record(self, stage_id: str) -> tuple[Path, dict[str, Any]]:
         stage = self._stage_folder(stage_id)
         metadata_path = stage / "stage.json"
@@ -1419,6 +1506,18 @@ class OfficeServices:
                 or metadata.get("reimport") is not None and
                 (not isinstance(metadata["reimport"], str) or not _ID.fullmatch(metadata["reimport"]))):
             raise self._install_error("office_stage_not_found", "Office preparation not found")
+        source_path = metadata.get("source_path")
+        source_fingerprint = metadata.get("source_fingerprint")
+        source_update = metadata.get("source_update", False)
+        if ((source_path is None) != (source_fingerprint is None)
+                or source_path is not None and
+                (not isinstance(source_path, str) or not Path(source_path).is_absolute()
+                 or not isinstance(source_fingerprint, str)
+                 or re.fullmatch(r"[0-9a-f]{64}", source_fingerprint) is None)
+                or not isinstance(source_update, bool)
+                or source_update
+                and (source_path is None or metadata.get("kind") != "reimport")):
+            raise self._install_error("office_stage_not_found", "Office preparation not found")
         created_at = metadata.get("created_at")
         if isinstance(created_at, bool) or not isinstance(created_at, (int, float)):
             raise self._install_error("office_stage_not_found", "Office preparation not found")
@@ -1435,6 +1534,19 @@ class OfficeServices:
                 raise self._install_error("office_changed_since_card", "The office contains a linked file",
                                           stage_id=stage_id)
         return content, metadata
+
+    def _verify_stage_source(self, stage_id: str, metadata: dict[str, Any]) -> None:
+        path, expected = metadata.get("source_path"), metadata.get("source_fingerprint")
+        if path is None:
+            return
+        current = self._source_fingerprint(path)
+        if current is None or current != expected:
+            self._reject_stage_approval(metadata)
+            shutil.rmtree(self._stage_folder(stage_id), ignore_errors=True)
+            reason = "office_source_unavailable" if current is None else "office_source_changed"
+            message = ("The remembered source folder is unavailable" if current is None
+                       else "The office source changed after its card was prepared")
+            raise self._install_error(reason, message, office=metadata["office_id"])
 
     def _reject_stage_approval(self, metadata: dict[str, Any]) -> None:
         approval_id = metadata.get("approval_id")
@@ -1512,16 +1624,21 @@ class OfficeServices:
         return level, has_functions
 
     def _create_stage(self, *, folder: Path | None, data: bytes | None, filename: str,
-                      into: str | None, reimport: str | None) -> dict[str, Any]:
+                      into: str | None, reimport: str | None, source_update: bool = False) -> dict[str, Any]:
+        if source_update and (folder is None or reimport is None):
+            raise ValueError("A source update needs a folder and an installed office")
         into = self._check_id(into, "into") if into is not None else None
         reimport = self._check_id(reimport, "reimport") if reimport is not None else None
         stage_id = uuid.uuid4().hex
         stage = self._stage_folder(stage_id)
         content = stage / "source"
+        source_path = None
         stage.mkdir(parents=True, exist_ok=False)
         roots = [str(stage), str(stage.resolve()), stage.as_posix(), stage.resolve().as_posix()]
         try:
             with self._staged(folder=folder, data=data) as prepared:
+                if folder is not None:
+                    source_path = str(Path(folder).expanduser().resolve(strict=True))
                 definition = self._definition_for_stage(prepared)
                 kind, office_id = self._stage_targets(definition, into=into, reimport=reimport)
                 level, _ = self._require_stage_mode(prepared, definition)
@@ -1531,7 +1648,9 @@ class OfficeServices:
             fingerprint = BundleScanServices.fingerprint(content)
             metadata = {"stage_id": stage_id, "created_at": self.clock(), "kind": kind, "office_id": office_id,
                         "into": into, "reimport": reimport, "filename": str(filename or "")[:80],
-                        "fingerprint": fingerprint, "approval_id": None}
+                        "fingerprint": fingerprint, "approval_id": None, "source_path": source_path,
+                        "source_fingerprint": fingerprint if source_path is not None else None,
+                        "source_update": source_update}
             (stage / "stage.json").write_text(json.dumps(metadata, sort_keys=True), encoding="utf-8")
         except Exception as exc:
             shutil.rmtree(stage, ignore_errors=True)
@@ -1583,6 +1702,56 @@ class OfficeServices:
         kept = {area.id for area in definition.areas}
         removed = [area_id for area_id in old_areas if area_id not in kept]
         return {"added": added, "changed": changed, "removed": removed, "unchanged": unchanged}
+
+    @staticmethod
+    def _file_digests(folder: Path | None) -> dict[str, str]:
+        if folder is None or not folder.is_dir():
+            return {}
+        result = {}
+        for path in folder.rglob("*"):
+            if not path.is_file() or "__pycache__" in path.relative_to(folder).parts:
+                continue
+            if _is_link_or_junction(path):
+                continue
+            relative = path.relative_to(folder).as_posix()
+            result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return result
+
+    def _stage_file_changes(self, root: Path, definition: OfficeDefinition,
+                            metadata: dict[str, Any]) -> list[dict[str, str]]:
+        if metadata["kind"] != "reimport":
+            return []
+        office_id = metadata["office_id"]
+        previous = self._read()[office_id]
+        old_areas = {area["id"] for area in previous["definition"]["areas"]}
+        new_areas = {area.id: area for area in definition.areas}
+        changes = []
+        for area_id in sorted(old_areas | set(new_areas)):
+            bundle = area_bundle_name(office_id, area_id)
+            before = self._file_digests(self._services._bundles.get(bundle))
+            area = new_areas.get(area_id)
+            after = self._file_digests(root.joinpath(*area.path.split("/"))) if area is not None else {}
+            for path in sorted(before.keys() | after.keys()):
+                if path not in before:
+                    change = "added"
+                elif path not in after:
+                    change = "removed"
+                elif before[path] != after[path]:
+                    change = "changed"
+                else:
+                    continue
+                changes.append({"area": area_id, "path": path, "change": change})
+
+        version = previous.get("version")
+        previous_manifest = (self._root / _OFFICES_DIR / office_id / f"v{version}" / "office.yaml"
+                             if isinstance(version, int) and not isinstance(version, bool) and version > 0 else None)
+        if previous_manifest is not None and previous_manifest.is_file():
+            manifest_changed = previous_manifest.read_bytes() != (root / "office.yaml").read_bytes()
+        else:
+            manifest_changed = _record_of(definition) != previous.get("definition")
+        if manifest_changed:
+            changes.append({"area": "", "path": "office.yaml", "change": "changed"})
+        return changes
 
     def _stage_scan_inputs(self, root: Path, definition: OfficeDefinition,
                            metadata: dict[str, Any]) -> tuple[str, dict[str, Path]]:
@@ -1795,6 +1964,7 @@ class OfficeServices:
     @service_errors
     def card(self, stage_id: str) -> dict[str, Any]:
         root, metadata = self._stage_record(stage_id)
+        self._verify_stage_source(stage_id, metadata)
         definition = self._definition_for_stage(root)
         if BundleScanServices.fingerprint(root) != metadata.get("fingerprint"):
             raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",
@@ -1862,6 +2032,7 @@ class OfficeServices:
             python_contracts.update(self._python_contract_declarations(
                 contracts_path, contracts_path.relative_to(root).as_posix()))
             python_contracts_unverified = python_contracts_unverified or contracts_path.is_file()
+        file_changes = self._stage_file_changes(root, definition, metadata)
         code = {"present": level == "code", "files": code_files, "functions": sorted(functions),
                 "functions_unverified": functions_unverified, "python_contracts": sorted(python_contracts),
                 "python_contracts_unverified": python_contracts_unverified}
@@ -1881,6 +2052,7 @@ class OfficeServices:
         return {"stage_id": stage_id, "kind": kind, "office": shown_office, "into": metadata.get("into"),
                 "level": level, "fingerprint": metadata["fingerprint"], "notice": OFFICE_NOTICE, "areas": areas,
                 "code": code, "scan": scan, "approval_id": approval_id,
+                "file_changes": file_changes,
                 "file_tools_configured": self._services.settings.file_tools_root is not None,
                 "risk_ack_required": risk_ack_required}
 
@@ -2013,11 +2185,13 @@ class OfficeServices:
         version = self._next_version(office_id, offices)
         copy = self._save_copy(office_id, version, (root / "office.yaml").read_bytes())
         entry = self._entry(definition, _record_of(definition), version=version, actor=actor, channel=channel,
-                            registered=installed._read())
+                            registered=installed._read(), source=self._stage_origin(metadata),
+                            approval_id=approval_id)
         offices[office_id] = entry
         self._write(offices)
         self._event("office.installed", office_id, actor=actor, channel=channel, version=version,
-                    areas=[area.id for area in definition.areas], approval_id=approval_id)
+                    areas=[area.id for area in definition.areas], approval_id=approval_id,
+                    source_fingerprint=metadata.get("source_fingerprint"))
         return {"office": self._public(entry, installed._read()), "teams": teams, "warnings": warnings,
                 "changes": {"added": [area.id for area in definition.areas], "changed": [], "removed": [],
                             "unchanged": []}}
@@ -2048,6 +2222,12 @@ class OfficeServices:
                 unchanged.append(area.id)
         kept = {area.id for area in definition.areas}
         removed = [area_id for area_id in old_areas if area_id not in kept]
+        source = self._stage_origin(metadata)
+        previous_source = previous.get("source")
+        source_changed = (source is not None
+                          and (not isinstance(previous_source, dict)
+                               or source["fingerprint"] != previous_source.get("fingerprint")
+                               or source["path"] != previous_source.get("path")))
         batch = ([{"op": "install", "name": area_bundle_name(office_id, area_id),
                    "folder": str(root.joinpath(*next(area.path for area in definition.areas
                                                      if area.id == area_id).split("/")))} for area_id in added]
@@ -2091,17 +2271,18 @@ class OfficeServices:
         record = _record_of(definition)
         levels = self._highest_levels(previous, record)
         entry = previous
-        if batch or record != previous["definition"] or levels != previous.get("privacy"):
+        if batch or record != previous["definition"] or levels != previous.get("privacy") or source_changed:
             version = self._next_version(office_id, offices)
             self._save_copy(office_id, version, (root / "office.yaml").read_bytes())
             entry = self._entry(definition, record, version=version, actor=actor, channel=channel,
-                                registered=installed._read())
+                                registered=installed._read(), source=source, approval_id=approval_id)
             if levels:
                 entry["privacy"] = levels
             offices[office_id] = entry
             self._write(offices)
             self._event("office.reimported", office_id, actor=actor, channel=channel, version=version,
-                        added=added, changed=changed, removed=removed, approval_id=approval_id)
+                        added=added, changed=changed, removed=removed, approval_id=approval_id,
+                        source_fingerprint=metadata.get("source_fingerprint"))
         return {"office": self._public(entry, installed._read()), "teams": teams, "warnings": warnings,
                 "changes": {"added": added, "changed": changed, "removed": removed, "unchanged": unchanged}}
 
@@ -2166,6 +2347,7 @@ class OfficeServices:
         entry = self._entry(merged, record, version=version, actor=actor, channel=channel,
                             registered=installed._read())
         self._carry_privacy(entry, previous)
+        self._carry_source(entry, previous)
         offices[office_id] = entry
         self._write(offices)
         self._event("office.reimported", office_id, actor=actor, channel=channel, version=version, added=[area_id],
@@ -2192,6 +2374,7 @@ class OfficeServices:
                 raise self._install_error("office_install_not_approved",
                                           "The office install approval is already used", approval_id=approval_id) from None
             raise exc
+        self._verify_stage_source(stage_id, metadata)
         if BundleScanServices.fingerprint(root) != metadata.get("fingerprint"):
             raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",
                                       stage_id=stage_id)
@@ -2217,6 +2400,7 @@ class OfficeServices:
         if BundleScanServices.fingerprint(root) != metadata.get("fingerprint"):
             raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",
                                       stage_id=stage_id)
+        self._verify_stage_source(stage_id, metadata)
         if location.get("risk_ack_required") is True and existing.get("risk_ack") is not True:
             raise ServiceError("risk_ack_required", "Acknowledge the office install risk", status=422)
         if not self._services.user_approvals.consume(approval_id, sha256=metadata["fingerprint"],
@@ -2228,6 +2412,7 @@ class OfficeServices:
             if BundleScanServices.fingerprint(snapshot) != metadata["fingerprint"]:
                 raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",
                                           stage_id=stage_id)
+            self._verify_stage_source(stage_id, metadata)
             verified_level, has_functions = self._require_stage_mode(snapshot, definition)
             if card["level"] != level or verified_level != level:
                 raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",

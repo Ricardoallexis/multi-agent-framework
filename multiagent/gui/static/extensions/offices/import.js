@@ -80,11 +80,13 @@ export async function exportOffice({ token, officeId, area = null, includeCode =
   return payload;
 }
 
-export function ImportOffice({ token, into = null, reimport = null, onDone }) {
+export function ImportOffice({
+  token, into = null, reimport = null, onDone, initialCard = null, title = null, reviewChanges = false,
+}) {
   const [mode, setMode] = useState(currentMode);
   const [upload, setUpload] = useState(null);
   const [folder, setFolder] = useState("");
-  const [card, setCard] = useState(null);
+  const [card, setCard] = useState(initialCard);
   const [busy, setBusy] = useState(false);
   const [riskAck, setRiskAck] = useState(false);
   const [message, setMessage] = useState(null);
@@ -102,7 +104,8 @@ export function ImportOffice({ token, into = null, reimport = null, onDone }) {
     } catch (failure) {
       const reason = failure?.details?.reason;
       setError(failureText(failure));
-      if (reason === "office_stage_expired" || reason === "office_changed_since_card") setCard(null);
+      if (reason === "office_stage_expired" || reason === "office_changed_since_card"
+          || reason === "office_source_changed" || reason === "office_source_unavailable") setCard(null);
       return null;
     }
   }, [token]);
@@ -135,6 +138,8 @@ export function ImportOffice({ token, into = null, reimport = null, onDone }) {
       setCard(await apiPost(BASE + "/stage-zip", token, body));
       setRiskAck(false);
     } catch (failure) {
+      if (failure?.details?.reason === "office_source_changed"
+          || failure?.details?.reason === "office_source_unavailable") setCard(null);
       setError(failureText(failure));
     } finally {
       setBusy(false);
@@ -220,7 +225,7 @@ export function ImportOffice({ token, into = null, reimport = null, onDone }) {
   const showIncludeCode = includeCodeVisible(mode);
   return html`<section class="offices-importer" aria-label="Importar una oficina">
     <div class="offices-import-head">
-      <p class="offices-import-title"><strong>${reimport ? "Reimportar oficina" : into ? "Añadir un área" : "Importar una oficina"}</strong></p>
+      <p class="offices-import-title"><strong>${title || (reimport ? "Reimportar oficina" : into ? "Añadir un área" : "Importar una oficina")}</strong></p>
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: helpScope })} onClick=${cancel}>Cancelar</button>
       <${Help} topic="offices.import_office" compact=${true} scope=${helpScope} />
     </div>
@@ -247,9 +252,16 @@ export function ImportOffice({ token, into = null, reimport = null, onDone }) {
     ${view && html`<article class="offices-import-card" aria-label=${view.title}>
       <p class="offices-import-title"><strong>${view.title}</strong></p>
       <p class="offices-import-notice">${view.notice}</p>
+      ${reviewChanges && html`<p><strong>Revisar cambios</strong></p>`}
       <p class="offices-import-meta">${view.level}</p>
       <p class="offices-import-teams">${TEAMS_NOTE}</p>
       <${Help} topic="offices.card" compact=${true} scope=${helpScope} />
+      ${view.fileChanges.length > 0 && html`<section class="offices-import-files" aria-label="Cambios en archivos">
+        <p><strong>Cambios en archivos</strong></p>
+        <ul>${view.fileChanges.map((file, index) => html`<li key=${file.area + "|" + file.path + "|" + index}>
+          ${file.area && html`<strong>${file.area}: </strong>`}${file.path} — ${file.change}
+        </li>`)}</ul>
+      </section>`}
       <ul class="offices-import-areas">
         ${view.areas.map((area) => html`<li key=${area.id} class="offices-import-area">
           <div class="offices-import-row"><strong>${area.name}</strong>${area.change && html`<span>${area.change}</span>`}</div>
@@ -298,7 +310,8 @@ export function ImportOffice({ token, into = null, reimport = null, onDone }) {
       <${Help} topic="offices.install" compact=${true} scope=${helpScope + "-risk"} />`}
       <div class="offices-import-actions">
         <button type="button" class="btn" disabled=${busy || scanRunning || view.needsScanDecision || (view.riskAckRequired && !riskAck)}
-          ...${helpFor("offices.install", { scope: helpScope + "-install" })} onClick=${install}>${busy ? "Instalando…" : "Instalar oficina"}</button>
+          ...${helpFor("offices.install", { scope: helpScope + "-install" })}
+          onClick=${install}>${busy ? "Instalando…" : reimport ? "Actualizar oficina" : "Instalar oficina"}</button>
         ${scanRunning && html`<button type="button" class="btn secondary" disabled=${busy}
           ...${helpFor("offices.card", { scope: helpScope + "-refresh" })} onClick=${() => refreshCard(card.stage_id)}>Actualizar ficha</button>
           <${Help} topic="offices.card" compact=${true} scope=${helpScope + "-refresh"} />`}
@@ -309,4 +322,43 @@ export function ImportOffice({ token, into = null, reimport = null, onDone }) {
       </ul>`}
     </article>`}
   </section>`;
+}
+
+export function OfficeSourceUpdate({ token, officeId, onDone }) {
+  const [card, setCard] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const path = BASE + "/" + encodeURIComponent(officeId);
+
+  async function prepareUpdate() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      setCard(await apiPost(path + "/stage-source-update", token, {}));
+    } catch (failure) {
+      setError(failureText(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finishUpdate() {
+    setCard(null);
+    try {
+      onDone(await apiGet(path, token));
+    } catch (failure) {
+      setError(failureText(failure));
+    }
+  }
+
+  return html`<div class="offices-source-update">
+    ${!card && html`<button type="button" class="btn secondary small" disabled=${busy}
+      ...${helpFor("offices.import_office", { scope: "source-update-" + officeId })}
+      onClick=${prepareUpdate}>Actualizar oficina</button>
+      <${Help} topic="offices.import_office" compact=${true} scope=${"source-update-" + officeId} />`}
+    ${error && html`<p class="message error small" role="alert">${error}</p>`}
+    ${card && html`<${ImportOffice} token=${token} reimport=${officeId} initialCard=${card}
+      title="Actualizar oficina" reviewChanges=${true} onDone=${finishUpdate} />`}
+  </div>`;
 }

@@ -88,6 +88,9 @@ class OfficeStub:
                                details={"reason": "office_not_installed"})
         return SCENE
 
+    def source_update_status(self, office_id):
+        return {"tracked": False, "available": False, "changed": False}
+
 
 @pytest.fixture
 def env(tmp_path):
@@ -318,7 +321,8 @@ def test_routes(env):
 
     detail = get(env, "/offices/demo")
     assert detail.status_code == 200
-    assert detail.json() == {**DETAIL, "requirements": REQUIREMENTS}
+    assert detail.json() == {**DETAIL, "requirements": REQUIREMENTS,
+                            "source_update": {"tracked": False, "available": False, "changed": False}}
     scene = get(env, "/offices/demo/scene")
     assert scene.status_code == 200
     assert scene.json() == SCENE

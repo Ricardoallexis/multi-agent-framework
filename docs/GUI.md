@@ -333,6 +333,8 @@ mode, a cloud request for an area without a level asks once whether to save Norm
 Sensitive or Local only, then retries once; a repeated error is shown without asking
 again. Advanced mode links the error to the Privacy view instead.
 
+In «Nueva sesión», an office installed from a folder shows an update notice when that folder changed. «Actualizar oficina» opens the install card with the area and file changes, and nothing is installed until the person approves it there. The folder path stays local and is never exported. Typing a folder path is advanced-only; `.zip` import and export work in both modes.
+
 **One task box.** «Nueva sesión» starts from a single box (`js/new-session.js`): the task
 text and, in one row of 44 px controls, «＋», «Modo», «Modelo», «Proyecto» and «Enviar».
 The same box serves the three flows. **Modo** is a selector: **Orquestador** is the guided

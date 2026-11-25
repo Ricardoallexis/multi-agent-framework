@@ -227,12 +227,15 @@ def test_no_shared_file_names_an_extension_and_the_page_has_one_script_and_leadi
             assert "extensions/" not in spec, f"{path.name} imports {spec}: shared code must not depend on a view"
 
 
-def test_the_only_dynamic_import_is_the_guarded_one_in_extensions_js():
+def test_dynamic_imports_are_limited_to_extensions_and_on_demand_office_updates():
     users = sorted(path.name for path in JS.rglob("*.js") if re.search(r"\bimport\s*\(", path.read_text(encoding="utf-8")))
-    assert users == ["extensions.js"]
+    assert users == ["extensions.js", "new-session.js"]
     source = ui_text((JS / "extensions.js"))
     assert "ENTRY_URL.exec(" in source and "import(`/gui/static/extensions/${id}/index.js`)" in source      # constant path + validated id
     assert r"ENTRY_URL = /^\/gui\/static\/extensions\/([a-z][a-z_]{0,39})\/index\.js$/;" in source     # the only URLs it imports
+    new_session = ui_text((JS / "new-session.js"))
+    assert 'import("../extensions/offices/import.js")' in new_session
+    assert "if (!sourceUpdateAvailable) {" in new_session
 
 
 def test_reserved_names_match_the_built_in_routes_and_slots():

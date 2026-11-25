@@ -684,6 +684,8 @@ export function NewSession({ token, mock }) {
   const [officeCatalogVersion, setOfficeCatalogVersion] = useState(0);
   const [officeList, setOfficeList] = useState({ offices: [], loading: true, error: null });
   const [officeDetail, setOfficeDetail] = useState(null);
+  const [OfficeSourceUpdateView, setOfficeSourceUpdateView] = useState(null);
+  const [sourceUpdateLoadFailed, setSourceUpdateLoadFailed] = useState(false);
   const [officeScene, setOfficeScene] = useState(null);
   const [officeLoading, setOfficeLoading] = useState(false);
   const [officeError, setOfficeError] = useState(null);
@@ -970,6 +972,24 @@ export function NewSession({ token, mock }) {
   }, [conv.phase, conv.workflow, conv.answers, mode, sensitive, routingOverrides, token]);
 
   const currentOfficeDetail = officeDetail?.id === officeId ? officeDetail : null;
+  const sourceUpdateAvailable = Boolean(currentOfficeDetail?.source_update?.tracked
+    && currentOfficeDetail.source_update.available && currentOfficeDetail.source_update.changed);
+  useEffect(() => {
+    let active = true;
+    if (!sourceUpdateAvailable) {
+      setOfficeSourceUpdateView(null);
+      setSourceUpdateLoadFailed(false);
+      return () => { active = false; };
+    }
+    setOfficeSourceUpdateView(null);
+    setSourceUpdateLoadFailed(false);
+    import("../extensions/offices/import.js").then(({ OfficeSourceUpdate }) => {
+      if (active) setOfficeSourceUpdateView(() => OfficeSourceUpdate);
+    }).catch(() => {
+      if (active) setSourceUpdateLoadFailed(true);
+    });
+    return () => { active = false; };
+  }, [officeId, sourceUpdateAvailable]);
   const currentOfficeScene = officeScene?.office?.id === officeId ? officeScene : null;
   const activeCatalog = officeId
     ? (currentOfficeDetail ? officeCatalog : { entries: [], loading: officeLoading, error: null })
@@ -1534,6 +1554,18 @@ export function NewSession({ token, mock }) {
         ...${helpFor("chat.office", { scope: "office-privacy-link" })}>Privacidad</a>
         <${Help} topic="chat.office" compact=${true} scope="office-privacy-link" />`}
     </div>`}
+    ${sourceUpdateAvailable && html`<div class="ns-msg ns-bot notice" role="status">
+        <p>Hay una actualización disponible para esta oficina.</p>
+        ${OfficeSourceUpdateView && html`<${OfficeSourceUpdateView} key=${officeId} token=${token} officeId=${officeId}
+          onDone=${(detail) => { if (detail?.id === officeId) setOfficeDetail(detail); }} />`}
+        ${sourceUpdateLoadFailed && html`<p><a href=${routeHref("offices")} ...${helpFor("chat.office", { scope: "office-source-update-review" })}>
+          Abre «Oficinas» para revisar la actualización.</a></p>`}
+        ${sourceUpdateLoadFailed && html`<${Help} topic="chat.office" compact=${true} scope="office-source-update-review" />`}
+      </div>`}
+    ${currentOfficeDetail?.source_update?.tracked && !currentOfficeDetail.source_update.available && html`
+      <div class="ns-msg ns-bot notice" role="status">
+        <p>La carpeta de origen no está disponible. No se instaló ningún cambio.</p>
+      </div>`}
     ${pendingCloud && html`<div class="ns-msg ns-bot" role="group" aria-label="Confirmación de envío a la nube">
       <p>¿Enviar este texto a ${pendingCloud.interpretation.model} (nube)?</p>
       <div class="actions">

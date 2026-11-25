@@ -8,6 +8,11 @@ export const CHANGE_TEXT = Object.freeze({
   removed: "Se quita",
   unchanged: "Sin cambios",
 });
+export const FILE_CHANGE_TEXT = Object.freeze({
+  added: "Añadido",
+  changed: "Cambiado",
+  removed: "Quitado",
+});
 
 export const TEAMS_NOTE = "Al instalar se aprueban los equipos de estas áreas";
 export const ZIP_UPLOAD_MAX_BYTES = 25 * 2 ** 20;
@@ -21,6 +26,9 @@ const REASON_TEXT = Object.freeze({
   bundle_busy: "Espera a que terminen sus trabajos.",
   office_area_exists: "Esta oficina ya tiene un área con ese nombre.",
   office_install_not_approved: "Aprueba la instalación de esta ficha antes de continuar.",
+  office_source_unavailable: "La carpeta de origen no está disponible. No se instaló ningún cambio.",
+  office_source_changed: "La carpeta de origen cambió desde que revisaste la ficha. Revisa de nuevo la actualización.",
+  office_source_unchanged: "La oficina no tiene cambios para actualizar.",
   risk_ack_required: "Marca «Asumo los riesgos» para instalar esta oficina.",
   advanced_mode_required: "Esta acción necesita el modo avanzado.",
   zip_invalid: "El archivo no es un .zip válido.",
@@ -71,6 +79,15 @@ export function cardView(card) {
   const sourceCode = card?.code && typeof card.code === "object" ? card.code : {};
   const officeName = card?.office?.name || "Oficina";
   const scanAreas = scan.areas && typeof scan.areas === "object" ? scan.areas : {};
+  const fileChanges = Array.isArray(card?.file_changes) ? card.file_changes
+    .filter((item) => item && typeof item === "object" && typeof item.path === "string"
+      && !item.path.startsWith("/") && !item.path.includes("\\") && !item.path.split("/").includes("..")
+      && Object.prototype.hasOwnProperty.call(FILE_CHANGE_TEXT, item.change))
+    .map((item) => ({
+      area: typeof item.area === "string" ? item.area : "",
+      path: item.path,
+      change: FILE_CHANGE_TEXT[item.change],
+    })) : [];
   const scanUnavailable = scan.state === "not_installed"
     || Object.values(scanAreas).some((result) => result?.state === "not_installed");
   const areaNames = new Map(areas.map((area) => [String(area?.id || ""), String(area?.name || "Área")]));
@@ -113,6 +130,7 @@ export function cardView(card) {
         change: CHANGE_TEXT[area?.change] || "",
       };
     }),
+    fileChanges,
     fileToolsConfigured: card?.file_tools_configured === true,
     code: {
       present: sourceCode.present === true,

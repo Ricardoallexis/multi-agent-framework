@@ -142,7 +142,8 @@ def add_office_routes(api: APIRouter, services: Any) -> None:
     def get_office(office_id: str) -> dict[str, Any]:
         office = _read_office(office_id, services.offices.get)
         requirements = _read_office(office_id, services.offices.requirements)
-        return {**office, "requirements": requirements}
+        source_update = _read_office(office_id, services.offices.source_update_status)
+        return {**office, "requirements": requirements, "source_update": source_update}
 
     @api.get("/offices/{office_id}/scene")
     def office_scene(office_id: str) -> dict[str, Any]:
@@ -166,6 +167,11 @@ def add_office_routes(api: APIRouter, services: Any) -> None:
         return _for_target(
             target, services.offices.get,
             lambda: services.offices.stage_folder(Path(body.folder), into=body.into, reimport=body.reimport))
+
+    @api.post("/offices/{office_id}/stage-source-update")
+    def stage_source_update(office_id: str, body: _EmptyBody) -> dict[str, Any]:
+        _read_office(office_id, services.offices.get)
+        return services.offices.stage_source_update(office_id)
 
     @api.get("/offices/stage/{stage_id}")
     def office_stage(stage_id: str) -> dict[str, Any]:

@@ -139,6 +139,14 @@ Events (team events, ref = the office id): `office.installed`, `office.removed` 
 degraded states. From the view, a person can import a folder or `.zip` through the install card, export an office or
 area, reimport, and remove an office or area. An import into an existing office uses the same install card.
 
+An office installed from a folder in the GUI keeps a local-only reference to that folder and its approved fingerprint.
+The reference is not returned by the office API or included in exports. When a person opens that office in «Nueva
+sesión», the GUI checks the remembered folder once; if it is unavailable, it reports that no changes were installed.
+If it changed, «Actualizar oficina» prepares the usual install card with area and relative file changes. The card
+must be reviewed and approved, and a source change after review invalidates it. The update replaces only the office
+definition and area packages; work data and person-set privacy remain local. Manual folder paths are advanced-mode
+controls; `.zip` imports and exports remain available in both modes.
+
 In a repository checkout, «Inicio» offers «Instalar la oficina de ejemplo» only as an explicit action; the example is
 installed only when the person presses it. An installed copy does not include the example files, so the person imports
 an office of their own. The example is never installed by default.

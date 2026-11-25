@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- An office installed from a folder remembers that folder locally (never in exports or API answers). When the folder changes, «Nueva sesión» says an update is available and «Actualizar oficina» opens the usual install card with the area and file changes; nothing installs until the person approves it, and a folder that changes after the review invalidates the card. Work data and privacy settings stay. Typing a folder path stays in advanced mode; `.zip` import and export stay in both modes.
 - The double-click launchers (`Iniciar.cmd`, `iniciar.sh`), the `--launcher` hint of `multiagent gui`, the private-terms checker messages, the whole general example bundle, the `social_post` workflows, the three project templates and `docs/FIRST_RUN.md` are now in English; file names and ids are unchanged. The general bundle's prompts ask for the answer in the language of the person's input, and its summary length choices are now `short`, `medium` and `detailed`.
 - The Context panel also opens in a simple-mode run thread (`#new/run/<id>`), with the same state as in Runs.
 - Buttons and status chips follow one visual system from the approved 9a mockup: 9 px buttons, pill chips in amber for waiting, green for working or connected, red text for failures and grey for the rest, and a 14 px «+» menu.
