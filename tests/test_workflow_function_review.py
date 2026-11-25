@@ -17,6 +17,7 @@ from backends.conformance import advance, backend_system, create_run, events, st
 
 
 CALLS: list[dict] = []
+DURING: list = []                     # what happens elsewhere while ``_changed_then_fails`` runs
 PRIVATE_FILE = "C:\\Users\\someone\\private\\data.csv"
 
 
@@ -50,12 +51,20 @@ def _missing_file(context, arguments):
     raise FileNotFoundError(2, "No such file or directory", PRIVATE_FILE)
 
 
+def _changed_then_fails(context, arguments):
+    CALLS.append(dict(context["steps"]))
+    for change in DURING:
+        change()
+    raise ValueError("bad row")
+
+
 for _id, _fn, _text in (
         ("test.function_review_recover", _recover, "Fail once and recover"),
         ("test.function_review_invalid", lambda context, arguments: {}, "Return an invalid output"),
         ("test.function_review_dies_once", _dies_once, "Stop the process on the first call"),
         ("test.function_review_fails_twice", _fails_twice, "Fail on the first two calls"),
-        ("test.function_review_missing_file", _missing_file, "Fail with a local path in the message")):
+        ("test.function_review_missing_file", _missing_file, "Fail with a local path in the message"),
+        ("test.function_review_changed_then_fails", _changed_then_fails, "Let the run change, then fail")):
     if get_function(_id) is None:
         register_function(_id, _fn, description=_text)
 
@@ -374,9 +383,97 @@ def test_absolute_paths_stay_out_of_the_failure_detail(system, tmp_path):
     ("open \"/home/some one/it's.csv\" failed", "open \"<path>\" failed"),
     ("see https://example.com/a/b for help", "see https://example.com/a/b for help"),
     ("missing data/rows.csv and 10/20 rows", "missing data/rows.csv and 10/20 rows"),
+    # Every part of a path goes, the text between two paths stays, URLs and relative paths are left alone.
+    ("C:\\a\\b.csv and D:\\c.csv", "<path> and <path>"),
+    ("/home/u/My Documents/f.csv not found", "<path> not found"),
+    ("C:\\Program Files\\app\\x.dll failed", "<path> failed"),
+    ("\\\\server\\share\\x.txt is locked", "<path> is locked"),
+    ("see https://example.com/a/b", "see https://example.com/a/b"),
+    ("data/input.csv missing", "data/input.csv missing"),
+    ("C:\\Program Files (x86)\\Common Files\\x.dll failed", "<path> failed"),
+    ("C:\\Users\\u\\OneDrive - Some Name\\Documents\\x.csv is open", "<path> is open"),
+    ("/My Documents/f.csv not found", "<path> not found"),
+    ("copy /home/u/a.csv to /home/u/b.csv failed", "copy <path> to <path> failed"),
+    ("C:\\data\\in.csv not found in C:\\data\\backup", "<path> not found in <path>"),
+    ("C:\\a\\b.csv, D:\\c.csv.", "<path>, <path>."),
+    ("C:\\data\\in.csv: see data/rules.md", "<path>: see data/rules.md"),
+    ("/home/u/in.csv has 10/20 bad rows", "<path> has 10/20 bad rows"),
+    ("\\\\server\\share\\x.txt and https://example.com/a", "<path> and https://example.com/a"),
+    ("C:\\a\\b.csv and ./c.csv", "<path> and ./c.csv"),
+    ("use /help or see docs/x.md", "use /help or see docs/x.md"),
 ])
 def test_failure_detail_replaces_absolute_paths(message, expected):
     assert failure_detail(ValueError(message)) == f"ValueError: {expected}"
+
+
+def test_path_redaction_stays_linear_on_long_texts():
+    for text in ("C:\\a " * 50_000, "/a/b " * 50_000, "C:\\" + "a b " * 50_000, "\\\\x" + ". " * 50_000):
+        assert len(failure_detail(ValueError(text))) <= functions.FAILURE_DETAIL_LIMIT
+
+
+def test_a_cancel_while_the_function_runs_ends_the_run_cancelled(system, tmp_path):
+    CALLS.clear()
+    _workflow(system, tmp_path, function="test.function_review_changed_then_fails")
+    run = create_run(system, "function_steps", operating_mode="autonomous")
+    DURING[:] = [lambda: system.service.cancel(run["id"])]
+    try:
+        final = advance(system, run["id"])
+    finally:
+        DURING.clear()
+    assert len(CALLS) == 1
+    assert (final["status"], final["waiting_reason"], final["waiting_step"]) == ("cancelled", "", "")
+    assert len(events(final, "cancel_requested")) == 1
+    assert len(events(final, "workflow_cancelled")) == 1
+    assert not events(final, "function_step_failed")
+    assert not events(final, "workflow_failed")
+    assert [row for row in steps(system, run["id"]) if row["step_id"] == "collect"] == []
+    assert not system.worker.process_once()
+    assert len(CALLS) == 1
+
+
+def test_a_cancel_while_a_first_function_fails_ends_the_run_cancelled(system, tmp_path):
+    # With no model step before it the failure is not recoverable, but a cancel that came in still wins over failing.
+    CALLS.clear()
+    document = _workflow(system, tmp_path, function="test.function_review_changed_then_fails")
+    document["steps"] = document["steps"][1:]
+    (tmp_path / "workflows" / "function_steps.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    run = create_run(system, "function_steps", operating_mode="autonomous")
+    DURING[:] = [lambda: system.service.cancel(run["id"])]
+    try:
+        final = advance(system, run["id"])
+    finally:
+        DURING.clear()
+    assert len(CALLS) == 1
+    assert (final["status"], final["waiting_reason"]) == ("cancelled", "")
+    assert len(events(final, "workflow_cancelled")) == 1
+    assert not events(final, "workflow_failed")
+    assert not events(final, "function_step_failed")
+
+
+@pytest.mark.parametrize(("change", "status", "cancelled"), [
+    ("queued", "failed", 0),            # queued again without a cancel: it fails, as before
+    ("paused", "paused", 0),            # no longer running, no cancel: nothing overwrites it
+    ("forced", "cancelled", 1),         # already cancelled: no second cancel event
+])
+def test_only_a_cancel_turns_a_refused_failure_wait_into_cancelled(system, tmp_path, change, status, cancelled):
+    CALLS.clear()
+    _workflow(system, tmp_path, function="test.function_review_changed_then_fails")
+    run = create_run(system, "function_steps", operating_mode="autonomous")
+    changes = {
+        "queued": lambda: system.store.update_run(run["id"], status="queued"),
+        "paused": lambda: system.store.update_run(run["id"], status="paused"),
+        "forced": lambda: system.service.cancel(run["id"], force=True),
+    }
+    DURING[:] = [changes[change]]
+    try:
+        system.worker.process_once()
+    finally:
+        DURING.clear()
+    final = system.store.get_run(run["id"])
+    assert len(CALLS) == 1
+    assert final["status"] == status
+    assert len(events(final, "workflow_cancelled")) == cancelled
+    assert not events(final, "function_step_failed")
 
 
 def test_function_waits_are_one_transaction(system, tmp_path, monkeypatch):

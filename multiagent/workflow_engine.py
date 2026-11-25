@@ -17,8 +17,9 @@ from .adapters.base import LLMResponse
 from .adapters.fake import FakeAdapter
 from .artifacts import ArtifactWriter
 from .budget_cut import BudgetPolicy, policy_from_settings
-from .functions import (FUNCTION_CHANGED, FUNCTION_RUN, FunctionStepError, execute_function_step,
-                        function_retry_requested, hold_before_function, wait_for_function_failure)
+from .functions import (FUNCTION_CHANGED, FUNCTION_RUN, FunctionStepError, cancel_after_function_failure,
+                        execute_function_step, function_retry_requested, hold_before_function,
+                        wait_for_function_failure)
 from .call_guards import (
     SCOPE_RUN_STEP, STOP_USER_CANCEL, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
     grant_correction_allowance, person_correction_pending, profile_dispatches_since_correction,
@@ -922,10 +923,12 @@ class WorkflowEngine:
             return self._finalize_return(run_id)
         except FunctionStepError as exc:
             # Recoverable only after a model step with an output a person can correct; the failed attempt, the wait
-            # and its event are one transaction. Otherwise (or when a cancel came in meanwhile) the run fails.
+            # and its event are one transaction. A cancel that came in while the function ran ends the run cancelled,
+            # as before the call; otherwise the run fails.
             recoverable = (index > 0 and definition.steps[index - 1].function is None
                            and self.store.latest_step_output(run_id, definition.steps[index - 1].id) is not None)
-            if not (recoverable and wait_for_function_failure(self.store, run_id, step, attempt, exc, index=index)):
+            if not ((recoverable and wait_for_function_failure(self.store, run_id, step, attempt, exc, index=index))
+                                    or cancel_after_function_failure(self.store, run_id)):
                 self.store.fail_active_run(run_id, exc, issues=[{
                     "code": exc.code, "location": "function", "step_id": step.id, "message": str(exc),
                 }])

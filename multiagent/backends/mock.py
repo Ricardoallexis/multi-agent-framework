@@ -38,8 +38,9 @@ from ..errors import (
     InvalidStateTransition,
     ValidationFailed,
 )
-from ..functions import (FUNCTION_CHANGED, FUNCTION_RUN, FunctionStepError, execute_function_step,
-                         function_retry_requested, hold_before_function, wait_for_function_failure)
+from ..functions import (FUNCTION_CHANGED, FUNCTION_RUN, FunctionStepError, cancel_after_function_failure,
+                         execute_function_step, function_retry_requested, hold_before_function,
+                         wait_for_function_failure)
 from ..observability.usage import TokenUsageRecord, UsageRecorder
 from ..teams.step_roles import bind_step_roles, bound_team
 from ..run_request import needs_handoff_review, operating_mode_from_events
@@ -529,10 +530,12 @@ class MockBackend:
                 self.store.db.log_event(run_id, "workflow_failed", {"error": str(exc), "type": type(exc).__name__})
             return self._finalize_return(run_id)
         except FunctionStepError as exc:
-            # As the native engine: a recoverable failure waits in one transaction, anything else fails the run.
+            # As the native engine: a recoverable failure waits in one transaction, a cancel that came in while the
+            # function ran ends the run cancelled, anything else fails the run.
             recoverable = (index > 0 and definition.steps[index - 1].function is None
                            and self.store.latest_step_output(run_id, definition.steps[index - 1].id) is not None)
-            if not (recoverable and wait_for_function_failure(self.store, run_id, step, attempt, exc, index=index)):
+            if not ((recoverable and wait_for_function_failure(self.store, run_id, step, attempt, exc, index=index))
+                                    or cancel_after_function_failure(self.store, run_id)):
                 self.store.fail_active_run(run_id, exc, issues=[{
                     "code": exc.code, "location": "function", "step_id": step.id, "message": str(exc),
                 }])

@@ -36,13 +36,28 @@ _LOAD_LOCK = threading.RLock()
 
 
 # An absolute path inside an exception text names a local folder (and often a person's user name). The detail keeps
-# ``<path>`` instead: a quoted path whole, spaces included (``OSError`` quotes its file name), and a bare one up to
-# the first space (a Windows one also across spaces between separators). URLs and relative paths are left alone.
+# ``<path>`` instead: a quoted path whole, spaces included (``OSError`` quotes its file name). A bare path runs word by
+# word: past a space it goes on when the next word, or one of the two after it, still has a separator
+# (``C:\Program Files (x86)\app\x.dll``, ``/home/someone/My Documents/f.csv``). It never runs into a word that starts
+# another path, a URL or a fraction such as ``10/20``, nor past a word that ends with ``,`` ``;`` ``:`` or ``.``, so
+# the text between two paths stays. URLs and relative paths that stand alone are left alone.
 _QUOTED_PATH = re.compile(r"""(['"])(?:[A-Za-z]:[\\/]|[\\/]{2}|/(?=[^\s/'"]))(?:(?!\1)[^\r\n])*\1""")
+_CHAR = r"""[^\s'"<>|]"""                                   # a character of a bare path
+_PLAIN = r"""[^\s\\/'"<>|]"""                               # one that is not a separator
+_END = r"""(?<![.,;:])"""                                   # sentence punctuation after a path is not part of it
+_OTHER = (r"""(?![A-Za-z]:[\\/]|[\\/]|\.{1,2}[\\/]|~|\S*://"""    # another path or a URL starts here,
+          r"""|[\d\\/]+[.,;:]*(?![^\s'"<>|]))""")                  # or a fraction or a date
+_SKIP = r"""(?:\s+""" + _PLAIN + r"""*[^\s\\/'"<>|.,;:]){0,2}\s+""" + _OTHER   # up to two words without a separator
+_WINDOWS_MORE = _SKIP + _PLAIN + r"""*[\\/]""" + _CHAR + "*" + _END
+_POSIX_MORE = _SKIP + r"""[^\s/'"<>|]*/""" + _CHAR + "*" + _END
 _BARE_PATH = re.compile(
-    r"""(?<![A-Za-z0-9_])[A-Za-z]:[\\/](?:[^\\/\r\n'"<>|]*[\\/])*[^\s\\/'"<>|]*"""   # C:\Users\some one\file.csv
-    r"""|(?<!\\)\\\\[^\s\\/'"<>|]+(?:[\\/][^\s\\/'"<>|]*)*"""                        # \\server\share\file.csv
-    r"""|(?<![\w.:/\\~-])/[^\s/'"<>|]+/[^\s'"<>|]*"""                                # /home/someone/file.csv
+    r"""(?<![A-Za-z0-9_])[A-Za-z]:[\\/]""" + _CHAR + "*" + _END             # C:\Program Files\app\x.dll
+    + f"(?:{_WINDOWS_MORE})*"
+    + r"""|(?<!\\)\\\\""" + _PLAIN + r"""+(?:[\\/]""" + _CHAR + "*)?" + _END  # \\server\share\x.txt
+    + f"(?:{_WINDOWS_MORE})*"
+    + r"""|(?<![\w.:/\\~-])/[^\s/'"<>|]+"""                                 # /home/someone/My Documents/f.csv
+    + r"""(?:/""" + _CHAR + "*" + _END + f"(?:{_POSIX_MORE})*"
+    + "|" + _END + r"""\s+""" + _OTHER + r"""[^\s/'"<>|]*/""" + _CHAR + "*" + _END + f"(?:{_POSIX_MORE})*)"
 )
 
 
@@ -318,6 +333,27 @@ def wait_for_function_failure(store, run_id: str, step, attempt: int, exc: Funct
                           "step, or reject the run."}
     return _hold_function_step(store, run_id, step, attempt, index=index, reason=WaitingReason.FUNCTION_FAILURE.value,
                                error=str(exc), events=(("function_step_failed", payload),), failed_attempt=True)
+
+
+def cancel_after_function_failure(store, run_id: str) -> bool:
+    """End the run cancelled when a cancel came in while its function ran and the function then failed.
+
+    The cancel wins over the recoverable failure, as it does before the call (``FUNCTION_CHANGED``). False, with
+    nothing recorded, when no cancel was asked for or the run is no longer running."""
+    from .contracts import RunStatus
+    from .db.database import utcnow
+
+    with store.db.tx() as conn:
+        changed = conn.execute(
+            "UPDATE runs SET status=?,waiting_reason='',waiting_step='',waiting_attempt=NULL,updated_at=? "
+            "WHERE id=? AND status=? AND cancel_requested=1",
+            (RunStatus.CANCELLED.value, utcnow(), run_id, RunStatus.RUNNING.value),
+        ).rowcount
+        if not changed:
+            return False
+        inserted = insert_run_events(conn, run_id, (("workflow_cancelled", {}),))
+    announce_run_events(store, inserted)
+    return True
 
 
 def restore_function_failure(store, run_id: str, step, failure: dict[str, Any], *, index: int) -> bool:
