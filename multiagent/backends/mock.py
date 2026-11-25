@@ -38,7 +38,8 @@ from ..errors import (
     InvalidStateTransition,
     ValidationFailed,
 )
-from ..functions import FunctionStepError, execute_function_step
+from ..functions import (FUNCTION_CHANGED, FUNCTION_RUN, FunctionStepError, execute_function_step,
+                         function_retry_requested, hold_before_function, wait_for_function_failure)
 from ..observability.usage import TokenUsageRecord, UsageRecorder
 from ..teams.step_roles import bind_step_roles, bound_team
 from ..run_request import needs_handoff_review, operating_mode_from_events
@@ -381,11 +382,18 @@ class MockBackend:
 
                 attempt = self.store.latest_step_attempt(run_id, step.id) + 1
                 if (attempt > definition.max_iterations + 1
-                        and not person_correction_pending(run.get("events"), step.id, attempt)):
+                        and not person_correction_pending(run.get("events"), step.id, attempt)
+                        and not (step.function and function_retry_requested(run.get("events"), step.id, attempt))):
                     raise BudgetExceeded(f"Maximum revision count reached for step={step.id}")
 
                 fresh = self.store.get_run(run_id)
                 if step.function is not None:
+                    # The same holds as the native engine: a supervised review, or an unanswered failure.
+                    held = hold_before_function(self.store, fresh, step, index=index, attempt=attempt)
+                    if held != FUNCTION_RUN:
+                        if held == FUNCTION_CHANGED:
+                            self._check_cancel(run_id)
+                        return self._finalize_return(run_id)
                     execute_function_step(
                         store=self.store, artifacts=self.artifacts, settings=self.settings,
                         output_schemas=self.output_schemas, run_id=run_id, index=index,
@@ -521,9 +529,13 @@ class MockBackend:
                 self.store.db.log_event(run_id, "workflow_failed", {"error": str(exc), "type": type(exc).__name__})
             return self._finalize_return(run_id)
         except FunctionStepError as exc:
-            self.store.fail_active_run(run_id, exc, issues=[{
-                "code": exc.code, "location": "function", "step_id": step.id, "message": str(exc),
-            }])
+            # As the native engine: a recoverable failure waits in one transaction, anything else fails the run.
+            recoverable = (index > 0 and definition.steps[index - 1].function is None
+                           and self.store.latest_step_output(run_id, definition.steps[index - 1].id) is not None)
+            if not (recoverable and wait_for_function_failure(self.store, run_id, step, attempt, exc, index=index)):
+                self.store.fail_active_run(run_id, exc, issues=[{
+                    "code": exc.code, "location": "function", "step_id": step.id, "message": str(exc),
+                }])
             return self._finalize_return(run_id)
         except Exception as exc:
             self.store.fail_active_run(run_id, exc)

@@ -17,7 +17,8 @@ from .adapters.base import LLMResponse
 from .adapters.fake import FakeAdapter
 from .artifacts import ArtifactWriter
 from .budget_cut import BudgetPolicy, policy_from_settings
-from .functions import FunctionStepError, execute_function_step
+from .functions import (FUNCTION_CHANGED, FUNCTION_RUN, FunctionStepError, execute_function_step,
+                        function_retry_requested, hold_before_function, wait_for_function_failure)
 from .call_guards import (
     SCOPE_RUN_STEP, STOP_USER_CANCEL, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
     grant_correction_allowance, person_correction_pending,
@@ -464,11 +465,18 @@ class WorkflowEngine:
 
                 attempt = self.store.latest_step_attempt(run_id, step.id) + 1
                 if (attempt > definition.max_iterations + 1
-                        and not person_correction_pending(run.get("events"), step.id, attempt)):
+                        and not person_correction_pending(run.get("events"), step.id, attempt)
+                        and not (step.function and function_retry_requested(run.get("events"), step.id, attempt))):
                     raise BudgetExceeded(f"Maximum revision count reached for step={step.id}")
 
                 fresh = self.store.get_run(run_id)
                 if step.function is not None:
+                    # A supervised review, or an unanswered failure of the previous attempt, waits for a person here.
+                    held = hold_before_function(self.store, fresh, step, index=index, attempt=attempt)
+                    if held != FUNCTION_RUN:
+                        if held == FUNCTION_CHANGED:
+                            self._check_cancel(run_id)
+                        return self._finalize_return(run_id)
                     execute_function_step(
                         store=self.store, artifacts=self.artifacts, settings=self.settings,
                         output_schemas=self.output_schemas, run_id=run_id, index=index,
@@ -913,9 +921,14 @@ class WorkflowEngine:
                 self.store.db.log_event(run_id, "workflow_failed", {"error": str(exc), "type": type(exc).__name__})
             return self._finalize_return(run_id)
         except FunctionStepError as exc:
-            self.store.fail_active_run(run_id, exc, issues=[{
-                "code": exc.code, "location": "function", "step_id": step.id, "message": str(exc),
-            }])
+            # Recoverable only after a model step with an output a person can correct; the failed attempt, the wait
+            # and its event are one transaction. Otherwise (or when a cancel came in meanwhile) the run fails.
+            recoverable = (index > 0 and definition.steps[index - 1].function is None
+                           and self.store.latest_step_output(run_id, definition.steps[index - 1].id) is not None)
+            if not (recoverable and wait_for_function_failure(self.store, run_id, step, attempt, exc, index=index)):
+                self.store.fail_active_run(run_id, exc, issues=[{
+                    "code": exc.code, "location": "function", "step_id": step.id, "message": str(exc),
+                }])
             return self._finalize_return(run_id)
         except Exception as exc:
             self.store.fail_active_run(run_id, exc)

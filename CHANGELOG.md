@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Workflows: in a supervised run a function step waits for a person to review its inputs (one approval covers one start); a failure after a model step with output waits for a correction, redoes that step and retries the function once per decision; the failure detail shows no paths or secrets.
 - Executors: an explicit, bounded Codex ACP initialize probe with transport evidence while the adapter stays disabled until a person activates it.
 - Executors: a result-preserving CLI transport interface for executor adapters, with bounded post-run events and session-safe resume.
 - Corrections the person asks for are no longer capped: they do not count against max_iterations, each gets its own model-call and time allowance, and a run stopped by its own call or time limit accepts a correction again (in Mock too). Automatic revision loops stay bounded and the provider's quota still blocks the exhausted model. New read-only run limit state at GET /gui/api/runs/{run_id}/limit; the run thread and the run panel offer “changes” again after a cut by the run's own limits; a provider-invocation limit (max_provider_invocations) of a routing profile no longer counts the dispatches from before the person's last correction.

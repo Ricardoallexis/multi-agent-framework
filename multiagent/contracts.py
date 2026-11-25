@@ -51,6 +51,8 @@ class WaitingReason(str, Enum):
     # path of runs: ``approve`` lets that one call through, ``reject`` fails the run (``Store.finish_budget_cut``).
     BUDGET_CUT = "budget_cut_approval"
     EGRESS_REVIEW = "egress_review"
+    FUNCTION_REVIEW = "function_review"
+    FUNCTION_FAILURE = "function_failure"
 
 
 class EgressBlocked(Exception):

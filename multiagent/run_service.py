@@ -6,7 +6,9 @@ from .call_guards import cut_by_run_limits
 from .config import Settings
 from .contracts import HumanStepSubmission, RunStatus, SocialPostRequest, WaitingReason
 from .db.store import Store
+from .db.database import utcnow
 from .errors import BudgetExceeded, HumanSubmissionError, InvalidStateTransition
+from .functions import announce_run_events, insert_run_events
 from .tools.approvals import ToolApprovalMismatch
 from .run_request import OPERATING_MODE_SET, RunRequest, validate_function_step_options
 from .routing_preferences import validate_run_preferences
@@ -104,6 +106,24 @@ class RunService:
         return (run["status"] == RunStatus.WAITING_HUMAN.value
                 and run.get("waiting_reason") == WaitingReason.TOOL_APPROVAL.value)
 
+    def _finish_function_wait(self, run: dict[str, Any], *, current_step: int,
+                              feedback: str = "", events: tuple[tuple[str, dict[str, Any]], ...]) -> None:
+        """Settle one function wait atomically; a repeated decision cannot queue it twice. The event listeners hear
+        of the decision once it is committed (``functions.announce_run_events``)."""
+        with self.store.db.tx() as conn:
+            row = conn.execute("SELECT * FROM runs WHERE id=?", (run["id"],)).fetchone()
+            fields = ("status", "current_step", "waiting_reason", "waiting_step", "waiting_attempt", "cancel_requested")
+            if (row is None or row["status"] != RunStatus.WAITING_HUMAN.value
+                    or row["cancel_requested"] or any(row[key] != run[key] for key in fields)):
+                raise InvalidStateTransition("The function wait changed; read the run again")
+            conn.execute(
+                """UPDATE runs SET status=?,current_step=?,revision_feedback=?,error='',
+                   waiting_reason='',waiting_step='',waiting_attempt=NULL,updated_at=? WHERE id=?""",
+                (RunStatus.QUEUED.value, current_step, feedback, utcnow(), run["id"]),
+            )
+            inserted = insert_run_events(conn, run["id"], events)
+        announce_run_events(self.store, inserted)
+
     def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None,
                 recorded_only: bool = False, permission_request_id: str | None = None,
                 person: bool = False) -> dict[str, Any]:
@@ -116,8 +136,19 @@ class RunService:
 
         ``person`` says an authenticated person is behind this call. A tool approval (``tool_approval``) is approved only
         with ``person=True``; without it the answer is ``PersonRequired``, as with ``recorded_only`` (CAP-T15, B1). Only
-        the token route of the GUI (which the command line goes through) passes it."""
+        the token route of the GUI (which the command line goes through) passes it. The review before a function step
+        (``function_review``) follows the same rule: without ``person=True`` the function is never released."""
         run = self.store.get_run(run_id)
+        if (run["status"] == RunStatus.WAITING_HUMAN.value
+                and run.get("waiting_reason") == WaitingReason.FUNCTION_REVIEW.value):
+            if recorded_only or not person:
+                raise PersonRequired("A person must approve the inputs before this function step runs: use the GUI "
+                                     "(it carries the token) or the command line. Rejecting works here.")
+            payload = {"step_id": run["waiting_step"], "attempt": run["waiting_attempt"],
+                       "by": by, "channel": channel}
+            self._finish_function_wait(run, current_step=run["current_step"],
+                                       events=(("function_review_approved", payload),))
+            return self.store.get_run(run_id)
         if (run["status"] == RunStatus.WAITING_HUMAN.value
                 and run.get("waiting_reason") == WaitingReason.SECRET_REVIEW.value):
             raise UserClickRequired("Aprueba en la GUI → Aprobaciones")
@@ -173,6 +204,31 @@ class RunService:
     def changes(self, run_id: str, feedback: str, *, comments=(), regenerate: bool = False,
                 by: str | None = None, channel: str | None = None) -> dict[str, Any]:
         run = self.store.get_run(run_id)
+        if (run["status"] == RunStatus.WAITING_HUMAN.value
+                and run.get("waiting_reason") == WaitingReason.FUNCTION_FAILURE.value):
+            if not feedback.strip() or comments or regenerate:
+                raise ValueError("Explicit feedback for the previous model step is required")
+            if self.engine is None:
+                raise RuntimeError("RunService has no WorkflowEngine attached")
+            definition = self.engine.preflight(run["workflow_id"])
+            index = run["current_step"]
+            if (index < 1 or definition.steps[index].id != run["waiting_step"]
+                    or definition.steps[index - 1].function is not None):
+                raise InvalidStateTransition("The failed function has no previous model step to correct")
+            previous = definition.steps[index - 1]
+            artifact = self.store.review_artifact(run_id, step_id=previous.id)
+            validator = getattr(self.engine, "validate_waiting_step", None) or self.engine._validate_waiting_step
+            validator(run, artifact, definition=definition, current_step=index - 1)
+            from .revision_comments import render_revision_feedback
+            rendered = render_revision_feedback(feedback.strip(), (), step_id=previous.id,
+                                                attempt=artifact["attempt"])
+            revision = {"step_id": previous.id, "attempt": artifact["attempt"],
+                        "artifact_id": artifact["id"], "mode": "revise", "feedback": feedback.strip(),
+                        "by": by, "channel": channel}
+            retry = {"step_id": run["waiting_step"], "attempt": run["waiting_attempt"] + 1}
+            self._finish_function_wait(run, current_step=index - 1, feedback=rendered,
+                                       events=(("human_revision", revision), ("function_retry_requested", retry)))
+            return self.store.get_run(run_id)
         if run["status"] != RunStatus.WAITING_HUMAN.value or run.get("waiting_reason") not in {
             WaitingReason.REVIEW.value, WaitingReason.APPROVAL_PENDING.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
         }:

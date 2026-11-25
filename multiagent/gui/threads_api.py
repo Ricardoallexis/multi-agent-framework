@@ -18,6 +18,9 @@ _WAIT_EVENTS = {
     "tool_approval_requested": "tool_approval",
     "escalation_requested": "escalation_approval",
     "document_review_requested": "content_review",
+    "function_review_requested": "function_review",
+    "function_step_failed": "function_failure",
+    "function_failure_restored": "function_failure",
 }
 _REVIEW = {"review", "approval_pending", ""}
 _APPROVE_REJECT = {"tool_approval", "escalation_approval", "budget_cut_approval", "budget_exhausted", "content_review",
@@ -33,6 +36,14 @@ def _decision(run: dict[str, Any], view: dict[str, Any]) -> dict[str, Any]:
                else ["approve", "reject"] if reason in _REVIEW or reason in _APPROVE_REJECT else [])
     if reason in {"execute_step", "research"}:
         actions = ["human-submit", "reject"]
+    elif reason == "function_review":
+        actions = ["approve", "reject"]
+    elif reason == "function_failure":
+        index = int(run.get("current_step") or 0)
+        previous = view["steps"][index - 1] if 0 < index < len(view["steps"]) else None
+        actions = (["changes", "reject"] if previous and not previous.get("function")
+                   and any(item["step_id"] == previous["id"] for item in view["artifacts"])
+                   else ["reject"])
     decision = {"type": reason, "step_id": run.get("waiting_step") or "",
                 "attempt": run.get("waiting_attempt"), "actions": actions}
     if reason == "tool_approval" and view.get("tool_approval"):
@@ -87,6 +98,8 @@ def build_thread(services: Any, run: dict[str, Any], *, after: int = 0) -> dict[
             reason = payload.get("waiting_reason") if kind == "call_paused" else _WAIT_EVENTS.get(kind, "budget_exhausted")
             entry = {"kind": "waiting", "text": payload.get("message") or f"Waiting: {reason}",
                      "reason": reason, "step_id": step_id, "attempt": payload.get("attempt"), "decision": None}
+            if reason == "function_failure":
+                entry.update(code=payload.get("code"), detail=payload.get("detail") or "")
         elif kind in _FINALS:
             status = {"workflow_completed": "completed", "workflow_failed": "failed",
                       "workflow_cancelled": "cancelled", "human_rejected": "rejected"}[kind]
@@ -101,12 +114,14 @@ def build_thread(services: Any, run: dict[str, Any], *, after: int = 0) -> dict[
                 latest_wait = entries[-1]
     if run["status"] == "waiting_human":
         decision = _clean(_decision(run, view))
+        current: dict[str, Any] | None = None
         if latest_wait is not None and (not latest_wait["step_id"] or
                                         latest_wait["step_id"] == decision["step_id"]):
             latest_wait["reason"] = run.get("waiting_reason") or latest_wait["reason"]
             latest_wait["step_id"] = decision["step_id"]
             latest_wait["attempt"] = decision["attempt"]
             latest_wait["decision"] = decision
+            current = latest_wait
         elif events:
             last = events[-1]
             entries.append({"seq": last["seq"], "ts": last["ts"], "kind": "waiting",
@@ -114,6 +129,16 @@ def build_thread(services: Any, run: dict[str, Any], *, after: int = 0) -> dict[
                             "reason": run.get("waiting_reason") or "review",
                             "step_id": run.get("waiting_step") or "", "attempt": run.get("waiting_attempt"),
                             "decision": decision})
+            current = entries[-1]
+        if current is not None and decision["type"] == "function_review":
+            # What the person checks before the function runs, on whichever entry carries the decision.
+            previous = {step["id"] for step in view["steps"][:int(run.get("current_step") or 0)]}
+            outputs = {}
+            for artifact in view["artifacts"]:
+                if artifact["step_id"] in previous:
+                    outputs[artifact["step_id"]] = artifact["data"]
+            current["inputs"] = _clean((run.get("request") or {}).get("inputs") or {})
+            current["prior_outputs"] = _clean(outputs)
     if run["status"] in {"completed", "failed", "cancelled", "rejected"} and not any(
             entry["kind"] == "final" and entry["status"] == run["status"] for entry in entries):
         last = events[-1] if events else {"seq": 0, "ts": run.get("updated_at")}
