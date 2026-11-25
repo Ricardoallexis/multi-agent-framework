@@ -131,11 +131,12 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(
   .tool-btn { gap: 8px; padding: 0 8px; }
   .topbar .hint-text { display: none; } /* an open "?" would push its own button off the 375 px screen; its text is the popover */
 }
-.badge { padding: 2px 8px; border-radius: 999px; font-size: .75rem; border: 0; background: var(--bg); }
-.badge.mock { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); font-weight: 600; }
-.badge.connected { color: var(--ok); }
-.badge.reconnecting { color: var(--warn); }
-.badge.offline { color: var(--bad); }
+.badge { display: inline-flex; align-items: center; min-height: 28px; padding: 0 8px; border: 0; border-radius: 999px;
+  background: var(--hover); color: var(--muted); font-size: .75rem; line-height: 1.4; }
+.badge.mock { color: var(--warn); background: var(--warn-soft); font-weight: 600; }
+.badge.connected { color: var(--ok); background: var(--accent-soft); }
+.badge.reconnecting { color: var(--warn); background: var(--warn-soft); }
+.badge.offline { color: var(--bad); background: var(--hover); }
 .notice { max-width: 40rem; margin: 15vh auto; padding: 24px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 12px; }
 
@@ -154,11 +155,11 @@ code { font: .875em var(--mono); background: var(--bg);
 .run-list button[aria-current="true"] { background: var(--hover); border-color: var(--line-strong); box-shadow: inset 3px 0 0 var(--accent); }
 .run-title { font-weight: 600; overflow-wrap: anywhere; }
 .btn { display: inline-flex; align-items: center; justify-content: center; min-height: var(--target); padding: 8px 16px;
-  border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 500; cursor: pointer; }
+  border: 0; border-radius: 9px; background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 500; cursor: pointer; }
 .btn:hover:not(:disabled) { opacity: .9; }
 .btn.secondary { min-height: var(--target); border: 0; background: var(--hover); color: var(--text); }
 .btn.secondary:hover:not(:disabled) { background: var(--line-strong); opacity: 1; }
-.btn.danger { background: var(--bad); border: 0; }
+.btn.danger { background: var(--bad); color: var(--on-accent); border: 0; }
 .btn.small { padding: 4px 12px; font-size: .8125rem; }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
 .btn:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible,
@@ -247,7 +248,7 @@ details > summary { cursor: pointer; padding: 12px 0; min-height: var(--target);
 @media (prefers-color-scheme: dark) {
   :root { --src-claude: #f0a35e; --src-codex: #4fd1c5; --src-copilot: #b79cf5; }
 }
-.badge.src { font-weight: 600; }
+.badge.src { background: var(--hover); font-weight: 600; }
 .badge.src-claude { color: var(--src-claude); }
 .badge.src-codex { color: var(--src-codex); }
 .badge.src-copilot { color: var(--src-copilot); }
@@ -280,11 +281,11 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .live-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; }
 .badge.live::before { content: ""; display: inline-block; width: .55em; height: .55em; border-radius: 50%;
   background: currentColor; margin-right: 6px; }
-.badge.live-live { color: var(--ok); font-weight: 600; }
+.badge.live-live { color: var(--ok); background: var(--accent-soft); font-weight: 600; }
 .badge.live-live::before { animation: pulse 1.6s ease-in-out infinite; }
-.badge.live-connecting, .badge.live-reconnecting, .badge.live-offline { color: var(--warn); }
-.badge.live-failed, .badge.live-ended { color: var(--bad); }
-.badge.live-paused, .badge.live-waiting { color: var(--muted); }
+.badge.live-connecting, .badge.live-reconnecting { color: var(--warn); background: var(--warn-soft); }
+.badge.live-offline, .badge.live-failed, .badge.live-ended { color: var(--bad); background: var(--hover); }
+.badge.live-paused, .badge.live-waiting { color: var(--muted); background: var(--hover); }
 @keyframes pulse { 50% { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { .badge.live-live::before { animation: none; } }
 .items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
@@ -340,7 +341,11 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .tone-warning, .tone-attention { --tone: var(--warn); }
 .tone-danger { --tone: var(--bad); }
 .tone-muted, .tone-neutral { --tone: var(--muted); }
-.badge[class*="tone-"] { color: var(--tone); }
+.badge[class*="tone-"] { color: var(--tone); background: var(--hover); }
+.badge[class*="tone-success"], .badge[class*="tone-active"] { color: var(--ok); background: var(--accent-soft); }
+.badge[class*="tone-warning"], .badge[class*="tone-attention"] { color: var(--warn); background: var(--warn-soft); }
+.badge[class*="tone-danger"] { color: var(--bad); background: var(--hover); }
+.badge[class*="tone-info"], .badge[class*="tone-muted"], .badge[class*="tone-neutral"] { color: var(--muted); background: var(--hover); }
 .badge.tone-attention { font-weight: 600; }
 
 /* StatusChip: variant "dot" (sidebar) and "inline" (item lines). The shape differs per state: circle = working,

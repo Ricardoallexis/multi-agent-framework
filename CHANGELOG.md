@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Buttons and status chips follow one visual system from the approved 9a mockup: 9 px buttons, pill chips in amber for waiting, green for working or connected, red text for failures and grey for the rest, and a 14 px «+» menu.
 - The office install card lists validated YAML contracts, workflows, team roles, code files and the function registrations it can read statically, without running `functions.py` or `contracts.py`; one notice says when no scan ran. A workflow that needs local file tools warns at import and before launch, and only that workflow is blocked until `FILE_TOOLS_ROOT` is set.
 - Apps and agents say only what was checked: the version check outcome in words (did not respond in time, could not be run, unrecognized response), «inside another app» only when the resolved path is in a Windows app package, a chip when two signals disagree, and the probe time. The first load probes the apps in parallel and keeps the result until «Check again»; the setup assistant stays serial.
 - New session shows the latest response a single executor submitted, next to its tracking card, as plain text. The Sessions viewer also reads sessions under the executor work folder once it exists; a work folder configured elsewhere keeps working there, and its session link is offered only when the viewer can read it.

@@ -185,7 +185,7 @@
 .ns-plus:hover, .ns-plus-menu button:hover { background: var(--hover); }
 .ns-plus-menu { position: absolute; left: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column;
   width: max-content; max-width: min(20rem, 88vw); padding: 4px; border: 1px solid var(--line-strong);
-  border-radius: 10px; background: var(--panel); box-shadow: 0 8px 20px rgb(0 0 0 / .12); }
+  border-radius: 14px; background: var(--panel); box-shadow: 0 8px 20px rgb(0 0 0 / .12); }
 .ns-plus-menu button { min-height: var(--target); padding: 8px 12px; border: 0; border-radius: 6px;
   background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .ns-box-controls .ns-send { margin-top: calc(1.25rem + 3px); min-height: var(--target); }
