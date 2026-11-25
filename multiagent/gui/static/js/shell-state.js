@@ -25,15 +25,16 @@ function writeStored(key, value) {
   try { window.localStorage.setItem(key, value); } catch (_) { /* storage blocked: not remembered */ }
 }
 
-const LANGUAGE_KEY = "multiagent.gui.language";
+// A function, not a const: i18n.js reads the preference while this module is still being linked (import cycle).
+function languageKey() { return "multiagent.gui.language"; }
 
 export function readLanguagePreference() {
-  const value = readStored(LANGUAGE_KEY);
+  const value = readStored(languageKey());
   return value === "en" || value === "es" ? value : "auto";
 }
 
 export function writeLanguagePreference(choice) {
-  writeStored(LANGUAGE_KEY, choice);
+  writeStored(languageKey(), choice);
 }
 
 export function readPanelOpen(fallback) {

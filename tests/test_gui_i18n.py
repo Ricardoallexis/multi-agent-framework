@@ -27,6 +27,18 @@ def test_ui_text_tracks_converted_and_unconverted_views():
 
 
 @needs_node
+def test_shell_state_loads_first_with_a_document_despite_the_import_cycle():
+    source = f"""
+      globalThis.document = {{documentElement: {{lang: ''}}}};
+      const state = await import({json.dumps((JS / 'shell-state.js').as_uri())});
+      console.log(JSON.stringify({{preference: state.readLanguagePreference(), lang: document.documentElement.lang}}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "-e", source], capture_output=True, text=True,
+                            encoding="utf-8", cwd=STATIC_DIR, timeout=30, check=True)
+    assert json.loads(result.stdout)["preference"] == "auto"
+
+
+@needs_node
 def test_language_selection_persists_updates_lang_and_repaints():
     source = f"""
       const saved = new Map();
