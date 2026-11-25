@@ -193,7 +193,7 @@ def test_apps_simple_hides_copy_lines():
         key: m0.missingAction({id: "gemini", available: false, missing_step: "key"}, "model", status, "simple"),
         invalid: m0.missingAction({id: "gemini", available: false, reason: "key_invalid"}, "model", status, "simple"),
       };
-      console.log(JSON.stringify({cases, text: m0.ADVANCED_STEP_TEXT}));
+      console.log(JSON.stringify({cases, text: m0.advancedStepText()}));
     """ % (json.dumps(_row(missing_step="enable")), json.dumps(_row(id="antigravity_cli", missing_step="enable"))))
     assert result["text"] == "Este paso se hace en modo avanzado"
     for name, action in result["cases"].items():

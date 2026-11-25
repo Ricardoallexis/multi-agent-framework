@@ -86,7 +86,7 @@ function sessionLabel(row, kind) {
   if (row.session === "signed_out") return t("ext.apps.session.signed_out");
   if (row.id === "copilot_cli") return t("ext.apps.session.unverifiable");
   if (row.id === "antigravity_cli") return t("ext.apps.session.unknown_usage");
-  return t("ext.apps.unknown");
+  return t("ext.apps.session.unknown");
 }
 
 function enabledLabel(row) {
@@ -209,7 +209,7 @@ function advancedAction(row, kind, setupStatus) {
     const file = row.key_file || ".local/.env";
     return {
       kind: "key",
-      title: t("ext.apps.reason.key_missing"),
+      title: t("ext.apps.key_missing.title"),
       setting,
       file,
       detail: t("ext.apps.key_missing.detail", { setting, file }),
@@ -366,7 +366,7 @@ function buildEntry(row, kind, setupStatus, mode, activation = null) {
       ? t("ext.apps.not_applicable")
       : ["probe_failed", "timed_out", "uninterpretable"].includes(row.version_result)
         ? t("ext.apps.version_unchecked", { reason: t(VERSION_FAILURES[row.version_result]) })
-        : t("ext.apps.no_data")),
+        : t("ext.apps.version.no_data")),
     session: sessionLabel(row, kind),
     enabled: enabledLabel(row),
     permissions: permissionSummary(row.id, perm, kind),
