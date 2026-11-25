@@ -289,7 +289,8 @@ class OfficeServices:
             areas.append({"id": area["id"], "name": area["name"], "bundle": bundle, "sensitivity": level["sensitivity"],
                           "local_only": level["local_only"], "requires": list(area.get("requires") or []),
                           "package_state": package_state, "team": self._team_state(bundle),
-                          "workflow_declarations": self._workflow_declarations(folder) if folder is not None else []})
+                          "workflow_declarations": self._workflow_declarations(folder, strict=False)
+                          if folder is not None else []})
         return {"id": office_id, "name": definition["name"], "description": definition.get("description"),
                 "version": entry.get("version"), "fingerprint": entry.get("fingerprint"),
                 "installed_at": entry.get("installed_at"), "installed_by": entry.get("installed_by"),
@@ -1869,47 +1870,58 @@ class OfficeServices:
                             member.get("agent") or member_id, "role": ", ".join(roles) or None})
         return members
 
-    def _workflow_declarations(self, folder: Path) -> list[dict[str, Any]]:
+    def _workflow_declarations(self, folder: Path, *, strict: bool = True) -> list[dict[str, Any]]:
+        """The roles and file tools that each workflow of an area declares (OFA-T01).
+
+        The install card (``strict``) refuses a broken workflow file. An installed office (``strict=False``, the office
+        card and the scene) leaves that file out, so the office still shows; running that workflow still fails on its
+        own."""
         declarations = []
         for path in sorted((folder / "workflows").glob("*.yaml")):
             try:
-                raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError, yaml.YAMLError):
-                raise ServiceError(INVALID_DEFINITION, "Invalid workflow declaration in office", status=422,
-                                   details={"reason": "office_workflow_invalid", "workflow": path.stem}) from None
-            steps = raw.get("steps") if isinstance(raw, dict) else None
-            if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
-                raise ServiceError(INVALID_DEFINITION, "Invalid workflow declaration in office", status=422,
+                declarations.append(self._workflow_declaration(path))
+            except ServiceError:
+                if strict:
+                    raise
+        return declarations
+
+    @staticmethod
+    def _workflow_declaration(path: Path) -> dict[str, Any]:
+        try:
+            raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, yaml.YAMLError):
+            raise ServiceError(INVALID_DEFINITION, "Invalid workflow declaration in office", status=422,
+                               details={"reason": "office_workflow_invalid", "workflow": path.stem}) from None
+        steps = raw.get("steps") if isinstance(raw, dict) else None
+        if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
+            raise ServiceError(INVALID_DEFINITION, "Invalid workflow declaration in office", status=422,
+                               details={"reason": "office_workflow_invalid", "workflow": path.stem})
+        roles: set[str] = set()
+        file_tools: set[str] = set()
+        for step in steps:
+            role = step.get("role")
+            if isinstance(role, str):
+                roles.add(role)
+            elif role is not None:
+                raise ServiceError(INVALID_DEFINITION, "Invalid workflow role declaration in office", status=422,
                                    details={"reason": "office_workflow_invalid", "workflow": path.stem})
-            roles: set[str] = set()
-            file_tools: set[str] = set()
-            for step in steps:
-                role = step.get("role")
-                if isinstance(role, str):
-                    roles.add(role)
-                elif role is not None:
-                    raise ServiceError(INVALID_DEFINITION, "Invalid workflow role declaration in office", status=422,
-                                       details={"reason": "office_workflow_invalid", "workflow": path.stem})
-                tools = step.get("tools")
-                if tools is None:
-                    continue
-                if not isinstance(tools, list):
+            tools = step.get("tools")
+            if tools is None:
+                continue
+            if not isinstance(tools, list):
+                raise ServiceError(INVALID_DEFINITION, "Invalid workflow tool declaration in office", status=422,
+                                   details={"reason": "office_workflow_invalid", "workflow": path.stem})
+            for tool in tools:
+                if not isinstance(tool, dict):
                     raise ServiceError(INVALID_DEFINITION, "Invalid workflow tool declaration in office", status=422,
                                        details={"reason": "office_workflow_invalid", "workflow": path.stem})
-                for tool in tools:
-                    if not isinstance(tool, dict):
-                        raise ServiceError(INVALID_DEFINITION, "Invalid workflow tool declaration in office",
-                                           status=422,
-                                           details={"reason": "office_workflow_invalid", "workflow": path.stem})
-                    tool_id = tool.get("tool") or tool.get("capability")
-                    if not isinstance(tool_id, str):
-                        raise ServiceError(INVALID_DEFINITION, "Invalid workflow tool declaration in office",
-                                           status=422,
-                                           details={"reason": "office_workflow_invalid", "workflow": path.stem})
-                    if tool_id.startswith("file."):
-                        file_tools.add(tool_id)
-            declarations.append({"id": path.stem, "roles": sorted(roles), "file_tools": sorted(file_tools)})
-        return declarations
+                tool_id = tool.get("tool") or tool.get("capability")
+                if not isinstance(tool_id, str):
+                    raise ServiceError(INVALID_DEFINITION, "Invalid workflow tool declaration in office", status=422,
+                                       details={"reason": "office_workflow_invalid", "workflow": path.stem})
+                if tool_id.startswith("file."):
+                    file_tools.add(tool_id)
+        return {"id": path.stem, "roles": sorted(roles), "file_tools": sorted(file_tools)}
 
     def _area_declares(self, folder: Path) -> dict[str, list[str]]:
         workflows = sorted(path.stem for path in (folder / "workflows").glob("*.yaml"))
@@ -2011,7 +2023,8 @@ class OfficeServices:
                         "members": self._area_members(folder) if folder is not None else [],
                         "declares": self._area_declares(folder) if folder is not None else
                         {"workflows": [], "contracts": [], "roles": []},
-                        "workflow_declarations": self._workflow_declarations(folder) if folder is not None else []}
+                        "workflow_declarations": self._workflow_declarations(folder, strict=False)
+                        if folder is not None else []}
             areas.append({"id": area_id, "name": data["name"], "change": change, "members": data["members"],
                           "requires": data["requires"], "sensitivity": data["sensitivity"],
                           "local_only": data["local_only"], "declares": data["declares"],

@@ -37,7 +37,7 @@ ANALYST_PURPOSE = "Extracts key points, findings and checklist evidence from inp
 ANALYST_RULE = "Ground every point in the provided source text."
 WRITER_PURPOSE = "Drafts clear summaries and option comparisons for the target audience."
 WRITER_RULE = "Keep recommendations traceable to analyst findings."
-FIRST_KEY_POINT = "La reunión semanal pasa de los lunes a los miércoles."   # the bundle's KeyPoints sample
+FIRST_KEY_POINT = "The weekly meeting moves from Mondays to Wednesdays."   # the bundle's KeyPoints sample
 # extract_key_points runs as the analyst, write_summary as the writer; both name their agent.
 TWO_ROLES = {"extract_key_points": {"role": "analyst"}, "write_summary": {"role": "writer"}}
 
