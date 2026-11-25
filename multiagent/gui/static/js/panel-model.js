@@ -25,12 +25,20 @@ const TEXT = (value) => (typeof value === "string" && value.trim() ? value.trim(
 const RUN_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const FRAMEWORK_SESSION = /^framework:([A-Za-z0-9_-]{1,64})$/;
 
+function runSubject(id) {
+  const runId = String(id);
+  return RUN_ID.test(runId) ? { kind: "run", runId, sessionId: "framework:" + runId, key: "run:" + runId } : null;
+}
+
 // The session or run open in the centre, or null. `route` is the hash route, `sessionId` the one the shell worked out
 // (only for #sessions/<id>). A run (#runs/<id>, or the session "framework:<id>") is read through the run routes.
 export function subjectOf(route, sessionId) {
+  if (route && route.section === "new") {
+    if (route.kind !== undefined || !route.id) return null;
+    return runSubject(route.id);
+  }
   if (route && route.section === "runs" && route.id) {
-    const id = String(route.id);
-    return RUN_ID.test(id) ? { kind: "run", runId: id, sessionId: "framework:" + id, key: "run:" + id } : null;
+    return runSubject(route.id);
   }
   if (typeof sessionId === "string" && sessionId) {
     const run = FRAMEWORK_SESSION.exec(sessionId);

@@ -142,6 +142,32 @@ def test_a_closed_panel_without_subject_has_no_toggle_and_the_aside_stays():
 
 
 @needs_node
+def test_context_toggle_is_available_in_a_simple_run_thread():
+    shell = ui_text((JS / "shell.js"))
+    main = ui_text((JS / "main.js"))
+    assert "${hasSubject && html`<div class=\"content-toolbar\">" in shell
+    assert "subjectOf(context" in main and "hasSubject=${hasSubject}" in main
+    out = run_node(f"""
+      import {{ subjectOf }} from {uri(JS / "panel-model.js")};
+      const thread = subjectOf({{ section: "new", id: "r1" }}, null);
+      console.log(JSON.stringify({{
+        hasSubject: Boolean(thread),
+        subject: thread,
+        emptyNew: Boolean(subjectOf({{ section: "new" }}, null)),
+        teamThread: Boolean(subjectOf({{ section: "new", kind: "team", id: "x" }}, null)),
+        planThread: Boolean(subjectOf({{ section: "new", kind: "plan", id: "x" }}, null)),
+      }}));
+    """)
+    assert out == {
+        "hasSubject": True,
+        "subject": {"kind": "run", "runId": "r1", "sessionId": "framework:r1", "key": "run:r1"},
+        "emptyNew": False,
+        "teamThread": False,
+        "planThread": False,
+    }
+
+
+@needs_node
 def test_slots_that_do_not_report_are_drawn_and_the_panel_honours_the_modes():
     panel = ui_text((JS / "right-panel.js"))
     assert "readCardModes()" in panel and "shownCards(cards, modes, contents)" in panel

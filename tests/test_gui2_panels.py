@@ -210,11 +210,14 @@ def test_subject_is_the_session_or_the_run_open_in_the_centre(tmp_path):
         s({ section: "sessions", id: "claude:x" }, "claude:x"), s({ section: "sessions", id: null }, null),
         s({ section: "runs", id: "abc123" }, null), s({ section: "runs", id: null }, null),
         s({ section: "sessions", id: "framework:r9" }, "framework:r9"), s({ section: "runs", id: "../x" }, null),
-        s({ section: "new", id: null }, null)]));
+        s({ section: "new", id: "r1" }, null), s({ section: "new", id: null }, null),
+        s({ section: "new", kind: "team", id: "x" }, null), s({ section: "new", kind: "plan", id: "x" }, null),
+        s({ section: "new", id: "../x" }, null)]));
     """)
     assert out[0] == {"kind": "session", "runId": None, "sessionId": "claude:x", "key": "session:claude:x"}
-    assert out[1] is None and out[3] is None and out[5] is None and out[6] is None
+    assert out[1] is None and out[3] is None and out[5] is None and out[7:] == [None] * 4
     assert out[2] == {"kind": "run", "runId": "abc123", "sessionId": "framework:abc123", "key": "run:abc123"}
+    assert out[6] == {"kind": "run", "runId": "r1", "sessionId": "framework:r1", "key": "run:r1"}
     assert out[4]["kind"] == "run" and out[4]["runId"] == "r9" and out[4]["key"] == "run:r9"
 
 
