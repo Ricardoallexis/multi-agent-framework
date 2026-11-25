@@ -1,6 +1,7 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // «Oficinas» (#offices): office scenes, fixes and import/export actions.
+import "./i18n.js";
 import { html, useEffect, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { apiGet, apiPost } from "../../js/api.js";
 import { currentMode } from "../../js/gui-mode.js";

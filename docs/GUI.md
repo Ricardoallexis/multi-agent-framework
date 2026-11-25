@@ -19,13 +19,18 @@ lasts until the page is closed.
 English is the base language. Each converted view has a plain ES module in
 `multiagent/gui/static/i18n/en/` and a matching Spanish module in
 `i18n/es/`. Both modules use the same `view.key` entries, for example
-`sessions.empty`. To convert another view, copy its current Spanish labels
-into the Spanish module, write the English equivalents, replace visible
-literals with `t("view.key")`, and import both modules in `js/i18n.js`.
+`sessions.empty`. Every view already has its pair of modules, empty until it is
+converted, imported in `js/i18n.js`. To convert a view, copy its current
+Spanish labels into the Spanish module, write the English equivalents and
+replace visible literals with `t("view.key")`. An extension keeps its texts
+in `extensions/<name>/i18n.js`, which registers both languages with
+`registerTranslations()`; its keys start with `ext.<name>.`.
 `t()` falls back to English, then to the key. Help entries use `help.*` keys
-and are read through `localizedHelp()`. The Spanish help catalog it falls back
-to, `js/help-text.js`, joins one part per group of views
-(`js/help-text-<part>.js`), so the help texts of a view live in one file.
+and are read through `localizedHelp()`. The catalog it falls back to,
+`js/help-text.js`, joins one part per group of views
+(`js/help-text-<part>.js`). A converted part holds the English base text and
+its Spanish lives in the view's `es` module as `help.<topic>`; a part not
+converted yet is still in Spanish.
 
 Static GUI tests that search for visible text should call
 `tests.gui_text.ui_text(path, lang="es")` instead of reading the source file

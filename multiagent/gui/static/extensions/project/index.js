@@ -5,6 +5,7 @@
 // «Etapas y tareas» shows the stages with collapsible phases, filters and the detail of a task (dependencies, deliverables of
 // its result envelope, approve or ask for changes). It only shows what /gui/api/projects answers (the core's own views). The
 // one write is the review of a submitted task, through the token and the services' own rules (multiagent/gui/project_api.py).
+import "./i18n.js";
 import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { useContentReport } from "../../js/context-report.js";
 import { registerHelp, registerSlot, registerView } from "../../js/extensions.js";

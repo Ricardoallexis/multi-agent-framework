@@ -7,6 +7,7 @@
 //   the section «Continuidad» of Uso                      the mode, threshold, candidates and hand-off limit (read only)
 // The data comes from multiagent/gui/continuity_api.py; the node «En espera · hasta HH:MM» of the agent tree comes from the
 // children of the session (the tree already draws that state, js/agent-tree-model.js).
+import "./i18n.js";
 import { registerHelp, registerUsageSection, registerView } from "../../js/extensions.js";
 import { registerSlot } from "../../js/panel-slots.js";
 import { HELP } from "./help.js";

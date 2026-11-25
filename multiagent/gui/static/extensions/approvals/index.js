@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Extension «approvals» (#approvals, #approvals/<id>, SEC-T04): one-click human approval cards.
 // SKL-T03 adds its bundle-scan block here later. Follows ARR2-T04: single page heading from main.js, no own h1-h3.
+import "./i18n.js";
 import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost } from "../../js/api.js";
 import { getApprovalSessionError } from "../../js/auth.js";

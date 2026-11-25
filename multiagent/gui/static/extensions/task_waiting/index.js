@@ -1,6 +1,7 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Read-only wait badges and the decision inbox, through FLU-T04. No shared shell file or decision endpoint is changed.
+import "./i18n.js";
 import { html } from "../../vendor/htm-preact-standalone.module.js";
 import { useContentReport } from "../../js/context-report.js";
 import { registerHelp, registerSlot, registerView } from "../../js/extensions.js";

@@ -37,25 +37,34 @@ def _with_help_parts(path: Path, source: str) -> str:
     return "\n".join([_HELP_JOIN.sub(lambda _: block, source, count=1), *texts])
 
 
-def _dictionaries(source: str, lang: str) -> list[Path]:
-    """Find dictionary modules used by this source, including future views."""
+def _dictionary_source(path: Path, lang: str) -> str:
+    """The text of one dictionary in one language: a view file as it is, an extension i18n.js only its ``lang`` block."""
+    contents = path.read_text(encoding="utf-8")
+    if path.name != "i18n.js":
+        return contents
+    block = re.search(r"^const " + lang + r" = (\{.*?^\});$", contents, re.S | re.M)
+    return block[1] if block else ""
+
+
+def _dictionaries(source: str, lang: str) -> list[tuple[Path, str]]:
+    """Find dictionary modules used by this source, including future views and extensions."""
     keys = set(re.findall(r'\bt\("([^"]+)"', source))
     if not keys and "localizedHelp(" not in source:
         return []
-    paths = []
-    for path in sorted((STATIC_DIR / "i18n" / lang).glob("*.js")):
-        contents = path.read_text(encoding="utf-8")
+    found = []
+    modules = [*sorted((STATIC_DIR / "i18n" / lang).glob("*.js")), *sorted((STATIC_DIR / "extensions").glob("*/i18n.js"))]
+    for path in modules:
+        contents = _dictionary_source(path, lang)
         if any(f'"{key}"' in contents for key in keys) or (
             "localizedHelp(" in source and '"help.' in contents
         ):
-            paths.append(path)
-    return paths
+            found.append((path, contents))
+    return found
 
 
-def _words(paths: list[Path]) -> dict[str, str]:
+def _words(found: list[tuple[Path, str]]) -> dict[str, str]:
     words: dict[str, str] = {}
-    for path in paths:
-        source = path.read_text(encoding="utf-8")
+    for _path, source in found:
         for key, value in re.findall(r'"([^"\\]+)"\s*:\s*("(?:\\.|[^"\\])*")', source):
             words[key] = json.loads(value)
     return words
@@ -80,7 +89,7 @@ def ui_text(path: Path | str, lang: str = "es") -> str:
     # every dictionary string for text moved out of that source expression.
     dictionary_text = "\n".join(
         json.loads(value)
-        for module in selected
-        for value in re.findall(r'"(?:\\.|[^"\\])*"', module.read_text(encoding="utf-8"))
+        for _path, module in selected
+        for value in re.findall(r'"(?:\\.|[^"\\])*"', module)
     )
     return "\n".join((rendered, dictionary_text))

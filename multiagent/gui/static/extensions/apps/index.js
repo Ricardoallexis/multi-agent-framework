@@ -1,6 +1,7 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Extension «apps» (#apps, INS-T05): shows connection status, INS-T03 permission template status, and only the missing step.
+import "./i18n.js";
 import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost } from "../../js/api.js";
 import { registerHelp, registerView } from "../../js/extensions.js";

@@ -5,6 +5,7 @@
 //   the slot  "document_alerts"           a section of the right panel with the alerts of the run that is open.
 // Both read GET /gui/api/document-alerts (document_alerts_api.py), which only reports what the engine recorded. Nothing here
 // approves, rejects or releases anything: a review is decided in the run itself, by a person.
+import "./i18n.js";
 import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet } from "../../js/api.js";
 import { ContentReport, useContentReport } from "../../js/context-report.js";
