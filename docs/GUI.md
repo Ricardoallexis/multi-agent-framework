@@ -890,6 +890,8 @@ available only in advanced mode.
 Each office card links to «Nueva sesión» with «Pídele algo a la oficina». Each area also has «Pedir a esta área»,
 which opens that office's area-scoped, single-session workflow list.
 
+Floor plan (`#floor_plan/<office>`): the office as a drawing. Each area is a box with its positions and a privacy label; lines show the coordinator's assignments and the hand-off, review and question relations, which you can hide by layer. It opens fitted; use the zoom buttons, Ctrl and the wheel, a pinch or the keys +, - and 0. It reads the office scene every few seconds and changes nothing.
+
 ## What this browser remembers
 
 The GUI keeps a few choices in `localStorage`, only in `js/shell-state.js`, and only on

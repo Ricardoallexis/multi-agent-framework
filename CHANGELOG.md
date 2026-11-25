@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: new `floor_plan` extension with a floor plan of an office (areas, positions, hand-off/review/question lines, privacy labels), opened fitted with zoom, pinch, drag and keyboard controls, an equivalent list for screen readers, and its own poll of the office scene; read-only.
 - The run thread reads as a conversation: new messages follow the end only if you were already there, earlier reviews fold away, "Ask for changes" is a free text box with a "Quote" button (structured comments only in advanced mode), the model-call counter left the review, the message box hides when the policy is off or shows the read error, and function review and function failure stops appear as messages.
 - GUI: the session bar, the sidebar, «Nueva sesión», «Crear ejecución», the model picker and their help follow the language selector (English base, Spanish translation). Ids, codes, model names and server messages stay as data.
 - GUI: «Oficinas», «Proyecto», the document alerts, «Esperan tu decisión» and the office privacy question follow the language selector (English base, Spanish translation), help included. Names, ids, codes and server messages stay as data.

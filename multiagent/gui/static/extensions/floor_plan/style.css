@@ -1,0 +1,277 @@
+/* Copyright 2026 Ricardoallexis and contributors */
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Styles of the floor plan (GUI4-T07). Every rule starts with .floor-plan- or #floor-plan-; colours come from app.css variables. */
+
+.floor-plan-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.floor-plan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.floor-plan-office {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.floor-plan-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.floor-plan-tab,
+.floor-plan-ask {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.floor-plan-offices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.floor-plan-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.floor-plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--target);
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--text);
+  font-size: 0.8125rem;
+}
+
+.floor-plan-chip[aria-pressed="false"] {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+
+/* The legend key repeats the stroke of its line, so the kind never depends on colour alone. */
+.floor-plan-line-key {
+  display: inline-block;
+  flex: none;
+  width: 22px;
+  height: 0;
+  border-top: 2px solid var(--accent);
+}
+
+.floor-plan-line-key.is-handoff {
+  border-top: 2px dashed var(--ok);
+}
+
+.floor-plan-line-key.is-review {
+  border-top: 3px dotted var(--warn);
+}
+
+.floor-plan-line-key.is-question {
+  border-top: 4px double var(--bad);
+}
+
+.floor-plan-canvas {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 3 / 2;
+  min-height: 260px;
+  max-height: 78vh;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  touch-action: none;
+}
+
+.floor-plan-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+.floor-plan-canvas.is-zoomed .floor-plan-svg {
+  cursor: grab;
+}
+
+.floor-plan-canvas.is-zoomed .floor-plan-svg:active {
+  cursor: grabbing;
+}
+
+.floor-plan-tools {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.floor-plan-zoom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--target);
+  min-height: var(--target);
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.floor-plan-zoom:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.floor-plan-zoom:disabled {
+  opacity: 0.45;
+}
+
+.floor-plan-selected {
+  min-height: 1.5em;
+  margin: 0;
+}
+
+/* The drawing. Fills and strokes use the same variables as the rest of the page, so dark mode follows. */
+.floor-plan-svg text {
+  font-family: inherit;
+  fill: var(--text);
+}
+
+.floor-plan-zone {
+  fill: var(--bg);
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+
+.floor-plan-svg .floor-plan-zone-label {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.floor-plan-svg .floor-plan-zone-level {
+  font-size: 11px;
+  fill: var(--muted);
+}
+
+.floor-plan-node {
+  cursor: pointer;
+}
+
+.floor-plan-node-shape {
+  fill: var(--panel);
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+
+.floor-plan-node:hover .floor-plan-node-shape,
+.floor-plan-node:focus-visible .floor-plan-node-shape {
+  stroke: var(--accent);
+}
+
+.floor-plan-node.is-wait .floor-plan-node-shape {
+  stroke: var(--warn);
+  stroke-width: 2.5;
+}
+
+.floor-plan-node.is-bad .floor-plan-node-shape {
+  stroke: var(--bad);
+  stroke-width: 2.5;
+}
+
+.floor-plan-node.is-ok .floor-plan-node-shape {
+  stroke: var(--ok);
+  stroke-width: 2.5;
+}
+
+.floor-plan-node.is-busy .floor-plan-node-shape {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.floor-plan-node.is-selected .floor-plan-node-shape {
+  stroke-width: 4;
+}
+
+.floor-plan-avatar {
+  fill: var(--hover);
+  stroke: var(--line-strong);
+}
+
+.floor-plan-svg .floor-plan-node-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.floor-plan-svg .floor-plan-node-state {
+  font-size: 10.5px;
+  fill: var(--muted);
+}
+
+.floor-plan-node.is-coordinator .floor-plan-node-shape {
+  fill: var(--accent);
+}
+
+.floor-plan-svg .floor-plan-node.is-coordinator text {
+  fill: var(--on-accent);
+}
+
+.floor-plan-relation {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+  opacity: 0.85;
+}
+
+.floor-plan-relation.is-assignment {
+  stroke: var(--accent);
+  stroke-width: 2.3;
+}
+
+.floor-plan-relation.is-handoff {
+  stroke: var(--ok);
+  stroke-dasharray: 8 6;
+}
+
+.floor-plan-relation.is-review {
+  stroke: var(--warn);
+  stroke-dasharray: 2 6;
+  stroke-width: 2.5;
+}
+
+.floor-plan-relation.is-question {
+  stroke: var(--bad);
+  stroke-dasharray: 10 4 2 4;
+}
+
+.floor-plan-arrow-head {
+  fill: var(--muted);
+}
