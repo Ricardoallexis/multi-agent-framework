@@ -272,6 +272,17 @@ def test_reimport_lists_only_changes(gui, tmp_path):
     assert [(area["id"], area["change"]) for area in staged.json()["areas"]] == [("reception", "changed")]
 
 
+def test_card_marks_a_removed_area_local_only_when_the_new_office_is(gui, tmp_path):
+    gui.services.offices.import_folder(write_office(tmp_path / "original"), actor=ACTOR)
+    smaller = write_office(tmp_path / "smaller", areas=("reception",))
+    document = (smaller / "office.yaml").read_text(encoding="utf-8")
+    (smaller / "office.yaml").write_text(document + "local_only: true" + chr(10), encoding="utf-8")
+    staged = post(gui, "/stage-zip", zip_body(smaller, reimport="demo"))
+    assert staged.status_code == 200, staged.text
+    by_id = {area["id"]: area for area in staged.json()["areas"]}
+    assert by_id["proposal"]["change"] == "removed" and by_id["proposal"]["local_only"] is True
+
+
 def test_cancel_discards_and_rejects_the_card(gui, tmp_path):
     staged = post(gui, "/stage-zip", zip_body(write_office(tmp_path / "demo")))
     assert staged.status_code == 200
