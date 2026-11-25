@@ -44,12 +44,21 @@ def real_sections() -> list[dict]:
     return [{"id": a, "label": b, "icon": c, "mode": d} for a, b, c, d in rows]
 
 
+def extension_words(name: str) -> dict[str, str]:
+    """The English words of an extension's dictionary (``static/extensions/<name>/i18n.js``), by key."""
+    source = (STATIC_DIR / "extensions" / name / "i18n.js").read_text(encoding="utf-8")
+    english = source[:source.index("\nconst es")]
+    return dict(re.findall(r'"([\w.]+)":\s*"((?:[^"\\]|\\.)*)"', english))
+
+
 def real_extension_views() -> list[dict]:
     views = []
     for name in SIX:
         source = (STATIC_DIR / "extensions" / name / "index.js").read_text(encoding="utf-8")
         call = re.search(r"registerView\(\{(.*?)\}\);", source, re.S)[1]
-        view = {key: re.search(key + r':\s*"([^"]*)"', call)[1] for key in ("id", "label", "icon", "mode")}
+        view = {key: re.search(key + r':\s*"([^"]*)"', call)[1] for key in ("id", "icon", "mode")}
+        label = re.search(r'label:\s*(?:"([^"]*)"|t\("([^"]+)"\))', call)
+        view["label"] = label[1] if label[1] is not None else extension_words(name)[label[2]]
         group = re.search(r'group:\s*"(\w+)"', call)
         if group:
             view["group"] = group[1]
