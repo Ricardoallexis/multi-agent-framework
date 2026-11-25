@@ -117,7 +117,12 @@ def test_mock_run_supports_review_actions_status_events_and_artifacts(
     completed = client.post(f"/api/v1/runs/{run['id']}/approve")
     assert completed.status_code == 200 and completed.json()["status"] == "completed"
     final_run = completed.json()
-    assert (final_run["llm_calls"], final_run["max_llm_calls"]) == (5, 5)
+    assert final_run["llm_calls"] == 5
+    # The change request and the regeneration each got their own call allowance (LIM-T01): the run's limit became the
+    # calls used then plus the configured value, and the last event that raised it carries the final number.
+    allowances = [event["payload"] for event in final_run["events"] if event["event_type"] == "correction_allowance"]
+    assert [allowance["max_llm_calls"] for allowance in allowances] == [7, 8]
+    assert final_run["max_llm_calls"] == 8
     artifacts = client.get(f"/api/v1/runs/{run['id']}/artifacts").json()
     assert {
         (artifact["step_id"], artifact["attempt"])
