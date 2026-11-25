@@ -200,3 +200,27 @@
 .plan-task-list { display: flex; flex-direction: column; gap: 12px; min-width: 0; margin: 8px 0; padding-left: 20px; }
 .plan-task-list li { min-width: 0; overflow-wrap: anywhere; }
 .plan-task-inputs { min-width: 0; max-width: 100%; margin-top: 4px; }
+
+/* EJC-T01: thread */
+.thread-list { gap: 10px; }
+.thread-list > .thread-card { width: min(100%, 46rem); border: 0; border-radius: 4px 14px 14px 14px; background: var(--hover); color: var(--text); }
+.thread-list > .thread-msg-user { align-self: flex-end; border-radius: 14px 14px 4px 14px; background: var(--accent); color: var(--on-accent); }
+.thread-list > .thread-msg-user .thread-card-head strong { color: var(--on-accent); }
+.thread-list > .thread-failure { background: var(--warn-soft); }
+.thread-card-head strong { font-size: .75rem; font-weight: 600; }
+.thread-card .thread-review { background: var(--panel); }
+.thread-fold { min-width: 0; list-style: none; }
+.thread-earlier-reviews { min-width: 0; }
+.thread-earlier-reviews > summary { min-height: var(--target); display: flex; align-items: center; padding: 0 12px; border-radius: 9px; color: var(--text); cursor: pointer; }
+.thread-earlier-reviews > summary:hover { background: var(--hover); }
+.thread-earlier-reviews > .thread-list { margin-top: 8px; }
+.thread-function, .thread-function-failure { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin-top: 8px; }
+.thread-function h5 { margin: 0 0 4px; }
+.thread-limit { padding: 8px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--text); }
+.thread-quote { align-self: flex-start; min-height: var(--target); }
+.thread-end { height: 1px; }
+@media (max-width: 599.98px) { .thread-list > .thread-card { width: 100%; } .thread-card { padding: 10px 12px; } .thread-fields { grid-template-columns: minmax(0, 1fr); } }
+.thread-list > .thread-msg-user a, .thread-list > .thread-msg-user .hint-text,
+.thread-list > .thread-msg-user .help-toggle { color: var(--on-accent); }
+.thread-list > .thread-msg-user .help-toggle { border-color: var(--on-accent); }
+.thread-list > .thread-msg-user .help-more { color: var(--text); }

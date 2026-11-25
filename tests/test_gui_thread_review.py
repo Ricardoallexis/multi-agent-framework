@@ -77,8 +77,8 @@ def test_review_is_reachable_uses_attempts_on_request_and_has_safe_help():
     assert 'reviewArtifact(view, entry)' in cards
     assert 'runPath(runId, "steps/" + encodeURIComponent(stepId) + "/attempts")' in cards
     assert 'onClick=${showEarlier}' in cards
-    assert 'counters.model_calls' in cards and 'counters.max_model_calls' in cards
-    for topic in ("output", "json", "previous", "calls"):
+    assert 'counters.model_calls' not in cards      # EJC-T01: the model-call counter left the review
+    for topic in ("output", "json", "previous"):
         assert f'"thread.{topic}":' in help_text
         assert f'topic="thread.{topic}"' in cards
     assert 'helpFor("thread.previous")' in cards and 'helpFor("thread.json")' in cards

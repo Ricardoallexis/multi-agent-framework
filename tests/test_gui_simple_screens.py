@@ -88,8 +88,9 @@ def test_review_output_simple_has_no_json_or_calls():
     assert "Salida para revisar" in simple and "answer" in simple and "hola" in simple
     for hidden in ("JSON completo", "Llamadas a modelo", "Ver pasos anteriores"):
         assert hidden not in simple
-    for shown in ("JSON completo", "Llamadas a modelo", "Ver pasos anteriores"):
+    for shown in ("JSON completo", "Ver pasos anteriores"):
         assert shown in result["advanced"]
+    assert "Llamadas a modelo" not in result["advanced"]      # EJC-T01: no mode shows the model-call counter
     assert result["fallback"] == result["advanced"]   # no mode is advanced
 
 

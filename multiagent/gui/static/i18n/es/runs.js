@@ -650,6 +650,11 @@ export default {
     "hint": "Escribe qué debe cambiar o por qué rechazas.",
     "more": ["Para pedir cambios necesitas una indicación o un comentario.", "El motivo del rechazo es opcional."]
   },
+  "help.thread.quote": {
+    "title": "Citar",
+    "hint": "Copia el texto que seleccionaste a tu mensaje, como cita.",
+    "more": ["Primero selecciona texto en la salida.", "Se añade como texto simple antes de lo que escribiste."]
+  },
   "help.thread.comment": {
     "title": "Comentario de revisión",
     "hint": "Señala una parte, el tipo de cambio y su texto.",
@@ -684,11 +689,6 @@ export default {
     "title": "Ver pasos anteriores",
     "hint": "Carga las salidas guardadas de los pasos anteriores de esta ejecución.",
     "more": ["Se leen solo cuando pulsas el botón.", "Cada intento se puede abrir por separado."]
-  },
-  "help.thread.calls": {
-    "title": "Llamadas a modelo",
-    "hint": "Muestra las llamadas usadas y el máximo de esta ejecución.",
-    "more": ["El número ayuda a decidir si pedir cambios.", "No cambia el presupuesto del workflow."]
   },
   "help.inbox.section": {
     "title": "Mensaje a la ejecución",

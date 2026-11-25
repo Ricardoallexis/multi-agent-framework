@@ -410,6 +410,11 @@ export const HELP = {
     "hint": "Explain what should change or why you are rejecting it.",
     "more": ["Requesting changes requires guidance or a comment.", "A rejection reason is optional."]
   },
+  "thread.quote": {
+    "title": "Quote",
+    "hint": "Copy the text you selected into your message, as a quote.",
+    "more": ["Select text in the output first.", "It is added as plain text before what you wrote."]
+  },
   "thread.comment": {
     "title": "Review comment",
     "hint": "Identify a part, the type of change, and the details.",
@@ -444,11 +449,6 @@ export const HELP = {
     "title": "View earlier steps",
     "hint": "Load saved outputs from earlier steps in this run.",
     "more": ["They are loaded only when you select the button.", "Each attempt can be opened separately."]
-  },
-  "thread.calls": {
-    "title": "Model calls",
-    "hint": "Shows the calls used and the limit for this run.",
-    "more": ["The count can help you decide whether to request changes.", "It does not change the workflow budget."]
   },
 
   "inbox.section": {

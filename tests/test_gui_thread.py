@@ -112,7 +112,7 @@ def test_cards_offer_confirmed_actions_with_existing_routes_and_safe_text():
     assert "permission_request_id: entry.decision.permission_request_id" in cards
     for action in ("approve", "changes", "reject"):
         assert f'pending === "{action}"' in cards
-    assert "comments: comments.map" in cards and "onAction(pending, body)" in cards
+    assert "changesBody(feedback, comments" in cards and "onAction(pending, body)" in cards      # EJC-T01
     assert "detailHref(runId)" in cards and "Ver detalle" in cards
     for text in (thread, cards, model):
         assert not re.search(r"innerHTML|dangerouslySetInnerHTML|eval\(|new Function\(|document\.write", text)
@@ -128,7 +128,7 @@ def test_each_thread_control_has_help_and_own_css_block():
     topics |= set(re.findall(r'topic="(thread\.[a-z_]+)"', cards + thread))
     assert topics == {"thread.section", "thread.refresh", "thread.detail", "thread.related", "thread.approve", "thread.changes",
                       "thread.reject", "thread.feedback", "thread.comment", "thread.confirm", "thread.output",
-                      "thread.json", "thread.previous", "thread.calls"}
+                      "thread.json", "thread.previous", "thread.quote"}
     for topic in topics:
         assert f'"{topic}":' in help_text
         assert f'topic="{topic}"' in cards + thread

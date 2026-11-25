@@ -106,5 +106,20 @@ export default {
   "thread.inbox.message": "Mensaje",
   "thread.inbox.send": "Enviar",
   "thread.inbox.confirm.question": "¿Enviar «{action}» a esta ejecución?",
-  "thread.inbox.confirm.send": "Sí, enviar"
+  "thread.inbox.confirm.send": "Sí, enviar",
+  "thread.quote": "Citar",
+  "thread.earlier_reviews": "Revisiones anteriores",
+  "thread.failed": "La ejecución falló.",
+  "thread.model_limit": "Se alcanzó el límite de uso de {model}. Cambia a {suggested_model}; trasladar este contexto cuesta aproximadamente {context_cost}.",
+  "thread.inbox.policy.error": "No se pudo leer la política de disponibilidad: {message}",
+  "thread.reason.function_review": "Esperando tu aprobación para ejecutar una función",
+  "thread.reason.function_failure": "Falló un paso de función",
+  "thread.event.waiting_function_review": "Esperando tu aprobación antes de ejecutar una función.",
+  "thread.event.waiting_function_failure": "Un paso de función falló y espera tu decisión.",
+  "thread.function.inputs": "Entradas de la ejecución",
+  "thread.function.outputs": "Salidas anteriores que leerá",
+  "thread.function.approve_once": "Aprobar permite que la función se ejecute una sola vez.",
+  "thread.function.code": "Código de error: {code}",
+  "thread.model_limit_switch": "Se alcanzó el límite de uso de {model}. Puedes cambiar a {suggested_model}.",
+  "thread.model_limit_only": "Se alcanzó el límite de uso de {model}."
 };

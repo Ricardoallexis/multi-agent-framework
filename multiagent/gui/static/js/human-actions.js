@@ -8,7 +8,9 @@ import { Help, helpFor } from "./help.js";
 import { waitingReasonLabel } from "./runs-layout.js";
 import { errorText } from "./text.js";
 import { ExternalOutput } from "./external-output.js";
-import { ToolApprovalPreview } from "./thread-cards.js";
+import { QuoteButton, ToolApprovalPreview } from "./thread-cards.js";
+import { changesBody, quoteInto, showRawOutput } from "./thread-model.js";   // EJC-T01
+import { currentMode } from "./gui-mode.js";
 import { t } from "./i18n.js";
 
 // Pasted answers survive a rejection or a re-render; memory only, keyed by run, step and attempt.
@@ -89,6 +91,7 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
 
   const id = view.id;
   const waiting = view.waiting;
+  const structured = showRawOutput(currentMode());   // EJC-T01: structured comments are for advanced mode only
   const cancelBox = (running) => html`<${Confirm} title=${t("runs.human.cancel.title")} confirmLabel=${t("runs.human.cancel.confirm")}
     keepLabel=${t("runs.human.cancel.keep")} danger=${true} busy=${busy} onKeep=${() => setConfirm(null)}
     onConfirm=${() => act(runPath(id, "cancel"), {}, (v) => v.status === "cancelled"
@@ -145,18 +148,19 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
       </div>`}
       ${!exhausted && html`<form class="stack" noValidate onSubmit=${(event) => {
         event.preventDefault();
-        if (!feedback.trim() && !comments.length) { setFeedbackInvalid(true); setMessage({ kind: "error", text: t("runs.human.changes.required") }); return; }
-        if (comments.some((comment) => !comment.text.trim() || !comment.target.trim())) { setMessage({ kind: "error", text: t("runs.human.comment.required_fields") }); return; }
+        const built = changesBody(feedback, comments, { structured });
+        if (built.error === "required") { setFeedbackInvalid(true); setMessage({ kind: "error", text: t("runs.human.changes.required") }); return; }
+        if (built.error) { setMessage({ kind: "error", text: t("runs.human.comment.required_fields") }); return; }
         setFeedbackInvalid(false);
-        act(runPath(id, "changes"), { feedback: feedback.trim(), comments: comments.map(({ target, kind, text, quote }) => ({ target: target.trim(), kind, text: text.trim(), quote: quote || null })) },
-          () => t("runs.human.changes.done"))
+        act(runPath(id, "changes"), built.body, () => t("runs.human.changes.done"))
           .then((ok) => { if (ok) { setFeedback(""); setComments([]); } });
       }}>
         <label for="changes-feedback">${t("runs.human.changes.label")} <span class="muted">${t("runs.human.changes.detail")}</span></label>
         <${Help} topic="human.changes" />
         <textarea id="changes-feedback" rows="3" maxlength="4000" value=${feedback} aria-invalid=${feedbackInvalid ? "true" : null}
           disabled=${busy} ...${helpFor("human.changes")} onInput=${(event) => setFeedback(event.target.value)}></textarea>
-        ${comments.map((comment, index) => {
+        <${QuoteButton} busy=${busy} onQuote=${(text) => { setFeedback(quoteInto(feedback, text)); setFeedbackInvalid(false); }} />
+        ${structured && comments.map((comment, index) => {
           const output = view.artifacts && view.artifacts.length ? view.artifacts[view.artifacts.length - 1].data : null;
           const keys = output && typeof output === "object" && !Array.isArray(output) ? Object.keys(output) : [];
           const choices = ["general", ...keys];
@@ -184,9 +188,9 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
               onClick=${() => setComments(comments.filter((_, i) => i !== index))}>${t("runs.human.comment.remove")}</button><${Help} topic="human.comment_remove" />
           </fieldset>`;
         })}
-        <div class="action-item"><button type="button" class="btn secondary" disabled=${busy || comments.length >= 20}
+        ${structured && html`<div class="action-item"><button type="button" class="btn secondary" disabled=${busy || comments.length >= 20}
           ...${helpFor("human.comment_add")} onClick=${() => setComments([...comments, { target: "general", kind: "fix", text: "", quote: "" }])}>${t("runs.human.comment.add")}</button>
-          <${Help} topic="human.comment_add" /></div>
+          <${Help} topic="human.comment_add" /></div>`}
         <div class="actions"><button type="submit" class="btn secondary" disabled=${busy} ...${helpFor("human.changes")}>${t("runs.human.changes.button")}</button></div>
       </form>`}
       <div class="action-list">
@@ -221,6 +225,19 @@ export function HumanActions({ token, view, onUpdate, onStale, actionBar = false
         </div>`
       : html`<div><p class="muted">${t("runs.human.tool.missing_request")}</p>
           <div class="action-list">${cancelControl}</div></div>`;
+  } else if (waiting && (waiting.reason === "function_review" || waiting.reason === "function_failure")) {
+    const review = waiting.reason === "function_review";
+    body = html`<div>
+      <p class="muted">${t(review ? "thread.event.waiting_function_review" : "thread.event.waiting_function_failure")}</p>
+      ${review && html`<p class="muted">${t("thread.function.approve_once")}</p>
+        <div class="action-item"><button type="button" class="btn" disabled=${busy} ...${helpFor("human.approve")}
+          onClick=${() => act(runPath(id, "approve"), {}, (v) => t(v.status === "completed" ? "runs.human.approve.completed" : "runs.human.approve.continues"))}>${t("runs.human.approve.button")}</button>
+          <${Help} topic="human.approve" /></div>`}
+      <div class="action-list">
+        ${rejectControl(false)}
+        ${cancelControl}
+      </div>
+    </div>`;
   } else if (waiting && view.pending_human) {
     body = html`<div>
       <${HumanStep} token=${token} view=${view} busy=${busy} act=${act} setMessage=${setMessage} onStale=${onStale} />

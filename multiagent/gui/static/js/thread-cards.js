@@ -6,7 +6,8 @@ import { apiGet, runPath } from "./api.js";
 import { Help, helpFor } from "./help.js";
 import { errorText, fmtJson } from "./text.js";
 import { readable } from "./readable.js";
-import { actionsFor, detailHref, previousStepIds, reviewArtifact, showRawOutput, threadLinksFor } from "./thread-model.js";
+import { actionsFor, changesBody, detailHref, modelLimitNotice, previousStepIds, quoteInto, reviewArtifact, showRawOutput,
+  threadLinksFor } from "./thread-model.js";
 import { t } from "./i18n.js";
 
 const LABELS = {
@@ -32,6 +33,8 @@ const REASONS = {
   escalation_approval: "thread.reason.escalation_approval",
   budget_exhausted: "thread.reason.budget_exhausted",
   content_review: "thread.reason.content_review",
+  function_review: "thread.reason.function_review",
+  function_failure: "thread.reason.function_failure",
 };
 const WAITING_TEXT_KEYS = {
   review: "thread.event.waiting_review",
@@ -41,6 +44,8 @@ const WAITING_TEXT_KEYS = {
   escalation_approval: "thread.event.waiting_escalation",
   budget_exhausted: "thread.event.waiting_budget",
   content_review: "thread.event.waiting_content_review",
+  function_review: "thread.event.waiting_function_review",
+  function_failure: "thread.event.waiting_function_failure",
 };
 const FINAL_TEXT_KEYS = {
   completed: "thread.event.completed",
@@ -93,7 +98,6 @@ function ReviewOutput({ entry, view, runId, token, mode }) {
   }, [runId, entry.step_id, entry.attempt]);
   const artifact = reviewArtifact(view, entry);
   const steps = previousStepIds(view, entry);
-  const counters = view?.counters;
   async function showEarlier() {
     if (loading) return;
     const ticket = ++request.current;
@@ -105,13 +109,13 @@ function ReviewOutput({ entry, view, runId, token, mode }) {
     } catch (_) { if (ticket === request.current) setLoadError(true); }
     finally { if (ticket === request.current) setLoading(false); }
   }
-  return html`<${ReviewBody} artifact=${artifact} counters=${counters} steps=${steps} earlier=${earlier} loading=${loading}
+  return html`<${ReviewBody} artifact=${artifact} steps=${steps} earlier=${earlier} loading=${loading}
     loadError=${loadError} showEarlier=${showEarlier} mode=${mode} />`;
 }
 
 // SIM-T03: the review section as a pure function of its data, so Node can draw it. Simple mode keeps the readable output and drops
-// the raw JSON, the model calls and the earlier steps; advanced mode draws all of it, as before.
-export function ReviewBody({ artifact, counters, steps, earlier, loading, loadError, showEarlier, mode = "advanced" }) {
+// the raw JSON and the earlier steps; advanced mode draws all of it, as before.
+export function ReviewBody({ artifact, steps, earlier, loading, loadError, showEarlier, mode = "advanced" }) {
   const raw = showRawOutput(mode);
   return html`<section class="thread-review" aria-label=${t("thread.review.title")}>
     <h4>${t("thread.review.title")}</h4><${Help} topic="thread.output" compact=${true} />
@@ -119,8 +123,6 @@ export function ReviewBody({ artifact, counters, steps, earlier, loading, loadEr
       ${raw && html`<details class="thread-json"><summary ...${helpFor("thread.json")}>${t("thread.json.full")}</summary>
         <${Help} topic="thread.json" compact=${true} /><pre class="thread-readable-text">${fmtJson(artifact.data)}</pre></details>`}`
       : html`<p class="muted">${t("thread.review.output_missing")}</p>`}
-    ${raw && counters && html`<p class="thread-calls">${t("thread.review.calls", { current: counters.model_calls, maximum: counters.max_model_calls })}
-      <${Help} topic="thread.calls" compact=${true} /></p>`}
     ${raw && steps.length > 0 && html`<button type="button" class="btn secondary" disabled=${loading}
       ...${helpFor("thread.previous")} onClick=${showEarlier}>${t(loading ? "thread.previous.loading" : "thread.previous.button")}</button>`}
     ${raw && steps.length > 0 && html`<${Help} topic="thread.previous" compact=${true} />`}
@@ -180,6 +182,30 @@ export function ToolApprovalPreview({ runId, token, permissionRequestId }) {
   </section>`;
 }
 
+// EJC-T01: the text the person selected in the page, as long as it is not inside a form field.
+function useSelectedText() {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    const read = () => {
+      const selection = window.getSelection();
+      const node = selection && selection.anchorNode ? (selection.anchorNode.parentElement || null) : null;
+      const inField = Boolean(node && node.closest("textarea, input, select"));
+      setText(selection && !inField ? selection.toString().trim() : "");
+    };
+    document.addEventListener("selectionchange", read);
+    return () => document.removeEventListener("selectionchange", read);
+  }, []);
+  return text;
+}
+
+// «Citar»: hands the selected output text to the message box as plain text; it never runs anything.
+export function QuoteButton({ onQuote, busy }) {
+  const selected = useSelectedText();
+  return html`<button type="button" class="btn secondary thread-quote" disabled=${busy || !selected} ...${helpFor("thread.quote")}
+    onMouseDown=${(event) => event.preventDefault()} onClick=${() => onQuote(selected)}>${t("thread.quote")}</button>
+    <${Help} topic="thread.quote" compact=${true} />`;
+}
+
 function Decision({ entry, busy, onAction, runId, token, mode }) {
   const [pending, setPending] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -189,21 +215,23 @@ function Decision({ entry, busy, onAction, runId, token, mode }) {
   if (!actions.length) return null;
   const tool = entry.decision.type === "tool_approval";
   const approveBody = tool ? { permission_request_id: entry.decision.permission_request_id } : {};
+  const structured = showRawOutput(mode);   // structured comments are for advanced mode; free text is the main road
   const addComment = () => setComments([...comments, { target: "general", kind: "fix", text: "", quote: "" }]);
   const patchComment = (index, patch) => setComments(comments.map((item, i) => i === index ? { ...item, ...patch } : item));
   const send = () => {
-    if (pending === "changes" && !feedback.trim() && !comments.length) {
-      setError(t("thread.decision.change_required")); return;
+    let body = pending === "approve" ? approveBody : { feedback: feedback.trim() };
+    if (pending === "changes") {
+      const built = changesBody(feedback, comments, { structured });
+      if (built.error) {
+        setError(t(built.error === "required" ? "thread.decision.change_required" : "thread.decision.comment_required")); return;
+      }
+      body = built.body;
     }
-    if (pending === "changes" && comments.some((item) => !item.target.trim() || !item.text.trim())) {
-      setError(t("thread.decision.comment_required")); return;
-    }
-    const body = pending === "approve" ? approveBody : pending === "reject" ? { feedback: feedback.trim() }
-      : { feedback: feedback.trim(), comments: comments.map((item) => ({ ...item, target: item.target.trim(), text: item.text.trim(), quote: item.quote || null })) };
     onAction(pending, body);
   };
   return html`<div class="thread-decision">
     <p class="muted">${REASONS[entry.reason] ? t(REASONS[entry.reason]) : entry.reason || t("thread.reason.stopped")} · ${t("thread.reason.step", { step_id: entry.step_id || t("common.value.unspecified") })}${entry.attempt && showRawOutput(mode) ? " · " + t("thread.reason.attempt", { count: entry.attempt }) : ""}</p>
+    ${entry.reason === "function_review" && html`<p class="muted">${t("thread.function.approve_once")}</p>`}
     ${tool && html`<${ToolApprovalPreview} runId=${runId} token=${token}
       permissionRequestId=${entry.decision.permission_request_id} />`}
     ${!pending && html`<div class="thread-actions">
@@ -224,7 +252,8 @@ function Decision({ entry, busy, onAction, runId, token, mode }) {
         <textarea rows="3" maxlength="4000" value=${feedback} disabled=${busy} ...${helpFor("thread.feedback")}
           onInput=${(event) => { setFeedback(event.target.value); setError(""); }}></textarea></label>
         <${Help} topic="thread.feedback" compact=${true} />`}
-      ${pending === "changes" && html`<div class="thread-comments">
+      ${pending === "changes" && html`<${QuoteButton} busy=${busy} onQuote=${(text) => { setFeedback(quoteInto(feedback, text)); setError(""); }} />`}
+      ${pending === "changes" && structured && html`<div class="thread-comments">
         ${comments.map((item, index) => html`<fieldset key=${index}><legend>${t("runs.human.comment.legend", { count: index + 1 })}</legend>
           <label>${t("runs.human.comment.part")}<input maxlength="200" value=${item.target} disabled=${busy} ...${helpFor("thread.comment")}
             onInput=${(event) => patchComment(index, { target: event.target.value })} /></label>
@@ -253,7 +282,16 @@ function Decision({ entry, busy, onAction, runId, token, mode }) {
   </div>`;
 }
 
-export function ThreadCard({ entry, status, runId, token, reviewView, busy, onAction, mode = "advanced" }) {
+// The inputs and the outputs a function is about to read, drawn as text before the person approves it.
+const filled = (value) => value != null && typeof value === "object" && Object.keys(value).length > 0;
+function FunctionContext({ entry }) {
+  return html`<div class="thread-function">
+    ${filled(entry.inputs) && html`<section><h5>${t("thread.function.inputs")}</h5><${ReadableValue} node=${readable(entry.inputs)} /></section>`}
+    ${filled(entry.prior_outputs) && html`<section><h5>${t("thread.function.outputs")}</h5>
+      <${ReadableValue} node=${readable(entry.prior_outputs)} /></section>`}</div>`;
+}
+
+export function ThreadCard({ entry, status, runId, token, reviewView, busy, onAction, limit = null, mode = "advanced" }) {
   const links = threadLinksFor(entry, mode);
   const details = detailHref(runId);
   const raw = showRawOutput(mode);
@@ -261,10 +299,13 @@ export function ThreadCard({ entry, status, runId, token, reviewView, busy, onAc
   const objectOutput = entry.kind === "final" && !entry.error && entry.output != null && typeof entry.output === "object";
   const output = entry.kind === "final" ? entry.error || (entry.output == null ? "" :
     typeof entry.output === "string" ? entry.output : raw ? JSON.stringify(entry.output, null, 2) : "") : "";
-  return html`<li class=${"thread-card thread-" + entry.kind}>
+  const notice = entry.kind === "final" ? modelLimitNotice(limit) : null;   // EJC-T01: only what the run detail sent
+  const failed = entry.kind === "final" && entry.status === "failed";
+  const voice = entry.kind === "user_message" ? " thread-msg-user" : " thread-msg-agent";
+  return html`<li class=${"thread-card thread-msg thread-" + entry.kind + voice + (failed ? " thread-failure" : "")}>
     <div class="thread-card-head"><strong>${t(LABELS[entry.kind] || "thread.card.event")}</strong>
       ${links.detail && html`<a href=${details} ...${helpFor("thread.detail")}>${t("thread.detail")}</a><${Help} topic="thread.detail" compact=${true} />`}</div>
-    <p>${threadEntryText(entry)}</p>
+    <p>${(failed && !threadEntryText(entry)) ? t("thread.failed") : threadEntryText(entry)}</p>
     ${entry.kind === "launched" && html`<p class="muted">${entry.workflow_id} · ${entry.project_name || t("common.value.no_project")}
       ${entry.execution_mode ? " · " + entry.execution_mode : ""}${entry.operating_mode ? " · " + entry.operating_mode : ""}</p>`}
     ${entry.kind === "launched" && entry.task_id && html`<p>${t("thread.related.task", { task_id: entry.task_id })}
@@ -273,6 +314,11 @@ export function ThreadCard({ entry, status, runId, token, reviewView, busy, onAc
       ${links.related && entry.team_href && html` · <a href=${entry.team_href} ...${helpFor("thread.related")}>${t("thread.related.team_link")}</a>`}</p>`}
     ${entry.kind === "launched" && links.related && html`<${Help} topic="thread.related" compact=${true} />`}
     ${entry.kind === "step" && html`<p class="muted">${entry.step_id}${raw && entry.executor ? " · " + (entry.executor.model || entry.executor.function || entry.executor.provider || entry.executor.kind || "") : ""}</p>`}
+    ${notice && html`<p class="thread-limit">${t(notice.context_cost ? "thread.model_limit" : notice.suggested_model ? "thread.model_limit_switch" : "thread.model_limit_only", notice)}</p>`}
+    ${entry.kind === "waiting" && entry.reason === "function_review" && html`<${FunctionContext} entry=${entry} />`}
+    ${entry.kind === "waiting" && entry.reason === "function_failure" && (entry.code || entry.detail) && html`<div class="thread-function-failure">
+      ${entry.code && html`<p class="muted">${t("thread.function.code", { code: entry.code })}</p>`}
+      ${entry.detail && html`<pre class="thread-output">${entry.detail}</pre>`}</div>`}
     ${entry.kind === "waiting" && status === "waiting_human" && entry.decision &&
       ["review", "content_review", "budget_exhausted"].includes(entry.reason) && reviewView && html`
         <${ReviewOutput} entry=${entry} view=${reviewView} runId=${runId} token=${token} mode=${mode} />`}

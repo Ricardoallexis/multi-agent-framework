@@ -106,5 +106,20 @@ export default {
   "thread.inbox.send": "Send message",
   "thread.inbox.confirm.question": "Confirm: {action}?",
   "thread.inbox.confirm.send": "Confirm and send",
-  "thread.inbox.back": "Back"
+  "thread.inbox.back": "Back",
+  "thread.quote": "Quote",
+  "thread.earlier_reviews": "Earlier reviews",
+  "thread.failed": "The run failed.",
+  "thread.model_limit": "{model} has reached its usage limit. Switch to {suggested_model}; moving this context is estimated to cost {context_cost}.",
+  "thread.inbox.policy.error": "Could not read the message policy: {message}",
+  "thread.reason.function_review": "Waiting for approval to run a function",
+  "thread.reason.function_failure": "A function step failed",
+  "thread.event.waiting_function_review": "Waiting for your approval before a function runs.",
+  "thread.event.waiting_function_failure": "A function step failed and is waiting for you.",
+  "thread.function.inputs": "Run inputs",
+  "thread.function.outputs": "Earlier outputs it will read",
+  "thread.function.approve_once": "Approving lets the function run once.",
+  "thread.function.code": "Error code: {code}",
+  "thread.model_limit_switch": "{model} has reached its usage limit. You can switch to {suggested_model}.",
+  "thread.model_limit_only": "{model} has reached its usage limit."
 };
