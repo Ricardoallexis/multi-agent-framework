@@ -8,8 +8,8 @@ Here is an example `office.yaml`:
 
 ```yaml
 schema: maf.office/1
-id: estudio-ejemplo            # ^[a-z0-9][a-z0-9-]{0,39}$
-name: Example Studio
+id: oficina-ejemplo            # ^[a-z0-9][a-z0-9-]{0,39}$
+name: Example Office
 description: Example office definition for testing.
 local_only: false
 orchestrator:
@@ -135,6 +135,14 @@ multiagent office remove OFFICE [--area AREA]
 
 Events (team events, ref = the office id): `office.installed`, `office.removed` and `office.reimported` (also for one area added or removed).
 
+**GUI.** The «Oficinas» view lists each office with its coordinator, areas and members with their states, and a fix for
+degraded states. From the view, a person can import a folder or `.zip` through the install card, export an office or
+area, reimport, and remove an office or area. An import into an existing office uses the same install card.
+
+In a repository checkout, «Inicio» offers «Instalar la oficina de ejemplo» only as an explicit action; the example is
+installed only when the person presses it. An installed copy does not include the example files, so the person imports
+an office of their own. The example is never installed by default.
+
 ## Requirements
 
 Each area declares in `requires` what it needs, as namespaced capability ids, never a provider. The app crosses that with what the person has connected and answers one of two things: «Lo puedes cubrir con A o con B», or «Te falta un agente que pueda X» with a «Conectar otro» action. `requires` only informs in the MVP: the router does not read it.
@@ -186,7 +194,7 @@ Each area has a privacy level, and every run that starts from an area carries th
 
 **Raising.** `raise_level(office_id, area_id, sensitivity=, local_only=, actor=)` goes from no level to any, from `normal` to `sensitive` and from `local_only: false` to `true`; `area_id = None` is the whole office and takes only `local_only`. It works from the services, the API and the CLI, and the event `office.privacy_changed` records `office`, `area`, `from`, `to`, `direction` and the actor (a level reads `unset`, `normal` or `sensitive`, plus `+local_only` when it applies). Asking for something lower is `409 invalid_state` with `details.reason = "office_level_lowering_needs_gui"`.
 
-**Cloud permission.** `privacy()` returns the office and each area's own `cloud: {allowed, set_by, set_at, source}`, plus `cloud_effective` for each area. Permission is `false` by default; an area's explicit value overrides the office, otherwise it inherits the office. `POST .../privacy/raise` and `multiagent office privacy` can set `cloud_allowed: false` / `--no-cloud` without an approval. `POST .../privacy/cloud-request` returns `{approval_id, sha256}` for a hidden one-use `office_privacy_change` approval; the GUI spends its code to grant the exact office or area scope. The CLI's `--request-cloud` starts the request and directs the person to «Privacidad»; neither `/api/v1` nor the CLI grants it. Reimport keeps person-set cloud permissions and never imports one from `office.yaml`.
+**Cloud permission.** `privacy()` returns the office and each area's own `cloud: {allowed, set_by, set_at, source}`, plus `cloud_effective` for each area. Permission is `false` by default; an area's explicit value overrides the office, otherwise it inherits the office. It is a stored permission set once for the office or an area, not a per-run confirmation. `POST .../privacy/raise` and `multiagent office privacy` can set `cloud_allowed: false` / `--no-cloud` without an approval, taking effect immediately. `POST .../privacy/cloud-request` returns `{approval_id, sha256}` for a hidden one-use `office_privacy_change` approval; only the GUI spends its code to grant the exact office or area scope. The CLI's `--request-cloud` starts the request and directs the person to «Privacidad»; neither `/api/v1` nor the CLI grants it. Reimport keeps person-set cloud permissions and never imports one from `office.yaml`.
 
 An area without a level does not use the permission until it has one (it asks before the cloud). On a new run of an allowed «Normal» area, `RunServices.create` applies the stored permission to the internal request and records `cloud_permission_applied` with the office, area, scope, setter and time. Revoking permission affects new runs; a queued run keeps the authorization already stored with it. `sensitive` and `restricted` still block cloud use. Without permission, an automatic step with a local preferred model and cloud fallback is pinned to `local`; a cloud-preferred automatic step fails before saving with `422 cloud_permission_required`. Profiles and routing preferences already exclude cloud candidates when the request has no cloud confirmation. Mock and dry runs are unchanged. See [Model routing](model-routing.md#automatic-cloud-permission).
 
@@ -205,9 +213,77 @@ multiagent office privacy OFFICE [--area AREA] [--sensitive] [--local-only] [--n
 
 - «Contraseñas, claves y tokens: siempre te pregunto, uno por uno.»
 - «Las áreas marcadas «Solo local».»
-- «Con un ejecutor (Claude, Codex, Copilot, agy), el agente puede leer toda la carpeta de trabajo de la oficina, no solo la tarea.»
+- «Con un ejecutor activado, el agente puede leer toda la carpeta de trabajo de la oficina, no solo la tarea.»
+
+**GUI privacy view.** «Privacidad» shows the level and cloud permission for the office and each area. Raising a level
+and removing cloud permission take effect immediately. Lowering a level and allowing cloud models require the one-use
+approval code; these changes are available only in the GUI, not through `/api/v1` or the CLI. An area marked
+«Sensible» or «Solo local» never uses the cloud, even when cloud permission is allowed.
+
+For an area with no level, simple mode asks «¿Qué tan privados son los datos de <área>?» once, before the first send
+outside the PC. The person chooses «Normal», «Sensible» or «Solo local»; the GUI saves the choice through
+`privacy/raise` and retries the request once. If it fails again, the error is shown without asking again. In advanced
+mode the `office_level_required` error is shown with a link to «Privacidad». «Normal» can use cloud models only when
+cloud permission is allowed there.
+
+The GUI routes are `GET /gui/api/offices/{id}/privacy`, `POST /gui/api/offices/{id}/privacy/raise`,
+`POST /gui/api/offices/{id}/privacy/lower-request`, `POST /gui/api/offices/{id}/privacy/lower`,
+`POST /gui/api/offices/{id}/privacy/cloud-request` and `POST /gui/api/offices/{id}/privacy/cloud`. The GUI asks for
+the one-use code for a lower level or cloud permission; raising a level or removing cloud permission does not ask for it.
 
 **Executors.** A launch of an executor (`ExecutorLaunchRequest`) does not name a package, so there is no path from an area to cover. The `restricted` class of an executor launch (`executors/privacy.py`) is still set by its caller, not by an office.
+
+## The install card
+
+The install card reviews an office before it is added to the installed packages. Preparing an office validates and
+copies it under `installed/.staging/<stage_id>/`; it does not register its areas or load its code. The card is bound to
+the prepared folder's SHA-256 fingerprint. If its content changes, installation stops and the office must be prepared
+again.
+
+The card shows the office name, each area that is new, changed or removed, its members and role assignments,
+requirements, privacy level, local-only setting, and declared workflows, contracts and roles. A reimport omits areas
+that have not changed. Adding one area shows the office it will join. The fixed notice is:
+
+> Las instrucciones de esta oficina las escribió otra persona. Un ejecutor activado las sigue dentro de su carpeta de trabajo
+
+### Data-only and code offices
+
+A data-only office can be prepared in either GUI mode. An office containing code (including `contracts.py`,
+`functions.py`, or scripts in a skill) needs advanced mode with the `install_code` action. If it contains
+`functions.py`, it also needs the `trust_functions` action. In simple mode the preparation fails with
+`advanced_mode_required`; no code is run.
+
+After the one-use office approval, code is installed only through the office batch path. A `functions.py` file is
+trusted and loaded only for its installed area. The existing API and CLI office import paths remain data-only and
+continue to reject code with `office_has_code`.
+
+### Scan and approvals
+
+When the optional vulnerability scanner is available, the office uses one vulnerability-query approval for its whole
+fingerprint. The approval lists the dependency manifests across its areas. After approval, the scanner checks each
+area in sequence and stores the result under that area's package name and fingerprint. Without the scanner in Mock,
+or when scanning is off, the office is marked `not_installed` or `off` and no vulnerability-query approval is created.
+See [Bundle scan](security/bundle-scan.md) for the scan states and the data sent to the vulnerability service.
+
+The card also creates one hidden `office_install` approval, bound to the same fingerprint and the office. Together
+with the optional vulnerability-query approval, this is at most two decisions for an office. Its location records
+the stage ID, level and whether the person must acknowledge risk. It is not listed under general pending approvals;
+the office card decides it using the GUI's existing one-use code. A decision is usable once. The server requires
+`risk_ack: true` when the office contains code or a scan state needs review. If the query is still pending when the
+card is first assembled, that acknowledgement remains attached to the same approval while the scan finishes.
+
+Approving the card installs or updates all affected areas together, proposes and approves each changed area's team,
+and seeds every scanned area's cache so the first run does not ask for the same scan again. Unchanged areas retain
+their approved team versions. When adding an area, the scan covers the existing areas and the new area as one office;
+the office decision covers the scan results for all of them. The event is `office.installed` for a new office or
+`office.reimported` for an update and includes the approval ID.
+
+Choose **Cancel** to reject the pending office approval and discard the stage. A stage expires after one hour and
+cannot be installed afterward. Passwords, keys and tokens still require their own approvals, and each plan remains a
+separate decision.
+
+The service methods are `stage_zip`, `stage_folder`, `card`, `install_staged` and `discard_stage` on
+`OfficeServices`. OFI-T04 does not add `/api/v1` routes or CLI commands; the GUI routes are supplied by VOF-T02.
 
 ## Export and import
 
@@ -221,12 +297,54 @@ The export never includes databases, runs, `data_dir`, `.env`, `.local`, logs, i
 
 An exported office can be imported with `multiagent office import FILE.zip` or `POST /api/v1/offices` using `zip_base64`. An area-only archive has one area and can be added to another installed office with `--into ID` or the API's `into` field. When an archive contains `manifest.json`, import requires its schema, file list, sizes, and hashes to match the extracted files exactly. A mismatch fails with `422 office_manifest_mismatch` and the affected path. Archives without a manifest remain supported for hand-authored imports. Safe extraction rejects unsafe paths and symbolic links before import.
 
+## Scene
+
+`GET /api/v1/offices/{id}/scene` and `multiagent office scene ID` return a read-only `maf.office-scene/1` snapshot. The
+same document is available with `--json`. It contains the office id, name and state; the coordinator state and its
+current plan; each area's data class, degraded fixes, state, label and members; labelled office relations; and whether
+the run list was truncated. It deliberately omits machine paths, run inputs and outputs, and step text.
+
+The scene never checks connections: it uses the latest result checked in «Apps y agentes» or the installation detail;
+without a prior check, it does not mark `requirement_missing`.
+
+Runs in `queued`, `running`, `waiting_human` or `paused` remain visible. Other runs are included only when updated in
+the last 24 hours. Each area is read with one database query, capped at 500 runs; `truncated` is true when an area
+reaches that cap. An area with no database returns an empty run list. The scene reads persisted step-role, member and
+model data; it does not load an area package.
+When the last step of a run names no role, the scene gives it to the one agent member of the area whose `agent` is the step's agent; with no match or several, it stays with the area.
+
+| Source state | Scene state |
+| --- | --- |
+| `running` or `paused` | `doing` |
+| `queued` after a request for changes | `changes` |
+| `queued` without a request for changes | `ready` |
+| `waiting_human` | `review` |
+| `failed` or `interrupted` | `failed` |
+| `completed` in the window | `done` |
+| `cancelled` or `rejected` in the window | `cancelled` |
+
+When multiple sources apply, the scene uses the L17 priority order:
+`review` > `changes` > `failed` > `doing` > `blocked` > `ready` > `todo` > `done` > `cancelled`. With no source, the
+state is `idle` and its label is `Libre`. Labels come from the shared task-label map. A member's `worker` is the model
+id of the latest attempt of the winning step, or `—` when there is none.
+An area's state, label and since are the L17 winner across its own candidates and all member candidates; a member's
+worker is not promoted to the area.
+
+The coordinator follows open office plan proposals and approved plans with unfinished tasks. `proposed` is `review`;
+an approved plan is `doing` until every task is `done` or `cancelled`, then `done`. Rejected proposals do not count.
+The «Oficinas» view draws on this schema without changing it.
+
 ## Orchestrator
 
 `multiagent office plan-draft OFFICE TEXT [--confirm-cloud]` and
 `POST /api/v1/offices/{id}/plan-draft` prepare a plan for an installed office.
 The draft is not saved, approved, or started. Saving it still requires the
 confirmation handled by the new-session plan flow.
+
+From «Oficinas», «Pídele algo a la oficina» opens «Nueva sesión» with that
+office selected. Its coordinator can prepare a plan draft from the workflows
+in its areas; opening the screen does not save or run anything. «Pedir a esta
+área» opens that area's options in «Sesión única».
 
 The planner catalog contains only workflows from the office's areas. A model
 proposal is checked again after generation; a task outside those areas is
@@ -260,93 +378,6 @@ sensitive, restricted, or has no level and the configured model is not local,
 it makes no model call and returns keyword mode with
 `reason = "office_not_normal"`. With no selected office, planning and
 interpretation keep their existing behavior.
-
-## The install card
-
-The install card reviews an office before it is added to the installed packages. Preparing an office validates and
-copies it under `installed/.staging/<stage_id>/`; it does not register its areas or load its code. The card is bound to
-the prepared folder's SHA-256 fingerprint. If its content changes, installation stops and the office must be prepared
-again.
-
-The card shows the office name, each area that is new, changed or removed, its members and role assignments,
-requirements, sensitivity, local-only setting, and declared workflows, contracts and roles. A reimport omits areas
-that have not changed. Adding one area shows the office it will join. The fixed notice is:
-
-> Las instrucciones de esta oficina las escribió otra persona. Un ejecutor activado las sigue dentro de su carpeta de trabajo
-
-### Data-only and code offices
-
-A data-only office can be prepared in either GUI mode. An office containing code (including `contracts.py`,
-`functions.py`, or scripts in a skill) needs advanced mode with the `install_code` action. If it contains
-`functions.py`, it also needs the `trust_functions` action. In simple mode the preparation fails with
-`advanced_mode_required`; no code is run.
-
-After the one-use office approval, code is installed only through the office batch path. A `functions.py` file is
-trusted and loaded only for its installed area. The existing API and CLI office import paths remain data-only and
-continue to reject code with `office_has_code`.
-
-### Scan and approvals
-
-When SkillSpector is available, the office uses one `osv_query` approval for its whole fingerprint. The approval lists
-the dependency manifests across its areas. After approval, SkillSpector scans each area in sequence and stores the
-result under that area's package name and fingerprint. Without SkillSpector in Mock, or when scanning is off, the
-office is marked `not_installed` or `off` and no OSV approval is created. See [Bundle scan](security/bundle-scan.md)
-for the scan states and the data sent to OSV.dev.
-
-The card also creates one hidden `office_install` approval, bound to the same fingerprint and the office. Its location
-records the stage ID, level and whether the person must acknowledge risk. It is not listed under general pending
-approvals; the office card decides it using the GUI's existing one-use code. A decision is usable once. The server
-requires `risk_ack: true` when the office contains code or a scan state needs review. If the query is still pending
-when the card is first assembled, that acknowledgement remains attached to the same approval while the scan finishes.
-
-Approving the card installs or updates all affected areas together, proposes and approves each changed area's team,
-and seeds every scanned area's cache so the first run does not ask for the same scan again. Unchanged areas retain
-their approved team versions. When adding an area, the scan covers the existing areas and the new area as one office;
-the office decision covers the scan results for all of them. The event is `office.installed` for a new office or
-`office.reimported` for an update and includes the approval ID.
-
-Choose **Cancel** to reject the pending office approval and discard the stage. A stage expires after one hour and
-cannot be installed afterward. Passwords, keys and tokens still require their own approvals, and each plan remains a
-separate decision.
-
-The service methods are `stage_zip`, `stage_folder`, `card`, `install_staged` and `discard_stage` on
-`OfficeServices`. OFI-T04 does not add `/api/v1` routes or CLI commands; the GUI routes are supplied by VOF-T02.
-
-## Scene
-
-`GET /api/v1/offices/{id}/scene` and `multiagent office scene ID` return a read-only `maf.office-scene/1` snapshot. The
-same document is available with `--json`. It contains the office id, name and state; the coordinator state and its
-current plan; each area's data class, degraded fixes, state, label and members; labelled office relations; and whether
-the run list was truncated. It deliberately omits machine paths, run inputs and outputs, and step text.
-
-The scene never checks connections: it uses the latest result checked in «Apps y agentes» or the installation detail;
-without a prior check, it does not mark `requirement_missing`.
-
-Runs in `queued`, `running`, `waiting_human` or `paused` remain visible. Other runs are included only when updated in
-the last 24 hours. Each area is read with one database query, capped at 500 runs; `truncated` is true when an area
-reaches that cap. An area with no database returns an empty run list. The scene reads persisted step-role, member and
-model data; it does not load an area package.
-
-| Source state | Scene state |
-| --- | --- |
-| `running` or `paused` | `doing` |
-| `queued` after a request for changes | `changes` |
-| `queued` without a request for changes | `ready` |
-| `waiting_human` | `review` |
-| `failed` or `interrupted` | `failed` |
-| `completed` in the window | `done` |
-| `cancelled` or `rejected` in the window | `cancelled` |
-
-When multiple sources apply, the scene uses the L17 priority order:
-`review` > `changes` > `failed` > `doing` > `blocked` > `ready` > `todo` > `done` > `cancelled`. With no source, the
-state is `idle` and its label is `Libre`. Labels come from the shared task-label map. A member's `worker` is the model
-id of the latest attempt of the winning step, or `—` when there is none.
-An area's state, label and since are the L17 winner across its own candidates and all member candidates; a member's
-worker is not promoted to the area.
-
-The coordinator follows open office plan proposals and approved plans with unfinished tasks. `proposed` is `review`;
-an approved plan is `doing` until every task is `done` or `cancelled`, then `done`. Rejected proposals do not count.
-The sprint 9 office view draws on this schema without changing it.
 
 ## Templates
 

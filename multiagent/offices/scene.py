@@ -122,6 +122,26 @@ def _proposal_tasks(proposal: Mapping[str, Any]) -> tuple[list[dict[str, Any]], 
     return tasks, states
 
 
+def _agent_of_step(area: Mapping[str, Any], run: Mapping[str, Any], members: list[Mapping[str, Any]],
+                   assignments: Mapping[str, set[str]]) -> tuple[str | None, str | None]:
+    """The agent member that runs a step with no role, and its role when it has only one.
+
+    The step's agent comes from ``area["step_agents"]`` (``{workflow_id: {step_id: agent}}``, read from the area's
+    workflow file). Exactly one agent member of the team must run that agent; otherwise there is no match.
+    """
+    table = area.get("step_agents")
+    agents = table.get(str(run.get("workflow_id"))) if isinstance(table, Mapping) else None
+    agent = agents.get(str(run.get("step_id"))) if isinstance(agents, Mapping) else None
+    if not isinstance(agent, str) or not agent:
+        return None, None
+    matching = [str(member["id"]) for member in members
+                if member.get("kind") == "agent" and member.get("agent") == agent and member.get("id") is not None]
+    if len(matching) != 1:
+        return None, None
+    roles = assignments.get(matching[0], set())
+    return matching[0], (next(iter(roles)) if len(roles) == 1 else None)
+
+
 def build_scene(office: dict, areas: list[dict], proposals: list[dict], *, now: datetime) -> dict:
     """Build ``maf.office-scene/1`` from already-read office, team, task, proposal and run data."""
     if now.tzinfo is None:
@@ -157,6 +177,9 @@ def build_scene(office: dict, areas: list[dict], proposals: list[dict], *, now: 
             candidate = _candidate(run_state(run), run.get("updated_at"), run.get("step_model_id"))
             can_assign = area.get("package_state", "ok") == "ok"
             member_id = run.get("step_member")
+            inferred_role = None
+            if not (isinstance(member_id, str) and member_id in member_by_id):
+                member_id, inferred_role = _agent_of_step(area, run, members, assignments)
 
             if not can_assign:
                 area_candidates[area_id].append(candidate)
@@ -171,7 +194,7 @@ def build_scene(office: dict, areas: list[dict], proposals: list[dict], *, now: 
             assigned_agent = isinstance(member_id, str) and member_id in member_by_id
             if assigned_agent:
                 member_candidates.setdefault((area_id, member_id), []).append(candidate)
-            waiting_role = run.get("step_role")
+            waiting_role = run.get("step_role") or inferred_role
             reviewer_roles = {
                 str(relation.get("from"))
                 for relation in team.get("relationships", [])

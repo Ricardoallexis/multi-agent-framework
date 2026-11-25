@@ -17,9 +17,9 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Content, branding, and production | `░░░░░░░░░░` 0% | 0 of 8 |
 | Human-in-the-loop | `███████░░░` 73% | 8 of 11 |
 | Collaborative agent teams | `████░░░░░░` 42% | 11 of 26 |
-| Planning, delegation, and team orchestration | `████░░░░░░` 43% | 9 of 21 |
-| Team design from a prompt | `███░░░░░░░` 33% | 3 of 9 |
-| Preset sharing and community catalog | `█░░░░░░░░░` 12% | 1 of 8 |
+| Planning, delegation, and team orchestration | `█████░░░░░` 45% | 10 of 22 |
+| Team design from a prompt | `████░░░░░░` 40% | 4 of 10 |
+| Preset sharing and community catalog | `███░░░░░░░` 30% | 3 of 10 |
 | Reference tool stacks for team presets | `░░░░░░░░░░` 0% | 0 of 5 |
 | Frontend / UI | `████░░░░░░` 38% | 10 of 26 |
 | Advanced operator interface | `░░░░░░░░░░` 0% | 0 of 15 |
@@ -29,7 +29,7 @@ Percentages are **counted, not estimated**: each checkbox in the roadmap weighs 
 | Security and privacy | `████░░░░░░` 40% | 4 of 10 |
 | Developer experience and distribution | `░░░░░░░░░░` 0% | 0 of 9 |
 | Open source, licensing, and sustainability | `███░░░░░░░` 33% | 2 of 6 |
-| **All roadmap items** | **35%** | **84 of 242** |
+| **All roadmap items** | **36%** | **88 of 246** |
 <!-- progress:table:end -->
 
 ## MVP 1.0 — released in `M1-B03-F01` (package `1.0.0`)

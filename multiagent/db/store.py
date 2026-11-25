@@ -338,6 +338,7 @@ class Store:
                           CASE WHEN r.revision_feedback<>'' THEN 1 ELSE 0 END AS revised,r.updated_at,
                           json_extract(e.payload_json,'$.role') AS step_role,
                           json_extract(e.payload_json,'$.member') AS step_member,
+                          json_extract(e.payload_json,'$.step_id') AS step_id,
                           COALESCE((SELECT s.model_id FROM run_steps s
                                     WHERE s.run_id=r.id
                                       AND s.step_id=json_extract(e.payload_json,'$.step_id')

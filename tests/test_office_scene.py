@@ -370,3 +370,53 @@ def test_scene_route_and_cli_parity(world, monkeypatch, capsys):
         expected.pop("generated_at")
         assert actual == expected
         assert client.get("/api/v1/offices/missing/scene").status_code == 404
+
+
+def _roleless(status, **fields):
+    return {**_run(status, member=None, role=None, **fields), "step_id": "redactar"}
+
+
+STEP_AGENTS = {"spec_review": {"redactar": "writer_agent"}}
+
+
+def test_step_without_role_goes_to_the_agent_that_matches():
+    area = _area(runs=[_roleless("running")], step_agents=STEP_AGENTS)
+    scene = _scene([area])
+    assert _member(scene)["state"] == "doing"
+    assert _member(scene, "reviewer")["state"] == IDLE
+
+
+def test_step_without_role_with_two_matching_agents_stays_with_the_area():
+    team = {**TEAM, "members": [*TEAM["members"],
+                                {"id": "twin", "kind": "agent", "agent": "writer_agent", "name": "Twin"}]}
+    scene = _scene([_area(team=team, runs=[_roleless("running")], step_agents=STEP_AGENTS)])
+    assert scene["areas"][0]["state"] == "doing"
+    assert _member(scene)["state"] == IDLE and _member(scene, "twin")["state"] == IDLE
+
+
+def test_step_without_role_with_no_matching_agent_stays_with_the_area():
+    for step_agents in ({"spec_review": {"redactar": "unknown_agent"}}, {}, None):
+        scene = _scene([_area(runs=[_roleless("running")], step_agents=step_agents)])
+        assert scene["areas"][0]["state"] == "doing"
+        assert _member(scene)["state"] == IDLE
+
+
+def test_waiting_human_without_role_uses_the_role_of_the_agent():
+    team = {**TEAM, "relationships": [{"type": "reviews", "from": "revision", "to": "redaccion"}]}
+    scene = _scene([_area(team=team, runs=[_roleless("waiting_human")], step_agents=STEP_AGENTS)])
+    assert _member(scene)["state"] == "review"
+    assert _member(scene, "reviewer")["state"] == "review"
+    assert _member(scene, "other")["state"] == IDLE
+
+
+def test_scene_survives_broken_workflow_files_for_step_agents(world):
+    services, tmp_path = world
+    services.offices.import_folder(write_office(tmp_path / "demo", areas=("recepcion",)), actor="user:test")
+    folder = services.bundle_path("demo__recepcion")
+    flows = sorted((folder / "workflows").glob("*.yaml"))
+    assert flows
+    flows[0].write_text("steps: [unclosed\n  - : :\n", encoding="utf-8")
+    (folder / "workflows" / "odd.yaml").write_text("steps:\n  - 3\n  - {id: 5, agent: [x]}\n", encoding="utf-8")
+    (folder / "workflows" / "scalar.yaml").write_text("just text\n", encoding="utf-8")
+    scene = services.offices.scene("demo", now=NOW)
+    assert scene["areas"][0]["state"] == "idle" and "step_agents" not in scene["areas"][0]

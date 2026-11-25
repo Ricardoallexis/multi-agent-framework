@@ -161,6 +161,46 @@ STAGE_TTL_SECONDS = 3600
 _STAGE_ID = re.compile(r"[0-9a-f]{32}\Z")
 
 
+_STEP_AGENTS_CACHE: dict[tuple[str, int, int], dict[str, str]] = {}
+
+
+def _workflow_step_agents(path: Path) -> dict[str, str]:
+    """``{step_id: agent}`` of the steps of one workflow file that name an agent and no role; ``{}`` if unreadable.
+
+    Read-only and tolerant: the scene never validates a workflow. The result is cached by path, size and mtime."""
+    try:
+        info = path.stat()
+        key = (str(path), info.st_size, info.st_mtime_ns)
+        if key in _STEP_AGENTS_CACHE:
+            return _STEP_AGENTS_CACHE[key]
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        found: dict[str, str] = {}
+        for step in document.get("steps") or []:
+            if (isinstance(step, dict) and isinstance(step.get("id"), str) and not step.get("role")
+                    and isinstance(step.get("agent"), str) and step["agent"]):
+                found[step["id"]] = step["agent"]
+    except Exception:       # a missing, unreadable or odd file leaves the step with the area
+        return {}
+    if len(_STEP_AGENTS_CACHE) > 512:
+        _STEP_AGENTS_CACHE.clear()
+    _STEP_AGENTS_CACHE[key] = found
+    return found
+
+
+def _area_step_agents(folder: Path) -> dict[str, dict[str, str]]:
+    """``{workflow_id: {step_id: agent}}`` read from ``<folder>/workflows/*.yaml`` without loading the package."""
+    result: dict[str, dict[str, str]] = {}
+    try:
+        files = sorted((folder / "workflows").glob("*.yaml"))
+    except OSError:
+        return result
+    for file in files:
+        agents = _workflow_step_agents(file)
+        if agents:
+            result[file.stem] = agents
+    return result
+
+
 class OfficeServices:
     """The registry of installed offices of one facade. Entries live in ``<data_dir>/installed/offices.json``."""
 
@@ -2182,8 +2222,13 @@ class OfficeServices:
                                  "fix": {"label": "Conectar un agente", "href": "#apps", "action": None}})
 
             runs = self._services.runs.recent_runs(bundle, since=since, limit=SCENE_RUNS_MAX)
+            try:
+                step_agents = _area_step_agents(self._services.bundle_path(bundle)) if package_state == STATE_OK else {}
+            except ServiceError:
+                step_agents = {}
             scene_areas.append({
                 **area,
+                "step_agents": step_agents,
                 "data_class": self.area_class(bundle),
                 "degraded": degraded,
                 "team": team,

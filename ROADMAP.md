@@ -189,7 +189,7 @@ A domain-neutral core for coordinating two or more agents, and the humans who su
 
 ## Planning, delegation, and team orchestration
 
-**Progress:** `████░░░░░░` 9/21 · 43% <!-- progress -->
+**Progress:** `█████░░░░░` 10/22 · 45% <!-- progress -->
 
 Turn a high-level objective into an executable plan for a team the user has defined: understand the objective, decompose the work, find the required capabilities, assign specialists, coordinate execution, request revisions, and integrate the final result. Planners and orchestrators act only within the limits the user declares (roles, capabilities, permissions, contracts, budgets, gates, and policies) and escalate to a human when needed; every decision stays traceable. The core stays domain-neutral; industries appear only in presets and examples.
 
@@ -206,6 +206,7 @@ Turn a high-level objective into an executable plan for a team the user has defi
 - [ ] Assign tasks by capabilities, roles, tools, provider or model, permissions, availability, relationships, and budget, starting with deterministic rules and reusing the model router.
   - [x] Preview a policy-constrained assignment from declared executor descriptors (capabilities, roles, permissions, modes, privacy) and claim a ready task only after revalidating the preview.
 - [ ] Describe organizations as data (members, teams, and relationships such as reporting, supervision, delegation, review, consultation, and approval), supporting hierarchical, flat, matrix, peer-to-peer, and temporary structures.
+  - [x] Describe an office as data: areas as bundles, relations, a default plan and per-area sensitivity (`office.yaml`)
 - [ ] Express sequential, parallel, dependent, optional, conditional, and iterative work.
 - [ ] Coordinate specialists through delegation, consultation, review, revision, approval, and handoff, and integrate partial results through merging, synthesis, conflict detection, cross-review, and final assembly.
 - [x] Record task traceability in the team event log: who created, claimed, and changed each task, when, and why, with its status and attempts.
@@ -219,7 +220,7 @@ Turn a high-level objective into an executable plan for a team the user has defi
 
 ## Team design from a prompt
 
-**Progress:** `███░░░░░░░` 3/9 · 33% <!-- progress -->
+**Progress:** `████░░░░░░` 4/10 · 40% <!-- progress -->
 
 Describe what you need in one prompt and get a working team: the agents it recommends, their instructions and responsibilities, and an organization chart. If the prompt already defines the team, the generator formalizes it instead of redesigning it. The result is data — a team definition that is validated, reviewed by a human, and versioned like any bundle or preset — never code in the core.
 
@@ -233,16 +234,19 @@ Roles are not tied to models. A **role** holds rules, skills, contracts, capabil
 - [x] Render the organization chart from the relationships (for example as a Mermaid diagram) in docs and, later, in the UI (stage 2).
 - [x] Expose the organization chart as a model through the application services (Python, HTTP, and CLI): each position shows its role, who holds it (agent, human, or model), who it reports to, and its status, validated for cycles and roots.
 - [ ] Show that model in the UI as an accessible organization chart with position cards, without extra dependencies.
+  - [x] Position cards per member in the «Oficinas» view, with state and who does the work
 - [ ] Regenerate a team as a reviewable diff against the current definition, and save accepted teams as presets.
 
 ## Preset sharing and community catalog
 
-**Progress:** `█░░░░░░░░░` 1/8 · 12% <!-- progress -->
+**Progress:** `███░░░░░░░` 3/10 · 30% <!-- progress -->
 
 Presets (teams, workflows, agents, prompts, contracts, and checks) should be easy to share, so that one user's setup for design reviews, financial reporting, or software development can be downloaded and used by others. This builds on the existing definition bundles and stays domain-neutral.
 
 - [ ] Package presets in a portable, versioned format with a manifest: name, version, author, license, description, compatible framework versions, and required capabilities, providers, and permissions.
+  - [x] Export an office or one area as a `.zip` with a manifest (`maf.office-export/1`)
 - [ ] Publish and install presets from a file, a Git repository, or a community catalog with a single command, including updates and removal.
+  - [x] Install, reimport and remove an office from a `.zip` or a folder, through Python, API, CLI and the GUI
 - [ ] Validate an installed preset before its first use: structure, references, compatibility with the installed framework, and declared permissions.
   - [x] Validate a definition bundle's structure, references, contracts, and sample outputs before it runs. An external bundle is also scanned before its code loads (SkillSpector when installed, with a click for the OSV.dev query; loading a bundle marked «No instalar» or «Sin analizar» requires checking «Asumo los riesgos», enforced by the server; see [`docs/security/bundle-scan.md`](docs/security/bundle-scan.md)).
 - [ ] Treat presets that include executable code (such as contract models or tools) as untrusted until the user approves them: show what will run, verify checksums or signatures, prefer data-only presets, and allow sandboxing. Partly done: a bundle's code is shown and checked by a scan before it loads; «No instalar» remains a recommendation even with partial coverage, and a person acknowledges the risks before approving a load. Sandboxing and private overlays remain open.
