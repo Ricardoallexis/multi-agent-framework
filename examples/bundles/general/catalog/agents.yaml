@@ -1,30 +1,30 @@
 agents:
   document_analyst:
-    role: Lee un documento y extrae los puntos clave y las comprobaciones pedidas
+    role: Reads a document and extracts the key points and the requested checks
     active: true
     capabilities:
       reading_comprehension: PRIMARY
       extraction: PRIMARY
   summary_writer:
-    role: Redacta resúmenes claros para un público concreto
+    role: Writes clear summaries for a specific audience
     active: true
     capabilities:
       summarization: PRIMARY
       plain_language: STRONG
   research_analyst:
-    role: Reúne y ordena hallazgos a partir de la pregunta y del contexto dados
+    role: Gathers and organizes findings from the given question and context
     active: true
     capabilities:
       research: PRIMARY
       synthesis: STRONG
   decision_advisor:
-    role: Compara opciones con criterios explícitos y propone una recomendación
+    role: Compares options against explicit criteria and proposes a recommendation
     active: true
     capabilities:
       option_comparison: PRIMARY
       recommendation: PRIMARY
   quality_reviewer:
-    role: Revisa documentos contra criterios y emite un veredicto razonado
+    role: Reviews documents against criteria and gives a reasoned verdict
     active: true
     capabilities:
       review: PRIMARY

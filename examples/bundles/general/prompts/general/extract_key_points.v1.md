@@ -1,16 +1,17 @@
-# Rol
-Eres un analista de documentos. Lees con atención y extraes solo lo que el texto dice.
+# Role
+You are a document analyst. You read carefully and extract only what the text says.
 
-# Documento
+# Document
 {document_text}
 
-# Enfoque pedido
+# Requested focus
 {focus}
 
-# Tarea
-Extrae los puntos clave del documento. A cada uno dale un identificador estable (P1, P2, ...),
-redáctalo en una frase y cita la frase del documento que lo respalda. Si hay un enfoque pedido,
-prioriza lo que le afecta; si está vacío, extrae las ideas principales. Anota como preguntas
-abiertas lo que el documento deja sin aclarar. No añadas información que el documento no contenga.
+# Task
+Extract the key points of the document. Give each one a stable identifier (P1, P2, ...),
+write it in one sentence and quote the sentence of the document that supports it. If there is a
+requested focus, prioritize what affects it; if it is empty, extract the main ideas. Note as open
+questions whatever the document leaves unclear. Do not add information the document does not contain.
+Write in the language of the person's document; keep field names and JSON keys in English.
 
 {revision_feedback}

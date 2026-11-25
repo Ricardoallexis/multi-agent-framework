@@ -1,37 +1,37 @@
-# Bundle "general" (ejemplo neutral de dominio): resume un documento para un público concreto.
-# Las entradas se declaran con el esquema de `inputs:`; cada nombre coincide con un {marcador} de los prompts.
+# Bundle "general" (neutral domain example): summarizes a document for a specific audience.
+# The inputs are declared with the `inputs:` schema; each name matches a {placeholder} in the prompts.
 id: summarize_document
-description: Resume un documento en lenguaje claro para un público concreto; sirve para actas, informes, correos largos o artículos.
+description: Summarizes a document in plain language for a specific audience; useful for meeting minutes, reports, long emails or articles.
 max_iterations: 2
 inputs:
   - name: document_text
-    label: Documento
-    description: Texto completo del documento que se va a resumir. Pégalo tal cual; no hace falta limpiarlo.
-    example: "A partir de marzo, la reunión semanal del equipo será los miércoles a las 10:00 en lugar de los lunes. Las actas se subirán a la carpeta compartida antes de las 18:00 del mismo día."
+    label: Document
+    description: Full text of the document to summarize. Paste it as it is; there is no need to clean it up.
+    example: "From March, the weekly team meeting will be on Wednesdays at 10:00 instead of Mondays. The minutes will be uploaded to the shared folder before 18:00 the same day."
     required: true
     type: long_text
   - name: focus
-    label: Enfoque
-    description: Qué te interesa encontrar en el documento. Si lo dejas vacío, se extraen las ideas principales.
-    example: Decisiones tomadas y plazos
+    label: Focus
+    description: What you want to find in the document. If you leave it empty, the main ideas are extracted.
+    example: Decisions made and deadlines
     required: false
     type: text
   - name: audience
-    label: Público
-    description: Quién leerá el resumen. Define el tono y el nivel de detalle. Si lo dejas vacío, se escribe para un lector general.
-    example: Equipo directivo, sin conocimientos técnicos
+    label: Audience
+    description: Who will read the summary. It sets the tone and the level of detail. If you leave it empty, it is written for a general reader.
+    example: Management team, no technical background
     required: false
     type: text
   - name: summary_length
-    label: Longitud
-    description: Cuánto debe ocupar el resumen. Si lo dejas vacío, se usa «media».
-    example: media
+    label: Length
+    description: How long the summary should be. If you leave it empty, `medium` is used.
+    example: medium
     required: false
     type: choice
-    choices: [breve, media, detallada]
+    choices: [short, medium, detailed]
 steps:
   - id: extract_key_points
-    description: Lee el documento y extrae los puntos clave con la frase que los respalda.
+    description: Reads the document and extracts the key points with the sentence that supports each one.
     agent: document_analyst
     prompt_id: general/extract_key_points
     prompt_version: 1
@@ -44,7 +44,7 @@ steps:
     checkpoint_after: false
 
   - id: write_summary
-    description: Redacta el resumen para el público indicado; tú lo revisas antes de darlo por bueno.
+    description: Writes the summary for the stated audience; you review it before accepting it.
     agent: summary_writer
     prompt_id: general/write_summary
     prompt_version: 1

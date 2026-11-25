@@ -1,37 +1,37 @@
 schema: maf.project-template/1
 id: desarrollo-software
-title: Desarrollo de software
-description: Un cambio o producto de software desde el diseño hasta el lanzamiento. Sin fechas; se añaden al crear el proyecto.
+title: Software development
+description: A software change or product from design to launch. No dates; they are added when the project is created.
 stages:
   - code: DIS
-    title: Diseño
-    phases: [Requisitos, Arquitectura]
+    title: Design
+    phases: [Requirements, Architecture]
     tasks:
-      - {id: T01, title: Alcance y criterios de aceptación, phase: Requisitos, done_when: "Criterios aprobados por la persona responsable"}
-      - {id: T02, title: Diseño de la solución, phase: Arquitectura, depends_on: [T01]}
-      - {id: T03, title: Modelo de datos y contrato de la interfaz, phase: Arquitectura, depends_on: [T02]}
+      - {id: T01, title: Scope and acceptance criteria, phase: Requirements, done_when: "Criteria approved by the person in charge"}
+      - {id: T02, title: Solution design, phase: Architecture, depends_on: [T01]}
+      - {id: T03, title: Data model and interface contract, phase: Architecture, depends_on: [T02]}
   - code: DES
-    title: Desarrollo
-    phases: [Servicio, Interfaz]
+    title: Development
+    phases: [Service, Interface]
     tasks:
-      - {id: T01, title: Implementar el servicio, phase: Servicio, assignee: "agent:claude", depends_on: ["stage:DIS"]}
-      - {id: T02, title: Implementar la interfaz, phase: Interfaz, depends_on: ["DIS-T03"]}
-      - {id: T03, title: Integrar servicio e interfaz, depends_on: [T01, T02], done_when: "La aplicación funciona de punta a punta en un entorno de pruebas"}
+      - {id: T01, title: Build the service, phase: Service, assignee: "agent:claude", depends_on: ["stage:DIS"]}
+      - {id: T02, title: Build the interface, phase: Interface, depends_on: ["DIS-T03"]}
+      - {id: T03, title: Integrate service and interface, depends_on: [T01, T02], done_when: "The application works end to end in a test environment"}
   - code: PRU
-    title: Pruebas
-    phases: [Automatizadas, Aceptación]
+    title: Testing
+    phases: [Automated, Acceptance]
     tasks:
-      - {id: T01, title: Pruebas unitarias y de integración, phase: Automatizadas, depends_on: ["stage:DES"]}
-      - {id: T02, title: Pruebas de aceptación, phase: Aceptación, depends_on: [T01]}
+      - {id: T01, title: Unit and integration tests, phase: Automated, depends_on: ["stage:DES"]}
+      - {id: T02, title: Acceptance tests, phase: Acceptance, depends_on: [T01]}
   - code: REV
-    title: Revisión
+    title: Review
     tasks:
-      - {id: T01, title: Revisión de código, depends_on: ["DES-T03"], requires: submitted}
-      - {id: T02, title: Revisión de seguridad, depends_on: [T01], done_when: "Sin hallazgos abiertos de gravedad alta"}
+      - {id: T01, title: Code review, depends_on: ["DES-T03"], requires: submitted}
+      - {id: T02, title: Security review, depends_on: [T01], done_when: "No open findings of high severity"}
   - code: LAN
-    title: Lanzamiento
-    phases: [Preparación, Despliegue]
+    title: Launch
+    phases: [Preparation, Deployment]
     tasks:
-      - {id: T01, title: Lista de verificación del lanzamiento, phase: Preparación, depends_on: ["stage:PRU", "stage:REV"]}
-      - {id: T02, title: Despliegue en producción, phase: Despliegue, depends_on: [T01], done_when: "Versión desplegada y verificada"}
-      - {id: T03, title: Documentación para usuarios, phase: Preparación, depends_on: [T01]}
+      - {id: T01, title: Launch checklist, phase: Preparation, depends_on: ["stage:PRU", "stage:REV"]}
+      - {id: T02, title: Deployment to production, phase: Deployment, depends_on: [T01], done_when: "Version deployed and verified"}
+      - {id: T03, title: User documentation, phase: Preparation, depends_on: [T01]}

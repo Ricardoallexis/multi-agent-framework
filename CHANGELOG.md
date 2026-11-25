@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- The double-click launchers (`Iniciar.cmd`, `iniciar.sh`), the `--launcher` hint of `multiagent gui`, the private-terms checker messages, the whole general example bundle, the `social_post` workflows, the three project templates and `docs/FIRST_RUN.md` are now in English; file names and ids are unchanged. The general bundle's prompts ask for the answer in the language of the person's input, and its summary length choices are now `short`, `medium` and `detailed`.
 - The Context panel also opens in a simple-mode run thread (`#new/run/<id>`), with the same state as in Runs.
 - Buttons and status chips follow one visual system from the approved 9a mockup: 9 px buttons, pill chips in amber for waiting, green for working or connected, red text for failures and grey for the rest, and a 14 px «+» menu.
 - The office install card lists validated YAML contracts, workflows, team roles, code files and the function registrations it can read statically, without running `functions.py` or `contracts.py`; one notice says when no scan ran. A workflow that needs local file tools warns at import and before launch, and only that workflow is blocked until `FILE_TOOLS_ROOT` is set.

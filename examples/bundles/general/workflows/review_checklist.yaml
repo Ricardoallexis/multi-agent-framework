@@ -1,29 +1,29 @@
-# Bundle "general" (ejemplo neutral de dominio): revisa un documento contra una lista de comprobación.
+# Bundle "general" (neutral domain example): reviews a document against a checklist.
 id: review_checklist
-description: Revisa una especificación u otro documento contra una lista de criterios y emite un veredicto con los problemas y las sugerencias.
+description: Reviews a specification or another document against a list of criteria and gives a verdict with the problems and suggestions.
 max_iterations: 2
 inputs:
   - name: document_text
-    label: Documento a revisar
-    description: Texto de la especificación, el plan o el documento que se va a revisar.
+    label: Document to review
+    description: Text of the specification, plan or document to review.
     example: "3.2 The system will notify the customer when the order leaves the warehouse. 3.4 Notifications should arrive quickly. Expected delivery: November 15."
     required: true
     type: long_text
   - name: checklist
-    label: Lista de comprobación
-    description: Un criterio por línea. Si la dejas vacía, se revisan la claridad, la integridad, la coherencia y si se puede verificar cada punto.
-    example: "Cada requisito tiene un responsable\nLos plazos son concretos\nSe describen los riesgos"
+    label: Checklist
+    description: One criterion per line. If you leave it empty, the review covers clarity, completeness, consistency and whether each point can be verified.
+    example: "Every requirement has an owner\nDeadlines are specific\nRisks are described"
     required: false
     type: long_text
   - name: document_kind
-    label: Tipo de documento
-    description: Qué clase de documento es. Ayuda a elegir qué mirar con más atención. Si lo dejas vacío, se trata como un documento genérico.
-    example: Especificación de requisitos de una aplicación de pedidos
+    label: Kind of document
+    description: What kind of document it is. It helps to choose what to look at more closely. If you leave it empty, it is treated as a generic document.
+    example: Requirements specification for an ordering application
     required: false
     type: text
 steps:
   - id: check_items
-    description: Comprueba el documento criterio por criterio y anota si se cumple, se cumple en parte o no se cumple.
+    description: Checks the document criterion by criterion and notes whether it is met, partly met or not met.
     agent: document_analyst
     prompt_id: general/check_items
     prompt_version: 1
@@ -36,7 +36,7 @@ steps:
     checkpoint_after: false
 
   - id: summarize_review
-    description: Resume la revisión en un veredicto con los problemas que bloquean y las mejoras sugeridas; tú lo revisas.
+    description: Sums up the review in a verdict with the blocking problems and the suggested improvements; you review it.
     agent: quality_reviewer
     prompt_id: general/summarize_review
     prompt_version: 1

@@ -1,70 +1,71 @@
 id: social_post_full
 description: >-
-  Prepara una publicación completa para una red social: investiga datos y fuentes (si la ejecución
-  pide búsqueda web), define la estrategia, redacta el texto y deja listo el brief visual para quien
-  genere la imagen. Úsalo cuando necesites el paquete entero; al terminar espera tu revisión.
+  Prepares a complete social media post: researches data and sources (if the run asks for web
+  search), defines the strategy, writes the text and leaves the visual brief ready for whoever
+  generates the image. Use it when you need the whole package; when it finishes it waits for your
+  review.
 max_iterations: 2
 inputs:
   - name: topic
-    label: Tema
-    description: De qué trata la publicación y por qué le importa a quien la lea.
-    example: Lanzamiento de nuestro soporte técnico 24/7
+    label: Topic
+    description: What the post is about and why it matters to whoever reads it.
+    example: Launch of our 24/7 technical support
     type: text
   - name: objective
-    label: Objetivo
-    description: Qué debe lograr la publicación (dar a conocer algo, generar consultas, captar suscriptores). Orienta la investigación y la estrategia.
-    example: Que los clientes sepan que ya pueden pedir ayuda a cualquier hora
+    label: Objective
+    description: What the post must achieve (raise awareness, generate inquiries, gain subscribers). It guides the research and the strategy.
+    example: Let customers know they can now ask for help at any hour
     type: text
   - name: platform
-    label: Plataforma
-    description: Red social donde se publicará. De ella dependen la longitud, el formato, el tono y el formato de la imagen.
+    label: Platform
+    description: Social network where it will be posted. The length, format, tone and image format depend on it.
     example: LinkedIn
     type: text
   - name: audience
-    label: Audiencia
-    description: Quién va a leer la publicación y qué le interesa o le preocupa.
-    example: Dueños de pequeñas empresas sin equipo de informática
+    label: Audience
+    description: Who will read the post and what they care about or worry about.
+    example: Owners of small businesses with no IT team
     type: text
   - name: instructions
-    label: Instrucciones
+    label: Instructions
     description: >-
-      Indicaciones para todos los pasos: tono, longitud, palabras que usar o evitar, número de hashtags.
-      Si no tienes ninguna, escribe «Ninguna».
-    example: Tono cercano y profesional, máximo 120 palabras, sin emojis, exactamente 3 hashtags
+      Guidance for all the steps: tone, length, words to use or avoid, number of hashtags.
+      If you have none, write "None".
+    example: Friendly and professional tone, 120 words at most, no emojis, exactly 3 hashtags
     type: long_text
   - name: research_context
-    label: Investigación previa
-    description: Datos y fuentes verificados sobre el tema, con sus enlaces. Son la única base de hechos del contenido. Déjalo vacío si no tienes ninguno.
-    example: "Según el informe interno de 2026, 7 de cada 10 consultas llegan fuera de horario. Fuente: https://ejemplo.com/informe"
+    label: Prior research
+    description: Verified data and sources about the topic, with their links. They are the only factual basis of the content. Leave it empty if you have none.
+    example: "According to the internal 2026 report, 7 out of 10 queries arrive outside office hours. Source: https://example.com/report"
     type: long_text
     required: false
   - name: strategy_context
-    label: Estrategia ya decidida
-    description: Plan que ya tengas para la publicación (ángulo, mensaje central, cierre). Déjalo vacío si quieres que lo proponga el paso de estrategia.
-    example: "Ángulo: ahorro de tiempo. Mensaje: siempre hay alguien disponible. Cierre: invitar a escribir por mensaje directo."
+    label: Strategy already decided
+    description: A plan you already have for the post (angle, central message, closing). Leave it empty if you want the strategy step to propose one.
+    example: "Angle: saving time. Message: someone is always available. Closing: invite people to send a direct message."
     type: long_text
     required: false
   - name: brand_context
-    label: Marca
-    description: Cómo habla la marca (tono, vocabulario, lo que nunca debe decir). Marca el estilo, no los hechos. Déjalo vacío si no hay guía de marca.
-    example: Tono cercano y claro, tuteo, sin tecnicismos ni promesas exageradas
+    label: Brand
+    description: How the brand speaks (tone, vocabulary, what it must never say). It sets the style, not the facts. Leave it empty if there is no brand guide.
+    example: Friendly and clear tone, informal address, no jargon and no exaggerated promises
     type: long_text
     required: false
   - name: content_context
-    label: Texto ya redactado
-    description: Publicación aprobada que el diseño debe ilustrar (título, texto y hashtags). Déjalo vacío si aún no existe.
-    example: "Título: Ayuda cuando la necesitas. Texto: Ahora respondemos a cualquier hora, todos los días. #Soporte #Pymes #Atención"
+    label: Text already written
+    description: Approved post that the design must illustrate (title, text and hashtags). Leave it empty if it does not exist yet.
+    example: "Title: Help when you need it. Text: We now answer at any hour, every day. #Support #SmallBusiness #Care"
     type: long_text
     required: false
   - name: brand_visual_context
-    label: Identidad visual
-    description: Colores, tipografías y reglas visuales de la marca que el diseño puede usar. Si no hay ninguna, no se inventa ninguna.
-    example: Azul oscuro y blanco, tipografía sin serifa, logotipo solo en la esquina inferior derecha
+    label: Visual identity
+    description: Colors, typefaces and visual rules of the brand that the design can use. If there are none, none is invented.
+    example: Dark blue and white, sans-serif typeface, logo only in the bottom right corner
     type: long_text
     required: false
 steps:
   - id: research
-    description: Busca datos y fuentes sobre el tema en la web. Solo se ejecuta si la ejecución pide búsqueda web.
+    description: Searches the web for data and sources about the topic. It only runs if the run asks for web search.
     agent: researcher
     prompt_id: researcher/research
     prompt_version: 2
@@ -77,7 +78,7 @@ steps:
     checkpoint_after: false
 
   - id: strategy
-    description: Define el ángulo, el mensaje central y la estructura de la publicación, sin escribir el texto final.
+    description: Defines the angle, the central message and the structure of the post, without writing the final text.
     agent: strategist
     prompt_id: strategist/social_strategy
     prompt_version: 1
@@ -91,7 +92,7 @@ steps:
     checkpoint_after: false
 
   - id: create
-    description: Redacta la publicación (título, gancho, texto, llamada a la acción y hashtags).
+    description: Writes the post (title, hook, text, call to action and hashtags).
     agent: creator
     prompt_id: creator/social_post
     prompt_version: 2
@@ -105,7 +106,7 @@ steps:
     checkpoint_after: false
 
   - id: design
-    description: Prepara el brief visual y el prompt técnico para generar la imagen fuera del framework, y espera tu revisión.
+    description: Prepares the visual brief and the technical prompt to generate the image outside the framework, and waits for your review.
     agent: designer
     prompt_id: designer/visual_brief
     prompt_version: 1

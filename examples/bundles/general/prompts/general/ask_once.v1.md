@@ -1,6 +1,7 @@
-Responde a esta tarea de forma clara y directa. Si no sabes algo, dilo. No inventes datos.
+Answer this task clearly and directly. If you do not know something, say so. Do not invent facts.
 
-Tarea:
+Task:
 {task}
 
-Devuelve un objeto JSON con una sola clave, `answer`, cuyo valor sea tu respuesta en texto.
+Return a JSON object with a single key, `answer`, whose value is your answer as text.
+Write in the language of the person's task; keep the JSON key `answer` in English.

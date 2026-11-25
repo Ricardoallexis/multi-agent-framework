@@ -118,7 +118,7 @@ def test_added_line_found_case_and_accents(
 
     assert code == 1
     assert "docs/notes.md" in captured.out
-    assert "término n.º 1" in captured.out
+    assert "term no. 1" in captured.out
 
 
 def test_whole_word_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -255,13 +255,13 @@ def test_no_list_or_empty_list_exits_2(
     code_missing = checker.main(["--terms", str(missing)])
     out_missing = capsys.readouterr()
     assert code_missing == 2
-    assert "No hay lista de términos privados; no se puede comprobar" in (out_missing.out + out_missing.err)
+    assert "There is no private terms list; cannot check" in (out_missing.out + out_missing.err)
 
     only_comments = _write_terms(tmp_path, ["# comment", "", "   ", "# another"], "empty.txt")
     code_empty = checker.main(["--terms", str(only_comments)])
     out_empty = capsys.readouterr()
     assert code_empty == 2
-    assert "No hay lista de términos privados; no se puede comprobar" in (out_empty.out + out_empty.err)
+    assert "There is no private terms list; cannot check" in (out_empty.out + out_empty.err)
 
 
 def test_output_never_contains_the_term(

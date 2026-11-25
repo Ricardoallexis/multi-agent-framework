@@ -1,30 +1,30 @@
-# Bundle "general" (ejemplo neutral de dominio): reúne hallazgos, compara opciones y recomienda una.
-# No consulta la web: trabaja con la pregunta y el contexto que aportes, y declara lo que no sabe.
+# Bundle "general" (neutral domain example): gathers findings, compares options and recommends one.
+# It does not browse the web: it works from the question and the context you give, and says what it does not know.
 id: research_options
-description: Investiga una pregunta con el contexto que aportes, compara las opciones posibles y propone una recomendación razonada.
+description: Researches a question with the context you give, compares the possible options and proposes a reasoned recommendation.
 max_iterations: 2
 inputs:
   - name: question
-    label: Pregunta o decisión
-    description: Lo que quieres resolver, formulado como una pregunta o como una decisión por tomar.
-    example: ¿Conviene que un equipo de ocho personas pase de reuniones semanales en directo a resúmenes escritos?
+    label: Question or decision
+    description: What you want to settle, written as a question or as a decision to make.
+    example: Should a team of eight move from live weekly meetings to written summaries?
     required: true
     type: long_text
   - name: background
-    label: Contexto
-    description: Datos, antecedentes o documentos que ya tienes y que ayudan a responder. Si lo dejas vacío, solo se usa la pregunta.
-    example: El equipo trabaja en dos zonas horarias, con tres horas de diferencia, y hoy dedica unas seis horas a la semana a reuniones.
+    label: Context
+    description: Facts, background or documents you already have that help to answer. If you leave it empty, only the question is used.
+    example: The team works in two time zones, three hours apart, and today spends about six hours a week in meetings.
     required: false
     type: long_text
   - name: constraints
-    label: Restricciones
-    description: Límites que la recomendación debe respetar, como presupuesto, plazos o condiciones obligatorias.
-    example: Sin gasto adicional y con una prueba de cuatro semanas como máximo
+    label: Constraints
+    description: Limits the recommendation must respect, such as budget, deadlines or mandatory conditions.
+    example: No extra spending and a trial of four weeks at most
     required: false
     type: text
 steps:
   - id: gather_findings
-    description: Reúne los hallazgos relevantes, indica cuánta confianza merecen y señala lo que falta saber.
+    description: Gathers the relevant findings, says how much confidence they deserve and points out what is still unknown.
     agent: research_analyst
     prompt_id: general/gather_findings
     prompt_version: 1
@@ -37,7 +37,7 @@ steps:
     checkpoint_after: false
 
   - id: compare_options
-    description: Define criterios y compara al menos dos opciones con sus ventajas e inconvenientes.
+    description: Defines criteria and compares at least two options with their advantages and drawbacks.
     agent: decision_advisor
     prompt_id: general/compare_options
     prompt_version: 1
@@ -50,7 +50,7 @@ steps:
     checkpoint_after: false
 
   - id: recommend
-    description: Recomienda una opción, explica por qué, señala los riesgos y propone los siguientes pasos; tú lo revisas.
+    description: Recommends one option, explains why, points out the risks and proposes the next steps; you review it.
     agent: decision_advisor
     prompt_id: general/recommend
     prompt_version: 1

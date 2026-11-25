@@ -323,9 +323,9 @@ def test_list_templates_returns_each_shipped_template_sorted_by_id():
     summaries = list_templates()
     assert [item["id"] for item in summaries] == SHIPPED
     assert {item["id"]: item["title"] for item in summaries} == {
-        "campana-marketing": "Campaña de marketing",
-        "desarrollo-software": "Desarrollo de software",
-        "vacia": "Proyecto vacío",
+        "campana-marketing": "Marketing campaign",
+        "desarrollo-software": "Software development",
+        "vacia": "Empty project",
     }
     assert all(item["description"] for item in summaries)
 
@@ -405,15 +405,15 @@ def test_loader_modules_stay_free_of_template_content():
 # -------- the shipped templates --------
 def test_vacia_has_no_stages():
     template = load_template("vacia")
-    assert template["title"] == "Proyecto vacío"
+    assert template["title"] == "Empty project"
     assert template["stages"] == []
 
 
 def test_campana_marketing_has_its_six_stages_in_order():
     template = load_template("campana-marketing")
     assert [(item["code"], item["title"]) for item in template["stages"]] == [
-        ("INV", "Investigación"), ("EST", "Estrategia"), ("CON", "Contenido"),
-        ("PRO", "Producción"), ("PUB", "Publicación"), ("MED", "Medición"),
+        ("INV", "Research"), ("EST", "Strategy"), ("CON", "Content"),
+        ("PRO", "Production"), ("PUB", "Publishing"), ("MED", "Measurement"),
     ]
     for item in template["stages"]:
         assert item["phases"] and item["tasks"], item["code"]

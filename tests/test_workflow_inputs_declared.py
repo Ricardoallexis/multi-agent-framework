@@ -382,10 +382,10 @@ def test_endpoint_returns_declared_and_derived_inputs(env):
 
 def test_endpoint_describes_the_bundled_workflows(env):
     spec = get(env, "/workflows/social_post/inputs").json()
-    assert spec["source"] == "declared" and "publicación" in spec["description"]
+    assert spec["source"] == "declared" and "post" in spec["description"]
     items = {item["name"]: item for item in spec["inputs"]}
     assert [item["name"] for item in spec["inputs"]][:4] == ["topic", "platform", "audience", "instructions"]
-    assert items["topic"]["label"] == "Tema" and items["topic"]["example"] and items["topic"]["description"]
+    assert items["topic"]["label"] == "Topic" and items["topic"]["example"] and items["topic"]["description"]
     assert items["instructions"]["type"] == "long_text"
     assert all(item["source"] == "declared" for item in spec["inputs"])
     assert {name for name, item in items.items() if item["required"]} == {"topic", "platform", "audience", "instructions"}

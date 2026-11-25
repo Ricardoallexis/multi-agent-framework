@@ -1,5 +1,5 @@
 schema: maf.project-template/1
 id: vacia
-title: Proyecto vacío
-description: Sin etapas ni tareas. Para empezar desde cero.
+title: Empty project
+description: No stages and no tasks. To start from scratch.
 stages: []

@@ -52,7 +52,7 @@ WORKFLOWS = {
         "inputs": {
             "document_text": "A partir de marzo, la reunion semanal sera los miercoles a las 10:00. Las actas se "
                              "subiran a la carpeta compartida antes de las 18:00.",
-            "focus": "Decisiones y plazos", "audience": "Equipo directivo", "summary_length": "media",
+            "focus": "Decisiones y plazos", "audience": "Equipo directivo", "summary_length": "medium",
         },
     },
     "research_options": {

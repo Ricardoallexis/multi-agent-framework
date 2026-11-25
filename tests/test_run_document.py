@@ -74,7 +74,7 @@ def test_document_of_completed_run(env):
     document = env.services.runs.document(run_id)
     assert document["schema"] == "maf.run-document/1"
     assert document["run_id"] == run_id and document["step_id"] == "answer"
-    assert document["title"] == "Responde una tarea sencilla en una sesión única con el modelo elegido."
+    assert document["title"] == "Answers a simple task in a single session with the chosen model."
     assert document["markdown"].startswith("# ")
     assert document["filename"].endswith(f"-{run_id[:8]}.md")
 
@@ -156,4 +156,4 @@ def test_document_in_bundle_runtime(env):
     run_id = _completed(env)
     assert env.services.runs._find(run_id).bundle == "general"
     document = env.services.runs.document(run_id)
-    assert "Esta es una respuesta de ejemplo de Mock." in document["markdown"]
+    assert "This is a sample answer from Mock." in document["markdown"]

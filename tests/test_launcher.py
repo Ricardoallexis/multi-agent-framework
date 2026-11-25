@@ -214,7 +214,7 @@ def test_sh_no_python_opens_download_page(tmp_path):
     assert result.returncode != 0
     openers = [call for call in _calls(home) if call[0] in ("xdg-open", "open")]
     assert len(openers) == 1 and openers[0][1] == DOWNLOAD_URL  # the fake received it: no real browser opened
-    assert "Python 3.13" in result.stdout and "No encontré Python" in result.stdout
+    assert "Python 3.13" in result.stdout and "I could not find Python" in result.stdout
     assert not (home / ".venv").exists() and not (home / ".local").exists()
     assert _module_calls(home) == []
 
@@ -246,7 +246,7 @@ def test_sh_reports_the_failed_step_in_one_line(tmp_path):
     result = _run_sh(world)
     home = world["home"]
     assert result.returncode != 0
-    assert "paso 2 de 4, instalar las dependencias" in result.stdout
+    assert "step 2 of 4, installing the dependencies" in result.stdout
     assert not (home / ".venv" / ".maf-ready").exists()  # a failed install is not marked as ready
     assert ("venv", "-m multiagent init") not in _calls(home)
 
@@ -282,7 +282,7 @@ def test_cmd_no_python(tmp_path):
     home = world["home"]
     assert result.returncode != 0
     assert ("explorer", DOWNLOAD_URL) in _calls(home)  # the fake received it: no real browser opened
-    assert "Python 3.13" in result.stdout and "py launcher" in result.stdout and "No encontré Python" in result.stdout
+    assert "Python 3.13" in result.stdout and "py launcher" in result.stdout and "I could not find Python" in result.stdout
     assert not (home / ".venv").exists() and not (home / ".local").exists()
     assert _module_calls(home) == []
 
@@ -382,9 +382,9 @@ def test_launcher_in_mock_says_how_to_use_real_models(launcher_env, monkeypatch,
     gui_main.run(port=8123, no_browser=True, launcher=True)
     out = capsys.readouterr().out
     assert started and "Mock (synthetic results)" in out
-    assert "Para usar modelos reales: Inicio › Pasar a modelos reales" in out
+    assert "To use real models: Inicio › Pasar a modelos reales" in out
     gui_main.run(port=8123, no_browser=True)  # without --launcher the line is not printed
-    assert "Para usar modelos reales" not in capsys.readouterr().out
+    assert "To use real models" not in capsys.readouterr().out
 
 
 def test_launcher_flag_reaches_run_from_the_cli_and_the_module(monkeypatch):

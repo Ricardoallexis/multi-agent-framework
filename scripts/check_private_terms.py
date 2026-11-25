@@ -23,7 +23,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 DEFAULT_TERMS = ".local/privado/terminos-privados.txt"
-MISSING_LIST_MESSAGE = "No hay lista de términos privados; no se puede comprobar"
+MISSING_LIST_MESSAGE = "There is no private terms list; cannot check"
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
@@ -180,7 +180,7 @@ def _iter_added_lines(diff_text: str) -> Iterator[tuple[str, str]]:
         if not in_hunk or current_file is None:
             continue
         if raw_line.startswith("+"):
-            yield f"`{current_file}`, línea {new_line} (línea añadida)", raw_line[1:]
+            yield f"`{current_file}`, line {new_line} (added line)", raw_line[1:]
             new_line += 1
         elif raw_line.startswith("-"):
             continue
@@ -292,7 +292,7 @@ def _report_findings(where: str, text: str, terms: list[str]) -> bool:
         return False
     safe_where = _redact_terms(where, terms)
     for term_num in matches:
-        print(f"término n.º {term_num} de la lista en {safe_where}")
+        print(f"term no. {term_num} of the list in {safe_where}")
     return True
 
 

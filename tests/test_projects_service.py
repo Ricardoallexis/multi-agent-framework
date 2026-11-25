@@ -586,7 +586,7 @@ def test_the_marketing_template_keeps_its_assignees_and_restrictions(services):
     view = make_project(services, "mkt", doc)
     first = services.tasks.store.get_task("mkt-INV-T01")
     assert first["preferred"] == "agent:claude" and first["assignee"] == ""
-    assert first["constraints_json"] == '["Terminado cuando: Informe con 3 segmentos"]'
+    assert first["constraints_json"] == '["Terminado cuando: Report with 3 segments"]'
     assert services.tasks.get_task("mkt-EST-T01")["blockers"] and view["counts"] == {"todo": view["progress"]["total"]}
     assert make_project(services, "mkt2", doc)["id"] == "mkt2"   # a second project of the same template does not collide
 

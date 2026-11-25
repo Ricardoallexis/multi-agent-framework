@@ -157,10 +157,10 @@ def test_title_from_description_or_id():
 def test_render_with_contract_descriptions():
     md = render_markdown("Resumen semanal", SAMPLE_OUTPUTS["DocumentSummary"], DocumentSummary.model_json_schema())
     assert md.startswith("# Resumen semanal\n\n")
-    assert "## Title\n\nCambio de la reunión semanal" in md
-    assert "## Summary\n\nLa reunión semanal se mueve a los miércoles" in md
-    assert "## Key Points\n\n- Nuevo día y hora: miércoles a las 10:00.\n- Las actas se publican antes de las 18:00" in md
-    assert "## Open Questions\n\n- Qué se hace si el miércoles es festivo." in md
+    assert "## Title\n\nChange of the weekly meeting" in md
+    assert "## Summary\n\nThe weekly meeting moves to Wednesdays" in md
+    assert "## Key Points\n\n- New day and time: Wednesday at 10:00.\n- The minutes are published before 18:00" in md
+    assert "## Open Questions\n\n- What to do if the Wednesday is a holiday." in md
 
     class DescribedSummary(StrictModel):
         headline: str = Field(description="Titular principal")

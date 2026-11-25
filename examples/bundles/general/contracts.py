@@ -96,71 +96,71 @@ OUTPUT_SCHEMAS = {
 }
 
 SAMPLE_OUTPUTS = {
-    "FreeTextAnswer": {"answer": "Esta es una respuesta de ejemplo de Mock."},
+    "FreeTextAnswer": {"answer": "This is a sample answer from Mock."},
     "CollectedOutputs": {"steps": {}},
     "KeyPoints": {
         "key_points": [
-            {"id": "P1", "point": "La reunión semanal pasa de los lunes a los miércoles.",
-             "evidence": "«A partir de marzo, la reunión semanal será los miércoles a las 10:00.»"},
-            {"id": "P2", "point": "Las actas se publican en la carpeta compartida el mismo día.",
-             "evidence": "«Las actas se subirán a la carpeta compartida antes de las 18:00.»"},
+            {"id": "P1", "point": "The weekly meeting moves from Mondays to Wednesdays.",
+             "evidence": "\"From March, the weekly meeting will be on Wednesdays at 10:00.\""},
+            {"id": "P2", "point": "The minutes are published in the shared folder the same day.",
+             "evidence": "\"The minutes will be uploaded to the shared folder before 18:00.\""},
         ],
-        "open_questions": ["No se indica qué ocurre cuando el miércoles es festivo."],
+        "open_questions": ["It does not say what happens when the Wednesday is a holiday."],
     },
     "DocumentSummary": {
-        "title": "Cambio de la reunión semanal",
-        "summary": "La reunión semanal se mueve a los miércoles a las 10:00 y las actas se publican el mismo día "
-                   "en la carpeta compartida.",
+        "title": "Change of the weekly meeting",
+        "summary": "The weekly meeting moves to Wednesdays at 10:00 and the minutes are published the same day "
+                   "in the shared folder.",
         "key_points": [
-            "Nuevo día y hora: miércoles a las 10:00.",
-            "Las actas se publican antes de las 18:00 del mismo día.",
+            "New day and time: Wednesday at 10:00.",
+            "The minutes are published before 18:00 the same day.",
         ],
-        "open_questions": ["Qué se hace si el miércoles es festivo."],
+        "open_questions": ["What to do if the Wednesday is a holiday."],
     },
     "ResearchFindings": {
-        "question": "¿Conviene pasar a reuniones semanales asíncronas?",
+        "question": "Should we move to asynchronous weekly meetings?",
         "findings": [
-            {"id": "H1", "finding": "Las reuniones asíncronas reducen las interrupciones, pero retrasan las decisiones "
-                                     "que necesitan una conversación.",
-             "confidence": "medium", "source_note": "Experiencia general de equipos distribuidos; sin fuente citada."},
-            {"id": "H2", "finding": "El contexto indica que el equipo trabaja en dos zonas horarias.",
-             "confidence": "high", "source_note": "Dato aportado en el contexto de la consulta."},
+            {"id": "H1", "finding": "Asynchronous meetings reduce interruptions, but delay the decisions "
+                                     "that need a conversation.",
+             "confidence": "medium", "source_note": "General experience of distributed teams; no source cited."},
+            {"id": "H2", "finding": "The context says the team works in two time zones.",
+             "confidence": "high", "source_note": "Fact given in the context of the query."},
         ],
-        "gaps": ["No se conoce el coste actual, en horas, de las reuniones semanales."],
+        "gaps": ["The current cost, in hours, of the weekly meetings is not known."],
     },
     "OptionsComparison": {
-        "criteria": ["Coste de tiempo", "Calidad de las decisiones", "Facilidad de adopción"],
+        "criteria": ["Time cost", "Quality of decisions", "Ease of adoption"],
         "options": [
-            {"id": "A", "name": "Mantener la reunión síncrona",
-             "description": "Una reunión semanal en directo, como ahora.",
-             "pros": ["Decisiones rápidas", "No cambia nada"], "cons": ["Difícil de coordinar entre zonas horarias"]},
-            {"id": "B", "name": "Pasar a un resumen asíncrono",
-             "description": "Cada persona publica su avance por escrito y solo se reúnen para decidir.",
-             "pros": ["Menos tiempo en reuniones", "Queda registro escrito"],
-             "cons": ["Requiere disciplina para escribir", "Más lento para dudas urgentes"]},
+            {"id": "A", "name": "Keep the synchronous meeting",
+             "description": "One live weekly meeting, as today.",
+             "pros": ["Fast decisions", "Nothing changes"], "cons": ["Hard to coordinate across time zones"]},
+            {"id": "B", "name": "Move to an asynchronous summary",
+             "description": "Each person posts their progress in writing and they only meet to decide.",
+             "pros": ["Less time in meetings", "A written record remains"],
+             "cons": ["Requires discipline to write", "Slower for urgent questions"]},
         ],
     },
     "Recommendation": {
         "recommended_option_id": "B",
-        "rationale": "Reduce el tiempo en reuniones y se adapta a las dos zonas horarias, a costa de requerir "
-                     "disciplina de escritura.",
-        "risks": ["Que los resúmenes se publiquen tarde o con poco detalle."],
-        "next_steps": ["Probar el formato durante cuatro semanas.", "Medir el tiempo ahorrado y revisar la decisión."],
+        "rationale": "It reduces time in meetings and fits both time zones, at the cost of requiring "
+                     "writing discipline.",
+        "risks": ["The summaries may be posted late or with little detail."],
+        "next_steps": ["Try the format for four weeks.", "Measure the time saved and review the decision."],
     },
     "ChecklistResult": {
         "items": [
-            {"criterion": "Cada requisito tiene un responsable", "status": "partial",
-             "comment": "Dos requisitos de la sección 3 no indican responsable."},
-            {"criterion": "Los plazos son concretos", "status": "met",
-             "comment": "Todas las entregas tienen fecha."},
-            {"criterion": "Se describen los riesgos", "status": "not_met",
-             "comment": "El documento no incluye una sección de riesgos."},
+            {"criterion": "Every requirement has an owner", "status": "partial",
+             "comment": "Two requirements in section 3 do not name an owner."},
+            {"criterion": "Deadlines are specific", "status": "met",
+             "comment": "Every deliverable has a date."},
+            {"criterion": "Risks are described", "status": "not_met",
+             "comment": "The document has no risks section."},
         ],
     },
     "ReviewReport": {
         "verdict": "needs_changes",
-        "summary": "El documento es claro y tiene plazos concretos, pero le faltan responsables y riesgos.",
-        "blocking_issues": ["Falta la sección de riesgos."],
-        "suggestions": ["Asignar un responsable a los requisitos 3.2 y 3.4.", "Añadir una tabla de riesgos con su mitigación."],
+        "summary": "The document is clear and has specific deadlines, but it lacks owners and risks.",
+        "blocking_issues": ["The risks section is missing."],
+        "suggestions": ["Assign an owner to requirements 3.2 and 3.4.", "Add a risks table with their mitigation."],
     },
 }

@@ -1,49 +1,49 @@
 schema: maf.project-template/1
 id: campana-marketing
-title: Campaña de marketing
-description: Una campaña de principio a fin, desde la investigación hasta la medición. Sin fechas; se añaden al crear el proyecto.
+title: Marketing campaign
+description: A campaign from start to finish, from research to measurement. No dates; they are added when the project is created.
 stages:
   - code: INV
-    title: Investigación
-    phases: [Fuentes, Análisis]
+    title: Research
+    phases: [Sources, Analysis]
     tasks:
-      - {id: T01, title: Estudio de audiencia, phase: Fuentes, assignee: "agent:claude", done_when: "Informe con 3 segmentos"}
-      - {id: T02, title: Análisis de la competencia, phase: Análisis, depends_on: [T01]}
-      - {id: T03, title: Resumen de hallazgos, phase: Análisis, depends_on: [T01, T02], done_when: "Documento de una página aprobado"}
+      - {id: T01, title: Audience study, phase: Sources, assignee: "agent:claude", done_when: "Report with 3 segments"}
+      - {id: T02, title: Competitor analysis, phase: Analysis, depends_on: [T01]}
+      - {id: T03, title: Summary of findings, phase: Analysis, depends_on: [T01, T02], done_when: "One-page document approved"}
   - code: EST
-    title: Estrategia
-    phases: [Posicionamiento, Plan]
+    title: Strategy
+    phases: [Positioning, Plan]
     tasks:
-      - {id: T01, title: Propuesta de valor, phase: Posicionamiento, depends_on: ["stage:INV"]}
-      - {id: T02, title: Mensajes clave, phase: Posicionamiento, depends_on: [T01]}
-      - {id: T03, title: Plan de medios y calendario, phase: Plan, depends_on: [T02]}
+      - {id: T01, title: Value proposition, phase: Positioning, depends_on: ["stage:INV"]}
+      - {id: T02, title: Key messages, phase: Positioning, depends_on: [T01]}
+      - {id: T03, title: Media plan and calendar, phase: Plan, depends_on: [T02]}
   - code: CON
-    title: Contenido
-    phases: [Textos, Piezas]
+    title: Content
+    phases: [Copy, Pieces]
     tasks:
-      - {id: T01, title: Textos principales, phase: Textos, depends_on: ["stage:EST"]}
-      - {id: T02, title: Guiones para piezas audiovisuales, phase: Piezas, depends_on: [T01]}
-      - {id: T03, title: Revisión de tono y de marca, depends_on: [T01, T02], done_when: "Textos aprobados"}
+      - {id: T01, title: Main copy, phase: Copy, depends_on: ["stage:EST"]}
+      - {id: T02, title: Scripts for audiovisual pieces, phase: Pieces, depends_on: [T01]}
+      - {id: T03, title: Tone and brand review, depends_on: [T01, T02], done_when: "Copy approved"}
   - code: PRO
-    title: Producción
-    phases: [Preparación, Ejecución]
+    title: Production
+    phases: [Preparation, Execution]
     tasks:
-      - {id: T01, title: Presupuesto y cronograma de producción, phase: Preparación, depends_on: ["stage:CON"]}
-      - {id: T02, title: Producción de piezas, phase: Ejecución, depends_on: [T01]}
-      - {id: T03, title: Página de destino, phase: Ejecución, depends_on: [T01]}
-      - {id: T04, title: Control de calidad, depends_on: [T02, T03], done_when: "Lista de comprobación completa"}
+      - {id: T01, title: Production budget and schedule, phase: Preparation, depends_on: ["stage:CON"]}
+      - {id: T02, title: Production of pieces, phase: Execution, depends_on: [T01]}
+      - {id: T03, title: Landing page, phase: Execution, depends_on: [T01]}
+      - {id: T04, title: Quality control, depends_on: [T02, T03], done_when: "Checklist complete"}
   - code: PUB
-    title: Publicación
-    phases: [Preparación, Lanzamiento]
+    title: Publishing
+    phases: [Preparation, Launch]
     tasks:
-      - {id: T01, title: Plan de publicación, phase: Preparación, depends_on: ["stage:PRO"]}
-      - {id: T02, title: Programación de publicaciones, phase: Preparación, depends_on: [T01]}
-      - {id: T03, title: Lanzamiento de la campaña, phase: Lanzamiento, depends_on: [T02], done_when: "Piezas publicadas según el plan"}
-  # Sin recurrencia: otra ronda de medición se crea como un proyecto nuevo.
+      - {id: T01, title: Publishing plan, phase: Preparation, depends_on: ["stage:PRO"]}
+      - {id: T02, title: Scheduling of posts, phase: Preparation, depends_on: [T01]}
+      - {id: T03, title: Campaign launch, phase: Launch, depends_on: [T02], done_when: "Pieces published according to the plan"}
+  # No recurrence: another round of measurement is created as a new project.
   - code: MED
-    title: Medición
-    phases: [Seguimiento, Informe]
+    title: Measurement
+    phases: [Tracking, Report]
     tasks:
-      - {id: T01, title: Seguimiento de indicadores, phase: Seguimiento, depends_on: ["stage:PUB"]}
-      - {id: T02, title: Informe de resultados, phase: Informe, depends_on: [T01]}
-      - {id: T03, title: Lecciones aprendidas, phase: Informe, depends_on: [T02]}
+      - {id: T01, title: Indicator tracking, phase: Tracking, depends_on: ["stage:PUB"]}
+      - {id: T02, title: Results report, phase: Report, depends_on: [T01]}
+      - {id: T03, title: Lessons learned, phase: Report, depends_on: [T02]}

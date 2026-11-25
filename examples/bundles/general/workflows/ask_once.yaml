@@ -1,17 +1,17 @@
 # One free-text task, one model call.
 id: ask_once
-description: Responde una tarea sencilla en una sesión única con el modelo elegido.
+description: Answers a simple task in a single session with the chosen model.
 max_iterations: 1
 inputs:
   - name: task
-    label: Tarea
-    description: Describe lo que quieres pedir al modelo.
-    example: Explica esta idea con palabras sencillas.
+    label: Task
+    description: Describe what you want to ask the model.
+    example: Explain this idea in simple words.
     required: true
     type: long_text
 steps:
   - id: answer
-    description: Responde a la tarea indicada.
+    description: Answers the given task.
     agent: summary_writer
     prompt_id: general/ask_once
     prompt_version: 1

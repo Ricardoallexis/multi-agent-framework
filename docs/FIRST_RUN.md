@@ -1,18 +1,18 @@
-# Primer recorrido
+# First walkthrough
 
-Abre el programa con el lanzador y entra en «Inicio». Empieza en el modo de prueba (sin gasto).
+Open the program with the launcher and go to «Inicio». It starts in test mode (no spending).
 
-Si trabajas desde una copia del proyecto, «Inicio» ofrece instalar la oficina de ejemplo. Se copia solo cuando pulsas
-«Instalar la oficina de ejemplo»; no se carga al abrir el programa. También puedes importar una oficina propia desde
-«Oficinas». Después, abre «Oficinas» para ver sus áreas y los equipos propuestos. Instalarla no aprueba ningún equipo.
+If you work from a copy of the project, «Inicio» offers to install the example office. It is copied only when you press
+«Instalar la oficina de ejemplo»; it is not loaded when the program opens. You can also import an office of your own from
+«Oficinas». Then open «Oficinas» to see its areas and the proposed teams. Installing it does not approve any team.
 
-En una copia instalada del framework, la oficina de ejemplo no está disponible. Abre «Oficinas» e importa una oficina
-propia desde un archivo.
+In an installed copy of the framework, the example office is not available. Open «Oficinas» and import an office of your
+own from a file.
 
-Con una oficina instalada, abre «Nueva sesión» y elige la oficina. Con la de ejemplo, pide el menú de la semana en
-el área «Menú» («Probar en Mock» de «Inicio» te lleva ahí); con una propia, elige el área que quieras probar.
-Revisa el documento que aparece en su conversación y apruébalo desde ahí. Luego conecta un agente en «Apps y agentes»,
-actívalo tú y, cuando estés listo, prueba con tus datos.
+With an office installed, open «Nueva sesión» and choose the office. With the example one, ask for the menu of the week in
+the «Menú» area («Probar en Mock» in «Inicio» takes you there); with your own, choose the area you want to try.
+Review the document that appears in its conversation and approve it from there. Then connect an agent in «Apps y agentes»,
+activate it yourself and, when you are ready, try it with your own data.
 
-`primer-recorrido.json` guarda las horas de los pasos que el programa detecta como terminados. Se guarda en la carpeta
-local de la aplicación y nunca sale de tu equipo.
+`primer-recorrido.json` stores the times of the steps the program detects as done. It is kept in the application's local
+folder and never leaves your computer.
