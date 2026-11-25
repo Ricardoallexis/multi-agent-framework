@@ -198,9 +198,16 @@ def test_service_candidates_in_mock_cover_model_requirements_only(tmp_path):
     from test_offices_install import make_settings
     from multiagent.services import ApplicationServices
 
+    class NoOllama:
+        """A local Ollama that is running on this machine must not add its models to the candidates."""
+
+        def health(self):
+            return {"available": False}
+
     services = ApplicationServices.create(make_settings(tmp_path / "local"), dry_run=True)
     try:
         services.connections.detector = lambda **kw: {}
+        services.system.adapters["ollama"] = NoOllama()
         found = {c["id"]: c for c in services.offices.requirements_candidates()}
         assert found["mock"]["local"] is True and found["mock"]["label"] == "Mock (example)"
         assert not any(c["kind"] == "executor" for c in found.values())
