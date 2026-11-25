@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 from typing import Any
+
+from pydantic import ValidationError
 
 from .call_guards import cut_by_run_limits
 from .config import Settings
@@ -13,6 +16,8 @@ from .tools.approvals import ToolApprovalMismatch
 from .run_request import OPERATING_MODE_SET, RunRequest, validate_function_step_options
 from .routing_preferences import validate_run_preferences
 from .teams.step_roles import TEAM_VERSION_BOUND, bind_step_roles, bound_team_from_payload
+from .workflow_validation import WorkflowDefinitionError
+from .workflows import condition_is_true
 
 
 class PersonRequired(InvalidStateTransition):
@@ -107,7 +112,8 @@ class RunService:
                 and run.get("waiting_reason") == WaitingReason.TOOL_APPROVAL.value)
 
     def _finish_function_wait(self, run: dict[str, Any], *, current_step: int,
-                              feedback: str = "", events: tuple[tuple[str, dict[str, Any]], ...]) -> None:
+                              feedback: str = "", events: tuple[tuple[str, dict[str, Any]], ...],
+                              request_json: str | None = None) -> None:
         """Settle one function wait atomically; a repeated decision cannot queue it twice. The event listeners hear
         of the decision once it is committed (``functions.announce_run_events``)."""
         with self.store.db.tx() as conn:
@@ -117,12 +123,65 @@ class RunService:
                     or row["cancel_requested"] or any(row[key] != run[key] for key in fields)):
                 raise InvalidStateTransition("The function wait changed; read the run again")
             conn.execute(
-                """UPDATE runs SET status=?,current_step=?,revision_feedback=?,error='',
+                """UPDATE runs SET status=?,current_step=?,revision_feedback=?,request_json=COALESCE(?,request_json),error='',
                    waiting_reason='',waiting_step='',waiting_attempt=NULL,updated_at=? WHERE id=?""",
-                (RunStatus.QUEUED.value, current_step, feedback, utcnow(), run["id"]),
+                (RunStatus.QUEUED.value, current_step, feedback, request_json, utcnow(), run["id"]),
             )
             inserted = insert_run_events(conn, run["id"], events)
         announce_run_events(self.store, inserted)
+
+    def correct_function_inputs(self, run_id: str, inputs: dict[str, str], *,
+                                by: str | None = None, channel: str | None = None) -> dict[str, Any]:
+        """Replace only declared inputs after a function failure without a prior model output."""
+        from .services.workflow_inputs import derive_inputs, missing_required
+
+        run = self.store.get_run(run_id)
+        if (run["status"] != RunStatus.WAITING_HUMAN.value
+                or run.get("waiting_reason") != WaitingReason.FUNCTION_FAILURE.value):
+            raise InvalidStateTransition("The run is not waiting for a function input correction")
+        if self.engine is None:
+            raise RuntimeError("RunService has no WorkflowEngine attached")
+        try:
+            definition = self.engine.preflight(run["workflow_id"])
+        except (KeyError, WorkflowDefinitionError) as exc:
+            raise InvalidStateTransition("The failed function no longer matches the workflow") from exc
+        index = run["current_step"]
+        if not 0 <= index < len(definition.steps):
+            raise InvalidStateTransition("The failed function no longer matches the workflow")
+        step = definition.steps[index]
+        if (step.id != run["waiting_step"] or step.function is None
+                or not condition_is_true(step.when, run["request"])):
+            raise InvalidStateTransition("The failed function no longer matches the workflow")
+        if (index > 0 and definition.steps[index - 1].function is None
+                and self.store.latest_step_output(run_id, definition.steps[index - 1].id) is not None):
+            raise InvalidStateTransition("Correct the previous model output for this function failure")
+        allowed = {item.name for item in definition.inputs}
+        if not inputs or not set(inputs) <= allowed:
+            raise ValueError("Supply only declared workflow inputs read by the function")
+        request = run["request"]
+        merged = {**(request.get("inputs") or {}), **inputs}
+        try:
+            RunRequest.model_validate({"workflow_id": run["workflow_id"],
+                                       "project_name": "Input correction", "inputs": merged})
+        except ValidationError as exc:
+            raise ValueError("Invalid workflow inputs") from exc
+        spec = derive_inputs(definition, self.engine.prompts)
+        missing = missing_required({**spec, "inputs": [item for item in spec["inputs"] if item["name"] in allowed]}, merged)
+        if missing:
+            raise ValueError("Required workflow inputs are empty: " + ", ".join(missing))
+        for item in definition.inputs:
+            value = merged.get(item.name, "")
+            if item.type == "choice" and value and value not in item.choices:
+                raise ValueError(f"Workflow input {item.name!r} must be one of its declared choices")
+        retry = {"step_id": run["waiting_step"], "attempt": run["waiting_attempt"] + 1}
+        correction = {"step_id": run["waiting_step"], "attempt": run["waiting_attempt"],
+                      "input_names": sorted(inputs), "by": by, "channel": channel}
+        self._finish_function_wait(
+            run, current_step=index,
+            events=(("function_inputs_corrected", correction), ("function_retry_requested", retry)),
+            request_json=json.dumps({**request, "inputs": merged}, ensure_ascii=False),
+        )
+        return self.store.get_run(run_id)
 
     def approve(self, run_id: str, *, by: str | None = None, channel: str | None = None,
                 recorded_only: bool = False, permission_request_id: str | None = None,

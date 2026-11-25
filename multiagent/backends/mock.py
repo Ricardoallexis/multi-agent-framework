@@ -530,12 +530,20 @@ class MockBackend:
                 self.store.db.log_event(run_id, "workflow_failed", {"error": str(exc), "type": type(exc).__name__})
             return self._finalize_return(run_id)
         except FunctionStepError as exc:
-            # As the native engine: a recoverable failure waits in one transaction, a cancel that came in while the
-            # function ran ends the run cancelled, anything else fails the run.
-            recoverable = (index > 0 and definition.steps[index - 1].function is None
-                           and self.store.latest_step_output(run_id, definition.steps[index - 1].id) is not None)
+            # As the native engine: the person may correct the prior output or declared run inputs.
+            run_state = self.store.get_run(run_id)
+            if (request.get("sensitive") or request.get("data_class") in {"sensitive", "restricted"}
+                    or run_state.get("data_class") in {"sensitive", "restricted"}):
+                exc = FunctionStepError(exc.code, step.id)
+            input_corrected = any(event["event_type"] == "function_inputs_corrected"
+                                  and event["payload"].get("step_id") == step.id for event in run_state["events"])
+            output_recoverable = (index > 0 and definition.steps[index - 1].function is None
+                                  and self.store.latest_step_output(run_id, definition.steps[index - 1].id) is not None)
+            recoverable = (bool(definition.inputs) and not input_corrected) or output_recoverable
+            if input_corrected and not output_recoverable:
+                exc = FunctionStepError(exc.code, step.id, "The retry after input correction failed")
             if not ((recoverable and wait_for_function_failure(self.store, run_id, step, attempt, exc, index=index))
-                                    or cancel_after_function_failure(self.store, run_id)):
+                    or cancel_after_function_failure(self.store, run_id)):
                 self.store.fail_active_run(run_id, exc, issues=[{
                     "code": exc.code, "location": "function", "step_id": step.id, "message": str(exc),
                 }])

@@ -5,13 +5,20 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from fastapi import APIRouter, FastAPI
+from fastapi.testclient import TestClient
+from fastapi.responses import JSONResponse
 import pytest
 import yaml
 
 from multiagent import functions
 from multiagent.functions import failure_detail, get_function, register_function
-from multiagent.gui.threads_api import build_thread
+from multiagent.gui.threads_api import _input_correction, add_thread_routes, build_thread
 from multiagent.run_service import PersonRequired
+from multiagent.run_request import RunRequest
+from multiagent.errors import InvalidStateTransition
+from multiagent.services.errors import ServiceError
+from multiagent.workflow_validation import WorkflowDefinitionError
 
 from backends.conformance import advance, backend_system, create_run, events, steps
 
@@ -58,6 +65,13 @@ def _changed_then_fails(context, arguments):
     raise ValueError("bad row")
 
 
+def _needs_topic(context, arguments):
+    CALLS.append(dict(context["inputs"]))
+    if context["inputs"]["topic"] != "ready":
+        raise ValueError(f"topic needs correction: {context['inputs']['topic']}")
+    return {"steps": {}}
+
+
 for _id, _fn, _text in (
         ("test.function_review_recover", _recover, "Fail once and recover"),
         ("test.function_review_invalid", lambda context, arguments: {}, "Return an invalid output"),
@@ -67,6 +81,8 @@ for _id, _fn, _text in (
         ("test.function_review_changed_then_fails", _changed_then_fails, "Let the run change, then fail")):
     if get_function(_id) is None:
         register_function(_id, _fn, description=_text)
+if get_function("test.function_review_needs_topic") is None:
+    register_function("test.function_review_needs_topic", _needs_topic, description="Read a declared run input")
 
 
 @pytest.fixture(params=["native", "mock"])
@@ -91,6 +107,247 @@ def _workflow(system, tmp_path, *, function="core.merge_outputs", checkpoint=Fal
 def _thread(system, run, document):
     services = SimpleNamespace(definitions=SimpleNamespace(read_workflow=lambda *args, **kwargs: document))
     return build_thread(services, run)
+
+
+@pytest.mark.parametrize("first", [True, False], ids=["first_step", "after_function_without_output"])
+def test_function_failure_corrects_declared_run_inputs(system, tmp_path, first):
+    CALLS.clear()
+    document = _workflow(system, tmp_path, function="test.function_review_needs_topic")
+    document["inputs"] = [{"name": "topic", "required": True, "label": "Topic"}]
+    if first:
+        document["steps"] = document["steps"][1:]
+    else:
+        document["steps"][0] = {"id": "before", "function": "core.merge_outputs",
+                                "arguments": {}, "contract": "CollectedOutputs"}
+    (tmp_path / "workflows" / "function_steps.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    run = system.service.create_run(RunRequest(workflow_id="function_steps", project_name="Input correction",
+                                               inputs={"topic": "bad"}, operating_mode="autonomous"))
+    held = advance(system, run["id"])
+    assert (held["status"], held["waiting_reason"]) == ("waiting_human", "function_failure")
+    entry = _thread(system, held, document)["entries"][-1]
+    assert entry["decision"]["correction_target"] == "inputs"
+    assert entry["decision"]["actions"] == ["correct_inputs", "reject"]
+    assert entry["input_fields"][0]["value"] == "bad"
+    for invalid in ({"topic": ""}, {"unknown": "ready"}):
+        with pytest.raises(ValueError):
+            system.service.correct_function_inputs(run["id"], invalid)
+        assert system.store.get_run(run["id"])["status"] == "waiting_human"
+    queued = system.service.correct_function_inputs(run["id"], {"topic": "ready"}, by="operator", channel="gui")
+    assert queued["request"]["inputs"] == {"topic": "ready"}
+    correction = events(queued, "function_inputs_corrected")[-1]["payload"]
+    assert correction == {"step_id": "collect", "attempt": 1, "input_names": ["topic"],
+                          "by": "operator", "channel": "gui"}
+    assert "ready" not in str(correction)
+    final = advance(system, run["id"])
+    assert final["status"] == "completed", (final["waiting_reason"], final["error"],
+                                           [(event["event_type"], event["payload"])
+                                            for event in final["events"][-5:]])
+    assert len(CALLS) == 2
+    assert [item["payload"]["attempt"] for item in events(final, "function_retry_requested")] == [2]
+
+
+def test_second_failure_after_input_correction_is_terminal(system, tmp_path):
+    CALLS.clear()
+    document = _workflow(system, tmp_path, function="test.function_review_fails_twice")
+    document["inputs"] = [{"name": "topic", "required": True}]
+    document["steps"] = document["steps"][1:]
+    (tmp_path / "workflows" / "function_steps.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    run = system.service.create_run(RunRequest(workflow_id="function_steps", project_name="One input retry",
+                                               inputs={"topic": "bad"}, operating_mode="autonomous"))
+    assert advance(system, run["id"])["waiting_reason"] == "function_failure"
+    system.service.correct_function_inputs(run["id"], {"topic": "ready"})
+    final = advance(system, run["id"])
+    assert final["status"] == "failed"
+    assert "retry after input correction failed" in final["error"]
+    assert len(CALLS) == 2
+    assert len(events(final, "function_step_failed")) == 1
+    assert len(events(final, "workflow_failed")) == 1
+
+
+@pytest.mark.parametrize("data_class", ["sensitive", "restricted"])
+def test_data_class_hides_function_failure_detail(system, tmp_path, monkeypatch, data_class):
+    CALLS.clear()
+    document = _workflow(system, tmp_path, function="test.function_review_needs_topic")
+    document["inputs"] = [{"name": "topic"}]
+    document["steps"] = document["steps"][1:]
+    (tmp_path / "workflows" / "function_steps.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    run = system.service.create_run(RunRequest(workflow_id="function_steps", project_name="Classified input",
+                                               inputs={"topic": "bad"}, operating_mode="autonomous"))
+    get_run = system.store.get_run
+    monkeypatch.setattr(system.store, "get_run", lambda run_id: {**get_run(run_id), "data_class": data_class})
+    held = advance(system, run["id"])
+    assert held["waiting_reason"] == "function_failure"
+    assert "bad" not in str(events(held, "function_step_failed"))
+    assert "bad" not in held["error"]
+    entry = _thread(system, held, document)["entries"][-1]
+    assert entry["detail"] == ""
+    assert entry["input_fields"][0]["value"] is None
+    assert entry["input_fields"][0]["sensitive"] is True
+
+
+def test_input_correction_rejects_changed_function(system, tmp_path):
+    document = _workflow(system, tmp_path, function="test.function_review_needs_topic")
+    document["inputs"] = [{"name": "topic"}]
+    document["steps"] = document["steps"][1:]
+    path = tmp_path / "workflows" / "function_steps.yaml"
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    run = system.service.create_run(RunRequest(workflow_id="function_steps", project_name="Changed function",
+                                               inputs={"topic": "bad"}, operating_mode="autonomous"))
+    held = advance(system, run["id"])
+    document["steps"][0]["when"] = "requires_web"
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    with pytest.raises(InvalidStateTransition, match="no longer matches"):
+        system.service.correct_function_inputs(run["id"], {"topic": "ready"})
+    assert _thread(system, held, document)["entries"][-1]["decision"]["actions"] == ["correct_inputs", "reject"]
+    assert system.store.get_run(run["id"])["status"] == "waiting_human"
+
+
+@pytest.mark.parametrize("change", ["model", "negative_index", "past_end"])
+def test_input_correction_rejects_step_mismatch(system, tmp_path, change):
+    document = _workflow(system, tmp_path, function="test.function_review_needs_topic")
+    model_step = document["steps"][0]
+    document["inputs"] = [{"name": "topic"}]
+    document["steps"] = document["steps"][1:]
+    path = tmp_path / "workflows" / "function_steps.yaml"
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    run = system.service.create_run(RunRequest(workflow_id="function_steps", project_name="Step mismatch",
+                                               inputs={"topic": "bad"}, operating_mode="autonomous"))
+    advance(system, run["id"])
+    if change == "model":
+        document["steps"][0] = {**model_step, "id": "collect"}
+        path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    else:
+        system.store.update_run(run["id"], current_step=-1 if change == "negative_index" else 1)
+    with pytest.raises(InvalidStateTransition, match="no longer matches"):
+        system.service.correct_function_inputs(run["id"], {"topic": "ready"})
+
+
+@pytest.mark.parametrize("error", [KeyError("missing"), WorkflowDefinitionError("function_steps", [])])
+def test_input_correction_translates_changed_definition(system, tmp_path, monkeypatch, error):
+    document = _workflow(system, tmp_path, function="test.function_review_needs_topic")
+    document["inputs"] = [{"name": "topic"}]
+    document["steps"] = document["steps"][1:]
+    (tmp_path / "workflows" / "function_steps.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    run = system.service.create_run(RunRequest(workflow_id="function_steps", project_name="Missing definition",
+                                               inputs={"topic": "bad"}, operating_mode="autonomous"))
+    advance(system, run["id"])
+
+    def broken_preflight(*args):
+        raise error
+
+    monkeypatch.setattr(system.service.engine, "preflight", broken_preflight)
+    with pytest.raises(InvalidStateTransition, match="no longer matches"):
+        system.service.correct_function_inputs(run["id"], {"topic": "ready"})
+
+
+@pytest.mark.parametrize("index,step", [(-1, {"id": "collect", "function": "test.function_review_needs_topic"}),
+                                            (1, {"id": "collect", "function": "test.function_review_needs_topic"}),
+                                            (0, {"id": "other", "function": "test.function_review_needs_topic"}),
+                                            (0, {"id": "collect", "function": None})])
+def test_thread_does_not_offer_inputs_for_a_changed_step(index, step):
+    run = {"current_step": index, "waiting_step": "collect"}
+    view = {"steps": [step], "artifacts": []}
+    assert not _input_correction(run, view, [{"name": "topic"}])
+
+
+def test_input_correction_ignores_undeclared_derived_required(system, tmp_path, monkeypatch):
+    from multiagent.services import workflow_inputs
+
+    document = _workflow(system, tmp_path, function="test.function_review_needs_topic")
+    document["inputs"] = [{"name": "topic", "required": True}]
+    document["steps"] = document["steps"][1:]
+    (tmp_path / "workflows" / "function_steps.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    run = system.service.create_run(RunRequest(workflow_id="function_steps", project_name="Derived input",
+                                               inputs={"topic": "bad"}, operating_mode="autonomous"))
+    advance(system, run["id"])
+    original = workflow_inputs.derive_inputs
+
+    def with_derived(*args):
+        spec = original(*args)
+        return {**spec, "inputs": [*spec["inputs"], {"name": "undeclared", "required": True}]}
+
+    monkeypatch.setattr(workflow_inputs, "derive_inputs", with_derived)
+    assert system.service.correct_function_inputs(run["id"], {"topic": "ready"})["status"] == "queued"
+
+
+def test_sensitive_function_input_failure_wait_and_supervised_retry(system, tmp_path):
+    CALLS.clear()
+    document = _workflow(system, tmp_path, function="test.function_review_needs_topic")
+    document["inputs"] = [{"name": "topic", "required": True}]
+    document["steps"] = document["steps"][1:]
+    (tmp_path / "workflows" / "function_steps.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    run = system.service.create_run(RunRequest(workflow_id="function_steps", project_name="Sensitive input",
+                                               inputs={"topic": "bad"}, sensitive=True,
+                                               operating_mode="supervised"))
+    review = advance(system, run["id"])
+    assert review["waiting_reason"] == "function_review"
+    system.service.approve(run["id"], person=True)
+    held = advance(system, run["id"])
+    entry = _thread(system, held, document)["entries"][-1]
+    assert entry["input_fields"][0]["sensitive"] is True
+    assert entry["input_fields"][0]["value"] is None
+    assert "bad" not in entry["text"] and "bad" not in entry["detail"]
+    assert "bad" not in str(events(held, "function_step_failed"))
+    assert "bad" not in held["error"]
+    assert "bad" not in str(_thread(system, held, document))
+    system.service.correct_function_inputs(run["id"], {"topic": "ready"})
+    review = advance(system, run["id"])
+    assert (review["status"], review["waiting_reason"]) == ("waiting_human", "function_review")
+    assert len(CALLS) == 1
+    system.service.cancel(run["id"])
+    cancelled = system.store.get_run(run["id"])
+    assert cancelled["status"] == "cancelled"
+    assert not system.worker.process_once()
+    assert len(CALLS) == 1
+
+
+def test_function_input_correction_route(system, tmp_path):
+    CALLS.clear()
+    document = _workflow(system, tmp_path, function="test.function_review_needs_topic")
+    document["inputs"] = [{"name": "topic", "required": True, "type": "choice",
+                           "choices": ["bad", "ready"]}]
+    document["steps"] = document["steps"][1:]
+    (tmp_path / "workflows" / "function_steps.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    run = system.service.create_run(RunRequest(workflow_id="function_steps", project_name="Route fixture",
+                                               inputs={"topic": "bad"}, operating_mode="autonomous"))
+    advance(system, run["id"])
+    runtime = SimpleNamespace(service=system.service)
+    runs = SimpleNamespace(_find=lambda run_id: runtime,
+                           _tag=lambda runtime, item: {**item, "bundle": None},
+                           get=system.store.get_run)
+    services = SimpleNamespace(runs=runs, definitions=SimpleNamespace(read_workflow=lambda *a, **kw: document))
+    router = APIRouter(prefix="/gui/api")
+    add_thread_routes(router, services)
+    app = FastAPI()
+    app.add_exception_handler(ServiceError, lambda request, exc: JSONResponse(
+        status_code=exc.status, content=exc.to_payload()))
+    app.include_router(router)
+    client = TestClient(app)
+    invalid = client.post(f"/gui/api/threads/runs/{run['id']}/function-inputs", json={"inputs": {"topic": ""}})
+    assert invalid.status_code == 422
+    invalid_choice = client.post(f"/gui/api/threads/runs/{run['id']}/function-inputs",
+                                 json={"inputs": {"topic": "unknown"}})
+    assert invalid_choice.status_code == 422
+    assert system.store.get_run(run["id"])["status"] == "waiting_human"
+    corrected = client.post(f"/gui/api/threads/runs/{run['id']}/function-inputs",
+                            json={"inputs": {"topic": "ready"}})
+    assert corrected.status_code == 200
+    assert system.store.get_run(run["id"])["request"]["inputs"] == {"topic": "ready"}
+    assert events(system.store.get_run(run["id"]), "function_inputs_corrected")[-1]["payload"]["by"] == "user:operator"
+    stale = client.post(f"/gui/api/threads/runs/{run['id']}/function-inputs",
+                        json={"inputs": {"topic": "ready"}})
+    assert stale.status_code == 409
+
+
+def test_function_input_required_none_is_boolean(system, tmp_path):
+    document = _workflow(system, tmp_path, function="test.function_review_needs_topic")
+    document["inputs"] = [{"name": "topic"}]
+    document["steps"] = document["steps"][1:]
+    (tmp_path / "workflows" / "function_steps.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    run = system.service.create_run(RunRequest(workflow_id="function_steps", project_name="Optional input",
+                                               inputs={"topic": "bad"}, operating_mode="autonomous"))
+    held = advance(system, run["id"])
+    assert _thread(system, held, document)["entries"][-1]["input_fields"][0]["required"] is False
 
 
 def test_supervised_reviews_inputs_and_outputs_before_one_call(system, tmp_path):
@@ -432,12 +689,14 @@ def test_a_cancel_while_the_function_runs_ends_the_run_cancelled(system, tmp_pat
 
 
 def test_a_cancel_while_a_first_function_fails_ends_the_run_cancelled(system, tmp_path):
-    # With no model step before it the failure is not recoverable, but a cancel that came in still wins over failing.
+    # A cancel during a recoverable first function failure still wins over the new input-correction wait.
     CALLS.clear()
     document = _workflow(system, tmp_path, function="test.function_review_changed_then_fails")
     document["steps"] = document["steps"][1:]
+    document["inputs"] = [{"name": "topic", "required": True}]
     (tmp_path / "workflows" / "function_steps.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
-    run = create_run(system, "function_steps", operating_mode="autonomous")
+    run = system.service.create_run(RunRequest(workflow_id="function_steps", project_name="Concurrent cancel",
+                                               inputs={"topic": "bad"}, operating_mode="autonomous"))
     DURING[:] = [lambda: system.service.cancel(run["id"])]
     try:
         final = advance(system, run["id"])

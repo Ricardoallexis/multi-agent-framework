@@ -7,8 +7,11 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel, ConfigDict
 
 from ..call_guards import cut_by_run_limits
+from ..errors import InvalidStateTransition
+from ..services.errors import INVALID_REQUEST, INVALID_STATE, ServiceError
 from .runs import _clean, run_view
 
 
@@ -28,7 +31,25 @@ _APPROVE_REJECT = {"tool_approval", "escalation_approval", "budget_cut_approval"
 _FINALS = {"workflow_completed", "workflow_failed", "workflow_cancelled", "human_rejected"}
 
 
-def _decision(run: dict[str, Any], view: dict[str, Any]) -> dict[str, Any]:
+class InputCorrection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inputs: dict[str, str]
+
+
+def _input_correction(run: dict[str, Any], view: dict[str, Any], declarations: list[dict[str, Any]]) -> bool:
+    index = int(run.get("current_step") or 0)
+    if not 0 <= index < len(view["steps"]):
+        return False
+    step = view["steps"][index]
+    if step["id"] != run.get("waiting_step") or not step.get("function"):
+        return False
+    previous = view["steps"][index - 1] if 0 < index < len(view["steps"]) else None
+    return bool(declarations and not (previous and not previous.get("function")
+                and any(item["step_id"] == previous["id"] for item in view["artifacts"])))
+
+
+def _decision(run: dict[str, Any], view: dict[str, Any],
+              declarations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     reason = run.get("waiting_reason") or "review"
     exhausted = bool(run.get("budget_exhausted")) or reason == "budget_exhausted"
     actions = (["approve", "changes", "reject"] if (reason in _REVIEW and not run.get("budget_exhausted"))
@@ -43,17 +64,25 @@ def _decision(run: dict[str, Any], view: dict[str, Any]) -> dict[str, Any]:
         previous = view["steps"][index - 1] if 0 < index < len(view["steps"]) else None
         actions = (["changes", "reject"] if previous and not previous.get("function")
                    and any(item["step_id"] == previous["id"] for item in view["artifacts"])
+                   else ["correct_inputs", "reject"] if _input_correction(run, view, declarations)
                    else ["reject"])
     decision = {"type": reason, "step_id": run.get("waiting_step") or "",
                 "attempt": run.get("waiting_attempt"), "actions": actions}
     if reason == "tool_approval" and view.get("tool_approval"):
         decision["permission_request_id"] = view["tool_approval"]["permission_request_id"]
+    if reason == "function_failure":
+        decision["correction_target"] = ("inputs" if "correct_inputs" in actions else
+                                         "output" if "changes" in actions else None)
     return decision
 
 
 def build_thread(services: Any, run: dict[str, Any], *, after: int = 0) -> dict[str, Any]:
     """Stable entries ordered by per-run event seq; current wait carries server-accepted actions."""
     view = run_view(services, run)
+    try:
+        declarations = services.definitions.read_workflow(run["workflow_id"], bundle=run.get("bundle")).get("inputs") or []
+    except Exception:  # a changed or missing definition cannot offer input correction
+        declarations = []
     events = run["events"]
     steps = {step["id"]: step for step in view["steps"]}
     entries: list[dict[str, Any]] = []
@@ -99,7 +128,8 @@ def build_thread(services: Any, run: dict[str, Any], *, after: int = 0) -> dict[
             entry = {"kind": "waiting", "text": payload.get("message") or f"Waiting: {reason}",
                      "reason": reason, "step_id": step_id, "attempt": payload.get("attempt"), "decision": None}
             if reason == "function_failure":
-                entry.update(code=payload.get("code"), detail=payload.get("detail") or "")
+                sensitive = bool((run.get("request") or {}).get("sensitive")) or run.get("data_class") in {"sensitive", "restricted"}
+                entry.update(code=payload.get("code"), detail="" if sensitive else payload.get("detail") or "")
         elif kind in _FINALS:
             status = {"workflow_completed": "completed", "workflow_failed": "failed",
                       "workflow_cancelled": "cancelled", "human_rejected": "rejected"}[kind]
@@ -113,7 +143,7 @@ def build_thread(services: Any, run: dict[str, Any], *, after: int = 0) -> dict[
             if entry["kind"] == "waiting":
                 latest_wait = entries[-1]
     if run["status"] == "waiting_human":
-        decision = _clean(_decision(run, view))
+        decision = _clean(_decision(run, view, declarations))
         current: dict[str, Any] | None = None
         if latest_wait is not None and (not latest_wait["step_id"] or
                                         latest_wait["step_id"] == decision["step_id"]):
@@ -137,8 +167,18 @@ def build_thread(services: Any, run: dict[str, Any], *, after: int = 0) -> dict[
             for artifact in view["artifacts"]:
                 if artifact["step_id"] in previous:
                     outputs[artifact["step_id"]] = artifact["data"]
-            current["inputs"] = _clean((run.get("request") or {}).get("inputs") or {})
-            current["prior_outputs"] = _clean(outputs)
+            sensitive = bool((run.get("request") or {}).get("sensitive")) or run.get("data_class") in {"sensitive", "restricted"}
+            current["inputs"] = {} if sensitive else _clean((run.get("request") or {}).get("inputs") or {})
+            current["prior_outputs"] = {} if sensitive else _clean(outputs)
+        if current is not None and decision["type"] == "function_failure" and decision["correction_target"] == "inputs":
+            sensitive = bool((run.get("request") or {}).get("sensitive")) or run.get("data_class") in {"sensitive", "restricted"}
+            values = (run.get("request") or {}).get("inputs") or {}
+            current["text"] = f"Function step {decision['step_id']!r} failed. Correct its run inputs or reject the run."
+            current["input_fields"] = [{"name": item["name"], "label": item.get("label") or item["name"],
+                                        "type": item.get("type") or "text", "required": bool(item.get("required")),
+                                        "choices": item.get("choices") or [], "sensitive": sensitive,
+                                        "value": None if sensitive else values.get(item["name"], "")}
+                                       for item in declarations]
     if run["status"] in {"completed", "failed", "cancelled", "rejected"} and not any(
             entry["kind"] == "final" and entry["status"] == run["status"] for entry in entries):
         last = events[-1] if events else {"seq": 0, "ts": run.get("updated_at")}
@@ -258,6 +298,18 @@ def add_thread_routes(api: APIRouter, services: Any) -> None:
     @api.get("/threads/runs/{run_id}")
     def thread(run_id: str, after: int = Query(0, ge=0)):
         return build_thread(services, services.runs.get(run_id), after=after)
+
+    @api.post("/threads/runs/{run_id}/function-inputs")
+    def correct_function_inputs(run_id: str, body: InputCorrection):
+        """Correct declared run inputs for a held function and queue one retry."""
+        runtime = services.runs._find(run_id)
+        try:
+            run = runtime.service.correct_function_inputs(run_id, body.inputs, by="user:operator", channel="gui")
+        except ValueError as exc:
+            raise ServiceError(INVALID_REQUEST, str(exc), status=422) from exc
+        except InvalidStateTransition as exc:
+            raise ServiceError(INVALID_STATE, str(exc), status=409) from exc
+        return build_thread(services, services.runs._tag(runtime, run))
 
     @api.get("/threads/teams/{version_id}")   # CHT-T05
     def team_thread(version_id: str):
