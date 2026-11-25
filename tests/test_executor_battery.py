@@ -21,8 +21,9 @@ from multiagent.catalog import ModelSpec
 from multiagent.executors import process
 from multiagent.executors.claude import ClaudeAdapter
 from multiagent.executors.codex import CodexExecutorAdapter
-from multiagent.executors.contract import CommandRecord
+from multiagent.executors.contract import CommandRecord, ExecutorLaunchRequest, ExecutorRunResult, RunStatus
 from multiagent.executors.copilot import CopilotAdapter
+from multiagent.executors.transport import CliTransport
 from multiagent.executors.registry import ExecutorRegistry
 from multiagent.services import ApplicationServices, AssignmentServices, ServiceError
 from multiagent.routing.executor_capabilities import VerifiedOperatorContext
@@ -156,6 +157,27 @@ def never_resolve_real_cli(monkeypatch):
 @pytest.fixture
 def world(tmp_path):
     return make_world(tmp_path)
+
+
+@pytest.mark.parametrize("executor_id,kind", CASES)
+def test_transport_keeps_each_adapter_result_identity(world, tmp_path, monkeypatch, executor_id, kind):
+    adapter = world.adapters[executor_id]
+    request = ExecutorLaunchRequest(
+        "T1", world.services.envelopes.get_envelope("T1"), tmp_path, model=f"{kind}-model")
+    direct = ExecutorRunResult(RunStatus.COMPLETED, SIDS[kind], TASK_RESULT, None,
+                               CommandRecord(("synthetic",), str(tmp_path), "start", "end", 0),
+                               notes=("adapter result unchanged",))
+    calls = []
+    def direct_launch(value):
+        calls.append(value)
+        return direct
+    monkeypatch.setattr(adapter, "launch", direct_launch)
+    events = []
+    session = CliTransport(adapter).open_session(request, SimpleNamespace(on_event=events.append))
+    session.prompt(adapter.render_prompt(request))
+    assert calls == [request]
+    assert [event.kind for event in events] == ["end_turn"]
+    assert session.close() is direct
 
 
 @pytest.mark.parametrize("executor_id,kind", CASES)

@@ -32,6 +32,15 @@ Claude/Anthropic variables from the child environment, sets `NoDefaultCurrentDir
 timeout and bounded output capture. Free-form prompt text is kept out of arguments and command records. A timeout or
 explicit cancellation stops the process tree.
 
+`CliTransport` is a common session interface around these headless adapters. It accepts a validated
+`ExecutorLaunchRequest` with a task envelope; its `prompt` must match the adapter's rendering of that envelope.
+The first attempt calls `launch`, and another attempt calls `resume` only with the session id returned by the
+framework launch. Antigravity still refuses resume. The wrapper returns the adapter's original run result,
+including its command record, usage, limit and failure details. It emits bounded usage and end-of-turn status
+after the adapter finishes. The current CLI adapters do not provide live events or interactive permission
+requests; permissions remain fixed before launch. This interface does not change the CLI commands or offer
+free-form chat.
+
 ## Choosing and launching from the GUI
 
 «Nueva sesión» in the [operator GUI](GUI.md#views) shows which executors are connected and can launch one, always
