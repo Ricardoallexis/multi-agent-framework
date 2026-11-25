@@ -1,0 +1,20 @@
+schema: maf.contracts/1
+contracts:
+  WeeklyMenu:
+    description: Weekly menu proposal to review before publishing.
+    fields:
+      title:
+        type: string
+        max_length: 120
+      menu:
+        type: string
+        document: true
+samples:
+  WeeklyMenu:
+    title: Sample weekly menu (Monday to Friday)
+    menu: |
+      Monday: vegetable soup, grilled chicken with rice, and fresh fruit.
+      Tuesday: lentils, baked white fish, and plain yogurt.
+      Wednesday: warm salad, pasta with tomato, and baked apple.
+      Thursday: noodle soup, potato omelet, and orange.
+      Friday: sautéed vegetables, beef steak, and homemade custard.

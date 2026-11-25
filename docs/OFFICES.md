@@ -8,7 +8,7 @@ Here is an example `office.yaml`:
 
 ```yaml
 schema: maf.office/1
-id: oficina-ejemplo            # ^[a-z0-9][a-z0-9-]{0,39}$
+id: office-example              # ^[a-z0-9][a-z0-9-]{0,39}$
 name: Example Office
 description: Example office definition for testing.
 local_only: false
@@ -16,22 +16,22 @@ orchestrator:
   enabled: true
   name: Coordination
   default_plan:                # proposed in Mock or without a model planner
-    - area: recepcion
+    - area: reception
       workflow: take_request
-    - area: propuesta
+    - area: proposal
       workflow: draft_proposal
-      after: [recepcion]
+      after: [reception]
 areas:
-  - id: recepcion              # same pattern as the office id
+  - id: reception              # same pattern as the office id
     name: Reception
-    path: areas/recepcion      # relative POSIX path inside the office folder
+    path: areas/reception      # relative POSIX path inside the office folder
     team_sha256: "0000000000000000000000000000000000000000000000000000000000000000"  # optional
     sensitivity: normal        # normal | sensitive (optional)
     local_only: false
     requires: [model.text, model.structured]
 relations:
-  - from: recepcion
-    to: propuesta
+  - from: reception
+    to: proposal
     kind: hands_off            # hands_off | reviews | consults
 ```
 
@@ -381,24 +381,24 @@ interpretation keep their existing behavior.
 
 ## Templates
 
-Two level-1 (data-only) office templates live in `examples/offices/` with synthetic Spanish data, `preferred_model: local_default`, `checkpoint_after: true`, and teams whose `revision` role assigns a `Responsable` person to review outputs from `redaccion`: They are examples to import, not defaults: they are not part of the installed package, nothing loads them at startup, and the framework ships no default offices.
+Two level-1 (data-only) office templates live in `examples/offices/` with synthetic data, `preferred_model: local_default`, and `checkpoint_after: true`. Each has a `drafting` agent and a `review` role assigned to a `Reviewer` who checks its output. They are examples to import, not defaults: they are not part of the installed package, nothing loads them at startup, and the framework ships no default offices.
 
-- **`examples/offices/cafeteria`** (`cafeteria` — *Cafetería de ejemplo*):
-  - `menu` (`normal`, `[model.text]`): `menu_semana` workflow producing `MenuSemana`.
-  - `compras` (`normal`, `[model.structured]`): `lista_pedido` workflow producing `ListaPedido`.
-  - `avisos` (`normal`, `[model.text]`): `escribir_aviso` (`Aviso`) and `responder_mensaje` (`Respuesta`).
-  - Default plan: `menu` (`menu_semana`), then `avisos` (`escribir_aviso`).
-- **`examples/offices/escuela`** (`escuela` — *Escuela de ejemplo*):
-  - `planeacion` (`normal`, `[model.text]`): `plan_clase` workflow producing `PlanClase`.
-  - `seguimiento` (`sensitive`, `local_only: true`, `[model.text, model.local]`): `nota_avance` workflow producing `NotaAvance`.
-  - `avisos` (`normal`, `[model.text]`): byte-identical copy of `cafeteria/areas/avisos`.
-  - Default plan: `planeacion` (`plan_clase`), then `avisos` (`escribir_aviso`).
+- **`examples/offices/cafe`** (`cafe` — *Example Café*):
+  - `menu` (`normal`, `[model.text]`): `weekly_menu` workflow producing `WeeklyMenu`.
+  - `purchasing` (`normal`, `[model.structured]`): `order_list` workflow producing `OrderList`.
+  - `notices` (`normal`, `[model.text]`): `write_notice` (`Notice`) and `reply_message` (`Reply`).
+  - Default plan: `menu` (`weekly_menu`), then `notices` (`write_notice`).
+- **`examples/offices/school`** (`school` — *Example School*):
+  - `planning` (`normal`, `[model.text]`): `lesson_plan` workflow producing `LessonPlan`.
+  - `follow-up` (`sensitive`, `local_only: true`, `[model.text, model.local]`): `progress_note` workflow producing `ProgressNote`.
+  - `notices` (`normal`, `[model.text]`): byte-identical copy of `cafe/areas/notices`.
+  - Default plan: `planning` (`lesson_plan`), then `notices` (`write_notice`).
 
 Import a template from a repository checkout (teams stay `proposed` until approved in the GUI):
 
 ```text
-multiagent office import examples/offices/cafeteria
-multiagent office import examples/offices/escuela
+multiagent office import examples/offices/cafe
+multiagent office import examples/offices/school
 ```
 
 The `examples/` directory is only present in a repository checkout; it is not included in the built wheel (`pyproject.toml`).

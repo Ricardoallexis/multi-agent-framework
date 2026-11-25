@@ -1,0 +1,23 @@
+id: lesson_plan
+description: Prepares a lesson plan about a topic and leaves it for review.
+max_iterations: 1
+inputs:
+  - name: topic
+    label: Lesson topic
+    description: Describe the topic, approximate level, and available time.
+    example: The water cycle for an elementary class in a 45-minute session.
+    required: true
+    type: long_text
+steps:
+  - id: build_lesson_plan
+    description: Drafts the lesson plan for the reviewer.
+    agent: lesson_planner
+    prompt_id: planning/lesson_plan
+    prompt_version: 1
+    skills: []
+    contract: LessonPlan
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

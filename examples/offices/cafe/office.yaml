@@ -1,0 +1,40 @@
+schema: maf.office/1
+id: cafe
+name: Example Café
+description: Example office with synthetic data for preparing menus, purchase lists, and notices in test mode (no spending).
+local_only: false
+orchestrator:
+  enabled: true
+  name: Coordination
+  default_plan:
+    - area: menu
+      workflow: weekly_menu
+    - area: notices
+      workflow: write_notice
+      after: [menu]
+areas:
+  - id: menu
+    name: Menu
+    path: areas/menu
+    sensitivity: normal
+    local_only: false
+    requires: [model.text]
+  - id: purchasing
+    name: Purchasing
+    path: areas/purchasing
+    sensitivity: normal
+    local_only: false
+    requires: [model.structured]
+  - id: notices
+    name: Notices and replies
+    path: areas/notices
+    sensitivity: normal
+    local_only: false
+    requires: [model.text]
+relations:
+  - from: menu
+    to: notices
+    kind: hands_off
+  - from: purchasing
+    to: menu
+    kind: consults

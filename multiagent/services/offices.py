@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 
 OFFICES_FILE = "offices.json"
 OFFICES_SCHEMA = "maf.installed-offices/1"
-SHIPPED_OFFICES = {"cafeteria": "examples/offices/cafeteria"}
+SHIPPED_OFFICES = {"cafe": "examples/offices/cafe"}
 # Proposed limits (design §13): the builder fixes them.
 OFFICE_FILE_MAX_BYTES = 2**20
 OFFICE_MAX_BYTES = ZIP_EXTRACT_MAX_BYTES
@@ -2260,17 +2260,17 @@ class OfficeServices:
         """Whether the example office can be copied from this source checkout."""
         if not IN_CHECKOUT:
             return False
-        folder = PROJECT_ROOT / SHIPPED_OFFICES["cafeteria"]
+        folder = PROJECT_ROOT / SHIPPED_OFFICES["cafe"]
         if not folder.is_dir():
             return False
         with self._lock:
-            return "cafeteria" not in self._read()
+            return "cafe" not in self._read()
 
     @service_errors
     def install_example(self, *, actor: str = "user:gui", channel: str = "gui") -> dict[str, Any]:
         """Copy the example office into the installation; nothing is installed at startup."""
-        folder = PROJECT_ROOT / SHIPPED_OFFICES["cafeteria"]
+        folder = PROJECT_ROOT / SHIPPED_OFFICES["cafe"]
         if not IN_CHECKOUT or not folder.is_dir():
             raise _conflict("The example office is only available in a checkout of the product",
-                            "example_not_available", office="cafeteria")
+                            "example_not_available", office="cafe")
         return self.import_folder(folder, actor=actor, channel=channel)

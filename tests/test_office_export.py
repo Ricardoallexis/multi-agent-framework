@@ -72,7 +72,7 @@ def make_area(destination: Path) -> Path:
     return destination
 
 
-def write_office(root: Path, *, office_id: str = "demo", areas: tuple[str, ...] = ("recepcion",)) -> Path:
+def write_office(root: Path, *, office_id: str = "demo", areas: tuple[str, ...] = ("reception",)) -> Path:
     root.mkdir(parents=True)
     for area in areas:
         make_area(root / "areas" / area)
@@ -82,19 +82,19 @@ def write_office(root: Path, *, office_id: str = "demo", areas: tuple[str, ...] 
     return root
 
 
-def _definition(area: str = "recepcion", office_id: str = "demo") -> OfficeDefinition:
+def _definition(area: str = "reception", office_id: str = "demo") -> OfficeDefinition:
     return OfficeDefinition.model_validate({
         "schema": "maf.office/1", "id": office_id, "name": f"{office_id.title()} office",
         "areas": [{"id": area, "name": area.title(), "path": f"areas/{area}"}],
     })
 
 
-def _pure_files(area: str = "recepcion") -> dict[str, bytes]:
+def _pure_files(area: str = "reception") -> dict[str, bytes]:
     prefix = f"areas/{area}/"
     return {
         prefix + "team.yaml": yaml.safe_dump(TEAM, sort_keys=False).encode("utf-8"),
-        prefix + "workflows/tomar.yaml": b"id: tomar\nsteps: []\n",
-        prefix + "prompts/tomar.md": b"Review this request.",
+        prefix + "workflows/review.yaml": b"id: review\nsteps: []\n",
+        prefix + "prompts/review.md": b"Review this request.",
         prefix + "catalog/agents.yaml": b"agents: {}\n",
     }
 
@@ -130,34 +130,34 @@ class _ClientContext:
 def test_export_contains_only_the_allow_list():
     files = _pure_files()
     files.update({
-        "areas/recepcion/.env": b"IGNORED",
-        "areas/recepcion/runs.db": b"IGNORED",
-        "areas/recepcion/catalog/models.yaml": b"models: {}\n",
-        "areas/recepcion/.local/x.txt": b"IGNORED",
-        "areas/recepcion/functions.py": b"def run(): pass\n",
-        "areas/recepcion/prompts/nota.py": b"ignored code\n",
+        "areas/reception/.env": b"IGNORED",
+        "areas/reception/runs.db": b"IGNORED",
+        "areas/reception/catalog/models.yaml": b"models: {}\n",
+        "areas/reception/.local/x.txt": b"IGNORED",
+        "areas/reception/functions.py": b"def run(): pass\n",
+        "areas/reception/prompts/note.py": b"ignored code\n",
     })
     data, manifest = build_export(files, _definition())
     with _zip(data) as archive:
         assert set(archive.namelist()) == {
-            "office.yaml", "manifest.json", "areas/recepcion/team.yaml",
-            "areas/recepcion/workflows/tomar.yaml", "areas/recepcion/prompts/tomar.md",
-            "areas/recepcion/catalog/agents.yaml",
+            "office.yaml", "manifest.json", "areas/reception/team.yaml",
+            "areas/reception/workflows/review.yaml", "areas/reception/prompts/review.md",
+            "areas/reception/catalog/agents.yaml",
         }
-    assert any(item["path"].endswith("prompts/nota.py") for item in manifest["warnings"])
+    assert any(item["path"].endswith("prompts/note.py") for item in manifest["warnings"])
 
 
 def test_include_code_adds_only_contracts_and_functions():
     files = _pure_files()
-    files.update({"areas/recepcion/contracts.py": b"CONTRACT = True\n",
-                  "areas/recepcion/functions.py": b"def run(): return True\n",
-                  "areas/recepcion/prompts/nota.py": b"not portable\n"})
+    files.update({"areas/reception/contracts.py": b"CONTRACT = True\n",
+                  "areas/reception/functions.py": b"def run(): return True\n",
+                  "areas/reception/prompts/note.py": b"not portable\n"})
     data, _ = build_export(files, _definition(), include_code=True)
     with _zip(data) as archive:
         names = set(archive.namelist())
-    assert "areas/recepcion/contracts.py" in names
-    assert "areas/recepcion/functions.py" in names
-    assert "areas/recepcion/prompts/nota.py" not in names
+    assert "areas/reception/contracts.py" in names
+    assert "areas/reception/functions.py" in names
+    assert "areas/reception/prompts/note.py" not in names
 
 
 def test_manifest_lists_every_file():
@@ -178,7 +178,7 @@ def test_exported_office_yaml_carries_team_sha256():
     data, manifest = build_export(_pure_files(), _definition())
     with _zip(data) as archive:
         exported = yaml.safe_load(archive.read("office.yaml"))
-    assert exported["areas"][0]["path"] == "areas/recepcion"
+    assert exported["areas"][0]["path"] == "areas/reception"
     assert exported["areas"][0]["team_sha256"] == manifest["areas"][0]["team_sha256"]
 
 
@@ -186,7 +186,7 @@ def test_secret_blocks_export(world):
     start, tmp = world
     source = write_office(tmp / "secret-office")
     secret = "-----BEGIN PRIVATE KEY-----\nMIIEowIBAAKCAQEA0123456789\n-----END PRIVATE KEY-----"
-    (source / "areas" / "recepcion" / "prompts" / "tomar.md").write_text(
+    (source / "areas" / "reception" / "prompts" / "review.md").write_text(
         f"First line.\nSecond line.\n{secret}\n", encoding="utf-8")
     services = start()
     services.offices.import_folder(source, actor=ACTOR)
@@ -195,20 +195,20 @@ def test_secret_blocks_export(world):
     assert response.status_code == 422
     assert response.json()["detail"]["details"]["reason"] == "export_secret_found"
     assert response.json()["detail"]["details"]["found"] == [
-        {"path": "areas/recepcion/prompts/tomar.md", "line": 3, "type": "private_key"}
+        {"path": "areas/reception/prompts/review.md", "line": 3, "type": "private_key"}
     ]
     assert secret not in response.text
 
 
 def test_models_catalog_warning():
     files = _pure_files()
-    files["areas/recepcion/catalog/models.yaml"] = b"models:\n  area_only: {}\n"
-    files["areas/recepcion/workflows/tomar.yaml"] = (
-        b"id: tomar\nsteps:\n  - id: draft\n    preferred_model: area_only\n")
+    files["areas/reception/catalog/models.yaml"] = b"models:\n  area_only: {}\n"
+    files["areas/reception/workflows/review.yaml"] = (
+        b"id: review\nsteps:\n  - id: draft\n    preferred_model: area_only\n")
     data, manifest = build_export(files, _definition())
     assert manifest["warnings"][0] == {
-        "code": "export_model_not_portable", "path": "areas/recepcion/workflows/tomar.yaml",
-        "workflow": "tomar", "step": "draft",
+        "code": "export_model_not_portable", "path": "areas/reception/workflows/review.yaml",
+        "workflow": "review", "step": "draft",
     }
     with _zip(data) as archive:
         assert archive.testzip() is None
@@ -221,11 +221,11 @@ def test_round_trip(world):
     source.offices.import_folder(write_office(tmp / "roundtrip"), actor=ACTOR)
     exported = source.offices.export("demo")
     imported = destination.offices.import_zip(exported["data"], actor=ACTOR)
-    assert [area["id"] for area in imported["office"]["areas"]] == ["recepcion"]
+    assert [area["id"] for area in imported["office"]["areas"]] == ["reception"]
     repeated = destination.offices.export("demo")
     assert repeated["manifest"]["files"] == exported["manifest"]["files"]
-    source_entry = source.installed._read()["demo__recepcion"]
-    destination_entry = destination.installed._read()["demo__recepcion"]
+    source_entry = source.installed._read()["demo__reception"]
+    destination_entry = destination.installed._read()["demo__reception"]
     original = source.installed._folder_of(source_entry)
     copied = destination.installed._folder_of(destination_entry)
     from multiagent.bundles import load_bundle
@@ -239,11 +239,11 @@ def test_export_reads_installed_copies(world):
     services = start()
     source = write_office(tmp / "copy-source")
     services.offices.import_folder(source, actor=ACTOR)
-    original_readme = (source / "areas" / "recepcion" / "README.md").read_bytes()
-    (source / "areas" / "recepcion" / "README.md").write_text("Changed at the source.\n", encoding="utf-8")
+    original_readme = (source / "areas" / "reception" / "README.md").read_bytes()
+    (source / "areas" / "reception" / "README.md").write_text("Changed at the source.\n", encoding="utf-8")
     exported = services.offices.export("demo")
     with _zip(exported["data"]) as archive:
-        assert archive.read("areas/recepcion/README.md") == original_readme
+        assert archive.read("areas/reception/README.md") == original_readme
 
 
 def tmp_path_local(tmp_path: Path, name: str) -> Path:
@@ -253,19 +253,19 @@ def tmp_path_local(tmp_path: Path, name: str) -> Path:
 def test_area_export_into_another_office(world):
     start, tmp = world
     services = start()
-    services.offices.import_folder(write_office(tmp / "demo", areas=("avisos",)), actor=ACTOR)
-    services.offices.import_folder(write_office(tmp / "otra", office_id="otra", areas=("compras",)), actor=ACTOR)
-    exported = services.offices.export("demo", area="avisos")
+    services.offices.import_folder(write_office(tmp / "demo", areas=("notices",)), actor=ACTOR)
+    services.offices.import_folder(write_office(tmp / "other", office_id="other", areas=("purchasing",)), actor=ACTOR)
+    exported = services.offices.export("demo", area="notices")
     assert exported["manifest"]["kind"] == "area"
     with _zip(exported["data"]) as archive:
         definition = yaml.safe_load(archive.read("office.yaml"))
     assert len(definition["areas"]) == 1
     assert "relations" not in definition and "orchestrator" not in definition
-    added = services.offices.import_zip(exported["data"], actor=ACTOR, into="otra")
-    assert [area["id"] for area in added["office"]["areas"]] == ["compras", "avisos"]
+    added = services.offices.import_zip(exported["data"], actor=ACTOR, into="other")
+    assert [area["id"] for area in added["office"]["areas"]] == ["purchasing", "notices"]
     registered = services.installed._read()
-    demo_folder = services.installed._folder_of(registered["demo__avisos"])
-    other_folder = services.installed._folder_of(registered["otra__avisos"])
+    demo_folder = services.installed._folder_of(registered["demo__notices"])
+    other_folder = services.installed._folder_of(registered["other__notices"])
     assert demo_folder != other_folder and demo_folder.is_dir() and other_folder.is_dir()
 
 
@@ -308,10 +308,10 @@ def test_manifest_mismatch(world):
         destination.offices.import_zip(changed, actor=ACTOR)
     assert caught.value.details == {"reason": "office_manifest_mismatch", "path": changed_path}
 
-    extra = _zip_with(exported, extra=("areas/recepcion/extra.txt", b"unlisted"))
+    extra = _zip_with(exported, extra=("areas/reception/extra.txt", b"unlisted"))
     with pytest.raises(ServiceError) as caught:
         destination.offices.import_zip(extra, actor=ACTOR)
-    assert caught.value.details == {"reason": "office_manifest_mismatch", "path": "areas/recepcion/extra.txt"}
+    assert caught.value.details == {"reason": "office_manifest_mismatch", "path": "areas/reception/extra.txt"}
 
 
 def test_export_route_and_cli_parity(world, monkeypatch, capsys):

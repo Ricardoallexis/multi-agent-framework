@@ -1,0 +1,7 @@
+agents:
+  progress_tutor:
+    role: Organizes brief observations into a clear progress note in local-only mode
+    active: true
+    capabilities:
+      - model.text
+      - model.local

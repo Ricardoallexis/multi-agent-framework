@@ -1,0 +1,23 @@
+id: write_notice
+description: Drafts a short notice about a topic and leaves it for review.
+max_iterations: 1
+inputs:
+  - name: topic
+    label: Notice topic
+    description: Summarize what you want to announce, including dates or times if relevant.
+    example: This Friday, we will be open from 9:00 a.m. to 2:00 p.m.
+    required: true
+    type: long_text
+steps:
+  - id: draft_notice
+    description: Drafts the notice for the reviewer.
+    agent: notice_writer
+    prompt_id: notices/write_notice
+    prompt_version: 1
+    skills: []
+    contract: Notice
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

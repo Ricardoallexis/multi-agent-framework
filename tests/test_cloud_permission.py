@@ -117,7 +117,7 @@ def process(services: ApplicationServices, run: dict, bundle: str | None = None)
     return services.runs.get(run["id"])
 
 
-def office_with_bundle(tmp_path: Path, *, areas: tuple[str, ...] = ("avisos",),
+def office_with_bundle(tmp_path: Path, *, areas: tuple[str, ...] = ("notices",),
                        overrides: dict | None = None, preferred: str = "local_default",
                        fallback: str | None = "cloud_fast") -> Path:
     levels = {area: {"sensitivity": "normal"} for area in areas}      # «Normal» unless the test says otherwise
@@ -161,7 +161,7 @@ def test_default_auto_never_calls_the_cloud(service_factory, tmp_path):
 
 def test_office_permission_is_inherited_and_area_wins(service_factory, tmp_path):
     services, _, _ = service_factory()
-    root = office_with_bundle(tmp_path, areas=("avisos", "alertas"))
+    root = office_with_bundle(tmp_path, areas=("notices", "alerts"))
     services.offices.import_folder(root, actor=ACTOR)
 
     grant_permission(services)
@@ -169,29 +169,29 @@ def test_office_permission_is_inherited_and_area_wins(service_factory, tmp_path)
     shown = services.offices.privacy("demo")
     assert shown["cloud"]["allowed"] is True and shown["cloud"]["source"] == "person"
     areas = {item["id"]: item for item in shown["areas"]}
-    assert areas["avisos"]["cloud_effective"] is True and areas["avisos"]["cloud"]["allowed"] is False
-    assert services.offices.cloud_permission_for("demo__avisos", "avisos") is True
+    assert areas["notices"]["cloud_effective"] is True and areas["notices"]["cloud"]["allowed"] is False
+    assert services.offices.cloud_permission_for("demo__notices", "notices") is True
 
-    services.offices.raise_level("demo", "avisos", cloud_allowed=False, actor=ACTOR)
+    services.offices.raise_level("demo", "notices", cloud_allowed=False, actor=ACTOR)
     shown = services.offices.privacy("demo")
     areas = {item["id"]: item for item in shown["areas"]}
-    assert areas["avisos"]["cloud_effective"] is False and areas["alertas"]["cloud_effective"] is True
+    assert areas["notices"]["cloud_effective"] is False and areas["alerts"]["cloud_effective"] is True
     services.offices.raise_level("demo", None, cloud_allowed=False, actor=ACTOR)
     assert services.offices.cloud_permission_for("demo__alertas") is False
-    grant = grant_permission(services, "avisos")
-    services.offices.raise_level("demo", "avisos", sensitivity="sensitive", actor=ACTOR)
+    grant = grant_permission(services, "notices")
+    services.offices.raise_level("demo", "notices", sensitivity="sensitive", actor=ACTOR)
     areas = {item["id"]: item for item in services.offices.privacy("demo")["areas"]}
-    assert areas["avisos"]["cloud_effective"] is True
-    assert areas["avisos"]["cloud"] == {
+    assert areas["notices"]["cloud_effective"] is True
+    assert areas["notices"]["cloud"] == {
         "allowed": True, "set_by": ACTOR, "set_at": grant["cloud_permission"]["set_at"], "source": "person"}
-    assert areas["alertas"]["cloud_effective"] is False
+    assert areas["alerts"]["cloud_effective"] is False
 
 
 def test_reimport_keeps_the_person_permission(service_factory, tmp_path):
     services, _, _ = service_factory()
     root = office_with_bundle(tmp_path)
     services.offices.import_folder(root, actor=ACTOR)
-    grant_permission(services, "avisos")
+    grant_permission(services, "notices")
 
     services.offices.reimport_folder("demo", root, actor=ACTOR)
 
@@ -248,7 +248,7 @@ def test_permission_reaches_a_profiled_step(service_factory, tmp_path):
     services, _, cloud = service_factory(local_fails=True)
     root = office_with_bundle(tmp_path, preferred="local_default", fallback=None)
     services.offices.import_folder(root, actor=ACTOR)
-    runtime = services.runs._bundle_runtime("demo__avisos")
+    runtime = services.runs._bundle_runtime("demo__notices")
     assert runtime is not None
     runtime.service.engine.catalog.routing_assignments["spec_review"] = {"extract_requirements": "cloud-only"}
     runtime.service.engine.catalog.routing_profiles["cloud-only"] = {
@@ -262,18 +262,18 @@ def test_permission_reaches_a_profiled_step(service_factory, tmp_path):
     models = runtime.service.engine.catalog.models      # the profile's only candidate can do the step's role
     models["cloud_fast"] = dataclasses.replace(models["cloud_fast"], roles=frozenset({"requirements_analyst"}))
 
-    denied = services.runs.create(request(), bundle="demo__avisos")
-    process(services, denied, "demo__avisos")
+    denied = services.runs.create(request(), bundle="demo__notices")
+    process(services, denied, "demo__notices")
     assert denied["request"]["confirm_cloud"] is False and cloud.calls == []
 
-    grant_permission(services, "avisos")
-    allowed = services.runs.create(request(), bundle="demo__avisos")
-    finished = process(services, allowed, "demo__avisos")
+    grant_permission(services, "notices")
+    allowed = services.runs.create(request(), bundle="demo__notices")
+    finished = process(services, allowed, "demo__notices")
     events = [event for event in finished["events"] if event["event_type"] == "cloud_permission_applied"]
     assert finished["status"] == "completed" and cloud.calls == ["cloud_fast"]
     assert allowed["request"]["confirm_cloud"] is True and len(events) == 1
     assert {key: events[0]["payload"][key] for key in ("office", "area", "scope", "set_by", "set_at")} == {
-        "office": "demo", "area": "avisos", "scope": "area", "set_by": ACTOR,
+        "office": "demo", "area": "notices", "scope": "area", "set_by": ACTOR,
         "set_at": services.offices.privacy("demo")["areas"][0]["cloud"]["set_at"],
     }
 
@@ -282,16 +282,16 @@ def test_revoking_applies_to_new_runs(service_factory, tmp_path):
     services, _, _ = service_factory(bundle=None, local_fails=True)
     root = office_with_bundle(tmp_path)
     services.offices.import_folder(root, actor=ACTOR)
-    assert services.runs._bundle_runtime("demo__avisos") is not None
+    assert services.runs._bundle_runtime("demo__notices") is not None
     grant_permission(services)
 
-    first = services.runs.create(request(), bundle="demo__avisos")
+    first = services.runs.create(request(), bundle="demo__notices")
     first_saved = services.runs.get(first["id"])
     assert first_saved["request"]["confirm_cloud"] is True
     assert [event["event_type"] for event in first_saved["events"]].count("cloud_permission_applied") == 1
 
     services.offices.raise_level("demo", None, cloud_allowed=False, actor=ACTOR)
-    following = services.runs.create(request(), bundle="demo__avisos")
+    following = services.runs.create(request(), bundle="demo__notices")
     following_saved = services.runs.get(following["id"])
     assert following_saved["request"]["confirm_cloud"] is False
     assert following_saved["request"]["step_modes"] == {"extract_requirements": "local"}
@@ -355,7 +355,7 @@ def test_granting_needs_the_one_use_code(service_factory, tmp_path, monkeypatch,
     headers = {"Authorization": f"Bearer {ensure_token(services.settings.gui_token_file)}"}
 
     with TestClient(app, base_url="http://localhost") as client:
-        requested = client.post("/api/v1/offices/demo/privacy/cloud-request", json={"area": "avisos"})
+        requested = client.post("/api/v1/offices/demo/privacy/cloud-request", json={"area": "notices"})
         assert requested.status_code == 200
         approval = requested.json()
         assert set(approval) == {"approval_id", "sha256"}
@@ -364,7 +364,7 @@ def test_granting_needs_the_one_use_code(service_factory, tmp_path, monkeypatch,
         assert approval["sha256"] == pending["sha256"]
         with pytest.raises(ServiceError) as caught:
             services.offices.grant_cloud_permission(
-                "demo", "avisos", approval_id=approval["approval_id"], actor=ACTOR)
+                "demo", "notices", approval_id=approval["approval_id"], actor=ACTOR)
         assert (caught.value.status, caught.value.details["reason"]) == (
             409, "office_privacy_change_not_approved")
 
@@ -377,18 +377,18 @@ def test_granting_needs_the_one_use_code(service_factory, tmp_path, monkeypatch,
                               json={"decision": "approve", "code": challenge.json()["code"]})
         assert decided.status_code == 200
         granted = services.offices.grant_cloud_permission(
-            "demo", "avisos", approval_id=approval["approval_id"], actor=ACTOR)
+            "demo", "notices", approval_id=approval["approval_id"], actor=ACTOR)
         assert granted["areas"][0]["cloud_effective"] is True
         with pytest.raises(ServiceError) as spent:
             services.offices.grant_cloud_permission(
-                "demo", "avisos", approval_id=approval["approval_id"], actor=ACTOR)
+                "demo", "notices", approval_id=approval["approval_id"], actor=ACTOR)
         assert spent.value.details["reason"] == "office_privacy_change_not_approved"
 
         routes = {route.path for route in client.app.routes}
         assert "/api/v1/offices/{office_id}/privacy/cloud-request" in routes
         assert not any(path.startswith("/api/v1/offices/") and path.endswith("/privacy/cloud") for path in routes)
         invoked = invoke_cli(monkeypatch, capsys, client,
-                             ["office", "privacy", "demo", "--area", "avisos", "--no-cloud"])
+                             ["office", "privacy", "demo", "--area", "notices", "--no-cloud"])
         assert json.loads(invoked)["areas"][0]["cloud_effective"] is False
         requested_cli = json.loads(invoke_cli(
             monkeypatch, capsys, client, ["office", "privacy", "demo", "--request-cloud"]))

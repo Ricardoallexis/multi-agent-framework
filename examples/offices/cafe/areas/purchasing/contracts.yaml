@@ -1,0 +1,29 @@
+schema: maf.contracts/1
+contracts:
+  OrderList:
+    description: Structured list of products and quantities to review before purchasing.
+    fields:
+      products:
+        type: list
+        min_items: 1
+        items:
+          type: object
+          fields:
+            product:
+              type: string
+            quantity:
+              type: string
+      summary:
+        type: string
+        document: true
+samples:
+  OrderList:
+    products:
+      - product: Roasted coffee beans
+        quantity: 3 kg
+      - product: Whole milk
+        quantity: 12 liters
+      - product: Whole-grain bread
+        quantity: 6 loaves
+    summary: |
+      Suggested weekly order: 3 kg of roasted coffee beans, 12 liters of whole milk, and 6 loaves of whole-grain bread.

@@ -1,0 +1,44 @@
+schema_version: 1
+id: notices_team
+description: Example team that drafts and reviews notices and message replies.
+roles:
+  - id: drafting
+    purpose: Drafts clear, respectful notices and replies.
+    rules:
+      - Use only the details included in the topic or received message.
+    skills: []
+    contracts:
+      - Notice
+      - Reply
+    capabilities:
+      - model.text
+    permissions: []
+
+  - id: review
+    purpose: Reviews each notice or reply before publishing or sending it.
+    rules:
+      - Check that dates, times, and tone are appropriate.
+    skills: []
+    contracts:
+      - Notice
+      - Reply
+    capabilities:
+      - doc.review
+    permissions: []
+
+members:
+  - id: notice_agent
+    kind: agent
+    agent: notice_writer
+  - id: reviewer
+    kind: person
+    name: Reviewer
+assignments:
+  - role: drafting
+    member: notice_agent
+  - role: review
+    member: reviewer
+relationships:
+  - type: reviews
+    from: review
+    to: drafting

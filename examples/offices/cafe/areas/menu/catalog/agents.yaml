@@ -1,0 +1,6 @@
+agents:
+  menu_writer:
+    role: Writes a clear weekly menu from the request
+    active: true
+    capabilities:
+      - model.text

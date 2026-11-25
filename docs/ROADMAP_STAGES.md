@@ -466,7 +466,7 @@ advanced visualization items below remain planned.
 | **S16.F — Reference stacks** | | |
 | S16.F1 | Top five team types, evaluation criteria, and three to five reference tools each; publish and review periodically. | — |
 | **S16.G — Examples** | | |
-| S16.G1 | ◐ Runnable in Mock with seven roles and two human reviews; resources, patches, and commits are not modeled. The data-only `cafeteria` and `escuela` office templates also run in Mock. | — |
+| S16.G1 | ◐ Runnable in Mock with seven roles and two human reviews; resources, patches, and commits are not modeled. The data-only `cafe` and `school` office templates also run in Mock. | — |
 | S16.G2 | *(proposed)* Move the branding and asset domain out of the core package into a preset. | — |
 | S16.G3 | Content and research presets on the preset format. | S16.A1, S16.G2 |
 | S16.G4 | *(proposed)* A library of objectives or requests to start runs from, if it proves useful. | S16.A1 |

@@ -1,7 +1,0 @@
-agents:
-  tutor_seguimiento:
-    role: Ordena observaciones breves en una nota clara de seguimiento en modo solo local
-    active: true
-    capabilities:
-      - model.text
-      - model.local

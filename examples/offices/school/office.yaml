@@ -1,0 +1,40 @@
+schema: maf.office/1
+id: school
+name: Example School
+description: Example office with synthetic data for lesson planning, local-only follow-up, and notices in test mode (no spending).
+local_only: false
+orchestrator:
+  enabled: true
+  name: Coordination
+  default_plan:
+    - area: planning
+      workflow: lesson_plan
+    - area: notices
+      workflow: write_notice
+      after: [planning]
+areas:
+  - id: planning
+    name: Planning
+    path: areas/planning
+    sensitivity: normal
+    local_only: false
+    requires: [model.text]
+  - id: follow-up
+    name: Follow-up
+    path: areas/follow-up
+    sensitivity: sensitive
+    local_only: true
+    requires: [model.text, model.local]
+  - id: notices
+    name: Notices and replies
+    path: areas/notices
+    sensitivity: normal
+    local_only: false
+    requires: [model.text]
+relations:
+  - from: planning
+    to: notices
+    kind: hands_off
+  - from: follow-up
+    to: planning
+    kind: consults

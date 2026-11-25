@@ -1,0 +1,23 @@
+id: order_list
+description: Organizes an order list from the inventory and leaves it for review.
+max_iterations: 1
+inputs:
+  - name: inventory
+    label: Current inventory
+    description: Describe what is available and what needs to be restocked.
+    example: 1 kg of coffee and 2 liters of milk remain; whole-grain bread needs restocking.
+    required: true
+    type: long_text
+steps:
+  - id: build_order_list
+    description: Builds the structured purchase list for the reviewer.
+    agent: purchasing_coordinator
+    prompt_id: purchasing/order_list
+    prompt_version: 1
+    skills: []
+    contract: OrderList
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

@@ -103,18 +103,18 @@ def test_card_shows_everything():
     out = run_node(f"""
       import {{ cardView, CHANGE_TEXT, TEAMS_NOTE }} from {file_url(EXT / "import-model.js")};
       const card = {{
-        office: {{ id: "demo", name: "Oficina demo" }},
+        office: {{ id: "demo", name: "Demo office" }},
         notice: {json.dumps(OFFICE_NOTICE, ensure_ascii=False)},
         level: "data",
         areas: [
-          {{ id: "menu", name: "Menú", change: "added", sensitivity: "normal",
-            members: [{{ id: "agent", name: "Agente de menú", kind: "agent", role: "preparar" }}],
+          {{ id: "menu", name: "Menu", change: "added", sensitivity: "normal",
+            members: [{{ id: "agent", name: "Menu agent", kind: "agent", role: "preparer" }}],
             requires: {{ text: "Lo puedes cubrir con Agente local" }},
-            declares: {{ workflows: ["cotizar"], contracts: ["MenuOutput"], roles: ["cocinero"] }} }},
-          {{ id: "avisos", name: "Avisos", change: "changed", sensitivity: "sensitive",
-            members: [{{ id: "person", name: "Responsable", kind: "person" }}],
+            declares: {{ workflows: ["quote"], contracts: ["MenuOutput"], roles: ["cook"] }} }},
+          {{ id: "notices", name: "Notices", change: "changed", sensitivity: "sensitive",
+            members: [{{ id: "person", name: "Reviewer", kind: "person" }}],
             requires: {{ text: "Te falta un agente que pueda escribir texto" }},
-            declares: {{ workflows: ["responder"], contracts: [], roles: [] }} }},
+            declares: {{ workflows: ["reply"], contracts: [], roles: [] }} }},
         ],
         code: {{ present: false, files: [], functions: [] }},
         scan: {{ state: "safe", areas: {{ menu: {{ verdict: "safe" }} }} }},
@@ -124,17 +124,17 @@ def test_card_shows_everything():
       console.log(JSON.stringify({{ view, CHANGE_TEXT, TEAMS_NOTE }}));
     """)
     view = out["view"]
-    assert view["title"] == "Oficina demo"
+    assert view["title"] == "Demo office"
     assert view["notice"] == OFFICE_NOTICE
     assert out["TEAMS_NOTE"] == "Al instalar se aprueban los equipos de estas áreas"
     assert [(area["name"], area["change"], area["level"]) for area in view["areas"]] == [
-        ("Menú", "Nueva", "Normal"), ("Avisos", "Cambió", "Sensible")]
-    assert view["areas"][0]["members"] == [{"name": "Agente de menú", "role": "preparar", "kind": "agent"}]
-    assert view["areas"][1]["members"][0]["name"] == "Responsable"
+        ("Menu", "Nueva", "Normal"), ("Notices", "Cambió", "Sensible")]
+    assert view["areas"][0]["members"] == [{"name": "Menu agent", "role": "preparer", "kind": "agent"}]
+    assert view["areas"][1]["members"][0]["name"] == "Reviewer"
     assert view["areas"][0]["requirement"] == "Lo puedes cubrir con Agente local"
     assert view["areas"][1]["requirement"] == "Te falta un agente que pueda escribir texto"
     assert view["areas"][0]["declares"] == {
-        "workflows": ["cotizar"], "contracts": ["MenuOutput"], "roles": ["cocinero"]}
+        "workflows": ["quote"], "contracts": ["MenuOutput"], "roles": ["cook"]}
     assert view["code"]["verdict"] == "Sin alertas conocidas" and view["riskAckRequired"] is False
     assert out["CHANGE_TEXT"] == {"added": "Nueva", "changed": "Cambió", "removed": "Se quita", "unchanged": "Sin cambios"}
 
@@ -174,7 +174,7 @@ def test_card_uses_plain_levels_and_declaration_names():
 
 
 def test_install_in_one_click_with_two_decisions_at_most(gui, tmp_path):
-    folder = write_office(tmp_path / "three", areas=("uno", "dos", "tres"))
+    folder = write_office(tmp_path / "three", areas=("one", "two", "three"))
     staged = post(gui, "/stage-zip", zip_body(folder))
     assert staged.status_code == 200, staged.text
     card = staged.json()
@@ -197,7 +197,7 @@ def test_install_in_one_click_with_two_decisions_at_most(gui, tmp_path):
     assert installed.status_code == 200, installed.text
     assert len([item for item in gui.services.user_approvals._all().values()
                 if item["kind"] in {"osv_query", "office_install"}]) == 2
-    for area in ("uno", "dos", "tres"):
+    for area in ("one", "two", "three"):
         team = gui.services.teams.approved(f"demo__{area}")
         assert team is not None and team["status"] == "approved"
         assert team["note"].startswith("aprobado al instalar la oficina demo ")
@@ -227,7 +227,7 @@ def test_risk_ack_only_when_asked(gui, tmp_path):
 
     gui.services.gui_settings.set_mode("advanced")
     code_folder = write_office(tmp_path / "code")
-    (code_folder / "areas" / "recepcion" / "functions.py").write_text(
+    (code_folder / "areas" / "reception" / "functions.py").write_text(
         "def synthetic(context, arguments):\n    return {}\n", encoding="utf-8")
     staged = post(gui, "/stage-folder", {"folder": str(code_folder)})
     assert staged.status_code == 200, staged.text
@@ -249,10 +249,10 @@ def test_risk_ack_only_when_asked(gui, tmp_path):
 def test_reimport_lists_only_changes(gui, tmp_path):
     original = write_office(tmp_path / "original")
     gui.services.offices.import_folder(original, actor=ACTOR)
-    changed = write_office(tmp_path / "changed", markers={"recepcion": "updated"})
+    changed = write_office(tmp_path / "changed", markers={"reception": "updated"})
     staged = post(gui, "/stage-zip", zip_body(changed, reimport="demo"))
     assert staged.status_code == 200, staged.text
-    assert [(area["id"], area["change"]) for area in staged.json()["areas"]] == [("recepcion", "changed")]
+    assert [(area["id"], area["change"]) for area in staged.json()["areas"]] == [("reception", "changed")]
 
 
 def test_cancel_discards_and_rejects_the_card(gui, tmp_path):
@@ -275,9 +275,9 @@ def test_export_routes_and_remove_keep_data(gui, tmp_path):
     assert base64.b64decode(payload["zip_base64"], validate=True)
     assert isinstance(payload["manifest"], dict) and isinstance(payload["warnings"], list)
 
-    area_export = post(gui, "/demo/export", {"area": "recepcion"})
-    assert area_export.status_code == 200 and area_export.json()["filename"] == "demo-recepcion.zip"
-    area_removed = post(gui, "/demo/areas/propuesta/remove")
+    area_export = post(gui, "/demo/export", {"area": "reception"})
+    assert area_export.status_code == 200 and area_export.json()["filename"] == "demo-reception.zip"
+    area_removed = post(gui, "/demo/areas/proposal/remove")
     assert area_removed.status_code == 200 and area_removed.json()["kept_data"] is True
     assert (gui.services.settings.data_dir / "installed" / ".offices" / "demo" / "v1" / "office.yaml").is_file()
 

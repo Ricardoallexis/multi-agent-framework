@@ -241,10 +241,10 @@ def test_office_group_has_its_six_commands():
         if command in ("import", "remove", "reimport"):
             assert args.actor == "user:local"
     assert parser.parse_args(["office", "import", "folder", "--into", "demo"]).into == "demo"
-    assert parser.parse_args(["office", "remove", "demo", "--area", "avisos"]).area == "avisos"
+    assert parser.parse_args(["office", "remove", "demo", "--area", "notices"]).area == "notices"
     assert parser.parse_args(["office", "remove", "demo"]).area is None
-    export = parser.parse_args(["office", "export", "demo", "--area", "avisos", "--include-code", "--output", "out.zip"])
-    assert (export.area, export.include_code, export.output) == ("avisos", True, "out.zip")
+    export = parser.parse_args(["office", "export", "demo", "--area", "notices", "--include-code", "--output", "out.zip"])
+    assert (export.area, export.include_code, export.output) == ("notices", True, "out.zip")
 
 
 def test_office_group_has_privacy():
@@ -253,8 +253,8 @@ def test_office_group_has_privacy():
     args = parser.parse_args(["office", "privacy", "demo"])
     assert args.func is cli.cmd_office and args.office_command == "privacy"
     assert (args.office_id, args.area, args.sensitive, args.local_only, args.actor) == ("demo", None, False, False, "user:local")
-    args = parser.parse_args(["office", "privacy", "demo", "--area", "recepcion", "--sensitive", "--local-only", "--actor", "user:ana"])
-    assert (args.area, args.sensitive, args.local_only, args.actor) == ("recepcion", True, True, "user:ana")
+    args = parser.parse_args(["office", "privacy", "demo", "--area", "reception", "--sensitive", "--local-only", "--actor", "user:ana"])
+    assert (args.area, args.sensitive, args.local_only, args.actor) == ("reception", True, True, "user:ana")
 
 
 def test_office_plan_draft_cli_requests_api(monkeypatch, capsys):
@@ -265,9 +265,9 @@ def test_office_plan_draft_cli_requests_api(monkeypatch, capsys):
         return {"schema": "maf.new-session-plan/1"}
 
     monkeypatch.setattr(cli, "_api_json", fake_api_json)
-    cli.main(["office", "plan-draft", "demo", "Plan de prueba", "--confirm-cloud", "--json"])
+    cli.main(["office", "plan-draft", "demo", "Test plan", "--confirm-cloud", "--json"])
     assert requests == [("POST", "/api/v1/offices/demo/plan-draft",
-                         {"text": "Plan de prueba", "confirm_cloud": True})]
+                         {"text": "Test plan", "confirm_cloud": True})]
     assert json.loads(capsys.readouterr().out) == {"schema": "maf.new-session-plan/1"}
 
 

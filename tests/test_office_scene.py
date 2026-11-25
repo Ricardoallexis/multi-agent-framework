@@ -30,16 +30,16 @@ from test_offices_install import make_settings, write_office
 
 NOW = datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc)
 TEAM = {
-    "roles": [{"id": "redaccion"}, {"id": "revision"}, {"id": "otra"}],
+    "roles": [{"id": "drafting"}, {"id": "review"}, {"id": "other"}],
     "members": [
         {"id": "writer", "kind": "agent", "agent": "writer_agent", "name": "Writer"},
         {"id": "reviewer", "kind": "person", "name": "Reviewer"},
         {"id": "other", "kind": "person", "name": "Other"},
     ],
     "assignments": [
-        {"role": "redaccion", "member": "writer"},
-        {"role": "revision", "member": "reviewer"},
-        {"role": "otra", "member": "other"},
+        {"role": "drafting", "member": "writer"},
+        {"role": "review", "member": "reviewer"},
+        {"role": "other", "member": "other"},
     ],
     "relationships": [],
 }
@@ -52,13 +52,13 @@ def _office(**fields):
 
 def _area(*, runs=None, team=None, **fields):
     return {
-        "id": "recepcion", "name": "Reception", "bundle": "demo__recepcion",
+        "id": "reception", "name": "Reception", "bundle": "demo__reception",
         "package_state": "ok", "data_class": "non_sensitive", "degraded": [],
         "team": team or TEAM, "runs": runs or [], **fields,
     }
 
 
-def _run(status, *, member="writer", role="redaccion", updated=None, worker="local_default", revised=False):
+def _run(status, *, member="writer", role="drafting", updated=None, worker="local_default", revised=False):
     return {
         "id": f"run-{status}", "workflow_id": "spec_review", "status": status, "current_step": 0,
         "waiting_step": "review" if status == "waiting_human" else "",
@@ -73,7 +73,7 @@ def _scene(areas=None, proposals=None, office=None, *, now=NOW):
                        proposals or [], now=now)
 
 
-def _member(scene, member_id="writer", area_id="recepcion"):
+def _member(scene, member_id="writer", area_id="reception"):
     area = next(item for item in scene["areas"] if item["id"] == area_id)
     return next(item for item in area["members"] if item["id"] == member_id)
 
@@ -105,16 +105,16 @@ def test_run_without_role_counts_for_area():
 
 def test_area_shows_its_busiest_member():
     team = {
-        "roles": [{"id": "redaccion"}, {"id": "revision"}, {"id": "otra"}],
+        "roles": [{"id": "drafting"}, {"id": "review"}, {"id": "other"}],
         "members": [
             {"id": "writer", "kind": "agent", "name": "Writer"},
             {"id": "reviewer", "kind": "person", "name": "Reviewer"},
             {"id": "other", "kind": "agent", "name": "Other"},
         ],
         "assignments": [
-            {"role": "redaccion", "member": "writer"},
-            {"role": "revision", "member": "reviewer"},
-            {"role": "otra", "member": "other"},
+            {"role": "drafting", "member": "writer"},
+            {"role": "review", "member": "reviewer"},
+            {"role": "other", "member": "other"},
         ],
         "relationships": [],
     }
@@ -122,7 +122,7 @@ def test_area_shows_its_busiest_member():
     doing_since = NOW - timedelta(hours=1)
     scene = _scene([_area(team=team, runs=[
         _run("waiting_human", member="writer", updated=review_since),
-        _run("running", member="other", role="otra", updated=doing_since),
+        _run("running", member="other", role="other", updated=doing_since),
     ])])
     area = scene["areas"][0]
     assert (area["state"], area["label"], area["since"]) == (
@@ -151,7 +151,7 @@ def test_run_state_table():
 
 
 def test_person_reviews_by_relationship():
-    team = {**TEAM, "relationships": [{"type": "reviews", "from": "revision", "to": "redaccion"}]}
+    team = {**TEAM, "relationships": [{"type": "reviews", "from": "review", "to": "drafting"}]}
     scene = _scene([_area(team=team, runs=[_run("waiting_human")])])
     assert _member(scene, "writer")["state"] == "review"
     assert _member(scene, "reviewer")["state"] == "review"
@@ -161,9 +161,9 @@ def test_person_reviews_by_relationship():
     assert _member(scene, "reviewer")["state"] == "review"
     assert _member(scene, "other")["state"] == "review"
 
-    no_people = {"roles": [{"id": "redaccion"}],
+    no_people = {"roles": [{"id": "drafting"}],
                  "members": [{"id": "writer", "kind": "agent", "agent": "writer_agent"}],
-                 "assignments": [{"role": "redaccion", "member": "writer"}], "relationships": []}
+                 "assignments": [{"role": "drafting", "member": "writer"}], "relationships": []}
     scene = _scene([_area(team=no_people, runs=[_run("waiting_human")])])
     assert scene["areas"][0]["state"] == "review"
     assert _member(scene)["state"] == "review"
@@ -180,7 +180,7 @@ def test_orchestrator_from_office_proposals():
     group_id = office_group_id("demo")
     proposed = {
         "id": "proposal-1", "group_id": group_id, "status": "proposed", "created_at": NOW.isoformat(),
-        "proposal": {"tasks": [{"id": "task-1", "bundle": "demo__recepcion"}]}, "scene_tasks": {},
+        "proposal": {"tasks": [{"id": "task-1", "bundle": "demo__reception"}]}, "scene_tasks": {},
     }
     other = {**proposed, "id": "proposal-other", "group_id": office_group_id("other")}
     scene = _scene(proposals=[other, proposed])
@@ -189,7 +189,7 @@ def test_orchestrator_from_office_proposals():
 
     approved = {
         **proposed, "id": "proposal-2", "status": "approved",
-        "proposal": {"tasks": [{"id": "task-2", "bundle": "demo__recepcion"}]},
+        "proposal": {"tasks": [{"id": "task-2", "bundle": "demo__reception"}]},
         "scene_tasks": {"task-2": {"id": "task-2", "state": "running", "status": "ready",
                                    "updated_at": NOW.isoformat()}},
     }
@@ -199,10 +199,10 @@ def test_orchestrator_from_office_proposals():
 
 
 def test_unknown_area_relation_has_a_warning():
-    office = _office(relations=[{"from": "recepcion", "to": "removed", "kind": "hands_off"}])
+    office = _office(relations=[{"from": "reception", "to": "removed", "kind": "hands_off"}])
     scene = _scene(office=office)
     assert scene["relations"] == [{
-        "from": "recepcion", "to": "removed", "kind": "hands_off",
+        "from": "reception", "to": "removed", "kind": "hands_off",
         "label": "entrega", "warning": "office_relation_unknown_area",
     }]
 
@@ -219,7 +219,7 @@ def world(tmp_path):
 
 def test_degraded_states_carry_their_fix(world):
     services, tmp_path = world
-    services.offices.import_folder(write_office(tmp_path / "demo", areas=("recepcion",)), actor="user:test")
+    services.offices.import_folder(write_office(tmp_path / "demo", areas=("reception",)), actor="user:test")
     scene = services.offices.scene("demo", now=NOW)
     area = scene["areas"][0]
     team_fix = next(item for item in area["degraded"] if item["code"] == "team_not_approved")
@@ -229,7 +229,7 @@ def test_degraded_states_carry_their_fix(world):
         "fix": {"label": "Aprobar equipo", "href": f"#new/team/{version_id}", "action": None},
     }
 
-    services.installed._states["demo__recepcion"] = "changed"
+    services.installed._states["demo__reception"] = "changed"
     changed = services.offices.scene("demo", now=NOW)["areas"][0]
     fix = next(item for item in changed["degraded"] if item["code"] == "installed_bundle_changed")
     assert fix["fix"]["label"] == "Reimportar la oficina" and fix["fix"]["action"] == "reimport"
@@ -237,7 +237,7 @@ def test_degraded_states_carry_their_fix(world):
 
 def test_scene_never_loads_a_bundle(world, monkeypatch):
     services, tmp_path = world
-    services.offices.import_folder(write_office(tmp_path / "demo", areas=("recepcion",)), actor="user:test")
+    services.offices.import_folder(write_office(tmp_path / "demo", areas=("reception",)), actor="user:test")
     approvals_before = [event for event in services.tasks.store.events(limit=500)
                         if event["type"].startswith("user_approval.")]
 
@@ -247,7 +247,7 @@ def test_scene_never_loads_a_bundle(world, monkeypatch):
     monkeypatch.setattr(services.bundle_scans, "require_load", forbidden)
     for _ in range(3):
         services.offices.scene("demo", now=NOW)
-    services.installed._states["demo__recepcion"] = "changed"
+    services.installed._states["demo__reception"] = "changed"
     services.offices.scene("demo", now=NOW)
     approvals_after = [event for event in services.tasks.store.events(limit=500)
                        if event["type"].startswith("user_approval.")]
@@ -257,8 +257,8 @@ def test_scene_never_loads_a_bundle(world, monkeypatch):
 def test_scene_never_checks_connections(world, monkeypatch):
     services, tmp_path = world
     services.offices.import_folder(
-        write_office(tmp_path / "demo", areas=("recepcion",),
-                     overrides={"recepcion": {"requires": ["model.text"]}}),
+        write_office(tmp_path / "demo", areas=("reception",),
+                     overrides={"reception": {"requires": ["model.text"]}}),
         actor="user:test",
     )
     monkeypatch.setattr(services.settings, "mock_mode", False)
@@ -309,8 +309,8 @@ def _seed_run(services, bundle: str, run_id: str, *, updated_at: datetime, reque
 
 def test_scene_has_no_paths_or_payloads(world):
     services, tmp_path = world
-    services.offices.import_folder(write_office(tmp_path / "demo", areas=("recepcion",)), actor="user:test")
-    _seed_run(services, "demo__recepcion", "private-run", updated_at=NOW, request_text="private-input-sentinel")
+    services.offices.import_folder(write_office(tmp_path / "demo", areas=("reception",)), actor="user:test")
+    _seed_run(services, "demo__reception", "private-run", updated_at=NOW, request_text="private-input-sentinel")
     scene = services.offices.scene("demo", now=NOW)
     encoded = json.dumps(scene, ensure_ascii=False)
     assert "private-input-sentinel" not in encoded
@@ -357,12 +357,12 @@ class _ClientContext:
 def test_scene_route_and_cli_parity(world, monkeypatch, capsys):
     services, _ = world
     root = Path(__file__).resolve().parents[1]
-    services.offices.import_folder(root / "examples" / "offices" / "cafeteria", actor="user:test")
+    services.offices.import_folder(root / "examples" / "offices" / "cafe", actor="user:test")
     with TestClient(create_app(services=services), base_url="http://localhost") as client:
-        response = client.get("/api/v1/offices/cafeteria/scene")
+        response = client.get("/api/v1/offices/cafe/scene")
         assert response.status_code == 200
         monkeypatch.setattr(cli, "api_client", lambda: _ClientContext(client))
-        cli.main(["office", "scene", "cafeteria", "--json"])
+        cli.main(["office", "scene", "cafe", "--json"])
         actual = json.loads(capsys.readouterr().out)
         expected = response.json()
         assert actual["schema"] == expected["schema"] == SCENE_SCHEMA
@@ -402,7 +402,7 @@ def test_step_without_role_with_no_matching_agent_stays_with_the_area():
 
 
 def test_waiting_human_without_role_uses_the_role_of_the_agent():
-    team = {**TEAM, "relationships": [{"type": "reviews", "from": "revision", "to": "redaccion"}]}
+    team = {**TEAM, "relationships": [{"type": "reviews", "from": "review", "to": "drafting"}]}
     scene = _scene([_area(team=team, runs=[_roleless("waiting_human")], step_agents=STEP_AGENTS)])
     assert _member(scene)["state"] == "review"
     assert _member(scene, "reviewer")["state"] == "review"
@@ -411,8 +411,8 @@ def test_waiting_human_without_role_uses_the_role_of_the_agent():
 
 def test_scene_survives_broken_workflow_files_for_step_agents(world):
     services, tmp_path = world
-    services.offices.import_folder(write_office(tmp_path / "demo", areas=("recepcion",)), actor="user:test")
-    folder = services.bundle_path("demo__recepcion")
+    services.offices.import_folder(write_office(tmp_path / "demo", areas=("reception",)), actor="user:test")
+    folder = services.bundle_path("demo__reception")
     flows = sorted((folder / "workflows").glob("*.yaml"))
     assert flows
     flows[0].write_text("steps: [unclosed\n  - : :\n", encoding="utf-8")

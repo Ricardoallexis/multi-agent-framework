@@ -23,16 +23,17 @@ from test_office_sensitivity import CloudDouble
 from test_offices_install import ACTOR
 
 ROOT = Path(__file__).resolve().parents[1]
-CAFETERIA = ROOT / "examples" / "offices" / "cafeteria"
-ESCUELA = ROOT / "examples" / "offices" / "escuela"
+CAFE = ROOT / "examples" / "offices" / "cafe"
+SCHOOL = ROOT / "examples" / "offices" / "school"
 GENERAL = ROOT / "examples" / "bundles" / "general"
 LOCAL_OUTPUTS = {
-    "MenuSemana": {
-        "titulo": "Menú semanal de prueba",
-        "menu": "Lunes: plato caliente y fruta.",
+    "WeeklyMenu": {
+        "title": "Sample weekly menu",
+        "menu": "Monday: a hot dish and fruit.",
     },
-    "NotaAvance": {"nota": "Avance sintético para revisión."},
-    "Aviso": {"titulo": "Aviso de prueba", "cuerpo": "Texto sintético para revisión."},
+    "ProgressNote": {"note": "Sample progress note for review."},
+    "Notice": {"title": "Sample notice", "body": "Sample text for review."},
+    "Reply": {"reply": "Sample reply for review."},
 }
 class NamedLocalAdapter(FakeAdapter):
     """A fake local model that reports the model it ran, as a real local adapter does (the mock reports «fixture»)."""
@@ -44,14 +45,14 @@ class NamedLocalAdapter(FakeAdapter):
 
 TWO_TASK_PLAN = {
     "tasks": [
-        {"id": "plan-1", "title": "Preparar el menú semanal", "depends_on": [],
-         "workflow": "menu_semana", "bundle": "cafeteria__menu",
-         "inputs": {"pedido": "Menú de lunes a viernes con plato caliente y fruta."}},
-        {"id": "plan-2", "title": "Redactar el aviso", "depends_on": ["plan-1"],
-         "workflow": "escribir_aviso", "bundle": "cafeteria__avisos",
-         "inputs": {"tema": "Menú de la semana."}},
+        {"id": "plan-1", "title": "Prepare the weekly menu", "depends_on": [],
+         "workflow": "weekly_menu", "bundle": "cafe__menu",
+         "inputs": {"order": "Monday to Friday menu with a hot dish and fruit."}},
+        {"id": "plan-2", "title": "Write the notice", "depends_on": ["plan-1"],
+         "workflow": "write_notice", "bundle": "cafe__notices",
+         "inputs": {"topic": "This week's menu."}},
     ],
-    "rationale": "Plan sintético de dos tareas.",
+    "rationale": "Synthetic two-task plan.",
 }
 
 
@@ -72,7 +73,7 @@ def approve_cloud_permission(services: ApplicationServices, approval_id: str) ->
 
 
 def prefer_cloud_in_every_workflow(office: Path, areas: tuple[str, ...]) -> None:
-    """Like ``test_office_sensitivity.prefer_cloud``, but for every workflow of each area (the school's differ)."""
+    """Like ``test_office_sensitivity.prefer_cloud``, but for every workflow of each area (the school areas differ)."""
     for area in areas:
         folder = office / "areas" / area
         (folder / "catalog" / "models.yaml").write_text(
@@ -134,7 +135,7 @@ def _approve_teams(services: ApplicationServices, result: dict) -> None:
 
 
 def _scene_member(services: ApplicationServices, area_id: str, member_id: str) -> dict:
-    scene = services.offices.scene("cafeteria")
+    scene = services.offices.scene("cafe")
     area = next(item for item in scene["areas"] if item["id"] == area_id)
     return next(item for item in area["members"] if item["id"] == member_id)
 
@@ -143,12 +144,12 @@ def _menu_run(services: ApplicationServices) -> dict:
     run = services.runs.create(
         RunRequest(
             project_name="Synthetic weekly menu",
-            workflow_id="menu_semana",
-            inputs={"pedido": "Menú de lunes a viernes con plato caliente y fruta."},
+            workflow_id="weekly_menu",
+            inputs={"order": "Monday to Friday menu with a hot dish and fruit."},
         ),
-        bundle="cafeteria__menu",
+        bundle="cafe__menu",
     )
-    runtime = services.runs._bundle_runtime("cafeteria__menu")
+    runtime = services.runs._bundle_runtime("cafe__menu")
     assert runtime is not None and runtime.worker is not None
     assert runtime.worker.process_once()
     result = services.runs.get(run["id"])
@@ -159,11 +160,11 @@ def _menu_run(services: ApplicationServices) -> dict:
 
 def test_metric2_same_template_three_ways(service_factory):
     mock = service_factory("metric2-mock")
-    mock_office = _import(mock, CAFETERIA)
-    mock_menu = next(item for item in mock_office["teams"] if item["bundle"] == "cafeteria__menu")
+    mock_office = _import(mock, CAFE)
+    mock_menu = next(item for item in mock_office["teams"] if item["bundle"] == "cafe__menu")
     mock.teams.approve(mock_menu["version_id"], actor=ACTOR)
     mock_run = _menu_run(mock)
-    mock_member = _scene_member(mock, "menu", "agente_menu")
+    mock_member = _scene_member(mock, "menu", "menu_drafter")
     assert mock_member["state"] == "review"
 
     local = service_factory(
@@ -171,11 +172,11 @@ def test_metric2_same_template_three_ways(service_factory):
         mock=False,
         adapters={"ollama": NamedLocalAdapter(sample_outputs=LOCAL_OUTPUTS)},
     )
-    local_office = _import(local, CAFETERIA)
-    local_menu = next(item for item in local_office["teams"] if item["bundle"] == "cafeteria__menu")
+    local_office = _import(local, CAFE)
+    local_menu = next(item for item in local_office["teams"] if item["bundle"] == "cafe__menu")
     local.teams.approve(local_menu["version_id"], actor=ACTOR)
     local_run = _menu_run(local)
-    local_member = _scene_member(local, "menu", "agente_menu")
+    local_member = _scene_member(local, "menu", "menu_drafter")
     assert local_member["state"] == "review"
     assert mock_run["id"] != local_run["id"]
     assert mock_member["worker"] != local_member["worker"]
@@ -184,25 +185,25 @@ def test_metric2_same_template_three_ways(service_factory):
 def test_metric3_scene_follows_a_two_task_plan(service_factory, monkeypatch):
     adapter = FakeAdapter(sample_outputs={**LOCAL_OUTPUTS, "PlanningOutput": TWO_TASK_PLAN})
     services = service_factory("metric3", mock=False, adapters={"ollama": adapter})
-    imported = _import(services, CAFETERIA)
+    imported = _import(services, CAFE)
     _approve_teams(services, imported)
 
-    draft = services.offices.plan_draft("cafeteria", "Prepara el menú semanal y después el aviso.")
-    menu_task = next(task for task in draft["tasks"] if task["bundle"] == "cafeteria__menu")
-    notice_task = next(task for task in draft["tasks"] if task["bundle"] == "cafeteria__avisos")
+    draft = services.offices.plan_draft("cafe", "Prepare the weekly menu and then write the notice.")
+    menu_task = next(task for task in draft["tasks"] if task["bundle"] == "cafe__menu")
+    notice_task = next(task for task in draft["tasks"] if task["bundle"] == "cafe__notices")
     services.tasks.create_group(
         draft["group_id"], draft["goal"], actor=ACTOR, authorized=True, default_requires="submitted"
     )
     proposal = services.plan_proposals.save(draft["proposal"], actor=ACTOR, channel="test")
     proposal_id = proposal["id"]
-    assert services.offices.scene("cafeteria")["orchestrator"]["state"] == "review"
+    assert services.offices.scene("cafe")["orchestrator"]["state"] == "review"
 
     approved = services.plan_proposals.approve(
         proposal_id, actor=ACTOR, channel="test", expected_revision=1
     )
     first = next(task for task in approved["plan_status"]["tasks"] if task["id"] == menu_task["id"])
     first_run_id = first["run"]["id"]
-    runtime = services.runs._bundle_runtime("cafeteria__menu")
+    runtime = services.runs._bundle_runtime("cafe__menu")
     assert runtime is not None and runtime.worker is not None
 
     entered = threading.Event()
@@ -229,11 +230,11 @@ def test_metric3_scene_follows_a_two_task_plan(service_factory, monkeypatch):
     worker.start()
     try:
         assert entered.wait(timeout=10)
-        running_scene = services.offices.scene("cafeteria")
+        running_scene = services.offices.scene("cafe")
         assert running_scene["orchestrator"]["state"] == "doing"
         menu_agent = next(
             member for member in next(area for area in running_scene["areas"] if area["id"] == "menu")["members"]
-            if member["id"] == "agente_menu"
+            if member["id"] == "menu_drafter"
         )
         assert menu_agent["state"] == "doing"
     finally:
@@ -243,7 +244,7 @@ def test_metric3_scene_follows_a_two_task_plan(service_factory, monkeypatch):
 
     first_review = services.runs.get(first_run_id)
     assert first_review["status"] == "waiting_human" and first_review["artifacts"]
-    assert _scene_member(services, "menu", "agente_menu")["state"] == "review"
+    assert _scene_member(services, "menu", "menu_drafter")["state"] == "review"
     completed = services.runs.approve(first_run_id, by=ACTOR, channel="test")
     assert completed["status"] == "completed"
 
@@ -260,42 +261,42 @@ def test_metric3_scene_follows_a_two_task_plan(service_factory, monkeypatch):
         any(item["task_id"] == notice_task["id"] for item in event["payload"]["advanced"])
         for event in advanced
     )
-    assert _scene_member(services, "menu", "agente_menu")["state"] == "done"
+    assert _scene_member(services, "menu", "menu_drafter")["state"] == "done"
 
-    second_runtime = services.runs._bundle_runtime("cafeteria__avisos")
+    second_runtime = services.runs._bundle_runtime("cafe__notices")
     assert second_runtime is not None and second_runtime.worker is not None
     assert second_runtime.worker.process_once()
     notice_review = services.runs.get(second["run"]["id"])
     assert notice_review["status"] == "waiting_human" and notice_review["artifacts"]
     assert services.runs.approve(notice_review["id"], by=ACTOR, channel="test")["status"] == "completed"
     # A task is «done» for the scene only when the person accepts it (the run's end only submits it).
-    assert services.offices.scene("cafeteria")["orchestrator"]["state"] == "doing"
+    assert services.offices.scene("cafe")["orchestrator"]["state"] == "doing"
     for task_id in (menu_task["id"], notice_task["id"]):
         services.tasks.transition(task_id, "accept", actor=ACTOR)
-    final_scene = services.offices.scene("cafeteria")
+    final_scene = services.offices.scene("cafe")
     assert final_scene["orchestrator"]["state"] == "done"
     assert next(
         member for member in next(area for area in final_scene["areas"] if area["id"] == "menu")["members"]
-        if member["id"] == "agente_menu"
+        if member["id"] == "menu_drafter"
     )["state"] == "done"
 
 
 def test_metric4_shared_area_keeps_data_apart(service_factory):
     services = service_factory("metric4")
-    _import(services, CAFETERIA)
-    _import(services, ESCUELA)
-    school_data = services.settings.data_dir / "bundles" / "escuela__avisos"
+    _import(services, CAFE)
+    _import(services, SCHOOL)
+    school_data = services.settings.data_dir / "bundles" / "school__notices"
     school_data.mkdir(parents=True)
 
-    removed = services.offices.remove_area("escuela", "avisos", actor=ACTOR)
+    removed = services.offices.remove_area("school", "notices", actor=ACTOR)
     assert removed["kept_data"] is True and school_data.is_dir()
-    exported = services.offices.export("cafeteria", area="avisos")
-    imported = services.offices.import_zip(exported["data"], actor=ACTOR, into="escuela")
-    assert "avisos" in [area["id"] for area in imported["office"]["areas"]]
+    exported = services.offices.export("cafe", area="notices")
+    imported = services.offices.import_zip(exported["data"], actor=ACTOR, into="school")
+    assert "notices" in [area["id"] for area in imported["office"]["areas"]]
 
     def run_notice(bundle: str, project: str, topic: str) -> dict:
         run = services.runs.create(
-            RunRequest(project_name=project, workflow_id="escribir_aviso", inputs={"tema": topic}),
+            RunRequest(project_name=project, workflow_id="write_notice", inputs={"topic": topic}),
             bundle=bundle,
         )
         runtime = services.runs._bundle_runtime(bundle)
@@ -305,15 +306,15 @@ def test_metric4_shared_area_keeps_data_apart(service_factory):
         assert finished["status"] == "waiting_human" and finished["artifacts"]
         return finished
 
-    cafeteria_run = run_notice("cafeteria__avisos", "Cafeteria synthetic data", "Horario de prueba")
-    school_run = run_notice("escuela__avisos", "School synthetic data", "Reunión de prueba")
-    cafeteria_data = services.settings.data_dir / "bundles" / "cafeteria__avisos"
-    assert cafeteria_data.is_dir() and school_data.is_dir() and cafeteria_data != school_data
+    cafe_run = run_notice("cafe__notices", "Cafe synthetic data", "Sample opening hours")
+    school_run = run_notice("school__notices", "School synthetic data", "Sample meeting")
+    cafe_data = services.settings.data_dir / "bundles" / "cafe__notices"
+    assert cafe_data.is_dir() and school_data.is_dir() and cafe_data != school_data
     since = "1970-01-01T00:00:00+00:00"
-    cafeteria_ids = {item["id"] for item in services.runs.recent_runs("cafeteria__avisos", since=since)}
-    school_ids = {item["id"] for item in services.runs.recent_runs("escuela__avisos", since=since)}
-    assert cafeteria_run["id"] in cafeteria_ids and school_run["id"] not in cafeteria_ids
-    assert school_run["id"] in school_ids and cafeteria_run["id"] not in school_ids
+    cafe_ids = {item["id"] for item in services.runs.recent_runs("cafe__notices", since=since)}
+    school_ids = {item["id"] for item in services.runs.recent_runs("school__notices", since=since)}
+    assert cafe_run["id"] in cafe_ids and school_run["id"] not in cafe_ids
+    assert school_run["id"] in school_ids and cafe_run["id"] not in school_ids
 
 
 def test_metric5_without_offices_nothing_changes(service_factory, monkeypatch):
@@ -341,8 +342,8 @@ def test_metric5_without_offices_nothing_changes(service_factory, monkeypatch):
 
 def test_metric6_local_only_never_leaves_even_in_a_plan(service_factory, tmp_path):
     school_cloud = tmp_path / "school-cloud-template"
-    shutil.copytree(ESCUELA, school_cloud)
-    prefer_cloud_in_every_workflow(school_cloud, ("seguimiento", "avisos"))
+    shutil.copytree(SCHOOL, school_cloud)
+    prefer_cloud_in_every_workflow(school_cloud, ("follow-up", "notices"))
     local = FakeAdapter(sample_outputs=LOCAL_OUTPUTS)
     cloud = CloudDouble("gemini")
     services = service_factory(
@@ -352,10 +353,10 @@ def test_metric6_local_only_never_leaves_even_in_a_plan(service_factory, tmp_pat
     )
     _import(services, school_cloud)
 
-    permission = services.offices.request_cloud_permission("escuela", "avisos")
+    permission = services.offices.request_cloud_permission("school", "notices")
     approve_cloud_permission(services, permission["approval_id"])
     services.offices.grant_cloud_permission(
-        "escuela", "avisos", approval_id=permission["approval_id"], actor=ACTOR
+        "school", "notices", approval_id=permission["approval_id"], actor=ACTOR
     )
     group_id = "school-privacy-plan"
     services.tasks.create_group(group_id, "Synthetic school plan", actor=ACTOR, authorized=True,
@@ -367,14 +368,14 @@ def test_metric6_local_only_never_leaves_even_in_a_plan(service_factory, tmp_pat
         "group_id": group_id,
         "tasks": {
             "follow": {
-                "workflow": "nota_avance",
-                "bundle": "escuela__seguimiento",
-                "inputs": {"observaciones": "Observación sintética.", "alumno": "Alumno A"},
+                "workflow": "progress_note",
+                "bundle": "school__follow-up",
+                "inputs": {"observations": "Sample observation.", "student": "Student A"},
             },
             "notice": {
-                "workflow": "escribir_aviso",
-                "bundle": "escuela__avisos",
-                "inputs": {"tema": "Aviso sintético."},
+                "workflow": "write_notice",
+                "bundle": "school__notices",
+                "inputs": {"topic": "Sample notice."},
             },
         },
     }
@@ -385,7 +386,7 @@ def test_metric6_local_only_never_leaves_even_in_a_plan(service_factory, tmp_pat
     assert follow["data_class"] == "restricted" and follow["request"]["sensitive"] is True
     assert notice["data_class"] == "non_sensitive" and notice["request"]["sensitive"] is False
 
-    runtime = services.runs._bundle_runtime("escuela__seguimiento")
+    runtime = services.runs._bundle_runtime("school__follow-up")
     assert runtime is not None and runtime.worker is not None and runtime.worker.process_once()
     assert services.runs.get(follow["id"])["status"] == "waiting_human"
     assert cloud.calls == []
@@ -399,10 +400,10 @@ def test_metric6_planner_keeps_the_school_local(service_factory):
         model="cloud_fast",
         adapters={"gemini": cloud},
     )
-    _import(services, ESCUELA)
+    _import(services, SCHOOL)
 
     draft = services.offices.plan_draft(
-        "escuela", "Prepara una actividad y una nota de seguimiento.", confirm_cloud=True
+        "school", "Prepare an activity and a progress note.", confirm_cloud=True
     )
     assert draft["fallback_reason"] == "office_not_normal"
     assert draft["planner"] == "deterministic" and cloud.calls == []

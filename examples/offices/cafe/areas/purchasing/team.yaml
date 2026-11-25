@@ -1,0 +1,43 @@
+schema_version: 1
+id: cafe_purchasing_team
+description: Example team that prepares and reviews purchase lists.
+roles:
+  - id: drafting
+    purpose: Builds an order list from the current inventory.
+    rules:
+      - Include only products that are missing or low in stock according to the inventory.
+    skills: []
+    contracts:
+      - OrderList
+    capabilities:
+      - model.structured
+    permissions: []
+
+  - id: review
+    purpose: Reviews the purchase list before approving the order.
+    rules:
+      - Check the products, quantities, and summary notes.
+    skills: []
+    contracts:
+      - OrderList
+    capabilities:
+      - doc.review
+    permissions: []
+
+members:
+  - id: purchasing_agent
+    kind: agent
+    agent: purchasing_coordinator
+
+  - id: reviewer
+    kind: person
+    name: Reviewer
+assignments:
+  - role: drafting
+    member: purchasing_agent
+  - role: review
+    member: reviewer
+relationships:
+  - type: reviews
+    from: review
+    to: drafting

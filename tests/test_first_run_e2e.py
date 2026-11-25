@@ -25,17 +25,17 @@ def settings_for(tmp_path, *, mock):
 
 def run_to_completion(services):
     run_id = services.runs.create(
-        RunRequest(workflow_id="menu_semana", project_name="Primer recorrido",
-                   inputs={"pedido": "Menú de lunes a viernes con plato caliente y fruta."}),
-        bundle="cafeteria__menu",
+        RunRequest(workflow_id="weekly_menu", project_name="First run",
+                   inputs={"order": "Monday to Friday menu with a hot dish and fruit."}),
+        bundle="cafe__menu",
     )["id"]
-    runtime = services.runs._bundle_runtime("cafeteria__menu")
+    runtime = services.runs._bundle_runtime("cafe__menu")
     assert runtime is not None and runtime.worker is not None and runtime.worker.process_once()
     waiting = services.runs.get(run_id)
     assert waiting["status"] == "waiting_human" and waiting["waiting_reason"] == "review"
     completed = services.runs.approve(run_id, by=ACTOR, channel="test")
     assert completed["status"] == "completed"
-    assert services.teams.approved("cafeteria__menu") is None
+    assert services.teams.approved("cafe__menu") is None
     return run_id
 
 
@@ -67,9 +67,9 @@ def test_first_run_path_all_five_steps(tmp_path):
         # Start 2: the person opens Iniciar again, now with real models (a fake adapter instead of the provider).
         real = ApplicationServices.create(settings_for(tmp_path, mock=False), dry_run=False,
                                           adapter_overrides={"ollama": FakeAdapter(
-                                              sample_outputs={"MenuSemana": {
-                                                  "titulo": "Menú semanal de prueba",
-                                                  "menu": "Lunes: plato caliente y fruta.",
+                                              sample_outputs={"WeeklyMenu": {
+                                                  "title": "Sample weekly menu",
+                                                  "menu": "Monday: a hot dish and fruit.",
                                               }},
                                               output_schemas=None)})
         opened.append(real)

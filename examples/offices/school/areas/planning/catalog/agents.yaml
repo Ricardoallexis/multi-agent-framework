@@ -1,0 +1,6 @@
+agents:
+  lesson_planner:
+    role: Prepares clear lesson plans with a goal and practical activities
+    active: true
+    capabilities:
+      - model.text

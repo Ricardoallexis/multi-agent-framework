@@ -129,7 +129,7 @@ def test_try_mock_opens_the_example_office_when_installed():
     """ % (json.dumps(status()), json.dumps(status(example_installed=True))))
     assert out == {
         "ordinary": {"kind": "link", "label": "Probar en Mock", "href": "#new"},
-        "example": {"kind": "link", "label": "Probar en Mock", "href": "#new/office/cafeteria/menu"},
+        "example": {"kind": "link", "label": "Probar en Mock", "href": "#new/office/cafe/menu"},
     }
 
 

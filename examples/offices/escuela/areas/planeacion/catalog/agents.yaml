@@ -1,6 +1,0 @@
-agents:
-  docente_planeacion:
-    role: Prepara propuestas de plan de clase claras con objetivo y actividades prácticas
-    active: true
-    capabilities:
-      - model.text

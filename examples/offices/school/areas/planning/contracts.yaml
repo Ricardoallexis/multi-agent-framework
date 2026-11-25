@@ -1,0 +1,27 @@
+schema: maf.contracts/1
+contracts:
+  LessonPlan:
+    description: Lesson plan proposal to review before using in class.
+    fields:
+      goal:
+        type: string
+      activities:
+        type: list
+        min_items: 1
+        items:
+          type: string
+      plan:
+        type: string
+        document: true
+samples:
+  LessonPlan:
+    goal: Understand the basic water cycle through observation and drawing.
+    activities:
+      - Discuss where we see water in everyday life.
+      - Draw evaporation, clouds, and rain with guidance.
+      - Share ideas using three short questions.
+    plan: |
+      Goal: Understand the basic water cycle through observation and drawing.
+      Start (10 min): group discussion of everyday examples.
+      Main activity (25 min): draw an illustrated outline in a notebook, step by step.
+      Wrap-up (10 min): review the three stages of the cycle aloud.

@@ -1,0 +1,23 @@
+id: weekly_menu
+description: Prepares a weekly menu from a request and leaves it for review.
+max_iterations: 1
+inputs:
+  - name: order
+    label: Menu request
+    description: List the days, dishes, ingredients, or restrictions for the menu.
+    example: Monday to Friday menu with a hot dish, a plant-based option, and fruit.
+    required: true
+    type: long_text
+steps:
+  - id: draft_menu
+    description: Drafts the weekly menu for the reviewer.
+    agent: menu_writer
+    prompt_id: menu/weekly_menu
+    prompt_version: 1
+    skills: []
+    contract: WeeklyMenu
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

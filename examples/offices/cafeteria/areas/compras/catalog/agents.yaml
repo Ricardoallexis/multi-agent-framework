@@ -1,6 +1,0 @@
-agents:
-  encargado_compras:
-    role: Organiza la lista de productos y cantidades necesarias según el inventario disponible
-    active: true
-    capabilities:
-      - model.structured

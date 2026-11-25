@@ -45,15 +45,15 @@ def test_parse_office_route():
     out = run_node(f"""
       import {{ officeHref, parseRoute }} from {file_url(JS / "route.js")};
       console.log(JSON.stringify({{
-        office: parseRoute("#new/office/cafeteria"),
-        area: parseRoute("#new/office/cafeteria/menu"),
-        href: officeHref("cafeteria", "menu"),
+        office: parseRoute("#new/office/cafe"),
+        area: parseRoute("#new/office/cafe/menu"),
+        href: officeHref("cafe", "menu"),
       }}));
     """)
     assert out == {
-        "office": {"section": "new", "id": None, "kind": "office", "office": "cafeteria", "area": None},
-        "area": {"section": "new", "id": None, "kind": "office", "office": "cafeteria", "area": "menu"},
-        "href": "#new/office/cafeteria/menu",
+        "office": {"section": "new", "id": None, "kind": "office", "office": "cafe", "area": None},
+        "area": {"section": "new", "id": None, "kind": "office", "office": "cafe", "area": "menu"},
+        "href": "#new/office/cafe/menu",
     }
 
 
@@ -128,13 +128,13 @@ def test_selector_hidden_without_offices():
 def test_orchestrator_sends_the_office():
     out = run_node(f"""
       import {{ officeRequestBody }} from {file_url(JS / "new-session-model.js")};
-      console.log(JSON.stringify(officeRequestBody("Menú y aviso", "cafeteria")));
+      console.log(JSON.stringify(officeRequestBody("Menu and notice", "cafe")));
     """)
     assert out == {
-        "text": "Menú y aviso",
+        "text": "Menu and notice",
         "confirm_cloud": False,
         "approval_id": None,
-        "office": "cafeteria",
+        "office": "cafe",
     }
     source = (JS / "new-session.js").read_text(encoding="utf-8")
     assert "officeRequestBody(text, officeId, confirmCloud)" in source
@@ -145,10 +145,10 @@ def test_orchestrator_sends_the_office():
 def test_single_session_offers_office_workflows():
     out = run_node(f"""
       import {{ officeWorkflowGroups }} from {file_url(JS / "new-session-model.js")};
-      const areas = [{{ id: "menu", name: "Menú" }}, {{ id: "notice", name: "Avisos" }}];
+      const areas = [{{ id: "menu", name: "Menu" }}, {{ id: "notices", name: "Notices and replies" }}];
       const catalog = [
-        {{ id: "weekly_menu", bundle: "cafeteria__menu", label: "Menú semanal" }},
-        {{ id: "notice", bundle: "cafeteria__notice", label: "Aviso" }},
+        {{ id: "weekly_menu", bundle: "cafe__menu", label: "Weekly menu" }},
+        {{ id: "write_notice", bundle: "cafe__notices", label: "Write a notice" }},
         {{ id: "general_only", bundle: "general", label: "General" }},
       ];
       console.log(JSON.stringify({{
@@ -158,10 +158,10 @@ def test_single_session_offers_office_workflows():
     """)
     assert out == {
         "all": [
-            {"area": "menu", "items": [{"id": "weekly_menu", "label": "Menú semanal"}]},
-            {"area": "notice", "items": [{"id": "notice", "label": "Aviso"}]},
+            {"area": "menu", "items": [{"id": "weekly_menu", "label": "Weekly menu"}]},
+            {"area": "notices", "items": [{"id": "write_notice", "label": "Write a notice"}]},
         ],
-        "one": [{"area": "menu", "items": [{"id": "weekly_menu", "label": "Menú semanal"}]}],
+        "one": [{"area": "menu", "items": [{"id": "weekly_menu", "label": "Weekly menu"}]}],
     }
     source = (JS / "new-session.js").read_text(encoding="utf-8")
     assert "OfficeWorkflowPicker" in source and "groups=${officeGroups}" in source
@@ -255,9 +255,9 @@ def test_fallback_line():
         walk(node);
         return found;
       }};
-      const draft = {{ goal: "Menú", tasks: [], fallback_reason: "office_not_normal" }};
-      const mockDraft = {{ goal: "Menú", tasks: [], fallback_reason: "mock" }};
-      const oldDraft = {{ goal: "Menú", tasks: [] }};
+      const draft = {{ goal: "Menu", tasks: [], fallback_reason: "office_not_normal" }};
+      const mockDraft = {{ goal: "Menu", tasks: [], fallback_reason: "mock" }};
+      const oldDraft = {{ goal: "Menu", tasks: [] }};
       console.log(JSON.stringify({{
         fallback: texts(PlanDraftBody({{ draft, mode: "simple", catalog: [] }})),
         mock: texts(PlanDraftBody({{ draft: mockDraft, mode: "simple", catalog: [] }})),
@@ -326,21 +326,21 @@ def test_interpret_and_plan_forward_office_to_service(env):
     interpret = env.client.post(
         "/gui/api/new-session/interpret",
         headers=env.auth,
-        json={"text": "Menú y aviso", "office": "cafeteria"},
+        json={"text": "Menu and notice", "office": "cafe"},
     )
     plan = env.client.post(
         "/gui/api/new-session/plan",
         headers=env.auth,
-        json={"text": "Menú y aviso", "confirm_cloud": True, "office": "cafeteria"},
+        json={"text": "Menu and notice", "confirm_cloud": True, "office": "cafe"},
     )
     assert interpret.status_code == plan.status_code == 200
     assert interpret.json() == {
-        "text": "Menú y aviso", "confirm_cloud": False, "approval_id": None, "office": "cafeteria",
+        "text": "Menu and notice", "confirm_cloud": False, "approval_id": None, "office": "cafe",
     }
     assert plan.json() == {
-        "text": "Menú y aviso", "confirm_cloud": True, "approval_id": None, "office": "cafeteria",
+        "text": "Menu and notice", "confirm_cloud": True, "approval_id": None, "office": "cafe",
     }
     assert env.double.calls == [
-        ("interpret", "Menú y aviso", False, None, "cafeteria"),
-        ("plan", "Menú y aviso", True, None, "cafeteria"),
+        ("interpret", "Menu and notice", False, None, "cafe"),
+        ("plan", "Menu and notice", True, None, "cafe"),
     ]

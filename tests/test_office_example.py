@@ -38,24 +38,24 @@ def gui(tmp_path):
     services.runs.close()
 
 
-def test_install_example_copies_the_cafeteria(gui):
+def test_install_example_copies_cafe(gui):
     assert gui.services.offices.example_available() is True
     result = gui.services.offices.install_example()
-    assert result["office"]["id"] == "cafeteria" and result["office"]["state"] == "ok"
-    assert {area["id"] for area in result["office"]["areas"]} == {"menu", "compras", "avisos"}
+    assert result["office"]["id"] == "cafe" and result["office"]["state"] == "ok"
+    assert {area["id"] for area in result["office"]["areas"]} == {"menu", "purchasing", "notices"}
     assert all(area["package_state"] == "ok" for area in result["office"]["areas"])
 
     bundles = {item["name"]: item for item in gui.services.installed.list()}
-    assert set(bundles) == {"cafeteria__menu", "cafeteria__compras", "cafeteria__avisos"}
-    assert all(item["state"] == "ok" and item["source"] == "office" and item["office"] == "cafeteria"
+    assert set(bundles) == {"cafe__menu", "cafe__purchasing", "cafe__notices"}
+    assert all(item["state"] == "ok" and item["source"] == "office" and item["office"] == "cafe"
                for item in bundles.values())
     assert {item["bundle"]: item["status"] for item in result["teams"]} == {
-        "cafeteria__menu": "proposed",
-        "cafeteria__compras": "proposed",
-        "cafeteria__avisos": "proposed",
+        "cafe__menu": "proposed",
+        "cafe__purchasing": "proposed",
+        "cafe__notices": "proposed",
     }
     assert all(gui.services.teams.approved(name) is None for name in bundles)
-    source = (office_services.PROJECT_ROOT / office_services.SHIPPED_OFFICES["cafeteria"]).resolve()
+    source = (office_services.PROJECT_ROOT / office_services.SHIPPED_OFFICES["cafe"]).resolve()
     assert all(gui.services._bundles[name].resolve() != source / "areas" / name.split("__", 1)[1]
                for name in bundles)
 
@@ -74,10 +74,10 @@ def test_example_twice_reports_existing_office(gui):
     created = gui.client.post(PATH + "/example", json={}, headers=gui.auth)
     assert created.status_code == 201
     assert (created.json()["office"]["id"], created.json()["office"]["installed_by"],
-            created.json()["office"]["channel"]) == ("cafeteria", "user:gui", "gui")
+            created.json()["office"]["channel"]) == ("cafe", "user:gui", "gui")
     repeated = gui.client.post(PATH + "/example", json={}, headers=gui.auth)
     assert (repeated.status_code, repeated.json()["detail"]["details"]["reason"]) == (409, "office_exists")
     listing = gui.client.get(PATH, headers=gui.auth)
     assert listing.status_code == 200
     assert listing.json()["example_available"] is False
-    assert [office["id"] for office in listing.json()["offices"]] == ["cafeteria"]
+    assert [office["id"] for office in listing.json()["offices"]] == ["cafe"]

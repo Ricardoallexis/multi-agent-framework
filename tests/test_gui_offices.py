@@ -209,7 +209,7 @@ def test_level_text():
 def test_office_header_follows_its_areas():
     out = run_node(f"""
       import {{ officeWorks }} from {file_url(EXT / "model.js")};
-      const waiting = {{ areas: [{{ id: "menu", degraded: [{{ code: "team_not_approved" }}] }}, {{ id: "avisos", degraded: [] }}] }};
+      const waiting = {{ areas: [{{ id: "menu", degraded: [{{ code: "team_not_approved" }}] }}, {{ id: "notices", degraded: [] }}] }};
       const fine = {{ areas: [{{ id: "menu", degraded: [] }}] }};
       console.log(JSON.stringify({{
         waiting: officeWorks({{ state: "ok" }}, waiting),

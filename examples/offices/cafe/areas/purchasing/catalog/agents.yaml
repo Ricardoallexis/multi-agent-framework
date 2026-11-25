@@ -1,0 +1,6 @@
+agents:
+  purchasing_coordinator:
+    role: Organizes the required products and quantities based on available inventory
+    active: true
+    capabilities:
+      - model.structured

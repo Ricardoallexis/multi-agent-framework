@@ -1,0 +1,44 @@
+schema_version: 1
+id: school_follow_up_team
+description: Example team that drafts and reviews progress notes in local-only mode.
+roles:
+  - id: drafting
+    purpose: Organizes the observations into a clear progress note.
+    rules:
+      - Use only the written observations, with a respectful and specific tone.
+    skills: []
+    contracts:
+      - ProgressNote
+    capabilities:
+      - model.text
+      - model.local
+    permissions: []
+
+  - id: review
+    purpose: Reviews each progress note before approving it.
+    rules:
+      - Check privacy, accuracy, and tone before approving it.
+    skills: []
+    contracts:
+      - ProgressNote
+    capabilities:
+      - doc.review
+    permissions: []
+
+members:
+  - id: follow_up_agent
+    kind: agent
+    agent: progress_tutor
+
+  - id: reviewer
+    kind: person
+    name: Reviewer
+assignments:
+  - role: drafting
+    member: follow_up_agent
+  - role: review
+    member: reviewer
+relationships:
+  - type: reviews
+    from: review
+    to: drafting

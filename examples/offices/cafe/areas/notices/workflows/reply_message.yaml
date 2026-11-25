@@ -1,0 +1,23 @@
+id: reply_message
+description: Drafts a reply to a received message and leaves it for review.
+max_iterations: 1
+inputs:
+  - name: message
+    label: Received message
+    description: Paste the message or question that needs a reply.
+    example: Hello, can you confirm this week's opening hours?
+    required: true
+    type: long_text
+steps:
+  - id: draft_reply
+    description: Drafts the reply for the reviewer.
+    agent: notice_writer
+    prompt_id: notices/reply_message
+    prompt_version: 1
+    skills: []
+    contract: Reply
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

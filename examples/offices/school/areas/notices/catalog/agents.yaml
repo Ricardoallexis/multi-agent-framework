@@ -1,0 +1,6 @@
+agents:
+  notice_writer:
+    role: Writes brief notices and message replies in friendly, clear language
+    active: true
+    capabilities:
+      - model.text

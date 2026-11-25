@@ -149,7 +149,7 @@ def test_office_requirements_shape_one_area_each():
 
 # --- the route and the service (phase 2) -------------------------------------------------------------------------
 
-def _install_demo(services, tmp_path, *, areas=("recepcion", "propuesta"), overrides=None):
+def _install_demo(services, tmp_path, *, areas=("reception", "proposal"), overrides=None):
     from test_offices_install import write_office
     folder = write_office(tmp_path / "office", areas=areas, overrides=overrides)
     return services.offices.import_folder(folder, actor="user:local")
@@ -174,13 +174,13 @@ def test_requirements_route(tmp_path):
         for name in list(services.system.adapters):
             if name != "ollama":
                 services.system.adapters[name] = CountingAdapter()
-        _install_demo(services, tmp_path, overrides={"propuesta": {"requires": ["model.text", "executor.code"]}})
+        _install_demo(services, tmp_path, overrides={"proposal": {"requires": ["model.text", "executor.code"]}})
         client = TestClient(create_app(services=services), base_url="http://localhost")
         response = client.get("/api/v1/offices/demo/requirements")
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["office"] == "demo"
-        assert [a["id"] for a in body["areas"]] == ["recepcion", "propuesta"]
+        assert [a["id"] for a in body["areas"]] == ["reception", "proposal"]
         for area in body["areas"]:
             assert set(area) == {"id", "requires", "covered", "by", "missing", "text", "note", "action"}
         first, second = body["areas"]
@@ -204,11 +204,11 @@ def test_service_candidates_in_mock_cover_model_requirements_only(tmp_path):
         found = {c["id"]: c for c in services.offices.requirements_candidates()}
         assert found["mock"]["local"] is True and found["mock"]["label"] == "Mock (ejemplo)"
         assert not any(c["kind"] == "executor" for c in found.values())
-        _install_demo(services, tmp_path, overrides={"recepcion": {"requires": ["model.text"], "sensitivity": "sensitive"},
-                                                     "propuesta": {"requires": ["model.text", "executor.code"]}})
+        _install_demo(services, tmp_path, overrides={"reception": {"requires": ["model.text"], "sensitivity": "sensitive"},
+                                                     "proposal": {"requires": ["model.text", "executor.code"]}})
         areas = {a["id"]: a for a in services.offices.requirements("demo")["areas"]}
-        assert [e["id"] for e in areas["recepcion"]["by"]] == ["mock"] and areas["recepcion"]["note"].startswith("Esta área es Sensible")
-        assert areas["propuesta"]["missing"] == ["executor.code"]
+        assert [e["id"] for e in areas["reception"]["by"]] == ["mock"] and areas["reception"]["note"].startswith("Esta área es Sensible")
+        assert areas["proposal"]["missing"] == ["executor.code"]
     finally:
         services.bundle_scans.close()
         services.runs.close()

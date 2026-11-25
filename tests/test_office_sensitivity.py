@@ -29,8 +29,8 @@ from multiagent.services.offices import DATA_CLASS_OF, LEVELS, OFFICES_SCHEMA, P
 from test_offices_install import ACTOR, invoke_cli, make_area, make_settings, write_office
 
 INPUTS = {"spec_text": "A synthetic specification."}
-DEMO = {"propuesta": {"sensitivity": "sensitive"}, "seguimiento": {"local_only": True}, "avisos": {"sensitivity": "normal"}}
-DEMO_AREAS = ("recepcion", "propuesta", "seguimiento", "avisos")
+DEMO = {"proposal": {"sensitivity": "sensitive"}, "follow-up": {"local_only": True}, "notices": {"sensitivity": "normal"}}
+DEMO_AREAS = ("reception", "proposal", "follow-up", "notices")
 
 
 def request(**fields) -> RunRequest:
@@ -133,28 +133,28 @@ def test_level_to_data_class(demo, world):
     services, root, tmp = demo
     offices = services.offices
     assert DATA_CLASS_OF == {"normal": "non_sensitive", "sensitive": "sensitive"} and LEVELS == ("normal", "sensitive")
-    assert offices.area_class("demo__avisos") == "non_sensitive"
-    assert offices.area_class("demo__propuesta") == "sensitive"
-    assert offices.area_class("demo__seguimiento") == "restricted"
-    assert offices.area_class("demo__recepcion") is None            # no level (Decision 15)
+    assert offices.area_class("demo__notices") == "non_sensitive"
+    assert offices.area_class("demo__proposal") == "sensitive"
+    assert offices.area_class("demo__follow-up") == "restricted"
+    assert offices.area_class("demo__reception") is None            # no level (Decision 15)
     assert offices.area_class("demo__nothing") is None and offices.area_class("plain") is None
-    wide = write_office(tmp / "wide", office_id="wide", areas=("uno", "dos"), overrides={"uno": {"sensitivity": "normal"}})
+    wide = write_office(tmp / "wide", office_id="wide", areas=("one", "two"), overrides={"one": {"sensitivity": "normal"}})
     declare(wide, local_only=True)
     offices.import_folder(wide, actor=ACTOR)
-    assert [offices.area_class(f"wide__{area}") for area in ("uno", "dos")] == ["restricted", "restricted"]
+    assert [offices.area_class(f"wide__{area}") for area in ("one", "two")] == ["restricted", "restricted"]
     assert {area["data_class"] for area in offices.privacy("wide")["areas"]} == {"restricted"}
 
 
 def test_run_of_a_sensitive_area_is_sensitive(demo):
     services, _, _ = demo
-    created = services.runs.create(request(sensitive=False), bundle="demo__propuesta")
+    created = services.runs.create(request(sensitive=False), bundle="demo__proposal")
     assert created["request"]["sensitive"] is True and created["data_class"] == "sensitive"
     again = services.runs.get(created["id"])
     assert again["request"]["sensitive"] is True and again["data_class"] == "sensitive"
     assert {item["id"]: item.get("data_class") for item in services.runs.list(limit=10)}[created["id"]] == "sensitive"
-    normal = services.runs.create(request(), bundle="demo__avisos")
+    normal = services.runs.create(request(), bundle="demo__notices")
     assert normal["request"]["sensitive"] is False and normal["data_class"] == "non_sensitive"
-    local = services.runs.create(request(), bundle="demo__seguimiento")
+    local = services.runs.create(request(), bundle="demo__follow-up")
     assert local["request"]["sensitive"] is True and local["data_class"] == "restricted"
 
 
@@ -163,12 +163,12 @@ def test_local_only_refuses_cloud_and_human_guided(demo):
     runs = services.runs
     for fields in ({"confirm_cloud": True}, {"execution_mode": "human_guided"},
                    {"step_modes": {"extract_requirements": "human_guided"}}):
-        error = failure(runs.create, request(**fields), bundle="demo__seguimiento")
+        error = failure(runs.create, request(**fields), bundle="demo__follow-up")
         assert (error.code, error.status, reason(error)) == ("invalid_request", 422, "area_local_only")
-        assert error.details["office"] == "demo" and error.details["area"] == "seguimiento"
-    assert [item for item in runs.list(limit=20) if item["bundle"] == "demo__seguimiento"] == []
+        assert error.details["office"] == "demo" and error.details["area"] == "follow-up"
+    assert [item for item in runs.list(limit=20) if item["bundle"] == "demo__follow-up"] == []
     # the same requests in a sensitive area are not refused for being «Solo local»: the run is sensitive instead
-    guided = runs.create(request(execution_mode="human_guided"), bundle="demo__propuesta")
+    guided = runs.create(request(execution_mode="human_guided"), bundle="demo__proposal")
     assert guided["request"]["sensitive"] is True
 
 
@@ -180,16 +180,16 @@ def test_local_only_never_reaches_a_cloud_model(world):
     prefer_cloud(root, DEMO_AREAS)
     services.offices.import_folder(root, actor=ACTOR)
     # the control: a «normal» area with the person's confirmation does reach the double
-    done = process(services, services.runs.create(request(confirm_cloud=True), bundle="demo__avisos"))
+    done = process(services, services.runs.create(request(confirm_cloud=True), bundle="demo__notices"))
     assert done["status"] == "completed" and cloud.calls == ["cloud_fast"]
     cloud.calls.clear()
     # a «sensitive» area cannot confirm the cloud: the confirmation does nothing
-    sensitive = process(services, services.runs.create(request(confirm_cloud=True), bundle="demo__propuesta"))
+    sensitive = process(services, services.runs.create(request(confirm_cloud=True), bundle="demo__proposal"))
     assert sensitive["request"]["sensitive"] is True and cloud.calls == []
     # «Solo local»: the confirmation and the guided mode are refused, and a plain run never calls the cloud either
     for fields in ({"confirm_cloud": True}, {"execution_mode": "human_guided"}):
-        assert reason(failure(services.runs.create, request(**fields), bundle="demo__seguimiento")) == "area_local_only"
-    process(services, services.runs.create(request(), bundle="demo__seguimiento"))
+        assert reason(failure(services.runs.create, request(**fields), bundle="demo__follow-up")) == "area_local_only"
+    process(services, services.runs.create(request(), bundle="demo__follow-up"))
     assert cloud.calls == []
 
 
@@ -200,22 +200,22 @@ def test_plan_task_carries_its_area_class(world):
     root = make_demo(tmp)
     prefer_cloud(root, DEMO_AREAS)
     services.offices.import_folder(root, actor=ACTOR)
-    assert services.runs._bundle_runtime("demo__seguimiento") is not None
-    assert services.runs._bundle_runtime("demo__avisos") is not None
-    permission = services.offices.request_cloud_permission("demo", "avisos")
+    assert services.runs._bundle_runtime("demo__follow-up") is not None
+    assert services.runs._bundle_runtime("demo__notices") is not None
+    permission = services.offices.request_cloud_permission("demo", "notices")
     app = create_app(services=services)
     app.state.approval_sessions.bootstrap_code = "synthetic-start-code"
     headers = {"Authorization": f"Bearer {ensure_token(services.settings.gui_token_file)}"}
     with TestClient(app, base_url="http://localhost") as client:
         decide_with_code(client, headers, permission["approval_id"])
-    services.offices.grant_cloud_permission("demo", "avisos", approval_id=permission["approval_id"], actor=ACTOR)
+    services.offices.grant_cloud_permission("demo", "notices", approval_id=permission["approval_id"], actor=ACTOR)
     tasks = services.tasks
     tasks.create_group("plan", "Invented plan", actor="user", authorized=True, default_requires="accepted")
     tasks.create_task("plan", "keep", "Follow up", actor="user")
     tasks.create_task("plan", "notice", "Notices", actor="user")
     document = {"schema": "multiagent.plan/1", "group_id": "plan", "tasks": {
-        "keep": {"workflow": "spec_review", "inputs": INPUTS, "bundle": "demo__seguimiento"},
-        "notice": {"workflow": "spec_review", "inputs": INPUTS, "bundle": "demo__avisos"}}}
+        "keep": {"workflow": "spec_review", "inputs": INPUTS, "bundle": "demo__follow-up"},
+        "notice": {"workflow": "spec_review", "inputs": INPUTS, "bundle": "demo__notices"}}}
     status = services.plans.advance(document, actor="planner")
     runs = {task["id"]: task["run"]["id"] for task in status["tasks"] if task["run"]}
     assert set(runs) == {"keep", "notice"}
@@ -223,40 +223,40 @@ def test_plan_task_carries_its_area_class(world):
     noticed = services.runs.get(runs["notice"])
     assert kept["request"]["sensitive"] is True and kept["data_class"] == "restricted"
     assert noticed["request"]["sensitive"] is False and noticed["data_class"] == "non_sensitive"
-    services.runs._bundle_runtime("demo__seguimiento").worker.process_once()
+    services.runs._bundle_runtime("demo__follow-up").worker.process_once()
     assert cloud.calls == [] and services.runs.get(runs["keep"])["status"] == "completed"   # «Solo local»: 0 cloud calls
-    services.runs._bundle_runtime("demo__avisos").worker.process_once()
+    services.runs._bundle_runtime("demo__notices").worker.process_once()
     assert cloud.calls == ["cloud_fast"]           # the control: the «normal» task of the same plan does use its cloud model
 
 
 def test_reimport_never_lowers_a_level(demo):
     services, root, tmp = demo
     offices = services.offices
-    offices.raise_level("demo", "recepcion", sensitivity="sensitive", actor="user:ana", channel="api")
+    offices.raise_level("demo", "reception", sensitivity="sensitive", actor="user:ana", channel="api")
     declare(root, local_only=True)
     offices.reimport_folder("demo", root, actor=ACTOR)           # the office now says «Solo local» for everything
     declare(root, local_only=False)
     write_office(tmp / "again", office_id="demo", areas=DEMO_AREAS,
-                 overrides={"recepcion": {"sensitivity": "normal"}, "propuesta": {"sensitivity": "normal"},
-                            "seguimiento": {}, "avisos": {"sensitivity": "normal"}})
+                 overrides={"reception": {"sensitivity": "normal"}, "proposal": {"sensitivity": "normal"},
+                            "follow-up": {}, "notices": {"sensitivity": "normal"}})
     offices.reimport_folder("demo", tmp / "again", actor=ACTOR)  # declares everything lower
     levels = privacy_of(services)
-    assert (levels["recepcion"]["sensitivity"], levels["recepcion"]["source"], levels["recepcion"]["set_by"]) == (
+    assert (levels["reception"]["sensitivity"], levels["reception"]["source"], levels["reception"]["set_by"]) == (
         "sensitive", "person", "user:ana")
-    assert levels["recepcion"]["data_class"] == "restricted"      # the office-wide «Solo local» did not go away either
-    assert levels["propuesta"]["sensitivity"] == "sensitive" and levels["seguimiento"]["local_only"] is True
+    assert levels["reception"]["data_class"] == "restricted"      # the office-wide «Solo local» did not go away either
+    assert levels["proposal"]["sensitivity"] == "sensitive" and levels["follow-up"]["local_only"] is True
     assert offices.privacy("demo")["local_only"] is True
     assert all(item["data_class"] == "restricted" for item in levels.values())
     assert offices.get("demo")["areas"][0]["sensitivity"] == "sensitive"      # `office show` reads the same levels
     # a higher declaration wins over what was there
-    write_office(tmp / "higher", office_id="demo", areas=DEMO_AREAS, overrides={"avisos": {"sensitivity": "sensitive"}})
+    write_office(tmp / "higher", office_id="demo", areas=DEMO_AREAS, overrides={"notices": {"sensitivity": "sensitive"}})
     offices.reimport_folder("demo", tmp / "higher", actor=ACTOR)
-    assert privacy_of(services)["avisos"]["sensitivity"] == "sensitive"
+    assert privacy_of(services)["notices"]["sensitivity"] == "sensitive"
 
 
 def test_reimport_keeps_the_levels_when_the_office_is_unchanged(demo):
     services, root, _ = demo
-    services.offices.raise_level("demo", "avisos", sensitivity="sensitive", actor=ACTOR)
+    services.offices.raise_level("demo", "notices", sensitivity="sensitive", actor=ACTOR)
     before = json.dumps(services.offices.privacy("demo"), sort_keys=True)
     result = services.offices.reimport_folder("demo", root, actor=ACTOR)
     assert result["changes"]["changed"] == [] and result["changes"]["added"] == []
@@ -265,14 +265,14 @@ def test_reimport_keeps_the_levels_when_the_office_is_unchanged(demo):
 
 def test_unset_level_asks_before_cloud(demo):
     services, _, _ = demo
-    error = failure(services.runs.create, request(confirm_cloud=True), bundle="demo__recepcion")
+    error = failure(services.runs.create, request(confirm_cloud=True), bundle="demo__reception")
     assert (error.code, error.status, reason(error)) == ("invalid_state", 409, "office_level_required")
-    assert (error.details["office"], error.details["area"]) == ("demo", "recepcion")
-    assert [item for item in services.runs.list(limit=20) if item["bundle"] == "demo__recepcion"] == []
-    created = services.runs.create(request(), bundle="demo__recepcion")      # a local run does not ask
+    assert (error.details["office"], error.details["area"]) == ("demo", "reception")
+    assert [item for item in services.runs.list(limit=20) if item["bundle"] == "demo__reception"] == []
+    created = services.runs.create(request(), bundle="demo__reception")      # a local run does not ask
     assert created["request"]["sensitive"] is False and "data_class" not in created
-    services.offices.raise_level("demo", "recepcion", sensitivity="normal", actor=ACTOR)
-    assert services.runs.create(request(confirm_cloud=True), bundle="demo__recepcion")["data_class"] == "non_sensitive"
+    services.offices.raise_level("demo", "reception", sensitivity="normal", actor=ACTOR)
+    assert services.runs.create(request(confirm_cloud=True), bundle="demo__reception")["data_class"] == "non_sensitive"
 
 
 def api(services: ApplicationServices):
@@ -292,25 +292,25 @@ def test_raise_by_api_and_cli(world, monkeypatch, capsys):
         shown = http.get("/api/v1/offices/demo/privacy")
         assert shown.status_code == 200 and shown.json()["note"] == list(PRIVACY_NOTE)
         raised = http.post("/api/v1/offices/demo/privacy/raise",
-                           json={"area": "recepcion", "sensitivity": "sensitive", "actor": ACTOR})
+                           json={"area": "reception", "sensitivity": "sensitive", "actor": ACTOR})
         assert raised.status_code == 200 and raised.json()["changed"] is True
         by_area = {area["id"]: area for area in raised.json()["areas"]}
-        assert (by_area["recepcion"]["sensitivity"], by_area["recepcion"]["data_class"], by_area["recepcion"]["source"]) == (
+        assert (by_area["reception"]["sensitivity"], by_area["reception"]["data_class"], by_area["reception"]["source"]) == (
             "sensitive", "sensitive", "person")
         lowering = http.post("/api/v1/offices/demo/privacy/raise",
-                             json={"area": "recepcion", "sensitivity": "normal", "actor": ACTOR})
+                             json={"area": "reception", "sensitivity": "normal", "actor": ACTOR})
         assert lowering.status_code == 409 and lowering.json()["detail"]["details"]["reason"] == "office_level_lowering_needs_gui"
         unlocking = http.post("/api/v1/offices/demo/privacy/raise",
-                              json={"area": "seguimiento", "local_only": False, "actor": ACTOR})
+                              json={"area": "follow-up", "local_only": False, "actor": ACTOR})
         assert unlocking.status_code == 409 and unlocking.json()["detail"]["details"]["reason"] == "office_level_lowering_needs_gui"
         assert http.post("/api/v1/offices/demo/privacy/raise",
-                         json={"area": "recepcion", "sensitivity": "sensitive", "actor": "agent:x"}).status_code == 409
+                         json={"area": "reception", "sensitivity": "sensitive", "actor": "agent:x"}).status_code == 409
         assert http.post("/api/v1/offices/demo/privacy/raise", json={"actor": ACTOR}).status_code == 422
         assert http.post("/api/v1/offices/demo/privacy/raise",
-                         json={"actor": ACTOR, "area": "avisos", "sensitivity": "sensitive", "approval_id": "x"}).status_code == 422
+                         json={"actor": ACTOR, "area": "notices", "sensitivity": "sensitive", "approval_id": "x"}).status_code == 422
         assert http.get("/api/v1/offices/nothing/privacy").status_code == 409
         printed = invoke_cli(monkeypatch, capsys, cli_client,
-                             ["office", "privacy", "demo", "--area", "recepcion", "--sensitive"])
+                             ["office", "privacy", "demo", "--area", "reception", "--sensitive"])
         assert comparable(json.loads(printed)) == comparable(raised.json())
         assert json.loads(invoke_cli(monkeypatch, capsys, cli_client, ["office", "privacy", "demo"])) == \
             cli_client.get("/api/v1/offices/demo/privacy").json()
@@ -321,7 +321,7 @@ def test_raise_by_api_and_cli(world, monkeypatch, capsys):
         # API v1 never lowers a level; only the GUI does, with its one-use code (VOF-T04).
         assert not [path for path in routes if path.startswith("/api/v1/") and "lower" in path]
         assert "/gui/api/offices/{office_id}/privacy/lower" in routes
-    assert via_cli.offices.area_class("demo__recepcion") == "restricted"
+    assert via_cli.offices.area_class("demo__reception") == "restricted"
 
 
 def test_whole_office_local_only_by_service(demo):
@@ -330,7 +330,7 @@ def test_whole_office_local_only_by_service(demo):
         "office_privacy_area_required"
     answer = services.offices.raise_level("demo", None, local_only=True, actor=ACTOR)
     assert answer["local_only"] is True and answer["changed"] is True
-    assert services.offices.area_class("demo__avisos") == "restricted"
+    assert services.offices.area_class("demo__notices") == "restricted"
     assert reason(failure(services.offices.raise_level, "demo", None, local_only=False, actor=ACTOR)) == \
         "office_level_lowering_needs_gui"
     assert services.offices.raise_level("demo", None, local_only=True, actor=ACTOR)["changed"] is False
@@ -358,27 +358,27 @@ def test_lowering_needs_a_one_use_approval(demo):
     app = create_app(services=services)
     app.state.approval_sessions.bootstrap_code = "synthetic-start-code"
     headers = {"Authorization": f"Bearer {ensure_token(services.settings.gui_token_file)}"}
-    asked = offices.request_lowering("demo", "propuesta", sensitivity="normal")
+    asked = offices.request_lowering("demo", "proposal", sensitivity="normal")
     assert asked["kind"] == "office_privacy_change" and asked["state"] == "pending" and len(asked["sha256"]) == 64
-    assert offices.request_lowering("demo", "propuesta", sensitivity="normal")["id"] == asked["id"]
+    assert offices.request_lowering("demo", "proposal", sensitivity="normal")["id"] == asked["id"]
     assert services.user_approvals.pending() == []                # hidden: not in «Aprobaciones» or «Pendientes»
-    assert reason(failure(offices.lower_level, "demo", "propuesta", approval_id=asked["id"])) == \
+    assert reason(failure(offices.lower_level, "demo", "proposal", approval_id=asked["id"])) == \
         "office_privacy_change_not_approved"
-    assert offices.area_class("demo__propuesta") == "sensitive"
+    assert offices.area_class("demo__proposal") == "sensitive"
     with TestClient(app, base_url="http://localhost") as client:
         decide_with_code(client, headers, asked["id"])
-    error = failure(offices.lower_level, "demo", "avisos", approval_id=asked["id"])       # another area: not this approval
+    error = failure(offices.lower_level, "demo", "notices", approval_id=asked["id"])       # another area: not this approval
     assert (error.status, reason(error)) == (409, "office_privacy_change_not_approved")
-    lowered = offices.lower_level("demo", "propuesta", approval_id=asked["id"], actor="user:ana")
+    lowered = offices.lower_level("demo", "proposal", approval_id=asked["id"], actor="user:ana")
     assert (lowered["from"], lowered["to"], lowered["changed"]) == ("sensitive", "normal", True)
-    assert offices.area_class("demo__propuesta") == "non_sensitive"
-    now = privacy_of(services)["propuesta"]
+    assert offices.area_class("demo__proposal") == "non_sensitive"
+    now = privacy_of(services)["proposal"]
     assert (now["sensitivity"], now["source"], now["set_by"]) == ("normal", "person", "user:ana")
     (event,) = privacy_events(services)
     assert (event["actor"], event["ref"]) == ("user:ana", "demo")
     assert {key: event["payload"][key] for key in ("office", "area", "from", "to")} == {
-        "office": "demo", "area": "propuesta", "from": "sensitive", "to": "normal"}
-    assert reason(failure(offices.lower_level, "demo", "propuesta", approval_id=asked["id"])) == \
+        "office": "demo", "area": "proposal", "from": "sensitive", "to": "normal"}
+    assert reason(failure(offices.lower_level, "demo", "proposal", approval_id=asked["id"])) == \
         "office_privacy_change_not_approved"                      # spent: it works once
     assert services.user_approvals.pending() == []
     assert [event for event in privacy_events(services)] == [event]
@@ -390,34 +390,34 @@ def test_an_approval_does_not_outlive_the_level_it_was_asked_for(demo):
     app = create_app(services=services)
     app.state.approval_sessions.bootstrap_code = "synthetic-start-code"
     headers = {"Authorization": f"Bearer {ensure_token(services.settings.gui_token_file)}"}
-    asked = offices.request_lowering("demo", "propuesta", sensitivity="normal")
+    asked = offices.request_lowering("demo", "proposal", sensitivity="normal")
     with TestClient(app, base_url="http://localhost") as client:
         decide_with_code(client, headers, asked["id"])
-    offices.raise_level("demo", "propuesta", local_only=True, actor=ACTOR)       # the level changed after the person saw it
-    assert reason(failure(offices.lower_level, "demo", "propuesta", approval_id=asked["id"])) == \
+    offices.raise_level("demo", "proposal", local_only=True, actor=ACTOR)       # the level changed after the person saw it
+    assert reason(failure(offices.lower_level, "demo", "proposal", approval_id=asked["id"])) == \
         "office_privacy_change_not_approved"
-    assert offices.area_class("demo__propuesta") == "restricted" and privacy_events(services)[-1]["payload"]["direction"] == "raise"
-    assert reason(failure(offices.request_lowering, "demo", "propuesta", sensitivity="sensitive")) == "office_privacy_not_lower"
-    assert reason(failure(offices.request_lowering, "demo", "propuesta")) == "office_privacy_nothing_to_change"
-    assert failure(offices.lower_level, "demo", "propuesta", approval_id="").status == 409
+    assert offices.area_class("demo__proposal") == "restricted" and privacy_events(services)[-1]["payload"]["direction"] == "raise"
+    assert reason(failure(offices.request_lowering, "demo", "proposal", sensitivity="sensitive")) == "office_privacy_not_lower"
+    assert reason(failure(offices.request_lowering, "demo", "proposal")) == "office_privacy_nothing_to_change"
+    assert failure(offices.lower_level, "demo", "proposal", approval_id="").status == 409
     # a kind that is not this one cannot be passed off as it
-    other = services.user_approvals.request(kind="osv_query", destination={"office": "demo", "area": "propuesta"},
+    other = services.user_approvals.request(kind="osv_query", destination={"office": "demo", "area": "proposal"},
                                             location={"source": "t"}, sha256="0" * 64)
     services.user_approvals.decide(other["id"], "approve")
-    assert reason(failure(offices.lower_level, "demo", "propuesta", approval_id=other["id"])) == \
+    assert reason(failure(offices.lower_level, "demo", "proposal", approval_id=other["id"])) == \
         "office_privacy_change_not_approved"
 
 
 def test_levels_set_by_a_person_survive_removing_another_area(demo):
     services, _, _ = demo
-    services.offices.raise_level("demo", "recepcion", sensitivity="sensitive", actor=ACTOR)
-    services.offices.raise_level("demo", "avisos", sensitivity="sensitive", actor=ACTOR)
-    services.offices.remove_area("demo", "avisos", actor=ACTOR)
+    services.offices.raise_level("demo", "reception", sensitivity="sensitive", actor=ACTOR)
+    services.offices.raise_level("demo", "notices", sensitivity="sensitive", actor=ACTOR)
+    services.offices.remove_area("demo", "notices", actor=ACTOR)
     levels = privacy_of(services)
-    assert levels["recepcion"]["sensitivity"] == "sensitive" and levels["recepcion"]["source"] == "person"
-    assert "avisos" not in levels
+    assert levels["reception"]["sensitivity"] == "sensitive" and levels["reception"]["source"] == "person"
+    assert "notices" not in levels
     entry = json.loads((services.settings.data_dir / "installed" / "offices.json").read_text(encoding="utf-8"))
-    assert entry["schema"] == OFFICES_SCHEMA and list(entry["offices"]["demo"]["privacy"]["areas"]) == ["recepcion"]
+    assert entry["schema"] == OFFICES_SCHEMA and list(entry["offices"]["demo"]["privacy"]["areas"]) == ["reception"]
 
 
 def test_an_office_without_levels_set_by_a_person_reads_as_before(demo):
@@ -426,8 +426,8 @@ def test_an_office_without_levels_set_by_a_person_reads_as_before(demo):
     assert "privacy" not in stored["offices"]["demo"] and stored["schema"] == OFFICES_SCHEMA
     shown = services.offices.privacy("demo")["areas"]
     assert [(area["id"], area["sensitivity"], area["local_only"], area["source"]) for area in shown] == [
-        ("recepcion", None, False, "office"), ("propuesta", "sensitive", False, "office"),
-        ("seguimiento", None, True, "office"), ("avisos", "normal", False, "office")]
+        ("reception", None, False, "office"), ("proposal", "sensitive", False, "office"),
+        ("follow-up", None, True, "office"), ("notices", "normal", False, "office")]
     assert services.offices.get("demo")["areas"][1]["sensitivity"] == "sensitive"
 
 
@@ -453,11 +453,11 @@ def test_gui_preview_treats_the_area_as_sensitive(world):
         steps = _routing_preview(services, "spec_review", bundle, INPUTS, ExecutionMode.AUTO, sensitive)["steps"]
         return steps[0]["model"]
 
-    assert chosen("demo__avisos") == "cloud_fast"                  # the control: a «normal» area offers its cloud model
-    assert chosen("demo__propuesta") == "local_default"
-    assert chosen("demo__seguimiento") == "local_default"
-    assert chosen("demo__recepcion") == "cloud_fast"               # no level: nothing is forced before the person chooses
-    assert chosen("demo__avisos", sensitive=True) == "local_default"
+    assert chosen("demo__notices") == "cloud_fast"                  # the control: a «normal» area offers its cloud model
+    assert chosen("demo__proposal") == "local_default"
+    assert chosen("demo__follow-up") == "local_default"
+    assert chosen("demo__reception") == "cloud_fast"               # no level: nothing is forced before the person chooses
+    assert chosen("demo__notices", sensitive=True) == "local_default"
 
 
 def test_privacy_note():

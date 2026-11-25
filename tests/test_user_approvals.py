@@ -201,7 +201,7 @@ def test_office_privacy_change_is_a_kind_but_never_listed(env):
     services, client, headers, _ = env
     assert "office_privacy_change" in module.KINDS and "office_privacy_change" in module.HIDDEN_KINDS
     assert module.HIDDEN_KINDS == frozenset({"executor_activate", "office_privacy_change", "office_install"})
-    hidden = services.user_approvals.request(kind="office_privacy_change", destination={"office": "demo", "area": "recepcion"},
+    hidden = services.user_approvals.request(kind="office_privacy_change", destination={"office": "demo", "area": "reception"},
                                              location={"source": "office_privacy"}, sha256="d" * 64)
     shown = request(services)
     assert [item["id"] for item in services.user_approvals.pending()] == [shown["id"]]

@@ -1,0 +1,43 @@
+schema_version: 1
+id: school_planning_team
+description: Example team that prepares and reviews lesson plans.
+roles:
+  - id: drafting
+    purpose: Drafts a lesson plan from the supplied topic.
+    rules:
+      - Suggest clear activities suited to the supplied topic.
+    skills: []
+    contracts:
+      - LessonPlan
+    capabilities:
+      - model.text
+    permissions: []
+
+  - id: review
+    purpose: Reviews the lesson plan before approving it.
+    rules:
+      - Check that the goal and activities fit the group.
+    skills: []
+    contracts:
+      - LessonPlan
+    capabilities:
+      - doc.review
+    permissions: []
+
+members:
+  - id: planning_agent
+    kind: agent
+    agent: lesson_planner
+
+  - id: reviewer
+    kind: person
+    name: Reviewer
+assignments:
+  - role: drafting
+    member: planning_agent
+  - role: review
+    member: reviewer
+relationships:
+  - type: reviews
+    from: review
+    to: drafting

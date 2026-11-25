@@ -1,0 +1,13 @@
+schema: maf.contracts/1
+contracts:
+  ProgressNote:
+    description: Brief progress note to review before saving or sharing.
+    fields:
+      note:
+        type: string
+        document: true
+samples:
+  ProgressNote:
+    note: |
+      Student A takes an interest in group reading and completes exercises carefully.
+      Practice with carrying in addition should be reinforced next week.

@@ -1,0 +1,43 @@
+schema_version: 1
+id: cafe_menu_team
+description: Example team that drafts and reviews the weekly menu.
+roles:
+  - id: drafting
+    purpose: Drafts a weekly menu proposal from the request.
+    rules:
+      - Use simple language and follow the dishes or restrictions in the request.
+    skills: []
+    contracts:
+      - WeeklyMenu
+    capabilities:
+      - model.text
+    permissions: []
+
+  - id: review
+    purpose: Reviews the weekly menu before it is published.
+    rules:
+      - Check that the days, dishes, and notes are complete.
+    skills: []
+    contracts:
+      - WeeklyMenu
+    capabilities:
+      - doc.review
+    permissions: []
+
+members:
+  - id: menu_drafter
+    kind: agent
+    agent: menu_writer
+
+  - id: reviewer
+    kind: person
+    name: Reviewer
+assignments:
+  - role: drafting
+    member: menu_drafter
+  - role: review
+    member: reviewer
+relationships:
+  - type: reviews
+    from: review
+    to: drafting

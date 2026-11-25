@@ -30,7 +30,7 @@ def _write_office(
     root: Path,
     data: dict,
     *,
-    area_dirs: tuple[str, ...] = ("areas/recepcion",),
+    area_dirs: tuple[str, ...] = ("areas/reception",),
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     for rel in area_dirs:
@@ -49,9 +49,9 @@ def _minimal_office_dict() -> dict:
         "name": "Demo Office",
         "areas": [
             {
-                "id": "recepcion",
-                "name": "Recepción",
-                "path": "areas/recepcion",
+                "id": "reception",
+                "name": "Reception",
+                "path": "areas/reception",
             }
         ],
     }
@@ -76,11 +76,11 @@ def test_minimal_office_loads(tmp_path: Path):
     assert office.orchestrator.default_plan == []
     assert len(office.areas) == 1
     assert isinstance(office.areas[0], OfficeArea)
-    assert office.areas[0].id == "recepcion"
-    assert office.areas[0].path == "areas/recepcion"
+    assert office.areas[0].id == "reception"
+    assert office.areas[0].path == "areas/reception"
     assert office.relations == []
     assert office.warnings == []
-    assert area_bundle_name("demo", "recepcion") == "demo__recepcion"
+    assert area_bundle_name("demo", "reception") == "demo__reception"
     assert OFFICE_SCHEMA == "maf.office/1"
     assert OFFICE_ID_PATTERN == r"^[a-z0-9][a-z0-9-]{0,39}$"
     assert SENSITIVITIES == ("normal", "sensitive")
@@ -123,7 +123,7 @@ def test_paths_must_stay_inside_symlink(tmp_path: Path):
     outside = tmp_path / "outside"
     outside.mkdir()
     root = _write_office(tmp_path / "sym", _minimal_office_dict(), area_dirs=("areas",))
-    link_path = root / "areas" / "recepcion"
+    link_path = root / "areas" / "reception"
     try:
         os.symlink(outside, link_path, target_is_directory=True)
     except (OSError, NotImplementedError) as exc:
@@ -136,14 +136,14 @@ def test_paths_must_stay_inside_symlink(tmp_path: Path):
 def test_duplicate_ids_rejected(tmp_path: Path):
     dup_areas = _minimal_office_dict()
     dup_areas["areas"].append({
-        "id": "recepcion",
-        "name": "Recepción Dos",
-        "path": "areas/recepcion2",
+        "id": "reception",
+        "name": "Reception Two",
+        "path": "areas/reception2",
     })
     err_areas = _load_error(_write_office(
         tmp_path / "dup-areas",
         dup_areas,
-        area_dirs=("areas/recepcion", "areas/recepcion2"),
+        area_dirs=("areas/reception", "areas/reception2"),
     ))
     assert any(issue["code"] == "office_duplicate_id" for issue in err_areas.issues)
 
@@ -152,8 +152,8 @@ def test_duplicate_ids_rejected(tmp_path: Path):
         "enabled": True,
         "name": "Coordinación",
         "default_plan": [
-            {"area": "recepcion", "workflow": "wf_one"},
-            {"area": "recepcion", "workflow": "wf_two"},
+            {"area": "reception", "workflow": "wf_one"},
+            {"area": "reception", "workflow": "wf_two"},
         ],
     }
     err_plan = _load_error(_write_office(tmp_path / "dup-plan", dup_plan))
@@ -163,13 +163,13 @@ def test_duplicate_ids_rejected(tmp_path: Path):
 def test_relation_to_missing_area_is_a_warning(tmp_path: Path):
     data = _minimal_office_dict()
     data["relations"] = [
-        {"from": "recepcion", "to": "propuesta", "kind": "hands_off"},
+        {"from": "reception", "to": "proposal", "kind": "hands_off"},
     ]
     office = load_office(_write_office(tmp_path / "rel-warn", data))
     assert len(office.relations) == 1
     assert isinstance(office.relations[0], Relation)
-    assert office.relations[0].from_ == "recepcion"
-    assert office.relations[0].to == "propuesta"
+    assert office.relations[0].from_ == "reception"
+    assert office.relations[0].to == "proposal"
     assert len(office.warnings) == 1
     assert office.warnings[0]["code"] == "office_relation_unknown_area"
     assert office.warnings[0]["location"] == "relations[0].to"
@@ -182,18 +182,18 @@ def test_relation_kinds(tmp_path: Path):
 
     for kind in RELATION_KINDS:
         data = _minimal_office_dict()
-        data["areas"].append({"id": "propuesta", "name": "Propuesta", "path": "areas/propuesta"})
-        data["relations"] = [{"from": "recepcion", "to": "propuesta", "kind": kind}]
+        data["areas"].append({"id": "proposal", "name": "Proposal", "path": "areas/proposal"})
+        data["relations"] = [{"from": "reception", "to": "proposal", "kind": kind}]
         office = load_office(_write_office(
             tmp_path / f"rel-{kind}",
             data,
-            area_dirs=("areas/recepcion", "areas/propuesta"),
+            area_dirs=("areas/reception", "areas/proposal"),
         ))
         assert office.relations[0].kind == kind
         assert office.warnings == []
 
     bad = _minimal_office_dict()
-    bad["relations"] = [{"from": "recepcion", "to": "recepcion", "kind": "entrega"}]
+    bad["relations"] = [{"from": "reception", "to": "reception", "kind": "entrega"}]
     err = _load_error(_write_office(tmp_path / "rel-bad", bad))
     assert any(issue["code"] == "office_invalid" for issue in err.issues)
 
@@ -204,12 +204,12 @@ def test_default_plan_references(tmp_path: Path):
         "enabled": True,
         "name": "Coordinación",
         "default_plan": [
-            {"area": "recepcion", "workflow": "tomar_pedido"},
-            {"id": "recepcion-2", "area": "recepcion", "workflow": "confirmar", "after": ["recepcion"]},
+            {"area": "reception", "workflow": "tomar_pedido"},
+            {"id": "reception-2", "area": "reception", "workflow": "confirmar", "after": ["reception"]},
         ],
     }
     office = load_office(_write_office(tmp_path / "plan-ok", good))
-    assert [item.id for item in office.orchestrator.default_plan] == ["recepcion", "recepcion-2"]
+    assert [item.id for item in office.orchestrator.default_plan] == ["reception", "reception-2"]
     assert isinstance(office.orchestrator.default_plan[0], PlanItem)
 
     bad_area = _minimal_office_dict()
@@ -223,7 +223,7 @@ def test_default_plan_references(tmp_path: Path):
     bad_after = _minimal_office_dict()
     bad_after["orchestrator"] = {
         "enabled": True,
-        "default_plan": [{"area": "recepcion", "workflow": "tomar_pedido", "after": ["missing"]}],
+        "default_plan": [{"area": "reception", "workflow": "tomar_pedido", "after": ["missing"]}],
     }
     err_after = _load_error(_write_office(tmp_path / "plan-bad-after", bad_after))
     assert any(issue["code"] == "office_invalid" for issue in err_after.issues)
@@ -294,7 +294,7 @@ def test_missing_area_folder(tmp_path: Path):
     )
 
     file_root = _write_office(tmp_path / "file-not-dir", _minimal_office_dict(), area_dirs=("areas",))
-    (file_root / "areas" / "recepcion").write_text("not a dir", encoding="utf-8")
+    (file_root / "areas" / "reception").write_text("not a dir", encoding="utf-8")
     err_file = _load_error(file_root)
     assert any(
         issue["code"] == "office_invalid" and issue["location"] == "areas[0].path"
@@ -314,9 +314,9 @@ def test_duplicate_yaml_keys_and_missing_schema_rejected(tmp_path: Path):
     assert any(issue["code"] == "office_invalid" and issue["location"] == "warnings" for issue in err_warn_key.issues)
 
     dup_yaml = tmp_path / "dup-yaml"
-    (dup_yaml / "areas" / "recepcion").mkdir(parents=True)
+    (dup_yaml / "areas" / "reception").mkdir(parents=True)
     (dup_yaml / "office.yaml").write_text(
-        "schema: maf.office/1\nid: demo\nid: demo2\nname: Demo\nareas:\n  - id: recepcion\n    name: Rec\n    path: areas/recepcion\n",
+        "schema: maf.office/1\nid: demo\nid: demo2\nname: Demo\nareas:\n  - id: reception\n    name: Rec\n    path: areas/reception\n",
         encoding="utf-8",
     )
     err_dup = _load_error(dup_yaml)
@@ -325,7 +325,7 @@ def test_duplicate_yaml_keys_and_missing_schema_rejected(tmp_path: Path):
 
 def test_area_bundle_name_rejects_invalid_ids():
     with pytest.raises(ValueError):
-        area_bundle_name("bad_office", "recepcion")
+        area_bundle_name("bad_office", "reception")
     with pytest.raises(ValueError):
         area_bundle_name("demo", "bad_area")
 

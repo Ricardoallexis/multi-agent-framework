@@ -12,7 +12,7 @@ export const CHECKING_TEXT = "Comprobando…";
 export const START_PATH = "/gui/api/start";
 export const MODELS_PATH = "/gui/api/settings/models";
 export const OFFICES_PATH = "/gui/api/offices";
-export const EXAMPLE_OFFICE_ID = "cafeteria";
+export const EXAMPLE_OFFICE_ID = "cafe";
 export const EXAMPLE_PATH = "/gui/api/offices/example";
 
 const link = (label, href) => ({ kind: "link", label, href });

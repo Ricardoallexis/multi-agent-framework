@@ -398,11 +398,11 @@ def test_incomplete_office_registry_uses_bundle_scan(setup, tmp_path):
     services.bundle_scans.runner = fake
 
     with pytest.raises(ServiceError) as error:
-        services.definitions.validate_bundle("demo__recepcion")
+        services.definitions.validate_bundle("demo__reception")
 
     assert error.value.code == "bundle_scan_pending"
     approval = services.user_approvals._all()[error.value.details["approval_id"]]
-    assert approval["destination"] == {"bundle": "demo__recepcion", "kind": "osv_query"}
+    assert approval["destination"] == {"bundle": "demo__reception", "kind": "osv_query"}
 
 
 def test_office_cache_seeds_each_area(setup, tmp_path):
@@ -422,7 +422,7 @@ def test_office_cache_seeds_each_area(setup, tmp_path):
         return SimpleNamespace(exit_code=0, stdout_tail=json.dumps(report), stdout_truncated=False, timed_out=False)
 
     services.bundle_scans.runner = fake
-    folders = {"uno": first, "dos": second}
+    folders = {"one": first, "two": second}
     office_fingerprint = services.bundle_scans.fingerprint(first)
     pending = services.bundle_scans.scan_office("demo", office_fingerprint, folders)
     assert pending["state"] == "pending" and pending["approval_id"]
@@ -433,7 +433,7 @@ def test_office_cache_seeds_each_area(setup, tmp_path):
     result = services.bundle_scans.scan_office("demo", office_fingerprint, folders)
     assert result["approval_id"] == pending["approval_id"]
     assert result["state"] == "caution"
-    assert {area: row["state"] for area, row in result["areas"].items()} == {"uno": "safe", "dos": "caution"}
+    assert {area: row["state"] for area, row in result["areas"].items()} == {"one": "safe", "two": "caution"}
     assert calls == ["area-one", "area-two"]
     for area_id, folder in folders.items():
         fingerprint = services.bundle_scans.fingerprint(folder)

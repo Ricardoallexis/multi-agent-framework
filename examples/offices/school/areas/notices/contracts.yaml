@@ -1,0 +1,27 @@
+schema: maf.contracts/1
+contracts:
+  Notice:
+    description: Short notice ready for review before publishing.
+    fields:
+      title:
+        type: string
+        max_length: 120
+      body:
+        type: string
+        document: true
+  Reply:
+    description: Draft reply to a received message, ready for review before sending.
+    fields:
+      reply:
+        type: string
+        document: true
+samples:
+  Notice:
+    title: Special hours this week
+    body: |
+      This Friday, our hours will be 9:00 a.m. to 2:00 p.m.
+      Thank you for your understanding.
+  Reply:
+    reply: |
+      Thanks for your message. We received it and can confirm our regular hours are Monday to Friday.
+      Please let us know if you need any other information.

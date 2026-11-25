@@ -49,8 +49,8 @@ def env(tmp_path):
     root = write_office(
         tmp_path / "office",
         office_id="demo",
-        areas=("recepcion", "propuesta", "seguimiento"),
-        overrides={"propuesta": {"sensitivity": "sensitive"}, "seguimiento": {"local_only": True}},
+        areas=("reception", "proposal", "follow-up"),
+        overrides={"proposal": {"sensitivity": "sensitive"}, "follow-up": {"local_only": True}},
     )
     services.offices.import_folder(root, actor=ACTOR)
     token = ensure_token(settings.gui_token_file)
@@ -91,9 +91,9 @@ def test_routes_and_privacy_payload(env):
     assert payload["cloud"]["allowed"] is False
     assert [(area["id"], area["sensitivity"], area["local_only"], area["data_class"])
             for area in payload["areas"]] == [
-        ("recepcion", None, False, None),
-        ("propuesta", "sensitive", False, "sensitive"),
-        ("seguimiento", None, True, "restricted"),
+        ("reception", None, False, None),
+        ("proposal", "sensitive", False, "sensitive"),
+        ("follow-up", None, True, "restricted"),
     ]
     assert tuple(payload["note"]) == PRIVACY_NOTE
     assert get(env, "/offices/missing/privacy").status_code == 404
@@ -111,27 +111,27 @@ def test_rows_and_note(env):
           {{ id: "menu", sensitivity: "normal", local_only: false, data_class: "non_sensitive",
             set_by: "user:gui", set_at: "2026-11-24T12:00:00Z", source: "person",
             cloud: {{ allowed: false, source: "default" }}, cloud_effective: true }},
-          {{ id: "propuesta", sensitivity: "sensitive", local_only: false, data_class: "sensitive",
+          {{ id: "proposal", sensitivity: "sensitive", local_only: false, data_class: "sensitive",
             set_by: "user:operator", set_at: null, source: "office",
             cloud: {{ allowed: false, source: "default" }}, cloud_effective: true }},
-          {{ id: "recepcion", sensitivity: null, local_only: false, data_class: null,
+          {{ id: "reception", sensitivity: null, local_only: false, data_class: null,
             set_by: null, set_at: null, source: "office",
             cloud: {{ allowed: false, source: "default" }}, cloud_effective: false }},
         ],
         note: {json.dumps(list(PRIVACY_NOTE), ensure_ascii=False)},
       }};
       const rows = privacyRows(payload, [
-        {{ id: "menu", name: "Menú" }},
-        {{ id: "propuesta", name: "Propuestas" }},
-        {{ id: "recepcion", name: "Recepción" }},
+        {{ id: "menu", name: "Menu" }},
+        {{ id: "proposal", name: "Proposals" }},
+        {{ id: "reception", name: "Reception" }},
       ]);
       console.log(JSON.stringify({{ title: NOTE_TITLE, rows, note: payload.note }}));
     """)
     assert out["title"] == "Lo que esta opción no libera"
     assert [(row["id"], row["name"], row["level"], row["sourceText"]) for row in out["rows"]] == [
-        ("menu", "Menú", "normal", "de esta área"),
-        ("propuesta", "Propuestas", "sensitive", "de la oficina"),
-        ("recepcion", "Recepción", None, "de la oficina"),
+        ("menu", "Menu", "normal", "de esta área"),
+        ("proposal", "Proposals", "sensitive", "de la oficina"),
+        ("reception", "Reception", None, "de la oficina"),
     ]
     assert out["rows"][0]["cloudSourceText"] == "de la oficina"
     assert out["rows"][1]["cloudEffective"] is True
@@ -147,10 +147,10 @@ def test_note_has_no_destinations():
 
 def test_raise_without_code(env):
     raised = post(env, "/offices/demo/privacy/raise", {
-        "area": "recepcion", "sensitivity": "sensitive", "local_only": False,
+        "area": "reception", "sensitivity": "sensitive", "local_only": False,
     })
     assert raised.status_code == 200, raised.text
-    area = next(item for item in raised.json()["areas"] if item["id"] == "recepcion")
+    area = next(item for item in raised.json()["areas"] if item["id"] == "reception")
     assert (area["sensitivity"], area["data_class"], area["source"], area["set_by"]) == (
         "sensitive", "sensitive", "person", "user:gui",
     )
@@ -159,7 +159,7 @@ def test_raise_without_code(env):
 
 def test_lowering_needs_the_one_use_code(env):
     requested = post(env, "/offices/demo/privacy/lower-request", {
-        "area": "propuesta", "sensitivity": "normal", "local_only": False,
+        "area": "proposal", "sensitivity": "normal", "local_only": False,
     })
     assert requested.status_code == 200
     approval = requested.json()
@@ -168,7 +168,7 @@ def test_lowering_needs_the_one_use_code(env):
     assert len(approval["sha256"]) == 64
 
     before_code = post(env, "/offices/demo/privacy/lower", {
-        "area": "propuesta", "approval_id": approval["approval_id"],
+        "area": "proposal", "approval_id": approval["approval_id"],
     })
     assert before_code.status_code == 409
     assert before_code.json()["detail"]["details"]["reason"] == "office_privacy_change_not_approved"
@@ -176,17 +176,17 @@ def test_lowering_needs_the_one_use_code(env):
     decided = approval_decision(env, approval["approval_id"])
     assert decided.status_code == 200, decided.text
     lowered = post(env, "/offices/demo/privacy/lower", {
-        "area": "propuesta", "approval_id": approval["approval_id"],
+        "area": "proposal", "approval_id": approval["approval_id"],
     })
     assert lowered.status_code == 200, lowered.text
-    area = next(item for item in lowered.json()["areas"] if item["id"] == "propuesta")
+    area = next(item for item in lowered.json()["areas"] if item["id"] == "proposal")
     assert (area["sensitivity"], area["data_class"], area["source"]) == ("normal", "non_sensitive", "person")
     events = [event for event in env.services.tasks.events() if event["type"] == "office.privacy_changed"]
     assert len(events) == 1
     assert events[0]["payload"]["direction"] == "lower"
 
     spent = post(env, "/offices/demo/privacy/lower", {
-        "area": "propuesta", "approval_id": approval["approval_id"],
+        "area": "proposal", "approval_id": approval["approval_id"],
     })
     assert spent.status_code == 409
     assert spent.json()["detail"]["details"]["reason"] == "office_privacy_change_not_approved"
@@ -194,17 +194,17 @@ def test_lowering_needs_the_one_use_code(env):
 
 def test_cancel_lowering_keeps_the_level(env):
     requested = post(env, "/offices/demo/privacy/lower-request", {
-        "area": "propuesta", "sensitivity": "normal", "local_only": False,
+        "area": "proposal", "sensitivity": "normal", "local_only": False,
     })
     assert requested.status_code == 200
     approval_id = requested.json()["approval_id"]
     assert approval_decision(env, approval_id, "reject").status_code == 200
     rejected = post(env, "/offices/demo/privacy/lower", {
-        "area": "propuesta", "approval_id": approval_id,
+        "area": "proposal", "approval_id": approval_id,
     })
     assert rejected.status_code == 409
     current = get(env, "/offices/demo/privacy").json()
-    area = next(item for item in current["areas"] if item["id"] == "propuesta")
+    area = next(item for item in current["areas"] if item["id"] == "proposal")
     assert area["sensitivity"] == "sensitive"
     assert [event for event in env.services.tasks.events() if event["type"] == "office.privacy_changed"] == []
 
@@ -242,7 +242,7 @@ def test_question_sets_the_level_and_retries_once():
           result = await askLevelOnce({{
             token: "synthetic-token",
             officeId: "demo",
-            area: "recepcion",
+            area: "reception",
             post: async (...args) => {{ posts.push(args); return {{ changed: true }}; }},
             retry: async (question) => {{
               if (question) {{ prompts += 1; return "normal"; }}
@@ -258,7 +258,7 @@ def test_question_sets_the_level_and_retries_once():
         await askLevelOnce({{
           token: "synthetic-token",
           officeId: "demo",
-          area: "recepcion",
+          area: "reception",
           post: async () => ({{}}),
           retry: async (question) => {{
             failedCalls += 1;
@@ -273,7 +273,7 @@ def test_question_sets_the_level_and_retries_once():
       const staleResult = await askLevelOnce({{
         token: "synthetic-token",
         officeId: "demo",
-        area: "recepcion",
+        area: "reception",
         isStale: () => stale,
         post: async () => {{ stalePosts += 1; stale = true; }},
         retry: async (question) => {{
@@ -289,7 +289,7 @@ def test_question_sets_the_level_and_retries_once():
     """)
     assert out["posts"] == [[
         "/gui/api/offices/demo/privacy/raise", "synthetic-token",
-        {"area": "recepcion", "sensitivity": "normal", "local_only": False},
+        {"area": "reception", "sensitivity": "normal", "local_only": False},
     ]]
     assert (out["prompts"], out["retries"], out["requests"], out["result"]) == (
         1, 1, 2, {"status": 200, "body": "retried"},
@@ -326,41 +326,41 @@ def test_question_blocks_new_submission():
 
 
 def test_cloud_permission_needs_the_code(env):
-    requested = post(env, "/offices/demo/privacy/cloud-request", {"area": "recepcion", "allowed": True})
+    requested = post(env, "/offices/demo/privacy/cloud-request", {"area": "reception", "allowed": True})
     assert requested.status_code == 200
     approval = requested.json()
     item = env.services.user_approvals.peek(approval["approval_id"])
     assert item["kind"] == "office_privacy_change" and item["state"] == "pending"
 
     before_code = post(env, "/offices/demo/privacy/cloud", {
-        "area": "recepcion", "approval_id": approval["approval_id"],
+        "area": "reception", "approval_id": approval["approval_id"],
     })
     assert before_code.status_code == 409
     assert before_code.json()["detail"]["details"]["reason"] == "office_privacy_change_not_approved"
 
     assert approval_decision(env, approval["approval_id"]).status_code == 200
     granted = post(env, "/offices/demo/privacy/cloud", {
-        "area": "recepcion", "approval_id": approval["approval_id"],
+        "area": "reception", "approval_id": approval["approval_id"],
     })
     assert granted.status_code == 200, granted.text
-    area = next(item for item in granted.json()["areas"] if item["id"] == "recepcion")
+    area = next(item for item in granted.json()["areas"] if item["id"] == "reception")
     assert area["cloud_effective"] is True and area["cloud"]["allowed"] is True
     spent = post(env, "/offices/demo/privacy/cloud", {
-        "area": "recepcion", "approval_id": approval["approval_id"],
+        "area": "reception", "approval_id": approval["approval_id"],
     })
     assert spent.status_code == 409
     assert spent.json()["detail"]["details"]["reason"] == "office_privacy_change_not_approved"
 
 
 def test_cloud_cancel_does_not_change_permission(env):
-    requested = post(env, "/offices/demo/privacy/cloud-request", {"area": "recepcion", "allowed": True})
+    requested = post(env, "/offices/demo/privacy/cloud-request", {"area": "reception", "allowed": True})
     assert requested.status_code == 200
     approval_id = requested.json()["approval_id"]
     assert approval_decision(env, approval_id, "reject").status_code == 200
-    grant = post(env, "/offices/demo/privacy/cloud", {"area": "recepcion", "approval_id": approval_id})
+    grant = post(env, "/offices/demo/privacy/cloud", {"area": "reception", "approval_id": approval_id})
     assert grant.status_code == 409
     current = get(env, "/offices/demo/privacy").json()
-    area = next(item for item in current["areas"] if item["id"] == "recepcion")
+    area = next(item for item in current["areas"] if item["id"] == "reception")
     assert area["cloud_effective"] is False
 
 
@@ -382,7 +382,7 @@ def test_sensitive_area_says_never_cloud():
       import {{ privacyRows }} from {file_url(EXT / "privacy-model.js")};
       const [row] = privacyRows({{
         cloud: {{ allowed: true }},
-        areas: [{{ id: "propuesta", sensitivity: "sensitive", data_class: "sensitive",
+        areas: [{{ id: "proposal", sensitivity: "sensitive", data_class: "sensitive",
           cloud: {{ source: "default" }}, cloud_effective: true }}],
       }});
       console.log(JSON.stringify(row));

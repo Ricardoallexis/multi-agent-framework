@@ -86,7 +86,7 @@ def test_card_shows_what_the_design_lists(world):
     assert card["office"] == {"id": "demo", "name": "Demo office", "description": None}
     assert card["level"] == "data"
     assert card["notice"] == OFFICE_NOTICE
-    assert [area["id"] for area in card["areas"]] == ["recepcion", "propuesta"]
+    assert [area["id"] for area in card["areas"]] == ["reception", "proposal"]
     for area in card["areas"]:
         assert {"members", "requires", "sensitivity", "declares"} <= set(area)
         assert {"workflows", "contracts", "roles"} == set(area["declares"])
@@ -102,8 +102,8 @@ def test_one_record_approves_every_team(world):
     card = services.offices.stage_folder(write_office(tmp_path / "demo"))
     result = _install(services, card)
 
-    assert result["changes"]["added"] == ["recepcion", "propuesta"]
-    for area in ("recepcion", "propuesta"):
+    assert result["changes"]["added"] == ["reception", "proposal"]
+    for area in ("reception", "proposal"):
         approved = services.teams.approved(f"demo__{area}")
         assert approved is not None
         assert approved["status"] == "approved"
@@ -136,7 +136,7 @@ def test_changed_folder_invalidates_the_card(world):
     start, tmp_path = world
     services = start()
     card = services.offices.stage_folder(write_office(tmp_path / "demo"))
-    staged_area = services.offices._stage_folder(card["stage_id"]) / "source" / "areas" / "recepcion"
+    staged_area = services.offices._stage_folder(card["stage_id"]) / "source" / "areas" / "reception"
     (staged_area / "prompts" / "spec" / "extract_requirements.v1.md").write_text(
         "Changed after the card.\n", encoding="utf-8")
 
@@ -155,7 +155,7 @@ def test_office_scan_asks_one_osv_query_for_all_areas(world):
         return SimpleNamespace(exit_code=0, stdout_tail=json.dumps(report), stdout_truncated=False, timed_out=False)
 
     services.bundle_scans.runner = runner
-    folder = write_office(tmp_path / "three", areas=("uno", "dos", "tres"))
+    folder = write_office(tmp_path / "three", areas=("one", "two", "three"))
     card = services.offices.stage_folder(folder)
     assert card["scan"]["state"] == "pending"
     osv = [item for item in services.user_approvals._all().values() if item["kind"] == "osv_query"]
@@ -186,14 +186,14 @@ def test_office_scan_asks_one_osv_query_for_all_areas(world):
     scanned = services.offices.card(card["stage_id"])
     assert scanned["scan"]["state"] == "safe"
     assert scanned["risk_ack_required"] is True
-    assert set(scanned["scan"]["areas"]) == {"uno", "dos", "tres"}
+    assert set(scanned["scan"]["areas"]) == {"one", "two", "three"}
     assert all(area["state"] == "safe" for area in scanned["scan"]["areas"].values())
     assert len(calls) == 3
 
     _decide(services, card["approval_id"], risk_ack=True)
     services.offices.install_staged(card["stage_id"], approval_id=card["approval_id"])
     before = len(services.user_approvals._all())
-    for area in ("uno", "dos", "tres"):
+    for area in ("one", "two", "three"):
         services.runs.create(RunRequest(project_name=f"Run {area}", workflow_id="spec_review",
                                         inputs={"spec_text": "Synthetic input."}),
                              bundle=f"demo__{area}")
@@ -210,12 +210,12 @@ def test_api_installed_areas_share_one_office_query(world):
         return SimpleNamespace(exit_code=0, stdout_tail=json.dumps(report), stdout_truncated=False, timed_out=False)
 
     services.bundle_scans.runner = runner
-    services.offices.import_folder(write_office(tmp_path / "api", areas=("uno", "dos")), actor=ACTOR)
+    services.offices.import_folder(write_office(tmp_path / "api", areas=("one", "two")), actor=ACTOR)
 
-    first = _reason(services.definitions.validate_bundle, "demo__uno")
+    first = _reason(services.definitions.validate_bundle, "demo__one")
     assert first.code == "bundle_scan_pending"
     assert first.details["office"] == "demo"
-    second = _reason(services.definitions.validate_bundle, "demo__dos")
+    second = _reason(services.definitions.validate_bundle, "demo__two")
     assert second.code == "bundle_scan_pending"
     assert second.details["approval_id"] == first.details["approval_id"]
     queries = [item for item in services.user_approvals._all().values() if item["kind"] == "osv_query"]
@@ -234,21 +234,21 @@ def test_api_installed_areas_share_one_office_query(world):
 
     services.bundle_scans.runner = blocked_runner
     try:
-        assert _reason(services.definitions.validate_bundle, "demo__uno").code == "bundle_scan_running"
+        assert _reason(services.definitions.validate_bundle, "demo__one").code == "bundle_scan_running"
         assert entered.wait(5)
-        assert _reason(services.definitions.validate_bundle, "demo__dos").code == "bundle_scan_running"
+        assert _reason(services.definitions.validate_bundle, "demo__two").code == "bundle_scan_running"
         assert len([item for item in services.user_approvals._all().values() if item["kind"] == "osv_query"]) == 1
     finally:
         release.set()
     services.bundle_scans.close()
-    assert services.definitions.validate_bundle("demo__uno")["valid"] is True
+    assert services.definitions.validate_bundle("demo__one")["valid"] is True
 
 
 def test_level_2_needs_advanced_mode_and_risk_ack(world):
     start, tmp_path = world
     services = start()
     folder = write_office(tmp_path / "code")
-    (folder / "areas" / "recepcion" / "functions.py").write_text(
+    (folder / "areas" / "reception" / "functions.py").write_text(
         "from multiagent.functions import register_function\n"
         "def calculate(context, arguments):\n"
         "    return {'steps': {}}\n"
@@ -267,7 +267,7 @@ def test_level_2_needs_advanced_mode_and_risk_ack(world):
     assert no_ack.json()["detail"]["code"] == "risk_ack_required"
     _decide(services, card["approval_id"], risk_ack=True)
     services.offices.install_staged(card["stage_id"], approval_id=card["approval_id"])
-    package = services.installed.get("demo__recepcion")
+    package = services.installed.get("demo__reception")
     assert package["functions"]["trusted"] is True
 
 
@@ -275,7 +275,7 @@ def test_card_is_not_reachable_from_api_v1(world):
     start, tmp_path = world
     services = start()
     folder = write_office(tmp_path / "code")
-    (folder / "areas" / "recepcion" / "functions.py").write_text("def calculate(context, arguments): return {}\n",
+    (folder / "areas" / "reception" / "functions.py").write_text("def calculate(context, arguments): return {}\n",
                                                                    encoding="utf-8")
 
     app = create_app(services=services)
@@ -295,14 +295,14 @@ def test_reimport_card_lists_only_changes(world):
     start, tmp_path = world
     services = start()
     _install(services, services.offices.stage_folder(write_office(tmp_path / "original")))
-    unchanged_before = services.teams.approved("demo__propuesta")["id"]
-    changed = write_office(tmp_path / "changed", markers={"recepcion": "updated"})
+    unchanged_before = services.teams.approved("demo__proposal")["id"]
+    changed = write_office(tmp_path / "changed", markers={"reception": "updated"})
     card = services.offices.stage_folder(changed, reimport="demo")
 
-    assert [(area["id"], area["change"]) for area in card["areas"]] == [("recepcion", "changed")]
+    assert [(area["id"], area["change"]) for area in card["areas"]] == [("reception", "changed")]
     installed = _install(services, card)
-    assert installed["changes"]["changed"] == ["recepcion"]
-    assert services.teams.approved("demo__propuesta")["id"] == unchanged_before
+    assert installed["changes"]["changed"] == ["reception"]
+    assert services.teams.approved("demo__proposal")["id"] == unchanged_before
 
 
 def test_area_card_enters_an_existing_office(world):
@@ -316,14 +316,14 @@ def test_area_card_enters_an_existing_office(world):
 
     services.bundle_scans.runner = runner
     services.offices.import_folder(write_office(tmp_path / "original"), actor=ACTOR)
-    incoming = write_office(tmp_path / "incoming", office_id="extra", areas=("avisos",))
+    incoming = write_office(tmp_path / "incoming", office_id="extra", areas=("notices",))
     card = services.offices.stage_folder(incoming, into="demo")
 
     assert card["kind"] == "area"
     assert card["into"] == "demo"
     assert card["office"]["id"] == "demo"
-    assert [area["id"] for area in card["areas"]] == ["avisos"]
-    assert set(card["scan"]["areas"]) == {"recepcion", "propuesta", "avisos"}
+    assert [area["id"] for area in card["areas"]] == ["notices"]
+    assert set(card["scan"]["areas"]) == {"reception", "proposal", "notices"}
     _decide(services, card["scan"]["approval_id"])
     assert services.offices.card(card["stage_id"])["scan"]["state"] == "running"
     services.bundle_scans.close()
@@ -332,15 +332,15 @@ def test_area_card_enters_an_existing_office(world):
     assert scanned["risk_ack_required"] is True
     _decide(services, card["approval_id"], risk_ack=True)
     services.offices.install_staged(card["stage_id"], approval_id=card["approval_id"])
-    for area in ("recepcion", "propuesta", "avisos"):
+    for area in ("reception", "proposal", "notices"):
         bundle = f"demo__{area}"
         fingerprint = services.bundle_scans.fingerprint(services.bundle_path(bundle))
         cached = services.bundle_scans._cached(bundle, fingerprint)
         assert cached is not None
         assert cached["load_approved"] is True and cached["risk_ack"] is True
-    assert "demo__avisos" in services.bundle_names()
+    assert "demo__notices" in services.bundle_names()
     before = len(services.user_approvals._all())
-    for area in ("recepcion", "propuesta", "avisos"):
+    for area in ("reception", "proposal", "notices"):
         services.runs.create(RunRequest(project_name=f"Run {area}", workflow_id="spec_review",
                                         inputs={"spec_text": "Synthetic input."}),
                              bundle=f"demo__{area}")

@@ -1,0 +1,29 @@
+id: progress_note
+description: Drafts a progress note in local-only mode and leaves it for review.
+max_iterations: 1
+inputs:
+  - name: observations
+    label: Observations
+    description: Note what was observed in class or in recent activities.
+    example: Took part attentively in reading and needs practice with carrying in addition.
+    required: true
+    type: long_text
+  - name: student
+    label: Student
+    description: Optional short student reference (examples contain no real personal data).
+    example: Student A
+    required: false
+    type: text
+steps:
+  - id: draft_progress_note
+    description: Drafts the progress note for the reviewer.
+    agent: progress_tutor
+    prompt_id: follow_up/progress_note
+    prompt_version: 1
+    skills: []
+    contract: ProgressNote
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: true

@@ -30,8 +30,8 @@ def make_bundle(tmp_path: Path, document, *, contracts_py: str | None = None, ra
     return root
 
 
-def aviso(**fields):
-    return {"schema": "maf.contracts/1", "contracts": {"Aviso": {"fields": fields}}}
+def notice(**fields):
+    return {"schema": "maf.contracts/1", "contracts": {"Notice": {"fields": fields}}}
 
 
 def load_error(root: Path, settings: Settings):
@@ -48,12 +48,12 @@ def nested(depth: int) -> dict:
 
 
 def test_data_contract_loads_without_code(tmp_path, settings):
-    root = make_bundle(tmp_path, aviso(
-        titulo={"type": "string", "max_length": 120}, cuerpo={"type": "string", "document": True}))
+    root = make_bundle(tmp_path, notice(
+        title={"type": "string", "max_length": 120}, body={"type": "string", "document": True}))
     assert not list(root.glob("*.py"))
-    model = load_bundle(root, settings).output_schemas["Aviso"]
-    assert model.model_validate({"titulo": "x", "cuerpo": "y"}).titulo == "x"
-    for bad in ({"titulo": ""}, {"titulo": "x" * 121, "cuerpo": "y"}, {"titulo": "x", "cuerpo": "y", "otro": 1}):
+    model = load_bundle(root, settings).output_schemas["Notice"]
+    assert model.model_validate({"title": "x", "body": "y"}).title == "x"
+    for bad in ({"title": ""}, {"title": "x" * 121, "body": "y"}, {"title": "x", "body": "y", "other": 1}):
         with pytest.raises(ValidationError):
             model.model_validate(bad)
 
@@ -65,23 +65,23 @@ GOOD_AND_BAD = {
     "boolean": ({"type": "boolean"}, True, "yes"),
     "enum": ({"type": "enum", "values": ["a", "b"]}, "a", "c"),
     "list": ({"type": "list", "items": {"type": "string"}, "min_items": 1, "max_items": 2}, ["a"], []),
-    "object": ({"type": "object", "fields": {"dentro": {"type": "integer"}}}, {"dentro": 1}, {"dentro": "z"}),
+    "object": ({"type": "object", "fields": {"inner": {"type": "integer"}}}, {"inner": 1}, {"inner": "z"}),
 }
 
 
 @pytest.mark.parametrize("kind", sorted(GOOD_AND_BAD))
 def test_every_field_type(tmp_path, settings, kind):
     spec, good, bad = GOOD_AND_BAD[kind]
-    model = load_bundle(make_bundle(tmp_path, aviso(campo=spec)), settings).output_schemas["Aviso"]
-    assert model.model_validate({"campo": good}).campo is not None
+    model = load_bundle(make_bundle(tmp_path, notice(field=spec)), settings).output_schemas["Notice"]
+    assert model.model_validate({"field": good}).field is not None
     with pytest.raises(ValidationError):
-        model.model_validate({"campo": bad})
+        model.model_validate({"field": bad})
 
 
 def test_bool_is_not_a_number_and_list_caps_apply(tmp_path, settings):
-    model = load_bundle(make_bundle(tmp_path, aviso(
+    model = load_bundle(make_bundle(tmp_path, notice(
         n={"type": "integer"}, xs={"type": "list", "items": {"type": "string"}, "max_items": 2})),
-        settings).output_schemas["Aviso"]
+        settings).output_schemas["Notice"]
     with pytest.raises(ValidationError):
         model.model_validate({"n": True, "xs": []})
     with pytest.raises(ValidationError):
@@ -89,75 +89,75 @@ def test_bool_is_not_a_number_and_list_caps_apply(tmp_path, settings):
 
 
 def test_enum_without_values_is_rejected(tmp_path, settings):
-    issue = load_error(make_bundle(tmp_path, aviso(campo={"type": "enum"})), settings)
+    issue = load_error(make_bundle(tmp_path, notice(field={"type": "enum"})), settings)
     assert issue.code == "bundle_contracts_invalid"
-    assert issue.location == "contracts.yaml:Aviso.campo"
+    assert issue.location == "contracts.yaml:Notice.field"
 
 
 @pytest.mark.parametrize("spec", [
     {"type": "date"}, {"type": "string", "pattern": "x"}, {"type": "integer", "max_length": 3},
 ])
 def test_unknown_type_and_key_rejected(tmp_path, settings, spec):
-    issue = load_error(make_bundle(tmp_path, aviso(titulo=spec)), settings)
+    issue = load_error(make_bundle(tmp_path, notice(title=spec)), settings)
     assert issue.code == "bundle_contracts_invalid"
-    assert issue.location == "contracts.yaml:Aviso.titulo"
+    assert issue.location == "contracts.yaml:Notice.title"
 
 
 def test_depth_six_loads(tmp_path, settings):
-    assert load_bundle(make_bundle(tmp_path, aviso(a=nested(6))), settings).output_schemas["Aviso"]
+    assert load_bundle(make_bundle(tmp_path, notice(a=nested(6))), settings).output_schemas["Notice"]
 
 
 @pytest.mark.parametrize("document", [
-    aviso(a=nested(7)),
-    aviso(Titulo={"type": "string"}),
-    {"contracts": {"aviso": {"fields": {"a": {"type": "string"}}}}},
-    aviso(model_dump={"type": "string"}),
+    notice(a=nested(7)),
+    notice(Title={"type": "string"}),
+    {"contracts": {"notice": {"fields": {"a": {"type": "string"}}}}},
+    notice(model_dump={"type": "string"}),
 ])
 def test_depth_and_names(tmp_path, settings, document):
     assert load_error(make_bundle(tmp_path, document), settings).code == "bundle_contracts_invalid"
 
 
 def test_document_key(tmp_path, settings):
-    model = load_bundle(make_bundle(tmp_path, aviso(
-        titulo={"type": "string"}, cuerpo={"type": "string", "document": True})), settings).output_schemas["Aviso"]
+    model = load_bundle(make_bundle(tmp_path, notice(
+        title={"type": "string"}, body={"type": "string", "document": True})), settings).output_schemas["Notice"]
     props = model.model_json_schema()["properties"]
-    assert props["cuerpo"]["x-maf-document"] is True
-    assert "x-maf-document" not in props["titulo"]
+    assert props["body"]["x-maf-document"] is True
+    assert "x-maf-document" not in props["title"]
 
 
 def test_two_document_fields_are_rejected(tmp_path, settings):
-    issue = load_error(make_bundle(tmp_path, aviso(
+    issue = load_error(make_bundle(tmp_path, notice(
         a={"type": "string", "document": True}, b={"type": "string", "document": True})), settings)
     assert issue.code == "bundle_contracts_invalid"
-    assert issue.location == "contracts.yaml:Aviso"
+    assert issue.location == "contracts.yaml:Notice"
 
 
 def test_required_defaults_to_true(tmp_path, settings):
-    model = load_bundle(make_bundle(tmp_path, aviso(
-        a={"type": "string"}, b={"type": "string", "required": False})), settings).output_schemas["Aviso"]
+    model = load_bundle(make_bundle(tmp_path, notice(
+        a={"type": "string"}, b={"type": "string", "required": False})), settings).output_schemas["Notice"]
     assert model.model_validate({"a": "x"}).b is None
     with pytest.raises(ValidationError):
         model.model_validate({"b": "x"})
 
 
 def test_samples_are_validated(tmp_path, settings):
-    document = aviso(a={"type": "string"})
-    document["samples"] = {"Aviso": {"a": "ok"}, "FreeTextAnswer": {"answer": "hola"}}
+    document = notice(a={"type": "string"})
+    document["samples"] = {"Notice": {"a": "ok"}, "FreeTextAnswer": {"answer": "hello"}}
     bundle = load_bundle(make_bundle(tmp_path, document), settings)
-    assert bundle.sample_outputs == {"Aviso": {"a": "ok"}, "FreeTextAnswer": {"answer": "hola"}}
+    assert bundle.sample_outputs == {"Notice": {"a": "ok"}, "FreeTextAnswer": {"answer": "hello"}}
 
 
-@pytest.mark.parametrize("samples", [{"Aviso": {"a": ""}}, {"FreeTextAnswer": {"answer": ""}}, {"ContentOutput": {}}])
+@pytest.mark.parametrize("samples", [{"Notice": {"a": ""}}, {"FreeTextAnswer": {"answer": ""}}, {"ContentOutput": {}}])
 def test_bad_samples_are_rejected(tmp_path, settings, samples):
-    document = aviso(a={"type": "string"})
+    document = notice(a={"type": "string"})
     document["samples"] = samples
     assert load_error(make_bundle(tmp_path, document), settings).code == "sample_output_invalid"
 
 
 def test_yaml_and_py_clash(tmp_path, settings):
-    py = ("from multiagent.contracts import StrictModel\nclass Aviso(StrictModel):\n    a: str\n"
-          "OUTPUT_SCHEMAS = {'Aviso': Aviso}\n")
-    issue = load_error(make_bundle(tmp_path, aviso(a={"type": "string"}), contracts_py=py), settings)
+    py = ("from multiagent.contracts import StrictModel\nclass Notice(StrictModel):\n    a: str\n"
+          "OUTPUT_SCHEMAS = {'Notice': Notice}\n")
+    issue = load_error(make_bundle(tmp_path, notice(a={"type": "string"}), contracts_py=py), settings)
     assert issue.code == "contract_conflict"
 
 
@@ -167,16 +167,16 @@ def test_yaml_cannot_redefine_a_core_contract(tmp_path, settings):
 
 
 def test_yaml_and_py_contracts_merge(tmp_path, settings):
-    py = ("from multiagent.contracts import StrictModel\nclass Otro(StrictModel):\n    a: str\n"
-          "OUTPUT_SCHEMAS = {'Otro': Otro}\n")
-    bundle = load_bundle(make_bundle(tmp_path, aviso(a={"type": "string"}), contracts_py=py), settings)
-    assert {"Aviso", "Otro"} <= set(bundle.output_schemas)
+    py = ("from multiagent.contracts import StrictModel\nclass Other(StrictModel):\n    a: str\n"
+          "OUTPUT_SCHEMAS = {'Other': Other}\n")
+    bundle = load_bundle(make_bundle(tmp_path, notice(a={"type": "string"}), contracts_py=py), settings)
+    assert {"Notice", "Other"} <= set(bundle.output_schemas)
 
 
 def test_core_alias_is_not_a_clash(tmp_path, settings):
     alias = ("from multiagent.contracts import FreeTextAnswer\n"
              "OUTPUT_SCHEMAS = {'FreeTextAnswer': FreeTextAnswer}\n")
-    root = make_bundle(tmp_path, aviso(a={"type": "string"}), contracts_py=alias)
+    root = make_bundle(tmp_path, notice(a={"type": "string"}), contracts_py=alias)
     bundle = load_bundle(root, settings)
     assert bundle.output_schemas["FreeTextAnswer"] is OUTPUT_SCHEMAS["FreeTextAnswer"]
     own = ("from multiagent.contracts import StrictModel\nclass FreeTextAnswer(StrictModel):\n    answer: str\n"
@@ -187,7 +187,7 @@ def test_core_alias_is_not_a_clash(tmp_path, settings):
 
 def test_nothing_is_executed(tmp_path, settings):
     marker = tmp_path / "ran.txt"
-    raw = ("contracts:\n  Aviso:\n    fields:\n      a: !!python/object/apply:pathlib.Path.write_text "
+    raw = ("contracts:\n  Notice:\n    fields:\n      a: !!python/object/apply:pathlib.Path.write_text "
            f"[{str(marker)!r}, 'x']\n")
     root = make_bundle(tmp_path, None, raw=raw)
     assert load_error(root, settings).code == "bundle_contracts_invalid"

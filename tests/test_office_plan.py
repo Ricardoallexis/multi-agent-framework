@@ -27,16 +27,16 @@ from test_offices_install import write_office
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERAL = ROOT / "examples" / "bundles" / "general"
-AREA_IDS = ("recepcion", "propuesta", "seguimiento")
+AREA_IDS = ("reception", "proposal", "follow-up")
 DEFAULT_PLAN = [
-    {"area": "recepcion", "workflow": "spec_review"},
-    {"area": "propuesta", "workflow": "spec_review", "after": ["recepcion"]},
+    {"area": "reception", "workflow": "spec_review"},
+    {"area": "proposal", "workflow": "spec_review", "after": ["reception"]},
 ]
-NORMAL = {"recepcion": {"sensitivity": "normal"}, "propuesta": {"sensitivity": "normal"},
-          "seguimiento": {"local_only": True}}
+NORMAL = {"reception": {"sensitivity": "normal"}, "proposal": {"sensitivity": "normal"},
+          "follow-up": {"local_only": True}}
 OUTPUT = {"PlanningOutput": {"tasks": [
     {"id": "plan-1", "title": "Review the specification", "depends_on": [],
-     "workflow": "spec_review", "bundle": "demo__recepcion", "inputs": {"spec_text": "A synthetic request."}},
+     "workflow": "spec_review", "bundle": "demo__reception", "inputs": {"spec_text": "A synthetic request."}},
 ], "rationale": "Synthetic plan"}}
 
 
@@ -107,11 +107,11 @@ def test_planner_never_sends_a_local_only_office_request_to_the_cloud(world):
     adapter = CountingAdapter("gemini")
     services = start("cloud-protected", model="cloud_fast", adapter=adapter, mock=False)
     install_demo(services, tmp)
-    draft = services.new_session.draft_plan("Resume la especificación y luego revísala",
+    draft = services.new_session.draft_plan("Summarize the specification and then review it",
                                             confirm_cloud=True, office="demo")
     assert adapter.calls == []
     assert draft["planner"] == "deterministic" and draft["fallback_reason"] == "office_not_normal"
-    assert [task["bundle"] for task in draft["tasks"]] == ["demo__recepcion", "demo__propuesta"]
+    assert [task["bundle"] for task in draft["tasks"]] == ["demo__reception", "demo__proposal"]
 
 
 def test_interpret_never_sends_a_local_only_office_request_to_the_cloud(world):
@@ -119,7 +119,7 @@ def test_interpret_never_sends_a_local_only_office_request_to_the_cloud(world):
     adapter = CountingAdapter("gemini")
     services = start("cloud-interpret", model="cloud_fast", adapter=adapter, mock=False)
     install_demo(services, tmp)
-    result = services.new_session.interpret("Resume la especificación", confirm_cloud=True, office="demo")
+    result = services.new_session.interpret("Summarize the specification", confirm_cloud=True, office="demo")
     assert adapter.calls == []
     assert result["source"] == "keywords" and result["reason"] == "office_not_normal"
 
@@ -127,29 +127,29 @@ def test_interpret_never_sends_a_local_only_office_request_to_the_cloud(world):
 def test_default_plan_keeps_parallel_items(world):
     start, tmp = world
     parallel_services = start("parallel")
-    install_demo(parallel_services, tmp, areas=("recepcion", "propuesta"),
-                 plan=[{"area": "recepcion", "workflow": "spec_review"},
-                       {"area": "propuesta", "workflow": "spec_review"}])
-    parallel = parallel_services.new_session.draft_plan("Solicitud", office="demo")
+    install_demo(parallel_services, tmp, areas=("reception", "proposal"),
+                 plan=[{"area": "reception", "workflow": "spec_review"},
+                       {"area": "proposal", "workflow": "spec_review"}])
+    parallel = parallel_services.new_session.draft_plan("Request", office="demo")
     assert [task["depends_on"] for task in parallel["tasks"]] == [[], []]
 
     ordered_services = start("ordered")
-    install_demo(ordered_services, tmp, areas=("recepcion", "propuesta"),
-                 plan=[{"area": "recepcion", "workflow": "spec_review"},
-                       {"area": "propuesta", "workflow": "spec_review", "after": ["recepcion"]}])
-    ordered = ordered_services.new_session.draft_plan("Solicitud", office="demo")
-    assert ordered["tasks"][1]["depends_on"] == ["demo-recepcion"]
+    install_demo(ordered_services, tmp, areas=("reception", "proposal"),
+                 plan=[{"area": "reception", "workflow": "spec_review"},
+                       {"area": "proposal", "workflow": "spec_review", "after": ["reception"]}])
+    ordered = ordered_services.new_session.draft_plan("Request", office="demo")
+    assert ordered["tasks"][1]["depends_on"] == ["demo-reception"]
 
 
 def test_request_goes_to_the_first_required_text_input(tmp_path):
-    root = demo_folder(tmp_path, areas=("recepcion", "propuesta"), plan=DEFAULT_PLAN)
+    root = demo_folder(tmp_path, areas=("reception", "proposal"), plan=DEFAULT_PLAN)
     definition = load_office(root)
     template = default_plan_template(
-        definition, "Una solicitud sintética",
-        lambda _workflow, bundle: "spec_text" if bundle == "demo__recepcion" else None,
+        definition, "A synthetic request",
+        lambda _workflow, bundle: "spec_text" if bundle == "demo__reception" else None,
     )
     assert template is not None
-    assert template["stages"][0]["inputs"] == {"spec_text": "Una solicitud sintética"}
+    assert template["stages"][0]["inputs"] == {"spec_text": "A synthetic request"}
     assert template["stages"][1]["inputs"] == {}
 
 
@@ -174,8 +174,8 @@ def test_catalog_is_limited_to_the_office(world):
     start, tmp = world
     adapter = CountingAdapter("gemini")
     services = start("catalog", model="cloud_fast", adapter=adapter, mock=False, bundles={"outside": GENERAL})
-    install_demo(services, tmp, areas=("recepcion", "propuesta"))
-    services.new_session.draft_plan("Resume la especificación", confirm_cloud=True, office="demo")
+    install_demo(services, tmp, areas=("reception", "proposal"))
+    services.new_session.draft_plan("Summarize the specification", confirm_cloud=True, office="demo")
     catalog_line = next(line for line in adapter.prompts[0].splitlines() if line.startswith("CATALOG_JSON: "))
     catalog = json.loads(catalog_line.removeprefix("CATALOG_JSON: "))
     assert catalog and all(item["bundle"].startswith("demo__") for item in catalog)
@@ -190,9 +190,9 @@ def test_model_plan_outside_the_office_is_rejected(world):
     ]}}
     services = start("outside-plan", model="cloud_fast",
                      adapter=CountingAdapter("gemini", output), mock=False, bundles={"outside": GENERAL})
-    install_demo(services, tmp, areas=("recepcion", "propuesta"))
+    install_demo(services, tmp, areas=("reception", "proposal"))
     with pytest.raises(ServiceError) as caught:
-        services.new_session.draft_plan("Resume la especificación", confirm_cloud=True, office="demo")
+        services.new_session.draft_plan("Summarize the specification", confirm_cloud=True, office="demo")
     assert caught.value.status == 422
     assert caught.value.details["reason"] == "office_plan_outside_office"
     assert caught.value.details["task"]["bundle"] == "outside"
@@ -203,8 +203,8 @@ def test_local_model_plans_with_the_office_class(world, monkeypatch):
     allow_sensitive_local_model(monkeypatch, tmp)
     adapter = CountingAdapter("ollama")
     services = start("local-sensitive", model="local_default", adapter=adapter, mock=False)
-    install_demo(services, tmp, areas=("recepcion", "propuesta"),
-                 overrides={"propuesta": {"sensitivity": "sensitive"}})
+    install_demo(services, tmp, areas=("reception", "proposal"),
+                 overrides={"proposal": {"sensitivity": "sensitive"}})
 
     observed: list[str | None] = []
     build_guards = planning_model.build_call_guards
@@ -219,7 +219,7 @@ def test_local_model_plans_with_the_office_class(world, monkeypatch):
 
     monkeypatch.setattr(planning_model, "build_call_guards",
                         lambda *args, **kwargs: RecordingGuards(build_guards(*args, **kwargs)))
-    draft = services.new_session.draft_plan("Resume la especificación", office="demo")
+    draft = services.new_session.draft_plan("Summarize the specification", office="demo")
     assert len(adapter.calls) == 1 and observed == ["sensitive"]
     assert draft["planner"] == "model" and draft["fallback_reason"] is None
 
@@ -228,14 +228,14 @@ def test_unset_level_asks_before_a_cloud_plan(world):
     start, tmp = world
     adapter = CountingAdapter("gemini")
     services = start("cloud-unset", model="cloud_fast", adapter=adapter, mock=False)
-    install_demo(services, tmp, areas=("recepcion", "propuesta"),
-                 overrides={"propuesta": {"sensitivity": None}})
-    held = services.new_session.draft_plan("Resume la especificación", office="demo")
+    install_demo(services, tmp, areas=("reception", "proposal"),
+                 overrides={"proposal": {"sensitivity": None}})
+    held = services.new_session.draft_plan("Summarize the specification", office="demo")
     assert held["reason"] == "cloud_confirmation_required"
     with pytest.raises(ServiceError) as caught:
-        services.new_session.draft_plan("Resume la especificación", confirm_cloud=True, office="demo")
+        services.new_session.draft_plan("Summarize the specification", confirm_cloud=True, office="demo")
     assert caught.value.status == 409
-    assert caught.value.details == {"reason": "office_level_required", "office": "demo", "area": "propuesta"}
+    assert caught.value.details == {"reason": "office_level_required", "office": "demo", "area": "proposal"}
     assert adapter.calls == []
 
 
@@ -243,8 +243,8 @@ def test_normal_office_with_cloud_confirmation(world):
     start, tmp = world
     adapter = CountingAdapter("gemini")
     services = start("cloud-normal", model="cloud_fast", adapter=adapter, mock=False)
-    install_demo(services, tmp, areas=("recepcion", "propuesta"))
-    draft = services.new_session.draft_plan("Resume la especificación", confirm_cloud=True, office="demo")
+    install_demo(services, tmp, areas=("reception", "proposal"))
+    draft = services.new_session.draft_plan("Summarize the specification", confirm_cloud=True, office="demo")
     assert len(adapter.calls) == 1
     assert draft["planner"] == "model" and draft["fallback_reason"] is None
 
@@ -252,9 +252,9 @@ def test_normal_office_with_cloud_confirmation(world):
 def test_no_default_plan_and_nothing_matches(world):
     start, tmp = world
     services = start("no-default")
-    install_demo(services, tmp, areas=("recepcion", "propuesta"), plan=None)
+    install_demo(services, tmp, areas=("reception", "proposal"), plan=None)
     with pytest.raises(ServiceError) as caught:
-        services.new_session.draft_plan("floripondio xyzzy", office="demo")
+        services.new_session.draft_plan("filler xyzzy", office="demo")
     assert caught.value.status == 409
     assert caught.value.details["reason"] == "office_plan_unavailable"
     assert caught.value.details["fix"] == "Esta oficina no trae un plan por defecto: pide una cosa por vez"
@@ -267,7 +267,7 @@ def test_draft_saves_nothing_and_save_needs_confirmation(world):
     token = ensure_token(services.settings.gui_token_file)
     headers = {"Authorization": f"Bearer {token}"}
     before = services.plan_proposals.list()
-    draft = services.offices.plan_draft("demo", "Resume la especificación")
+    draft = services.offices.plan_draft("demo", "Summarize the specification")
     assert services.plan_proposals.list() == before == []
     assert draft["office"] == "demo" and draft["fallback_reason"] == "mock"
     with TestClient(create_app(services=services), base_url="http://localhost") as client:
@@ -298,11 +298,11 @@ def test_new_session_office_routes_return_not_found_for_missing_offices(world):
     headers = {"Authorization": f"Bearer {token}"}
     with TestClient(create_app(services=services), base_url="http://localhost") as client:
         interpret = client.post("/gui/api/new-session/interpret", headers=headers,
-                                json={"text": "Resume la especificación", "office": "demo"})
+                                json={"text": "Summarize the specification", "office": "demo"})
         missing_interpret = client.post("/gui/api/new-session/interpret", headers=headers,
-                                        json={"text": "Resume la especificación", "office": "missing"})
+                                        json={"text": "Summarize the specification", "office": "missing"})
         plan = client.post("/gui/api/new-session/plan", headers=headers,
-                           json={"text": "Resume la especificación", "office": "missing"})
+                           json={"text": "Summarize the specification", "office": "missing"})
         assert interpret.status_code == 200 and interpret.json()["reason"] == "office_not_normal"
         assert missing_interpret.status_code == 404 and plan.status_code == 404
 
@@ -313,9 +313,9 @@ def test_plan_draft_route_and_cli_parity(world, monkeypatch, capsys):
     install_demo(services, tmp)
     with TestClient(create_app(services=services), base_url="http://localhost") as client:
         expected = client.post("/api/v1/offices/demo/plan-draft",
-                               json={"text": "Resume la especificación"}).json()
+                               json={"text": "Summarize the specification"}).json()
         assert client.post("/api/v1/offices/demo/plan-draft",
-                           json={"text": "Resume la especificación", "unexpected": True}).status_code == 422
+                           json={"text": "Summarize the specification", "unexpected": True}).status_code == 422
 
         class ClientContext:
             def __enter__(self):
@@ -325,6 +325,6 @@ def test_plan_draft_route_and_cli_parity(world, monkeypatch, capsys):
                 return False
 
         monkeypatch.setattr(cli, "api_client", ClientContext)
-        cli.main(["office", "plan-draft", "demo", "Resume la especificación", "--json"])
+        cli.main(["office", "plan-draft", "demo", "Summarize the specification", "--json"])
         actual = json.loads(capsys.readouterr().out)
     assert actual == expected
