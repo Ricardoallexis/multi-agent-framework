@@ -13,7 +13,10 @@ people. The two are merged:
   ``"declared"``);
 * a placeholder nobody declared is still an input (``source`` is
   ``"derived"``) and carries the prompt line where it appears;
-* a declared name that no prompt uses is not offered; ``warnings`` says so.
+* when a workflow has function steps, all declared inputs are offered because
+  their code can read any key in ``context["inputs"]``;
+* without function steps, a declared name that no prompt uses is not offered
+  and ``warnings`` says so.
 
 The derivation rules are:
 
@@ -24,7 +27,8 @@ The derivation rules are:
   default uses it. Inputs used only by skipped steps (for example a research
   step that needs ``requires_web``) are optional, and names ending in
   ``_context`` are optional too (the legacy social-post path fills them from
-  stored context).
+  stored context). Function-only inputs are optional unless ``required`` is
+  explicitly declared.
 
 Nothing here executes a step or calls a model: it reads templates, renders
 text and reports it.
@@ -94,7 +98,9 @@ def _template(prompts: PromptManager, prompt_id: str, version: int, step_id: str
 
 
 def unused_input_warnings(definition: WorkflowDefinition, used: set[str] | frozenset[str]) -> list[WorkflowIssue]:
-    """A warning (not an error) for each declared input that no step prompt uses."""
+    """Warn for declarations not offered by prompts when no function can read them."""
+    if any(step.function is not None for step in definition.steps):
+        return []
     return [
         WorkflowIssue("unused_input", f"inputs[{index}].name",
                       f"Declared input {item.name!r} is not used by any step prompt, so it is not offered; "
@@ -135,6 +141,7 @@ def derive_inputs(definition: WorkflowDefinition, prompts: PromptManager) -> dic
     """
     request = _request_for(definition)
     skipped = {step.id: not condition_is_true(step.when, request) for step in definition.steps}
+    has_function_steps = any(step.function is not None for step in definition.steps)
     found: dict[str, dict[str, Any]] = {}
     for step in definition.steps:
         if step.function is not None:
@@ -152,7 +159,14 @@ def derive_inputs(definition: WorkflowDefinition, prompts: PromptManager) -> dic
             if not skipped[step.id] and step.id not in item["needed_by"]:
                 item["needed_by"].append(step.id)
     declared = {item.name: item for item in definition.inputs}
-    inputs = [_merged(found[name], item) for name, item in declared.items() if name in found]
+    inputs = []
+    for name, item in declared.items():
+        usage = found.get(name)
+        if usage is None:
+            if not has_function_steps:
+                continue
+            usage = {"name": name, "label": _label(name), "used_in": [], "needed_by": [], "prompt_line": None}
+        inputs.append(_merged(usage, item))
     inputs += [_merged(usage, None) for name, usage in found.items() if name not in declared]
     return {
         "source": SOURCE_DECLARED if any(item["source"] == ITEM_DECLARED for item in inputs) else SOURCE,

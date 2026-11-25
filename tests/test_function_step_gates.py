@@ -118,13 +118,16 @@ def test_python_request_error_uses_the_public_code():
     assert RunRequest(**BODY, step_modes={"collect": "cloud"}).step_modes["collect"].value == "cloud"
 
 
-def test_function_only_inputs_have_no_prompt_markers(gate):
+def test_function_only_inputs_are_offered_without_prompt_markers(gate):
     _, services, _ = gate
     definition, prompts = services.definitions._read_parts("collect_summary", "general")
     function_only = replace(definition, steps=[definition.steps[1]], inputs=[WorkflowInput(name="unused")])
     spec = derive_inputs(function_only, prompts)
-    assert spec["inputs"] == []
-    assert spec["warnings"][0]["code"] == "unused_input"
+    assert [item["name"] for item in spec["inputs"]] == ["unused"]
+    assert spec["inputs"][0]["source"] == "declared"
+    assert spec["inputs"][0]["used_in"] == [] and spec["inputs"][0]["needed_by"] == []
+    assert spec["inputs"][0]["prompt_line"] is None
+    assert spec["warnings"] == []
     assert spec["steps"] == [{"id": "collect", "function": "core.merge_outputs", "description": definition.steps[1].description,
                                "when": None, "skipped_by_default": False}]
 

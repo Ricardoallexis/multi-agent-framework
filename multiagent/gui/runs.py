@@ -499,7 +499,8 @@ def build_router(services) -> APIRouter:
         """What the create-run form needs: the workflow description, its steps, and its inputs.
 
         Declared inputs carry label, description, example, type and choices; placeholders nobody
-        declared are derived and carry the prompt line where they appear (item ``source``)."""
+        declared are derived and carry the prompt line where they appear (item ``source``). A workflow
+        with function steps offers every declaration because function code can read any input."""
         return services.definitions.workflow_inputs(workflow_id, bundle=bundle)
 
     @router.post("/new-session/interpret")

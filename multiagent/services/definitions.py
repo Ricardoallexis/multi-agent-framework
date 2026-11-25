@@ -130,13 +130,14 @@ class DefinitionServices:
 
     @service_errors
     def workflow_inputs(self, workflow_id: str, *, bundle: str | None = None) -> dict[str, Any]:
-        """Inputs the workflow expects: the ones it declares merged with its prompt placeholders.
+        """Inputs the workflow expects: declarations merged with prompt placeholders.
 
         Returns ``{"id", "bundle", "source", "description", "inputs": [{"name", "label",
         "description", "example", "type", "choices", "source", "required", "skipped_only",
         "context", "used_in", "needed_by", "prompt_line"}], "steps": [...], "warnings": [...]}``
         (item ``source`` is ``declared`` or ``derived``; ``description`` and ``example`` are
-        ``None`` for derived inputs); see ``workflow_inputs`` for the rules.
+        ``None`` for derived inputs). Declarations are also offered to function steps, which can
+        read any key in ``context["inputs"]``; see ``workflow_inputs`` for the rules.
         Errors: ``not_found``, ``invalid_definition``.
         """
         definition, prompts = self._read_parts(workflow_id, bundle)
