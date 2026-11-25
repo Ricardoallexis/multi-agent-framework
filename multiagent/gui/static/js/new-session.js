@@ -645,6 +645,10 @@ function SingleExecutorSession({
       <h4>Seguimiento de la tarea</h4>
       ${tracking.error && html`<p class="message error" role="alert">${errorText(tracking.error)}</p>`}
       ${tracking.data?.task && html`<p role="status">Estado: ${tracking.data.task.state} · ${tracking.data.task.status}</p>`}
+      ${tracking.data?.latest_result && html`<div class="ns-executor-response">
+        <strong>Respuesta del ejecutor</strong>
+        <p>${tracking.data.latest_result.summary}</p>
+      </div>`}
       ${(latestAttempt?.outcome || launched.launch?.outcome) && html`<p>Último intento: ${latestAttempt?.outcome || launched.launch?.outcome}</p>`}
       ${(latestAttempt?.evidence || launched.launch?.evidence) && html`<p class="message error" role="alert">
         ${latestAttempt?.evidence || launched.launch.evidence}</p>`}
@@ -652,7 +656,7 @@ function SingleExecutorSession({
       ${sessions.length === 0 && html`<p class="muted small">Esperando que el ejecutor registre su sesión…</p>`}
       ${sessions.map((session) => {
         const source = sessionLinks[session.executor_id];
-        return source && html`<p key=${session.session_id}><a class="btn secondary"
+        return source && session.readable && html`<p key=${session.session_id}><a class="btn secondary"
           href=${routeHref("sessions", source + ":" + session.session_id)}
           ...${helpFor("chat.executor_launch")}>Abrir sesión en Sesiones</a>
           <${Help} topic="chat.executor_launch" compact=${true} /></p>`;

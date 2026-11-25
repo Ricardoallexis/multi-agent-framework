@@ -13,6 +13,8 @@ from ..services.errors import INVALID_REQUEST, ServiceError
 from ..services.limits import LIMIT_REASONS, limit_notice
 
 _EXECUTORS = frozenset({"claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"})
+_SESSION_SOURCES = {"claude_cli": "claude", "codex_cli": "codex", "copilot_cli": "copilot",
+                    "antigravity_cli": "antigravity"}
 
 
 class ExecutorLaunchBody(BaseModel):
@@ -27,6 +29,24 @@ class ExecutorLaunchBody(BaseModel):
 
 
 def add_executor_launch_routes(api: APIRouter, services) -> None:
+    def launch_status(task_id: str):
+        status = services.executors.status(task_id)
+        results = services.envelopes.list_results(task_id, latest_only=True)
+        latest = results[0] if results else None
+        status["latest_result"] = ({key: latest[key] for key in ("summary", "attempt", "ref")}
+                                   if latest is not None else None)
+        for session in status["task"]["sessions"]:
+            source = _SESSION_SOURCES.get(session.get("executor_id"))
+            session["readable"] = False
+            if source and session.get("session_id"):
+                try:
+                    services.sessions.get_session(f"{source}:{session['session_id']}")
+                except ServiceError:
+                    pass
+                else:
+                    session["readable"] = True
+        return status
+
     @api.post("/executors/launch")
     async def launch(body: ExecutorLaunchBody, response: Response):
         task = body.task.strip()
@@ -86,7 +106,7 @@ def add_executor_launch_routes(api: APIRouter, services) -> None:
                                details={"task_id": task_id,
                                         "limit": limit_notice(services, body.executor_id,
                                                               retry_at=(result.get("hold") or {}).get("reset_at"))})
-        status = services.executors.status(task_id)
+        status = launch_status(task_id)
         if isinstance(result, dict) and result.get("outcome") == "running":
             response.status_code = 202
         return {"task_id": task_id, "launch": result, "status": status,
@@ -95,6 +115,6 @@ def add_executor_launch_routes(api: APIRouter, services) -> None:
                           if isinstance(result, dict) and result.get("outcome") == "quota_exhausted" else None)}
 
     @api.get("/executors/launch/{task_id}")
-    def launch_status(task_id: str):
-        """Return the executor service's current task and attempt status without launching anything."""
-        return services.executors.status(task_id)
+    def get_launch_status(task_id: str):
+        """Return the task, attempt and latest submitted result without launching anything."""
+        return launch_status(task_id)

@@ -7,8 +7,8 @@ runs to the same ``SessionSummary``/``SessionItem`` model with ``source = "frame
 interface (the token-protected ``/gui/api/sessions`` routes, ``multiagent sessions`` and Python) sees
 the same data. Nothing is written or stored: the readers open the apps' files read-only.
 
-Configuration comes from ``Settings``: ``gui_session_roots`` (folders whose sessions may be shown;
-empty shows nothing and the list says how to configure it), ``gui_session_sources`` and the four store
+Configuration comes from ``Settings``: ``gui_session_roots`` (operator-approved folders whose sessions may be shown)
+plus ``executor_workdir_root`` (framework-created executor folders), ``gui_session_sources`` and the four store
 overrides ``gui_claude_home``, ``gui_codex_home``, ``gui_copilot_home``, ``gui_antigravity_home`` and ``gui_claude_desktop_dir``.
 
 Cursors are opaque to callers. File sessions use the reader's ``"0:<offset>"``; a framework run uses
@@ -23,8 +23,8 @@ text, and ``version`` changes whenever a child appears or changes status (the GU
 Errors (``ServiceError``): ``invalid_session_id`` (400), ``invalid_cursor`` (400), ``invalid_request``
 (422, bad filter or limit) and ``not_found`` (404, also for a session outside the allowed folders).
 The framework's runs are not tied to a folder (contract section 3), so ``get_session``/``read_items``
-of a ``framework:<run_id>`` id do not depend on ``gui_session_roots``; the list is empty until roots
-are configured, like every other source.
+of a ``framework:<run_id>`` id do not depend on ``gui_session_roots``. Listing framework runs still
+requires an operator root; the dedicated executor root only admits file sessions.
 """
 from __future__ import annotations
 
@@ -179,7 +179,13 @@ class SessionServices:
         return tuple(self._settings().gui_session_sources)
 
     def _roots(self) -> tuple[str, ...]:
-        return tuple(self._settings().gui_session_roots)
+        settings = self._settings()
+        executor_roots = (str(settings.executor_workdir_root),) if settings.executor_workdir_root.is_dir() else ()
+        return tuple(dict.fromkeys((*settings.gui_session_roots, *executor_roots)))
+
+    def _has_viewer_roots(self) -> bool:
+        settings = self._settings()
+        return bool(settings.gui_session_roots) or settings.executor_workdir_root.is_dir()
 
     def _get_registry(self) -> SessionRegistry:
         s = self._settings()
@@ -327,8 +333,8 @@ class SessionServices:
 
         Filters: ``source`` (claude, codex, copilot, antigravity, framework), ``surface`` (desktop, cli, framework,
         unknown), ``cwd`` (only sessions whose folder is under it), ``since``/``until`` (ISO-8601,
-        compared with ``updated_at``) and ``text`` (part of the title). With no ``gui_session_roots``
-        the page is empty and ``hint`` says how to configure them (``None`` otherwise).
+        compared with ``updated_at``) and ``text`` (part of the title). Without operator roots or a created
+        executor root, the page is empty and ``hint`` says how to configure roots (``None`` otherwise).
         """
         # An empty value (a blank form field, ``?since=``) means "no filter".
         source, surface, cwd, since, until, text, after = (
@@ -336,7 +342,7 @@ class SessionServices:
         filters = self._check_filters(source, surface, cwd, since, until, text, limit, after)
         with _session_errors():
             _, start = decode_cursor(after, 1)
-        if not self._roots():
+        if not self._has_viewer_roots():
             return {"sessions": [], "next_cursor": None, "hint": ROOTS_HINT,
                     "warnings": ["no_allowed_roots: configure gui_session_roots to list sessions"]}
         warnings: list[str] = []
@@ -347,7 +353,8 @@ class SessionServices:
                 found, found_warnings = self._get_registry().find_sessions(filters)
             rows += found
             warnings += [w for w in found_warnings if w not in warnings]
-        if source in (None, "framework") and "framework" in self._sources():
+        if (source in (None, "framework") and "framework" in self._sources()
+                and self._settings().gui_session_roots):
             for summary, store in self._framework_matches(filters):
                 rows.append(summary)
                 run_stores[summary.native_id] = store
@@ -362,16 +369,17 @@ class SessionServices:
         """Counts by source and status of the same allowed sessions the list shows: ``{counts, hint}``.
 
         ``counts[source]`` is ``{total, active, idle, archived, unknown}`` for every known source (zeros when
-        it is off or empty). With no ``gui_session_roots`` everything is zero and ``hint`` says why.
+        it is off or empty). Without operator roots or a created executor root, everything is zero and
+        ``hint`` says why.
         """
         counts = {source: {"total": 0, "active": 0, "idle": 0, "archived": 0, "unknown": 0}
                   for source in SESSION_SOURCES}
-        if not self._roots():
+        if not self._has_viewer_roots():
             return {"counts": counts, "hint": ROOTS_HINT}
         with _session_errors():
             for source, row in self._get_registry().count_sessions().items():
                 counts[source].update(row)
-        if "framework" in self._sources():
+        if "framework" in self._sources() and self._settings().gui_session_roots:
             for summary, _ in self._framework_matches(SessionFilters(source="framework")):
                 row = counts["framework"]
                 row["total"] += 1

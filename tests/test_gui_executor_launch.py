@@ -30,6 +30,7 @@ from multiagent.services import ApplicationServices
 from multiagent.services.assignment import AssignmentServices
 from test_executor_antigravity import FakeAgy, good_run, make_adapter, usage_text
 from test_executor_services import Fake
+from session_fixtures import make_stores, write_claude
 
 ROOT = Path(__file__).resolve().parents[1]
 GUI_LAUNCH = "/gui/api/executors/launch"
@@ -53,6 +54,9 @@ class GuiWorld:
             gui_token_file=tmp_path / "gui-token", antigravity_notice_accepted=NOTICE_ID,
             antigravity_kill_switch=str(tmp_path / "antigravity-off"),
             antigravity_lock_file=str(tmp_path / "antigravity-run.lock"),
+            gui_claude_home=tmp_path / "claude-store", gui_codex_home=tmp_path / "codex-store",
+            gui_copilot_home=tmp_path / "copilot-store", gui_antigravity_home=tmp_path / "agy-store",
+            gui_claude_desktop_dir=tmp_path / "claude-desktop",
         )
         self.services = ApplicationServices.create(settings)
         self.fake_cli = Fake(tmp_path / "fake-cli")
@@ -180,11 +184,57 @@ def test_confirmed_launch_returns_and_serves_executor_task_status(world):
     assert body["launch"]["executor_id"] == "claude_cli"
     assert body["status"]["task"]["task_id"] == task_id
     assert body["status"]["task"]["sessions"][0]["executor_id"] == "claude_cli"
+    assert body["status"]["task"]["sessions"][0]["readable"] is False
+    assert body["status"]["latest_result"] == {
+        "summary": "Did the work.", "attempt": 1, "ref": f"result://{task_id}/1"}
     assert world.services.tasks.get_task(task_id)["continuity"]["mode"] == "manual"
     assert world.fake_cli.calls("claude")
     status = world.client.get(GUI_LAUNCH + "/" + task_id, headers=world.auth)
     assert status.status_code == 200
     assert status.json()["task"]["task_id"] == task_id
+    assert status.json()["latest_result"] == body["status"]["latest_result"]
+    assert Path(world.fake_cli.calls("claude")[0]["cwd"]).resolve() == (
+        world.services.settings.executor_workdir_root / f"task-{task_id}").resolve()
+
+
+def test_registered_session_link_becomes_readable_only_after_the_store_has_it(world, tmp_path):
+    world.configure({"claude_cli"})
+    body = world.client.post(GUI_LAUNCH, headers=world.auth, json=launch_body("claude_cli")).json()
+    task_id = body["task_id"]
+    session = body["status"]["task"]["sessions"][0]
+    assert session["readable"] is False
+    stores = make_stores(tmp_path)
+    world.services.settings.gui_claude_home = stores.claude
+    run_dir = world.services.settings.executor_workdir_root / f"task-{task_id}"
+    write_claude(stores, session["session_id"], cwd=run_dir)
+    status = world.client.get(GUI_LAUNCH + "/" + task_id, headers=world.auth)
+    assert status.status_code == 200
+    assert status.json()["task"]["sessions"][0]["readable"] is True
+    opened = world.client.get(f"/gui/api/sessions/claude:{session['session_id']}", headers=world.auth)
+    assert opened.status_code == 200
+
+
+def test_gui_launch_uses_catalog_workdir_outside_viewer_root_without_session_link(world, tmp_path):
+    configured = tmp_path / "catalog-workdir"
+    configured.mkdir()
+    world.config["executors"]["claude_cli"]["workdir"] = str(configured)
+    world.configure({"claude_cli"})
+    response = world.client.post(GUI_LAUNCH, headers=world.auth, json=launch_body("claude_cli"))
+    assert response.status_code == 200, response.text
+    task_id = response.json()["task_id"]
+    assert Path(world.fake_cli.calls("claude")[0]["cwd"]).resolve() == configured.resolve()
+    assert world.services.executors._known_workdir(task_id, "claude_cli") == configured
+    status = response.json()["status"]
+    assert status["latest_result"] == {
+        "summary": "Did the work.", "attempt": 1, "ref": f"result://{task_id}/1"}
+    session = status["task"]["sessions"][0]
+    stores = make_stores(tmp_path)
+    world.services.settings.gui_claude_home = stores.claude
+    write_claude(stores, session["session_id"], cwd=configured)
+    refreshed = world.client.get(GUI_LAUNCH + "/" + task_id, headers=world.auth)
+    assert refreshed.status_code == 200
+    assert refreshed.json()["latest_result"] == status["latest_result"]
+    assert refreshed.json()["task"]["sessions"][0]["readable"] is False
 
 
 def test_agy_exhausted_quota_reports_limit_and_does_not_launch(world):

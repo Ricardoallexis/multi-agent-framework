@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- New session shows the latest response a single executor submitted, next to its tracking card, as plain text. The Sessions viewer also reads sessions under the executor work folder once it exists; a work folder configured elsewhere keeps working there, and its session link is offered only when the viewer can read it.
 - Workflows: in a supervised run a function step waits for a person to review its inputs (one approval covers one start); a failure after a model step with output waits for a correction, redoes that step and retries the function once per decision; the failure detail shows no paths or secrets, including unquoted paths with spaces; a cancel that arrives while a function runs ends the run cancelled even when the function fails.
 - Executors: an explicit, bounded Codex ACP initialize probe with transport evidence while the adapter stays disabled until a person activates it.
 - Executors: a result-preserving CLI transport interface for executor adapters, with bounded post-run events and session-safe resume.

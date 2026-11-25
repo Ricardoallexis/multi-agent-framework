@@ -148,6 +148,9 @@ def test_store_overrides_are_used_and_nothing_else_is_scanned(services, stores):
     assert (config.claude_home, config.codex_home, config.copilot_home, config.claude_desktop_dir) == (
         stores.claude, stores.codex, stores.copilot, stores.desktop)
     assert config.allowed_roots == (str(stores.roots),)
+    services.settings.executor_workdir_root.mkdir(parents=True)
+    assert services.sessions._get_registry().config.allowed_roots == (
+        str(stores.roots), str(services.settings.executor_workdir_root))
 
 
 # -------- filters --------

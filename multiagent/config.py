@@ -207,8 +207,8 @@ class Settings(BaseSettings):
     # 0 keeps each SSE connection open until the client leaves; tests set a small bound.
     gui_stream_max_seconds: float = Field(default=0.0, ge=0)
     # Session viewer (GUI-T02 contract, section 6). Only sessions whose working folder is inside one of
-    # ``gui_session_roots`` are shown; empty (the default) shows none. Environment values: a JSON list or
-    # items separated by ``;``. The five ``gui_*_home``/``_dir`` settings override where each store lives.
+    # ``gui_session_roots`` are operator-approved folders; the session viewer also permits the dedicated
+    # ``executor_workdir_root``. Environment values: a JSON list or items separated by ``;``.
     gui_session_roots: Annotated[list[str], NoDecode] = Field(default_factory=list)
     gui_session_sources: Annotated[list[str], NoDecode] = Field(default_factory=lambda: list(SESSION_SOURCES))
     gui_claude_home: Optional[Path] = None
@@ -240,7 +240,8 @@ class Settings(BaseSettings):
     gui_new_session_model: str = "local_default"
 
     # ORQ-T51 executor applications. ``executor_workdir_root`` holds the work folders the framework creates for tasks
-    # (empty means <local_dir>/executor_runs); a launch is stopped after ``executor_timeout_seconds``; a quota stop
+    # (empty means <local_dir>/executor_runs); GUI-created runs stay under this root. A launch is stopped after
+    # ``executor_timeout_seconds``; a quota stop
     # pauses the executor for ``executor_quota_pause_minutes``. A catalog declaration may override the last two.
     executor_workdir_root: Optional[Path] = None
     executor_timeout_seconds: int = Field(default=1800, ge=1, le=86400)

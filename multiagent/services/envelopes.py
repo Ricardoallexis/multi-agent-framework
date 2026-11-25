@@ -693,11 +693,18 @@ class EnvelopeServices:
         return self._result_view(rows[0])
 
     @service_errors
-    def list_results(self, task_id: str) -> list[dict[str, Any]]:
-        """Summaries and references of every attempt's result, most recent first. Errors: ``not_found``."""
+    def list_results(self, task_id: str, *, latest_only: bool = False) -> list[dict[str, Any]]:
+        """Summaries and references, newest first; optionally read only the latest attempt's result.
+
+        Errors: ``not_found``.
+        """
         with self._tasks.store.db.connect() as conn:
             self._task_or_missing(task_id, conn)
-            rows = self.store.results(task_id, conn=conn)
+            if latest_only:
+                attempt = conn.execute("SELECT MAX(attempt) FROM task_results WHERE task_id=?", (task_id,)).fetchone()[0]
+                rows = self.store.results(task_id, attempt=attempt, conn=conn)[:1] if attempt is not None else []
+            else:
+                rows = self.store.results(task_id, conn=conn)
         summaries = []
         for row in rows:
             result = row["result"]
