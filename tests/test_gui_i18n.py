@@ -90,7 +90,13 @@ def test_every_dictionary_has_the_same_keys_in_both_languages():
     dictionaries = _dictionary_keys()
     assert dictionaries
     for name, langs in dictionaries.items():
-        assert sorted(langs["en"]) == sorted(langs["es"]), name
+        # IDI phase B: help.<topic> keys hold the Spanish of a help topic whose English base is the help fragment itself,
+        # so they may live only in es (phase A put help.palette.* in both); tests/test_gui_help.py checks them
+        help_en = {key for key in langs["en"] if key.startswith("help.")}
+        help_es = {key for key in langs["es"] if key.startswith("help.")}
+        assert help_en <= help_es, (name, sorted(help_en - help_es))
+        assert all(re.fullmatch(r"help\.[a-z_]+(?:\.[a-z_]+)+", key) for key in help_es), name
+        assert sorted(set(langs["en"]) - help_en) == sorted(set(langs["es"]) - help_es), name
         assert len(set(langs["en"])) == len(langs["en"]), name
 
 

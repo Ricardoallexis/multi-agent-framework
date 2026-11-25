@@ -141,13 +141,59 @@ def test_topics_make_unique_element_ids():
     assert "style=" not in css and "@import" not in css
 
 
+MARKUP_IN_TEXT = re.compile(r"[<>`]|\$\{|https?:|javascript:", re.I)
+
+
+def spanish_help(static_dir=STATIC_DIR) -> dict:
+    """IDI phase B: the ``help.<topic>`` entries of the ``es`` dictionaries (``static/i18n/es/*.js`` and the ``es`` of each
+    ``extensions/<name>/i18n.js``), keyed by topic. The help fragments hold the English base; the Spanish lives here."""
+    if NODE is None:
+        pytest.skip("node is not installed")
+    views = sorted((static_dir / "i18n" / "es").glob("*.js"))
+    extensions = sorted((static_dir / "extensions").glob("*/i18n.js"))
+    imports = [f"import v{i} from {json.dumps(path.as_uri())};" for i, path in enumerate(views)]
+    imports += [f"import e{i} from {json.dumps(path.as_uri())};" for i, path in enumerate(extensions)]
+    sources = [f"v{i}" for i in range(len(views))] + [f"e{i}.es" for i in range(len(extensions))]
+    script = "\n".join(imports) + f"\nconsole.log(JSON.stringify([{', '.join(sources)}]));"
+    run = subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True,
+                         encoding="utf-8", cwd=static_dir, timeout=60)
+    assert run.returncode == 0, run.stderr
+    found: dict = {}
+    for dictionary in json.loads(run.stdout):
+        for key, value in dictionary.items():
+            if key.startswith("help."):
+                topic = key[len("help."):]
+                assert topic not in found, f"help.{topic} is in two Spanish dictionaries"
+                found[topic] = value
+    return found
+
+
 def test_texts_are_plain_spanish_without_markup():
+    # IDI phase B: a help fragment may already be the English base; the Spanish of its topics is in the es dictionaries.
+    # Spanish (what a Spanish reader sees): plain words, no markup, no English. The base: no markup.
+    translated = spanish_help()
     for key, entry in HELP.items():
         for text in [entry["title"], entry["hint"], *entry["more"]]:
+            assert not MARKUP_IN_TEXT.search(text), (key, text)
+        spanish = translated.get(key, entry)
+        for text in [spanish["title"], spanish["hint"], *spanish["more"]]:
             assert not FORBIDDEN_IN_TEXT.search(text), (key, text)
     # accents and the Spanish quotes are in use: the texts are really Spanish, not placeholders
-    joined = " ".join(entry["hint"] + " ".join(entry["more"]) for entry in HELP.values())
+    seen = [translated.get(key, entry) for key, entry in HELP.items()]
+    joined = " ".join(entry["hint"] + " ".join(entry["more"]) for entry in seen)
     assert "«" in joined and re.search(r"[áéíóúñ]", joined)
+
+
+def test_spanish_help_matches_its_topics():
+    # every help.<topic> of an es dictionary is a topic of help-text.js or of an extension's help.js, with the same shape
+    translated = spanish_help()
+    known = {**HELP, **extension_help()}
+    assert set(translated) <= set(known), sorted(set(translated) - set(known))
+    check_help_entries(translated)
+    for topic, entry in translated.items():
+        assert len(entry["more"]) == len(known[topic]["more"]), topic
+        for text in [entry["title"], entry["hint"], *entry["more"]]:
+            assert not FORBIDDEN_IN_TEXT.search(text), (topic, text)
 
 
 def test_each_execution_mode_has_a_hint_and_matches_the_form():
