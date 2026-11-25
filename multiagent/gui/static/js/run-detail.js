@@ -228,7 +228,8 @@ function producerLabel(producer) {
     });
   }
   const parts = [producer.model, producer.provider].filter(Boolean);
-  return t("runs.producer.model", { model: parts.join(" · ") || t("common.value.unknown") });
+  const names = parts.join(" · ");
+  return names ? t("runs.producer.model", { model: names }) : t("runs.producer.model_unknown");
 }
 
 function tokensLabel(tokens) {

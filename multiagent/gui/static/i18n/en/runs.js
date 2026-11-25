@@ -78,6 +78,7 @@ export default {
   "runs.producer.human": "Person or external model ({provider}{model})",
   "runs.producer.model_suffix": ", model: {model}",
   "runs.producer.model": "Model {model}",
+  "runs.producer.model_unknown": "Unidentified model",
   "runs.tokens.input": "{count} input tokens",
   "runs.tokens.output": "{count} output tokens",
   "runs.tokens.total": "{count} total tokens",

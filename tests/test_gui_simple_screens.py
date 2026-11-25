@@ -104,7 +104,8 @@ def test_review_output_advanced_lists_the_earlier_steps():
     """ % (json.dumps(ARTIFACT), json.dumps(ARTIFACT)))
     assert "Intento" not in result["simple"] and "draft" not in result["simple"]
     assert "No se pudieron leer" not in result["simple"]
-    assert "Intento  1" in result["advanced"] and "draft" in result["advanced"] and "No se pudieron leer" in result["advanced"]
+    # the summary is one translated string now ("Intento 1"), not the two pieces the old flattening joined with a space
+    assert "Intento 1" in result["advanced"] and "draft" in result["advanced"] and "No se pudieron leer" in result["advanced"]
 
 
 @needs_node
@@ -153,7 +154,7 @@ def test_thread_card_simple_hides_detail_links_and_step_model():
 
 def test_decision_attempt_is_an_advanced_detail():
     # Decision has hooks, so this reads its source: the attempt number is gated by showRawOutput.
-    assert 'entry.attempt && showRawOutput(mode) ? " · intento "' in read(CARDS)
+    assert 'entry.attempt && showRawOutput(mode) ? " · " + t("thread.reason.attempt"' in read(CARDS)
 
 
 @needs_node

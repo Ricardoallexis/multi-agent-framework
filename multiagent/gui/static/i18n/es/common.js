@@ -1,7 +1,7 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 export default {
-  "common.mode.auto": "Automático (el framework elige un modelo)",
+  "common.mode.auto": "Automático (el framework elige el modelo)",
   "common.mode.local": "Modelo local",
   "common.mode.cloud": "Modelo en la nube",
   "common.mode.human_guided": "Guiado por una persona (copiar y pegar en otro modelo)",
@@ -114,11 +114,11 @@ export default {
   "common.status.subagent.testing.label": "Ejecutando prueba",
   "common.status.subagent.testing.help": "Tuvo actividad hace menos de 15 minutos y su última herramienta es una prueba (pytest, probar o integrar) que aún no devolvió resultado.",
   "common.status.subagent.idle.label": "Sin actividad",
-  "common.status.subagent.idle.help": "Lleva entre 15 y 60 minutos sin actividad.",
+  "common.status.subagent.idle.help": "Entre 15 y 60 minutos sin actividad.",
   "common.status.subagent.done.label": "Terminado",
   "common.status.subagent.done.help": "Terminó su trabajo.",
   "common.status.subagent.stopped.label": "Detenido",
-  "common.status.subagent.stopped.help": "Lleva más de 60 minutos sin actividad o falló.",
+  "common.status.subagent.stopped.help": "Más de 60 minutos sin actividad, o falló.",
   "common.status.subagent.unknown.label": "Estado desconocido",
   "common.status.subagent.unknown.help": "La fuente no dice cuándo tuvo actividad.",
   "common.status.dot.working.label": "Trabajando",
@@ -128,6 +128,7 @@ export default {
   "common.status.version.proposed.label": "Propuesta",
   "common.status.version.approved.label": "Aprobada",
   "common.status.version.rejected.label": "Rechazada",
+  "common.status.version.unknown": "Estado desconocido",
   "common.progress.in_progress": "En curso",
   "common.progress.count": "{current} de {total}",
   "common.progress.percent": "{percent} %",

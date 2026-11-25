@@ -203,7 +203,7 @@ function Decision({ entry, busy, onAction, runId, token, mode }) {
     onAction(pending, body);
   };
   return html`<div class="thread-decision">
-    <p class="muted">${REASONS[entry.reason] ? t(REASONS[entry.reason]) : entry.reason || t("thread.reason.stopped")} · ${t("thread.reason.step", { step_id: entry.step_id || t("common.value.unspecified") })}${entry.attempt && showRawOutput(mode) ? " · " + t("runs.attempt.option", { count: entry.attempt }) : ""}</p>
+    <p class="muted">${REASONS[entry.reason] ? t(REASONS[entry.reason]) : entry.reason || t("thread.reason.stopped")} · ${t("thread.reason.step", { step_id: entry.step_id || t("common.value.unspecified") })}${entry.attempt && showRawOutput(mode) ? " · " + t("thread.reason.attempt", { count: entry.attempt }) : ""}</p>
     ${tool && html`<${ToolApprovalPreview} runId=${runId} token=${token}
       permissionRequestId=${entry.decision.permission_request_id} />`}
     ${!pending && html`<div class="thread-actions">

@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.gui import STATIC_DIR
+from tests.gui_text import ui_text
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
 from multiagent.workflows import WorkflowCatalog
@@ -100,7 +101,7 @@ def test_the_server_root_opens_the_gui_and_the_page_declares_its_icon(env):
 
 
 def test_the_run_screen_draws_the_tool_call_and_sends_its_permission_request_id():
-    source = (STATIC_DIR / "js" / "human-actions.js").read_text(encoding="utf-8")
+    source = ui_text(STATIC_DIR / "js" / "human-actions.js")   # the words live in the es dictionary now
     assert 'waiting.reason === "tool_approval"' in source
     assert "permission_request_id: call.permission_request_id" in source
     assert "${call.summary" in source and "call.impacts" in source and "call.actions" in source

@@ -823,13 +823,15 @@ console.log(JSON.stringify(out));
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node is not installed")
 def test_text_helpers_under_node(tmp_path):
-    # Node needs a module extension; copy the modules the helper imports (they import each other) with their imports renamed.
-    (tmp_path / "ui").mkdir()
-    for name in ("subagents-text.js", "session-text.js", "ui/labels.js"):
-        source = re.sub(r'(from "\./[^"]+)\.js"', lambda match: match[1] + '.mjs"', read(name))
-        (tmp_path / name.replace(".js", ".mjs")).write_text(source, encoding="utf-8")
+    # The labels read their words from the i18n dictionaries, so Node gets a copy of the client folder (js, i18n, vendor)
+    # where .js is an ES module (a package.json says so), with the language fixed to Spanish: the words asserted below.
+    shutil.copytree(STATIC_DIR / "js", tmp_path / "js")
+    shutil.copytree(STATIC_DIR / "i18n", tmp_path / "i18n")
+    shutil.copytree(STATIC_DIR / "vendor", tmp_path / "vendor")
+    (tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
     script = tmp_path / "run.mjs"
-    script.write_text(NODE_SCRIPT % json.dumps("./subagents-text.mjs"), encoding="utf-8")
+    script.write_text('import { setLanguage } from "./js/i18n.js";\nsetLanguage("es");\n'
+                      + NODE_SCRIPT % json.dumps("./js/subagents-text.js"), encoding="utf-8")
     done = subprocess.run(["node", str(script)], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert done.returncode == 0, done.stderr
     out = json.loads(done.stdout)

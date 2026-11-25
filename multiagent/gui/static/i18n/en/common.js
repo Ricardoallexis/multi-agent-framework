@@ -128,6 +128,7 @@ export default {
   "common.status.version.proposed.label": "Proposed",
   "common.status.version.approved.label": "Approved",
   "common.status.version.rejected.label": "Rejected",
+  "common.status.version.unknown": "Unknown status",
   "common.progress.in_progress": "In progress",
   "common.progress.count": "{current} of {total}",
   "common.progress.percent": "{percent}%",

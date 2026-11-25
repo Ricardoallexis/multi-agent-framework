@@ -11,7 +11,7 @@ import { t } from "./i18n.js";
 
 // No hooks: the card body for a payload the server gave.
 export function DocumentView({ payload, onSave }) {
-  return html`<section class="document-card" aria-label=${t("thread.document.title")}>
+  return html`<section class="document-card" aria-label=${t("thread.document.aria")}>
     <h4>${t("thread.document.title")}</h4><${Help} topic="thread.document" compact=${true} />
     <pre class="document-text">${payload.markdown}</pre>
     <div class="document-actions">

@@ -89,11 +89,15 @@ def test_run_detail_tabs_layout_and_sections():
     out = _run_node(script)
 
     assert out["defaultTab"] == "steps"
+    # the tabs carry dictionary keys (RunDetail translates them); the Spanish words are the ones of the es dictionary
     assert out["tabs"] == [
-        {"id": "steps", "label": "Pasos"},
-        {"id": "results", "label": "Resultados"},
-        {"id": "details", "label": "Detalles"},
+        {"id": "steps", "label": "runs.tab.steps"},
+        {"id": "results", "label": "runs.tab.results"},
+        {"id": "details", "label": "runs.tab.details"},
     ]
+    spanish = (STATIC_DIR / "i18n" / "es" / "runs.js").read_text(encoding="utf-8")
+    for key, word in (("runs.tab.steps", "Pasos"), ("runs.tab.results", "Resultados"), ("runs.tab.details", "Detalles")):
+        assert f'"{key}": "{word}"' in spanish
     assert out["sections"] == {
         "steps": ["steps", "counters"],
         "results": ["results"],

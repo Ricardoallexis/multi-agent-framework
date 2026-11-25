@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from multiagent.api import create_app
 from multiagent.config import Settings
 from tests.gui_text import ui_text
+from test_gui_help import spanish_help
 from multiagent.gui import STATIC_DIR
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
@@ -142,6 +143,8 @@ def test_run_detail_and_help_follow_escaping_conditional_rendering_and_help_rule
     assert "run.role" in entries
     entry = entries["run.role"]
     assert set(entry) == {"title", "hint", "more"}
+    # the fragment holds the English base; the Spanish of the topic is in the es dictionary of the runs view
+    entry = spanish_help()["run.role"]
     assert "equipo aprobado" in entry["hint"].lower()
     assert 1 <= len(entry["more"]) <= 2 or len(entry["more"]) == 2
     assert "aprobada" in " ".join(entry["more"]).lower()

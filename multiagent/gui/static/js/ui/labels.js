@@ -119,7 +119,7 @@ export const VERSION_STATUS = {
 };
 
 export const versionStatusText = (status) => VERSION_STATUS[status]
-  ? t("common.status.version." + status + ".label") : t("common.value.unknown");
+  ? t("common.status.version." + status + ".label") : t("common.status.version.unknown");
 
 // --- the registry: how a map is swapped -----------------------------------------------------------------------------
 

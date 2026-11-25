@@ -21,6 +21,7 @@ from multiagent.contracts import NewSessionProposal
 from multiagent.errors import ProviderUnavailable
 from multiagent.gui.token import ensure_token
 from multiagent.services import ApplicationServices
+from tests.gui_text import ui_text
 from multiagent.observability.usage import read_usage
 from multiagent.observability.cost import CostEstimate
 from multiagent.services.usage import NEW_SESSION_USAGE_ID
@@ -621,7 +622,8 @@ def test_cuo_t06_scripts_pass_node_check_and_keep_run_detail_limit_only():
     for name in ("new-session-model.js", "new-session.js", "run-detail.js", "help-text.js"):
         res = subprocess.run([node, "--check", str(js / name)], capture_output=True, text=True, timeout=60)
         assert res.returncode == 0, (name, res.stderr)
-    detail = (js / "run-detail.js").read_text(encoding="utf-8")
+    # the words live in the es dictionary now; ui_text() puts them back
+    detail = ui_text(js / "run-detail.js")
     assert "limitReachedText(view.limit)" in detail and "Reintentar" in detail
     assert 'helpFor("run.limit_retry")' in detail
     chat = (js / "new-session.js").read_text(encoding="utf-8")
