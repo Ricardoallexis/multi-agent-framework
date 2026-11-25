@@ -462,10 +462,10 @@ def test_gui_preview_treats_the_area_as_sensitive(world):
 
 def test_privacy_note():
     note = PRIVACY_NOTE
-    assert note == ("Contraseñas, claves y tokens: siempre te pregunto, uno por uno.",
-                    "Las áreas marcadas «Solo local».",
-                    "Con un ejecutor (Claude, Codex, Copilot, agy), el agente puede leer toda la carpeta de trabajo de la "
-                    "oficina, no solo la tarea.")
+    assert note == ("Passwords, keys and tokens: I will always ask you about them one at a time.",
+                    "Areas marked Local only.",
+                    "With an executor (Claude, Codex, Copilot, agy), the agent can read the entire office working "
+                    "directory, not just the task.")
 
 
 def test_privacy_note_is_the_one_the_service_returns(demo):

@@ -22,7 +22,7 @@ revision the card showed):
 
 Both write the event ``continuity.decided`` (``ref`` is the ``decision_id``), so repeating a decision returns the first result.
 ``/sessions/{id}/children`` and its live stream also carry one node per task held on the session (``held_children``): the agent
-tree shows it as «En espera · hasta HH:MM». Nothing here reads a session transcript, writes to an application or buys anything.
+tree shows it as "Waiting · until HH:MM". Nothing here reads a session transcript, writes to an application or buys anything.
 """
 from __future__ import annotations
 
@@ -249,7 +249,7 @@ def held_children(services: Any, session_id: str) -> list[dict[str, Any]]:
 
 
 def with_extra_children(result: dict[str, Any], extra: list[dict[str, Any]], status: str | None = None) -> dict[str, Any]:
-    """``result`` of ``list_children`` with the extra nodes added (they are idle, so they belong to the «active» group).
+    """``result`` of ``list_children`` with the extra nodes added (they are idle, so they belong to the "active" group).
 
     ``counts`` always cover every child; ``version`` changes with the nodes, so the live stream tells the page to read again.
     """

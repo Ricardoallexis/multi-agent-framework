@@ -130,7 +130,7 @@ def mount_gui(app: FastAPI) -> None:
     add_usage_routes(api, usage)  # /gui/api/usage/{plans,tokens,costs} (USO-T02)
     add_connection_routes(api, services)  # SES-T01
     add_executor_launch_routes(api, services)  # SES-T04
-    add_executor_activation_routes(api, services)  # /gui/api/executors/* «Activar» (EJE-T01)
+    add_executor_activation_routes(api, services)  # /gui/api/executors/* "Activate" (EJE-T01)
     add_setup_routes(api, services)  # /gui/api/setup/* (INS-T05)
     add_project_routes(api, services)  # /gui/api/projects (PRY-T03)
     add_document_alerts_routes(api, services)

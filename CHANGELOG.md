@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Server: the CLI, API and service messages a person reads (activation notes, detection, first run, package warnings, office requirements, approvals, errors and inbox states) are in English; error codes, keys, paths and response shapes are unchanged.
 - Seguimiento: the tracker viewer, the watcher and the cloud-assignment scripts show English labels and messages, and the review-checklist example text is in English, while the channel protocol values stay unchanged.
 - Workflows: a workflow with a function step now offers every declared input, because the function reads them all from `context["inputs"]`. An input only a function reads has no prompt line and no `unused_input` warning, stays optional unless `required` is set, and a missing required value is rejected before the run is queued.
 - Offices: the scene shows who is working when a template step names an agent instead of a role: it credits the one agent member of the area that runs that agent (and that member's only role while the step waits for a person), and leaves everyone idle when no member or more than one matches. End-to-end tests cover the same template in Mock and with a fake adapter, a two-task plan followed by the scene, a shared area whose data stays apart, nothing changing without offices, and Local-only areas never leaving the machine, even inside a plan; `docs/OFFICES.md` now covers privacy, sharing, the scene and the GUI flows in one order.

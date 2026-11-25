@@ -108,8 +108,8 @@ def test_one_record_approves_every_team(world):
         assert approved is not None
         assert approved["status"] == "approved"
         assert approved["note"] == (
-            f"aprobado al instalar la oficina demo {card['fingerprint']} "
-            f"(aprobación {card['approval_id']})"
+            f"approved when installing office demo {card['fingerprint']} "
+            f"(approval {card['approval_id']})"
         )
         assert approved["decided_by"] == "user:operator"
         assert approved["decided_channel"] == "gui"

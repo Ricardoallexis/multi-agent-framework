@@ -27,7 +27,7 @@ from .copilot import CopilotAdapter
 def antigravity_adapter(settings: Any = None, *, notice_accepted: str | None = None) -> AntigravityAdapter:
     """The agy adapter configured from ``settings`` (the ``antigravity_*`` fields); off when there are none.
 
-    ``notice_accepted`` is the notice the person accepted in «Activar» (EJE-T01); it counts like
+    ``notice_accepted`` is the notice the person accepted in "Activate" (EJE-T01); it counts like
     ``ANTIGRAVITY_NOTICE_ACCEPTED`` in ``.env``, which keeps working.
     """
     if settings is None:

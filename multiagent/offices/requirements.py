@@ -36,17 +36,17 @@ _EXECUTOR_CAPABILITIES = frozenset({"model.text", "executor.code", "executor.fil
 _MOCK_CAPABILITIES = frozenset(item for item in KNOWN_REQUIREMENTS if item.startswith("model."))
 
 CAPABILITY_TEXT = {
-    "model.text": "escribir texto",
-    "model.tools": "usar herramientas",
-    "model.structured": "dar respuestas con estructura",
-    "model.local": "correr en tu equipo",
-    "executor.code": "trabajar con código",
-    "executor.files": "trabajar con archivos",
+    "model.text": "write text",
+    "model.tools": "use tools",
+    "model.structured": "give structured responses",
+    "model.local": "run on your computer",
+    "executor.code": "work with code",
+    "executor.files": "work with files",
 }
 
-NOTE_SENSITIVE = "Esta área es Sensible: hoy solo puede usar agentes de tu equipo"
-NOTE_LOCAL_ONLY = "Esta área es Solo local: nunca sale de tu equipo"
-TEXT_NOTHING_NEEDED = "Esta área no necesita nada en especial"
+NOTE_SENSITIVE = "This area is Sensitive: it can only use agents on your team today"
+NOTE_LOCAL_ONLY = "This area is Local only: it never leaves your computer"
+TEXT_NOTHING_NEEDED = "This area does not need anything in particular"
 
 
 def model_capabilities(spec: Any) -> frozenset[str]:
@@ -119,7 +119,7 @@ def coverage(requires: Iterable[str], candidates: Sequence[Mapping[str, Any]], *
     covering = [c for c in pool if wanted <= _caps(c)]
     if covering:
         by = [{"id": c["id"], "kind": c.get("kind", "model"), "label": c.get("label") or c["id"]} for c in covering]
-        text = "Lo puedes cubrir " + _join([f"con {entry['label']}" for entry in by], "o")
+        text = "You can cover this " + _join([f"with {entry['label']}" for entry in by], "or")
         return {"covered": True, "by": by, "missing": [], "text": text, "action": None}
     if pool:
         closest = min(pool, key=lambda c: (-len(wanted & _caps(c)), str(c.get("id", ""))))
@@ -127,12 +127,12 @@ def coverage(requires: Iterable[str], candidates: Sequence[Mapping[str, Any]], *
         missing = [item for item in needed if item not in have]
     else:
         missing = list(needed)
-    text = "Te falta un agente que pueda " + _join([_words(item) for item in missing], "y")
+    text = "You need an agent that can " + _join([_words(item) for item in missing], "and")
     return {"covered": False, "by": [], "missing": missing, "text": text, "action": "connect"}
 
 
 def area_note(*, sensitivity: str | None, local_only: bool) -> str | None:
-    """The line shown on an area that only counts local agents, or ``None``. «Solo local» wins over «Sensible»."""
+    """The line shown on an area that only counts local agents, or ``None``. "Local only" wins over "Sensitive"."""
     if local_only:
         return NOTE_LOCAL_ONLY
     if sensitivity == "sensitive":
@@ -143,7 +143,7 @@ def area_note(*, sensitivity: str | None, local_only: bool) -> str | None:
 def office_requirements(definition: Any, candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """``{office, areas: [{id, requires, covered, by, missing, text, note, action}]}`` for an ``OfficeDefinition``.
 
-    An area is «Solo local» when the area or the whole office says ``local_only``, and «Sensible» when its
+    An area is "Local only" when the area or the whole office says ``local_only``, and "Sensitive" when its
     ``sensitivity`` is ``sensitive``; in both cases only local candidates count. ``requires`` informs: nothing routes by it.
     """
     areas = []

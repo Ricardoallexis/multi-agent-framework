@@ -45,4 +45,4 @@ def add_inbox_routes(api: APIRouter, services: Any) -> None:
     def inbox_policy():
         policy = services.inbox.policy()
         return {"enabled": policy.enabled,
-                "reason": "La política de disponibilidad está apagada en este servidor." if not policy.enabled else ""}
+                "reason": "The availability policy is disabled on this server." if not policy.enabled else ""}

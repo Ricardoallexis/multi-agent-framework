@@ -284,7 +284,7 @@ _FAILURE_OUTCOMES = ("timeout", "cancelled", "quota_exhausted", "blocked_open_se
                      "secret_review_required")
 # SEC-T03: what of the envelope changes between attempts without changing what is sent (so the approved digest holds).
 class _ApprovalLookupFailed(Exception):
-    """The approvals could not be read (SEC-T03): never taken as «not a secret»."""
+    """The approvals could not be read (SEC-T03): never taken as "not a secret"."""
 
 
 _SECRET_VOLATILE = frozenset({"attempt", "revision", "status", "assignee", "events_after", "data_class", "depends_on"})
@@ -667,7 +667,7 @@ class ExecutorServices:
         ``default_adapters``)."""
         from ..executors.defaults import default_adapters
 
-        activations = getattr(self._services, "executor_activations", None)    # EJE-T01: the notice accepted in «Activar»
+        activations = getattr(self._services, "executor_activations", None)    # EJE-T01: the notice accepted in "Activate"
         notice = activations.notice_accepted("antigravity_cli") if activations is not None else None
         return default_adapters(session_guard=self.session_guard, settings=getattr(self._services, "settings", None),
                                 antigravity_notice=notice)

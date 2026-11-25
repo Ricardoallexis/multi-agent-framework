@@ -393,7 +393,7 @@ def test_granting_needs_the_one_use_code(service_factory, tmp_path, monkeypatch,
         requested_cli = json.loads(invoke_cli(
             monkeypatch, capsys, client, ["office", "privacy", "demo", "--request-cloud"]))
         assert requested_cli["approval_id"] and requested_cli["sha256"]
-        assert "Privacidad" in requested_cli["message"]
+        assert "Privacy" in requested_cli["message"]
         revoked = client.post("/api/v1/offices/demo/privacy/raise",
                               json={"cloud_allowed": False, "actor": ACTOR})
         assert revoked.status_code == 200 and revoked.json()["cloud"]["allowed"] is False

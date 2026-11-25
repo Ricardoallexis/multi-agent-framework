@@ -201,7 +201,7 @@ def run_doctor(settings: Settings, *, deep: bool = False) -> tuple[bool, dict[st
         report["tls"] = _tls_report(system, settings)
         if any(item["state"] == "tls_certificate" for item in report["tls"].values()):
             report["recommendations"].append(
-                "A provider failed on its TLS certificate: use the system certificates in «Apps y agentes» "
+                'A provider failed on its TLS certificate: use the system certificates in "Apps and agents" '
                 "(or PROVIDER_TLS_TRUST=system, or file:<path> to a PEM file)")
 
     grounded_ok = bool(report["cloud"].get("grounded_search_probe", {}).get("ok"))

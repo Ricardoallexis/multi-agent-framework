@@ -70,9 +70,9 @@ def test_fixed_commands_no_raw_output_or_readiness(probes):
     assert all(row["detection"] == "detected" for row in found.values())
     assert found["claude"]["session"]["state"] == "signed_in"
     assert found["codex"]["session"]["state"] == "signed_in"
-    assert found["copilot"]["session"]["message"] == "no se puede comprobar sin gastar"
-    assert found["copilot"]["version_status"] == "versión no comprobada"
-    assert all(row["compatibility"] == "compatibilidad no declarada" for row in found.values())
+    assert found["copilot"]["session"]["message"] == "cannot be checked without spending credits"
+    assert found["copilot"]["version_status"] == "version not checked"
+    assert all(row["compatibility"] == "compatibility not declared" for row in found.values())
     text = json.dumps(report)
     assert "SYNTHETIC_SECRET" not in text and "person@example.invalid" not in text
     assert "ready" not in text and "enabled" not in text
@@ -150,7 +150,7 @@ def test_signed_out_describes_clean_measurement_environment(probes):
     probes[2][("claude", "auth", "status")] = outcome('{"loggedIn": false}', code=1)
     session = apps(measure(probes))["claude"]["session"]
     assert session["state"] == "signed_out"
-    assert session["measured_with"] == "sin variables CLAUDE*/ANTHROPIC*"
+    assert session["measured_with"] == "without CLAUDE*/ANTHROPIC* variables"
 
 
 def test_package_detect_name_is_submodule():
@@ -195,7 +195,7 @@ def test_missing_and_invalid_paths_are_not_installation_verdicts(monkeypatch, tm
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(process, "run", lambda *a, **kw: pytest.fail("unexpected execution"))
     row = apps(detection.detect(cwd=tmp_path, system="Windows"))["claude"]
-    assert row["detection"] == "not_detected" and "administrada" in row["next_step"]
+    assert row["detection"] == "not_detected" and "app-managed" in row["next_step"]
     for declared in ("relative/claude.exe", str(tmp_path / "missing.exe")):
         row = apps(detection.detect(cwd=tmp_path, system="Windows", claude_path=declared))["claude"]
         assert row["detection"] == "invalid_declared_path"
@@ -242,7 +242,7 @@ def test_requirements_report_missing_and_minimums(probes):
 @pytest.mark.parametrize("system", ["Darwin", "Linux"])
 def test_non_windows_never_probes(probes, system):
     result = detection.detect(cwd=probes[0], system=system)
-    assert result["contexts"]["user_console"]["message"] == "sin fuente verificada"
+    assert result["contexts"]["user_console"]["message"] == "no verified source"
     assert probes[1] == []
 
 

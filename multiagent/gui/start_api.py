@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Token-protected routes of the «Inicio» steps (INI-T02). Browser only: nothing here is under ``/api/v1``."""
+"""Token-protected routes of the "Home" steps (INI-T02). Browser only: nothing here is under ``/api/v1``."""
 from __future__ import annotations
 
 from typing import Any

@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Token protected routes of the «Paquetes» view (PAQ-T02): install from a ``.zip``, a folder or the example, and remove.
+"""Token protected routes of the "Packages" view (PAQ-T02): install from a ``.zip``, a folder or the example, and remove.
 
 The ``.zip`` travels as JSON with the bytes in base64 (``require_json`` stays as it is: no multipart, no new dependency).
 The route reads ``content-length`` before it reads the body and gives 413 above the cap, like ``/api/v1/blobs``. The

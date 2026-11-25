@@ -59,7 +59,7 @@ OFFICE_MAX_BYTES = ZIP_EXTRACT_MAX_BYTES
 OFFICE_MAX_FILES = ZIP_MAX_FILES
 OFFICE_MAX_AREAS = 20
 OFFICE_CODE_FILES_SHOWN = 20
-CODE_FIX_TEXT = "Esta oficina trae código: impórtala desde la ficha de la GUI en modo avanzado"
+CODE_FIX_TEXT = "This office includes code: import it from the GUI office details in advanced mode"
 
 _OFFICES_DIR = ".offices"
 _STAGING = ".staging"
@@ -118,7 +118,7 @@ def _yaml_of_record(record: dict[str, Any]) -> bytes:
     return yaml.safe_dump(document, sort_keys=False, allow_unicode=True).encode("utf-8")
 
 
-# --- sensitivity of the areas (SEN-T01): level -> data class, and the fixed note of «Privacidad» ----------------------
+# --- sensitivity of the areas (SEN-T01): level -> data class, and the fixed note of "Privacy" -----------------------
 
 LEVELS = ("normal", "sensitive")
 DATA_CLASS_OF = {"normal": "non_sensitive", "sensitive": "sensitive"}
@@ -126,10 +126,10 @@ _LEVEL_RANK = {None: 0, "normal": 1, "sensitive": 2}     # an area without a lev
 LOCAL_ONLY_LABEL = "local_only"
 PRIVACY_APPROVAL_KIND = "office_privacy_change"
 PRIVACY_NOTE: tuple[str, ...] = (
-    "Contraseñas, claves y tokens: siempre te pregunto, uno por uno.",
-    "Las áreas marcadas «Solo local».",
-    "Con un ejecutor (Claude, Codex, Copilot, agy), el agente puede leer toda la carpeta de trabajo de la oficina, "
-    "no solo la tarea.",
+    "Passwords, keys and tokens: I will always ask you about them one at a time.",
+    "Areas marked Local only.",
+    "With an executor (Claude, Codex, Copilot, agy), the agent can read the entire office working directory, "
+    "not just the task.",
 )
 
 
@@ -155,8 +155,8 @@ def _cloud_permission_digest(office_id: str, area_id: str | None, scope: str) ->
     return sha256(canonical_json({"office": office_id, "area": area_id, "scope": scope, "from": False, "to": True}))
 
 
-OFFICE_NOTICE = ("Las instrucciones de esta oficina las escribió otra persona. Un ejecutor activado las sigue dentro "
-                 "de su carpeta de trabajo")
+OFFICE_NOTICE = ("Someone else wrote the instructions in this office. An active executor follows them within "
+                 "its working directory.")
 STAGE_TTL_SECONDS = 3600
 _STAGE_ID = re.compile(r"[0-9a-f]{32}\Z")
 
@@ -591,7 +591,7 @@ class OfficeServices:
 
     def _add_area(self, root: Path, office: OfficeDefinition, into: str, *, actor: str, channel: str,
                   source: str) -> dict[str, Any]:
-        """A folder or ``.zip`` with an ``office.yaml`` of one area (what «Export area» writes) joins an installed office."""
+        """A folder or ``.zip`` with an ``office.yaml`` of one area (what "Export area" writes) joins an installed office."""
         offices = self._read()
         target = offices.get(into)
         if target is None:
@@ -864,7 +864,7 @@ class OfficeServices:
             found.append({"id": executor_id, "kind": "executor", "label": executor_id,
                           "capabilities": executor_capabilities(), "local": False})
         if getattr(services.settings, "mock_mode", False):
-            found.append({"id": "mock", "kind": "mock", "label": "Mock (ejemplo)", "capabilities": mock_capabilities(),
+            found.append({"id": "mock", "kind": "mock", "label": "Mock (example)", "capabilities": mock_capabilities(),
                           "local": True})
         return found
 
@@ -905,7 +905,7 @@ class OfficeServices:
 
     @staticmethod
     def _office_local(entry: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
-        """Whether the whole office is «Solo local», and who said so."""
+        """Whether the whole office is Local only, and who said so."""
         record = (entry.get("privacy") or {}).get("office")
         if isinstance(record, dict) and record.get("local_only"):
             return True, {"set_by": record.get("set_by"), "set_at": record.get("set_at"), "source": record.get("source", "person")}
@@ -914,7 +914,7 @@ class OfficeServices:
 
     @staticmethod
     def _class_of(level: dict[str, Any], office_local: bool) -> str | None:
-        """The data class of an area (design 8.6): «Solo local» is ``restricted``; no level is ``None``."""
+        """The data class of an area (design 8.6): Local only is ``restricted``; no level is ``None``."""
         if level["local_only"] or office_local:
             return "restricted"
         return DATA_CLASS_OF.get(level["sensitivity"])
@@ -997,7 +997,7 @@ class OfficeServices:
         if local_only is not None and not isinstance(local_only, bool):
             raise _invalid("local_only must be true or false", field="local_only")
         if cloud_allowed is not None and cloud_allowed is not False:
-            raise _invalid("Granting cloud use needs the one-use approval in «Privacidad»",
+            raise _invalid('Granting cloud use needs the one-use approval in "Privacy"',
                            reason="office_cloud_grant_needs_gui", field="cloud_allowed")
         if sensitivity is None and local_only is None and cloud_allowed is None:
             raise _invalid("Name a sensitivity, local_only or cloud_allowed",
@@ -1064,7 +1064,7 @@ class OfficeServices:
             before = self._current(entry, area_id)
             after = self._target(before, sensitivity, local_only)
             if self._lowers(before, after):
-                raise _conflict("Lowering a level is done in «Privacidad», with the one-use code",
+                raise _conflict('Lowering a level is done in "Privacy", with the one-use code',
                                 "office_level_lowering_needs_gui", office=office_id, area=area_id,
                                 **{"from": _level_label(*before), "to": _level_label(*after)})
             level_changed = after != before
@@ -1174,7 +1174,7 @@ class OfficeServices:
     def request_lowering(self, office_id: str, area_id: str | None, *, sensitivity: str | None = None,
                          local_only: bool | None = None) -> dict[str, Any]:
         """Ask for the one-use approval ``office_privacy_change`` (hidden) of a lower level; the person decides it
-        in «Privacidad». The ``sha256`` binds the office, the area and both levels. Changes nothing yet."""
+        in "Privacy". The ``sha256`` binds the office, the area and both levels. Changes nothing yet."""
         with self._lock:
             entry = self._check_levels(office_id, area_id, sensitivity, local_only)
             before = self._current(entry, area_id)
@@ -1778,7 +1778,7 @@ class OfficeServices:
     def _approve_stage_teams(self, office_id: str, area_ids: list[str], infos: dict[str, dict[str, Any]], *,
                              actor: str, channel: str, fingerprint: str, approval_id: str,
                              warnings: list[dict[str, str]]) -> list[dict[str, Any]]:
-        note = f"aprobado al instalar la oficina {office_id} {fingerprint} (aprobación {approval_id})"
+        note = f"approved when installing office {office_id} {fingerprint} (approval {approval_id})"
         result = []
         for area_id in area_ids:
             bundle = area_bundle_name(office_id, area_id)
@@ -2219,7 +2219,7 @@ class OfficeServices:
             requirement = requirements.get(area["id"], {})
             if requirement.get("missing"):
                 degraded.append({"code": "requirement_missing",
-                                 "fix": {"label": "Conectar un agente", "href": "#apps", "action": None}})
+                                 "fix": {"label": "Connect an agent", "href": "#apps", "action": None}})
 
             runs = self._services.runs.recent_runs(bundle, since=since, limit=SCENE_RUNS_MAX)
             try:

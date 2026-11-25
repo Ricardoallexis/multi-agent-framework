@@ -145,7 +145,7 @@ an office of their own. The example is never installed by default.
 
 ## Requirements
 
-Each area declares in `requires` what it needs, as namespaced capability ids, never a provider. The app crosses that with what the person has connected and answers one of two things: «Lo puedes cubrir con A o con B», or «Te falta un agente que pueda X» with a «Conectar otro» action. `requires` only informs in the MVP: the router does not read it.
+Each area declares in `requires` what it needs, as namespaced capability ids, never a provider. The app crosses that with what the person has connected and answers one of two things: "You can cover this with A or with B", or "You need an agent that can X" with a "Connect another" action. `requires` only informs in the MVP: the router does not read it.
 
 The catalog is not edited. New capabilities are derived from the table below (the builder fixes it, design §13).
 
@@ -162,16 +162,16 @@ Texts (simple mode, none names a provider):
 
 | Id | Text |
 | --- | --- |
-| `model.text` | escribir texto |
-| `model.tools` | usar herramientas |
-| `model.structured` | dar respuestas con estructura |
-| `model.local` | correr en tu equipo |
-| `executor.code` | trabajar con código |
-| `executor.files` | trabajar con archivos |
+| `model.text` | write text |
+| `model.tools` | use tools |
+| `model.structured` | give structured responses |
+| `model.local` | run on your computer |
+| `executor.code` | work with code |
+| `executor.files` | work with files |
 
-Candidates are saved connections' catalog models, active executors and, in Mock, `mock` («Mock (ejemplo)»). A candidate covers an area when it has every requirement. If none does, `missing` lists what the closest candidate (most requirements; ties by id) lacks, and `action` is `"connect"`. An id outside the list is shown as written («Te falta un agente que pueda model.vision»).
+Candidates are saved connections' catalog models, active executors and, in Mock, `mock` ("Mock (example)"). A candidate covers an area when it has every requirement. If none does, `missing` lists what the closest candidate (most requirements; ties by id) lacks, and `action` is `"connect"`. An id outside the list is shown as written ("You need an agent that can model.vision").
 
-An area that is «Sensible» (`sensitivity: sensitive`) or «Solo local» (`local_only`, on the area or the office) counts only local candidates, and carries the note «Esta área es Sensible: hoy solo puede usar agentes de tu equipo» or «Esta área es Solo local: nunca sale de tu equipo» («Solo local» wins when both apply).
+An area that is "Sensitive" (`sensitivity: sensitive`) or "Local only" (`local_only`, on the area or the office) counts only local candidates, and carries the note "This area is Sensitive: it can only use agents on your team today" or "This area is Local only: it never leaves your computer" ("Local only" wins when both apply).
 
 Code: `multiagent/offices/requirements.py` (pure: `coverage`, `office_requirements`, `model_capabilities`, `executor_capabilities`); `services.offices.requirements` gathers the candidates.
 
@@ -211,9 +211,9 @@ multiagent office privacy OFFICE [--area AREA] [--sensitive] [--local-only] [--n
 
 **The note** of «Privacidad» is fixed (`PRIVACY_NOTE`, returned by `privacy()` as `note`):
 
-- «Contraseñas, claves y tokens: siempre te pregunto, uno por uno.»
-- «Las áreas marcadas «Solo local».»
-- «Con un ejecutor activado, el agente puede leer toda la carpeta de trabajo de la oficina, no solo la tarea.»
+- "Passwords, keys and tokens: I will always ask you about them one at a time."
+- "Areas marked Local only."
+- "With an executor (Claude, Codex, Copilot, agy), the agent can read the entire office working directory, not just the task."
 
 **GUI privacy view.** «Privacidad» shows the level and cloud permission for the office and each area. Raising a level
 and removing cloud permission take effect immediately. Lowering a level and allowing cloud models require the one-use

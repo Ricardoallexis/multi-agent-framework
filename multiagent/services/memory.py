@@ -58,7 +58,7 @@ DELETE_KIND = "memory_delete"
 PENDING_REASON = "user_confirmation_pending"
 CONFLICT_REASON = "contradicts_confirmed_entry"
 _LOCATION_TITLE = 80            # an approval description holds at most 300 characters
-PAIR_TITLE_CHARS = 80           # what «Pendientes» shows of each entry of a clash: fixed sizes
+PAIR_TITLE_CHARS = 80           # what "Pending" shows of each entry of a clash: fixed sizes
 PAIR_BODY_CHARS = 240
 _SOURCE_KIND_BY_ACTOR = {"user": SourceKind.USER.value, "agent": SourceKind.MODEL_OUTPUT.value,
                          "executor": SourceKind.EXECUTOR_RESULT.value}
@@ -175,7 +175,7 @@ class MemoryServices:
         return contradicted_by(row, self.store.list(row["project_id"]))
 
     def conflict_pair(self, entry_id: str, other_id: str) -> dict[str, Any] | None:
-        """The two entries of a clash as «Pendientes» shows them: ``{new, existing}``, each ``{id, title, body}`` cut to
+        """The two entries of a clash as "Pending" shows them: ``{new, existing}``, each ``{id, title, body}`` cut to
         a fixed size and read from the entries by their ids (nothing is copied into the approval). ``None`` when
         either is gone or ``other_id`` is not a confirmed entry that ``entry_id`` contradicts."""
         try:

@@ -85,7 +85,7 @@ def test_first_run_path_all_five_steps(tmp_path):
         assert [item["id"] for item in status["times"]] == list(STEPS)
         assert len(hours) == 5 and hours == sorted(hours)
         assert (tmp_path / "local" / FIRST_RUN_FILE).is_file()
-        assert "Correr con tus datos y guardar el documento" in real.first_run.times_text()
+        assert "Run with your data and save the document" in real.first_run.times_text()
     finally:
         for services in opened:
             services.runs.close()

@@ -103,7 +103,7 @@ def pending_tool_approval(run: dict[str, Any]) -> dict[str, Any] | None:
             "actions": [{"kind": ref.kind.value, "target": _visible(ref.target) if ref.target is not None else None}
                         for ref in pending.actions[:_SHOWN_ACTIONS]],
             "actions_total": len(pending.actions),
-            "actions_omitted": f"+{omitted} más (total {len(pending.actions)})" if omitted else "",
+            "actions_omitted": f"+{omitted} more (total {len(pending.actions)})" if omitted else "",
             "arguments_sha256": pending.arguments_sha256}
 
 
@@ -264,7 +264,7 @@ class RunServices:
         if data_class == "restricted":
             guided = ExecutionMode.HUMAN_GUIDED
             if request.confirm_cloud or request.execution_mode is guided or guided in request.step_modes.values():
-                raise ServiceError(INVALID_REQUEST, "This area is «Solo local»: its work never leaves this computer",
+                raise ServiceError(INVALID_REQUEST, "This area is Local only: its work never leaves this computer",
                                    status=422, details={"reason": "area_local_only", **where})
         return request if request.sensitive or data_class == "non_sensitive" else request.model_copy(update={"sensitive": True})
 
@@ -344,7 +344,7 @@ class RunServices:
         cloud_allowed = False
         if isinstance(request, RunRequest) and bundle is not None:
             offices = getattr(self._services, "offices", None)
-            # only a «Normal» area uses the saved permission: one without a level asks first (Decision 15)
+            # only a "Normal" area uses the saved permission: one without a level asks first (Decision 15)
             if offices is not None and offices.area_class(bundle) == "non_sensitive":
                 permission = offices.cloud_permission_details(bundle)
                 cloud_allowed = bool(permission and permission["allowed"])

@@ -60,7 +60,7 @@ def add_project_routes(api: APIRouter, services: ApplicationServices) -> None:
 
     @api.get("/activities")
     def list_activities() -> dict[str, Any]:
-        """Open activities grouped by active project, for the left bar's «Actividades» filter (PRY-T10).
+        """Open activities grouped by active project, for the left bar's "Activities" filter (PRY-T10).
 
         ``{projects: [{project_id, name, title, activities: [...]}]}``: only projects with an open activity (not
         ``done``, ``failed`` or ``cancelled``), in the order of the project list; each activity as

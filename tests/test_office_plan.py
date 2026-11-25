@@ -257,7 +257,7 @@ def test_no_default_plan_and_nothing_matches(world):
         services.new_session.draft_plan("filler xyzzy", office="demo")
     assert caught.value.status == 409
     assert caught.value.details["reason"] == "office_plan_unavailable"
-    assert caught.value.details["fix"] == "Esta oficina no trae un plan por defecto: pide una cosa por vez"
+    assert caught.value.details["fix"] == "This office has no default plan: ask for one thing at a time"
 
 
 def test_draft_saves_nothing_and_save_needs_confirmation(world):

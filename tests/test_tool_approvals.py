@@ -501,7 +501,7 @@ def test_view_says_when_actions_are_cut(route):
     payload["actions"] = [{"kind": "destructive", "target": f"f{i}.txt"} for i in range(25)]
     shown = pending_tool_approval(_view_run(route, [("tool_approval_requested", payload)]))
     assert len(shown["actions"]) == 20 and shown["actions_total"] == 25
-    assert shown["actions_omitted"] == "+5 más (total 25)"
+    assert shown["actions_omitted"] == "+5 more (total 25)"
 
 
 # ---- CAP-T15: bajas B1-B9 de CAP-T09 y B9-B10 de CAP-T14 ---------------------------------------------------------

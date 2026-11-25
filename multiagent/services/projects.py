@@ -33,7 +33,7 @@ Revisions
 Activities (amendment 1 of PRY-T01)
     A project may also have activities, lightweight tasks that live in the group ``<key>-ACT`` (kind ``activities``),
     which sits outside the stages: it has no position, is never a stage of ``get`` or of ``reorder`` and ``close_stage``,
-    and its tasks count neither in the progress nor in «what you have to do». The view shows them apart as
+    and its tasks count neither in the progress nor in "what you have to do". The view shows them apart as
     ``activities`` (counts and their own progress); the ones in progress also appear in ``working_now``. The code
     ``ACT`` is reserved in plans. The operations that start, close and list them are ``services.activities``.
 
@@ -626,7 +626,7 @@ class ProjectServices:
         """The aggregated view of a project.
 
         ``progress`` (``done`` / (``total`` - ``cancelled``)), ``counts`` per task label, the ``stages`` in order
-        (label, phases, planned dates, real ``closed_at`` and their tasks), ``attention`` («what you have to do»:
+        (label, phases, planned dates, real ``closed_at`` and their tasks), ``attention`` ("what you have to do":
         ``reviews``, ``verifications``, ``mine`` and ``blocked`` with their blockers), ``working_now`` and
         ``milestones`` (planned end and real closing of every stage). ``activities`` counts the project's activities
         apart (``group_id``, ``total``, ``doing``, ``done``, ``counts`` per label and their own ``progress``); they are
@@ -862,7 +862,7 @@ class ProjectServices:
     # ------------------------------------------------------------------ closing a stage
     @service_errors
     def close_stage(self, project_id: str, group_id: str, *, actor: str, expected_revision: int) -> dict[str, Any]:
-        """Verify and close a stage (``Espera tu verificación`` to ``Cerrada``); event ``group.lifecycle_changed``.
+        """Verify and close a stage (``Awaiting verification`` to ``Closed``); event ``group.lifecycle_changed``.
 
         The stage must be waiting for verification: every task done or cancelled and at least one done. A task that
         was accepted but has no delivery evidence gets it from its last result (``result://<task>/<attempt>``,

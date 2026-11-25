@@ -164,7 +164,7 @@ def test_unsupported_steps_never_open_console():
         with pytest.raises(ValueError):
             guided.guide_step(app, step, launcher=forbidden, detector=forbidden, system="Windows")
     result = guided.guide_step("agy", "login", launcher=forbidden, detector=forbidden, system="Windows")
-    assert "Inicia sesión tú en agy" in result["plan"]["message"]
+    assert "Sign in to agy yourself" in result["plan"]["message"]
     assert result["recheck"] is None
 
 

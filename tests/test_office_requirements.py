@@ -48,41 +48,41 @@ def test_equivalences():
 
 
 def test_cover_text():
-    cands = [_model("b", "Modelo B", {"model.text"}), _model("a", "Modelo A", {"model.text"})]
+    cands = [_model("b", "Model B", {"model.text"}), _model("a", "Model A", {"model.text"})]
     got = coverage(["model.text"], cands, local_only_candidates=False)
     assert got["covered"] is True and got["action"] is None and got["missing"] == []
-    assert got["text"] == "Lo puedes cubrir con Modelo A o con Modelo B"
-    assert got["by"] == [{"id": "a", "kind": "model", "label": "Modelo A"}, {"id": "b", "kind": "model", "label": "Modelo B"}]
+    assert got["text"] == "You can cover this with Model A or with Model B"
+    assert got["by"] == [{"id": "a", "kind": "model", "label": "Model A"}, {"id": "b", "kind": "model", "label": "Model B"}]
 
 
 def test_cover_text_with_three_repeats_con():
-    cands = [_model(i, f"Modelo {i.upper()}", {"model.text"}) for i in ("c", "a", "b")]
+    cands = [_model(i, f"Model {i.upper()}", {"model.text"}) for i in ("c", "a", "b")]
     got = coverage(["model.text"], cands, local_only_candidates=False)
-    assert got["text"] == "Lo puedes cubrir con Modelo A, con Modelo B o con Modelo C"
+    assert got["text"] == "You can cover this with Model A, with Model B or with Model C"
 
 
 def test_mock_is_local_and_covers_a_sensitive_area():
-    mock = {"id": "mock", "kind": "mock", "label": "Mock (ejemplo)", "capabilities": mock_capabilities()}
+    mock = {"id": "mock", "kind": "mock", "label": "Mock (example)", "capabilities": mock_capabilities()}
     assert "local" not in mock
     definition = _definition([_area("caja", sensitivity="sensitive", requires=["model.text"])])
     area = office_requirements(definition, [mock])["areas"][0]
     assert area["covered"] is True
-    assert area["by"] == [{"id": "mock", "kind": "mock", "label": "Mock (ejemplo)"}]
-    assert area["note"] == "Esta área es Sensible: hoy solo puede usar agentes de tu equipo"
+    assert area["by"] == [{"id": "mock", "kind": "mock", "label": "Mock (example)"}]
+    assert area["note"] == "This area is Sensitive: it can only use agents on your team today"
 
 
 def test_missing_text():
     got = coverage(["model.text", "executor.code"], [_model("a", "Modelo A", {"model.text"})], local_only_candidates=False)
     assert got["covered"] is False and got["by"] == []
     assert got["missing"] == ["executor.code"]
-    assert got["text"] == "Te falta un agente que pueda trabajar con código"
+    assert got["text"] == "You need an agent that can work with code"
     assert got["action"] == "connect"
 
 
 def test_missing_with_no_candidates_lists_everything():
     got = coverage(["model.text", "executor.files"], [], local_only_candidates=False)
     assert got["missing"] == ["model.text", "executor.files"]
-    assert got["text"] == "Te falta un agente que pueda escribir texto y trabajar con archivos"
+    assert got["text"] == "You need an agent that can write text and work with files"
 
 
 def test_closest_candidate_decides_what_is_missing():
@@ -95,32 +95,32 @@ def test_closest_candidate_decides_what_is_missing():
 
 
 def test_sensitive_area_counts_only_local():
-    cloud = _model("cloud", "Nube", {"model.text"})
+    cloud = _model("cloud", "Cloud", {"model.text"})
     local = _model("loc", "Local", {"model.text", "model.local"}, local=True)
     definition = _definition([_area("caja", sensitivity="sensitive", requires=["model.text"])])
     only_cloud = office_requirements(definition, [cloud])["areas"][0]
     assert only_cloud["by"] == [] and only_cloud["covered"] is False
-    assert only_cloud["note"] == "Esta área es Sensible: hoy solo puede usar agentes de tu equipo"
+    assert only_cloud["note"] == "This area is Sensitive: it can only use agents on your team today"
     both = office_requirements(definition, [cloud, local])["areas"][0]
     assert [entry["id"] for entry in both["by"]] == ["loc"]
-    assert both["note"] == "Esta área es Sensible: hoy solo puede usar agentes de tu equipo"
+    assert both["note"] == "This area is Sensitive: it can only use agents on your team today"
 
 
 def test_local_only_area_and_office():
-    cloud = _model("cloud", "Nube", {"model.text"})
+    cloud = _model("cloud", "Cloud", {"model.text"})
     definition = _definition([_area("a", local_only=True, requires=["model.text"]), _area("b", requires=["model.text"])])
     first, second = office_requirements(definition, [cloud])["areas"]
-    assert first["note"] == "Esta área es Solo local: nunca sale de tu equipo" and first["by"] == []
+    assert first["note"] == "This area is Local only: it never leaves your computer" and first["by"] == []
     assert second["note"] is None and [e["id"] for e in second["by"]] == ["cloud"]
     whole = _definition([_area("b", requires=["model.text"])], local_only=True)
-    assert office_requirements(whole, [cloud])["areas"][0]["note"] == "Esta área es Solo local: nunca sale de tu equipo"
+    assert office_requirements(whole, [cloud])["areas"][0]["note"] == "This area is Local only: it never leaves your computer"
 
 
 def test_mock_covers_model_requirements_only():
-    mock = {"id": "mock", "kind": "mock", "label": "Mock (ejemplo)", "capabilities": mock_capabilities()}
+    mock = {"id": "mock", "kind": "mock", "label": "Mock (example)", "capabilities": mock_capabilities()}
     ok = coverage(["model.text", "model.tools"], [mock], local_only_candidates=False)
-    assert ok["covered"] is True and ok["by"] == [{"id": "mock", "kind": "mock", "label": "Mock (ejemplo)"}]
-    assert ok["text"] == "Lo puedes cubrir con Mock (ejemplo)"
+    assert ok["covered"] is True and ok["by"] == [{"id": "mock", "kind": "mock", "label": "Mock (example)"}]
+    assert ok["text"] == "You can cover this with Mock (example)"
     bad = coverage(["model.text", "executor.code"], [mock], local_only_candidates=False)
     assert bad["missing"] == ["executor.code"] and bad["action"] == "connect"
     assert not any(item.startswith("executor.") for item in mock_capabilities())
@@ -129,7 +129,7 @@ def test_mock_covers_model_requirements_only():
 def test_unknown_requirement_is_shown_as_is():
     got = coverage(["model.vision"], [_model("a", "A", {"model.text"})], local_only_candidates=False)
     assert got["missing"] == ["model.vision"]
-    assert got["text"] == "Te falta un agente que pueda model.vision"
+    assert got["text"] == "You need an agent that can model.vision"
 
 
 def test_area_without_requirements_needs_nothing():
@@ -140,7 +140,7 @@ def test_area_without_requirements_needs_nothing():
 
 def test_office_requirements_shape_one_area_each():
     definition = _definition([_area("a", requires=["model.text", "executor.code"]), _area("b", requires=["model.text"])])
-    cands = [_model("m", "Modelo", {"model.text"})]
+    cands = [_model("m", "Model", {"model.text"})]
     out = office_requirements(definition, cands)
     assert out["office"] == "demo" and [a["id"] for a in out["areas"]] == ["a", "b"]
     assert set(out["areas"][0]) == {"id", "requires", "covered", "by", "missing", "text", "note", "action"}
@@ -202,12 +202,12 @@ def test_service_candidates_in_mock_cover_model_requirements_only(tmp_path):
     try:
         services.connections.detector = lambda **kw: {}
         found = {c["id"]: c for c in services.offices.requirements_candidates()}
-        assert found["mock"]["local"] is True and found["mock"]["label"] == "Mock (ejemplo)"
+        assert found["mock"]["local"] is True and found["mock"]["label"] == "Mock (example)"
         assert not any(c["kind"] == "executor" for c in found.values())
         _install_demo(services, tmp_path, overrides={"reception": {"requires": ["model.text"], "sensitivity": "sensitive"},
                                                      "proposal": {"requires": ["model.text", "executor.code"]}})
         areas = {a["id"]: a for a in services.offices.requirements("demo")["areas"]}
-        assert [e["id"] for e in areas["reception"]["by"]] == ["mock"] and areas["reception"]["note"].startswith("Esta área es Sensible")
+        assert [e["id"] for e in areas["reception"]["by"]] == ["mock"] and areas["reception"]["note"].startswith("This area is Sensitive")
         assert areas["proposal"]["missing"] == ["executor.code"]
     finally:
         services.bundle_scans.close()

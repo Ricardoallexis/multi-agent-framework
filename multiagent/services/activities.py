@@ -25,8 +25,8 @@ review: ``submit`` accepts it in the same transaction. It reuses the states, the
 
 Events carry ids, the state and ``kind``, never titles or summaries (they are typed by the user and may be private).
 USO and the tracking views count activities apart: every item says ``kind``, and ``projects.get`` carries an
-``activities`` block with their own counts and progress; they are never part of a stage, of its progress or of «what
-you have to do».
+``activities`` block with their own counts and progress; they are never part of a stage, of its progress or of "what
+you have to do".
 
 Every method returns JSON-ready data and raises only ``ServiceError``: ``not_found`` (project, activity),
 ``invalid_request`` (malformed data, a task that is not an activity) or ``invalid_state`` (an archived project, an

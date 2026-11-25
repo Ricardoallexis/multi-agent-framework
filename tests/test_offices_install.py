@@ -191,7 +191,7 @@ def test_office_with_code_is_refused(world):
     error = failure(services.offices.import_folder, root, actor=ACTOR)
     assert (error.status, error.code, reason(error)) == (409, "invalid_state", "office_has_code")
     assert error.details["files"] == ["areas/reception/contracts.py"]
-    assert error.details["fix"] == "Esta oficina trae código: impórtala desde la ficha de la GUI en modo avanzado"
+    assert error.details["fix"] == "This office includes code: import it from the GUI office details in advanced mode"
     assert not ran.exists()                       # nothing of the office was imported or run
     assert services.installed.list() == [] and services.offices.list() == []
     staging = installed_dir(services) / ".staging"

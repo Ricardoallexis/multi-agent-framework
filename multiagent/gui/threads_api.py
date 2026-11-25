@@ -218,10 +218,10 @@ def _plan_events(services: Any, group_id: str, proposal_id: str) -> list[dict[st
         if event["type"] == "plan.advanced":
             started = [item.get("task_id") for item in payload.get("advanced") or [] if item.get("run_id")]
             moved = [str(item.get("task_id")) for item in payload.get("advanced") or []]
-            text = ("El plan avanzó: arrancó " + ", ".join(map(str, started)) + "." if started
-                    else "El plan avanzó: se actualizó " + (", ".join(moved) or "una tarea") + ".")
+            text = ("The plan advanced: started " + ", ".join(map(str, started)) + "." if started
+                    else "The plan advanced: updated " + (", ".join(moved) or "a task") + ".")
         else:
-            text = "No se pudo avanzar el plan: " + str(payload.get("reason") or "error desconocido") + "."
+            text = "Could not advance the plan: " + str(payload.get("reason") or "unknown error") + "."
         out.append({"kind": "plan_event", "event": event["type"], "text": text, "ts": event.get("created_at")})
     return out
 

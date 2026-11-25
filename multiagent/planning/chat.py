@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Parts of a free-text request for «Nueva sesión»: where one request becomes a plan of several workflows."""
+"""Parts of a free-text request for "New session": where one request becomes a plan of several workflows."""
 from __future__ import annotations
 
 import re

@@ -38,7 +38,7 @@ def best_catalog_match(text: str, catalog: list[dict[str, Any]]) -> tuple[dict[s
 
 
 def _new_session_fixture(prompt: str) -> dict[str, Any]:
-    """Deterministic stand-in for the «Nueva sesión» interpreter (GUI2-T17): the catalog entry that shares the most
+    """Deterministic stand-in for the "New session" interpreter (GUI2-T17): the catalog entry that shares the most
     words with the quoted request (ties: first id), with the request as its first required text input. No match,
     no workflow. It reads only the catalog line and the quoted lines (``| ``) of the prompt. When the request has two
     or more parts (``split_request``) and every part matches a workflow, it also says ``needs_plan``."""

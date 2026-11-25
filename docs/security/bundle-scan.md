@@ -24,7 +24,7 @@ code loads. It is not a sandbox: a bundle you decide to load still runs with you
 - The framework **detects** SkillSpector. It never installs it and never updates it. Installing it
   is your decision.
 - Without SkillSpector, or with `bundle_scan = off`, the bundle loads and its status carries a
-  warning («Sin escanear: SkillSpector no está»). Nothing is blocked.
+  warning ("Not scanned: SkillSpector is not installed"). Nothing is blocked.
 - The framework looks for `%APPDATA%\uv\tools\skillspector\Scripts\python.exe`, or for the
   interpreter named in the `skillspector_python` setting.
 - On the maintainer's Windows PC, installing the tool with uv needed `--system-certs`, because uv

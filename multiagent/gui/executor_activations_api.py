@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Token-protected routes of «Activar» (EJE-T01). Browser only: no ``/api/v1`` route, no CLI command, no MCP tool.
+"""Token-protected routes of "Activate" (EJE-T01). Browser only: no ``/api/v1`` route, no CLI command, no MCP tool.
 
 The one-use code is the approvals one: ``POST .../activation`` makes the (hidden) ``executor_activate`` approval,
 the GUI decides it with ``/gui/api/approvals/{id}/challenge`` and ``/decision``, and ``.../activate`` spends it.

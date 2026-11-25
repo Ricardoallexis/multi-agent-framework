@@ -44,7 +44,7 @@ BUSY_STATUSES = ("queued", "running", "waiting_human", "paused")
 
 STATE_OK, STATE_CHANGED, STATE_MISSING = "ok", "changed", "missing"
 REASON_CHANGED = "installed_bundle_changed"
-FUNCTIONS_FIX_TEXT = "Este paquete trae funciones; confía en ellas en la ficha del paquete"
+FUNCTIONS_FIX_TEXT = "This package includes functions; trust them from the package details"
 SOURCE_COPY, SOURCE_SHIPPED = "copy", "shipped"
 SOURCE_OFFICE = "office"                      # OFI-T03: an area of an installed office (the entry also has ``office``)
 _FOLDER_SOURCES = (SOURCE_COPY, SOURCE_OFFICE)   # entries that own a copy under installed/<name>/v<n>/
@@ -180,7 +180,7 @@ def extract_zip_safely(data: bytes, dest: Path, *, max_bytes: int = ZIP_EXTRACT_
     link and a repeated name give ``zip_unsafe_entry`` (422); a damaged or encrypted file gives ``zip_invalid``; more than
     ``max_files`` files or ``max_bytes`` bytes give ``zip_too_large``. The bytes are counted as they are written, so a
     ``.zip`` that declares less than it holds stops at the limit. A single top folder (what Windows makes with
-    «Enviar a › Carpeta comprimida») is unwrapped: the returned folder is that one. If anything fails, ``dest`` is removed.
+    ("Send to > Compressed folder") is unwrapped: the returned folder is that one. If anything fails, ``dest`` is removed.
     """
     dest = Path(dest)
     if len(data) > ZIP_UPLOAD_MAX_BYTES:
@@ -363,7 +363,7 @@ class InstalledServices:
         return folder if folder.is_dir() else None
 
     def example_available(self, name: str = "general") -> bool:
-        """Whether «Instalar el paquete de ejemplo» is offered: a checkout, and the name not taken."""
+        """Whether "Install example package" is offered: a checkout, and the name not taken."""
         if self._shipped_folder(name) is None:
             return False
         with self._lock:
@@ -419,7 +419,7 @@ class InstalledServices:
                 state = self._state_of(entry)
                 self._states[name] = state
                 if folder is None:
-                    continue  # the product's folder is not here (not a checkout): the row shows «missing»
+                    continue  # the product's folder is not here (not a checkout): the row shows "missing"
                 if name in services._bundles:
                     if services._bundles[name] == folder:
                         continue  # the same folder under the same name: nothing to replace
@@ -782,7 +782,7 @@ class InstalledServices:
     # --- .zip and the example (PAQ-T02) -------------------------------------
 
     def _code_gate(self, require_advanced: bool) -> Callable[[str], None] | None:
-        """A package that has code is an «install_code» of the advanced mode (L3); a data package is not."""
+        """A package that has code is an "install_code" of the advanced mode (L3); a data package is not."""
         if not require_advanced:
             return None
 

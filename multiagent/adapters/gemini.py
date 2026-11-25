@@ -86,7 +86,7 @@ def _retry_at(exc: Exception, now: datetime) -> datetime | None:
 
 def _classify_gemini_error(exc: Exception) -> Exception:
     # Provider text can contain a credential. Keep it only for classification, never in our exception.
-    if is_tls_failure(exc):    # the SDK wraps the ssl error: look at its causes, and do not count it as «no access»
+    if is_tls_failure(exc):    # the SDK wraps the ssl error: look at its causes, and do not count it as "no access"
         record_gemini_verification("tls_certificate", at=datetime.now(timezone.utc))
         return ProviderUnavailable("Gemini certificate could not be verified (TLS)")
     low = str(exc).lower()

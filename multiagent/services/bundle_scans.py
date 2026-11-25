@@ -28,7 +28,7 @@ class BundleScanServices:
         self.verifier = None
         self.runner = None
         self.env = None
-        # «off» and «not_installed» stay in memory only: once SkillSpector is installed or bundle_scan
+        # "off" and "not_installed" stay in memory only: once SkillSpector is installed or bundle_scan
         # is turned on, the next start scans the bundle instead of trusting a stale file.
         self._unscanned: dict[tuple[str, str], dict[str, Any]] = {}
 
@@ -127,7 +127,7 @@ class BundleScanServices:
             running = self._running == (name, fingerprint)
         scan = cached["scan"] if cached else {}
         state = "running" if running else scan.get("state", "unscanned")
-        warning = "Sin escanear: SkillSpector no está" if state in {"off", "not_installed"} else None
+        warning = "Not scanned: SkillSpector is not installed" if state in {"off", "not_installed"} else None
         load_approved = (cached or {}).get("load_approved") is True and (cached or {}).get("risk_ack") is True
         approval = None
         if state == "unscanned":

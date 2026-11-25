@@ -12,11 +12,11 @@ from .errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 KINDS = frozenset({"secret_send", "osv_query", "bundle_load", "executor_activate", "memory_trust", "memory_delete",
                    "office_privacy_change", "office_install"})
-# EJE-T01: decided only by the fixed note of «Activar», never listed in «Aprobaciones» or «Pendientes» (Decision 20).
-# SEN-T01: lowering the privacy level of an office area is decided only in «Privacidad» (Decision 14), also hidden.
+# EJE-T01: decided only by the fixed note of "Activate", never listed in "Approvals" or "Pending" (Decision 20).
+# SEN-T01: lowering the privacy level of an office area is decided only in "Privacy" (Decision 14), also hidden.
 # OFI-T04: an office install is decided on its card, not in the general approval list.
 HIDDEN_KINDS = frozenset({"executor_activate", "office_privacy_change", "office_install"})
-# MEM-T01: a person confirms the trust and the deletion of a memory entry; both show in «Pendientes»
+# MEM-T01: a person confirms the trust and the deletion of a memory entry; both show in "Pending"
 MEMORY_KINDS = frozenset({"memory_trust", "memory_delete"})
 EVENTS = frozenset({"user_approval.requested", "user_approval.decided", "user_approval.consumed"})
 ACTOR = "user:gui"

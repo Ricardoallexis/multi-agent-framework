@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""The five steps of «Inicio» and their times (INI-T02, design §7.7 and L13). Server side only.
+"""The five steps of "Home" and their times (INI-T02, design §7.7 and L13). Server side only.
 
 Every step is computed from the real state, never from a click:
 
@@ -35,13 +35,13 @@ FIRST_RUN_SCHEMA = "maf.first-run/1"
 START_FILE = "primer-recorrido-inicio.txt"
 STEPS = ("install", "try_mock", "connect", "activate", "real_run")
 STEP_TITLES = {
-    "install": "Instalar una oficina",
-    "try_mock": "Probarlo en Mock y ver el documento",
-    "connect": "Conectar un agente",
-    "activate": "Activarlo",
-    "real_run": "Correr con tus datos y guardar el documento",
+    "install": "Install an office",
+    "try_mock": "Try Mock and view the document",
+    "connect": "Connect an agent",
+    "activate": "Activate it",
+    "real_run": "Run with your data and save the document",
 }
-RESTART_TEXT = "Cierra esta ventana y vuelve a abrir Iniciar"
+RESTART_TEXT = "Close this window and reopen the Iniciar launcher"
 _RUN_LIMIT = 500
 
 
@@ -65,7 +65,7 @@ def _iso(moment: datetime) -> str:
 
 
 class FirstRunServices:
-    """``services.first_run``: the steps of «Inicio», their hours, and the switch between Mock and real models."""
+    """``services.first_run``: the steps of "Home", their hours, and the switch between Mock and real models."""
 
     def __init__(self, services: ApplicationServices, *, clock: Callable[[], datetime] = _now,
                  started_at: str | None = None):
@@ -225,20 +225,20 @@ class FirstRunServices:
 
         Pass the ``status()`` already in hand to avoid computing it twice."""
         status = status if status is not None else self.status()
-        lines = [f"Inicio: {status['install_started_at']}"]
+        lines = [f"Start: {status['install_started_at']}"]
         done = {item["id"]: item for item in status["times"]}
         for step in STEPS:
             if step in done:
                 minutes = done[step]["minutes"]
-                lines.append(f"{STEP_TITLES[step]}: {done[step]['done_at']} ({minutes:g} min desde el inicio)")
+                lines.append(f"{STEP_TITLES[step]}: {done[step]['done_at']} ({minutes:g} min from start)")
             else:
-                lines.append(f"{STEP_TITLES[step]}: pendiente")
+                lines.append(f"{STEP_TITLES[step]}: pending")
         return "\n".join(lines)
 
     def set_models(self, models: str, *, actor: str = "user:gui", channel: str = "gui") -> dict[str, Any]:
         """Write ``models`` (``mock`` or ``real``); the change takes effect when the person opens Iniciar again.
 
-        Whether to offer «Pasar a modelos reales» is the screen's call (``offer_real``); the server does not refuse
+        Whether to offer "Switch to real models" is the screen's call (``offer_real``); the server does not refuse
         either value, because only the next start is affected. A value outside the list is a 422
         (``GuiSettingsServices.set_value`` validates it)."""
         written = self._services.gui_settings.set_value("models", models, actor=actor, channel=channel)

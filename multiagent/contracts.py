@@ -384,7 +384,7 @@ OUTPUT_SCHEMAS: dict[str, type[StrictModel]] = {
 
 
 class NewSessionProposal(StrictModel):
-    """What a model proposes for the free text of «Nueva sesión» (GUI2-T17). The service validates it against the
+    """What a model proposes for the free text of "New session" (GUI2-T17). The service validates it against the
     declared workflows and their inputs; nothing here starts a run."""
 
     workflow_id: str = Field(default="", max_length=120)

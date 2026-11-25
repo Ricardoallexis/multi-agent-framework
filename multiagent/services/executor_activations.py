@@ -1,11 +1,11 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""«Activar» an executor from the GUI, on the server (EJE-T01): the fingerprint, the local setting and the pause.
+"""Activate an executor from the GUI, on the server (EJE-T01): the fingerprint, the local setting and the pause.
 
 Only a person turns an executor on, one at a time, after reading a fixed note and with the one-use code of the
 approvals (``executor_activate``). The setting is a local file, ``<local_dir>/executors-activados.json``; the catalog
 keeps every executor off and ``apply_to_config`` turns on the active ones when the registry loads. Nothing here starts,
-detects on its own or enables an application: ``fingerprint`` asks the same detector as «Conexiones» (a fixed
+detects on its own or enables an application: ``fingerprint`` asks the same detector as "Connections" (a fixed
 ``--version`` and the status command of each CLI) and never reads a token.
 """
 from __future__ import annotations
@@ -77,7 +77,7 @@ def compare(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, An
     """What changed from the activated fingerprint to the current one (rule 5), as ``[{"field", "from", "to"}]``.
 
     Only a different ``path``, a different ``major`` or a different ``account`` counts, the last two only when both
-    sides have a value: a new minor version does not, nor an account the CLI stops reporting (Foco de revisión 5).
+    sides have a value: a new minor version does not, nor an account the CLI stops reporting (Review focus 5).
     """
     changes: list[dict[str, Any]] = []
     if old.get("path") != new.get("path"):
@@ -90,25 +90,25 @@ def compare(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, An
 
 
 def note_text(executor_id: str, fingerprint: Mapping[str, Any]) -> str:
-    """The fixed note the person reads before «Activar» (rule 3). Only the application and the account vary."""
+    """The fixed note the person reads before "Activate" (rule 3). Only the application and the account vary."""
     label = _LABELS[executor_id]
     account = fingerprint.get("account")
-    who = (f"la cuenta {account}" if account else "la cuenta con la que iniciaste sesión en esa aplicación")
+    who = (f"the account {account}" if account else "the account you signed in with in that application")
     lines = [
-        f"Vas a activar {label}: el framework podrá lanzar la aplicación instalada en {fingerprint.get('path') or 'tu equipo'} "
-        f"con {who}.",
-        "Cada lanzamiento gasta tu suscripción y tu cuota, no las del framework.",
-        "El agente lee y escribe en la carpeta de trabajo de cada tarea.",
-        "Rigen las condiciones del proveedor de la aplicación.",
-        "Los límites de uso, los permisos y la privacidad no cambian.",
-        "Si la ruta, la versión principal o la cuenta cambian, la activación queda en pausa y se te vuelve a preguntar. "
-        "No se puede detectar que un proveedor cambie dónde guarda los datos.",
-        "Puedes desactivarla cuando quieras, o apagar todos los ejecutores a la vez.",
+        f"You are about to activate {label}: the framework will be able to launch "
+        f"the application installed on {fingerprint.get('path') or 'your computer'} with {who}.",
+        "Each launch uses your subscription and quota, not the framework's.",
+        "The agent reads and writes in each task's working directory.",
+        "The application's provider terms apply.",
+        "Usage limits, permissions and privacy do not change.",
+        "If the path, major version or account changes, activation is paused and you will be asked again. "
+        "A provider's change to where it stores data cannot be detected.",
+        "You can deactivate it at any time, or turn off all executors at once.",
     ]
     if executor_id == "antigravity_cli":
-        lines.insert(4, "Aceptas el aviso de terceros de Antigravity (" + NOTICE_IDS[executor_id] + "): es una "
-                        "aplicación de otro proveedor y su uso desde otros programas puede estar limitado. "
-                        "Nunca se usan créditos de IA.")
+        lines.insert(4, "You accept Antigravity's third-party notice (" + NOTICE_IDS[executor_id] + "): it is an "
+                        "application from another provider, and its use from other programs may be limited. "
+                        "AI credits are never used.")
     return "\n".join(lines)
 
 
@@ -123,7 +123,7 @@ class ExecutorActivationServices:
     # -------- inputs --------
     @property
     def detector(self) -> Callable[..., dict]:
-        """The detector of «Conexiones» (``setup/detect.py``); tests replace it with a fake one."""
+        """The detector of "Connections" (``setup/detect.py``); tests replace it with a fake one."""
         if self._detector is not None:
             return self._detector
         return self._services.connections.detector
@@ -275,7 +275,7 @@ class ExecutorActivationServices:
         return [executor_id for executor_id in EXECUTOR_IDS if executor_id in entries and not entries[executor_id]["paused"]]
 
     def notice_accepted(self, executor_id: str) -> str | None:
-        """The notice the person accepted in «Activar» (agy), only while the executor is active."""
+        """The notice the person accepted in "Activate" (agy), only while the executor is active."""
         if executor_id in self.active_ids():
             return self._read()[executor_id].get("notice") or None
         return None
@@ -292,7 +292,7 @@ class ExecutorActivationServices:
                     declared[executor_id]["enabled"] = True
         return result
 
-    # -------- «Activar» --------
+    # -------- Activate --------
     def request(self, executor_id: str) -> dict[str, Any]:
         """Create, or reuse when one is pending for the same fingerprint, the ``executor_activate`` approval."""
         self._check(executor_id)
@@ -322,7 +322,7 @@ class ExecutorActivationServices:
         item = approvals.peek(approval_id) if isinstance(approval_id, str) and approval_id else None
         if (item is None or item.get("kind") != APPROVAL_KIND or item.get("state") != "approved"
                 or not approvals.consume(approval_id, sha256=item["sha256"], destination=destination)):
-            raise _conflict("person_required", "Activating an executor needs a person: use «Activar» in the GUI",
+            raise _conflict("person_required", 'Activating an executor needs a person: use "Activate" in the GUI',
                             executor_id=executor_id)
         fingerprint = self.fingerprint(executor_id)
         if fingerprint["sha256"] != item["sha256"]:      # the application changed between the note and the click
@@ -356,7 +356,7 @@ class ExecutorActivationServices:
         return self._row(executor_id)
 
     def stop_all(self) -> dict[str, Any]:
-        """«Apagar todos»: stop what runs, pause every activation and write the agy kill switch."""
+        """"Turn all off": stop what runs, pause every activation and write the agy kill switch."""
         paused: list[str] = []
         with self._lock:
             entries = self._read()

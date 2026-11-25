@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""«Nueva sesión» reads free text with the configured provider (GUI2-T17).
+"""The "New session" flow reads free text with the configured provider (GUI2-T17).
 
 The GUI chat used to compare the words of the text with workflow names and descriptions. :meth:`interpret` asks the
 framework's own provider layer (Mock, Ollama or a cloud model, through the same ``ModelRouter`` the steps use) to
@@ -49,7 +49,7 @@ CATALOG_MARKER = "CATALOG_JSON:"
 PLAN_DRAFT_SCHEMA = "maf.new-session-plan/1"
 PLAN_GROUP_PREFIX = "chat-"
 PLAN_TASK_PREFIX = "plan"
-PLAN_NOTE = "Prepared from «Nueva sesión»"
+PLAN_NOTE = 'Prepared from "New session"'
 PROVENANCE = Provenance(kind="gui_free_text", label="free text typed in the new session chat")
 
 INSTRUCTIONS = (
@@ -306,7 +306,7 @@ class NewSessionServices:
                 if confirm_cloud:
                     area = next(area.id for area, data_class in zip(office_definition.areas, office_classes)
                                 if data_class is None)
-                    raise ServiceError(INVALID_STATE, "Esta área no tiene nivel de privacidad: asígnale uno antes de pedir el plan",
+                    raise ServiceError(INVALID_STATE, "This area has no privacy level: assign one before requesting a plan",
                                        status=409, details={"reason": "office_level_required",
                                                             "office": office, "area": area})
                 result = {"reason": "cloud_confirmation_required",
@@ -325,7 +325,7 @@ class NewSessionServices:
                 if template is None:
                     template = self._template(clean, catalog)
                 if template is None:
-                    message = "Esta oficina no trae un plan por defecto: pide una cosa por vez"
+                    message = "This office has no default plan: ask for one thing at a time"
                     raise ServiceError(INVALID_STATE, message, status=409,
                                        details={"reason": "office_plan_unavailable", "fix": message})
                 request = {"group_id": group_id, "goal": clean, "template": template}
@@ -344,7 +344,7 @@ class NewSessionServices:
             allowed = set(office_bundles)
             for task in proposal["tasks"]:
                 if task.get("bundle") not in allowed:
-                    raise ServiceError(INVALID_REQUEST, "El borrador contiene una tarea de un área ajena a esta oficina",
+                    raise ServiceError(INVALID_REQUEST, "The draft contains a task from an area outside this office",
                                        status=422,
                                        details={"reason": "office_plan_outside_office", "task": task})
         teams = [{"bundle": item["bundle"], "roles": item["roles"], "action": "propose"}

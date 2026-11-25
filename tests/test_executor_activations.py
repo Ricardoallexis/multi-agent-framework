@@ -115,7 +115,7 @@ def test_activate_needs_one_time_code(env):
     asked = post(env, "/executors/claude_cli/activation")
     assert asked.status_code == 200, asked.text
     body = asked.json()
-    assert body["note_id"] and body["text"] and "suscripción" in body["text"] and body["sha256"]
+    assert body["note_id"] and body["text"] and "subscription" in body["text"] and body["sha256"]
     approval_id = body["approval_id"]
     for attempt in (approval_id, "no-such-approval", "x"):          # not decided, or not an approval at all
         refused_call = post(env, "/executors/claude_cli/activate", {"approval_id": attempt})
@@ -379,8 +379,8 @@ def test_agy_note_counts_as_notice_accepted(env):
     adapter = env.services.assignment.registry.resolve("antigravity_cli")
     assert adapter.notice_accepted is False
     asked = env.activations.request("antigravity_cli")
-    assert ea.NOTICE_IDS["antigravity_cli"] in asked["note"] and "créditos de IA" in asked["note"]
-    assert "créditos" not in env.activations.request("claude_cli")["note"]
+    assert ea.NOTICE_IDS["antigravity_cli"] in asked["note"] and "AI credits" in asked["note"]
+    assert "credits" not in env.activations.request("claude_cli")["note"]
     activate(env, "antigravity_cli")
     assert env.activations.notice_accepted("antigravity_cli") == AGY_NOTICE
     adapter = env.services.assignment.registry.resolve("antigravity_cli")

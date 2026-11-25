@@ -52,7 +52,7 @@ def step_plan(app: str, step: str) -> dict:
     """Return only dated, fixed commands; there is no caller supplied command."""
     if app == "agy" and step == "login":
         return {"app": app, "step": step, "command": None,
-                "message": "Inicia sesión tú en agy; su sesión no se puede comprobar sin gastar."}
+                "message": "Sign in to agy yourself; its session cannot be checked without spending credits."}
     if app not in STEPS or step not in {"install", "login"}:
         raise ValueError("Unsupported app or setup step")
     command, source = STEPS[app][step]

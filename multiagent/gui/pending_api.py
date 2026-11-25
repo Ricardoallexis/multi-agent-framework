@@ -26,22 +26,22 @@ def _item(kind: str, source_id: str, title: str, reason: str, since: Any, href: 
             "reason": _short(reason, ""), "since": since if isinstance(since, str) else None, "href": href}
 
 
-# MEM-T01: what a person reads in «Pendientes» for the two memory approvals (the entry title is data, shown as text)
-_MEMORY_REASONS = {"memory_trust": "Confirma que este apunte es tuyo para que se trate como fiable",
-                   "memory_delete": "Confirma que se borre este apunte; no se puede deshacer"}
-# MEM-T02: a new apunte that contradicts one the person confirmed
-_MEMORY_CLASH_REASON = ("Este apunte contradice uno que confirmaste. Si lo apruebas pasa a fiable "
-                        "y el tuyo queda en Pendientes para borrarlo")
+# MEM-T01: what a person reads in "Pending" for the two memory approvals (the entry title is data, shown as text)
+_MEMORY_REASONS = {"memory_trust": "Confirm that this note is yours so it can be treated as trusted",
+                   "memory_delete": "Confirm that this note should be deleted; this cannot be undone"}
+# MEM-T02: a new note that contradicts one the person confirmed
+_MEMORY_CLASH_REASON = ("This note contradicts one you confirmed. If you approve it, this note becomes trusted "
+                        "and yours remains in Pending for deletion")
 
 
 def _approval_item(approval: dict[str, Any]) -> dict[str, Any]:
     approval_id = str(approval["id"])
     kind = str(approval["kind"])
-    title, reason = "Aprobación requerida", kind
+    title, reason = "Approval required", kind
     if kind in _MEMORY_REASONS:
         location = approval.get("location")
         entry = location.get("title") if isinstance(location, dict) else None
-        title = "Apunte del proyecto" + (": " + entry if isinstance(entry, str) and entry.strip() else "")
+        title = "Project note" + (": " + entry if isinstance(entry, str) and entry.strip() else "")
         reason = _MEMORY_REASONS[kind]
         if kind == "memory_trust" and isinstance(location, dict) and location.get("conflicts_with"):
             reason = _MEMORY_CLASH_REASON
@@ -72,7 +72,7 @@ def pending_items(services: Any) -> list[dict[str, Any]]:
             continue
         run_id = str(run["id"])
         items.append(_item("run", run_id, run.get("project_name") or run.get("workflow_id") or run_id,
-                           run.get("waiting_reason") or "Revisión humana",
+                           run.get("waiting_reason") or "Human review",
                            run.get("updated_at") or run.get("created_at"),
                            "#new/run/" + quote(run_id, safe="")))
 
@@ -80,7 +80,7 @@ def pending_items(services: Any) -> list[dict[str, Any]]:
         for version in services.teams.list(bundle, status="proposed")["versions"]:
             version_id = str(version["id"])
             title = f"{bundle} · v{version.get('version') or version_id}"
-            items.append(_item("team", version_id, title, "Versión de equipo propuesta",
+            items.append(_item("team", version_id, title, "Proposed team version",
                                version.get("proposed_at") or version.get("created_at"),
                                # CHT-T05: the team card thread, one stop with Approve and Reject.
                                "#new/team/" + quote(version_id, safe="")))
@@ -95,7 +95,7 @@ def pending_items(services: Any) -> list[dict[str, Any]]:
         if card.get("decision", "pending") != "pending":
             continue
         task_id = str(card["task_id"])
-        reason = "Límite de uso" + (f" · {card['reason']}" if card.get("reason") else "")
+        reason = "Usage limit" + (f" · {card['reason']}" if card.get("reason") else "")
         items.append(_item("continuity", task_id, card.get("title") or task_id, reason, card.get("since"), "#continuity"))
 
     # This is the same task read and user-wait filter used by the task_waiting API/view.
@@ -105,7 +105,7 @@ def pending_items(services: Any) -> list[dict[str, Any]]:
             continue
         task_id = str(task["id"])
         items.append(_item("task", task_id, task.get("title") or task_id,
-                           waiting.get("question") or "Espera tu decisión", waiting.get("since"), "#task_waiting"))
+                           waiting.get("question") or "Waiting for your decision", waiting.get("since"), "#task_waiting"))
 
     return items
 
@@ -124,7 +124,7 @@ def add_pending_routes(api: APIRouter, services: Any) -> None:
         runs = [*services.runs.list(limit=MAX_ITEMS, status="running"),
                 *services.runs.list(limit=MAX_ITEMS, status="queued")]
         items = [_item("run", str(run["id"]), run.get("project_name") or run.get("workflow_id") or str(run["id"]),
-                       "En ejecución" if run.get("status") == "running" else "En cola",
+                       "Running" if run.get("status") == "running" else "Queued",
                        run.get("updated_at") or run.get("created_at"),
                        "#new/run/" + quote(str(run["id"]), safe=""))
                  for run in runs if run.get("status") in {"running", "queued"}]

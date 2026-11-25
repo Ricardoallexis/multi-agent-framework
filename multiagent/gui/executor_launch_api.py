@@ -1,6 +1,6 @@
 # Copyright 2026 Ricardoallexis and contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Token-protected, explicitly approved launches from «Sesión única»."""
+"""Token-protected, explicitly approved launches from "Single session"."""
 from __future__ import annotations
 
 from uuid import uuid4
@@ -51,8 +51,8 @@ def add_executor_launch_routes(api: APIRouter, services) -> None:
         identity = uuid4().hex
         group_id = "GuiExec-" + identity
         task_id = "gui-executor-" + identity
-        services.tasks.create_group(group_id, "Sesión única con ejecutor", actor="user:operator", authorized=True)
-        services.tasks.create_task(group_id, task_id, "Sesión única con ejecutor", actor="user:operator",
+        services.tasks.create_group(group_id, "Single session with executor", actor="user:operator", authorized=True)
+        services.tasks.create_task(group_id, task_id, "Single session with executor", actor="user:operator",
                                    objective=task, continuity={"mode": "manual"})
         try:
             result = await anyio.to_thread.run_sync(lambda: services.executors.run_task(

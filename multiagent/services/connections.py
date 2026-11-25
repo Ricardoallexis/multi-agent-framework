@@ -43,7 +43,7 @@ class ConnectionServices:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self._last: dict[str, dict[str, Any]] = {}
         self._batch_detection: dict[str, Any] | None = None
-        self._probed: dict[str, str] = {}      # the outcome of the last «Probar conexión» of each provider
+        self._probed: dict[str, str] = {}      # the outcome of the last "Test connection" of each provider
 
     def list(self) -> dict[str, Any]:
         if any(identifier not in self._last for identifier in APPS):
@@ -204,7 +204,7 @@ class ConnectionServices:
             elif not row["enabled"]:
                 row.update(reason="disabled", missing_step="enable")
             elif identifier == "openai" and self._probed.get("openai") == "tls_certificate":
-                row["reason"] = "tls_certificate"      # the last «Probar conexión» failed on the certificate
+                row["reason"] = "tls_certificate"      # the last "Test connection" failed on the certificate
             elif identifier == "gemini":
                 from ..model_checks import gemini_verification
                 check = gemini_verification()
@@ -252,7 +252,7 @@ class ConnectionServices:
             row["tls_revert"] = {"trust": "certifi", "label": TLS_REVERT_LABEL}
 
     def probe(self, identifier: str) -> dict[str, Any]:
-        """«Probar conexión»: one request that generates nothing (the model list, or Ollama's health). Only on request."""
+        """The "Test connection" flow makes one request that generates nothing (the model list or Ollama's health). Only on request."""
         if identifier not in PROVIDERS:
             raise ServiceError(NOT_FOUND, "Connection not found", status=404, details={"id": identifier})
         row = self.check(identifier)

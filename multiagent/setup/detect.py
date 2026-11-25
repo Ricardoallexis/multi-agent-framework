@@ -77,16 +77,16 @@ def _version(executable: str, cwd: Path) -> tuple[str | None, str]:
 def _version_fact(executable: str, cwd: Path) -> dict[str, Any]:
     version, reason = _version(executable, cwd)
     return {"version": version, "version_result": reason,
-            "next_step": None if version else "Comprobar la versión en la consola oficial de la app."}
+            "next_step": None if version else "Check the version in the application's official console."}
 
 
 def _session(app: str, executable: str, cwd: Path) -> dict[str, Any]:
     arguments = COMMANDS[app][1]
-    unknown = {"state": "unknown", "message": "no se puede comprobar",
+    unknown = {"state": "unknown", "message": "cannot be checked",
                "command": list(arguments) if arguments else None,
-               "next_step": "Comprobar la sesión en la consola oficial de la app."}
+               "next_step": "Check the session in the application's official console."}
     if app == "copilot":
-        return {**unknown, "message": "no se puede comprobar sin gastar"}
+        return {**unknown, "message": "cannot be checked without spending credits"}
     if arguments is None:
         return unknown
     try:
@@ -110,10 +110,10 @@ def _session(app: str, executable: str, cwd: Path) -> dict[str, Any]:
             state = "signed_in" if active and not inactive else "signed_out" if inactive and not active else "unknown"
         if state == "unknown":
             return unknown
-        return {"state": state, "message": "sesión iniciada" if state == "signed_in" else "sesión no iniciada en este entorno de medición",
+        return {"state": state, "message": "signed in" if state == "signed_in" else "not signed in in this measurement environment",
                 "command": list(arguments),
                 "next_step": None if state == "signed_in" else unknown["next_step"],
-                "measured_with": "sin variables CLAUDE*/ANTHROPIC*" if app == "claude" else None}
+                "measured_with": "without CLAUDE*/ANTHROPIC* variables" if app == "claude" else None}
     except (process.ProcessLaunchError, OSError, ValueError, RecursionError):
         return unknown
 
@@ -121,14 +121,14 @@ def _session(app: str, executable: str, cwd: Path) -> dict[str, Any]:
 def _app(app: str, cwd: Path, declared_path: str | None, steps: _Steps) -> dict[str, Any]:
     result: dict[str, Any] = {
         "app": app, "detection": "not_detected", "origin": "declared_path" if declared_path else "PATH",
-        "version": None, "version_status": "versión no comprobada",
-        "version_command": [app, "--version"], "compatibility": "compatibilidad no declarada",
-        "session": {"state": "unknown", "message": "no se puede comprobar"},
-        "next_step": "Comprobar PATH desde la consola del usuario.",
+        "version": None, "version_status": "version not checked",
+        "version_command": [app, "--version"], "compatibility": "compatibility not declared",
+        "session": {"state": "unknown", "message": "cannot be checked"},
+        "next_step": "Check PATH from the user's console.",
     }
     if app == "agy":
         result["informational_only"] = True
-        result["warning"] = "Revisar el aviso de uso limitado en la FAQ de Antigravity; no se habilita un ejecutor."
+        result["warning"] = "Review the limited-use notice in the Antigravity FAQ; this does not enable an executor."
     try:
         if declared_path and not Path(declared_path).is_absolute():
             raise ValueError("absolute path required")
@@ -137,31 +137,31 @@ def _app(app: str, cwd: Path, declared_path: str | None, steps: _Steps) -> dict[
         executable = process.resolve_executable(declared_path or app, cwd)
     except (process.ProcessLaunchError, OSError, ValueError):
         if declared_path:
-            result.update(detection="invalid_declared_path", next_step="Declarar una ruta absoluta existente fuera de la carpeta de trabajo.")
+            result.update(detection="invalid_declared_path", next_step="Declare an existing absolute path outside the working directory.")
         elif app == "claude":
-            result["next_step"] = "No pudo comprobarse la instalación administrada por la app; declarar su ruta absoluta."
+            result["next_step"] = "The app-managed installation could not be checked; declare its absolute path."
         return result
-    observation = steps.run(app, "version", [app, "--version"], "Comprobar la versión sin modificar la app.",
+    observation = steps.run(app, "version", [app, "--version"], "Check the version without modifying the app.",
                             lambda: _version_fact(executable, cwd))
     version, reason = observation["version"], observation["version_result"]
     arguments = COMMANDS[app][1]
-    session = ({"state": "unknown", "message": "no se puede comprobar",
-                "next_step": "Comprobar la sesión en la consola oficial de la app."}
+    session = ({"state": "unknown", "message": "cannot be checked",
+                "next_step": "Check the session in the application's official console."}
                if reason == "timed_out" else
                steps.run(app, "session", [app, *arguments] if arguments else None,
-                         "Comprobar sesión con el comando fijo; sin comando, informar sin sondear.",
+                         "Check the session with the fixed command; without a command, report without probing.",
                          lambda: _session(app, executable, cwd)))
     result.update(detection="detected", version=version,
-                  version_status="comprobada" if version and app in {"claude", "codex"} else "versión no comprobada",
+                  version_status="checked" if version and app in {"claude", "codex"} else "version not checked",
                   version_result=reason, session=session,
-                  next_step=None if version else "Comprobar la versión en la consola oficial de la app.")
+                  next_step=None if version else "Check the version in the application's official console.")
     return result
 
 
 def _requirements(cwd: Path, steps: _Steps) -> list[dict[str, Any]]:
     def check(name, minimum):
         requirement: dict[str, Any] = {"name": name, "minimum_major": minimum, "state": "missing",
-                                      "next_step": f"Instalar o hacer visible {name} en PATH; no se instala automáticamente."}
+                                      "next_step": f"Install {name} or make it available on PATH; it is not installed automatically."}
         try:
             executable = process.resolve_executable(name, cwd)
         except (process.ProcessLaunchError, OSError, ValueError):
@@ -170,17 +170,17 @@ def _requirements(cwd: Path, steps: _Steps) -> list[dict[str, Any]]:
             requirement["state"] = "present"
             requirement["next_step"] = None
             if minimum is not None:
-                observation = steps.run(name, "version", [name, "--version"], "Comprobar la versión del requisito.",
+                observation = steps.run(name, "version", [name, "--version"], "Check the requirement version.",
                                         lambda: _version_fact(executable, cwd))
                 version = observation["version"]
                 requirement["version"] = version
                 requirement["state"] = "unknown" if version is None else "satisfied" if int(version.split(".")[0]) >= minimum else "too_old"
                 if requirement["state"] != "satisfied":
-                    requirement["next_step"] = f"Comprobar o instalar {name} >= {minimum} en la consola del usuario."
+                    requirement["next_step"] = f"Check or install {name} >= {minimum} in the user's console."
         requirement["applies_to"] = "npm installations" if name in {"node", "npm"} else "Copilot CLI" if name == "pwsh" else "winget installations"
         return requirement
 
-    return [steps.run(name, "requirement", None, "Comprobar presencia y requisito mínimo sin instalar.",
+    return [steps.run(name, "requirement", None, "Check for presence and the minimum requirement without installing.",
                       lambda name=name, minimum=minimum: check(name, minimum))
             for name, minimum in (("node", 22), ("npm", None), ("pwsh", 6), ("winget", None))]
 
@@ -205,13 +205,14 @@ def detect(*, cwd: Path | str | None = None, context: str = "user_console",
               "reference_context": "user_console", "contexts": contexts}
     steps = _Steps(context, before_step, after_step)
     if operating_system != "Windows":
-        contexts[context] = steps.run("platform", "detection", None, "Comprobar si hay fuente verificada para el sistema.",
-            lambda: {"state": "unsupported", "message": "sin fuente verificada", "apps": [], "requirements": [],
-                     "next_step": "Usar una consola Windows; las demás plataformas no tienen fuente verificada."})
+        contexts[context] = steps.run("platform", "detection", None, "Check whether a verified source exists for the system.",
+            lambda: {"state": "unsupported", "message": "no verified source",
+                     "apps": [], "requirements": [],
+                     "next_step": "Use a Windows console; no verified source is available for other platforms."})
         return report
     apps = (*APPS, "agy") if include_antigravity else APPS
     contexts[context] = {"state": "measured", "apps": [
-        steps.run(app, "detection", None, "Resolver PATH o la ruta declarada; no abrir almacenes de credenciales.",
+        steps.run(app, "detection", None, "Resolve PATH or the declared path; do not open credential stores.",
                   lambda app=app: _app(app, folder, claude_path if app == "claude" else None, steps))
         for app in apps], "requirements": _requirements(folder, steps)}
     return report

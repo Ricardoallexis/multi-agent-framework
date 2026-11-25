@@ -108,7 +108,7 @@ class ApprovalSessions:
             if self.bootstrap_code is None or self._session is not None or not code or not hmac.compare_digest(
                     code, self.bootstrap_code):
                 raise HTTPException(status_code=409, detail={
-                    "code": "invalid_state", "message": "Otra pestaña o navegador ya tomó las aprobaciones: reinicia la GUI",
+                    "code": "invalid_state", "message": "Another tab or browser has already taken the approvals; restart the GUI",
                     "details": {"reason": "approval_session_unavailable"},
                 })
             self._session = secrets.token_urlsafe(32)

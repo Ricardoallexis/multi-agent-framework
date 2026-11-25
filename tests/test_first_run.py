@@ -77,7 +77,7 @@ def done(status):
 
 def test_fresh_install_all_pending(env):
     status = env.first_run.status()
-    assert STEP_TITLES["install"] == "Instalar una oficina"
+    assert STEP_TITLES["install"] == "Install an office"
     assert status["schema"] == FIRST_RUN_SCHEMA == "maf.first-run/1"
     assert [step["id"] for step in status["steps"]] == list(STEPS)
     assert [step["title"] for step in status["steps"]] == [STEP_TITLES[step] for step in STEPS]
@@ -188,7 +188,7 @@ def test_times_from_launcher_start(env):
     assert status["install_started_at"].startswith("2026-11-22T11:57:00")
     assert status["times"][0]["id"] == "install" and status["times"][0]["minutes"] == 3
     text = first_run.times_text()
-    assert "Instalar una oficina" in text and "3 min" in text and "pendiente" in text
+    assert "Install an office" in text and "3 min" in text and "pending" in text
     assert STEP_TITLES["real_run"] in text
 
 
@@ -203,7 +203,7 @@ def test_set_models_route(env):
     response = env.client.post("/gui/api/settings/models", headers=env.headers, json={"models": "real"})
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body == {"models": "real", "restart_required": True, "text": "Cierra esta ventana y vuelve a abrir Iniciar"}
+    assert body == {"models": "real", "restart_required": True, "text": "Close this window and reopen the Iniciar launcher"}
     assert env.services.gui_settings.value("models") == "real"
     assert env.client.post("/gui/api/settings/models", headers=env.headers, json={"models": "otro"}).status_code == 422
     back = env.client.post("/gui/api/settings/models", headers=env.headers, json={"models": "mock"})
@@ -217,7 +217,7 @@ def test_start_route(env):
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["schema"] == FIRST_RUN_SCHEMA and body["pending"][0] == "try_mock"
-    assert "Instalar una oficina" in body["times_text"]
+    assert "Install an office" in body["times_text"]
     assert env.client.get("/gui/api/start").status_code in (401, 403)
 
 
