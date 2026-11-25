@@ -66,12 +66,9 @@ export const HELP = {
     "hint": "Revisa los workflows, contratos YAML con esquema válido, roles y requisitos de cada área.",
     "more": [
       "Al instalar, también se aprueban los equipos que aparecen en la ficha.",
-      "Un workflow sin role: puede ejecutarse aunque el equipo siga propuesto; los que declaran puestos requieren un equipo aprobado.",
-      "Un plan solo se bloquea cuando sus tareas necesitan puestos sin aprobar.",
-      "La ficha solo reconoce llamadas estáticas a register_function; los helpers no son funciones registradas.",
-      "contracts.py no se ejecuta para preparar la ficha; sus declaraciones no se verifican antes de aprobar.",
-      "La revisión de SkillSpector tiene un alcance limitado y no garantiza que el código sea seguro.",
-      "Si no hay escáner instalado, no se hizo la revisión; eso no significa que no haya hallazgos."
+      "Un workflow sin role: puede ejecutarse aunque el equipo siga propuesto; los que declaran puestos necesitan un equipo aprobado.",
+      "La ficha lee functions.py y contracts.py sin ejecutarlos: solo reconoce llamadas estáticas a register_function y no verifica sus contratos antes de aprobar.",
+      "La revisión de SkillSpector tiene un alcance limitado; si no hay escáner instalado, no se hizo la revisión, y eso no significa que no haya hallazgos."
     ]
   },
   "offices.install": {
