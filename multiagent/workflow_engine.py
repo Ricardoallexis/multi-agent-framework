@@ -21,7 +21,7 @@ from .functions import (FUNCTION_CHANGED, FUNCTION_RUN, FunctionStepError, execu
                         function_retry_requested, hold_before_function, wait_for_function_failure)
 from .call_guards import (
     SCOPE_RUN_STEP, STOP_USER_CANCEL, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
-    grant_correction_allowance, person_correction_pending,
+    grant_correction_allowance, person_correction_pending, profile_dispatches_since_correction,
 )
 from .catalog import Catalog, CatalogError, ModelSpec, validate_routing_profile
 from .context.project_memory import (
@@ -1400,9 +1400,7 @@ class WorkflowEngine:
                                                    "but max_llm_calls is reached.")
         profile_limit = profile.get("max_provider_invocations") if isinstance(profile, dict) else None
         if profile_limit is not None:
-            used = sum(1 for event in latest.get("events", [])
-                       if event.get("event_type") == "routing_dispatch_reserved"
-                       and event.get("payload", {}).get("profile_id") == profile_id)
+            used = profile_dispatches_since_correction(latest.get("events", []), profile_id)
             if used >= int(profile_limit):
                 raise blocked("max_provider_invocations_reached",
                               f"{failed}. Escalation to {to_level} needs another dispatch but the profile's "

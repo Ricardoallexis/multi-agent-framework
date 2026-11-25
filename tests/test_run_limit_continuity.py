@@ -313,6 +313,17 @@ def test_the_profile_invocation_limit_counts_from_the_last_correction():
     assert check() is PROCEED
 
 
+def test_the_shared_dispatch_count_starts_after_the_last_correction():
+    from multiagent.call_guards import profile_dispatches_since_correction
+
+    reserved = {"event_type": "routing_dispatch_reserved", "payload": {"profile_id": "eco"}}
+    other = {"event_type": "routing_dispatch_reserved", "payload": {"profile_id": "other"}}
+    revision = {"event_type": "human_revision", "payload": {}}
+    assert profile_dispatches_since_correction([reserved, other, reserved], "eco") == 2
+    assert profile_dispatches_since_correction([reserved, revision, reserved, other, revision, reserved], "eco") == 1
+    assert profile_dispatches_since_correction(None, "eco") == 0
+
+
 # --------------------------------------------------------------------------- the limit state
 
 def model(tier, level=None, pricing=None, provider="gemini"):

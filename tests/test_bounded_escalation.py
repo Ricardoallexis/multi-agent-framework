@@ -422,6 +422,31 @@ def test_the_dispatch_budget_with_room_lets_the_escalation_run(tmp_path):
         "t1", "t2"]
 
 
+def _queued_after_earlier_dispatch(system, *, corrected):
+    """A run that already booked one dispatch of ``eco`` (optionally followed by a correction of the person) and is queued."""
+    run = system.run_service.create_social_post(SocialPostRequest(
+        project_name="eco-t06", objective="Create an educational post", topic="KNX"))
+    system.store.db.log_event(run["id"], "routing_dispatch_reserved", {"profile_id": "eco", "attempted_model": "t1"})
+    if corrected:
+        system.store.db.log_event(run["id"], "human_revision", {"step_id": "create", "attempt": 1, "comment": "Fix it"})
+    system.worker.process_once()
+    return run["id"]
+
+
+def test_the_dispatch_budget_counts_from_the_last_correction_when_escalating(tmp_path):
+    system = make(tmp_path, scripts={"t1": ["bad"], "t2": ["ok"]}, eco=profile(max_provider_invocations=2))
+    run = state(system, _queued_after_earlier_dispatch(system, corrected=True))
+    assert system.lab.calls == ["t1", "t2"] and events(run, "model_escalated")
+    assert not events(run, "escalation_blocked")
+
+
+def test_the_dispatch_budget_without_a_correction_still_counts_every_dispatch_when_escalating(tmp_path):
+    system = make(tmp_path, scripts={"t1": ["bad"], "t2": ["ok"]}, eco=profile(max_provider_invocations=2))
+    run = state(system, _queued_after_earlier_dispatch(system, corrected=False))
+    assert system.lab.calls == ["t1"]
+    assert events(run, "escalation_blocked")[0]["code"] == "max_provider_invocations_reached"
+
+
 def _with_output_estimate(system, monkeypatch, tokens=100):
     """The engine estimates input tokens only; a host that also estimates output makes cost budgets usable."""
     select_ = system.engine.router.select

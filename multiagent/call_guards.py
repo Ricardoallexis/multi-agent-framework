@@ -291,16 +291,7 @@ class RunLimitsGuard:
 
     def check(self, call: CallContext, state: RunState) -> Verdict:
         if self.profile_id is not None:
-            # A correction the person asked for has its own margin: only the dispatches after the last ``human_revision``
-            # count. A run nobody corrected counts them all, as it always did.
-            events = list(state.get("events", []))
-            since = max((position for position, event in enumerate(events) if event.get("event_type") == "human_revision"),
-                        default=-1) + 1
-            used = sum(
-                1 for event in events[since:]
-                if event.get("event_type") == "routing_dispatch_reserved"
-                and event.get("payload", {}).get("profile_id") == self.profile_id
-            )
+            used = profile_dispatches_since_correction(state.get("events", []), self.profile_id)
             limit = self.profile.get("max_provider_invocations") if isinstance(self.profile, Mapping) else None
             if limit is not None and used >= int(limit):
                 return Stop("max_provider_invocations", "routing profile max_provider_invocations reached")
@@ -328,6 +319,20 @@ def cut_by_run_limits(run: Mapping[str, Any]) -> bool:
                 for payload in [event.get("payload") or {}]
                 if payload.get("provider_invoked") is not False and payload.get("stage") != "preflight"]
     return not (attempts and attempts[-1].get("error_type") in ("QuotaExceeded", "RateLimitExceeded"))
+
+
+def profile_dispatches_since_correction(events: Iterable[Mapping[str, Any]] | None, profile_id: str | None) -> int:
+    """Dispatches booked for a routing profile, counted from the last ``human_revision`` (LIM-T01).
+
+    A correction the person asked for has its own margin, so earlier dispatches do not count. A run nobody corrected
+    counts them all, as it always did. The guard and the escalation share this count.
+    """
+    items = list(events or [])
+    since = max((position for position, event in enumerate(items) if event.get("event_type") == "human_revision"),
+                default=-1) + 1
+    return sum(1 for event in items[since:]
+               if event.get("event_type") == "routing_dispatch_reserved"
+               and event.get("payload", {}).get("profile_id") == profile_id)
 
 
 def person_correction_pending(events: Iterable[Mapping[str, Any]] | None, step_id: str, attempt: int) -> bool:
