@@ -87,26 +87,26 @@ try {
     $html = Invoke-Viewer
 
     $expected = [ordered]@{
-        'seg:PHA:fase-1' = @('Cambios pedidos', 's-requiere-cambios')
-        'seg:PHA:fase-2' = @('Integrando · pruebas desde 12:34', 's-en-curso')
-        'seg:PHA:fase-3' = @('Fase completa', 's-integrada')
-        'seg:PHA:fase-4' = @('Fase completa', 's-integrada')
-        'seg:PHA:fase-5' = @('Fase terminada · falta integrar', 's-pendiente')
-        'seg:PHA:fase-6' = @('En curso', 's-en-curso')
-        'seg:PHA:fase-7' = @('Avance parcial · 1 de 2', 's-pendiente')
-        'seg:PHA:fase-8' = @('Lista', 's-disponible')
-        'seg:PHA:fase-9' = @('En espera de dependencias', 's-idle')
-        'seg:PHA' = @('Cambios pedidos', 's-requiere-cambios')
-        'seg:S01' = @('Cambios pedidos', 's-requiere-cambios')
-        'seg:S02' = @('Integrando · pruebas desde 12:34', 's-en-curso')
-        'seg:S03' = @('Etapa terminada · falta cerrar', 's-pendiente')
-        'seg:S04' = @('Cerrada', 's-integrada')
-        'seg:S05' = @('cierre no verificado', 's-unknown')
-        'seg:S06' = @('Etapa terminada · falta integrar', 's-pendiente')
-        'seg:S07' = @('En curso', 's-en-curso')
-        'seg:S08' = @('Avance parcial · 1 de 2', 's-pendiente')
-        'seg:S09' = @('Lista', 's-disponible')
-        'seg:S10' = @('En espera de dependencias', 's-idle')
+        'seg:PHA:fase-1' = @('Changes requested', 's-requiere-cambios')
+        'seg:PHA:fase-2' = @('Integrating · tests since 12:34', 's-en-curso')
+        'seg:PHA:fase-3' = @('Phase complete', 's-integrada')
+        'seg:PHA:fase-4' = @('Phase complete', 's-integrada')
+        'seg:PHA:fase-5' = @('Phase completed · integration pending', 's-pendiente')
+        'seg:PHA:fase-6' = @('In progress', 's-en-curso')
+        'seg:PHA:fase-7' = @('Partial progress · 1 of 2', 's-pendiente')
+        'seg:PHA:fase-8' = @('Available', 's-disponible')
+        'seg:PHA:fase-9' = @('Waiting for dependencies', 's-idle')
+        'seg:PHA' = @('Changes requested', 's-requiere-cambios')
+        'seg:S01' = @('Changes requested', 's-requiere-cambios')
+        'seg:S02' = @('Integrating · tests since 12:34', 's-en-curso')
+        'seg:S03' = @('Stage complete · closure pending', 's-pendiente')
+        'seg:S04' = @('Closed', 's-integrada')
+        'seg:S05' = @('Closure unverified', 's-unknown')
+        'seg:S06' = @('Stage completed · integration pending', 's-pendiente')
+        'seg:S07' = @('In progress', 's-en-curso')
+        'seg:S08' = @('Partial progress · 1 of 2', 's-pendiente')
+        'seg:S09' = @('Available', 's-disponible')
+        'seg:S10' = @('Waiting for dependencies', 's-idle')
     }
     foreach ($id in $expected.Keys) {
         $badge = Get-Badge (Get-Summary $html $id)
@@ -117,51 +117,51 @@ try {
     # The card's Estado is secondary data, never the headline; no header says "abierta" as its state.
     Assert-True ($html -notmatch '<span class="state [^"]*">abierta</span>') 'no stage header uses the card Estado as its state'
     $s07 = [System.Net.WebUtility]::HtmlDecode((Get-Summary $html 'seg:S07'))
-    Assert-True ($s07 -match '<span class="meta seg-estado">etapa abierta</span>') 'S07 shows the card Estado as secondary data'
+    Assert-True ($s07 -match '<span class="meta seg-estado">stage Open</span>') 'S07 shows the card Estado as secondary data'
     Assert-True ((Get-Summary $html 'seg:S04') -notmatch 'seg-estado') 'a closed stage does not repeat its Estado'
     Assert-True ((Get-Summary $html 'seg:S05') -notmatch 'seg-estado') 'an unverified closure does not repeat its Estado'
 
     # The agent in charge is named next to the worker in the stage header.
-    Assert-True ($s07 -match 'T01 · a cargo de Claude · Claude Sonnet 5\.5 \(T2\) desde 11:00 · sin señal de actividad · pieza S07') 'S07 header: task, agent in charge, worker'
-    Assert-True ($s07 -match 'trabajando: Claude en T02') 'S07 header: task without delegation names the agent'
+    Assert-True ($s07 -match 'T01 · assigned to Claude · Claude Sonnet 5\.5 \(T2\) since 11:00 · No activity signal · pieza S07') 'S07 header: task, agent in charge, worker'
+    Assert-True ($s07 -match 'working: Claude on T02') 'S07 header: task without delegation names the agent'
 
     # Integration column and notice while the round runs.
     foreach ($row in @([regex]::Matches($html, '<tr><td><a [^>]*>(?:S02|PHA)-T0[13] Tarea T0[13]</a>.*?</tr>', 'Singleline') | ForEach-Object Value)) {
         $text = [System.Net.WebUtility]::HtmlDecode($row)
-        if ($text -match 'S02-T01') { Assert-True ($text -match 'Integrando · pruebas desde 12:34') 'S02-T01 row: Integrando' }
-        if ($text -match 'PHA-T03') { Assert-True ($text -match 'Integrando · pruebas desde 12:34') 'PHA-T03 row: Integrando' }
+        if ($text -match 'S02-T01') { Assert-True ($text -match 'Integrating · tests since 12:34') 'S02-T01 row: Integrating' }
+        if ($text -match 'PHA-T03') { Assert-True ($text -match 'Integrating · tests since 12:34') 'PHA-T03 row: Integrating' }
     }
     $t06 = [System.Net.WebUtility]::HtmlDecode([regex]::Match($html, '<tr><td><a [^>]*>PHA-T06 Tarea T06</a>.*?</tr>', 'Singleline').Value)
-    Assert-True ($t06 -match 'Requiere integración · pendiente' -and $t06 -notmatch 'Integrando') 'a patch outside the round is not being integrated'
+    Assert-True ($t06 -match 'Integration required · pending' -and $t06 -notmatch 'Integrating') 'a patch outside the round is not being integrated'
     $plain = [System.Net.WebUtility]::HtmlDecode($html)
-    Assert-True ($plain -match 'Generado durante una integración \(ronda: 501-x\.patch\); los datos pueden cambiar al terminar') 'notice with the round'
-    Assert-True ($plain.IndexOf('Generado durante una integración') -lt $plain.IndexOf('<nav>')) 'notice at the start of the page'
+    Assert-True ($plain -match 'Generated during an integration \(round: 501-x\.patch\); data may change when it finishes') 'notice with the round'
+    Assert-True ($plain.IndexOf('Generated during an integration') -lt $plain.IndexOf('<nav>')) 'notice at the start of the page'
 
     # ---- the report of the round appears (newer than the last application): tests are over ----
     Set-Content (Join-Path $integrationDir '2026-10-11_1300_integracion.md') '# Pruebas integracion' -Encoding utf8
     Set-Time (Join-Path $integrationDir '2026-10-11_1300_integracion.md') '2026-10-11 12:50'
     $html = Invoke-Viewer
-    Assert-True ((Get-Badge (Get-Summary $html 'seg:S02')).Text -ceq 'Etapa terminada · falta integrar') 'S02 after the report: falta integrar'
-    Assert-True ((Get-Badge (Get-Summary $html 'seg:PHA:fase-2')).Text -ceq 'Fase terminada · falta integrar') 'phase after the report: falta integrar'
-    Assert-True ($html -notmatch 'Integrando · pruebas') 'no Integrando label after the report'
+    Assert-True ((Get-Badge (Get-Summary $html 'seg:S02')).Text -ceq 'Stage completed · integration pending') 'S02 after the report: integration pending'
+    Assert-True ((Get-Badge (Get-Summary $html 'seg:PHA:fase-2')).Text -ceq 'Phase completed · integration pending') 'phase after the report: integration pending'
+    Assert-True ($html -notmatch 'Integrating · tests') 'no Integrating label after the report'
     $t01 = [System.Net.WebUtility]::HtmlDecode([regex]::Match($html, '<tr><td><a [^>]*>S02-T01 Tarea T01</a>.*?</tr>', 'Singleline').Value)
-    Assert-True ($t01 -match 'Requiere integración · pendiente') 'S02-T01 row after the report'
-    Assert-True ([System.Net.WebUtility]::HtmlDecode($html) -match 'Generado durante una integración \(ronda: 501-x\.patch\)') 'the round is still open (not committed): notice stays'
+    Assert-True ($t01 -match 'Integration required · pending') 'S02-T01 row after the report'
+    Assert-True ([System.Net.WebUtility]::HtmlDecode($html) -match 'Generated during an integration \(round: 501-x\.patch\)') 'the round is still open (not committed): notice stays'
 
     # ---- a report older than the last application does not end the round ----
     Set-Time (Join-Path $integrationDir '2026-10-11_1300_integracion.md') '2026-10-11 12:00'
     $html = Invoke-Viewer
-    Assert-True ((Get-Badge (Get-Summary $html 'seg:S02')).Text -ceq 'Integrando · pruebas desde 12:34') 'older report: still integrating'
+    Assert-True ((Get-Badge (Get-Summary $html 'seg:S02')).Text -ceq 'Integrating · tests since 12:34') 'older report: still integrating'
 
     # ---- the commit clears the round ----
     Remove-Item $roundFile
     $html = Invoke-Viewer
-    Assert-True ([System.Net.WebUtility]::HtmlDecode($html) -notmatch 'Generado durante una integración') 'no notice without ronda.txt'
-    Assert-True ((Get-Badge (Get-Summary $html 'seg:S02')).Text -ceq 'Etapa terminada · falta integrar') 'no round: falta integrar'
+    Assert-True ([System.Net.WebUtility]::HtmlDecode($html) -notmatch 'Generated during an integration') 'no notice without ronda.txt'
+    Assert-True ((Get-Badge (Get-Summary $html 'seg:S02')).Text -ceq 'Stage completed · integration pending') 'no round: integration pending'
     Set-Content $roundFile @('', '  ') -Encoding utf8
     $html = Invoke-Viewer
-    Assert-True ([System.Net.WebUtility]::HtmlDecode($html) -notmatch 'Generado durante una integración') 'no notice with an empty ronda.txt'
-    Assert-True ($html -notmatch 'Integrando · pruebas') 'no label with an empty ronda.txt'
+    Assert-True ([System.Net.WebUtility]::HtmlDecode($html) -notmatch 'Generated during an integration') 'no notice with an empty ronda.txt'
+    Assert-True ($html -notmatch 'Integrating · tests') 'no label with an empty ronda.txt'
 }
 catch {
     Write-Host $_.Exception.Message

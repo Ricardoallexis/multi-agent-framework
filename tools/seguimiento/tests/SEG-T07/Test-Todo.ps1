@@ -26,10 +26,10 @@ function Write-Card([string]$channel, [string]$stage, [string]$code, [string]$st
 function Get-Resumen([string]$channel) {
     Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir | Out-Null
     $html = [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
-    $start = $html.IndexOf('Qué tienes que hacer ahora</h2>')
+    $start = $html.IndexOf('What you need to do now</h2>')
     Assert-True ($start -ge 0) 'todo section present'
     $section = $html.Substring($start)
-    [System.Net.WebUtility]::HtmlDecode($section.Substring(0, $section.IndexOf("<h2>Etapas activas</h2>")))
+    [System.Net.WebUtility]::HtmlDecode($section.Substring(0, $section.IndexOf("<h2>Active stages</h2>")))
 }
 
 try {
@@ -56,14 +56,14 @@ try {
     Set-Content (Join-Path $ch 'RESUMEN.md') @('# Resumen', '', '## Qué tienes que hacer ahora', '', 'Nota escrita a mano ZETA.', '', '## Bitácora', 'x') -Encoding utf8
 
     $s = Get-Resumen $ch
-    Assert-True ($s -match 'Tareas esperando tu asignación') 'group 1 heading'
+    Assert-True ($s -match 'Tasks awaiting your assignment') 'group 1 heading'
     Assert-True ($s -match 'AAA-T02 · Tarea T02 · di «trabaja en AAA»'.Replace('«', '«')) 'available released card listed'
     Assert-True ($s -match 'AAA-T05 · Tarea T05') 'second available card listed'
     Assert-True ($s -notmatch 'AAA-T03') 'card blocked by dependency not listed'
-    Assert-True ($s -notmatch 'AAA-T04') 'en curso card not listed as assignable'
+    Assert-True ($s -notmatch 'AAA-T04') 'In progress card is not listed as assignable'
     Assert-True ($s -notmatch 'CCC-T01 · Tarea') 'card of unauthorized stage not assignable'
     Assert-True ($s -match 'file:///') 'links are file URLs'
-    Assert-True ($s -match 'Pendiente de tu autorización') 'group 2 heading'
+    Assert-True ($s -match 'Awaiting your authorization') 'group 2 heading'
     Assert-True ($s -match '>BBB</a> · T01.T03 pendientes de autorización') 'BBB fragment shown'
     Assert-True ($s -match '>CCC</a> · no') 'unauthorized stage shown'
     Assert-True ($s -notmatch '>AAA</a> ·') 'authorized stage not in group 2'
@@ -72,10 +72,10 @@ try {
     Assert-True ($s -notmatch 'P-102') 'aprobada not listed'
     Assert-True ($s.IndexOf('P-103') -lt $s.IndexOf('P-101')) 'proposals newest first'
     Assert-True ($s -match '001-uno\.patch' -and $s -match '002-dos\.patch') 'both patches listed'
-    Assert-True ($s -match 'Decisiones que te piden') 'group 5 heading'
+    Assert-True ($s -match 'Decisions requested from you') 'group 5 heading'
     Assert-True ($s -match 'Pide al usuario: elegir X o Y') 'marker line shown'
-    Assert-True ($s -match '<h3>Notas</h3>' -and $s -match 'Nota escrita a mano ZETA') 'hand-written notes under Notas'
-    Assert-True ($s.IndexOf('Notas') -gt $s.IndexOf('Decisiones que te piden')) 'Notas after generated list'
+    Assert-True ($s -match '<h3>Notes</h3>' -and $s -match 'Nota escrita a mano ZETA') 'hand-written notes under Notes'
+    Assert-True ($s.IndexOf('Notes') -gt $s.IndexOf('Decisions requested from you')) 'Notes after generated list'
     Assert-True ($s -notmatch 'Nada pendiente') 'no empty state when items exist'
 
     # Empty channel.
@@ -84,7 +84,7 @@ try {
     Write-Card $ce 'AAA' 'T01' 'integrada' '-'
     Set-Content (Join-Path $ce 'RESUMEN.md') '# Resumen' -Encoding utf8
     $e = Get-Resumen $ce
-    Assert-True ($e -match 'Nada pendiente de tu parte\.') 'empty state'
+    Assert-True ($e -match 'Nothing pending from you\.') 'empty state'
     Assert-True ($e -notmatch '<h3>') 'no group headings or Notas when empty'
 }
 catch {

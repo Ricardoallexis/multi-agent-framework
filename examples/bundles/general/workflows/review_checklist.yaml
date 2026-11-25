@@ -6,7 +6,7 @@ inputs:
   - name: document_text
     label: Documento a revisar
     description: Texto de la especificación, el plan o el documento que se va a revisar.
-    example: "3.2 El sistema enviará un aviso al cliente cuando el pedido salga del almacén. 3.4 Los avisos deben llegar rápido. Entrega prevista: 15 de noviembre."
+    example: "3.2 The system will notify the customer when the order leaves the warehouse. 3.4 Notifications should arrive quickly. Expected delivery: November 15."
     required: true
     type: long_text
   - name: checklist

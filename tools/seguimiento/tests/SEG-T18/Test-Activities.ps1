@@ -1,9 +1,9 @@
-# SEG-T18: activities outside tasks (audits, research, reviews, scheduled sessions...). registrar-delegacion.ps1 -Actividad writes them to
-# <channel>\orquestacion\ACTIVIDADES\ejecuciones.jsonl (one line per event: opened, delegated, returned, closed). Seguimiento shows a section
-# «Fuera de tareas» in the Agentes tab: each activity en curso with its type, title, orchestrator and every worker (application, model, real
-# activity, tokens if recorded), the finished ones in a collapsed list. Every active worker is also listed in the card of ITS OWN application
-# (REGLAS 33: «trabajando para <orquestador> en <actividad>») and counts as active there. Synthetic folders only; the content of the sessions is
-# never printed (nor read: only times, status and model names).
+# SEG-T18: activities outside task cards (audits, research, reviews, scheduled sessions...). `registrar-delegacion.ps1 -Actividad` writes them to
+# <channel>\orquestacion\ACTIVIDADES\ejecuciones.jsonl (one line per event: opened, delegated, returned, closed). The tracker shows an
+# "Outside task work" section in the Agents tab: each In progress activity with its type, title, orchestrator, and every worker (application,
+# model, real activity, tokens if recorded), plus finished activities in a collapsed list. Every active worker is also listed in the card for ITS
+# OWN application (RULE 33: "working for <orchestrator> on <activity>") and counts as active there. Synthetic folders only; session content is
+# never printed (or read: only times, status, and model names).
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
@@ -103,14 +103,14 @@ function Get-AgentsTab([string]$html) {
 }
 function Get-ActivitiesSection([string]$agents) {
     $m = [regex]::Match($agents, '(?s)<section class="panel activities-group" id="fuera-de-tareas">.*?</section>')
-    Assert-True $m.Success 'section «Fuera de tareas» present in the Agentes tab'
+    Assert-True $m.Success 'Outside task work section is present in the Agents tab'
     $m.Value
 }
 # The block of one active activity inside the section (they hold nested divs, so split on their opening tag).
 function Get-ActivityBlock([string]$section, [string]$id) {
     $parts = @($section -split '<div class="agent-task act-item">' | Select-Object -Skip 1)
     $found = @($parts | Where-Object { $_ -match "^<strong>$([regex]::Escape($id)) · " })
-    Assert-True ($found.Count -eq 1) "exactly one block for $id in «Fuera de tareas» (found $($found.Count))"
+    Assert-True ($found.Count -eq 1) "exactly one block for $id in Outside task work (found $($found.Count))"
     $found[0]
 }
 function Get-AppCard([string]$agents, [string]$application) {
@@ -147,11 +147,11 @@ try {
     New-ClaudeSubagent 'cdx1' 4
     New-ClaudeSubagent 'task1' 1
 
-    # Tasks, to prove the activities do not disturb them: Claude-Opus (T01) delegates a Claude subagent, Codex (T02) has a task of its own.
+    # Tasks, to prove activities do not disturb them: Claude-Opus (T01) delegates a Claude subagent, Codex (T02) has a task of its own.
     Write-Card 'T01' 'en curso' 'Claude-Opus' @((Deleg 'Claude-Opus' '11:30' 'Claude Haiku 5.5' 'agent-task1' 'pieza de tarea'))
     Write-Card 'T02' 'en curso' 'Codex' @()
 
-    # ACT-01 audit by Claude-Opus: a Copilot, a Codex and a Claude worker en curso, plus a Copilot worker already returned with tokens.
+    # ACT-01 audit by Claude-Opus: a Copilot, Codex, and Claude worker In progress, plus a Copilot worker already returned with tokens.
     Opened 'ACT-20261011-01' 'Claude-Opus' 'auditoría' 'Auditoría del framework' '11:00' 'audita el framework completo'
     Delegated 'ACT-20261011-01' 'Claude-Opus' '11:00' 'GPT worker' "copilot:$($cp.work)" 'audita uno' 'T2' 'medio' 'auditoría'
     Delegated 'ACT-20261011-01' 'Claude-Opus' '11:05' 'Codex worker' "codex:$($cx.test)" 'audita dos'
@@ -183,37 +183,37 @@ try {
     $html = Run-Viewer
     $agents = Get-AgentsTab $html
     $section = Get-ActivitiesSection $agents
-    Assert-True ($section -match '<h2>Fuera de tareas</h2><span class="state s-en-curso">4 en curso</span>') "four activities en curso in the header, got: $([regex]::Match($section, '<h2>Fuera de tareas</h2><span[^>]*>[^<]*').Value)"
+    Assert-True ($section -match '<h2>Outside task work</h2><span class="state s-en-curso">4 active</span>') "four active activities in the header, got: $([regex]::Match($section, '<h2>Outside task work</h2><span[^>]*>[^<]*').Value)"
     Assert-True ($agents.IndexOf('id="fuera-de-tareas"') -lt $agents.IndexOf('<div class="agent-grid">')) 'the section comes before the application cards'
 
     # --- ACT-01: type, title, orchestrator, request and each worker with application, model, real activity ---
     $b1 = Get-ActivityBlock $section 'ACT-20261011-01'
-    Assert-True ($b1 -match '^<strong>ACT-20261011-01 · Auditoría del framework</strong> <span class="state s-idle">auditoría</span> <span class="state s-en-curso">En curso</span>') 'ACT-01 title, type and status'
-    Assert-True ($b1 -match 'Orquesta: Claude-Opus · desde 11:00' -and $b1 -match 'Pedido: audita el framework completo') 'ACT-01 orchestrator, start and request'
-    Assert-True ($b1 -match '<strong>Copilot · gpt-5\.6-luna \(T2, esfuerzo medio\)</strong> <span class="state s-idle">Copilot</span> <span class="state s-idle seg-tag">auditoría</span> <span class="state s-en-curso">Trabajando</span><span class="meta"> · delegado desde 11:00 · audita uno</span>') 'ACT-01 Copilot worker: model, application, tag, Trabajando'
-    Assert-True ($b1 -match '<strong>Codex · gpt-6-luna \(T2, esfuerzo medio\)</strong> <span class="state s-idle">Codex</span> <span class="state s-en-curso">Ejecutando prueba · desde 11:38</span><span class="meta"> · delegado desde 11:05 · audita dos</span>') 'ACT-01 Codex worker: Ejecutando prueba'
-    Assert-True ($b1 -match '<strong>Claude Sonnet 5\.5 \(T2, esfuerzo medio\)</strong> <span class="state s-idle">Claude</span> <span class="state s-en-curso">Trabajando</span><span class="meta"> · delegado desde 11:10 · audita tres</span>') 'ACT-01 Claude worker: Trabajando'
-    Assert-True ($b1 -match '<strong>Copilot · gpt-5\.6-luna \(T2, esfuerzo medio\)</strong> <span class="state s-idle">Copilot</span> <span class="state s-integrada">Devuelto</span><span class="meta"> · desde 11:15 hasta 11:40 · audita cuatro · Tokens: 485 · entrada 310 · salida 45 · registrado</span><div class="agent-context">Resultado: informe listo</div>') 'ACT-01 returned worker: Devuelto, result and recorded tokens'
+    Assert-True ($b1 -match '^<strong>ACT-20261011-01 · Auditoría del framework</strong> <span class="state s-idle">auditoría</span> <span class="state s-en-curso">Active</span>') 'ACT-01 title, type and status'
+    Assert-True ($b1 -match 'Orchestrator: Claude-Opus · since 11:00' -and $b1 -match 'Request: audita el framework completo') 'ACT-01 orchestrator, start and request'
+    Assert-True ($b1 -match '<strong>Copilot · gpt-5\.6-luna \(T2, effort medium\)</strong> <span class="state s-idle">Copilot</span> <span class="state s-idle seg-tag">auditoría</span> <span class="state s-en-curso">Working</span><span class="meta"> · delegated since 11:00 · audita uno</span>') 'ACT-01 Copilot worker: model, application, tag, Working'
+    Assert-True ($b1 -match '<strong>Codex · gpt-6-luna \(T2, effort medium\)</strong> <span class="state s-idle">Codex</span> <span class="state s-en-curso">Running test · since 11:38</span><span class="meta"> · delegated since 11:05 · audita dos</span>') 'ACT-01 Codex worker: running test'
+    Assert-True ($b1 -match '<strong>Claude Sonnet 5\.5 \(T2, effort medium\)</strong> <span class="state s-idle">Claude</span> <span class="state s-en-curso">Working</span><span class="meta"> · delegated since 11:10 · audita tres</span>') 'ACT-01 Claude worker: Working'
+    Assert-True ($b1 -match '<strong>Copilot · gpt-5\.6-luna \(T2, effort medium\)</strong> <span class="state s-idle">Copilot</span> <span class="state s-integrada">Returned</span><span class="meta"> · since 11:15 until 11:40 · audita cuatro · Tokens: 485 · input 310 · output 45 · recorded</span><div class="agent-context">Result: informe listo</div>') 'ACT-01 returned worker: Returned, result and recorded tokens'
 
-    # --- ACT-02 (Codex orchestrates): Claude worker en curso, Copilot worker without reference (application from its name, no activity file) ---
+    # --- ACT-02 (Codex orchestrates): Claude worker In progress, Copilot worker without reference (application from its name, no activity file) ---
     $b2 = Get-ActivityBlock $section 'ACT-20261011-02'
     Assert-True ($b2 -match 'Investigación de <costos></strong>' -or $b2 -match 'Investigación de &lt;costos&gt;') 'ACT-02 title'
-    Assert-True ($b2 -match 'Orquesta: Codex' -and $b2 -match '<span class="state s-idle">investigación</span>') 'ACT-02 orchestrator and type'
-    Assert-True ($b2 -match '<strong>Claude Sonnet 5\.5 \(T2, esfuerzo medio\)</strong> <span class="state s-idle">Claude</span> <span class="state s-en-curso">Trabajando</span>') 'ACT-02 Claude worker'
-    Assert-True ($b2 -match '<strong>Copilot gpt-6-luna \(T1, esfuerzo bajo\)</strong> <span class="state s-idle">Copilot</span> <span class="state s-idle">sin señal de actividad</span>') 'ACT-02 Copilot worker without reference'
+    Assert-True ($b2 -match 'Orchestrator: Codex' -and $b2 -match '<span class="state s-idle">investigación</span>') 'ACT-02 orchestrator and type'
+    Assert-True ($b2 -match '<strong>Claude Sonnet 5\.5 \(T2, effort medium\)</strong> <span class="state s-idle">Claude</span> <span class="state s-en-curso">Working</span>') 'ACT-02 Claude worker'
+    Assert-True ($b2 -match '<strong>Copilot gpt-6-luna \(T1, effort low\)</strong> <span class="state s-idle">Copilot</span> <span class="state s-idle">No activity signal</span>') 'ACT-02 Copilot worker without reference'
     # --- ACT-03: no workers ---
     $b3 = Get-ActivityBlock $section 'ACT-20261011-03'
-    Assert-True ($b3 -match 'Sesión programada nocturna' -and $b3 -match 'state s-idle">programada' -and $b3 -match 'Sin trabajadores delegados' -and $b3 -match '<span class="state s-en-curso">En curso</span>') 'ACT-03 scheduled session without workers'
+    Assert-True ($b3 -match 'Sesión programada nocturna' -and $b3 -match 'state s-idle">programada' -and $b3 -match 'No delegated workers; the orchestrator is doing the work.' -and $b3 -match '<span class="state s-en-curso">Active</span>') 'ACT-03 scheduled session without workers'
     # --- ACT-06: its only worker is probably stopped ---
     $b6 = Get-ActivityBlock $section 'ACT-20261011-06'
-    Assert-True ($b6 -match '<span class="state s-unknown">Probablemente detenida</span>' -and $b6 -match '<span class="state s-unknown">Probablemente detenido</span>') 'ACT-06 all workers stopped'
+    Assert-True ([regex]::Matches($b6, '<span class="state s-unknown">Probably stopped</span>').Count -eq 2) 'ACT-06 all workers stopped'
     # --- finished activities: collapsed, not in the active list ---
     Assert-True ($section -notmatch 'ACT-20261011-04 · Revisión' -and $section -notmatch 'ACT-20261011-05 · Limpieza') 'finished activities are not active blocks'
-    $fin = [regex]::Match($section, '(?s)<details class="act-finished"><summary>Terminadas \(2\)</summary><ul>(.*?)</ul></details>')
-    Assert-True $fin.Success 'finished activities in a collapsed list «Terminadas (2)»'
+    $fin = [regex]::Match($section, '(?s)<details class="act-finished"><summary>Completed \(2\)</summary><ul>(.*?)</ul></details>')
+    Assert-True $fin.Success 'finished activities in a collapsed list "Completed (2)"'
     Assert-True ($section -notmatch '<details class="act-finished" open') 'the finished list is collapsed'
-    Assert-True ($fin.Groups[1].Value -match '<li><strong>ACT-20261011-04</strong> · revisión · Revisión de parches · Claude-Opus · 09:00 → 09:31 · trabajaron: Claude Sonnet 5\.5 \(T2, esfuerzo medio\) \(Tokens: 485 k\) · Resultado: sin hallazgos</li>') 'ACT-04 finished line: span, worker with tokens, result'
-    Assert-True ($fin.Groups[1].Value -match '<li><strong>ACT-20261011-05</strong> · mantenimiento · Limpieza de respaldos · Claude-Opus · 08:00 → 08:05 · Resultado: respaldos al día</li>') 'ACT-05 finished line'
+    Assert-True ($fin.Groups[1].Value -match '<li><strong>ACT-20261011-04</strong> · revisión · Revisión de parches · Claude-Opus · 09:00 → 09:31 · workers: Claude Sonnet 5\.5 \(T2, effort medium\) \(Tokens: 485 k · recorded\) · Result: sin hallazgos</li>') 'ACT-04 finished line: span, worker with tokens, result'
+    Assert-True ($fin.Groups[1].Value -match '<li><strong>ACT-20261011-05</strong> · mantenimiento · Limpieza de respaldos · Claude-Opus · 08:00 → 08:05 · Result: respaldos al día</li>') 'ACT-05 finished line'
     Assert-True ($fin.Groups[1].Value.IndexOf('ACT-20261011-04') -lt $fin.Groups[1].Value.IndexOf('ACT-20261011-05')) 'finished list newest first'
     # The title is encoded in the page (the section above was decoded for matching).
     $rawHtml = [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
@@ -227,32 +227,32 @@ try {
     $claude = Get-AppCard $agents 'Claude'
 
     $status = Get-CardStatus $copilot
-    Assert-True ($status.Groups[1].Value -eq 's-en-curso' -and $status.Groups[2].Value -eq '2 trabajadores activos · 1 trabajador probablemente detenido') "Copilot card status, got: $($status.Groups[2].Value)"
+    Assert-True ($status.Groups[1].Value -eq 's-en-curso' -and $status.Groups[2].Value -eq '2 active workers · 1 worker probably stopped') "Copilot card status, got: $($status.Groups[2].Value)"
     $w1 = Get-WorkerBlock $copilot 'audita uno'
-    Assert-True ($w1 -match '<strong>Copilot · gpt-5\.6-luna \(T2, esfuerzo medio\)</strong>') 'Copilot worker: app · model (level, effort)'
-    Assert-True ($w1 -match 'Activo · trabajando para Claude-Opus en Auditoría del framework') 'Copilot worker: trabajando para <orquestador> en <actividad>'
-    Assert-True ($w1 -match 'Fuera de tareas: ACT-20261011-01 · auditoría · Auditoría del framework' -and $w1 -match 'Actividad: Trabajando · delegado desde 11:00 · audita uno') 'Copilot worker: activity and real activity'
+    Assert-True ($w1 -match '<strong>Copilot · gpt-5\.6-luna \(T2, effort medium\)</strong>') 'Copilot worker: app · model (level, effort)'
+    Assert-True ($w1 -match 'Active · working for Claude-Opus on Auditoría del framework') 'Copilot worker: working for <orchestrator> on <activity>'
+    Assert-True ($w1 -match 'Outside task work: ACT-20261011-01 · auditoría · Auditoría del framework' -and $w1 -match 'Activity: Working · delegated since 11:00 · audita uno') 'Copilot worker: activity and real activity'
     $w2 = Get-WorkerBlock $copilot 'investiga precios'
-    Assert-True ($w2 -match 'Activo · trabajando para Codex en Investigación de <costos>' -and $w2 -match 'Actividad: sin señal de actividad') 'Copilot worker without reference, delegated by Codex'
+    Assert-True ($w2 -match 'Active · working for Codex on Investigación de <costos>' -and $w2 -match 'Activity: No activity signal') 'Copilot worker without reference, delegated by Codex'
     $w3 = Get-WorkerBlock $copilot 'inventario'
-    Assert-True ($w3 -match 'Probablemente detenido · delegado por Codex en Inventario antiguo' -and $w3 -notmatch 'trabajando para' -and $w3 -match 's-unknown') 'a stopped worker is listed, not counted as active'
+    Assert-True ($w3 -match 'Probably stopped · delegated by Codex on Inventario antiguo' -and $w3 -notmatch 'working for' -and $w3 -match 's-unknown') 'a stopped worker is listed, not counted as active'
     Assert-True ($copilot -notmatch 'audita cuatro') 'a returned worker is not in the card of its application'
-    Assert-True ($copilot -match '<h3>Trabajadores en actividades fuera de tareas</h3>' -and $copilot -match 'sin tarea propia: Copilot-Auto</p>' -and $copilot -notmatch 'class="meta agent-idle">sin actividad:') 'FLU-T08: activity workers keep the area active; the idle agent has no own task'
+    Assert-True ($copilot -match '<h3>Workers on activities outside task cards</h3>' -and $copilot -match 'no active task: Copilot-Auto</p>' -and $copilot -notmatch 'class="meta agent-idle">no activity:') 'FLU-T08: activity workers keep the area active; the idle agent has no own task'
 
     $status = Get-CardStatus $codex
-    Assert-True ($status.Groups[1].Value -eq 's-en-curso' -and $status.Groups[2].Value -eq '1 con tarea activa · 1 trabajador activo') "Codex card status, got: $($status.Groups[2].Value)"
+    Assert-True ($status.Groups[1].Value -eq 's-en-curso' -and $status.Groups[2].Value -eq '1 with active tasks · 1 active worker') "Codex card status, got: $($status.Groups[2].Value)"
     $w4 = Get-WorkerBlock $codex 'audita dos'
-    Assert-True ($w4 -match '<strong>Codex · gpt-6-luna \(T2, esfuerzo medio\)</strong>' -and $w4 -match 'Activo · trabajando para Claude-Opus en Auditoría del framework' -and $w4 -match 'Actividad: Ejecutando prueba · desde 11:38 · delegado desde 11:05') 'Codex worker: running test'
+    Assert-True ($w4 -match '<strong>Codex · gpt-6-luna \(T2, effort medium\)</strong>' -and $w4 -match 'Active · working for Claude-Opus on Auditoría del framework' -and $w4 -match 'Activity: Running test · since 11:38 · delegated since 11:05') 'Codex worker: running test'
     Assert-True ($codex -match '<h3>Codex</h3>') 'the Codex agent with its task is still there'
 
     $status = Get-CardStatus $claude
-    Assert-True ($status.Groups[1].Value -eq 's-en-curso' -and $status.Groups[2].Value -eq '1 con tarea activa · 2 trabajadores activos') "Claude card status, got: $($status.Groups[2].Value)"
+    Assert-True ($status.Groups[1].Value -eq 's-en-curso' -and $status.Groups[2].Value -eq '1 with active tasks · 2 active workers') "Claude card status, got: $($status.Groups[2].Value)"
     $w5 = Get-WorkerBlock $claude 'audita tres'
-    Assert-True ($w5 -match '<strong>Claude Sonnet 5\.5 \(T2, esfuerzo medio\)</strong>' -and $w5 -match 'Activo · trabajando para Claude-Opus en Auditoría del framework') 'Claude worker of an activity orchestrated by Claude-Opus (same application) is in the Claude card'
+    Assert-True ($w5 -match '<strong>Claude Sonnet 5\.5 \(T2, effort medium\)</strong>' -and $w5 -match 'Active · working for Claude-Opus on Auditoría del framework') 'Claude worker of an activity orchestrated by Claude-Opus (same application) is in the Claude card'
     $w6 = Get-WorkerBlock $claude 'investiga costos'
-    Assert-True ($w6 -match 'Activo · trabajando para Codex en Investigación de <costos>' -and $w6 -match 'Actividad: Trabajando · delegado desde 11:20') 'Claude worker delegated by Codex in an activity'
+    Assert-True ($w6 -match 'Active · working for Codex on Investigación de <costos>' -and $w6 -match 'Activity: Working · delegated since 11:20') 'Claude worker delegated by Codex in an activity'
     Assert-True (@(Get-WorkerBlocks $claude).Count -eq 2) 'two activity workers in the Claude card (the delegation of the task T01 stays in its orchestrator block)'
-    Assert-True ($claude -match 'Claude Haiku 5\.5 \(T2\) desde 11:30 · Trabajando · pieza de tarea') 'the task delegation of Claude-Opus is unchanged'
+    Assert-True ($claude -match 'Claude Haiku 5\.5 \(T2\) since 11:30 · Working · pieza de tarea') 'the task delegation of Claude-Opus is unchanged'
     Assert-True ($claude -notmatch 'revisa parches') 'a worker of a finished activity is not shown'
 
     # --- Nothing of the sessions, ids or locations is printed ---
@@ -270,16 +270,16 @@ try {
     $agents = Get-AgentsTab (Run-Viewer)
     $copilot = Get-AppCard $agents 'Copilot'
     $status = Get-CardStatus $copilot
-    Assert-True ($status.Groups[1].Value -eq 's-idle' -and $status.Groups[2].Value -eq 'sin actividad · 1 trabajador probablemente detenido') "Copilot card with only a stopped activity worker, got: $($status.Groups[2].Value)"
-    Assert-True ((Get-ActivitiesSection $agents) -match '<span class="state s-en-curso">1 en curso</span>') 'the activity is still listed as en curso'
-    Assert-True ($copilot -match 'class="meta agent-idle">sin actividad: Copilot-Auto</p>') 'FLU-T08: stopped activity workers preserve the idle label'
+    Assert-True ($status.Groups[1].Value -eq 's-idle' -and $status.Groups[2].Value -eq 'no activity · 1 worker probably stopped') "Copilot card with only a stopped activity worker, got: $($status.Groups[2].Value)"
+    Assert-True ((Get-ActivitiesSection $agents) -match '<span class="state s-en-curso">1 active</span>') 'the activity is still listed as active'
+    Assert-True ($copilot -match 'class="meta agent-idle">no activity: Copilot-Auto</p>') 'FLU-T08: stopped activity workers preserve the idle label'
 
     # --- No activities: the section says so, the cards are the ones of SEG-T17 ---
     Remove-Item -LiteralPath $actLog
     $agents = Get-AgentsTab (Run-Viewer)
     $section = Get-ActivitiesSection $agents
-    Assert-True ($section -match 'sin actividades en curso' -and $section -match 'No hay actividades en curso fuera de tareas' -and $section -notmatch 'act-finished' -and $section -notmatch 'Actividades no disponibles') 'no registry: empty section, no warning'
-    Assert-True ((Get-CardStatus (Get-AppCard $agents 'Copilot')).Groups[2].Value -eq 'sin actividad') 'without activities the Copilot card says sin actividad'
+    Assert-True ($section -match 'No active activities' -and $section -match 'No active activities outside task cards' -and $section -notmatch 'act-finished' -and $section -notmatch 'Activities unavailable') 'no registry: empty section, no warning'
+    Assert-True ((Get-CardStatus (Get-AppCard $agents 'Copilot')).Groups[2].Value -eq 'no activity') 'without activities the Copilot card says no activity'
     Assert-True ($agents -notmatch 'agent-activity-workers') 'no activity-workers block in any card'
 
     # --- Unreadable registry: not presented as an empty list ---
@@ -289,9 +289,9 @@ try {
         $agents = Get-AgentsTab (Run-Viewer)
     } finally { $lock.Dispose() }
     $section = Get-ActivitiesSection $agents
-    Assert-True ($section -match 'Actividades no disponibles' -and $section -match 'no se presenta como una lista vacía') 'unreadable registry is reported, not shown as empty'
+    Assert-True ($section -match 'Activities unavailable' -and $section -match 'is not shown as an empty list') 'unreadable registry is reported, not shown as empty'
     $agents = Get-AgentsTab (Run-Viewer)
-    Assert-True ((Get-ActivitiesSection $agents) -notmatch 'Actividades no disponibles') 'readable again: warning gone'
+    Assert-True ((Get-ActivitiesSection $agents) -notmatch 'Activities unavailable') 'readable again: warning gone'
 
     # The integration regenerates Seguimiento under StrictMode Latest, and activity rows carry "activity", not "task".
     $script:strictError = $null

@@ -1,7 +1,7 @@
-# SEG-T17 (REGLAS 33): every delegated worker appears in the Agentes card of ITS OWN application, whichever application orchestrates it:
-# "trabajando para <orquestador> en <tarea>", its model, its real activity and its per-window tokens. It also stays as a delegation in the
-# orchestrator's block, and an application card never says "sin actividad" while it has active workers. Synthetic folders only; the
-# content of the sessions is never printed (nor read: only times, status and model names).
+# SEG-T17 (RULE 33): every delegated worker appears in the Agents card for ITS OWN application, whichever application orchestrates it:
+# "working for <orchestrator> on <task>", its model, real activity, and per-window tokens. It also remains listed as a delegation in the
+# orchestrator's block, and an application card never says "no activity" while it has active workers. Synthetic folders only; session content
+# is never printed (or read: only times, status, and model names).
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
@@ -76,7 +76,7 @@ function Run-Viewer {
     $agents = $html.Substring($html.IndexOf('<div class="tab" id="agentes">'))
     $agents.Substring(0, $agents.IndexOf('cloud-assignment-group'))
 }
-# The card of one application inside the Agentes tab, and its worker blocks (they hold no nested div).
+# The card for one application inside the Agents tab, and its worker blocks (they hold no nested div).
 function Get-AppCard([string]$agents, [string]$application) {
     $m = [regex]::Match($agents, "(?s)<section class=""panel agent-card"">\s*<div class=""card-head""><h2>$application</h2>.*?</section>")
     Assert-True $m.Success "card of $application present"
@@ -141,51 +141,51 @@ try {
     # --- Copilot card: no Copilot agent owns a task, its workers delegated by Claude-Opus are active here ---
     $status = Get-CardStatus $copilot
     Assert-True ($status.Groups[1].Value -eq 's-en-curso') 'Copilot card is active'
-    Assert-True ($status.Groups[2].Value -eq '3 trabajadores activos · 1 trabajador probablemente detenido') "Copilot card status, got: $($status.Groups[2].Value)"
-    Assert-True ($copilot -notmatch '<span class="state s-idle">sin actividad') 'Copilot card does not say sin actividad while it has active workers'
-    Assert-True ($copilot -match 'sin tarea propia: Copilot-Auto</p>' -and $copilot -notmatch 'class="meta agent-idle">sin actividad:') 'FLU-T08: live task workers keep the area active; the idle agent has no own task'
+    Assert-True ($status.Groups[2].Value -eq '3 active workers · 1 worker probably stopped') "Copilot card status, got: $($status.Groups[2].Value)"
+    Assert-True ($copilot -notmatch '<span class="state s-idle">no activity') 'Copilot card does not say no activity while it has active workers'
+    Assert-True ($copilot -match 'no active task: Copilot-Auto</p>' -and $copilot -notmatch 'class="meta agent-idle">no activity:') 'FLU-T08: live task workers keep the area active; the idle agent has no own task'
     $w1 = Get-WorkerBlock $copilot 'pieza uno'
     Assert-True ($w1 -match '<strong>Copilot · gpt-5\.6-luna \(T2\)</strong>') 'T01 Copilot worker: app · model (level)'
-    Assert-True ($w1 -match 'Activo · trabajando para Claude-Opus en AAA-T01') 'T01 Copilot worker: trabajando para <orquestador> en <tarea>'
-    Assert-True ($w1 -match 'Actividad: Trabajando · delegado desde 11:00 · pieza uno') 'T01 Copilot worker: real activity'
-    Assert-True ($w1 -match 'Tarea: AAA-T01 · Tarea de prueba T01') 'T01 Copilot worker: task'
+    Assert-True ($w1 -match 'Active · working for Claude-Opus on AAA-T01') 'T01 Copilot worker: working for <orchestrator> on <task>'
+    Assert-True ($w1 -match 'Activity: Working · delegated since 11:00 · pieza uno') 'T01 Copilot worker: real activity'
+    Assert-True ($w1 -match 'Task: AAA-T01 · Tarea de prueba T01') 'T01 Copilot worker: task'
     $w6 = Get-WorkerBlock $copilot 'pieza seis'
-    Assert-True ($w6 -match '<strong>Copilot gpt-6-luna \(T2\)</strong>' -and $w6 -match 'Activo · trabajando para Claude-Opus en AAA-T03' -and $w6 -match 'Actividad: sin señal de actividad') 'T03 no reference: application from the worker name, no activity file'
+    Assert-True ($w6 -match '<strong>Copilot gpt-6-luna \(T2\)</strong>' -and $w6 -match 'Active · working for Claude-Opus on AAA-T03' -and $w6 -match 'Activity: No activity signal') 'T03 no reference: application from the worker name, no activity file'
     $w7 = Get-WorkerBlock $copilot 'pieza siete'
     Assert-True ($w7 -match 'Copilot Claude Sonnet 5\.5') 'T03 "Copilot Claude Sonnet": the application named first (Copilot) wins'
     $w8 = Get-WorkerBlock $copilot 'pieza ocho'
-    Assert-True ($w8 -match 'Probablemente detenido · delegado por Claude-Opus en AAA-T03' -and $w8 -notmatch 'trabajando para' -and $w8 -match 's-unknown') 'T03 stopped Copilot session is listed, not counted as active'
+    Assert-True ($w8 -match 'Probably stopped · delegated by Claude-Opus on AAA-T03' -and $w8 -notmatch 'working for' -and $w8 -match 's-unknown') 'T03 stopped Copilot session is listed, not counted as active'
     Assert-True ($copilot -notmatch 'pieza cuatro') 'a returned (devuelta) Copilot worker is not shown'
     Assert-True ($copilot -notmatch 'pieza tres' -and $copilot -notmatch 'pieza cinco') 'workers of other applications are not in the Copilot card'
     Assert-True ($copilot -notmatch 'pieza sin app') 'a worker without application is not placed in any application card'
     # the orchestrator keeps the delegation
-    Assert-True ($claude -match 'Copilot · gpt-5\.6-luna \(T2\) desde 11:00 · Trabajando · pieza uno') 'Claude-Opus card still lists the Copilot delegation'
+    Assert-True ($claude -match 'Copilot · gpt-5\.6-luna \(T2\) since 11:00 · Working · pieza uno') 'Claude-Opus card still lists the Copilot delegation'
 
     # --- Codex card: a Codex agent with a task and two workers delegated by Claude-Opus ---
     $status = Get-CardStatus $codex
-    Assert-True ($status.Groups[1].Value -eq 's-en-curso' -and $status.Groups[2].Value -eq '1 con tarea activa · 2 trabajadores activos') "Codex card status, got: $($status.Groups[2].Value)"
+    Assert-True ($status.Groups[1].Value -eq 's-en-curso' -and $status.Groups[2].Value -eq '1 with active tasks · 2 active workers') "Codex card status, got: $($status.Groups[2].Value)"
     Assert-True ($codex -match '<h3>Codex</h3>') 'the Codex agent block is still there'
     $w2 = Get-WorkerBlock $codex 'pieza dos'
-    Assert-True ($w2 -match '<strong>Codex · gpt-6-luna \(T2\)</strong>' -and $w2 -match 'Activo · trabajando para Claude-Opus en AAA-T01') 'T01 Codex worker: app · model, trabajando para'
-    Assert-True ($w2 -match 'Actividad: Ejecutando prueba · desde 11:38 · delegado desde 11:10 · pieza dos') 'T01 Codex worker: running test since 11:38'
-    Assert-True ($w2 -match 'Tokens: 485 · entrada 310 · salida 45 · exacto por ventana') 'T01 Codex worker: per-window tokens'
+    Assert-True ($w2 -match '<strong>Codex · gpt-6-luna \(T2\)</strong>' -and $w2 -match 'Active · working for Claude-Opus on AAA-T01') 'T01 Codex worker: app · model, working for'
+    Assert-True ($w2 -match 'Activity: Running test · since 11:38 · delegated since 11:10 · pieza dos') 'T01 Codex worker: running test since 11:38'
+    Assert-True ($w2 -match 'Tokens: 485 · input 310 · output 45 · exact per window') 'T01 Codex worker: per-window tokens'
     $w9 = Get-WorkerBlock $codex 'pieza integra'
-    Assert-True ($w9 -match 'Codex · gpt-6-luna \(T1\)' -and $w9 -match 'trabajando para Claude-Opus en AAA-T04' -and $w9 -match 'Actividad: Trabajando' -and $w9 -match 'Tarea: AAA-T04 · Tarea de prueba T04 · integración') 'T04 integration worker of a delivered task'
-    Assert-True ($codex -match 'Claude Sonnet 5\.5 \(T2\) desde 11:15 · Trabajando · pieza cinco') 'Codex (orchestrator) card still lists its delegation of the Claude worker'
+    Assert-True ($w9 -match 'Codex · gpt-6-luna \(T1\)' -and $w9 -match 'working for Claude-Opus on AAA-T04' -and $w9 -match 'Activity: Working' -and $w9 -match 'Task: AAA-T04 · Tarea de prueba T04 · integration') 'T04 integration worker of a delivered task'
+    Assert-True ($codex -match 'Claude Sonnet 5\.5 \(T2\) since 11:15 · Working · pieza cinco') 'Codex (orchestrator) card still lists its delegation of the Claude worker'
 
     # --- Claude card: Claude-Opus owns tasks; a Claude worker delegated by Codex is listed in the Claude area ---
     $status = Get-CardStatus $claude
-    Assert-True ($status.Groups[1].Value -eq 's-en-curso' -and $status.Groups[2].Value -eq '1 con tarea activa · 1 trabajador activo') "Claude card status, got: $($status.Groups[2].Value)"
+    Assert-True ($status.Groups[1].Value -eq 's-en-curso' -and $status.Groups[2].Value -eq '1 with active tasks · 1 active worker') "Claude card status, got: $($status.Groups[2].Value)"
     $w5 = Get-WorkerBlock $claude 'pieza cinco'
-    Assert-True ($w5 -match '<strong>Claude Sonnet 5\.5 \(T2\)</strong>' -and $w5 -match 'Activo · trabajando para Codex en AAA-T02' -and $w5 -match 'Actividad: Trabajando · delegado desde 11:15 · pieza cinco') 'T02 Claude worker delegated by Codex'
+    Assert-True ($w5 -match '<strong>Claude Sonnet 5\.5 \(T2\)</strong>' -and $w5 -match 'Active · working for Codex on AAA-T02' -and $w5 -match 'Activity: Working · delegated since 11:15 · pieza cinco') 'T02 Claude worker delegated by Codex'
     Assert-True (@(Get-WorkerBlocks $claude).Count -eq 1) 'Claude workers of a Claude orchestrator stay in the orchestrator block (not duplicated)'
-    Assert-True ($claude -match 'Claude Sonnet 5\.5 \(T2\) desde 11:20 · Trabajando · pieza tres') 'T01 same-application Claude worker listed as a delegation of Claude-Opus'
-    Assert-True ($claude -match 'Mystery worker \(T2\) desde 11:15 · sin señal de actividad · pieza sin app') 'a worker without application is only a delegation line of its orchestrator'
+    Assert-True ($claude -match 'Claude Sonnet 5\.5 \(T2\) since 11:20 · Working · pieza tres') 'T01 same-application Claude worker listed as a delegation of Claude-Opus'
+    Assert-True ($claude -match 'Mystery worker \(T2\) since 11:15 · No activity signal · pieza sin app') 'a worker without application is only a delegation line of its orchestrator'
 
     # Nothing of the sessions is printed
     $html = [System.Net.WebUtility]::HtmlDecode([IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html')))
     Assert-True ($html -notmatch 'SECRET-CONTENT' -and $html -notmatch 'SECRET-CMD') 'session content never printed'
-    # (the raw history rows of "Última actividad" keep their [ref: ...] as written in the card; the worker blocks never print a reference)
+    # Raw history rows in "Última actividad" keep their [ref: ...] as written in the card; worker blocks never print a reference.
     $blocks = ((@($claude, $codex, $copilot) | ForEach-Object { Get-WorkerBlocks $_ }) -join "`n") -replace '<[^>]+>', ' '
     Assert-True ($blocks -ne '' -and $blocks -notmatch '\[ref:' -and $blocks -notmatch 'agent-|copilot:|codex:') 'worker blocks keep the reference out of the page'
     Assert-True ($blocks -notmatch [regex]::Escape($cp.work) -and $blocks -notmatch [regex]::Escape($cx.test) -and $blocks -notmatch 'same1' -and $blocks -notmatch 'cdx1') 'ids not printed in the worker blocks'
@@ -197,15 +197,15 @@ try {
     $agents = Run-Viewer
     $copilot = Get-AppCard $agents 'Copilot'
     $status = Get-CardStatus $copilot
-    Assert-True ($status.Groups[1].Value -eq 's-idle' -and $status.Groups[2].Value -eq 'sin actividad · 1 trabajador probablemente detenido') "Copilot card with only a stopped worker, got: $($status.Groups[2].Value)"
-    Assert-True ((Get-WorkerBlock $copilot 'pieza ocho') -match 'Probablemente detenido') 'the stopped worker is still listed'
-    Assert-True ($copilot -match 'class="meta agent-idle">sin actividad: Copilot-Auto</p>') 'FLU-T08: stopped task workers preserve the idle label'
+    Assert-True ($status.Groups[1].Value -eq 's-idle' -and $status.Groups[2].Value -eq 'no activity · 1 worker probably stopped') "Copilot card with only a stopped worker, got: $($status.Groups[2].Value)"
+    Assert-True ((Get-WorkerBlock $copilot 'pieza ocho') -match 'Probably stopped') 'the stopped worker is still listed'
+    Assert-True ($copilot -match 'class="meta agent-idle">no activity: Copilot-Auto</p>') 'FLU-T08: stopped task workers preserve the idle label'
 
     # --- A finished task: its workers are no longer active anywhere ---
     Write-Card 'T01' 'terminada' 'Claude-Opus' @((Deleg 'Claude-Opus' '11:10' 'GPT worker C' "copilot:$($cp.work)" 'pieza nueve'))
     $agents = Run-Viewer
     $copilot = Get-AppCard $agents 'Copilot'
-    Assert-True ($copilot -notmatch 'pieza nueve' -and (Get-CardStatus $copilot).Groups[2].Value -eq 'sin actividad') 'a delivered task has no active Copilot worker: the card says sin actividad'
+    Assert-True ($copilot -notmatch 'pieza nueve' -and (Get-CardStatus $copilot).Groups[2].Value -eq 'no activity') 'a delivered task has no active Copilot worker: the card says no activity'
 }
 catch {
     Write-Host $_.Exception.Message

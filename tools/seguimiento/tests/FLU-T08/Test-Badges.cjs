@@ -6,11 +6,11 @@ const path = require('node:path');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const source = fs.readFileSync(path.resolve(__dirname, '../../ver-seguimiento.ps1'), 'utf8');
 const css = source.match(/<style>([\s\S]*?)<\/style>/)[1];
-const long = 'Activo · trabajando para Example-Orchestrator en Planes de implementación días 2-3 (Worker) ';
+const long = 'Active · working for Example-Orchestrator on Planes de implementación días 2-3 (Worker) ';
 const badge = text => `<span class="state s-en-curso">${text}</span>`;
 const html = `<style>${css}</style><div class="agent-grid"><section class="panel agent-card">
   <div class="card-head"><h2>Example</h2>${badge(long.repeat(3))}</div>
-  <div class="agent-name"><div class="card-head"><h3>Example-Agent</h3>${badge('Activo')}</div>
+  <div class="agent-name"><div class="card-head"><h3>Example-Agent</h3>${badge('Active')}</div>
   <div class="agent-task">${badge(long.repeat(3))}</div>
   <div class="agent-task">${badge('x'.repeat(240))}</div></div>
 </section></div>`;

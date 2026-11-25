@@ -1,4 +1,4 @@
-# SEG-T05: agents grouped by application, active delegations ("trabajando"), and the Trabajaron column.
+# SEG-T05: agents grouped by application, active delegations ("working"), and the Worked on column.
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
@@ -57,36 +57,36 @@ try {
     Assert-True ($claude -match '<h3>Claude-Opus2</h3>') 'instance Claude-Opus2 listed under Claude'
     $claudeActive = $claude.Substring(0, $claude.IndexOf('agent-idle'))
     Assert-True ($claudeActive -notmatch '<h3>Claude-Sonnet</h3>' -and $claudeActive -notmatch '<h3>Claude-Fable</h3>') 'idle names are not active blocks'
-    Assert-True ($claude -match 'sin actividad: Claude-Sonnet, Claude-Fable</p>') 'sin actividad line with idle Claude names'
-    Assert-True ($agents -match 'sin actividad: Copilot-Auto</p>') 'Copilot-Auto idle'
-    Assert-True ($agents -match '<h3>Codex</h3>') 'Codex active (pendiente)'
+    Assert-True ($claude -match 'no activity: Claude-Sonnet, Claude-Fable</p>') 'no activity line with idle Claude names'
+    Assert-True ($agents -match 'no activity: Copilot-Auto</p>') 'Copilot-Auto idle'
+    Assert-True ($agents -match '<h3>Codex</h3>') 'Codex active (Pending)'
     # Delegations: active shown, returned not.
-    Assert-True ($claude -match 'Claude Sonnet 5\.5 \(T2\) desde 10:15 (·|&#183;) sin se(ñ|&#241;)al de actividad (·|&#183;) vista de agentes') 'active delegation line'
+    Assert-True ($claude -match 'Claude Sonnet 5\.5 \(T2\) since 10:15 (·|&#183;) No activity signal (·|&#183;) vista de agentes') 'active delegation line'
     Assert-True ($agents -notmatch 'Haiku Lite \(T1\)') 'returned worker is not shown as working'
 
-    # Trabajaron column of the task table.
+    # Worked on column of the task table.
     $row = [regex]::Match($html, '<tr><td><a [^>]*>SEG-T05 Tarea de prueba T05</a>.*?</tr>').Value
     Assert-True ($row -ne '') 'T05 row found'
-    Assert-True ($row -match 'orquestó Claude-Opus') 'orquestó Claude-Opus'
-    Assert-True ($row -match 'Claude Sonnet 5\.5 \(T2, esfuerzo bajo\)') 'Sonnet worker with level/effort'
-    Assert-True ($row -match 'Haiku Lite \(T1, esfuerzo bajo\)') 'returned worker still listed as worked'
+    Assert-True ($row -match 'orchestrated by Claude-Opus') 'orchestrator is named'
+    Assert-True ($row -match 'Claude Sonnet 5\.5 \(T2, effort low\)') 'Sonnet worker with level and effort'
+    Assert-True ($row -match 'Haiku Lite \(T1, effort low\)') 'returned worker remains listed as having worked'
     Assert-True ([regex]::Matches($row, 'Claude Sonnet 5\.5').Count -eq 1) 'worker deduplicated against JSONL'
     $row7 = [regex]::Match($html, '<tr><td><a [^>]*>SEG-T07 Tarea de prueba T07</a>.*?</tr>').Value
     Assert-True ($row7 -match 'gpt-6-luna \(/root/rut_policy\)') 'Codex JSONL worker with requested model'
-    Assert-True ($row7 -match 'orquestó Codex') 'old JSONL orchestrator falls back to card Agente'
+    Assert-True ($row7 -match 'orchestrated by Codex') 'old JSONL orchestrator falls back to card agent'
     $row8 = [regex]::Match($html, '<tr><td><a [^>]*>SEG-T08 Tarea de prueba T08</a>.*?</tr>').Value
-    Assert-True ($row8 -ne '' -and $row8 -notmatch 'orquestó') 'no delegation: nothing invented'
+    Assert-True ($row8 -ne '' -and $row8 -notmatch 'orchestrated by') 'no delegation: nothing invented'
 
     # Tasks follow their code, each with its own last activity.
     $board = $html.Substring($html.IndexOf('SEG-T05 Tarea de prueba T05'))
     $order = 'SEG-T05','SEG-T06','SEG-T07','SEG-T08' | ForEach-Object { $html.IndexOf("$_ Tarea de prueba") }
     Assert-True ($order[0] -lt $order[1] -and $order[1] -lt $order[2] -and $order[2] -lt $order[3]) 'tasks ordered by code'
-    Assert-True ($row -match 'Última actividad 2026-10-10 11:00') 'last activity still shown'
+    Assert-True ($row -match 'Last activity 2026-10-10 11:00') 'last activity still shown'
 
     # Resumen card of the active stage.
     $cards = $html.Substring($html.IndexOf('<section class="cards">'))
     $cards = $cards.Substring(0, $cards.IndexOf('</section>'))
-    Assert-True ($cards -match 'Claude Sonnet 5\.5 \(T2\) desde 10:15') 'Resumen card shows trabajando'
+    Assert-True ($cards -match 'Claude Sonnet 5\.5 \(T2\) since 10:15') 'summary card shows the delegation'
     Assert-True ($cards -notmatch 'Haiku Lite') 'Resumen card omits returned worker'
 }
 catch {

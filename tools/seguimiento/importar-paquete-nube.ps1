@@ -303,11 +303,11 @@ function Invoke-TaskCardCompletion([string]$Channel, [string]$TaskPath, [string]
         $updated = [regex]::Replace($current, '(?m)^(\|\s*Estado\s*\|\s*).*?(\s*\|\s*)$', '${1}terminada${2}', 1)
         $updated = [regex]::Replace($updated, '(?m)^(\|\s*Agente\s*\|\s*).*?(\s*\|\s*)$', ('${1}' + $AgentName + '${2}'), 1)
         $updated = [regex]::Replace($updated, '(?m)^(\|\s*Parche\s*\|\s*).*?(\s*\|\s*)$', ('${1}`' + $PatchName + '`' + '${2}'), 1)
-        $detail = "Entrega cloud validada estructuralmente por el operador. $Summary"
+        $detail = "Cloud delivery structurally validated by the operator. $Summary"
         $updated = [regex]::Replace($updated, '(?s)(## Dónde quedó\s*\r?\n).*?(?=\r?\n## Qué falta)', ('$1' + $detail))
-        $updated = [regex]::Replace($updated, '(?s)(## Qué falta\s*\r?\n).*?(?=\r?\n## Historial)', ('$1' + 'El usuario puede revisar y aplicar el parche por el flujo ordinario; checks del manifiesto no verificados.'))
+        $updated = [regex]::Replace($updated, '(?s)(## Qué falta\s*\r?\n).*?(?=\r?\n## Historial)', ('$1' + 'The user can review and apply the patch through the normal process; manifest checks have not been verified.'))
         $date = Get-Date -Format 'yyyy-MM-dd HH:mm'
-        $historyRows = "`r`n| $date | $AgentName | tomada | Trabajo recibido desde paquete cloud; atribución declarada por el operador. |`r`n| $date | $AgentName | terminada | Paquete validado y parche $PatchName registrado; checks declarados, no verificados. |"
+        $historyRows = "`r`n| $date | $AgentName | tomada | Work received from cloud package; attribution declared by the operator. |`r`n| $date | $AgentName | terminada | Package validated and patch $PatchName recorded; declared checks are unverified. |"
         $updated = $updated.TrimEnd() + $historyRows + "`r`n"
         Write-ChannelFile $TaskPath $updated
         if ($RequestId) { Remove-Item -LiteralPath $reservationPath -Force }
@@ -595,16 +595,16 @@ function Invoke-Importer {
             "- base_commit: ``$baseCommit`` (current HEAD ``$head``)",
             '- parche: {PARCHE}',
             "- archivos: $fileList",
-            "- cambios de contrato/interfaz: paquete cloud para $TaskId validado estructuralmente; resumen declarado: `"$summary`"; agente manifestado: `"$declaredAgent`"; atribución confirmada por operador: `"$Agent`".",
-            "- pruebas no ejecutadas: no ejecutadas por el importador. Checks declarados por el paquete, no verificados: $($checkList -join '; ')",
-            "- pide a: Usuario — revisar y aplicar el parche mediante el flujo ordinario si la tarea/dependencias están listas; el importador no lo aplica."
+            "- cambios de contrato/interfaz: Cloud package for $TaskId structurally validated; declared summary: `"$summary`"; manifest agent: `"$declaredAgent`"; operator-confirmed attribution: `"$Agent`".",
+            "- pruebas no ejecutadas: The importer did not run tests. Package-declared checks are unverified: $($checkList -join '; ')",
+            "- pide a: Usuario — review and apply the patch through the normal process if the task and dependencies are ready; the importer does not apply it."
         ) -join "`n"
         [System.IO.File]::WriteAllText($bodyTemp, $body, [System.Text.UTF8Encoding]::new($false))
         try {
             $registrationOutput = & (Join-Path $channel 'registrar-entrada.ps1') `
                 -Autor $Agent -Tipo entrega -Titulo "Entrega cloud para $TaskId" -Para Todos `
                 -Autorizacion $Authorization -CuerpoArchivo $bodyTemp `
-                -Resumen "Paquete cloud validado estructuralmente para $TaskId; checks declarados, no verificados." `
+                -Resumen "Cloud package for $TaskId structurally validated; declared checks are unverified." `
                 -Parche $patchTemp -ParcheNombre $patchName 2>&1
             $registrationSucceeded = $?
             $registration = @($registrationOutput | ForEach-Object { "$_" }) -join "`n"
@@ -621,7 +621,7 @@ function Invoke-Importer {
                     $assignment = @(Get-CloudAssignmentByRequestId -StorePath $assignmentPath -RequestId $requestId)
                     if ($assignment.Count) {
                         Set-CloudAssignmentState -StorePath $assignmentPath -RequestId $requestId -State human_review `
-                            -Actor $Agent -Detail "Se validó y registró $registeredPatch; el cambio sigue pendiente de revisión y aplicación humana." | Out-Null
+                            -Actor $Agent -Detail "Validated and recorded $registeredPatch; the change is still pending human review and application." | Out-Null
                     } else {
                         Write-Warning "Cloud patch $registeredPatch was registered, but request $requestId has no lifecycle record (legacy reservation)."
                     }

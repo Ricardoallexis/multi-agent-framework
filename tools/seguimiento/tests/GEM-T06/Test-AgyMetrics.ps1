@@ -1,7 +1,7 @@
 # GEM-T06 (viewer part): the Antigravity card shows the same metrics as the other applications.
-#  1. Uso del plan: Format-PlanUsage finds the app «antigravity» in the report of `multiagent usage-report plans` (synthetic report in the cache of the channel).
-#  2. Tokens per worker, per task and in the totals: from the card's Tokens field when tokens-tarea.ps1 wrote it, else from the outputs of the runs
-#     (orquestacion\herramientas\agy-*.json / agy-*.ndjson), linked by the reference agy:<conversation_id>. One run per output name.
+#  1. Plan usage: Format-PlanUsage finds the `antigravity` app in the `multiagent usage-report plans` report (synthetic channel cache).
+#  2. Tokens per worker, task, and totals: from the card's Tokens field when `tokens-tarea.ps1` wrote it, or from run outputs
+#     (orquestacion\herramientas\agy-*.json / agy-*.ndjson), linked by the agy:<conversation_id> reference. One run per output name.
 #  3. The model observed: init.model of the ndjson run.
 # Synthetic folders only; the response of a run is never printed.
 $ErrorActionPreference = 'Stop'
@@ -98,48 +98,48 @@ try {
 
     # 1. plan usage, painted like the other apps
     $plan = Get-PlanBlock $agy
-    Assert-True ($plan -match 'Uso del plan · Google AI Pro') 'plan name in the Antigravity card'
-    Assert-True ($plan -match '5 h</strong>: 12,5 % usado' -and $plan -match 'Semana</strong>: 50 % usado') 'plan windows with used percent'
-    Assert-True ($plan -match 'Claude and GPT Models · Semana</strong>: 7 % usado') 'a window of another agy model group carries the group name'
-    Assert-True ($plan -match 'reinicio: \d\d/\d\d \d\d:\d\d' -and $plan -match 'Ritmo: ') 'reset and pace like the other apps'
-    Assert-True ($plan -match 'Fuente: agy /usage · Frescura: hace 5 min') 'source and freshness'
+    Assert-True ($plan -match 'Plan usage · Google AI Pro') 'plan name in the Antigravity card'
+    Assert-True ($plan -match '5 h</strong>: 12\.5 % used' -and $plan -match 'Semana</strong>: 50 % used') 'plan windows with used percent'
+    Assert-True ($plan -match 'Claude and GPT Models · Semana</strong>: 7 % used') 'a window of another agy model group carries the group name'
+    Assert-True ($plan -match 'reset: \d\d/\d\d \d\d:\d\d' -and $plan -match 'Pace: ') 'reset and pace like the other apps'
+    Assert-True ($plan -match 'Source: agy /usage · Freshness: 5 min ago') 'source and freshness'
     $codexPlan = Get-PlanBlock $codex
-    Assert-True ($codexPlan -match 'Uso del plan · ChatGPT Plus' -and $codexPlan -match '20 % usado') 'the Codex card has its plan usage (same renderer)'
-    # a report without antigravity: sin dato, not a failure
+    Assert-True ($codexPlan -match 'Plan usage · ChatGPT Plus' -and $codexPlan -match '20 % used') 'the Codex card has its plan usage (same renderer)'
+    # A report without Antigravity: no data, not a failure.
     $reportNone = @{ apps = @($report.apps[0]) }
     Set-Content (Join-Path $channel 'contexto\usage-plans-cache.json') (Json @{ attempted_at = (Utc $now.AddSeconds(-30)); report = $reportNone }) -Encoding utf8
     $none = Run-Viewer
     $planNone = Get-PlanBlock (Get-AppCard $none.Agents 'Antigravity')
-    Assert-True ($planNone -match 'Uso del plan' -and $planNone -match 'sin dato') 'without antigravity in the report the card says sin dato'
+    Assert-True ($planNone -match 'Plan usage' -and $planNone -match 'No data') 'without Antigravity in the report, the card says No data'
     Set-Content (Join-Path $channel 'contexto\usage-plans-cache.json') (Json @{ attempted_at = (Utc $now.AddSeconds(-30)); report = $report }) -Encoding utf8
 
-    # 2. tokens per worker (from the runs): agy's input excludes the cache, so total = entrada + cacheados + salida
+    # 2. Tokens per worker (from the runs): agy's input excludes the cache, so total = input + cached + output.
     $w1 = Get-WorkerBlock $agy 'pieza uno'
-    Assert-True ($w1 -match 'Tokens: 21 k · entrada 11 k · salida 766 · medido en la corrida') "T01 worker tokens from the run (ndjson and json of the same run counted once), got: $($w1 -replace '<[^>]+>', ' ')"
+    Assert-True ($w1 -match 'Tokens: 21 k · input 11 k · output 766 · measured in this run') "T01 worker tokens from the run (ndjson and json of the same run counted once), got: $($w1 -replace '<[^>]+>', ' ')"
     # 3. model observed in init.model
     Assert-True ($w1 -match '<strong>Antigravity · gemini-3\.8-flash-low \(T2\)</strong>') 'the model observed (init.model) names the worker'
-    Assert-True ($w1 -match 'Actividad: Trabajando') 'activity from the conversation file'
+    Assert-True ($w1 -match 'Activity: Working') 'activity from the conversation file'
     # per task: the Tokens column of the task row and its total
     $taskRow = [regex]::Match($run.Html, '(?s)<tr><td><a [^>]*>AAA-T01.*?</tr>').Value
-    Assert-True ($taskRow -match 'Total de la tarea: 21 k' -and $taskRow -match 'Antigravity-Flash' -and $taskRow -match '21 k') 'T01 task tokens and total from the runs'
-    Assert-True ($taskRow -match 'entrada 11475 · cacheados 8592 · salida 766') 'T01 token detail (title attribute)'
+    Assert-True ($taskRow -match 'Task total: 21 k' -and $taskRow -match 'Antigravity-Flash' -and $taskRow -match '21 k') 'T01 task tokens and total from the runs'
+    Assert-True ($taskRow -match 'Input 11475 · cached 8592 · output 766') 'T01 token detail (title attribute)'
     # the card's field wins when it has the worker
     $w2 = Get-WorkerBlock $agy 'pieza dos'
-    Assert-True ($w2 -match 'Tokens: 500 · entrada 100 · salida 100 · exacto por ventana') "T02 worker tokens from the card field, got: $($w2 -replace '<[^>]+>', ' ')"
+    Assert-True ($w2 -match 'Tokens: 500 · input 100 · output 100 · exact per window') "T02 worker tokens from the card field, got: $($w2 -replace '<[^>]+>', ' ')"
     $row2 = [regex]::Match($run.Html, '(?s)<tr><td><a [^>]*>AAA-T02.*?</tr>').Value
-    Assert-True ($row2 -match 'Total de la tarea: 505' -and $row2 -notmatch 'medido en la corrida') 'T02 task total from the field, no duplicate from the run'
+    Assert-True ($row2 -match 'Task total: 505' -and $row2 -notmatch 'measured in this run') 'T02 task total from the field, no duplicate from the run'
     $row4 = [regex]::Match($run.Html, '(?s)<tr><td><a [^>]*>AAA-T04.*?</tr>').Value
-    Assert-True ($row4 -match 'Total de la tarea: 50' -and $row4 -match 'Antigravity-Null.*<strong>45</strong>') 'a no-data card entry does not hide a locked agy json run'
+    Assert-True ($row4 -match 'Task total: 50' -and $row4 -match 'Antigravity-Null.*<strong>45</strong>') 'a no-data card entry does not hide a locked agy json run'
     $w4 = Get-WorkerBlock $agy 'pieza cuatro'
-    Assert-True ($w4 -match 'Tokens: 45 · entrada 30 · salida 10 · medido en la corrida') 'worker card falls back from no-data field to measured run'
+    Assert-True ($w4 -match 'Tokens: 45 · input 30 · output 10 · measured in this run') 'worker card falls back from no-data field to measured run'
     $row5 = [regex]::Match($run.Html, '(?s)<tr><td><a [^>]*>AAA-T05.*?</tr>').Value
-    Assert-True ($row5 -match 'Total de la tarea: 35' -and $row5 -match 'Antigravity-Mixed.*<strong>30</strong>') 'task total includes the extra locked agy ndjson run'
+    Assert-True ($row5 -match 'Task total: 35' -and $row5 -match 'Antigravity-Mixed.*<strong>30</strong>') 'task total includes the extra locked agy ndjson run'
     # json-only run: tokens, no model (the registered name stays)
     $w3 = Get-WorkerBlock $agy 'pieza tres'
-    Assert-True ($w3 -match '<strong>Antigravity-Argon \(T2\)</strong>' -and $w3 -match 'Tokens: 4 k · entrada 2 k · salida 500 · medido en la corrida') 'T03 json-only run: tokens and registered name'
+    Assert-True ($w3 -match '<strong>Antigravity-Argon \(T2\)</strong>' -and $w3 -match 'Tokens: 4 k · input 2 k · output 500 · measured in this run') 'T03 json-only run: tokens and registered name'
     # per agent: the agent card sums the tokens of its tasks
-    Assert-True ($agy -match '<h4>Tokens en tareas</h4><p><strong>21 k</strong> en 1 tarea\(s\) · salida 766') 'Antigravity-Flash agent card: tokens in tasks'
-    Assert-True ($agy -match '<h4>Tokens en tareas</h4><p><strong>500</strong> en 1 tarea\(s\)') 'Antigravity-Sonnet agent card: tokens from the field'
+    Assert-True ($agy -match '<h4>Task tokens</h4><p><strong>21 k</strong> across 1 task\(s\) · output 766') 'Antigravity-Flash agent card: tokens in tasks'
+    Assert-True ($agy -match '<h4>Task tokens</h4><p><strong>500</strong> across 1 task\(s\)') 'Antigravity-Sonnet agent card: tokens from the field'
 
     # Nothing of the runs is printed
     Assert-True ($run.Html -notmatch 'SECRET-CONTENT') 'the response and the steps of the runs are never printed'

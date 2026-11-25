@@ -42,21 +42,22 @@ try {
     $html = [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
 
     $expected = [ordered]@{
-        'fase-1' = @('Cambios pedidos', 's-requiere-cambios')
-        'fase-2' = @('Fase completa', 's-integrada')
-        'fase-3' = @('Fase terminada · falta integrar', 's-pendiente')
-        'fase-4' = @('En curso', 's-en-curso')
-        'fase-5' = @('Avance parcial · 1 de 2', 's-pendiente')
-        'fase-6' = @('Lista', 's-disponible')
-        'fase-7' = @('En espera de dependencias', 's-idle')
+        'fase-1' = @('Changes requested', 's-requiere-cambios')
+        'fase-2' = @('Phase complete', 's-integrada')
+        'fase-3' = @('Phase completed · integration pending', 's-pendiente')
+        'fase-4' = @('In progress', 's-en-curso')
+        'fase-5' = @('Partial progress · 1 of 2', 's-pendiente')
+        'fase-6' = @('Available', 's-disponible')
+        'fase-7' = @('Waiting for dependencies', 's-idle')
     }
-    foreach ($key in $expected.Keys) {
+    $phaseSummaries = foreach ($key in $expected.Keys) {
         $summary = Get-Summary $html "seg:AAA:$key"
         Assert-True ($summary -match [regex]::Escape($expected[$key][0])) "$key label '$($expected[$key][0])' in summary: $summary"
         Assert-True ($summary -match [regex]::Escape($expected[$key][1])) "$key class $($expected[$key][1])"
+        $summary
     }
-    # Only the in-progress phase says "En curso".
-    Assert-True ([regex]::Matches($html, '>En curso</span>').Count -eq 1) 'En curso appears once'
+    # Count phase badges only; task badges elsewhere can also say "In progress".
+    Assert-True ([regex]::Matches(($phaseSummaries -join ''), '>In progress</span>').Count -eq 1) 'In progress appears once among phase badges'
 }
 catch {
     Write-Host $_.Exception.Message

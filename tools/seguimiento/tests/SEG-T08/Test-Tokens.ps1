@@ -1,4 +1,4 @@
-# SEG-T08: Tokens cell with delegated workers (exact / estimated / no data) and "Total de la tarea".
+# SEG-T08: Tokens cell with delegated workers (exact / estimated / no data) and "Task total".
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
@@ -44,26 +44,26 @@ try {
     $a = Get-Row $html 'T01'
     Assert-True ($a -match 'Claude-Opus: <strong>1\.5 M</strong>') 'old: orchestrator total'
     Assert-True ($a -match 'Copilot: <span class="meta">no disponible</span>') 'old: Copilot entry kept'
-    Assert-True ($a -notmatch 'token-worker' -and $a -notmatch 'Total de la tarea') 'old: no worker or total markup'
+    Assert-True ($a -notmatch 'token-worker' -and $a -notmatch 'Task total') 'old: no worker or total markup'
 
     # (b) orchestrator + exact worker + estimated worker + total.
     $b = Get-Row $html 'T02'
     Assert-True ($b -match 'Claude-Opus: <strong>1\.0 M</strong>') 'b: orchestrator'
-    Assert-True ($b -match "token-worker[^>]*margin-left[^>]*>$arrowHtml Claude Sonnet 5\.5 <span class=""meta"">\(delegado por Claude-Opus\)</span>: <strong>250 k</strong> <span class=""meta"">\(exacto") 'b: exact worker indented'
-    Assert-True ($b -match "token-worker[^>]*>$arrowHtml gpt-5\.5 \(preview\) .*?<strong>8 k</strong> <span class=""meta"">\(estimado") 'b: estimated worker, name with parentheses'
+    Assert-True ($b -match "token-worker[^>]*margin-left[^>]*>$arrowHtml Claude Sonnet 5\.5 <span class=""meta"">\(delegated by Claude-Opus\)</span>: <strong>250 k</strong> <span class=""meta"">\(exact") 'b: exact worker indented'
+    Assert-True ($b -match "token-worker[^>]*>$arrowHtml gpt-5\.5 \(preview\) .*?<strong>8 k</strong> <span class=""meta"">\(estimated") 'b: estimated worker, name with parentheses'
     Assert-True ([regex]::Matches($b, 'class="token-worker"').Count -eq 2) 'b: both workers kept'
-    Assert-True ($b -match 'Total de la tarea: 1\.3 M') 'b: task total'
-    Assert-True ($b.IndexOf('Claude-Opus:') -lt $b.IndexOf('Claude Sonnet 5.5') -and $b.IndexOf('gpt-5.5') -lt $b.IndexOf('Total de la tarea')) 'b: order orchestrator, workers, total'
+    Assert-True ($b -match 'Task total: 1\.3 M') 'b: task total'
+    Assert-True ($b.IndexOf('Claude-Opus:') -lt $b.IndexOf('Claude Sonnet 5.5') -and $b.IndexOf('gpt-5.5') -lt $b.IndexOf('Task total')) 'b: order orchestrator, workers, total'
 
     # (c) worker without data (both spellings), nothing dropped.
     $c = Get-Row $html 'T03'
     Assert-True ([regex]::Matches($c, 'class="token-worker"').Count -eq 2) 'c: both no-data workers kept'
-    Assert-True ($c -match 'gpt-6-luna <span class="meta">\(delegado por Codex\)</span>: <span class="meta">sin datos</span>') 'c: sin datos tag'
-    Assert-True ($c -match 'Codex: <strong>2 k</strong>' -and $c -match 'Total de la tarea: 2 k') 'c: orchestrator and total'
+    Assert-True ($c -match 'gpt-6-luna <span class="meta">\(delegated by Codex\)</span>: <span class="meta">no data</span>') 'c: no-data tag'
+    Assert-True ($c -match 'Codex: <strong>2 k</strong>' -and $c -match 'Task total: 2 k') 'c: orchestrator and total'
 
     # Worker tokens do not inflate the orchestrator's agent-card sum (1.5 M + 1.0 M = 2.5 M, never plus 258 k).
-    if ($html -match 'Tokens en tareas</h4><p><strong>2\.5 M</strong>') { Write-Host 'agent card: orchestrator sum excludes workers' }
-    Assert-True ($html -notmatch 'Tokens en tareas</h4><p><strong>2\.8 M</strong>') 'workers not double counted into the orchestrator'
+    if ($html -match 'Task tokens</h4><p><strong>2\.5 M</strong>') { Write-Host 'agent card: orchestrator sum excludes workers' }
+    Assert-True ($html -notmatch 'Task tokens</h4><p><strong>2\.8 M</strong>') 'workers not double counted into the orchestrator'
 }
 catch {
     Write-Host $_.Exception.Message

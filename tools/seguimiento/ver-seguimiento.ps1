@@ -32,7 +32,7 @@ param(
     [string]$AgyRoot = (Join-Path $HOME '.gemini\antigravity-cli'),
     [ValidateRange(1, 1440)][int]$ActiveMinutes = 15,
     [ValidateRange(1, 10080)][int]$StoppedMinutes = 60,
-    # FLU-T06: a card «en curso» without «Espera» whose newest Historial row is older than this many hours reads «sin actividad».
+    # FLU-T06: an "en curso" card without an "Espera" row whose newest "Historial" entry is older than this many hours shows "No activity".
     [ValidateRange(1, 720)][int]$SinActividadHoras = 6,
     [Nullable[datetime]]$NowOverride = $null,
     [string]$RestartParameters = ''  # internal: preserve bound parameters across pwsh -File, including string[]
@@ -93,7 +93,7 @@ if (Test-Path -LiteralPath $ideasModulePath -PathType Leaf) {
         Import-Module $ideasModulePath -Force -ErrorAction Stop
         $ideasModuleAvailable = $true
     } catch {
-        Write-Warning "La biblioteca de ideas no esta disponible; el resto del seguimiento continua. $($_.Exception.Message)"
+        Write-Warning "The ideas library is unavailable; the rest of the tracker will continue. $($_.Exception.Message)"
     }
 }
 if (Test-Path -LiteralPath $cloudAssignmentsModulePath -PathType Leaf) {
@@ -101,7 +101,7 @@ if (Test-Path -LiteralPath $cloudAssignmentsModulePath -PathType Leaf) {
         Import-Module $cloudAssignmentsModulePath -Force -ErrorAction Stop
         $cloudAssignmentsModuleAvailable = $true
     } catch {
-        Write-Warning "El registro de asignaciones cloud no esta disponible; el resto del seguimiento continua. $($_.Exception.Message)"
+        Write-Warning "The cloud assignment record is unavailable; the rest of the tracker will continue. $($_.Exception.Message)"
     }
 }
 
@@ -164,10 +164,10 @@ function Format-PlanUsage([string]$application, $report) {
         $now = (Get-ViewerNow).ToUniversalTime()
         $observed = if ($key -eq 'claude') { $data.observed_at } else { $data.source.observed_at }
         $source = if ($key -eq 'claude') { $data.source } else { $data.source.kind }
-        $age = 'sin dato'
+        $age = 'no data'
         if ($observed) {
             $minutes = [math]::Max(0, [math]::Floor(($now - (ConvertTo-PlanDate $observed).UtcDateTime).TotalMinutes))
-            $age = "hace $minutes min" + $(if ($minutes -gt 15) { ' · dato viejo' })
+            $age = "$minutes min ago" + $(if ($minutes -gt 15) { ' · stale data' })
         }
         $items = foreach ($window in @($data.windows)) {
             try {
@@ -179,40 +179,40 @@ function Format-PlanUsage([string]$application, $report) {
                     $n = [double]$window.used_percent
                     if (-not [double]::IsNaN($n) -and $n -ge 0 -and $n -le 100) { $percent = $n }
                 }
-                $used = if ($null -ne $percent -and -not $expired) { $percent.ToString('0.##', [cultureinfo]::InvariantCulture).Replace('.', ',') + ' % usado' } else { 'sin dato' }
-                $resetText = if ($reset) { $reset.ToLocalTime().ToString('dd/MM HH:mm zzz') } else { 'sin dato' }
+                $used = if ($null -ne $percent -and -not $expired) { $percent.ToString('0.##', [cultureinfo]::InvariantCulture) + ' % used' } else { 'no data' }
+                $resetText = if ($reset) { $reset.ToLocalTime().ToString('dd/MM HH:mm zzz') } else { 'no data' }
                 $elapsed = $window.elapsed_percent
                 if ($key -eq 'claude' -and $reset -and -not $expired) {
                     $duration = if ($window.window -eq 'five_hour') { 300 } elseif ($window.window -like '*week*') { 10080 } else { 0 }
                     if ($duration) { $elapsed = [math]::Clamp(100 * (1 - ($reset.UtcDateTime - $now).TotalMinutes / $duration), 0, 100) }
                 }
-                $pace = 'sin dato'
+                $pace = 'no data'
                 if ($null -ne $elapsed -and $null -ne $percent -and -not $expired) {
-                    $pace = if ($percent -gt [double]$elapsed) { 'por encima del tiempo transcurrido' } else { 'dentro del tiempo transcurrido' }
-                    $pace += ' (' + ([double]$elapsed).ToString('0.#') + ' % del tiempo)'
+                    $pace = if ($percent -gt [double]$elapsed) { 'ahead of elapsed time' } else { 'within elapsed time' }
+                    $pace += ' (' + ([double]$elapsed).ToString('0.#') + ' % of time)'
                 }
-                $quota = if (-not $expired -and ($window.last_hit_at -or $window.state -eq 'limit_reached')) { "<strong>sin cuota hasta $(Encode $resetText)</strong> · " } else { '' }
+                $quota = if (-not $expired -and ($window.last_hit_at -or $window.state -eq 'limit_reached')) { "<strong>quota unavailable until $(Encode $resetText)</strong> · " } else { '' }
                 $label = if ($window.label) { $window.label } else { $window.window }
                 if ($window.group) { $label = "$($window.group) · $label" }   # agy reports each model group's windows
-                "<li><strong>$(Encode $label)</strong>: $used · ${quota}reinicio: $(Encode $resetText)$(if ($expired) { ' · ventana vencida' })<br>Ritmo: $(Encode $pace)</li>"
-            } catch { '<li>Ventana: sin dato</li>' }
+                "<li><strong>$(Encode $label)</strong>: $used · ${quota}reset: $(Encode $resetText)$(if ($expired) { ' · window expired' })<br>Pace: $(Encode $pace)</li>"
+            } catch { '<li>Window: no data</li>' }
         }
-        $plan = if ($data.plan) { $data.plan } else { 'sin dato' }
-        if (-not $source) { $source = 'sin dato' }
-        if (-not $items) { $items = '<li>Ventanas: sin dato</li>' }
-        "<div class=""plan-usage""><h3>Uso del plan · $(Encode $plan)</h3><ul>$($items -join '')</ul><p class=""meta"">Fuente: $(Encode $source) · Frescura: $(Encode $age)</p></div>"
-    } catch { '<div class="plan-usage"><h3>Uso del plan</h3><p class="meta">sin dato</p></div>' }
+        $plan = if ($data.plan) { $data.plan } else { 'no data' }
+        if (-not $source) { $source = 'no data' }
+        if (-not $items) { $items = '<li>Windows: no data</li>' }
+        "<div class=""plan-usage""><h3>Plan usage · $(Encode $plan)</h3><ul>$($items -join '')</ul><p class=""meta"">Source: $(Encode $source) · Freshness: $(Encode $age)</p></div>"
+    } catch { '<div class="plan-usage"><h3>Plan usage</h3><p class="meta">No data</p></div>' }
 }
 function Get-ApiJson([string]$path) {
     $baseUri = [uri]::new($script:apiBaseUrl)
-    if ($baseUri.Scheme -notin @('http', 'https') -or $baseUri.UserInfo -or $baseUri.Query -or $baseUri.Fragment) { throw 'ApiBaseUrl debe usar HTTP(S) y no incluir credenciales, query ni fragmento.' }
+    if ($baseUri.Scheme -notin @('http', 'https') -or $baseUri.UserInfo -or $baseUri.Query -or $baseUri.Fragment) { throw 'ApiBaseUrl must use HTTP(S) and must not include credentials, a query, or a fragment.' }
     $uri = [uri]::new($baseUri, $path)
     $response = Invoke-WebRequest -Method Get -Uri $uri -TimeoutSec $script:apiTimeoutSeconds -NoProxy -ErrorAction Stop
     $value = ConvertFrom-Json -InputObject $response.Content -AsHashtable -NoEnumerate -ErrorAction Stop
     return ,$value
 }
 function Get-ApiBoardHtml {
-    $source = 'URL inválida'
+    $source = 'Invalid URL'
     try {
         $displayUri = [uri]::new($script:apiBaseUrl)
         $source = Encode ($displayUri.GetLeftPart([System.UriPartial]::Authority) + $displayUri.AbsolutePath.TrimEnd('/'))
@@ -220,36 +220,36 @@ function Get-ApiBoardHtml {
     try {
         $groups = Get-ApiJson '/api/v1/task-groups'
         $tasks = Get-ApiJson '/api/v1/tasks'
-        if ($groups -isnot [System.Array] -or $tasks -isnot [System.Array]) { throw 'Schema inválido: grupos y tareas deben ser listas JSON.' }
+        if ($groups -isnot [System.Array] -or $tasks -isnot [System.Array]) { throw 'Invalid schema: groups and tasks must be JSON arrays.' }
         foreach ($group in $groups) {
-            if ($group -isnot [System.Collections.IDictionary] -or -not $group.id -or -not $group.title -or $null -eq $group.authorized -or $group.counts -isnot [System.Collections.IDictionary]) { throw 'Schema inválido en grupo: se requieren id, title, authorized y counts.' }
+            if ($group -isnot [System.Collections.IDictionary] -or -not $group.id -or -not $group.title -or $null -eq $group.authorized -or $group.counts -isnot [System.Collections.IDictionary]) { throw 'Invalid group schema: id, title, authorized, and counts are required.' }
             foreach ($countName in $group.counts.Keys) {
                 $countValue = $group.counts[$countName]
-                if ($countValue -isnot [byte] -and $countValue -isnot [sbyte] -and $countValue -isnot [int16] -and $countValue -isnot [uint16] -and $countValue -isnot [int32] -and $countValue -isnot [uint32] -and $countValue -isnot [int64] -and $countValue -isnot [uint64]) { throw "Schema inválido: count '$countName' de grupo $($group.id) debe ser entero." }
-                if ([long]$countValue -lt 0) { throw "Schema inválido: count '$countName' de grupo $($group.id) no puede ser negativo." }
+                if ($countValue -isnot [byte] -and $countValue -isnot [sbyte] -and $countValue -isnot [int16] -and $countValue -isnot [uint16] -and $countValue -isnot [int32] -and $countValue -isnot [uint32] -and $countValue -isnot [int64] -and $countValue -isnot [uint64]) { throw "Invalid schema: count '$countName' for group $($group.id) must be an integer." }
+                if ([long]$countValue -lt 0) { throw "Invalid schema: count '$countName' for group $($group.id) cannot be negative." }
             }
         }
         $groupIds = @($groups | ForEach-Object { [string]$_.id })
         foreach ($task in $tasks) {
-            if ($task -isnot [System.Collections.IDictionary] -or -not $task.id -or -not $task.group_id -or -not $task.title -or -not $task.state -or -not $task.status) { throw 'Schema inválido en tarea: se requieren id, group_id, title, state y status.' }
-            if ($task.group_id -notin $groupIds) { throw "Schema inválido: la tarea $($task.id) referencia un grupo ausente." }
+            if ($task -isnot [System.Collections.IDictionary] -or -not $task.id -or -not $task.group_id -or -not $task.title -or -not $task.state -or -not $task.status) { throw 'Invalid task schema: id, group_id, title, state, and status are required.' }
+            if ($task.group_id -notin $groupIds) { throw "Invalid schema: task $($task.id) references a missing group." }
         }
         foreach ($group in $groups) {
             $groupTasks = @($tasks | Where-Object { $_.group_id -eq $group.id })
             $actual = @{}; foreach ($task in $groupTasks) { $key = [string]$task.status; $actual[$key] = 1 + [int]$actual[$key] }
             $keys = @($actual.Keys) + @($group.counts.Keys) | Select-Object -Unique
             foreach ($key in $keys) {
-                if ([long]$actual[$key] -ne [long]$group.counts[$key]) { throw "Conteo API inconsistente para grupo $($group.id), estado $key." }
+                if ([long]$actual[$key] -ne [long]$group.counts[$key]) { throw "Inconsistent API count for group $($group.id), status $key." }
             }
         }
         $events = [System.Collections.Generic.List[object]]::new()
         $after = 0
         do {
             $page = Get-ApiJson "/api/v1/team-events?after=$after&limit=1000"
-            if ($page -isnot [System.Array]) { throw 'Schema inválido: eventos debe ser una lista JSON.' }
+            if ($page -isnot [System.Array]) { throw 'Invalid schema: events must be a JSON array.' }
             foreach ($event in $page) {
-                if ($event -isnot [System.Collections.IDictionary] -or $null -eq $event.seq -or -not $event.type -or -not $event.actor -or -not $event.created_at -or $null -eq $event.payload) { throw 'Schema inválido en evento: faltan seq, type, actor, created_at o payload.' }
-                if ([long]$event.seq -le $after) { throw 'Schema inválido: secuencia de eventos no avanza.' }
+                if ($event -isnot [System.Collections.IDictionary] -or $null -eq $event.seq -or -not $event.type -or -not $event.actor -or -not $event.created_at -or $null -eq $event.payload) { throw 'Invalid event schema: seq, type, actor, created_at, and payload are required.' }
+                if ([long]$event.seq -le $after) { throw 'Invalid schema: event sequence is not increasing.' }
                 $after = [long]$event.seq
                 $events.Add($event)
             }
@@ -258,26 +258,26 @@ function Get-ApiBoardHtml {
         $groupRows = foreach ($group in $groups) {
             $tasksInGroup = @($tasks | Where-Object { $_.group_id -eq $group.id })
             $taskRows = foreach ($task in $tasksInGroup) {
-                $tokens = if ($null -ne $task.tokens) { Encode ([string]$task.tokens) } else { '<span class="meta">Desconocidos · API no provee tokens</span>' }
-                $cost = if ($null -ne $task.cost) { Encode ([string]$task.cost) } else { '<span class="meta">Desconocido · API no provee costo</span>' }
-                $assignee = if ($null -ne $task.assignee) { Encode ([string]$task.assignee) } else { '<span class="meta">Sin dato</span>' }
-                $dependencyData = if ($null -ne $task.depends_on) { Encode (ConvertTo-Json -InputObject $task.depends_on -Compress -Depth 5) } else { '<span class="meta">Desconocido · API no provee dependencias</span>' }
-                $blockerData = if ($null -ne $task.blockers) { Encode (ConvertTo-Json -InputObject $task.blockers -Compress -Depth 5) } else { '<span class="meta">Desconocido · API no provee bloqueos</span>' }
-                $attempt = if ($null -ne $task.attempt) { Encode ([string]$task.attempt) } else { '<span class="meta">Desconocido</span>' }
+                $tokens = if ($null -ne $task.tokens) { Encode ([string]$task.tokens) } else { '<span class="meta">Unknown · API does not provide tokens</span>' }
+                $cost = if ($null -ne $task.cost) { Encode ([string]$task.cost) } else { '<span class="meta">Unknown · API does not provide cost</span>' }
+                $assignee = if ($null -ne $task.assignee) { Encode ([string]$task.assignee) } else { '<span class="meta">No data</span>' }
+                $dependencyData = if ($null -ne $task.depends_on) { Encode (ConvertTo-Json -InputObject $task.depends_on -Compress -Depth 5) } else { '<span class="meta">Unknown · API does not provide dependencies</span>' }
+                $blockerData = if ($null -ne $task.blockers) { Encode (ConvertTo-Json -InputObject $task.blockers -Compress -Depth 5) } else { '<span class="meta">Unknown · API does not provide blockers</span>' }
+                $attempt = if ($null -ne $task.attempt) { Encode ([string]$task.attempt) } else { '<span class="meta">Unknown</span>' }
                 $status = Encode ([string]$task.status)
-                "<tr><td><strong>$(Encode ([string]$task.title))</strong><div class=""meta"">$(Encode ([string]$task.id))</div></td><td><code>$status</code><div class=""meta"">Estado core: $(Encode ([string]$task.state))</div></td><td>$assignee</td><td>$dependencyData<div class=""meta"">Bloqueos: $blockerData</div></td><td>$attempt</td><td>$tokens</td><td>$cost</td></tr>"
+                "<tr><td><strong>$(Encode ([string]$task.title))</strong><div class=""meta"">$(Encode ([string]$task.id))</div></td><td><code>$status</code><div class=""meta"">Core state: $(Encode ([string]$task.state))</div></td><td>$assignee</td><td>$dependencyData<div class=""meta"">Blockers: $blockerData</div></td><td>$attempt</td><td>$tokens</td><td>$cost</td></tr>"
             }
-            $authorization = if ($group.authorized) { 'autorizado por API' } else { 'no autorizado por API' }
-            "<section class=""panel""><h2>$(Encode ([string]$group.title)) <span class=""meta"">$(Encode ([string]$group.id)) · $authorization</span></h2><p class=""meta"">$(($tasksInGroup.Count)) tareas devueltas por API · conteos de estado verificados contra la lista de tareas.</p><table><tr><th>Tarea</th><th>Estado</th><th>Responsable</th><th>Dependencias y bloqueos (API)</th><th>Attempts core</th><th>Tokens</th><th>Costo</th></tr>$($taskRows -join "`n")</table></section>"
+            $authorization = if ($group.authorized) { 'authorized by API' } else { 'not authorized by API' }
+            "<section class=""panel""><h2>$(Encode ([string]$group.title)) <span class=""meta"">$(Encode ([string]$group.id)) · $authorization</span></h2><p class=""meta"">$(($tasksInGroup.Count)) tasks returned by API · status counts verified against the task list.</p><table><tr><th>Task</th><th>Status</th><th>Assignee</th><th>Dependencies and blockers (API)</th><th>Core attempts</th><th>Tokens</th><th>Cost</th></tr>$($taskRows -join "`n")</table></section>"
         }
         $eventRows = foreach ($event in @($events | Sort-Object seq -Descending | Select-Object -First 100)) {
             "<tr><td>$(Encode ([string]$event.seq))</td><td><code>$(Encode ([string]$event.type))</code></td><td>$(Encode ([string]$event.group_id))</td><td>$(Encode ([string]$event.task_id))</td><td>$(Encode ([string]$event.actor))</td><td>$(Encode ([string]$event.created_at))</td><td><code>$(Encode (ConvertTo-Json -InputObject $event.payload -Compress -Depth 8))</code></td></tr>"
         }
-        $empty = if (-not $groups.Count -and -not $tasks.Count -and -not $events.Count) { '<p class="meta">API confirmó grupos, tareas y eventos vacíos.</p>' } else { '' }
-        return "<p class=""meta"">Fuente: API de solo lectura <code>$source</code>. Estado core literal; `accepted` no se interpreta como integrada. Git y reportes de integración se leen aparte desde el checkout/canal locales.</p>$empty$($groupRows -join "`n")<section class=""panel""><h2>Eventos core <span class=""meta"">$($events.Count) leídos; se muestran los últimos 100</span></h2><table><tr><th>Seq</th><th>Evento</th><th>Grupo</th><th>Tarea</th><th>Actor</th><th>Fecha API</th><th>Payload</th></tr>$($eventRows -join "`n")</table></section>"
+        $empty = if (-not $groups.Count -and -not $tasks.Count -and -not $events.Count) { '<p class="meta">API confirmed that groups, tasks, and events are empty.</p>' } else { '' }
+        return "<p class=""meta"">Source: read-only API <code>$source</code>. Core states are literal; `accepted` is not interpreted as `integrada`. Git and integration reports are read separately from the local checkout/channel.</p>$empty$($groupRows -join "`n")<section class=""panel""><h2>Core events <span class=""meta"">$($events.Count) loaded; showing the latest 100</span></h2><table><tr><th>Seq</th><th>Event</th><th>Group</th><th>Task</th><th>Actor</th><th>API date</th><th>Payload</th></tr>$($eventRows -join "`n")</table></section>"
     } catch {
         $detail = Encode ($_.Exception.Message + $(if ($_.Exception.InnerException) { ' (' + $_.Exception.InnerException.Message + ')' }))
-        return "<section class=""stop""><strong>API desconocida o no disponible</strong><p>No se pudo validar el snapshot; no se presenta como tablero vacío. Fuente configurada: <code>$source</code>.</p><p class=""meta"">$detail</p></section>"
+        return "<section class=""stop""><strong>API status unknown or unavailable</strong><p>Could not validate the snapshot; it is not shown as an empty board. Configured source: <code>$source</code>.</p><p class=""meta"">$detail</p></section>"
     }
 }
 function Get-Field([string]$text, [string]$name) {
@@ -331,25 +331,37 @@ function Format-TokenCount([long]$value) {
     elseif ($value -ge 1000) { '{0:0} k' -f ($value / 1000) }
     else { "$value" }
 }
+function Get-DisplayTokenSource([string]$source) {
+    switch ($source.Trim().ToLowerInvariant()) {
+        'estimado' { 'estimated' }
+        'exacto' { 'exact' }
+        'exacto por ventana' { 'exact per window' }
+        'sin datos' { 'no data' }
+        'medido en la corrida' { 'measured in this run' }
+        default { $source }
+    }
+}
 function Get-TokensHtml([string]$value) {
     $entries = @(Get-TokenEntries $value)
-    if (-not $entries) { return '<span class="meta">Sin registro</span>' }
+    if (-not $entries) { return '<span class="meta">Not recorded</span>' }
     $items = foreach ($entry in $entries) {
         if ($entry.Kind -eq 'total') {
-            "<div class=""token-total""><strong>Total de la tarea: $(Format-TokenCount $entry.Total)</strong></div>"
+            "<div class=""token-total""><strong>Task total: $(Format-TokenCount $entry.Total)</strong></div>"
         } elseif ($entry.Kind -eq 'worker') {
             $style = 'margin-left:1em'
             if ($null -eq $entry.Total) {
-                "<div class=""token-worker"" style=""$style"">&#8627; $(Encode $entry.Agent) <span class=""meta"">(delegado por $(Encode $entry.Orchestrator))</span>: <span class=""meta"">$(Encode $entry.Source)</span></div>"
+                "<div class=""token-worker"" style=""$style"">&#8627; $(Encode $entry.Agent) <span class=""meta"">(delegated by $(Encode $entry.Orchestrator))</span>: <span class=""meta"">$(Encode (Get-DisplayTokenSource $entry.Source))</span></div>"
             } else {
-                $detail = "Entrada $($entry.Input) · cacheados $($entry.Cached) · salida $($entry.Output) · $($entry.Source)"
-                "<div class=""token-worker"" style=""$style"" title=""$(Encode $detail)"">&#8627; $(Encode $entry.Agent) <span class=""meta"">(delegado por $(Encode $entry.Orchestrator))</span>: <strong>$(Format-TokenCount $entry.Total)</strong> <span class=""meta"">($(Encode $entry.Source) · salida $(Format-TokenCount $entry.Output))</span></div>"
+                $source = Get-DisplayTokenSource $entry.Source
+                $detail = "Input $($entry.Input) · cached $($entry.Cached) · output $($entry.Output) · $source"
+                "<div class=""token-worker"" style=""$style"" title=""$(Encode $detail)"">&#8627; $(Encode $entry.Agent) <span class=""meta"">(delegated by $(Encode $entry.Orchestrator))</span>: <strong>$(Format-TokenCount $entry.Total)</strong> <span class=""meta"">($(Encode $source) · output $(Format-TokenCount $entry.Output))</span></div>"
             }
         } elseif ($null -eq $entry.Total) {
-            "<div>$(Encode $entry.Agent): <span class=""meta"">$(Encode $entry.Source)</span></div>"
+            "<div>$(Encode $entry.Agent): <span class=""meta"">$(Encode (Get-DisplayTokenSource $entry.Source))</span></div>"
         } else {
-            $detail = "Entrada $($entry.Input) · cacheados $($entry.Cached) · salida $($entry.Output) · $($entry.Source)"
-            "<div title=""$(Encode $detail)"">$(Encode $entry.Agent): <strong>$(Format-TokenCount $entry.Total)</strong> <span class=""meta"">(salida $(Format-TokenCount $entry.Output))</span></div>"
+            $source = Get-DisplayTokenSource $entry.Source
+            $detail = "Input $($entry.Input) · cached $($entry.Cached) · output $($entry.Output) · $source"
+            "<div title=""$(Encode $detail)"">$(Encode $entry.Agent): <strong>$(Format-TokenCount $entry.Total)</strong> <span class=""meta"">(output $(Format-TokenCount $entry.Output))</span></div>"
         }
     }
     $items -join ''
@@ -378,7 +390,7 @@ function ConvertTo-ActivityDate([string]$date, [string]$hour = '', [string]$minu
         return $value
     } catch { return $null }
 }
-# Rows of a "## Historial" table: | AAAA-MM-DD [HH:mm] | agente | acción | detalle |
+# Rows of a "## Historial" table: | YYYY-MM-DD [HH:mm] | agent | action | detail |
 function Get-HistoryRows([string]$history) {
     foreach ($line in ($history -split "`r?`n")) {
         if ($line -notmatch '^\|\s*(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}):(\d{2}))?\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*(.*?)\s*\|?\s*$') { continue }
@@ -399,16 +411,16 @@ function Get-StageHistoryEntries([string]$stageText) {
 function Format-ActivityDate($date) { ([datetime]$date).ToString('yyyy-MM-dd HH:mm', [cultureinfo]::InvariantCulture) }
 function Format-TimeAgo($date) {
     $span = (Get-Date) - ([datetime]$date)
-    if ($span.TotalMinutes -lt 0) { return 'hace 0 minutos' }
-    if ($span.TotalMinutes -lt 60) { $n = [int][math]::Floor($span.TotalMinutes); return "hace $n $(if ($n -eq 1) { 'minuto' } else { 'minutos' })" }
-    if ($span.TotalHours -lt 24) { $n = [int][math]::Floor($span.TotalHours); return "hace $n $(if ($n -eq 1) { 'hora' } else { 'horas' })" }
+    if ($span.TotalMinutes -lt 0) { return '0 minutes ago' }
+    if ($span.TotalMinutes -lt 60) { $n = [int][math]::Floor($span.TotalMinutes); return "$n $(if ($n -eq 1) { 'minute' } else { 'minutes' }) ago" }
+    if ($span.TotalHours -lt 24) { $n = [int][math]::Floor($span.TotalHours); return "$n $(if ($n -eq 1) { 'hour' } else { 'hours' }) ago" }
     $n = [int][math]::Floor($span.TotalDays)
-    "hace $n $(if ($n -eq 1) { 'día' } else { 'días' })"
+    "$n $(if ($n -eq 1) { 'day' } else { 'days' }) ago"
 }
 function Get-ClosureLabelHtml($date, [bool]$fromCard) {
-    if (-not $date) { return '<span class="meta">fecha de cierre desconocida</span>' }
-    $source = if ($fromCard) { ' &middot; según la ficha' } else { '' }
-    "Cerrada el $(Encode (Format-ActivityDate $date)) ($(Encode (Format-TimeAgo $date)))$source"
+    if (-not $date) { return '<span class="meta">unknown closure date</span>' }
+    $source = if ($fromCard) { ' &middot; from task card' } else { '' }
+    "Closed on $(Encode (Format-ActivityDate $date)) ($(Encode (Format-TimeAgo $date)))$source"
 }
 # Committer date (local time) of a commit of the repository, or $null.
 function Get-CommitDate([string]$commit) {
@@ -445,18 +457,18 @@ function Expand-DependencyCodes([string]$value) {
 # releases its dependents under the stage mode (probada, integrada or terminada), otherwise why it does not.
 function Get-DependencyWait($dependency, [string]$mode) {
     if ($dependency.State -eq 'integrada') { return $null }
-    if ($dependency.State -ne 'terminada') { return [string]$dependency.State }
+    if ($dependency.State -ne 'terminada') { return Get-DisplayTaskState ([string]$dependency.State) }
     $hasPatch = [regex]::Matches([string]$dependency.Patch, '\d{3}-[^`\s,()]+\.patch').Count -gt 0
     if (-not $hasPatch -or $mode -eq 'terminada') { return $null }
-    if ($mode -eq 'integrada') { return 'terminada, falta integrarla' }
+    if ($mode -eq 'integrada') { return 'Completed; integration is still pending' }
     if ($dependency.Verdict -eq 'probada') { return $null }
-    if ($dependency.Verdict -eq 'prueba fallida') { return 'terminada, prueba fallida' }
-    'terminada, sin pruebas aprobadas'
+    if ($dependency.Verdict -eq 'prueba fallida') { return 'Completed; tests failed' }
+    'Completed; no passing tests'
 }
 function Safe-Snippet([string]$text) {
-    $value = $text -replace '(?i)\b[A-Z]:\\[^\s<>""|]+', '[ruta omitida]'
-    $value = $value -replace '\\\\[^\s<>""|]+', '[ruta omitida]'
-    $value = $value -replace '(?i)\bfile:///[^)\s]+', '[enlace local omitido]'
+    $value = $text -replace '(?i)\b[A-Z]:\\[^\s<>""|]+', '[path omitted]'
+    $value = $value -replace '\\\\[^\s<>""|]+', '[path omitted]'
+    $value = $value -replace '(?i)\bfile:///[^)\s]+', '[local link omitted]'
     $value = $value -replace '\[([^\]]+)\]\([^)]+\)', '$1'
     $value = $value -replace '\*\*|__|[`*#]', ''
     $value = ($value -split "`r?`n" | ForEach-Object { $_.Trim() -replace '^\s*[-*]\s*', '' }) -join ' '
@@ -478,30 +490,30 @@ function Get-StageClosure([string]$stageName, [string]$stageText, [object[]]$tas
         }
         # SEG-T21: a frozen stage (ALCANCE.md) is neither active nor closed nor unknown.
         if ($state -eq 'congelada') { return [pscustomobject]@{ Status = 'frozen'; Reason = ''; Commit = ''; Report = ''; Stage = $stageName } }
-        return [pscustomobject]@{ Status = 'unknown'; Reason = 'El estado de cierre no está definido o no es reconocible.'; Commit = ''; Report = ''; Stage = $stageName }
+        return [pscustomobject]@{ Status = 'unknown'; Reason = 'The closure state is undefined or unrecognized.'; Commit = ''; Report = ''; Stage = $stageName }
     }
 
     $closeCommit = Get-CommitToken (Get-Field $stageText 'Commit de cierre')
     if (-not $closeCommit) {
-        return [pscustomobject]@{ Status = 'unknown'; Reason = 'La ficha no contiene un hash válido de commit de cierre.'; Commit = ''; Report = ''; Stage = $stageName }
+        return [pscustomobject]@{ Status = 'unknown'; Reason = 'The task card has no valid closure commit hash.'; Commit = ''; Report = ''; Stage = $stageName }
     }
     $resolvedCloseCommit = Resolve-IntegrationCommit $closeCommit
     if (-not $resolvedCloseCommit) {
-        return [pscustomobject]@{ Status = 'unknown'; Reason = 'El commit de cierre no se pudo confirmar en el repositorio actual.'; Commit = $closeCommit; Report = ''; Stage = $stageName }
+        return [pscustomobject]@{ Status = 'unknown'; Reason = 'The closure commit could not be verified in the current repository.'; Commit = $closeCommit; Report = ''; Stage = $stageName }
     }
     if ($taskReadFailed -or -not $tasks.Count) {
-        return [pscustomobject]@{ Status = 'unknown'; Reason = 'No se pudieron verificar todas las fichas de tarea o la etapa no tiene tareas.'; Commit = $closeCommit; Report = ''; Stage = $stageName }
+        return [pscustomobject]@{ Status = 'unknown'; Reason = 'Not all task cards could be verified, or the stage has no tasks.'; Commit = $closeCommit; Report = ''; Stage = $stageName }
     }
     foreach ($task in $tasks) {
         if ($task.State -ne 'integrada') {
-            return [pscustomobject]@{ Status = 'unknown'; Reason = "La tarea $($task.Id) no está integrada."; Commit = $closeCommit; Report = ''; Stage = $stageName }
+            return [pscustomobject]@{ Status = 'unknown'; Reason = "Task $($task.Id) is not integrated."; Commit = $closeCommit; Report = ''; Stage = $stageName }
         }
         # A task that states it has no patch (for example an analysis delivered in the channel)
         # has nothing to integrate; an empty Parche field is not enough.
         if ($task.Patch.Trim() -and -not (Test-TaskPatchRequired $task.Patch)) { continue }
         $taskCommit = Get-CommitToken $task.Commit
         if (-not $taskCommit) {
-            return [pscustomobject]@{ Status = 'unknown'; Reason = "La tarea $($task.Id) no tiene un commit válido."; Commit = $closeCommit; Report = ''; Stage = $stageName }
+            return [pscustomobject]@{ Status = 'unknown'; Reason = "Task $($task.Id) has no valid commit."; Commit = $closeCommit; Report = ''; Stage = $stageName }
         }
         # A stage is usually integrated over several commits: each task commit must be contained
         # in the closing commit (the same commit or an earlier one in its history).
@@ -512,7 +524,7 @@ function Get-StageClosure([string]$stageName, [string]$stageText, [object[]]$tas
             $contained = $LASTEXITCODE -eq 0
         }
         if (-not $contained) {
-            return [pscustomobject]@{ Status = 'unknown'; Reason = "El commit de $($task.Id) no está contenido en el commit de cierre."; Commit = $closeCommit; Report = ''; Stage = $stageName }
+            return [pscustomobject]@{ Status = 'unknown'; Reason = "The commit for $($task.Id) is not contained in the closure commit."; Commit = $closeCommit; Report = ''; Stage = $stageName }
         }
     }
 
@@ -523,12 +535,12 @@ function Get-StageClosure([string]$stageName, [string]$stageText, [object[]]$tas
         elseif ((Get-Field $stageText 'Commit de cierre') -match '(?i)integraci[oó]n[^0-9]*(\d{4}-\d{2}-\d{2}_\d{4}(?:\d{2}_\d{3})?)') { $Matches[1] }
         else { '' }
     if (-not $reportId) {
-        return [pscustomobject]@{ Status = 'unknown'; Reason = 'La ficha no identifica un reporte de integración.'; Commit = $closeCommit; Report = ''; Stage = $stageName }
+        return [pscustomobject]@{ Status = 'unknown'; Reason = 'The task card does not identify an integration report.'; Commit = $closeCommit; Report = ''; Stage = $stageName }
     }
     $reportName = "${reportId}_integracion.md"
     $reportPath = Join-Path $integrationDir $reportName
     if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
-        return [pscustomobject]@{ Status = 'unknown'; Reason = 'El reporte de integración indicado no existe.'; Commit = $closeCommit; Report = ''; Stage = $stageName }
+        return [pscustomobject]@{ Status = 'unknown'; Reason = 'The specified integration report does not exist.'; Commit = $closeCommit; Report = ''; Stage = $stageName }
     }
     $greenEvidence = $false
     foreach ($line in ($readsText -split "`r?`n")) {
@@ -539,7 +551,7 @@ function Get-StageClosure([string]$stageName, [string]$stageText, [object[]]$tas
         }
     }
     if (-not $greenEvidence) {
-        return [pscustomobject]@{ Status = 'unknown'; Reason = 'El registro del reporte no confirma un resultado OK con pruebas pasadas.'; Commit = $closeCommit; Report = $reportName; Stage = $stageName }
+        return [pscustomobject]@{ Status = 'unknown'; Reason = 'The report log does not confirm an OK result with passing tests.'; Commit = $closeCommit; Report = $reportName; Stage = $stageName }
     }
     [pscustomobject]@{ Status = 'complete'; Reason = ''; Commit = $closeCommit; Report = $reportName; Stage = $stageName }
 }
@@ -588,37 +600,73 @@ function Get-SharedLabelText([string]$scope, [string]$key, [string]$fallback) {
     $entry = if ($script:SharedLabels -and $script:SharedLabels.$scope) { $script:SharedLabels.$scope.$key } else { $null }
     if ($entry -and $entry.text) { [string]$entry.text } else { $fallback }
 }
+function Get-DisplayTaskState([string]$state) {
+    switch ($state.Trim().ToLowerInvariant()) {
+        'en curso' { 'In progress' }
+        'disponible' { 'Available' }
+        'liberada' { 'Released' }
+        'pendiente' { 'Pending' }
+        'terminada' { 'Completed' }
+        'integrada' { 'Integrated' }
+        'requiere cambios' { 'Changes requested' }
+        'reabierta' { 'Reopened' }
+        'congelada' { 'Frozen' }
+        'cancelada' { 'Cancelled' }
+        'activa' { 'Active' }
+        'activo' { 'Active' }
+        'abierta' { 'Open' }
+        'abierto' { 'Open' }
+        'cerrada' { 'Closed' }
+        'cerrado' { 'Closed' }
+        'active' { 'Active' }
+        'open' { 'Open' }
+        'complete' { 'Completed' }
+        'completed' { 'Completed' }
+        default { $state }
+    }
+}
+function ConvertTo-DisplaySharedLabelText([string]$sharedText) {
+    switch ($sharedText.Trim().ToLowerInvariant()) {
+        'cambios pedidos' { 'Changes requested' }
+        'en curso' { 'In progress' }
+        'lista' { 'Available' }
+        'disponible' { 'Available' }
+        'cerrada' { 'Closed' }
+        default { $fallback }
+    }
+}
 # SEG-T13: one label for phases and stages, first match wins. $kind is 'Fase' or 'Etapa'; $rows are the tasks (State, Patch,
 # WaitingFor, Integrating); $closure is, for a stage, 'cerrada' (verified closure), 'sin verificar' (the card says closed
 # but it is not verified) or ''. Returns Text and Class, or $null when there is nothing to say (no tasks).
 function Get-StatusLabel([string]$kind, [object[]]$rows, [string]$closure = '', $since = $null) {
     $rows = @($rows | Where-Object { $_ })
     $make = { param($text, $class) [pscustomobject]@{ Text = $text; Class = $class } }
-    if ($closure -eq 'cerrada') { return & $make (Get-SharedLabelText 'stage' 'closed' "$kind cerrada") 's-integrada' }
-    if ($closure -eq 'sin verificar') { return & $make 'cierre no verificado' 's-unknown' }
+    $displayKind = if ($kind -eq 'Fase') { 'Phase' } else { 'Stage' }
+    if ($closure -eq 'cerrada') { return & $make (ConvertTo-DisplaySharedLabelText (Get-SharedLabelText 'stage' 'closed' "$displayKind closed")) 's-integrada' }
+    if ($closure -eq 'sin verificar') { return & $make 'Closure unverified' 's-unknown' }
     if (-not $rows.Count) { return $null }
     # SEG-T21: frozen tasks (estado congelada) are set apart: they are neither pending nor available and do not count toward the label.
     $frozen = @($rows | Where-Object { $_.State -eq 'congelada' })
-    if ($frozen.Count -eq $rows.Count) { return & $make 'Congelada' 's-congelada' }
+    if ($frozen.Count -eq $rows.Count) { return & $make 'Frozen' 's-congelada' }
     if ($frozen.Count) { $rows = @($rows | Where-Object { $_.State -ne 'congelada' }) }
     # Settled = integrated, or finished with no patch to integrate (analysis deliverables).
     $settled = @($rows | Where-Object { $_.State -eq 'integrada' -or ($_.State -eq 'terminada' -and -not (Test-TaskPatchRequired $_.Patch)) }).Count
     $done = @($rows | Where-Object { $_.State -in 'terminada', 'integrada' }).Count
-    if (@($rows | Where-Object { $_.State -eq 'requiere cambios' }).Count) { return & $make (Get-SharedLabelText 'task' 'changes' 'Con cambios requeridos') 's-requiere-cambios' }
+    if (@($rows | Where-Object { $_.State -eq 'requiere cambios' }).Count) { return & $make (ConvertTo-DisplaySharedLabelText (Get-SharedLabelText 'task' 'changes' 'Changes requested')) 's-requiere-cambios' }
     if (@($rows | Where-Object { $_.Integrating }).Count) {
         $from = if ($since) { ([datetime]$since).ToString('HH:mm', [cultureinfo]::InvariantCulture) } else { '' }
-        return & $make "Integrando · pruebas$(if ($from) { " desde $from" })" 's-en-curso'
+        return & $make "Integrating · tests$(if ($from) { " since $from" })" 's-en-curso'
     }
     if ($settled -eq $rows.Count) {
-        if ($kind -eq 'Fase') { return & $make 'Fase completa' 's-integrada' }
-        return & $make 'Etapa terminada · falta cerrar' 's-pendiente'
+        if ($kind -eq 'Fase') { return & $make 'Phase complete' 's-integrada' }
+        return & $make 'Stage complete · closure pending' 's-pendiente'
     }
-    if ($done -eq $rows.Count) { return & $make "$kind terminada · falta integrar" 's-pendiente' }
-    if (@($rows | Where-Object { $_.State -eq 'en curso' }).Count) { return & $make (Get-SharedLabelText 'task' 'doing' 'En progreso') 's-en-curso' }
-    if ($done) { return & $make "Avance parcial · $done de $($rows.Count)" 's-pendiente' }
+    if ($done -eq $rows.Count) { return & $make "$displayKind completed · integration pending" 's-pendiente' }
+    if (@($rows | Where-Object { $_.State -eq 'en curso' }).Count) { return & $make (ConvertTo-DisplaySharedLabelText (Get-SharedLabelText 'task' 'doing' 'In progress')) 's-en-curso' }
+    if ($done) { return & $make "Partial progress · $done of $($rows.Count)" 's-pendiente' }
     # SEG-T10: takeable = disponible/liberada/reabierta with no dependency wait (reuses WaitingFor).
-    if (@($rows | Where-Object { $_.State -in 'disponible', 'liberada', 'reabierta' -and -not $_.WaitingFor.Count }).Count) { return & $make (Get-SharedLabelText 'task' 'ready' 'Disponible') 's-disponible' }
-    & $make 'En espera de dependencias' 's-idle'
+    if (@($rows | Where-Object { $_.State -in 'disponible', 'liberada', 'reabierta' -and -not $_.WaitingFor.Count }).Count) { return & $make (ConvertTo-DisplaySharedLabelText (Get-SharedLabelText 'task' 'ready' 'Available')) 's-disponible' }
+    & $make 'Waiting for dependencies' 's-idle'
 }
 
 # Agent registry of the channel (AGENTES.md, rule 28): name, application and state. Without the file
@@ -644,7 +692,7 @@ function Get-RegisteredAgents {
 # SEG-T17 (REGLAS 33): ONE table of the applications whose workers Seguimiento follows. A worker belongs to its own application,
 # whatever application orchestrates it. A new application is added by ONE entry here, with no per-agent special cases:
 #   Key            short lower-case id (the Kind of a parsed reference)
-#   Application    name of its card in the Agentes tab (the Aplicación of its agents in AGENTES.md)
+#   Application    name of its card in the Agents tab (the `Aplicación` field for its agents in AGENTES.md)
 #   RefPattern     regex of its worker reference as registrar-delegacion.ps1 writes it ("[ref: ...]" and the JSONL "reference")
 #   RefId          scriptblock: reference -> id used to find its activity file
 #   BarePattern    a reference without a known prefix that matches this regex belongs here (Claude subagent ids); $null otherwise
@@ -714,7 +762,7 @@ function Get-WorkerEntryApp($entry) {
     }
     Get-WorkerAppByName ([string]$entry.Worker)
 }
-# Application name of an agent that orchestrates: its registered Aplicación, else the application named in it, else its first word.
+# Application name of an orchestrating agent: its registered `Aplicación`, else the application named in it, else its first word.
 function Get-AgentApplication([string]$name, [object[]]$registered = @()) {
     $row = @($registered | Where-Object { $_.Name -ieq $name }) | Select-Object -First 1
     if ($row -and $row.Application) { return $row.Application }
@@ -742,7 +790,7 @@ function Get-CardDelegations([string]$history, [string]$state = 'en curso') {
         if ($row.Detail -notmatch '^(?<w>[^(:]+?)(?:\s*\((?<p>[^)]*)\))?\s*:\s*(?<rest>.*)$') { continue }
         $worker = $Matches['w'].Trim(); $paren = $Matches['p']; $rest = $Matches['rest'].Trim()
         $reference = ''
-        # SEG-T15: also copilot:<id de sesión> and codex:<id de hilo> (registrar-delegacion.ps1 -Referencia).
+        # SEG-T15: also copilot:<session id> and codex:<thread id> (`registrar-delegacion.ps1 -Referencia`).
         # SEG-T17: the accepted references come from the table of applications ($script:WorkerApps).
         $referenceTail = '\s*\[ref:\s*(' + $script:WorkerRefPattern + ')\s*\]\s*$'
         if ($rest -match $referenceTail) {
@@ -750,7 +798,7 @@ function Get-CardDelegations([string]$history, [string]$state = 'en curso') {
         }
         if (-not $worker) { continue }
         if ($row.Action -eq 'delegada') {
-            # SEG-T12: "etiqueta x" (label) and "integración" (marker of -Integracion) share the parenthesis with the level and effort.
+            # SEG-T12: "etiqueta x" (label) and "integración" (the -Integracion marker) share the parentheses with the level and effort.
             $label = if ($paren -match '(?i)etiqueta\s+([^,;)]+)') { $Matches[1].Trim() } else { '' }
             $integration = [bool]($paren -match '(?i)(?:^|,)\s*integraci[oó]n\s*(?:,|$)')
             $bare = $paren -replace '(?i)etiqueta\s+[^,;)]+', ''
@@ -803,8 +851,17 @@ function Get-ExecutionLines([string]$taskId) {
     $key = $taskId.Trim().ToUpperInvariant()
     if ($script:ExecutionLines.ContainsKey($key)) { @($script:ExecutionLines[$key]) } else { @() }
 }
+function Get-DisplayWorkerEffort([string]$effort) {
+    switch ($effort.Trim().ToLowerInvariant()) {
+        'bajo' { 'low' }
+        'medio' { 'medium' }
+        'alto' { 'high' }
+        default { $effort }
+    }
+}
 function Format-WorkerLabel($entry) {
-    $detail = @($entry.Level; if ($entry.Effort) { "esfuerzo $($entry.Effort)" }) | Where-Object { $_ }
+    $effort = Get-DisplayWorkerEffort ([string]$entry.Effort)
+    $detail = @($entry.Level; if ($effort) { "effort $effort" }) | Where-Object { $_ }
     $name = Get-WorkerDisplayName $entry.Worker (Get-EntryReference $entry)
     if ($detail) { "$name ($($detail -join ', '))" } else { $name }
 }
@@ -827,7 +884,7 @@ function ConvertTo-LocalStamp($value) {
     try { ([datetimeoffset]::Parse([string]$value, [cultureinfo]::InvariantCulture, 'AssumeUniversal')).LocalDateTime } catch { $null }
 }
 # SEG-T15: Copilot sessions and Codex threads are workers like the Claude subagents. A reference is agent-<id> (Claude),
-# copilot:<id de sesión> or codex:<id de hilo>. Only times, the status and the model name are read, never the content.
+# copilot:<session id> or codex:<thread id>. Only times, status, and model name are read, never the content.
 # SEG-T17: the application, its id pattern and its id come from the table of applications ($script:WorkerApps).
 function Get-WorkerReference([string]$reference) {
     foreach ($app in $script:WorkerApps) {
@@ -1029,15 +1086,16 @@ function Get-TaskTokensHtml([string]$fieldTokens, [object[]]$delegations) {
     $extra = @(Get-AgyTaskTokenEntries $delegations $fieldTokens)
     if (-not $extra.Count) { return $html }
     $lines = foreach ($token in $extra) {
-        $detail = "Entrada $($token.Input) · cacheados $($token.Cached) · salida $($token.Output) · $($token.Source)"
-        "<div class=""token-worker"" style=""margin-left:1em"" title=""$(Encode $detail)"">&#8627; $(Encode $token.Agent) <span class=""meta"">(delegado por $(Encode $token.Orchestrator))</span>: <strong>$(Format-TokenCount $token.Total)</strong> <span class=""meta"">$(Encode $token.Source)</span></div>"
+        $source = Get-DisplayTokenSource $token.Source
+        $detail = "Input $($token.Input) · cached $($token.Cached) · output $($token.Output) · $source"
+        "<div class=""token-worker"" style=""margin-left:1em"" title=""$(Encode $detail)"">&#8627; $(Encode $token.Agent) <span class=""meta"">(delegated by $(Encode $token.Orchestrator))</span>: <strong>$(Format-TokenCount $token.Total)</strong> <span class=""meta"">$(Encode $source)</span></div>"
     }
     $fieldEntries = @(Get-TokenEntries $fieldTokens)
     $fieldTotal = @($fieldEntries | Where-Object { $_.Kind -eq 'total' } | Select-Object -First 1)
     $baseTotal = if ($fieldTotal.Count) { [long]$fieldTotal[0].Total } else { [long](($fieldEntries | Where-Object { $null -ne $_.Total } | Measure-Object Total -Sum).Sum) }
-    $total = "<div class=""token-total""><strong>Total de la tarea: $(Format-TokenCount ($baseTotal + [long](($extra | Measure-Object Total -Sum).Sum)))</strong></div>"
+    $total = "<div class=""token-total""><strong>Task total: $(Format-TokenCount ($baseTotal + [long](($extra | Measure-Object Total -Sum).Sum)))</strong></div>"
     $base = if ($fieldTokens -and @(Get-TokenEntries $fieldTokens).Count) { $html } else { '' }
-    $base = $base -replace '<div class="token-total"><strong>Total de la tarea: .*?</strong></div>', ''
+    $base = $base -replace '<div class="token-total"><strong>Task total: .*?</strong></div>', ''
     $base + $total + ($lines -join '')
 }
 # Caches live for one page generation only (the watcher regenerates inside the same process).
@@ -1127,13 +1185,13 @@ function Get-CodexPendingTest($records, [datetime]$last) {
 }
 function Get-WorkerActivity($entry) {
     $reference = Get-EntryReference $entry
-    if (-not $reference) { return 'sin señal de actividad' }
+    if (-not $reference) { return 'No activity signal' }
     $ref = Get-WorkerReference $reference
-    if (-not $ref) { return 'sin señal de actividad' }
+    if (-not $ref) { return 'No activity signal' }
     $app = Get-WorkerApp $ref.Kind
-    if (-not $app) { return 'sin señal de actividad' }
+    if (-not $app) { return 'No activity signal' }
     $file = Find-WorkerFile $ref
-    if (-not $file) { return 'sin señal de actividad' }
+    if (-not $file) { return 'No activity signal' }
     $now = if ($null -ne $script:nowOverride) { [datetime]$script:nowOverride } else { Get-Date }
     $last = $file.LastWriteTime
     $running = $null
@@ -1147,17 +1205,17 @@ function Get-WorkerActivity($entry) {
         }
     } catch { }
     $minutes = [Math]::Max(0, [int][Math]::Floor(($now - $last).TotalMinutes))
-    if ($minutes -gt $script:stoppedMinutes) { return 'Probablemente detenido' }
-    if ($running) { return "Ejecutando prueba · desde $($running.ToString('HH:mm', [cultureinfo]::InvariantCulture))" }
-    if ($minutes -lt $script:activeMinutes) { return 'Trabajando' }
-    "Sin actividad reciente · última hace $minutes min"
+    if ($minutes -gt $script:stoppedMinutes) { return 'Probably stopped' }
+    if ($running) { return "Running test · since $($running.ToString('HH:mm', [cultureinfo]::InvariantCulture))" }
+    if ($minutes -lt $script:activeMinutes) { return 'Working' }
+    "No recent activity · last seen $minutes min ago"
 }
 function Format-ActiveDelegation($entry) {
     $level = if ($entry.Level) { " ($($entry.Level))" } else { '' }
     $piece = if ($entry.Piece) { " · $($entry.Piece)" } else { '' }
     $activity = Get-WorkerActivity $entry
     $name = Get-WorkerDisplayName $entry.Worker (Get-EntryReference $entry)
-    "$name$level desde $($entry.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture)) · $activity$piece"
+    "$name$level since $($entry.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture)) · $activity$piece"
 }
 # Merged delegation summary of a task: orchestrator and distinct workers (card rows win over JSONL lines).
 function Get-DelegationSummary([string]$taskId, $cardDelegations, [string]$cardAgent) {
@@ -1182,7 +1240,8 @@ function Get-DelegationSummary([string]$taskId, $cardDelegations, [string]$cardA
         $shown = Get-WorkerDisplayName $worker $jsonReference
         if ($itemOrchestrator) {
             if (-not $orchestrator) { $orchestrator = $itemOrchestrator }
-            $detail = @($model; if ($effort) { "esfuerzo $effort" }) | Where-Object { $_ }
+            $displayEffort = Get-DisplayWorkerEffort $effort
+            $detail = @($model; if ($displayEffort) { "effort $displayEffort" }) | Where-Object { $_ }
             $label = if ($detail) { "$shown ($($detail -join ', '))" } else { $shown }
         } else {
             # Older Codex lines: no orchestrator, the requested model is the useful name.
@@ -1195,14 +1254,14 @@ function Get-DelegationSummary([string]$taskId, $cardDelegations, [string]$cardA
     [pscustomobject]@{ Orchestrator = if ($orchestrator) { $orchestrator } else { $cardAgent }; Workers = @($workers); Details = @($details) }
 }
 
-# SEG-T12: what each delegated worker did in a task, for the Trabajaron column. Only the card history, ejecuciones.jsonl and
+# SEG-T12: what each delegated worker did in a task, for the "Contributors" column. Only card history, ejecuciones.jsonl, and
 # the times of a transcript (SEG-T11 activity) are used; the content of the subagents is never read.
-# Short tag of a delegation: the registered label, "integración", or the first words of the piece.
+# Short tag of a delegation: the registered label, "integration", or the first words of the piece.
 function Get-WorkTag($item) {
     if ($item.Label) { return $item.Label }
-    if ($item.Integration) { return 'integración' }
+    if ($item.Integration) { return 'integration' }
     $words = @(([string]$item.Piece) -split '\s+' | Where-Object { $_ })
-    if (-not $words.Count) { return 'sin pieza' }
+    if (-not $words.Count) { return 'no work item' }
     $tag = ''
     $taken = 0
     foreach ($word in ($words | Select-Object -First 3)) {
@@ -1245,8 +1304,9 @@ function Get-WorkItemsFromLines([object[]]$lines) {
 }
 # "Tokens: ..." of a worker entry of the Tokens field (HTML-encoded): per-window total, input and output, or why there is no figure.
 function Get-WorkerTokenText($token) {
-    if ($null -eq $token.Total) { "Tokens: $(Encode $token.Source)" }
-    else { "Tokens: $(Format-TokenCount $token.Total) · entrada $(Format-TokenCount $token.Input) · salida $(Format-TokenCount $token.Output) · $(Encode $token.Source)" }
+    $source = Get-DisplayTokenSource $token.Source
+    if ($null -eq $token.Total) { "Tokens: $(Encode $source)" }
+    else { "Tokens: $(Format-TokenCount $token.Total) · input $(Format-TokenCount $token.Input) · output $(Format-TokenCount $token.Output) · $(Encode $source)" }
 }
 # One <details> per delegated worker: the summary is the worker label with the short tag(s) of what it worked on; the body lists
 # every delegation of that worker in the task (piece, result, from/until, activity while active) and its tokens (the "↳" entry
@@ -1261,12 +1321,12 @@ function Get-WorkerListHtml($delegation, [string]$tokens) {
         $tags = @($items | ForEach-Object { Get-WorkTag $_ } | Select-Object -Unique | Select-Object -First 3)
         $chips = ($tags | ForEach-Object { " <span class=""state s-idle seg-tag"">$(Encode $_)</span>" }) -join ''
         $lines = foreach ($item in @($items | Sort-Object @{ Expression = { if ($_.Since) { $_.Since } else { [datetime]::MinValue } } })) {
-            $span = if ($item.Since) { "desde $(Format-WorkTime $item.Since)" } else { 'hora no registrada' }
-            if ($item.Until) { $span += " hasta $(Format-WorkTime $item.Until)" }
-            elseif ($item.IsActive) { $span += " · en curso · $(Get-WorkerActivity $item)" }
-            else { $span += ' · sin devolver' }
-            $piece = if ($item.Piece) { "<div>Pieza: $(Encode $item.Piece)</div>" } else { '' }
-            $result = if ($item.Result) { "<div>Resultado: $(Encode $item.Result)</div>" } else { '' }
+            $span = if ($item.Since) { "since $(Format-WorkTime $item.Since)" } else { 'time not recorded' }
+            if ($item.Until) { $span += " until $(Format-WorkTime $item.Until)" }
+            elseif ($item.IsActive) { $span += " · in progress · $(Get-WorkerActivity $item)" }
+            else { $span += ' · not returned' }
+            $piece = if ($item.Piece) { "<div>Work item: $(Encode $item.Piece)</div>" } else { '' }
+            $result = if ($item.Result) { "<div>Result: $(Encode $item.Result)</div>" } else { '' }
             "<li><strong>$(Encode (Get-WorkTag $item))</strong> · $(Encode $span)$piece$result</li>"
         }
         $token = $tokenEntries | Where-Object { $_.Agent -ieq $detail.Worker } | Select-Object -First 1
@@ -1277,10 +1337,10 @@ function Get-WorkerListHtml($delegation, [string]$tokens) {
     @($out) -join ''
 }
 
-# SEG-T17 (REGLAS 33): active delegations whose worker belongs to another application than the agent that delegated it (Claude
-# orchestrating a Copilot or Codex worker, Codex orchestrating a Claude worker, ...). Each one is listed in the Agentes card of ITS
-# application, besides its line in the delegations of the orchestrator. The application comes from the worker reference, else from its
-# name. A worker of the orchestrator's own application stays in the orchestrator's block of that same card. Only times, the status
+# SEG-T17 (RULE 33): active delegations whose worker belongs to a different application than the delegating agent (Claude
+# orchestrating a Copilot or Codex worker, Codex orchestrating a Claude worker, ...). Each is listed under its OWN application
+# in the Agents tab, as well as in the orchestrator's delegations. The application comes from the worker reference, or its
+# name. A worker from the orchestrator's application stays in that orchestrator's block. Only times, status,
 # and model names are read (Get-WorkerActivity, Get-WorkerDisplayName), never content.
 function Get-ForeignWorkers($board, [object[]]$registered) {
     foreach ($task in @($board.Tasks)) {
@@ -1292,24 +1352,24 @@ function Get-ForeignWorkers($board, [object[]]$registered) {
             $activity = Get-WorkerActivity $entry
             $token = Find-WorkerToken @(Get-TokenEntries $task.Tokens) $entry @($task.AllDelegations)
             [pscustomobject]@{ Application = $app.Application; Task = $task; Entry = $entry; Orchestrator = $orchestrator
-                Activity = $activity; Stopped = ($activity -eq 'Probablemente detenido'); Token = $token }
+                Activity = $activity; Stopped = ($activity -eq 'Probably stopped'); Token = $token }
         }
     }
 }
-# One worker block of an application card: model and level, "trabajando para <orquestador> en <tarea>", real activity, tokens.
+# One worker block of an application card: model and level, "working for <orchestrator> on <task>", live activity, and tokens.
 function Format-ForeignWorkerHtml($item) {
     $entry = $item.Entry
     $level = if ($entry.Level) { " ($($entry.Level))" } else { '' }
     $name = Get-WorkerDisplayName $entry.Worker (Get-EntryReference $entry)
-    $badge = if ($item.Stopped) { "Probablemente detenido · delegado por $($item.Orchestrator) en $($item.Task.Id)" } else { "Activo · trabajando para $($item.Orchestrator) en $($item.Task.Id)" }
+    $badge = if ($item.Stopped) { "Probably stopped · delegated by $($item.Orchestrator) on $($item.Task.Id)" } else { "Active · working for $($item.Orchestrator) on $($item.Task.Id)" }
     $badgeClass = if ($item.Stopped) { 's-unknown' } else { 's-en-curso' }
     $since = $entry.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture)
-    $kind = if ($entry.Integration) { ' · integración' } else { '' }
+    $kind = if ($entry.Integration) { ' · integration' } else { '' }
     $piece = if ($entry.Piece) { " · $($entry.Piece)" } else { '' }
     $tokens = if ($item.Token) { "<p class=""agent-context"">$(Get-WorkerTokenText $item.Token)</p>" } else { '' }
     "<div class=""agent-task agent-worker""><strong>$(Encode $name)$(Encode $level)</strong><span class=""state $badgeClass"">$(Encode $badge)</span>" +
-    "<p class=""agent-context"">Tarea: $(Encode $item.Task.Id) · $(Encode $item.Task.Title)$(Encode $kind)</p>" +
-    "<p class=""agent-context"">Actividad: $(Encode $item.Activity) · delegado desde $since$(Encode $piece)</p>$tokens</div>"
+    "<p class=""agent-context"">Task: $(Encode $item.Task.Id) · $(Encode $item.Task.Title)$(Encode $kind)</p>" +
+    "<p class=""agent-context"">Activity: $(Encode $item.Activity) · delegated since $since$(Encode $piece)</p>$tokens</div>"
 }
 
 # SEG-T18: activities outside tasks (audits, proposals, research, reviews, integrations, maintenance, scheduled sessions). They hang off no task
@@ -1325,7 +1385,7 @@ function Get-ActivityBoard {
     $available = $true
     $lines = @()
     if (Test-Path -LiteralPath $path -PathType Leaf) {
-        try { $lines = @([IO.File]::ReadAllLines($path)) } catch { $available = $false; Write-Warning 'No se pudo leer el registro de actividades fuera de tareas.' }
+        try { $lines = @([IO.File]::ReadAllLines($path)) } catch { $available = $false; Write-Warning 'Could not read the activity log for work outside task cards.' }
     }
     $byId = [ordered]@{}
     foreach ($line in $lines) {
@@ -1366,7 +1426,7 @@ function Get-ActivityBoard {
     $script:ActivityBoard = [pscustomobject]@{ Available = $available; Activities = @($byId.Values) }
     $script:ActivityBoard
 }
-# Real activity of an activity worker (Trabajando / Ejecutando prueba / Sin actividad reciente / Probablemente detenido / sin señal), read once.
+# Real activity of an activity worker (Working / Running test / No recent activity / Probably stopped / No activity signal), read once.
 function Get-ActivityWorkerStatus($entry) {
     if ($null -eq $entry.Status) { $entry.Status = Get-WorkerActivity $entry }
     $entry.Status
@@ -1380,19 +1440,19 @@ function Get-ActivityTokenText($value) {
     } elseif ("$value" -match '^\d+$') { $total = [long]"$value"; $in = $null; $out = $null } else { return '' }
     if ($null -eq $total) { return '' }
     $text = "Tokens: $(Format-TokenCount $total)"
-    if ($null -ne $in) { $text += " · entrada $(Format-TokenCount $in)" }
-    if ($null -ne $out) { $text += " · salida $(Format-TokenCount $out)" }
-    "$text · registrado"
+    if ($null -ne $in) { $text += " · input $(Format-TokenCount $in)" }
+    if ($null -ne $out) { $text += " · output $(Format-TokenCount $out)" }
+    "$text · recorded"
 }
 # Chip class of a real-activity text.
 function Get-ActivityStatusClass([string]$status) {
-    if ($status -eq 'Probablemente detenido') { 's-unknown' }
-    elseif ($status -like 'Sin actividad reciente*') { 's-pendiente' }
-    elseif ($status -like 'sin señal*') { 's-idle' }
+    if ($status -eq 'Probably stopped') { 's-unknown' }
+    elseif ($status -like 'No recent activity*') { 's-pendiente' }
+    elseif ($status -like 'No activity signal*') { 's-idle' }
     else { 's-en-curso' }
 }
-function Format-ActivitySince($value) { if ($value) { Format-WorkTime $value } else { 'hora no registrada' } }
-# Active workers of the activities en curso, for the card of THEIR application (REGLAS 33), whichever application orchestrates them.
+function Format-ActivitySince($value) { if ($value) { Format-WorkTime $value } else { 'time not recorded' } }
+# Active workers of "en curso" activities, listed under THEIR application (RULE 33), regardless of the orchestrating application.
 function Get-ActivityWorkers($board) {
     foreach ($activity in @($board.Activities | Where-Object { $_.Status -eq 'en curso' })) {
         foreach ($entry in @($activity.Workers | Where-Object IsActive)) {
@@ -1400,26 +1460,26 @@ function Get-ActivityWorkers($board) {
             if (-not $app) { continue }
             $status = Get-ActivityWorkerStatus $entry
             [pscustomobject]@{ Application = $app.Application; Activity = $activity; Entry = $entry; Orchestrator = [string]$entry.Orchestrator
-                Status = $status; Stopped = ($status -eq 'Probablemente detenido') }
+                Status = $status; Stopped = ($status -eq 'Probably stopped') }
         }
     }
 }
-# One worker block of an application card: model and level, "trabajando para <orquestador> en <actividad>", real activity, tokens.
+# One worker block of an application card: model and level, "working for <orchestrator> on <activity>", real activity, tokens.
 function Format-ActivityWorkerHtml($item) {
     $entry = $item.Entry
     $activity = $item.Activity
     $name = Format-WorkerLabel $entry
-    $badge = if ($item.Stopped) { "Probablemente detenido · delegado por $($item.Orchestrator) en $($activity.Title)" } else { "Activo · trabajando para $($item.Orchestrator) en $($activity.Title)" }
+    $badge = if ($item.Stopped) { "Probably stopped · delegated by $($item.Orchestrator) on $($activity.Title)" } else { "Active · working for $($item.Orchestrator) on $($activity.Title)" }
     $badgeClass = if ($item.Stopped) { 's-unknown' } else { 's-en-curso' }
     $piece = if ($entry.Piece) { " · $($entry.Piece)" } else { '' }
     $kind = if ($activity.Type) { " · $($activity.Type)" } else { '' }
     $tokenText = Get-ActivityTokenText $entry.Tokens
     $tokens = if ($tokenText) { "<p class=""agent-context"">$(Encode $tokenText)</p>" } else { '' }
     "<div class=""agent-task agent-worker""><strong>$(Encode $name)</strong><span class=""state $badgeClass"">$(Encode $badge)</span>" +
-    "<p class=""agent-context"">Fuera de tareas: $(Encode $activity.Id)$(Encode $kind) · $(Encode $activity.Title)</p>" +
-    "<p class=""agent-context"">Actividad: $(Encode $item.Status) · delegado desde $(Encode (Format-ActivitySince $entry.Since))$(Encode $piece)</p>$tokens</div>"
+    "<p class=""agent-context"">Outside task work: $(Encode $activity.Id)$(Encode $kind) · $(Encode $activity.Title)</p>" +
+    "<p class=""agent-context"">Activity: $(Encode $item.Status) · delegated since $(Encode (Format-ActivitySince $entry.Since))$(Encode $piece)</p>$tokens</div>"
 }
-# A worker line of the «Fuera de tareas» section: name, application, tag, real activity (active) or result (returned), tokens.
+# A worker line in the "Outside task work" section: name, application, tag, real activity (active) or result (returned), tokens.
 function Format-ActivityWorkerLine($entry, [string]$application) {
     $appChip = if ($application) { " <span class=""state s-idle"">$(Encode $application)</span>" } else { '' }
     $tagChip = if ($entry.Label) { " <span class=""state s-idle seg-tag"">$(Encode $entry.Label)</span>" } else { '' }
@@ -1429,68 +1489,69 @@ function Format-ActivityWorkerLine($entry, [string]$application) {
     if ($entry.IsActive) {
         $status = Get-ActivityWorkerStatus $entry
         $state = " <span class=""state $(Get-ActivityStatusClass $status)"">$(Encode $status)</span>"
-        $when = "delegado desde $(Encode (Format-ActivitySince $entry.Since))"
+        $when = "delegated since $(Encode (Format-ActivitySince $entry.Since))"
         $tail = ''
     } else {
-        $state = ' <span class="state s-integrada">Devuelto</span>'
-        $when = "desde $(Encode (Format-ActivitySince $entry.Since))$(if ($entry.Until) { " hasta $(Encode (Format-WorkTime $entry.Until))" })"
-        $tail = if ($entry.Result) { "<div class=""agent-context"">Resultado: $(Encode $entry.Result)</div>" } else { '' }
+        $state = ' <span class="state s-integrada">Returned</span>'
+        $when = "since $(Encode (Format-ActivitySince $entry.Since))$(if ($entry.Until) { " until $(Encode (Format-WorkTime $entry.Until))" })"
+        $tail = if ($entry.Result) { "<div class=""agent-context"">Result: $(Encode $entry.Result)</div>" } else { '' }
     }
     "<div class=""act-worker""><strong>$(Encode (Format-WorkerLabel $entry))</strong>$appChip$tagChip$state<span class=""meta""> · $when$piece$tokens</span>$tail</div>"
 }
-# The «Fuera de tareas» section of the Agentes tab: each activity en curso (type, title, orchestrator, workers), the finished ones folded.
+# The "Outside task work" section of the Agents tab: active activities (type, title, orchestrator, workers), with completed ones collapsed.
 function Get-ActivitiesHtml($board) {
     $active = @($board.Activities | Where-Object { $_.Status -eq 'en curso' } | Sort-Object @{ Expression = { if ($_.Start) { $_.Start } else { [datetime]::MinValue } }; Descending = $true })
     $finished = @($board.Activities | Where-Object { $_.Status -ne 'en curso' } | Sort-Object @{ Expression = { if ($_.End) { $_.End } elseif ($_.Start) { $_.Start } else { [datetime]::MinValue } }; Descending = $true })
-    $count = if ($active.Count) { "$($active.Count) en curso" } else { 'sin actividades en curso' }
+    $count = if ($active.Count) { "$($active.Count) active" } else { 'No active activities' }
     $countClass = if ($active.Count) { 's-en-curso' } else { 's-idle' }
-    $notice = if (-not $board.Available) { '<div class="stop"><strong>Actividades no disponibles</strong>No se pudo leer el registro de actividades fuera de tareas; no se presenta como una lista vacía.</div>' } else { '' }
+    $notice = if (-not $board.Available) { '<div class="stop"><strong>Activities unavailable</strong>The outside-task activity record could not be read; it is not shown as an empty list.</div>' } else { '' }
     $blocks = foreach ($activity in $active) {
         $workers = @($activity.Workers)
         $liveStates = @($workers | Where-Object IsActive | ForEach-Object { Get-ActivityWorkerStatus $_ })
-        $stopped = $liveStates.Count -gt 0 -and @($liveStates | Where-Object { $_ -ne 'Probablemente detenido' }).Count -eq 0
-        $badge = if ($stopped) { '<span class="state s-unknown">Probablemente detenida</span>' } else { '<span class="state s-en-curso">En curso</span>' }
+        $stopped = $liveStates.Count -gt 0 -and @($liveStates | Where-Object { $_ -ne 'Probably stopped' }).Count -eq 0
+        $badge = if ($stopped) { '<span class="state s-unknown">Probably stopped</span>' } else { '<span class="state s-en-curso">Active</span>' }
         $type = if ($activity.Type) { "<span class=""state s-idle"">$(Encode $activity.Type)</span> " } else { '' }
-        $since = if ($activity.Start) { " · desde $(Encode (Format-WorkTime $activity.Start))" } else { '' }
-        $request = if ($activity.Request) { "<p class=""agent-context"">Pedido: $(Encode $activity.Request)</p>" } else { '' }
+        $since = if ($activity.Start) { " · since $(Encode (Format-WorkTime $activity.Start))" } else { '' }
+        $request = if ($activity.Request) { "<p class=""agent-context"">Request: $(Encode $activity.Request)</p>" } else { '' }
         $lines = foreach ($entry in $workers) {
             $app = Get-WorkerEntryApp $entry
             Format-ActivityWorkerLine $entry $(if ($app) { $app.Application } else { '' })
         }
-        $body = if ($workers.Count) { $lines -join '' } else { '<div class="agent-context">Sin trabajadores delegados: lo hace el propio orquestador.</div>' }
+        $body = if ($workers.Count) { $lines -join '' } else { '<div class="agent-context">No delegated workers; the orchestrator is doing the work.</div>' }
         "<div class=""agent-task act-item""><strong>$(Encode $activity.Id) · $(Encode $activity.Title)</strong> $type$badge" +
-        "<p class=""agent-context"">Orquesta: $(Encode $activity.Orchestrator)$since</p>$request$body</div>"
+        "<p class=""agent-context"">Orchestrator: $(Encode $activity.Orchestrator)$since</p>$request$body</div>"
     }
-    $activeHtml = if ($active.Count) { $blocks -join "`n" } else { '<p class="meta">No hay actividades en curso fuera de tareas.</p>' }
+    $activeHtml = if ($active.Count) { $blocks -join "`n" } else { '<p class="meta">No active activities outside task cards.</p>' }
     $finishedHtml = ''
     if ($finished.Count) {
         $items = foreach ($activity in ($finished | Select-Object -First 30)) {
             $span = "$(Encode (Format-ActivitySince $activity.Start))$(if ($activity.End) { " → $(Encode (Format-WorkTime $activity.End))" })"
             $names = @($activity.Workers | ForEach-Object {
                 $token = Get-ActivityTokenText $_.Tokens
-                if ($token) { "$(Format-WorkerLabel $_) ($($token -replace ' · registrado$', ''))" } else { Format-WorkerLabel $_ }
+                if ($token) { "$(Format-WorkerLabel $_) ($token)" } else { Format-WorkerLabel $_ }
             })
-            $workersText = if ($names.Count) { " · trabajaron: $(Encode ($names -join ', '))" } else { '' }
-            $result = if ($activity.Result) { " · Resultado: $(Encode $activity.Result)" } else { '' }
+            $workersText = if ($names.Count) { " · workers: $(Encode ($names -join ', '))" } else { '' }
+            $result = if ($activity.Result) { " · Result: $(Encode $activity.Result)" } else { '' }
             "<li><strong>$(Encode $activity.Id)</strong> · $(Encode $activity.Type) · $(Encode $activity.Title) · $(Encode $activity.Orchestrator) · $span$workersText$result</li>"
         }
-        $more = if ($finished.Count -gt 30) { "<li class=""meta"">y $($finished.Count - 30) actividades terminadas más en ACTIVIDADES.md</li>" } else { '' }
-        $finishedHtml = "<details class=""act-finished""><summary>Terminadas ($($finished.Count))</summary><ul>$($items -join '')$more</ul></details>"
+        $more = if ($finished.Count -gt 30) { "<li class=""meta"">and $($finished.Count - 30) more completed activities in ACTIVIDADES.md</li>" } else { '' }
+        $finishedHtml = "<details class=""act-finished""><summary>Completed ($($finished.Count))</summary><ul>$($items -join '')$more</ul></details>"
     }
-    "<section class=""panel activities-group"" id=""fuera-de-tareas""><div class=""card-head""><h2>Fuera de tareas</h2><span class=""state $countClass"">$count</span></div>" +
-    '<p class="meta">Trabajo que no cuelga de una ficha (auditorías, propuestas, investigaciones, revisiones, integraciones, mantenimiento, sesiones programadas), registrado con <code>registrar-delegacion.ps1 -Actividad</code>. Cada trabajador figura aquí y también en el área de su aplicación (regla 33). Solo se leen horas, estado y modelo de sus sesiones, nunca su contenido.</p>' +
+    "<section class=""panel activities-group"" id=""fuera-de-tareas""><div class=""card-head""><h2>Outside task work</h2><span class=""state $countClass"">$count</span></div>" +
+    '<p class="meta">Work not attached to a task card (audits, proposals, research, reviews, integrations, maintenance, scheduled sessions), recorded with <code>registrar-delegacion.ps1 -Actividad</code>. Each worker appears here and in the area for their application (rule 33). Only timestamps, status, and model names are read from their sessions, never their contents.</p>' +
     "$notice$activeHtml$finishedHtml$(Get-WaitersHtml (Get-WaitBoard))</section>"
 }
 
-# SEG-T19 (REGLAS 36): «En espera de activación». An agent that only waits for something external leaves its task pendiente ("esperando: ...") and
-# ends its run; esperar-condicion.ps1 (no AI model) watches the condition and relaunches it. That watcher keeps one state file per wait in
-# <channel>\orquestacion\esperas\activas\<id>.json (moved to ...\terminadas when it is cumplida or vencida): id, motivo, tarea, agente, estado,
-# condiciones (tipo, valor, cumplida, avance, estimado, base), inicio, ultima_comprobacion, proxima_comprobacion, pid, and the overall avance /
-# estimado / base. A task or an agent that would read «sin actividad» but has a live watcher (tarea / agente) or a pendiente card that says
-# «esperando: ...» reads «En espera de activación», with the motivo, condition, who it reactivates, since when, the next check and the honest
-# progress («NN % · hacia las HH:MM · <base>» or «sin estimación»). Only registered text, times, status and numbers are shown, never content.
+# SEG-T19 (RULE 36): "Waiting for activation" is the UI label. An agent waiting on an external condition leaves its task
+# pendiente ("esperando: ...") and ends its run; esperar-condicion.ps1 (no AI model) watches the condition and relaunches it.
+# The watcher keeps one state file per wait in <channel>\orquestacion\esperas\activas\<id>.json (moved to ...\terminadas
+# when cumplida or vencida): id, motivo, tarea, agente, estado, condiciones (tipo, valor, cumplida, avance, estimado, base),
+# inicio, ultima_comprobacion, proxima_comprobacion, pid, and overall avance / estimado / base. A task or agent that would
+# read "No activity" but has a live watcher (tarea / agente), or a pendiente card that says "esperando: ...", reads
+# "Waiting for activation", with the reason, condition, target, since when, next check, and honest progress
+# ("NN % · by HH:MM · <basis>" or "No estimate"). Only registered text, times, status, and numbers are shown, never content.
 $script:WaitBoard = $null
-$script:WaitLabel = 'En espera de activación'
+$script:WaitLabel = 'Waiting for activation'
 function ConvertTo-WaitTime($value) {
     if ($null -eq $value -or "$value" -eq '') { return $null }
     if ($value -is [datetime]) { if ($value.Kind -eq 'Utc') { return $value.ToLocalTime() } return $value }
@@ -1498,7 +1559,7 @@ function ConvertTo-WaitTime($value) {
     if ([datetimeoffset]::TryParse([string]$value, [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeLocal, [ref]$parsed)) { return $parsed.LocalDateTime }
     $null
 }
-# A percentage from the state file: a number from 0 to 100, else $null (never guessed).
+# A percentage from the state file: a number from 0 to 100, otherwise $null (never inferred).
 function ConvertTo-WaitPercent($value) {
     if ($null -eq $value -or $value -is [bool]) { return $null }
     if ($value -is [string]) { if ($value.Trim() -notmatch '^\d+(\.\d+)?$') { return $null } }
@@ -1512,9 +1573,9 @@ function Get-WaitProperty($object, [string]$name) {
     $property = $object.PSObject.Properties[$name]
     if ($property) { $property.Value } else { $null }
 }
-# One state file as a wait. $null when it cannot be read (a watcher may be rewriting it: one retry).
-# Status: cumplida / vencida (finished); otherwise detenido (its process is gone), perdido (its heartbeat is older than 3 times its interval),
-# error (its last check failed; it retries) or vigilando. A percentage of 100 is only believed with its `met_at`.
+# Read one state file as a wait. Returns $null when unreadable (the watcher may be rewriting it; retry once).
+# Status: cumplida / vencida (finished); otherwise detenido (process is gone), perdido (heartbeat is older than 3 intervals),
+# error (last check failed; it retries), or vigilando. A 100% value is accepted only with `met_at`.
 function Read-WaitFile([string]$path, [bool]$finished) {
     $json = $null
     foreach ($attempt in 1..2) {
@@ -1543,7 +1604,7 @@ function Read-WaitFile([string]$path, [bool]$finished) {
         $processId = Get-WaitProperty $json 'pid'
         $interval = if ($lastCheck -and $nextCheck) { ($nextCheck - $lastCheck).TotalSeconds } else { 0 }
         if ($null -ne $processId -and "$processId" -match '^\d+$' -and -not (Get-Process -Id ([int]"$processId") -ErrorAction SilentlyContinue)) {
-            # A state file whose watcher process is gone (killed, rebooted) will never reactivate anyone.
+            # A state file whose watcher process is gone (killed or rebooted) can no longer reactivate anyone.
             $state = 'detenido'
         } elseif ($interval -gt 0 -and ($now - $lastCheck).TotalSeconds -gt 3 * $interval) {
             $state = 'perdido'
@@ -1556,8 +1617,8 @@ function Read-WaitFile([string]$path, [bool]$finished) {
         Deadline = (ConvertTo-WaitTime (Get-WaitProperty $json 'vence')); Progress = (& $percent $json)
         Estimated = (ConvertTo-WaitTime (Get-WaitProperty $json 'estimado')); Base = (Safe-Snippet (Get-StringField $json @('base'))); Source = 'vigilante' }
 }
-# The waits of the channel: Active (live watchers), Problem (error, perdido or detenido: shown in the list but they promise no reactivation) and
-# Finished (cumplida / vencida), read once.
+# Channel waits: Active (live watchers), Problem (error, perdido, or detenido: shown in the list but cannot reactivate anyone),
+# and Finished (cumplida / vencida), read once.
 function Get-WaitBoard {
     if ($null -ne $script:WaitBoard) { return $script:WaitBoard }
     $available = $true
@@ -1567,7 +1628,7 @@ function Get-WaitBoard {
         $dir = Join-Path $root $kind
         if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
         try { $files = @(Get-ChildItem -LiteralPath $dir -Filter '*.json' -File -ErrorAction Stop | Sort-Object LastWriteTime -Descending) }
-        catch { $available = $false; Write-Warning 'No se pudo leer la carpeta de esperas de activación.'; continue }
+        catch { $available = $false; Write-Warning 'Could not read the activation-waits folder.'; continue }
         if ($kind -eq 'terminadas') { $files = @($files | Select-Object -First 20) }
         foreach ($file in $files) {
             $wait = Read-WaitFile $file.FullName ($kind -eq 'terminadas')
@@ -1581,19 +1642,19 @@ function Get-WaitBoard {
         Finished = @($all | Where-Object { $_.Status -in 'cumplida', 'vencida', 'terminada' } | Sort-Object @{ Expression = { if ($_.LastCheck) { $_.LastCheck } else { [datetime]::MinValue } }; Descending = $true }) }
     $script:WaitBoard
 }
-# The wait a pendiente card declares itself («esperando: ...» in «Qué falta», rule 36), for when no live watcher is registered for it.
+# A wait declared by a `pendiente` card (`esperando: ...` under `## Qué falta`, rule 36), when no live watcher is registered.
 function Get-CardWait([string]$taskId, [string]$state, [string]$agent, [string]$missing) {
     if ($state -ne 'pendiente' -or $missing -notmatch '(?i)esperando\s*:\s*(?<what>.+)$') { return $null }
     [pscustomobject]@{ Id = ''; Reason = (Limit-Text $Matches['what'].Trim() 200); Task = $taskId; Agent = $agent; Status = 'vigilando'; Conditions = @(); Start = $null; LastCheck = $null
-        NextCheck = $null; Progress = $null; Estimated = $null; Base = 'sin vigilante activo registrado'; Source = 'ficha' }
+        NextCheck = $null; Progress = $null; Estimated = $null; Base = 'No active watcher is registered'; Source = 'card' }
 }
-# The waits of a task: its live watchers (tarea), else the one its own card declares.
+# Task waits: its live watchers (tarea), or the wait declared by its own card.
 function Get-TaskWaits($board, [string]$taskId, [string]$state, [string]$agent, [string]$missing) {
     $list = @($board.Active | Where-Object { $_.Task -and $_.Task -ieq $taskId })
     if (-not $list.Count) { $card = Get-CardWait $taskId $state $agent $missing; if ($card) { $list = @($card) } }
     $list
 }
-# The waits of an agent: the live watchers that reactivate it (agente) plus those of its active tasks.
+# Agent waits: live watchers that reactivate it (agente), plus waits declared by its active tasks.
 function Get-AgentWaits($board, [string]$name, [object[]]$tasks) {
     $list = [System.Collections.Generic.List[object]]::new()
     $seen = @{}
@@ -1605,38 +1666,50 @@ function Get-AgentWaits($board, [string]$name, [object[]]$tasks) {
     }
     @($list)
 }
-# «NN % · hacia las HH:MM · <base>», or «sin estimación» (with its base when there is one). A percentage never goes without its base.
+# "NN % · at HH:MM · <base>", or "No estimate" (with a base when available). A percentage is never shown without its basis.
 function Format-WaitProgress($progress, $estimated, [string]$base) {
+    if ($base -eq 'sin estimación (la última comprobación falló)') { $base = 'No estimate (last check failed)' }
+    if ($base -eq 'sin estimación') { $base = 'No estimate' }
     if ($null -eq $progress -or -not $base) {
-        if (-not $base) { return 'sin estimación' }
-        if ($base -like 'sin estimación*') { return $base }
-        return "sin estimación · $base"
+        if (-not $base) { return 'No estimate' }
+        if ($base -like 'No estimate*') { return $base }
+        return "No estimate · $base"
     }
     $when = if ($estimated) {
         $now = if ($null -ne $script:nowOverride) { [datetime]$script:nowOverride } else { Get-Date }
-        if ($estimated.Date -eq $now.Date) { "hacia las $($estimated.ToString('HH:mm', [cultureinfo]::InvariantCulture))" } else { "hacia el $($estimated.ToString('yyyy-MM-dd HH:mm', [cultureinfo]::InvariantCulture))" }
-    } else { 'sin hora estimada' }
+        if ($estimated.Date -eq $now.Date) { "by $($estimated.ToString('HH:mm', [cultureinfo]::InvariantCulture))" } else { "by $($estimated.ToString('yyyy-MM-dd HH:mm', [cultureinfo]::InvariantCulture))" }
+    } else { 'no estimated time' }
     "$progress % · $when · $base"
 }
 function Format-WaitCondition($condition) {
-    $text = if ($condition.Value) { "$($condition.Type) $($condition.Value)" } else { $condition.Type }
-    "$text ($(if ($condition.Met) { 'cumplida' } else { 'pendiente' }))"
+    $type = switch ($condition.Type) {
+        'hora' { 'Time' }
+        'archivo' { 'File' }
+        'reporte' { 'Report' }
+        'entrada' { 'Text' }
+        'commit' { 'Commit' }
+        'proceso' { 'Process' }
+        'estado' { 'Status' }
+        default { $condition.Type }
+    }
+    $text = if ($condition.Value) { "$type $($condition.Value)" } else { $type }
+    "$text ($(if ($condition.Met) { 'met' } else { 'pending' }))"
 }
 function Format-WaitChip { "<span class=""state s-espera"">$(Encode $script:WaitLabel)</span>" }
-# The detail of one wait: motivo, condition, who it reactivates, since when, last and next check, the progress, and apart from it the watcher's
+# Details for one wait: reason, condition, target, start time, last and next check, progress, and separately the watcher's
 # time limit. -PerCondition adds one line per condition.
 function Format-WaitDetailHtml($wait, [switch]$PerCondition) {
     $lines = [System.Collections.Generic.List[string]]::new()
-    $lines.Add("Motivo: $(Encode $(if ($wait.Reason) { $wait.Reason } else { 'no indicado' }))")
-    if ($wait.Conditions.Count) { $lines.Add("Condición: $(Encode (($wait.Conditions | ForEach-Object { Format-WaitCondition $_ }) -join '; '))") }
-    $who = if ($wait.Agent) { "Reactiva a: $(Encode $wait.Agent)" } else { 'Reactiva a: agente no indicado' }
+    $lines.Add("Reason: $(Encode $(if ($wait.Reason) { $wait.Reason } else { 'not specified' }))")
+    if ($wait.Conditions.Count) { $lines.Add("Condition: $(Encode (($wait.Conditions | ForEach-Object { Format-WaitCondition $_ }) -join '; '))") }
+    $who = if ($wait.Agent) { "Reactivates: $(Encode $wait.Agent)" } else { 'Reactivates: agent not specified' }
     $times = @()
-    if ($wait.Start) { $times += "desde $(Encode (Format-WorkTime $wait.Start))" }
-    if ($wait.LastCheck) { $times += "última revisión $(Encode (Format-WorkTime $wait.LastCheck))" }
-    if ($wait.NextCheck) { $times += "próxima revisión $(Encode (Format-WorkTime $wait.NextCheck))" }
+    if ($wait.Start) { $times += "since $(Encode (Format-WorkTime $wait.Start))" }
+    if ($wait.LastCheck) { $times += "last checked $(Encode (Format-WorkTime $wait.LastCheck))" }
+    if ($wait.NextCheck) { $times += "next check $(Encode (Format-WorkTime $wait.NextCheck))" }
     $lines.Add((@($who) + $times) -join ' · ')
-    $lines.Add("Avance: $(Encode (Format-WaitProgress $wait.Progress $wait.Estimated $wait.Base))")
-    if ($wait.Deadline) { $lines.Add("Tiempo máximo del vigilante: hasta $(Encode (Format-WorkTime $wait.Deadline)) (no es avance)") }
+    $lines.Add("Progress: $(Encode (Format-WaitProgress $wait.Progress $wait.Estimated $wait.Base))")
+    if ($wait.Deadline) { $lines.Add("Maximum wait time: until $(Encode (Format-WorkTime $wait.Deadline)) (not progress)") }
     $html = ($lines | ForEach-Object { "<div class=""meta"">$_</div>" }) -join ''
     if ($PerCondition -and $wait.Conditions.Count -gt 1) {
         $items = foreach ($condition in $wait.Conditions) { "<li>$(Encode (Format-WaitCondition $condition)): $(Encode (Format-WaitProgress $condition.Progress $condition.Estimated $condition.Base))</li>" }
@@ -1646,52 +1719,53 @@ function Format-WaitDetailHtml($wait, [switch]$PerCondition) {
 }
 # The label and the detail of every wait of a task or an agent.
 function Get-WaitCellHtml([object[]]$waits) { "$(Format-WaitChip)$((@($waits) | ForEach-Object { Format-WaitDetailHtml $_ }) -join '')" }
-# The «Vigilantes» list of the «Fuera de tareas» section: live watchers, the ones with a problem (detenido, perdido, con error: they promise no
-# reactivation) and the finished ones collapsed. Never the message of an error, the action script or what a condition matched.
+# The "Watchers" list in "Outside task work": live watchers, those with a problem (detenido, perdido, error: they promise no
+# reactivation), and finished ones collapsed. Never show an error message, action script, or matched condition content.
 function Get-WaitersHtml($board) {
     $active = @($board.Active | Sort-Object @{ Expression = { if ($_.Start) { $_.Start } else { [datetime]::MinValue } }; Descending = $true })
     $problems = @($board.Problem | Sort-Object @{ Expression = { if ($_.Start) { $_.Start } else { [datetime]::MinValue } }; Descending = $true })
     if ($board.Available -and -not ($active.Count + $problems.Count + $board.Finished.Count)) { return '' }
-    $notice = if (-not $board.Available) { '<div class="stop"><strong>Vigilantes no disponibles</strong>No se pudo leer la carpeta de esperas de activación; no se presenta como una lista vacía.</div>' } else { '' }
-    $count = if ($active.Count) { "$($active.Count) $(if ($active.Count -eq 1) { 'activo' } else { 'activos' })" } else { 'ninguno activo' }
-    if ($problems.Count) { $count += " · $($problems.Count) con problemas" }
+    $notice = if (-not $board.Available) { '<div class="stop"><strong>Watchers unavailable</strong>The activation-wait folder could not be read; it is not shown as an empty list.</div>' } else { '' }
+    $count = if ($active.Count) { "$($active.Count) active" } else { 'none active' }
+    if ($problems.Count) { $count += " · $($problems.Count) with problems" }
     $countClass = if ($active.Count) { 's-espera' } elseif ($problems.Count) { 's-unknown' } else { 's-idle' }
     $head = { param($wait) $task = if ($wait.Task) { " · $(Encode $wait.Task)" } else { '' }; "<strong>$(Encode $wait.Id)$task</strong>" }
     $activeHtml = foreach ($wait in $active) { "<div class=""agent-task wait-item"">$(& $head $wait) $(Format-WaitChip)$(Format-WaitDetailHtml $wait -PerCondition)</div>" }
     $problemHtml = foreach ($wait in $problems) {
-        $last = if ($wait.LastCheck) { Encode (Format-WorkTime $wait.LastCheck) } else { 'hora no registrada' }
+        $last = if ($wait.LastCheck) { Encode (Format-WorkTime $wait.LastCheck) } else { 'time not recorded' }
         $chip, $chipClass, $text = switch ($wait.Status) {
-            'detenido' { 'Vigilante detenido', 's-unknown', "El proceso del vigilante ya no existe: esta espera no se reactivará sola. Última revisión $last." }
-            'perdido' { 'Vigilante perdido', 's-unknown', "No da señales de vida: su última revisión fue a las $last, hace más de 3 intervalos. Puede estar colgado." }
-            default { 'Vigilante con error', 's-requiere-cambios', "Su última comprobación falló (última revisión $last); reintenta en la próxima$(if ($wait.NextCheck) { " ($(Encode (Format-WorkTime $wait.NextCheck)))" })." }
+            'detenido' { 'Watcher stopped', 's-unknown', "The watcher process no longer exists; this wait will not reactivate automatically. Last checked $last." }
+            'perdido' { 'Watcher lost', 's-unknown', "No heartbeat: last checked at $last, more than 3 intervals ago. The process may be hung." }
+            default { 'Watcher error', 's-requiere-cambios', "The last check failed (last checked $last); retrying at the next check$(if ($wait.NextCheck) { " ($(Encode (Format-WorkTime $wait.NextCheck)))" })." }
         }
         "<div class=""agent-task wait-item"">$(& $head $wait) <span class=""state $chipClass"">$chip</span>" +
-        "<div class=""meta"">Motivo: $(Encode $wait.Reason)</div><div class=""meta"">$text</div></div>"
+        "<div class=""meta"">Reason: $(Encode $wait.Reason)</div><div class=""meta"">$text</div></div>"
     }
     $finishedHtml = ''
     if ($board.Finished.Count) {
         $items = foreach ($wait in $board.Finished) {
-            $span = "$(if ($wait.Start) { Encode (Format-WorkTime $wait.Start) } else { 'hora no registrada' })$(if ($wait.LastCheck) { " → $(Encode (Format-WorkTime $wait.LastCheck))" })"
-            $target = @(if ($wait.Task) { "tarea $(Encode $wait.Task)" }; if ($wait.Agent) { "reactivó a $(Encode $wait.Agent)" }) -join ' · '
-            "<li><strong>$(Encode $wait.Id)</strong> · $(Encode $wait.Status)$(if ($target) { " · $target" }) · $span · $(Encode $wait.Reason)</li>"
+            $span = "$(if ($wait.Start) { Encode (Format-WorkTime $wait.Start) } else { 'time not recorded' })$(if ($wait.LastCheck) { " → $(Encode (Format-WorkTime $wait.LastCheck))" })"
+            $target = @(if ($wait.Task) { "task $(Encode $wait.Task)" }; if ($wait.Agent) { "reactivated $(Encode $wait.Agent)" }) -join ' · '
+            $statusLabel = switch ($wait.Status) { 'cumplida' { 'Met' } 'vencida' { 'Expired' } default { 'Completed' } }
+            "<li><strong>$(Encode $wait.Id)</strong> · $statusLabel$(if ($target) { " · $target" }) · $span · $(Encode $wait.Reason)</li>"
         }
-        $finishedHtml = "<details class=""wait-finished""><summary>Terminados ($($board.Finished.Count))</summary><ul>$($items -join '')</ul></details>"
+        $finishedHtml = "<details class=""wait-finished""><summary>Completed ($($board.Finished.Count))</summary><ul>$($items -join '')</ul></details>"
     }
-    $empty = if (-not $active.Count -and -not $problems.Count) { '<p class="meta">No hay vigilantes activos.</p>' } else { '' }
-    "<div class=""wait-group"" id=""vigilantes""><div class=""card-head""><h3>Vigilantes</h3><span class=""state $countClass"">$count</span></div>" +
-    '<p class="meta">Esperas por condición (regla 36): un vigilante sin modelo de IA comprueba la condición y relanza al agente cuando se cumple. Solo se muestran horas, estado y números.</p>' +
+    $empty = if (-not $active.Count -and -not $problems.Count) { '<p class="meta">No active watchers.</p>' } else { '' }
+    "<div class=""wait-group"" id=""vigilantes""><div class=""card-head""><h3>Watchers</h3><span class=""state $countClass"">$count</span></div>" +
+    '<p class="meta">Condition-based waits (rule 36): a watcher without an AI model checks the condition and relaunches the agent when it is met. Only timestamps, status, and numbers are shown.</p>' +
     "$notice$empty$($activeHtml -join '')$($problemHtml -join '')$finishedHtml</div>"
 }
 
-# FLU-T06 (P-615): esperas visibles. A task card may carry the row «Espera» (marcar-espera.ps1 writes it; the card's Estado does not change):
+# FLU-T06 (P-615): visible waits. A task card may contain the `Espera` row (`marcar-espera.ps1` writes it; the card's `Estado` is unchanged):
 #   | Espera | <quién> — <qué> (desde AAAA-MM-DD HH:mm, #<entrada>) |
-# quién: usuario | agente <Nombre> | tarea <ID> | cuota (reinicia <hora>) | ventana de integración. Absent or «—» means the card is working.
-# The Tareas tab shows a badge on the card («espera tu decisión», highlighted, for usuario; «espera a X», grey, otherwise); a panel at the top of the
-# page, «Esperan tu decisión», lists every wait for the user with a counter; and a card «en curso» without Espera whose newest Historial row is older
-# than -SinActividadHoras reads «sin actividad». A wait is resolved («resuelta, falta quitarla») when a LATER channel entry of type decisión or
-# respuesta cites the task in its title or in a «- tarea:» line; the counter then no longer includes it.
+# Who: usuario | agente <Nombre> | tarea <ID> | cuota (reinicia <hora>) | ventana de integración. An absent value or «—» means the card is working.
+# The Tasks tab shows a badge ("Waiting for your decision", highlighted, for usuario; "Waiting for X", grey, otherwise). A panel above the tabs
+# lists every user wait with a counter. An "en curso" card without Espera whose newest Historial entry is older than -SinActividadHoras reads
+# "No activity". A wait is resolved ("Resolved, needs clearing") when a LATER channel entry of type decisión or respuesta cites the task in its title
+# or in a «- tarea:» line; resolved waits are no longer included in the counter.
 function Get-ViewerNow { if ($null -ne $script:nowOverride) { [datetime]$script:nowOverride } else { Get-Date } }
-# The parsed «Espera» row, or $null when it is absent, empty or «—». Kind: usuario | agente | tarea | cuota | ventana | otro.
+# Parsed «Espera» row, or $null when absent, empty, or «—». Kind: usuario | agente | tarea | cuota | ventana | otro.
 function Get-EsperaInfo([string]$value) {
     $raw = ("$value" -replace '\s+', ' ').Trim()
     if (-not $raw -or $raw -match '^[—–\-]+$') { return $null }
@@ -1715,21 +1789,21 @@ function Get-EsperaInfo([string]$value) {
 }
 function Get-EsperaLabel($espera) {
     switch ($espera.Kind) {
-        'usuario' { 'espera tu decisión' }
-        'agente' { if ($espera.Target) { "espera a $($espera.Target)" } else { 'espera a otro agente' } }
-        'tarea' { if ($espera.Target) { "espera a $($espera.Target)" } else { 'espera a otra tarea' } }
-        'cuota' { if ($espera.Target) { "espera a la cuota (reinicia $($espera.Target))" } else { 'espera a la cuota' } }
-        'ventana' { 'espera a la ventana de integración' }
-        default { 'espera a algo externo' }
+        'usuario' { 'Waiting for your decision' }
+        'agente' { if ($espera.Target) { "Waiting for $($espera.Target)" } else { 'Waiting for another agent' } }
+        'tarea' { if ($espera.Target) { "Waiting for task $($espera.Target)" } else { 'Waiting for another task' } }
+        'cuota' { if ($espera.Target) { "Waiting for quota reset ($($espera.Target))" } else { 'Waiting for quota reset' } }
+        'ventana' { 'Waiting for the integration window' }
+        default { 'Waiting for an external event' }
     }
 }
-# Who asked: the agent of the newest «espera» row of the Historial, else the card's Agente.
+# Who asked: the agent in the newest «espera» row of Historial, or the card's Agente.
 function Get-EsperaAsker([string]$history, [string]$cardAgent) {
     $asker = ''
     foreach ($row in @(Get-HistoryRows $history)) { if ($row.Action -eq 'espera' -and $row.Agent) { $asker = $row.Agent } }
     if ($asker) { $asker } else { $cardAgent }
 }
-# Entries of LOG.md of type decisión / respuesta, oldest first, read once per generation: Number, Date, Author, Type, Title, Tasks (the «- tarea:» line).
+# LOG.md entries of type decisión / respuesta, oldest first, read once per generation: Number, Date, Author, Type, Title, Tasks (the «- tarea:» line).
 $script:EsperaEntries = $null
 function Get-ResolutionEntries {
     if ($null -ne $script:EsperaEntries) { return $script:EsperaEntries }
@@ -1746,13 +1820,13 @@ function Get-ResolutionEntries {
                 $tasks = [regex]::Match($body, '(?m)^- tarea:[ \t]*([^\r\n]*)').Groups[1].Value
                 $list.Add([pscustomobject]@{ Number = [int]$m.Groups[1].Value; Date = $when; Author = $m.Groups[3].Value.Trim(); Type = $m.Groups[4].Value; Title = $m.Groups[5].Value; Tasks = $tasks })
             }
-        } catch { Write-Warning 'No se pudo leer LOG.md; las esperas no se darán por resueltas.' }
+        } catch { Write-Warning 'Could not read LOG.md; waits will not be marked as resolved.' }
     }
     $script:EsperaEntries = @($list)
     $script:EsperaEntries
 }
-# The first LATER entry (decisión / respuesta) that cites the task, or $null. «Later» = a higher entry number than the wait's (or, if the row has
-# no entry number, the same day or after).
+# The first LATER entry (decisión / respuesta) that cites the task, or $null. "Later" means a higher entry number than the wait's (or, if the row
+# has no entry number, the same day or later).
 function Find-EsperaResolution($espera, [string]$taskId) {
     $idPattern = '(?<![A-Za-z0-9-])' + [regex]::Escape($taskId) + '(?![A-Za-z0-9])'
     foreach ($candidate in (Get-ResolutionEntries)) {
@@ -1763,16 +1837,16 @@ function Find-EsperaResolution($espera, [string]$taskId) {
 }
 function Format-AgeSince($from, $now) {
     $span = $now - [datetime]$from
-    if ($span.TotalMinutes -lt 1) { return 'hace menos de un minuto' }
-    if ($span.TotalMinutes -lt 60) { $n = [int][math]::Floor($span.TotalMinutes); return "hace $n $(if ($n -eq 1) { 'minuto' } else { 'minutos' })" }
-    if ($span.TotalHours -lt 24) { $n = [int][math]::Floor($span.TotalHours); return "hace $n $(if ($n -eq 1) { 'hora' } else { 'horas' })" }
+    if ($span.TotalMinutes -lt 1) { return 'less than a minute ago' }
+    if ($span.TotalMinutes -lt 60) { $n = [int][math]::Floor($span.TotalMinutes); return "$n $(if ($n -eq 1) { 'minute' } else { 'minutes' }) ago" }
+    if ($span.TotalHours -lt 24) { $n = [int][math]::Floor($span.TotalHours); return "$n $(if ($n -eq 1) { 'hour' } else { 'hours' }) ago" }
     $n = [int][math]::Floor($span.TotalDays)
-    "hace $n $(if ($n -eq 1) { 'día' } else { 'días' })"
+    "$n $(if ($n -eq 1) { 'day' } else { 'days' }) ago"
 }
 function Format-EsperaSince($espera, $now) {
     $parts = @()
-    if ($espera.Since) { $parts += "desde $(Format-ActivityDate $espera.Since) ($(Format-AgeSince $espera.Since $now))" } else { $parts += 'desde: hora no registrada' }
-    if ($null -ne $espera.Entry) { $parts += "entrada #$($espera.Entry)" }
+    if ($espera.Since) { $parts += "since $(Format-ActivityDate $espera.Since) ($(Format-AgeSince $espera.Since $now))" } else { $parts += 'since: time not recorded' }
+    if ($null -ne $espera.Entry) { $parts += "entry #$($espera.Entry)" }
     $parts -join ' · '
 }
 # The badge shown in the state cell of the card (Tareas tab).
@@ -1783,53 +1857,53 @@ function Get-EsperaBadgeHtml($espera, $resolution, [string]$asker) {
     $whatHtml = if ($what) { "<div class=""espera-what"">$what</div>" } else { '' }
     $since = Format-EsperaSince $espera $now
     if ($resolution) {
-        $kindText = if ($resolution.Type -like 'respuesta') { 'respuesta' } else { 'decisión' }
-        return "<div class=""espera espera-resuelta""><span class=""state s-espera-resuelta"">resuelta, falta quitarla</span>" +
-            "<div class=""espera-what"">Era: $(Encode $label)$(if ($what) { ' · ' + $what })</div>" +
-            "<div class=""meta"">La $kindText #$($resolution.Number) cita la tarea; quien la tiene ejecuta marcar-espera.ps1 -Quitar. $(Encode $since)</div></div>"
+        $kindText = if ($resolution.Type -like 'respuesta') { 'response' } else { 'decision' }
+        return "<div class=""espera espera-resuelta""><span class=""state s-espera-resuelta"">Resolved, needs clearing</span>" +
+            "<div class=""espera-what"">Was: $(Encode $label)$(if ($what) { ' · ' + $what })</div>" +
+            "<div class=""meta"">Channel $kindText #$($resolution.Number) cites this task; its owner should run marcar-espera.ps1 -Quitar. $(Encode $since)</div></div>"
     }
     if ($espera.Kind -eq 'usuario') {
-        $askerHtml = if ($asker) { "pregunta: $(Encode $asker) · " } else { '' }
+        $askerHtml = if ($asker) { "asked by: $(Encode $asker) · " } else { '' }
         return "<div class=""espera espera-usuario""><span class=""state s-espera-usuario"">$(Encode $label)</span>$whatHtml<div class=""meta"">$askerHtml$(Encode $since)</div></div>"
     }
     "<div class=""espera""><span class=""state s-espera-otro"">$(Encode $label)</span>$whatHtml<div class=""meta"">$(Encode $since)</div></div>"
 }
-# «sin actividad»: a card en curso, without Espera and without a live watcher, whose newest Historial row is older than -SinActividadHoras.
+# "No activity": an `en curso` card without an `Espera` row or live watcher, whose newest `Historial` entry is older than -SinActividadHoras.
 function Test-SinActividad($record, [bool]$hasWatcher) {
     if ($record.State -ne 'en curso' -or $null -ne $record.Espera -or $hasWatcher -or -not $record.LastRow) { return $false }
     ((Get-ViewerNow) - $record.LastRow.Date).TotalHours -gt $script:sinActividadHoras
 }
 function Get-SinActividadHtml($record) {
     $now = Get-ViewerNow
-    "<div class=""espera espera-sin-actividad""><span class=""state s-sin-actividad"" title=""Sin fila nueva en el Historial en más de $($script:sinActividadHoras) h"">sin actividad</span>" +
-    "<div class=""meta"">Sin avance $(Encode (Format-AgeSince $record.LastRow.Date $now)) · última fila $(Encode (Format-ActivityDate $record.LastRow.Date))</div></div>"
+    "<div class=""espera espera-sin-actividad""><span class=""state s-sin-actividad"" title=""No new Historial entry for more than $($script:sinActividadHoras) h"">No activity</span>" +
+    "<div class=""meta"">No progress $(Encode (Format-AgeSince $record.LastRow.Date $now)) · latest entry $(Encode (Format-ActivityDate $record.LastRow.Date))</div></div>"
 }
-# The panel «Esperan tu decisión» (top of the page). Items: cards with Espera (Id, Title, Href, Espera, Resolution, Asker). The counter counts the waits
-# for the user that are NOT resolved; the resolved ones stay listed below them, marked «resuelta, falta quitarla».
+# The "Waiting for your decision" panel at the top of the page. Items are cards with Espera (Id, Title, Href, Espera, Resolution, Asker). The counter
+# counts unresolved user waits; resolved waits remain listed below, marked "Resolved, needs clearing".
 function Get-UserWaitsPanel([object[]]$items) {
     $now = Get-ViewerNow
     $user = @($items | Where-Object { $_.Espera.Kind -eq 'usuario' })
     $pending = @($user | Where-Object { -not $_.Resolution } | Sort-Object @{ Expression = { if ($_.Espera.Since) { $_.Espera.Since } else { [datetime]::MaxValue } } }, Id)
     $resolved = @($user | Where-Object { $_.Resolution } | Sort-Object Id)
     if (-not $user.Count) {
-        return [pscustomobject]@{ Count = 0; Html = '<div class="seg-esperas"><p class="espera-none" role="status">Esperan tu decisión: <strong>0</strong></p></div>' }
+        return [pscustomobject]@{ Count = 0; Html = '<div class="seg-esperas"><p class="espera-none" role="status">Waiting for your decision: <strong>0</strong></p></div>' }
     }
     $lis = foreach ($item in @($pending + $resolved)) {
         $link = "<a href=""$($item.Href)"">$(Encode $(if ($item.Title -like "$($item.Id)*") { $item.Title } else { "$($item.Id) · $($item.Title)" }))</a>"
-        $question = if ($item.Espera.What) { Encode (Limit-Text (Safe-Snippet $item.Espera.What) 220) } else { '<span class="meta">sin texto de la pregunta</span>' }
-        $asks = if ($item.Asker) { "pregunta: $(Encode $item.Asker) · " } else { '' }
+        $question = if ($item.Espera.What) { Encode (Limit-Text (Safe-Snippet $item.Espera.What) 220) } else { '<span class="meta">no question text</span>' }
+        $asks = if ($item.Asker) { "asked by: $(Encode $item.Asker) · " } else { '' }
         if ($item.Resolution) {
-            $kindText = if ($item.Resolution.Type -like 'respuesta') { 'respuesta' } else { 'decisión' }
-            "<li class=""espera-item espera-resuelta""><div>$link <span class=""state s-espera-resuelta"">resuelta, falta quitarla</span></div><div class=""espera-q"">$question</div>" +
-            "<div class=""meta"">$asks$(Encode (Format-EsperaSince $item.Espera $now)) · la $kindText #$($item.Resolution.Number) cita la tarea</div></li>"
+            $kindText = if ($item.Resolution.Type -like 'respuesta') { 'response' } else { 'decision' }
+            "<li class=""espera-item espera-resuelta""><div>$link <span class=""state s-espera-resuelta"">Resolved, needs clearing</span></div><div class=""espera-q"">$question</div>" +
+            "<div class=""meta"">$asks$(Encode (Format-EsperaSince $item.Espera $now)) · channel $kindText #$($item.Resolution.Number) cites this task</div></li>"
         } else {
-            "<li class=""espera-item""><div>$link <span class=""state s-espera-usuario"">espera tu decisión</span></div><div class=""espera-q"">$question</div>" +
+            "<li class=""espera-item""><div>$link <span class=""state s-espera-usuario"">Waiting for your decision</span></div><div class=""espera-q"">$question</div>" +
             "<div class=""meta"">$asks$(Encode (Format-EsperaSince $item.Espera $now))</div></li>"
         }
     }
     $count = $pending.Count
-    $note = if ($count) { '' } else { '<p class="meta">Ninguna espera tu decisión; solo faltan por quitar las ya resueltas.</p>' }
-    [pscustomobject]@{ Count = $count; Html = "<div class=""seg-esperas""><section class=""espera-panel"" id=""esperan-tu-decision"" aria-label=""Esperan tu decisión""><h2>Esperan tu decisión <span class=""espera-count"" title=""Esperas del usuario sin resolver"">$count</span></h2>$note<ul class=""espera-list"">$($lis -join '')</ul></section></div>" }
+    $note = if ($count) { '' } else { '<p class="meta">No unresolved user waits; only resolved waits remain to be cleared.</p>' }
+    [pscustomobject]@{ Count = $count; Html = "<div class=""seg-esperas""><section class=""espera-panel"" id=""esperan-tu-decision"" aria-label=""Waiting for your decision""><h2>Waiting for your decision <span class=""espera-count"" title=""Unresolved user waits"">$count</span></h2>$note<ul class=""espera-list"">$($lis -join '')</ul></section></div>" }
 }
 
 function Get-AgentBoardData {
@@ -1844,7 +1918,7 @@ function Get-AgentBoardData {
     try {
         $stages = @(Get-ChildItem -LiteralPath $tasksDir -Directory -ErrorAction Stop)
     } catch {
-        Write-Warning 'No se pudo enumerar el tablero de tareas; el estado de agentes no está disponible.'
+        Write-Warning 'Could not enumerate the task board; agent status is unavailable.'
         return [pscustomobject]@{ Available = $false; Partial = $false; Issues = 1; Tasks = @(); History = @() }
     }
 
@@ -1853,7 +1927,7 @@ function Get-AgentBoardData {
             $files = @(Get-ChildItem -LiteralPath $stage.FullName -Filter 'T*.md' -File -ErrorAction Stop | Sort-Object Name)
         } catch {
             $issues++
-            Write-Warning 'No se pudieron enumerar fichas de una etapa; se omitieron.'
+            Write-Warning 'Could not enumerate task cards for a stage; skipping them.'
             continue
         }
         foreach ($file in $files) {
@@ -1861,13 +1935,13 @@ function Get-AgentBoardData {
                 $text = Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 -ErrorAction Stop
             } catch {
                 $issues++
-                Write-Warning "No se pudo leer la ficha de tarea $($file.Name); se omitió."
+                Write-Warning "Could not read task card $($file.Name); skipping it."
                 continue
             }
             $state = (Get-Field $text 'Estado').Trim().ToLowerInvariant()
             if ($state -notin @('disponible', 'en curso', 'pendiente', 'liberada', 'terminada', 'requiere cambios', 'integrada', 'reabierta', 'congelada')) {
                 $issues++
-                Write-Warning "La ficha de tarea $($file.Name) no tiene un estado válido; se omitió."
+                Write-Warning "Task card $($file.Name) has an invalid status; skipping it."
                 continue
             }
             $id = if ($text -match '(?m)^#\s+(G\d+[A-Za-z0-9]*-T\d+)\s*·') {
@@ -1893,7 +1967,7 @@ function Get-AgentBoardData {
             $tasks.Add($task)
             if ($state -in @('en curso', 'pendiente') -and $agent -notin $registered) {
                 $issues++
-                Write-Warning "La ficha de tarea $($file.Name) no identifica un agente registrado para su asignación activa."
+                Write-Warning "Task card $($file.Name) does not identify a registered agent for its active assignment."
             }
 
             $historyText = Get-TaskSection $text 'Historial'
@@ -1936,7 +2010,7 @@ function Get-AgentBoardData {
             }
             if ($badHistory) {
                 $issues++
-                Write-Warning "El historial de la ficha $($file.Name) contiene fechas no válidas; se omitieron esas filas."
+                Write-Warning "The history in task card $($file.Name) contains invalid dates; skipping those rows."
             }
         }
     }
@@ -1951,34 +2025,34 @@ function Get-AgentBoardData {
 
 function Get-IdeasHtml {
     if (-not $script:ideasModuleAvailable) {
-        return '<section class="panel"><strong>Biblioteca de ideas no disponible.</strong><p class="meta">El gestor no pudo cargarse.</p></section>'
+        return '<section class="panel"><strong>Ideas library unavailable.</strong><p class="meta">The manager could not be loaded.</p></section>'
     }
     try {
         $prompts = @(Get-IdeasPrompts -StorePath $script:ideasStorePath)
         $registeredTargets = @(Get-IdeasPromptTargets -SystemRoot $channel)
     } catch {
-        Write-Warning "No se pudo cargar la biblioteca de ideas: $($_.Exception.Message)"
-        return '<section class="stop"><strong>Ideas no disponibles</strong>No se pudo leer la biblioteca o el registro de agentes; no se presenta como una lista vacía.</section>'
+        Write-Warning "Could not load the ideas library: $($_.Exception.Message)"
+        return '<section class="stop"><strong>Ideas unavailable</strong>The library or agent registry could not be read; it is not shown as an empty list.</section>'
     }
     $targets = $registeredTargets + @($prompts | ForEach-Object Audience | Where-Object { $_ -notin $registeredTargets } | Select-Object -Unique)
     $groups = foreach ($audience in $targets) {
         $items = @($prompts | Where-Object Audience -CEQ $audience)
         if (-not $items.Count) { continue }
         $audienceLabel = switch -CaseSensitive ($audience) {
-            'Compartida' { 'Abierta · cualquier agente' }
-            'Agente cloud' { 'Agente cloud · marcado como destino (no enviado)' }
+            'Compartida' { 'Open · any agent' }
+            'Agente cloud' { 'Cloud agent · designated recipient (not sent)' }
             default {
                 if ($audience -notin $registeredTargets) {
-                    "$audience · agente no registrado actualmente"
-                } else { "Agente local · dirigido a $audience" }
+                    "$audience · agent not currently registered"
+                } else { "Local agent · directed to $audience" }
             }
         }
         $cards = foreach ($item in $items) {
             $statusLabel, $statusClass = switch ($item.Status) {
-                'pendiente_revision' { @('Sin revisar', 's-unknown') }
-                'revisada_pendiente' { @('Revisada · pendiente', 's-pendiente') }
-                'completada' { @('Completada', 's-integrada') }
-                default { @('Estado no reconocido', 's-unknown') }
+                'pendiente_revision' { @('Not reviewed', 's-unknown') }
+                'revisada_pendiente' { @('Reviewed · pending', 's-pendiente') }
+                'completada' { @('Completed', 's-integrada') }
+                default { @('Unrecognized status', 's-unknown') }
             }
             $reviewMeta = if ($item.StatusActor -and $item.StatusUpdatedUtc) {
                 $updated = [DateTimeOffset]::Parse(
@@ -1986,7 +2060,7 @@ function Get-IdeasHtml {
                     [System.Globalization.CultureInfo]::InvariantCulture,
                     [System.Globalization.DateTimeStyles]::RoundtripKind
                 ).ToLocalTime().ToString('yyyy-MM-dd HH:mm')
-                "<p class=""meta"">Estado registrado por $(Encode $item.StatusActor) · $(Encode $updated)</p>"
+                "<p class=""meta"">Status recorded by $(Encode $item.StatusActor) · $(Encode $updated)</p>"
             } else { '' }
             $reviewNote = if ($item.StatusNote) {
                 "<p class=""idea-review-note"">$(Encode $item.StatusNote)</p>"
@@ -2001,15 +2075,15 @@ function Get-IdeasHtml {
         }
         "<section class=""idea-group""><h2>$(Encode $audienceLabel)</h2>$($cards -join "`n")</section>"
     }
-    $contents = if ($groups) { $groups -join "`n" } else { '<section class="panel">Todavía no hay ideas ni prompts.</section>' }
+    $contents = if ($groups) { $groups -join "`n" } else { '<section class="panel">No ideas or prompts yet.</section>' }
     $button = if ($script:flowListener -and $script:ideasToken) {
-        '<button id="open-ideas-manager" class="action-button" type="button">Agregar, editar o eliminar ideas</button>'
+        '<button id="open-ideas-manager" class="action-button" type="button">Add, edit, or delete ideas</button>'
     } else {
-        '<button id="open-ideas-manager" class="action-button" type="button" disabled title="Abre el visualizador con Seguimiento.cmd">Agregar, editar o eliminar ideas</button>'
+        '<button id="open-ideas-manager" class="action-button" type="button" disabled title="Open the viewer with Seguimiento.cmd">Add, edit, or delete ideas</button>'
     }
     @"
-<p class="meta">Cada prompt puede quedar abierto a cualquier agente, dirigido a un agente local registrado o marcado para un agente cloud. Esto solo indica el destinatario: no inicia trabajo, reserva archivos, notifica agentes ni envía contenido a la nube. La preparación cloud sigue separada y manual.</p>
-<p class="meta idea-status-legend"><strong>Estado de ideas:</strong> Sin revisar = aún no evaluada; Revisada · pendiente = evaluada, con trabajo pendiente indicado debajo; Completada = la nota resume el resultado. La fecha es la del registro de este estado, no necesariamente la fecha en que se realizó el trabajo.</p>
+<p class="meta">Each prompt can be open to any agent, directed to a registered local agent, or marked for a cloud agent. This only identifies the recipient: it does not start work, reserve files, notify agents, or send content to the cloud. Cloud preparation remains a separate manual process.</p>
+<p class="meta idea-status-legend"><strong>Idea status:</strong> Not reviewed = not yet evaluated; Reviewed · pending = evaluated, with pending work listed below; Completed = the note summarizes the result. The date is when this status was recorded, not necessarily when the work was done.</p>
 $button
 <p id="ideas-status" class="meta" role="status" aria-live="polite"></p>
 $contents
@@ -2026,19 +2100,19 @@ function Get-AlignmentHtml([string]$name, [string]$application = '') {
         $row = $lines | Where-Object { $_ -match "^\|\s*$([regex]::Escape($key))\s*\|" } | Select-Object -First 1
         if ($row) { break }
     }
-    if (-not $row) { return '<p class="meta">Realineación: sin revisar todavía (paso 4 de Flujo.cmd).</p>' }
+    if (-not $row) { return '<p class="meta">Alignment: not reviewed yet (step 4 of Flujo.cmd).</p>' }
     $cells = @($row.Trim('|').Split('|') | ForEach-Object { $_.Trim() })
     $pending = $cells[1] -eq 'PENDIENTE'
     $class = if ($pending) { 's-pendiente' } else { 's-integrada' }
-    $detail = if ($pending -and $cells[3]) { " — $(Encode $cells[3]). Debe realinearse antes de tomar otra tarea (regla 18)." } else { '' }
-    "<p class=""meta""><span class=""state $class"">Realineación: $(Encode $cells[1])</span> $(Encode $cells[2]) · revisado $(Encode $cells[4])$detail</p>"
+    $detail = if ($pending -and $cells[3]) { " — $(Encode $cells[3]). Realign before taking another task (rule 18)." } else { '' }
+    "<p class=""meta""><span class=""state $class"">Alignment: $(Encode $cells[1])</span> $(Encode $cells[2]) · reviewed $(Encode $cells[4])$detail</p>"
 }
 
 function Limit-Text([string]$text, [int]$max) {
     if ($text.Length -gt $max) { $text.Substring(0, $max - 3) + '...' } else { $text }
 }
 # SEG-T07 convention: a card or ETAPA.md line containing the literal marker "Pide al usuario:" (any
-# case) is surfaced in Resumen > "Decisiones que te piden". Write it when an agent needs a decision.
+# case) appears under Summary > "Decisions requested from you". Use it when an agent needs a decision.
 function Get-PideAlUsuarioLines([string]$text) {
     @($text -split "`r?`n" | Where-Object { $_ -match '(?i)pide al usuario:' } | ForEach-Object { Limit-Text (Safe-Snippet $_) 200 })
 }
@@ -2060,17 +2134,17 @@ function Update-RowWatchFlags([string]$rowState, $espera) {
     }
 }
 function Build-Page {
-Reset-WorkerCaches   # SEG-T15: transcripts, models and execution lines are read again on every generation
-$script:EsperaEntries = $null   # FLU-T06: LOG.md (decisión / respuesta entries) is read again too
+Reset-WorkerCaches   # SEG-T15: transcripts, models, and execution lines are reread on every generation
+$script:EsperaEntries = $null   # FLU-T06: LOG.md (decisión / respuesta entries) is also reread
 $script:SinActividadWatch = $false
 $script:EnCursoWatch = $false
-$waitBoard = Get-WaitBoard   # SEG-T19: the watchers (esperas de activación) are read again too
+$waitBoard = Get-WaitBoard   # SEG-T19: watchers (esperas de activación) are also reread
 $agentBoard = Get-AgentBoardData
 $apiBoardHtml = if ($LeerApi) { Get-ApiBoardHtml } else { '' }
 $readsText = if (Test-Path -LiteralPath $integrationReads -PathType Leaf) {
     try { Get-Content -LiteralPath $integrationReads -Raw -Encoding utf8 -ErrorAction Stop }
     catch {
-        Write-Warning 'No se pudo leer el registro de resultados de integración; no se verificará ningún cierre.'
+        Write-Warning 'Could not read the integration results log; no closure will be verified.'
         ''
     }
 } else { '' }
@@ -2099,31 +2173,31 @@ function Test-CommitPublished([string]$commit) {
 # These legacy milestones predate the task board and were explicitly confirmed by the user as
 # verified and present in the public repository.
 $publicVerifiedEvidence = [ordered]@{
-    G1 = [pscustomobject]@{ Goal = 'Validar antes de ejecutar'; Commit = 'e887bf3'; Report = '2026-09-26_1935_integracion.md' }
-    G2 = [pscustomobject]@{ Goal = 'Revisión humana a mitad del workflow'; Commit = '27b3e1e'; Report = '2026-09-26_2020_integracion.md' }
-    G3 = [pscustomobject]@{ Goal = 'Un caso fuera de marketing (bundles)'; Commit = '2682b3e'; Report = '2026-09-26_2031_integracion.md' }
+    G1 = [pscustomobject]@{ Goal = 'Validate before execution'; Commit = 'e887bf3'; Report = '2026-09-26_1935_integracion.md' }
+    G2 = [pscustomobject]@{ Goal = 'Human review midway through the workflow'; Commit = '27b3e1e'; Report = '2026-09-26_2020_integracion.md' }
+    G3 = [pscustomobject]@{ Goal = 'A non-marketing example (bundles)'; Commit = '2682b3e'; Report = '2026-09-26_2031_integracion.md' }
 }
 $activeCards = [System.Collections.Generic.List[object]]::new()
 # SEG-T13: integration round in progress (parches\ronda.txt) and the notice shown when the page is generated during it.
 $integrationRound = Get-IntegrationRound
 $integrationNoticeHtml = if ($integrationRound.Active) {
     $roundNames = @($integrationRound.Patches | Select-Object -First 5) -join ', '
-    if ($integrationRound.Patches.Count -gt 5) { $roundNames += " y $($integrationRound.Patches.Count - 5) más" }
-    "<p class=""seg-integration-notice"" role=""status"">Generado durante una integración (ronda: $(Encode $roundNames)); los datos pueden cambiar al terminar.</p>"
+    if ($integrationRound.Patches.Count -gt 5) { $roundNames += " and $($integrationRound.Patches.Count - 5) more" }
+    "<p class=""seg-integration-notice"" role=""status"">Generated during an integration (round: $(Encode $roundNames)); data may change when it finishes.</p>"
 } else { '' }
 
 $boards = ''
-$frozenBoards = ''   # SEG-T21: stages in estado congelada, shown apart
+$frozenBoards = ''   # SEG-T21: stages in estado congelada are shown separately
 $archiveBoardEntries = [System.Collections.Generic.List[object]]::new()
 $publicEntries = [System.Collections.Generic.List[object]]::new()
 $uncertainEntries = [System.Collections.Generic.List[object]]::new()
 $archiveLinkEntries = [System.Collections.Generic.List[object]]::new()
 $stageIndex = @{}
-# SEG-T07: generated "Qué tienes que hacer ahora" items, filled while the board is read.
+# SEG-T07: generated "What you need to do now" items, populated while reading the board.
 $todoReady = [System.Collections.Generic.List[object]]::new()
 $todoAuth = [System.Collections.Generic.List[object]]::new()
 $todoDecisions = [System.Collections.Generic.List[object]]::new()
-# FLU-T06: cards with an «Espera» row (for the panel «Esperan tu decisión»).
+# FLU-T06: cards with an «Espera» row (for the "Waiting for your decision" panel).
 $esperaItems = [System.Collections.Generic.List[object]]::new()
 $boardReadFailed = $false
 if (Test-Path -LiteralPath $tasksDir -PathType Container) {
@@ -2131,7 +2205,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
     try {
         $stageDirectories = @(Get-ChildItem -LiteralPath $tasksDir -Directory -ErrorAction Stop | Sort-Object Name)
     } catch {
-        Write-Warning 'No se pudieron enumerar las etapas del tablero.'
+        Write-Warning 'Could not enumerate the board stages.'
         $stageDirectories = @()
         $boardReadFailed = $true
     }
@@ -2142,7 +2216,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         if (Test-Path -LiteralPath $stageFile -PathType Leaf) {
             try { $stageText = Get-Content -LiteralPath $stageFile -Raw -Encoding utf8 -ErrorAction Stop }
             catch {
-                Write-Warning "No se pudo leer la ficha de etapa $($stage.Name)."
+                Write-Warning "Could not read stage card $($stage.Name)."
                 $stageReadFailed = $true
                 $boardReadFailed = $true
             }
@@ -2160,7 +2234,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         try {
             $taskFiles = @(Get-ChildItem -LiteralPath $stage.FullName -Filter 'T*.md' -File -ErrorAction Stop | Sort-Object Name)
         } catch {
-            Write-Warning "No se pudieron enumerar las fichas de la etapa $($stage.Name)."
+            Write-Warning "Could not enumerate task cards for stage $($stage.Name)."
             $taskFiles = @()
             $taskReadFailed = $true
             $boardReadFailed = $true
@@ -2170,7 +2244,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         foreach ($file in $taskFiles) {
             try { $text = Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 -ErrorAction Stop }
             catch {
-                Write-Warning "No se pudo leer la ficha de tarea $($file.Name); se omitió de la tabla."
+                Write-Warning "Could not read task card $($file.Name); skipping it in the table."
                 $taskReadFailed = $true
                 $boardReadFailed = $true
                 continue
@@ -2236,7 +2310,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $waitingFor = @()
             if ($record.State -in 'disponible', 'liberada', 'reabierta') {
                 $waitingFor = @($dependencyCodes | ForEach-Object {
-                    if (-not $tasksByCode.ContainsKey($_)) { "$_ (sin ficha)" }
+                    if (-not $tasksByCode.ContainsKey($_)) { "$_ (card missing)" }
                     elseif ($why = Get-DependencyWait $tasksByCode[$_] $releaseMode) { "$_ ($why)" }
                 })
             }
@@ -2251,72 +2325,72 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $dependencyHtml = if ($dependencyCodes.Count) {
                 $items = foreach ($dependencyCode in $dependencyCodes) {
                     if (-not $tasksByCode.ContainsKey($dependencyCode)) {
-                        "<div><code>$(Encode $dependencyCode)</code> <span class=""state s-unknown"">no verificable</span></div>"
+                        "<div><code>$(Encode $dependencyCode)</code> <span class=""state s-unknown"">unverifiable</span></div>"
                         continue
                     }
                     $dependency = $tasksByCode[$dependencyCode]
                     $dependencyClass = 's-' + ($dependency.State -replace ' ', '-')
-                    $integrationNote = if ($dependency.State -eq 'terminada' -and (Test-TaskPatchRequired $dependency.Patch)) { ' · parche pendiente de integración' }
-                        elseif ($dependency.State -eq 'terminada') { ' · sin parche que integrar' }
-                        elseif ($dependency.State -eq 'integrada') { ' · integrada' }
+                    $integrationNote = if ($dependency.State -eq 'terminada' -and (Test-TaskPatchRequired $dependency.Patch)) { ' · patch awaiting integration' }
+                                elseif ($dependency.State -eq 'terminada') { ' · no patch to integrate' }
+                                elseif ($dependency.State -eq 'integrada') { ' · integrated' }
                         else { '' }
                     "<div><code>$(Encode $dependencyCode)</code> <span class=""state $dependencyClass"">$(Encode $dependency.State)</span>$(Encode $integrationNote)</div>"
                 }
                 $items -join ''
-            } else { '<span class="meta">Ninguna</span>' }
+            } else { '<span class="meta">None</span>' }
 
             $integrationHtml = if ($record.State -eq 'requiere cambios') {
                 # A delivered task with a reported defect: its patch is held until the author fixes it.
-                "<span class=""state s-requiere-cambios"">Bloqueada · requiere cambios</span><div class=""meta"">Parche en espera: $(Inline $record.Patch)</div>"
+                "<span class=""state s-requiere-cambios"">Blocked · changes requested</span><div class=""meta"">Patch on hold: $(Inline $record.Patch)</div>"
             } elseif ($record.State -eq 'terminada') {
-                $date = if ($record.DeliveredDate) { "<div class=""meta"">Entrega registrada $(Encode $record.DeliveredDate)</div>" } else { '' }
+                $date = if ($record.DeliveredDate) { "<div class=""meta"">Delivery recorded $(Encode $record.DeliveredDate)</div>" } else { '' }
                 $verdict = switch ($record.Verdict) {
-                    'probada' { '<div><span class="state s-integrada">Probada · libera dependientes</span></div>' }
-                    'prueba fallida' { '<div><span class="state s-requiere-cambios">Prueba fallida · no libera dependientes</span></div>' }
-                    default { '<div class="meta">Sin veredicto de prueba todavía (regla 27)</div>' }
+                    'probada' { '<div><span class="state s-integrada">Passed · releases dependents</span></div>' }
+                    'prueba fallida' { '<div><span class="state s-requiere-cambios">Tests failed · dependents remain blocked</span></div>' }
+                    default { '<div class="meta">No test verdict yet (rule 27)</div>' }
                 }
                 if ($record.Integrating) {
-                    "<span class=""state s-en-curso"">Integrando · pruebas desde $($integrationRound.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture))</span>$date<div class=""meta"">Parche: $(Inline $record.Patch)</div>"
+                    "<span class=""state s-en-curso"">Integrating · tests since $($integrationRound.Since.ToString('HH:mm', [cultureinfo]::InvariantCulture))</span>$date<div class=""meta"">Patch: $(Inline $record.Patch)</div>"
                 } elseif (Test-TaskPatchRequired $record.Patch) {
-                    "<span class=""state s-pendiente"">Requiere integración · pendiente</span>$verdict$date<div class=""meta"">Parche: $(Inline $record.Patch)</div>"
+                    "<span class=""state s-pendiente"">Integration required · pending</span>$verdict$date<div class=""meta"">Patch: $(Inline $record.Patch)</div>"
                 } elseif ($record.Patch.Trim()) {
-                    "<span class=""state s-idle"">Sin parche que integrar</span>$date"
+                    "<span class=""state s-idle"">No patch to integrate</span>$date"
                 } else {
-                    "<span class=""state s-unknown"">Integración indeterminada · parche no registrado</span>$date"
+                    "<span class=""state s-unknown"">Integration unknown · patch not recorded</span>$date"
                 }
             } elseif ($record.State -eq 'integrada') {
                 $commit = Get-CommitToken $record.Commit
                 $commitLabel = if ($commit) { "<div class=""meta"">Commit <code>$(Encode $commit)</code></div>" }
-                    elseif ($record.Patch.Trim() -and -not (Test-TaskPatchRequired $record.Patch)) { '<div class="meta">Sin parche que integrar</div>' }
-                    else { '<div class="meta">Commit no registrado</div>' }
-                $date = if ($record.IntegratedDate) { "<div class=""meta"">Integrada $(Encode $record.IntegratedDate)</div>" } else { '<div class="meta">Fecha de integración no registrada</div>' }
-                "<span class=""state s-integrada"">Integración registrada</span>$commitLabel$date"
+                    elseif ($record.Patch.Trim() -and -not (Test-TaskPatchRequired $record.Patch)) { '<div class="meta">No patch to integrate</div>' }
+                    else { '<div class="meta">Commit not recorded</div>' }
+                $date = if ($record.IntegratedDate) { "<div class=""meta"">Integrated $(Encode $record.IntegratedDate)</div>" } else { '<div class="meta">Integration date not recorded</div>' }
+                "<span class=""state s-integrada"">Integration recorded</span>$commitLabel$date"
             } else {
                 $pendingDependencies = @($dependencyCodes | Where-Object {
                     $tasksByCode.ContainsKey($_) -and $tasksByCode[$_].State -eq 'terminada' -and (Test-TaskPatchRequired $tasksByCode[$_].Patch)
                 })
                 $gate = if ($pendingDependencies.Count) {
-                    "Dependencia(s) con parche pendiente de integración: $(Encode ($pendingDependencies -join ', '))."
-                } else { 'Sin integración propia pendiente.' }
-                "<span class=""state s-unknown"">Aún no entregada</span><div class=""meta"">$gate</div>"
+                    "Dependency patch(es) awaiting integration: $(Encode ($pendingDependencies -join ', '))."
+                } else { 'No integration pending for this task.' }
+                "<span class=""state s-unknown"">Not delivered yet</span><div class=""meta"">$gate</div>"
             }
 
             $stateClass = 's-' + ($record.State -replace ' ', '-')
             $rowState = $record.State
             if ($stageIsFrozen -and $record.State -notin 'terminada', 'integrada', 'congelada') { $rowState = 'congelada' }
             $stateCell = if ($rowState -ne $record.State) {
-                "<span class=""state s-congelada"">congelada</span><div class=""meta"">Etapa congelada · estado en la ficha: $(Encode $record.State)</div>"
+                "<span class=""state s-congelada"">Frozen</span><div class=""meta"">Stage frozen · card status: $(Encode (Get-DisplayTaskState $record.State))</div>"
             } elseif ($record.WaitingFor.Count) {
-                "<span class=""state s-bloqueada"">Bloqueada por dependencia</span><div class=""meta"">Espera: $(Encode ($record.WaitingFor -join '; '))</div><div class=""meta"">Estado en la ficha: $(Encode $record.State)</div>"
-            } else { "<span class=""state $stateClass"">$(Encode $record.State)</span>" }
-            # SEG-T19: a task with a live watcher (tarea), or a pendiente card that says «esperando: ...», reads «En espera de activación».
+                "<span class=""state s-bloqueada"">Blocked by dependency</span><div class=""meta"">Waiting for: $(Encode ($record.WaitingFor -join '; '))</div><div class=""meta"">Card status: $(Encode (Get-DisplayTaskState $record.State))</div>"
+            } else { "<span class=""state $stateClass"">$(Encode (Get-DisplayTaskState $record.State))</span>" }
+            # SEG-T19: a task with a live watcher (tarea), or a pendiente card that says «esperando: ...», reads "Waiting for activation".
             $taskWaits = @(Get-TaskWaits $waitBoard $record.Id $record.State $record.Agent $record.Missing)
             if ($taskWaits.Count) {
                 $stateCell = if ($record.WaitingFor.Count) { $stateCell + (Get-WaitCellHtml $taskWaits) }
-                    else { (Get-WaitCellHtml $taskWaits) + "<div class=""meta"">Estado en la ficha: $(Encode $record.State)</div>" }
+                    else { (Get-WaitCellHtml $taskWaits) + "<div class=""meta"">Card status: $(Encode (Get-DisplayTaskState $record.State))</div>" }
             }
             Update-RowWatchFlags $rowState $record.Espera   # see Get-Stamp
-            # FLU-T06: the card's own «Espera» row (a badge; the Estado does not change) or, for a card en curso without one, «sin actividad».
+            # FLU-T06: the card's own «Espera» row (a badge; Estado is unchanged), or "No activity" for an en curso card without one.
             if ($null -ne $record.Espera -and $rowState -notin 'terminada', 'integrada', 'congelada') {
                 $resolution = Find-EsperaResolution $record.Espera $record.Id
                 $stateCell += Get-EsperaBadgeHtml $record.Espera $resolution $record.EsperaAsker
@@ -2324,9 +2398,9 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             } elseif ($rowState -eq 'en curso' -and $null -eq $record.Espera) {
                 if (Test-SinActividad $record ([bool]$taskWaits.Count)) { $stateCell += Get-SinActividadHtml $record }
             }
-            $lastActivityHtml =if ($record.LastRow) { "<div class=""meta"">Última actividad $(Encode (Format-ActivityDate $record.LastRow.Date))</div>" } else { '<div class="meta">Sin historial fechado</div>' }
+            $lastActivityHtml =if ($record.LastRow) { "<div class=""meta"">Last activity $(Encode (Format-ActivityDate $record.LastRow.Date))</div>" } else { '<div class="meta">No dated history</div>' }
             $delegationHtml = if ($record.Delegation) {
-                "<div class=""meta"">orquestó $(Encode $record.Delegation.Orchestrator)</div>" + (Get-WorkerListHtml $record.Delegation $record.Tokens)
+                "<div class=""meta"">orchestrated by $(Encode $record.Delegation.Orchestrator)</div>" + (Get-WorkerListHtml $record.Delegation $record.Tokens)
             } else { '' }
             $rowHtml = "<tr><td><a href=""$($record.Href)"">$(Encode $record.Title)</a>$lastActivityHtml$($record.LeftHtml)</td>" +
             "<td>$stateCell</td>" +
@@ -2366,7 +2440,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             }
         }
         $closure = if ($stageReadFailed) {
-            [pscustomobject]@{ Status = 'unknown'; Reason = 'La ficha de etapa falta o no se pudo leer.'; Commit = ''; Report = ''; Stage = $stage.Name }
+            [pscustomobject]@{ Status = 'unknown'; Reason = 'The stage card is missing or could not be read.'; Commit = ''; Report = ''; Stage = $stage.Name }
         } else {
             Get-StageClosure $stage.Name $stageText @($taskRecords) $taskReadFailed $readsText
         }
@@ -2394,7 +2468,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         if ($closure.Status -eq 'complete') { $closeDate = Get-CommitDate $closure.Commit }
         if (-not $closeDate -and $cardCloseDate) { $closeDate = $cardCloseDate; $closeFromCard = $true }
         $closedLabel = Get-ClosureLabelHtml $closeDate $closeFromCard
-        $lastActivityLine = if ($lastActivity) { "<div class=""meta"">Última actividad: $(Encode (Format-ActivityDate $lastActivity.Date)) · $(Encode $lastActivity.Text)</div>" } else { '<div class="meta">Última actividad: sin registro</div>' }
+        $lastActivityLine = if ($lastActivity) { "<div class=""meta"">Last activity: $(Encode (Format-ActivityDate $lastActivity.Date)) · $(Encode $lastActivity.Text)</div>" } else { '<div class="meta">Last activity: not recorded</div>' }
         $pct = if ($total) { [int](100 * $done / $total) } else { 0 }
         # Summary card for every stage that is not verified as closed, built from its task cards.
         if ($closure.Status -notin 'complete', 'frozen') {
@@ -2404,24 +2478,24 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $waitingOnDependency = @($taskRecords | Where-Object { $_.WaitingFor.Count }).Count
             $blocked = @($taskRecords | Where-Object { $_.State -in 'pendiente', 'requiere cambios', 'reabierta' -and -not $_.WaitingFor.Count }).Count
             $available = @($taskRecords | Where-Object { $_.State -in 'disponible', 'liberada' -and -not $_.WaitingFor.Count }).Count
-            $workingText = if ($working) { "En curso: $(Encode ($working -join ', '))" } else { 'Nadie trabajando ahora' }
+            $workingText = if ($working) { "In progress: $(Encode ($working -join ', '))" } else { 'No one is working now' }
             $delegatedLines = @($taskRecords | Where-Object { $_.State -eq 'en curso' } | ForEach-Object { foreach ($d in $_.ActiveDelegations) { "<div class=""meta"">$(Encode $_.Code): $(Encode (Format-ActiveDelegation $d))</div>" } })
             $workingText += ($delegatedLines -join '')
             # SEG-T12: integration activity (delegations registered with -Integracion on delivered tasks, e.g. Ejecutando prueba).
-            $integrationLines = @($taskRecords | Where-Object { $_.State -eq 'terminada' } | ForEach-Object { foreach ($d in $_.ActiveDelegations) { "<div class=""meta"">$(Encode $_.Code): integración · $(Encode (Format-ActiveDelegation $d))</div>" } })
+            $integrationLines = @($taskRecords | Where-Object { $_.State -eq 'terminada' } | ForEach-Object { foreach ($d in $_.ActiveDelegations) { "<div class=""meta"">$(Encode $_.Code): integration · $(Encode (Format-ActiveDelegation $d))</div>" } })
             $workingText += ($integrationLines -join '')
             $activeCards.Add([pscustomobject]@{ Date = if ($lastActivity) { $lastActivity.Date } else { $null }; Html = @"
 <div class="card">
   <div class="card-head"><span class="gate">$(Encode $stage.Name)</span><span class="pct">$pct%</span></div>
   <div class="bar"><div class="fill" style="width:$pct%"></div></div>
-  <div class="meta">$done de $total terminadas o integradas &middot; $integrated integradas &middot; $available disponibles$(if ($frozenTasks) { " &middot; $frozenTasks congeladas" })$(if ($waitingOnDependency) { " &middot; $waitingOnDependency bloqueadas por dependencia" })$(if ($blocked) { " &middot; $blocked en espera o con cambios" })</div>
+  <div class="meta">$done of $total completed or integrated &middot; $integrated integrated &middot; $available available$(if ($frozenTasks) { " &middot; $frozenTasks frozen" })$(if ($waitingOnDependency) { " &middot; $waitingOnDependency blocked by dependency" })$(if ($blocked) { " &middot; $blocked waiting or changes requested" })</div>
   <div class="goal">$(Encode ($stageTitle -replace '^\S+\s*·\s*', ''))</div>
   <div class="meta">$workingText</div>
   $lastActivityLine
 </div>
 "@ })
         }
-        $tableHeader ='<table><tr><th>Tarea</th><th>Estado</th><th>Agente</th><th>Preferente</th><th>Dependencias y estado</th><th>Integración</th><th>Parche</th><th>Trabajaron</th><th>Tokens</th></tr>'
+        $tableHeader ='<table><tr><th>Task</th><th>Status</th><th>Agent</th><th>Preferred</th><th>Dependencies and status</th><th>Integration</th><th>Patch</th><th>Contributors</th><th>Tokens</th></tr>'
         $phaseDefinitions = @(Get-StagePhases $stageText)
         $taskGroups = ''
         if ($phaseDefinitions.Count) {
@@ -2435,19 +2509,19 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 # SEG-T21: frozen tasks are set apart from the phase counts.
                 $phaseFrozen = @($phaseTaskRows | Where-Object { $_.State -eq 'congelada' }).Count
                 $phaseCount = $phaseTaskRows.Count - $phaseFrozen
-                $phaseTaskLabel = if ($phaseCount -eq 1) { 'tarea' } else { 'tareas' }
+                $phaseTaskLabel = if ($phaseCount -eq 1) { 'task' } else { 'tasks' }
                 # Phase status: "terminada" is not "integrada" (rule 21 / #131). The badge says which one.
                 # Settled = integrated, or finished with no patch to integrate (analysis deliverables).
                 $phaseIntegrated = @($phaseTaskRows | Where-Object {
                     $_.State -eq 'integrada' -or ($_.State -eq 'terminada' -and -not (Test-TaskPatchRequired $_.Patch))
                 }).Count
                 # SEG-T13: the same label function as the stage header (Get-StatusLabel).
-                $phaseLabel = if ($stageIsFrozen -and $phaseTaskRows.Count) { [pscustomobject]@{ Text = 'Congelada'; Class = 's-congelada' } } else { Get-StatusLabel 'Fase' $phaseTaskRows '' $integrationRound.Since }
+                $phaseLabel = if ($stageIsFrozen -and $phaseTaskRows.Count) { [pscustomobject]@{ Text = 'Frozen'; Class = 's-congelada' } } else { Get-StatusLabel 'Fase' $phaseTaskRows '' $integrationRound.Since }
                 $phaseBadge = if ($phaseLabel) { "<span class=""state $($phaseLabel.Class)"">$(Encode $phaseLabel.Text)</span>" } else { '' }
                 $phaseContent = if ($phaseTaskRows.Count) {
                     "$tableHeader$($phaseTaskRows.Html -join "`n")</table>"
                 } else {
-                    '<p class="meta">No hay fichas de tarea que coincidan con esta fase.</p>'
+                    '<p class="meta">No task cards match this phase.</p>'
                 }
                 # SEG-T09: collapsible phase. Open only if it is the current one (first phase that is not complete).
                 $phaseComplete = $phaseCount -gt 0 -and $phaseIntegrated -eq $phaseCount
@@ -2456,9 +2530,9 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 $phaseId = 'seg:' + $stage.Name + ':' + (($phase.Label.ToLowerInvariant() -replace '[^\p{L}\p{Nd}]+', '-').Trim('-'))
                 $phaseSections.Add(@"
 <details class="board-phase seg-phase" data-seg-id="$(Encode $phaseId)"$(if ($phaseOpen) { ' open' })>
-  <summary><h3>$(Encode $phase.Label) $phaseBadge</h3><span class="meta">$phaseDone de $phaseCount terminadas o integradas$(if ($phaseFrozen) { " · $phaseFrozen congeladas" })</span></summary>
+  <summary><h3>$(Encode $phase.Label) $phaseBadge</h3><span class="meta">$phaseDone of $phaseCount completed or integrated$(if ($phaseFrozen) { " · $phaseFrozen frozen" })</span></summary>
   <div class="seg-body">
-  <p class="meta">$phaseCount $phaseTaskLabel · $phaseDone terminadas o integradas ($phaseIntegrated sin integración pendiente)$(if ($phaseFrozen) { " · $phaseFrozen congeladas aparte" })</p>
+  <p class="meta">$phaseCount $phaseTaskLabel · $phaseDone completed or integrated ($phaseIntegrated with no pending integration)$(if ($phaseFrozen) { " · $phaseFrozen frozen separately" })</p>
   $(if ($phase.Description) { "<p class=""meta"">$(Encode $phase.Description)</p>" })
   $phaseContent
   </div>
@@ -2469,7 +2543,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             if ($unassignedRows.Count) {
                 $phaseSections.Add(@"
 <details class="board-phase seg-phase" data-seg-id="$(Encode ('seg:' + $stage.Name + ':sin-fase'))" open>
-  <summary><h3>Sin fase asignada</h3><span class="meta">$(@($unassignedRows | Where-Object { $_.State -in 'terminada', 'integrada' }).Count) de $($unassignedRows.Count) terminadas o integradas</span></summary>
+  <summary><h3>Unassigned phase</h3><span class="meta">$(@($unassignedRows | Where-Object { $_.State -in 'terminada', 'integrada' }).Count) of $($unassignedRows.Count) completed or integrated</span></summary>
   <div class="seg-body">$tableHeader$($unassignedRows.Html -join "`n")</table></div>
 </details>
 "@)
@@ -2481,39 +2555,39 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
         # SEG-T09: the stage is a collapsible <details>; active stages open, completed ones closed.
         $stageIsComplete = $closure.Status -eq 'complete'
         $stageOpen = -not $stageIsComplete -and -not $claimsClosed -and $closure.Status -ne 'frozen'
-        $stageStateText = if ($stageIsComplete) { 'cerrada' } elseif ($claimsClosed) { 'cierre no verificado' } else { $sf = (Get-Field $stageText 'Estado').Trim(); if ($sf) { $sf } else { 'activa' } }
+        $stageStateText = if ($stageIsComplete) { 'Closed' } elseif ($claimsClosed) { 'Closure unverified' } else { $sf = (Get-Field $stageText 'Estado').Trim(); if ($sf) { Get-DisplayTaskState $sf } else { 'Active' } }
         # SEG-T13: the header says what the tasks are doing (same function as the phases); the card's Estado is a secondary datum.
         $stageLabel = Get-StatusLabel 'Etapa' $taskRows $(if ($stageIsComplete) { 'cerrada' } elseif ($claimsClosed) { 'sin verificar' } else { '' }) $integrationRound.Since
-        if ($closure.Status -eq 'frozen') { $stageLabel = [pscustomobject]@{ Text = 'Congelada'; Class = 's-congelada' } }
+        if ($closure.Status -eq 'frozen') { $stageLabel = [pscustomobject]@{ Text = 'Frozen'; Class = 's-congelada' } }
         $stageEstado = (Get-Field $stageText 'Estado').Trim().ToLowerInvariant()
         $stageStateHtml = if ($stageLabel) {
-            "<span class=""state $($stageLabel.Class)"">$(Encode $stageLabel.Text)</span>" + $(if ($stageEstado -and -not $stageIsComplete -and -not $claimsClosed -and $closure.Status -ne 'frozen') { "<span class=""meta seg-estado"">etapa $(Encode $stageEstado)</span>" })
+            "<span class=""state $($stageLabel.Class)"">$(Encode $stageLabel.Text)</span>" + $(if ($stageEstado -and -not $stageIsComplete -and -not $claimsClosed -and $closure.Status -ne 'frozen') { "<span class=""meta seg-estado"">stage $(Encode (Get-DisplayTaskState $stageEstado))</span>" })
         } else { "<span class=""state s-$($stageStateText -replace '[^\p{L}\p{Nd}]+', '-')"">$(Encode $stageStateText)</span>" }
         $stateOrder = @('en curso', 'disponible', 'liberada', 'pendiente', 'requiere cambios', 'reabierta', 'congelada', 'terminada', 'integrada')
-        $countParts = @($taskRecords | Group-Object State | Sort-Object @{ Expression = { $i = $stateOrder.IndexOf($_.Name); if ($i -lt 0) { 99 } else { $i } } } | ForEach-Object { "$($_.Count) $(Encode $_.Name)" })
-        $stageCountsText = if ($stageIsFrozen -and $taskRecords.Count) { "$($taskRecords.Count) tareas, todas aparte" } elseif ($countParts.Count) { $countParts -join ' &middot; ' } else { 'sin tareas' }
+        $countParts = @($taskRecords | Group-Object State | Sort-Object @{ Expression = { $i = $stateOrder.IndexOf($_.Name); if ($i -lt 0) { 99 } else { $i } } } | ForEach-Object { "$($_.Count) $(Encode (Get-DisplayTaskState $_.Name))" })
+        $stageCountsText = if ($stageIsFrozen -and $taskRecords.Count) { "$($taskRecords.Count) tasks, all separate" } elseif ($countParts.Count) { $countParts -join ' &middot; ' } else { 'no tasks' }
         $stageWorkers = foreach ($r in @($taskRecords | Where-Object { $_.State -eq 'en curso' })) {
             # SEG-T13: the agent in charge of the task is named besides the worker.
-            if (@($r.ActiveDelegations).Count) { foreach ($d in $r.ActiveDelegations) { "$(Encode $r.Code)$(if ($r.Agent.Trim() -and $r.Agent.Trim() -ne '-') { " · a cargo de $(Encode $r.Agent.Trim())" }) · $(Encode (Format-ActiveDelegation $d))" } }
-            elseif ($null -ne $r.Espera) { "$(Encode (Get-EsperaLabel $r.Espera)): $(Encode $r.Agent) en $(Encode $r.Code)" }
-            elseif ($r.Agent.Trim() -and $r.Agent.Trim() -ne '-') { "trabajando: $(Encode $r.Agent.Trim()) en $(Encode $r.Code)" }
+            if (@($r.ActiveDelegations).Count) { foreach ($d in $r.ActiveDelegations) { "$(Encode $r.Code)$(if ($r.Agent.Trim() -and $r.Agent.Trim() -ne '-') { " · assigned to $(Encode $r.Agent.Trim())" }) · $(Encode (Format-ActiveDelegation $d))" } }
+            elseif ($null -ne $r.Espera) { "$(Encode (Get-EsperaLabel $r.Espera)): $(Encode $r.Agent) on $(Encode $r.Code)" }
+            elseif ($r.Agent.Trim() -and $r.Agent.Trim() -ne '-') { "working: $(Encode $r.Agent.Trim()) on $(Encode $r.Code)" }
         }
         $stageWorkersHtml = if (@($stageWorkers).Count) { "<span class=""meta seg-workers"">$(@($stageWorkers) -join ' &middot; ')</span>" } else { '' }
         $stageActivityHtml = if ($stageIsComplete -or $claimsClosed) { $closedLabel }
-            elseif ($lastActivity) { "Última actividad $(Encode (Format-ActivityDate $lastActivity.Date))" }
-            else { 'Última actividad: sin registro' }
+            elseif ($lastActivity) { "Last activity $(Encode (Format-ActivityDate $lastActivity.Date))" }
+            else { 'Last activity: not recorded' }
         $stageId = 'seg:' + $stage.Name
         $boardHtml = @"
 <details class="panel board seg-stage" data-seg-id="$(Encode $stageId)"$(if ($stageOpen) { ' open' })>
   <summary><h2>$(Encode $stageTitle)</h2>$stageStateHtml<span class="pct">$done/$total</span>
     <span class="meta seg-counts">$stageCountsText</span><span class="meta seg-activity">$stageActivityHtml</span>$stageWorkersHtml</summary>
   <div class="seg-body">
-  <div class="seg-toolbar"><button type="button" class="seg-btn" data-seg-action="expand" data-seg-scope="stage">Expandir todo</button> <button type="button" class="seg-btn" data-seg-action="collapse" data-seg-scope="stage">Compactar todo</button></div>
+  <div class="seg-toolbar"><button type="button" class="seg-btn" data-seg-action="expand" data-seg-scope="stage">Expand all</button> <button type="button" class="seg-btn" data-seg-action="collapse" data-seg-scope="stage">Collapse all</button></div>
   <div class="bar"><div class="fill" style="width:$pct%"></div></div>
-  <p class="meta">Autorizada: $(Encode $authorized) &middot; terminadas o integradas: $done de $total</p>
-  <p class="meta">Integración: un parche entregado queda pendiente hasta que la ficha registre integrada; sin parche no implica integración pendiente. El commit y la fecha se muestran solo si constan en la ficha y su historial.</p>
-  $(if (@($taskRecords | Where-Object { $_.WaitingFor.Count }).Count) { "<p class=""meta"">Bloqueada por dependencia: la ficha dice disponible, pero una dependencia todavía no libera a sus dependientes (regla 27, modo &laquo;$(Encode $releaseMode)&raquo;). Es lo mismo que comprueba tomar-tarea.ps1.</p>" })
-  <p class="meta">Cierre: $(if ($closure.Status -eq 'complete') { 'verificado' } elseif ($closure.Status -eq 'active') { 'etapa activa' } elseif ($closure.Status -eq 'frozen') { 'etapa congelada (no cuenta como pendiente ni disponible)' } else { 'no verificado — ' + (Encode $closure.Reason) })</p>
+  <p class="meta">Authorized: $(Encode $authorized) &middot; completed or integrated: $done of $total</p>
+  <p class="meta">Integration: a delivered patch remains pending until the card records it as integrated; a task without a patch does not imply pending integration. The commit and date appear only if recorded in the card and its history.</p>
+  $(if (@($taskRecords | Where-Object { $_.WaitingFor.Count }).Count) { "<p class=""meta"">Blocked by dependency: the card says available, but a dependency has not released its dependents yet (rule 27, mode &laquo;$(Encode $releaseMode)&raquo;). This matches the check in tomar-tarea.ps1.</p>" })
+  <p class="meta">Closure: $(if ($closure.Status -eq 'complete') { 'verified' } elseif ($closure.Status -eq 'active') { 'active stage' } elseif ($closure.Status -eq 'frozen') { 'frozen stage (not counted as pending or available)' } else { 'unverified — ' + (Encode $closure.Reason) })</p>
   $taskGroups
   </div>
 </details>
@@ -2523,20 +2597,20 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
             $reportHref = ([uri](Join-Path $integrationDir $closure.Report)).AbsoluteUri
             $stageAnchor = "history-$($stage.Name.ToLowerInvariant())"
             if (Test-CommitPublished $closure.Commit) {
-                $archiveLinkEntries.Add([pscustomobject]@{ Date = $closeDate; Html = "<div class=""history-summary""><strong>$(Encode $stageTitle)</strong><span class=""state s-integrada"">Verificada · pública</span><div class=""meta"">$closedLabel &middot; Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#$stageAnchor"">Historial</a> &middot; <a href=""$stageHref"">Ficha de etapa</a></div></div>" })
+                $archiveLinkEntries.Add([pscustomobject]@{ Date = $closeDate; Html = "<div class=""history-summary""><strong>$(Encode $stageTitle)</strong><span class=""state s-integrada"">Verified · public</span><div class=""meta"">$closedLabel &middot; Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#$stageAnchor"">History</a> &middot; <a href=""$stageHref"">Stage card</a></div></div>" })
                 $publicEntries.Add([pscustomobject]@{ Date = $closeDate; Html = @"
 <section class="panel archive-stage" id="$stageAnchor">
-  <div class="card-head"><h2>$(Encode $stageTitle)</h2><span class="state s-integrada">Verificada y publicada</span></div>
-  <p class="meta">$closedLabel &middot; Commit de cierre <code>$(Encode $closure.Commit)</code>, contenido en <code>$(Encode $publicRef)</code> del repositorio público &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="$reportHref">Reporte de integración OK</a></p>
+  <div class="card-head"><h2>$(Encode $stageTitle)</h2><span class="state s-integrada">Verified and published</span></div>
+  <p class="meta">$closedLabel &middot; Closure commit <code>$(Encode $closure.Commit)</code>, contained in <code>$(Encode $publicRef)</code> of the public repository &middot; <a href="$stageHref">Stage card</a> &middot; <a href="$reportHref">Successful integration report</a></p>
   $boardHtml
 </section>
 "@ })
             } else {
-                $archiveLinkEntries.Add([pscustomobject]@{ Date = $closeDate; Html = "<div class=""history-summary""><strong>$(Encode $stageTitle)</strong><span class=""state s-integrada"">Cerrada · local</span><div class=""meta"">$closedLabel &middot; Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#$stageAnchor"">Historial</a> &middot; <a href=""$stageHref"">Ficha de etapa</a></div></div>" })
+                $archiveLinkEntries.Add([pscustomobject]@{ Date = $closeDate; Html = "<div class=""history-summary""><strong>$(Encode $stageTitle)</strong><span class=""state s-integrada"">Closed · local</span><div class=""meta"">$closedLabel &middot; Commit <code>$(Encode $closure.Commit)</code> &middot; <a href=""#$stageAnchor"">History</a> &middot; <a href=""$stageHref"">Stage card</a></div></div>" })
                 $archiveBoardEntries.Add([pscustomobject]@{ Date = $closeDate; Html = @"
 <section class="panel archive-stage" id="$stageAnchor">
-  <div class="card-head"><h2>$(Encode $stageTitle)</h2><span class="state s-integrada">Cierre verificado localmente · publicación no confirmada</span></div>
-  <p class="meta">$closedLabel &middot; Commit de cierre: <code>$(Encode $closure.Commit)</code> &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="$reportHref">Reporte de integración OK</a></p>
+  <div class="card-head"><h2>$(Encode $stageTitle)</h2><span class="state s-integrada">Closure verified locally · publication unconfirmed</span></div>
+  <p class="meta">$closedLabel &middot; Closure commit: <code>$(Encode $closure.Commit)</code> &middot; <a href="$stageHref">Stage card</a> &middot; <a href="$reportHref">Successful integration report</a></p>
   $boardHtml
 </section>
 "@ })
@@ -2546,7 +2620,7 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
                 $stageHref = ([uri]$stageFile).AbsoluteUri
                 $reason = Encode $closure.Reason
                 $uncertainEntries.Add([pscustomobject]@{ Date = $closeDate; Html = @"
-<div class="history-summary"><strong>$(Encode $stageTitle)</strong><span class="state s-unknown">Cierre no verificado</span><div class="meta">$closedLabel &middot; $reason &middot; <a href="$stageHref">Ficha de etapa</a> &middot; <a href="#tareas">Ver tareas activas</a></div></div>
+<div class="history-summary"><strong>$(Encode $stageTitle)</strong><span class="state s-unknown">Closure unverified</span><div class="meta">$closedLabel &middot; $reason &middot; <a href="$stageHref">Stage card</a> &middot; <a href="#tareas">View active tasks</a></div></div>
 "@ })
             }
             $boards += $boardHtml
@@ -2558,18 +2632,18 @@ if (Test-Path -LiteralPath $tasksDir -PathType Container) {
     }
 }
 if (-not $boards) {
-    $boards = if ($boardReadFailed) { '<section class="panel">No se pudieron leer todas las etapas del tablero.</section>' }
-        elseif (Test-Path -LiteralPath $tasksDir) { '<section class="panel">Sin etapas activas en el tablero.</section>' }
-        else { '<section class="panel">El tablero de tareas no está disponible.</section>' }
+    $boards = if ($boardReadFailed) { '<section class="panel">Not all board stages could be read.</section>' }
+        elseif (Test-Path -LiteralPath $tasksDir) { '<section class="panel">No active stages on the board.</section>' }
+        else { '<section class="panel">The task board is unavailable.</section>' }
 }
 # SEG-T21: frozen stages go in their own section after the active ones (not counted as pending or available).
-$frozenSection = if ($frozenBoards) { "<h2 class=""seg-frozen-title"">Etapas congeladas</h2><p class=""meta"">Congeladas por el alcance vigente: no cuentan como pendientes ni como disponibles.</p>$frozenBoards" } else { '' }
+$frozenSection = if ($frozenBoards) { "<h2 class=""seg-frozen-title"">Frozen stages</h2><p class=""meta"">Frozen under the current scope: not counted as pending or available.</p>$frozenBoards" } else { '' }
 # SEG-T04: closed stages, newest closure first; stages without a date go last.
 $archiveBoards = (Sort-NewestFirst $archiveBoardEntries | ForEach-Object Html) -join ''
 $uncertainBoards = (Sort-NewestFirst $uncertainEntries | ForEach-Object Html) -join ''
-if (-not $archiveBoards) { $archiveBoards = '<section class="panel">No hay cierres verificados localmente.</section>' }
-if (-not $publicEntries.Count) { $publicEntries.Add([pscustomobject]@{ Date = $null; Html = '<section class="panel">No hay otras etapas con publicación pública confirmada.</section>' }) }
-if (-not $uncertainBoards) { $uncertainBoards = '<section class="panel">No hay cierres pendientes de verificación.</section>' }
+if (-not $archiveBoards) { $archiveBoards = '<section class="panel">No locally verified closures.</section>' }
+if (-not $publicEntries.Count) { $publicEntries.Add([pscustomobject]@{ Date = $null; Html = '<section class="panel">No other stages with confirmed public publication.</section>' }) }
+if (-not $uncertainBoards) { $uncertainBoards = '<section class="panel">No closures awaiting verification.</section>' }
 
 # Resumen: one live card per stage that is not verified as closed (built with the board above).
 $cards = @(Sort-NewestFirst $activeCards | ForEach-Object Html)
@@ -2578,25 +2652,25 @@ foreach ($gate in $publicVerifiedEvidence.Keys) {
     $evidence = $publicVerifiedEvidence[$gate]
     $reportPath = Join-Path $integrationDir $evidence.Report
     $report = if (Test-Path -LiteralPath $reportPath -PathType Leaf) {
-        "<a href=""$([uri]$reportPath)"">Reporte registrado: $(Encode $evidence.Report)</a>"
+        "<a href=""$([uri]$reportPath)"">Recorded report: $(Encode $evidence.Report)</a>"
     } else {
-        "Reporte registrado: $(Encode $evidence.Report) (no disponible localmente)"
+        "Recorded report: $(Encode $evidence.Report) (not available locally)"
     }
     $stageTitle = "$(Encode $gate) · $(Encode $evidence.Goal)"
     $legacyDate = Get-CommitDate $evidence.Commit
     $legacyLabel = Get-ClosureLabelHtml $legacyDate $false
     $publicEntries.Add([pscustomobject]@{ Date = $legacyDate; Html = @"
 <section class="panel archive-stage">
-  <div class="card-head"><h2>$stageTitle</h2><span class="state s-integrada">Verificada y publicada</span></div>
-  <p class="meta">$legacyLabel &middot; Verificación y presencia en el repositorio público confirmadas por el usuario. Commit <code>$(Encode $evidence.Commit)</code> &middot; $report</p>
+  <div class="card-head"><h2>$stageTitle</h2><span class="state s-integrada">Verified and published</span></div>
+  <p class="meta">$legacyLabel &middot; Verification and presence in the public repository confirmed by the user. Commit <code>$(Encode $evidence.Commit)</code> &middot; $report</p>
 </section>
 "@ })
-    $archiveLinkEntries.Add([pscustomobject]@{ Date = $legacyDate; Html = "<div class=""history-summary""><strong>$stageTitle</strong><span class=""state s-integrada"">Verificada · pública</span><div class=""meta"">$legacyLabel &middot; Commit <code>$(Encode $evidence.Commit)</code> &middot; <a href=""#historico"">Historial</a></div></div>" })
+    $archiveLinkEntries.Add([pscustomobject]@{ Date = $legacyDate; Html = "<div class=""history-summary""><strong>$stageTitle</strong><span class=""state s-integrada"">Verified · public</span><div class=""meta"">$legacyLabel &middot; Commit <code>$(Encode $evidence.Commit)</code> &middot; <a href=""#historico"">History</a></div></div>" })
 }
 $publicVerifiedBoards = @(Sort-NewestFirst $publicEntries | ForEach-Object Html)
 $archiveLinks = @(Sort-NewestFirst $archiveLinkEntries | ForEach-Object Html)
 
-# Resumen: integration state from the channel and the repository, never from a hand-kept file.
+# Summary: integration state from the channel and repository, never from a manually maintained file.
 $pendingPatches = @(Get-ChildItem -LiteralPath $pendingPatchesDir -Filter '*.patch' -File -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object Name)
 # SEG-T14: the latest reading by report time (both name formats); the later row wins a tie.
 $lastReport = $null
@@ -2611,19 +2685,19 @@ $lastReportHtml = if ($lastReport) {
     $resultClass = if ($columns[1] -eq 'OK') { 's-integrada' } else { 's-requiere-cambios' }
     $passed = if ($columns[2] -match '(\d+\s+passed[^=]*?)(?:\s+in\s|\s*=|$)') { $Matches[1].Trim() } else { $columns[2] -replace '=+', '' }
     "<span class=""state $resultClass"">$(Encode $columns[1])</span> $(Encode ($columns[0] -replace '_integracion\.md$', '')) &middot; $(Encode $passed)"
-} else { '<span class="meta">Sin reportes registrados.</span>' }
+} else { '<span class="meta">No reports recorded.</span>' }
 # ASCII separator from git, joined here, so the console encoding cannot garble it.
 $lastCommit = try { ((git -C $repoRoot log -1 --format='%h|%s' 2>$null) -replace '^([0-9a-f]+)\|', '$1 · ') } catch { '' }
 $integrationPanel = @"
-<section class="panel todo"><h2>Integración</h2>
-  <p><strong>Parches por aplicar:</strong> $(if ($pendingPatches) { "$($pendingPatches.Count) &middot; " + (($pendingPatches | ForEach-Object { "<code>$(Encode $_)</code>" }) -join ', ') } else { 'ninguno' })</p>
-  <p><strong>Última prueba de integración:</strong> $lastReportHtml</p>
-  <p><strong>Último commit de integración:</strong> $(if ($lastCommit) { "<code>$(Encode $lastCommit)</code>" } else { '<span class="meta">no disponible</span>' })</p>
+<section class="panel todo"><h2>Integration</h2>
+  <p><strong>Patches to apply:</strong> $(if ($pendingPatches) { "$($pendingPatches.Count) &middot; " + (($pendingPatches | ForEach-Object { "<code>$(Encode $_)</code>" }) -join ', ') } else { 'none' })</p>
+  <p><strong>Latest integration test:</strong> $lastReportHtml</p>
+  <p><strong>Latest integration commit:</strong> $(if ($lastCommit) { "<code>$(Encode $lastCommit)</code>" } else { '<span class="meta">unavailable</span>' })</p>
 </section>
 "@
 
-# SEG-T07: "Qué tienes que hacer ahora" is generated from live sources; the hand-written section of
-# RESUMEN.md is kept below it as "Notas".
+# SEG-T07: "What you need to do now" is generated from live sources; the hand-written section of
+# RESUMEN.md is kept below it as "Notes".
 $todoProposals = [System.Collections.Generic.List[object]]::new()
 $proposalsFile = Join-Path $channel 'PROPUESTAS.md'
 if (Test-Path -LiteralPath $proposalsFile -PathType Leaf) {
@@ -2637,30 +2711,30 @@ if (Test-Path -LiteralPath $proposalsFile -PathType Leaf) {
             if ($proposalState -notin 'propuesta', 'en_revision') { continue }
             $todoProposals.Add([pscustomobject]@{ Number = [int]($proposalId -replace '\D', ''); Title = $proposalId; Text = "$(Limit-Text (Safe-Snippet $proposalTopic) 120) · $proposalState"; Href = $proposalsHref; Date = $null })
         }
-    } catch { Write-Warning 'No se pudo leer PROPUESTAS.md; se omiten las propuestas pendientes.' }
+    } catch { Write-Warning 'Could not read PROPUESTAS.md; pending proposals are omitted.' }
 }
 $todoPatches = @(Get-ChildItem -LiteralPath $pendingPatchesDir -Filter '*.patch' -File -ErrorAction SilentlyContinue | ForEach-Object {
     [pscustomobject]@{ Title = $_.Name; Text = ''; Href = ([uri]$_.FullName).AbsoluteUri; Date = $_.LastWriteTime }
 })
 $todoGroups = @(
-    Format-TodoGroup 'Tareas esperando tu asignación' $todoReady.ToArray()
-    Format-TodoGroup 'Pendiente de tu autorización' $todoAuth.ToArray()
-    Format-TodoGroup 'Propuestas esperando tu decisión' @($todoProposals | Sort-Object Number -Descending)
-    Format-TodoGroup 'Parches por integrar' $todoPatches
-    Format-TodoGroup 'Decisiones que te piden' $todoDecisions.ToArray()
+    Format-TodoGroup 'Tasks awaiting your assignment' $todoReady.ToArray()
+    Format-TodoGroup 'Awaiting your authorization' $todoAuth.ToArray()
+    Format-TodoGroup 'Proposals awaiting your decision' @($todoProposals | Sort-Object Number -Descending)
+    Format-TodoGroup 'Patches awaiting integration' $todoPatches
+    Format-TodoGroup 'Decisions requested from you' $todoDecisions.ToArray()
 ) | Where-Object { $_ }
 $todoNotes = ''
 if (Test-Path $summary) {
     $summaryText = Get-Content -Path $summary -Raw -Encoding utf8
     if ($summaryText -match '(?s)## Qu. tienes que hacer ahora\s*(.+?)\s*## Bit') {
         $todoMarkdown = ($Matches[1] -split "`r?`n" | Where-Object { $_ -notmatch '^_Esta secci' }) -join "`n"
-        if ($todoMarkdown.Trim()) { $todoNotes = '<h3>Notas</h3>' + (ConvertFrom-Markdown -InputObject $todoMarkdown).Html }
+        if ($todoMarkdown.Trim()) { $todoNotes = '<h3>Notes</h3>' + (ConvertFrom-Markdown -InputObject $todoMarkdown).Html }
     }
 }
-$todoBody = if (@($todoGroups).Count) { @($todoGroups) -join "`n" } else { '<p>Nada pendiente de tu parte.</p>' }
+$todoBody = if (@($todoGroups).Count) { @($todoGroups) -join "`n" } else { '<p>Nothing pending from you.</p>' }
 $todo = $todoBody + $todoNotes
 
-# "Plan de etapas": the Spanish summary in ROADMAP_VISTA.md ("## Etapas y features").
+# "Stage plan": the summary in ROADMAP_VISTA.md ("## Etapas y features").
 # "Roadmap": generated from the repository itself (PROGRESS.md and docs/ROADMAP_STAGES.md), so it
 # never goes stale; the Mermaid block is left out because the page does not render diagrams.
 $features = ''; $fullRoadmap = ''
@@ -2679,9 +2753,9 @@ if (Test-Path -LiteralPath $repoStagePlan -PathType Leaf) {
     $roadmapParts += [regex]::Replace($planText, '(?s)```mermaid.*?```\s*', '')
 }
 $fullRoadmap = if ($roadmapParts) {
-    '<p class="meta">Generado desde <code>PROGRESS.md</code> y <code>docs/ROADMAP_STAGES.md</code> del repositorio de integración (en inglés, como el repositorio público).</p>' +
+    '<p class="meta">Generated from <code>PROGRESS.md</code> and <code>docs/ROADMAP_STAGES.md</code> in the integration repository (in English, like the public repository).</p>' +
         (ConvertFrom-Markdown -InputObject ($roadmapParts -join "`n`n---`n`n")).Html
-} else { '<section class="panel">No se encontraron PROGRESS.md ni docs/ROADMAP_STAGES.md en el repositorio.</section>' }
+} else { '<section class="panel">Neither PROGRESS.md nor docs/ROADMAP_STAGES.md was found in the repository.</section>' }
 
 $cloudAssignments = @()
 $cloudAssignmentsError = ''
@@ -2689,11 +2763,11 @@ if ($cloudAssignmentsModuleAvailable) {
     try {
         $cloudAssignments = @(Get-CloudAssignments -StorePath $cloudAssignmentsPath)
     } catch {
-        $cloudAssignmentsError = 'El registro no pudo leerse o contiene datos no validos; consulta la advertencia local.'
-        Write-Warning "No se pudo leer el registro de asignaciones cloud. $($_.Exception.Message)"
+        $cloudAssignmentsError = 'The registry could not be read or contains invalid data; see the local warning.'
+        Write-Warning "Could not read the cloud assignment registry. $($_.Exception.Message)"
     }
 } else {
-    $cloudAssignmentsError = 'El modulo de seguimiento cloud no esta disponible.'
+    $cloudAssignmentsError = 'The cloud tracking module is unavailable.'
 }
 $activeCloudAssignments = @($cloudAssignments | Where-Object {
     $_.state -notin @('completed', 'cancelled', 'preparation_failed')
@@ -2709,19 +2783,19 @@ $cloudAssignmentCards = foreach ($assignment in $activeCloudAssignments) {
 <section class="panel cloud-assignment">
   <div class="card-head"><strong>$(Encode $assignment.task_id) · $(Encode $assignment.title)</strong><span class="state $stateClass">$(Encode (Get-CloudAssignmentStateLabel $assignment.state))</span></div>
   <p>$(Encode $assignment.goal)</p>
-  <p class="meta">Origen: $(Encode $assignment.origin_agent) · destino declarado: $(Encode $assignment.destination_agent) · seguimiento: $(Encode $assignment.follow_up_agent)</p>
-  <p class="meta">Paquete: <code>$(Encode $assignment.package_name)</code>$packageHash · última actualización registrada: $(Encode $updatedAt)</p>
-  <p class="meta">Contenido registrado: $(Encode $assignment.context_summary)</p>
-  <details><summary>Archivos incluidos ($( $assignment.files.Count ))</summary><ul>$fileRows</ul></details>
+  <p class="meta">Source: $(Encode $assignment.origin_agent) · declared destination: $(Encode $assignment.destination_agent) · follow-up: $(Encode $assignment.follow_up_agent)</p>
+  <p class="meta">Package: <code>$(Encode $assignment.package_name)</code>$packageHash · last recorded update: $(Encode $updatedAt)</p>
+  <p class="meta">Recorded context: $(Encode $assignment.context_summary)</p>
+  <details><summary>Included files ($( $assignment.files.Count ))</summary><ul>$fileRows</ul></details>
 </section>
 "@
 }
 $cloudAssignmentPanel = if ($cloudAssignmentsError) {
-    "<section class=""stop""><strong>Seguimiento cloud no disponible</strong>$(Encode $cloudAssignmentsError). No se infiere que no existan asignaciones.</section>"
+    "<section class=""stop""><strong>Cloud tracking unavailable</strong>$(Encode $cloudAssignmentsError). This does not imply that no assignments exist.</section>"
 } elseif ($cloudAssignmentCards) {
     $cloudAssignmentCards -join "`n"
 } else {
-    '<section class="panel">No hay asignaciones cloud activas registradas.</section>'
+    '<section class="panel">No active cloud assignments are recorded.</section>'
 }
 $registeredAgents = @(Get-RegisteredAgents)
 $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq 'ACTIVO')) {
@@ -2729,38 +2803,38 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
     $agentWaits = @()
     $waiting = $false
     if (-not $agentBoard.Available) {
-        $status = 'Estado no disponible'
+        $status = 'Status unavailable'
         $statusClass = 's-unknown'
-        $current = '<p class="meta">No se pudo consultar el tablero de tareas.</p>'
+        $current = '<p class="meta">Could not query the task board.</p>'
     } else {
         $active = @($agentBoard.Tasks | Where-Object { $_.Agent -ieq $name -and $_.State -in @('en curso', 'pendiente') })
-        # SEG-T19: the live watchers that reactivate this agent, those of its tasks and the «esperando: ...» of its pendiente cards. It reads
-        # «En espera de activación» unless it is working on a task en curso.
+        # SEG-T19: live watchers that reactivate this agent, its task watchers, and «esperando: ...» on pendiente cards. It reads
+        # "Waiting for activation" unless the agent is working on an en curso task.
         $agentWaits = @(Get-AgentWaits $waitBoard $name $active)
         $working = @($active | Where-Object { $_.State -eq 'en curso' -and $null -eq $_.Espera })
         $waiting = $agentWaits.Count -gt 0 -and -not $working.Count
         if ($active) {
-            $status = if ($working.Count) { 'Asignada · En curso' } else { 'Asignada · En espera' }
-            $statusClass = if ($status -eq 'Asignada · En curso') { 's-en-curso' } else { 's-pendiente' }
+            $status = if ($working.Count) { 'Assigned · In progress' } else { 'Assigned · Waiting' }
+            $statusClass = if ($status -eq 'Assigned · In progress') { 's-en-curso' } else { 's-pendiente' }
             $current = foreach ($task in $active) {
-                $taskState = if ($null -ne $task.Espera) { 'En espera' } elseif ($task.State -eq 'en curso') { 'En curso' } else { 'Pendiente' }
-                $context = if ($task.Missing) { "<p class=""agent-context"">Qué falta: $(Encode $task.Missing)</p>" } else { '' }
+                $taskState = if ($null -ne $task.Espera) { 'Waiting' } else { Get-DisplayTaskState $task.State }
+                $context = if ($task.Missing) { "<p class=""agent-context"">Remaining: $(Encode $task.Missing)</p>" } else { '' }
                 $delegated = (@($task.ActiveDelegations) | ForEach-Object { "<p class=""agent-context"">$(Encode (Format-ActiveDelegation $_))</p>" }) -join ''
                 $waitChip = if ($null -ne $task.Espera) { Get-EsperaBadgeHtml $task.Espera (Find-EsperaResolution $task.Espera $task.Id) $task.EsperaAsker } elseif (@(Get-TaskWaits $waitBoard $task.Id $task.State $task.Agent $task.Missing).Count) { Format-WaitChip } else { '' }
-                "<div class=""agent-task""><strong>$(Encode $task.Id) · $(Encode $task.Title)</strong><span class=""state $(if ($null -ne $task.Espera) { 's-pendiente' } elseif ($task.State -eq 'en curso') { 's-en-curso' } else { 's-pendiente' })"">Asignada · $(Encode $taskState)</span>$waitChip$context$delegated</div>"
+                "<div class=""agent-task""><strong>$(Encode $task.Id) · $(Encode $task.Title)</strong><span class=""state $(if ($null -ne $task.Espera) { 's-pendiente' } elseif ($task.State -eq 'en curso') { 's-en-curso' } else { 's-pendiente' })"">Assigned · $(Encode $taskState)</span>$waitChip$context$delegated</div>"
             }
             $current = $current -join "`n"
         } elseif ($agentBoard.Partial) {
-            $status = 'Estado parcial'
+            $status = 'Partial status'
             $statusClass = 's-unknown'
-            $current = '<p class="meta">No hay una asignación activa legible; hay fichas omitidas.</p>'
+            $current = '<p class="meta">No readable active assignment; some cards were skipped.</p>'
         } else {
-            $status = 'Idle · sin tarea activa'
+            $status = 'Idle · no active task'
             $statusClass = 's-idle'
-            $current = '<p class="meta">No tiene una tarea asignada en curso o en espera según el tablero.</p>'
+            $current = '<p class="meta">The board shows no assigned task in progress or waiting.</p>'
         }
     }
-    # SEG-T19: the agent that only waits is not «sin actividad»: label and detail of every wait that will reactivate it.
+    # SEG-T19: an agent that only waits is not "No activity": show each wait that will reactivate it.
     if ($waiting) { $status = $script:WaitLabel; $statusClass = 's-espera' }
     $waitsHtml = if ($agentWaits.Count) {
         "<div class=""agent-current agent-waiting""><h4>$(Encode $script:WaitLabel)</h4>$((@($agentWaits) | ForEach-Object { Format-WaitDetailHtml $_ }) -join '')</div>"
@@ -2786,9 +2860,9 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
         }
         $hasUntimed = @($lastEvents | Where-Object { -not $_.HasTime }).Count -gt 0
         $timeNote = if ($hasUntimed -and $precise) {
-            ' · ' + $latestPrecise.Recorded.ToString('HH:mm') + ' (hay acciones del día sin hora)'
+            ' · ' + $latestPrecise.Recorded.ToString('HH:mm') + ' (some actions that day have no time)'
         } elseif ($hasUntimed) {
-            ' (sin hora; el orden intradía no consta)'
+            ' (no time recorded; order within the day is unknown)'
         } else {
             ' · ' + $lastEvents[0].Recorded.ToString('HH:mm')
         }
@@ -2796,52 +2870,52 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
             $detail = if ($event.Detail) { ' — ' + (Encode $event.Detail) } else { '' }
             "<li><strong>$(Encode $event.TaskId) · $(Encode $event.Title)</strong>: $(Encode $event.Action)$detail</li>"
         }
-        $extra = if ($lastEvents.Count -gt 5) { "<li>y $($lastEvents.Count - 5) acciones más registradas ese día</li>" } else { '' }
-        $activityLabel = if ($hasUntimed) { 'Actividad del día más reciente registrada' } else { 'Última actividad del historial' }
+        $extra = if ($lastEvents.Count -gt 5) { "<li>and $($lastEvents.Count - 5) more actions recorded that day</li>" } else { '' }
+        $activityLabel = if ($hasUntimed) { 'Most recent recorded daily activity' } else { 'Latest activity in history' }
         $lastActivity = "<div class=""agent-last""><strong>${activityLabel}: $(Encode $latestDate)$timeNote</strong><ul>$($activityItems -join "`n")$extra</ul></div>"
     } else {
-        $lastActivity = '<div class="agent-last"><strong>Última tarea/acción</strong><p class="meta">Sin actividad legible registrada en los historiales.</p></div>'
+        $lastActivity = '<div class="agent-last"><strong>Latest task/action</strong><p class="meta">No readable activity recorded in task histories.</p></div>'
     }
     $cloudFollowups = @($activeCloudAssignments | Where-Object follow_up_agent -ieq $name)
     $cloudContext = if ($cloudAssignmentsError) {
-        '<p class="meta">No se pudo consultar el registro cloud; no se infiere ausencia de asignaciones externas.</p>'
+        '<p class="meta">Could not query the cloud registry; this does not imply that no external assignments exist.</p>'
     } elseif ($cloudFollowups.Count) {
         $cloudRows = foreach ($assignment in $cloudFollowups) {
-            "<div class=""agent-task""><strong>$(Encode $assignment.task_id) · $(Encode $assignment.title)</strong><span class=""state s-unknown"">Seguimiento cloud asignado · $(Encode (Get-CloudAssignmentStateLabel $assignment.state))</span><p class=""meta"">Destino declarado: $(Encode $assignment.destination_agent). Estado registrado por operador; no es presencia en vivo.</p></div>"
+            "<div class=""agent-task""><strong>$(Encode $assignment.task_id) · $(Encode $assignment.title)</strong><span class=""state s-unknown"">Cloud follow-up assigned · $(Encode (Get-CloudAssignmentStateLabel $assignment.state))</span><p class=""meta"">Declared destination: $(Encode $assignment.destination_agent). Status recorded by an operator; this is not live presence.</p></div>"
         }
         $cloudRows -join "`n"
     } else {
-        '<p class="meta">Sin asignaciones cloud activas registradas para seguimiento.</p>'
+        '<p class="meta">No active cloud assignments recorded for follow-up.</p>'
     }
     # Tokens this agent used on board tasks (field "Tokens" of the cards; measured or reported).
     $tokenEntries = @($agentBoard.Tasks | ForEach-Object { Get-TokenEntries $_.Tokens } | Where-Object { $_.Kind -ne 'total' -and $_.Agent -ieq $name })
-    # GEM-T06: agy workers named like this agent whose runs have tokens that the card's field does not list.
+    # GEM-T06: agy workers named like this agent whose runs have tokens not listed in the card field.
     $tokenEntries += @($agentBoard.Tasks | ForEach-Object { Get-AgyTaskTokenEntries @($_.AllDelegations) $_.Tokens } | Where-Object { $_.Agent -ieq $name })
     $counted = @($tokenEntries | Where-Object { $null -ne $_.Total })
     $tokensHtml = if ($counted.Count) {
         $sum = ($counted | Measure-Object -Property Total -Sum).Sum
         $out = ($counted | Measure-Object -Property Output -Sum).Sum
         $missing = $tokenEntries.Count - $counted.Count
-        $note = if ($missing) { " · $missing sin dato" } else { '' }
-        "<p><strong>$(Format-TokenCount $sum)</strong> en $($counted.Count) tarea(s) · salida $(Format-TokenCount $out)$note</p><p class=""meta"">Incluye el contexto cacheado que se relee en cada llamada; la salida es lo que el agente generó.</p>"
+        $note = if ($missing) { " · $missing unavailable" } else { '' }
+        "<p><strong>$(Format-TokenCount $sum)</strong> across $($counted.Count) task(s) · output $(Format-TokenCount $out)$note</p><p class=""meta"">Includes cached context reread on each call; output is what the agent generated.</p>"
     } elseif ($tokenEntries.Count) {
-        '<p class="meta">Sin datos de uso disponibles para este agente.</p>'
+        '<p class="meta">No usage data available for this agent.</p>'
     } else {
-        '<p class="meta">Ninguna tarea tiene tokens registrados todavía.</p>'
+        '<p class="meta">No task tokens have been recorded yet.</p>'
     }
     $identity = @(
-        if ($agentRow.Model) { "Modelo: $(Encode $agentRow.Model)" }
-        if ($agentRow.Session) { "Última sesión: $(Encode $agentRow.Session)" }
+        if ($agentRow.Model) { "Model: $(Encode $agentRow.Model)" }
+        if ($agentRow.Session) { "Latest session: $(Encode $agentRow.Session)" }
     ) -join ' · '
     $identityHtml = if ($identity) { "<p class=""meta"">$identity</p>" } else { '' }
     $card = @"
 <div class="agent-name">
   <div class="card-head"><h3>$(Encode $name)</h3><span class="state $statusClass">$(Encode $status)</span></div>
   $identityHtml
-  <div class="agent-current"><h4>Tarea actual según el tablero</h4>$current</div>
+  <div class="agent-current"><h4>Current task according to the board</h4>$current</div>
   $waitsHtml
-  <div class="agent-current"><h4>Tokens en tareas</h4>$tokensHtml</div>
-  <div class="agent-current"><h4>Seguimiento de asignaciones cloud</h4>$cloudContext</div>
+  <div class="agent-current"><h4>Task tokens</h4>$tokensHtml</div>
+  <div class="agent-current"><h4>Cloud assignment tracking</h4>$cloudContext</div>
   $(Get-AlignmentHtml $name $agentRow.Application)
   $lastActivity
 </div>
@@ -2849,21 +2923,21 @@ $agentCards = foreach ($agentRow in @($registeredAgents | Where-Object State -eq
     $isActive = -not $agentBoard.Available -or [bool]$active
     [pscustomobject]@{ Name = $name; Application = $agentRow.Application; Active = $isActive; Waiting = $waiting; Html = $card }
 }
-# SEG-T17 (REGLAS 33): delegated workers of another application than their orchestrator's, grouped under their own application.
+# SEG-T17 (RULE 33): delegated workers of a different application than their orchestrator, grouped under their own application.
 $foreignWorkers = if ($agentBoard.Available) { @(Get-ForeignWorkers $agentBoard $registeredAgents) } else { @() }
-# SEG-T18 (REGLAS 33): the active workers of the activities outside tasks are also listed in the card of their own application.
+# SEG-T18 (RULE 33): active workers from activities outside tasks are also listed under their own application.
 $activityBoard = Get-ActivityBoard
 $activityWorkers = @(Get-ActivityWorkers $activityBoard)
 $applications = [System.Collections.Generic.List[string]]::new()
 foreach ($application in @($agentCards | ForEach-Object Application) + @($foreignWorkers | ForEach-Object Application) + @($activityWorkers | ForEach-Object Application)) {
     if ($application -and $application -inotin $applications) { $applications.Add($application) }
 }
-# SEG-T05: one card per application; only names with an active task are listed, the rest in one line.
-# SEG-T17: also the active workers of that application, so an application with active workers never says "sin actividad".
+# SEG-T05: one card per application; names with active tasks are listed individually, the rest on one line.
+# SEG-T17: include active workers for that application, so it never reports "no activity" while workers are active.
 $planReport = Get-PlanReport
 $agentCards = foreach ($application in @($applications)) {
     $members = @($agentCards | Where-Object { $_.Application -ieq $application })
-    # SEG-T19: an agent that only waits for a watcher is «en espera de activación», not active and not idle.
+    # SEG-T19: an agent waiting only for a watcher is "Waiting for activation", not active or idle.
     $waitingMembers = @($members | Where-Object Waiting)
     $activeMembers = @($members | Where-Object { $_.Active -and -not $_.Waiting })
     $shownMembers = @($members | Where-Object { $_.Active -or $_.Waiting })
@@ -2873,25 +2947,25 @@ $agentCards = foreach ($application in @($applications)) {
     $liveWorkers = @(@($appWorkers) + @($appActivityWorkers) | Where-Object { -not $_.Stopped })
     $stoppedWorkers = @(@($appWorkers) + @($appActivityWorkers) | Where-Object { $_.Stopped })
     $statusParts = @()
-    if ($activeMembers.Count) { $statusParts += "$($activeMembers.Count) con tarea activa" }
-    if ($waitingMembers.Count) { $statusParts += "$($waitingMembers.Count) en espera de activación" }
-    if ($liveWorkers.Count) { $statusParts += "$($liveWorkers.Count) $(if ($liveWorkers.Count -eq 1) { 'trabajador activo' } else { 'trabajadores activos' })" }
-    if (-not $statusParts) { $statusParts += 'sin actividad' }
-    if ($stoppedWorkers.Count) { $statusParts += "$($stoppedWorkers.Count) $(if ($stoppedWorkers.Count -eq 1) { 'trabajador probablemente detenido' } else { 'trabajadores probablemente detenidos' })" }
+    if ($activeMembers.Count) { $statusParts += "$($activeMembers.Count) with active tasks" }
+    if ($waitingMembers.Count) { $statusParts += "$($waitingMembers.Count) waiting for activation" }
+    if ($liveWorkers.Count) { $statusParts += "$($liveWorkers.Count) $(if ($liveWorkers.Count -eq 1) { 'active worker' } else { 'active workers' })" }
+    if (-not $statusParts) { $statusParts += 'no activity' }
+    if ($stoppedWorkers.Count) { $statusParts += "$($stoppedWorkers.Count) $(if ($stoppedWorkers.Count -eq 1) { 'worker probably stopped' } else { 'workers probably stopped' })" }
     $appStatus = $statusParts -join ' · '
     $appClass = if ($activeMembers.Count -or $liveWorkers.Count) { 's-en-curso' } elseif ($waitingMembers.Count) { 's-espera' } else { 's-idle' }
     $workersHtml = ''
     if ($appWorkers.Count) {
-        $workersHtml = "<div class=""agent-name agent-workers""><h3>Trabajadores de otras aplicaciones</h3><p class=""meta"">Delegados por un agente de otra aplicación; también figuran como delegación en la tarjeta de quien los orquesta.</p>$(($appWorkers | ForEach-Object { Format-ForeignWorkerHtml $_ }) -join "`n")</div>"
+        $workersHtml = "<div class=""agent-name agent-workers""><h3>Workers from other applications</h3><p class=""meta"">Delegated by an agent from another application; also listed as a delegation on their orchestrator's task card.</p>$(($appWorkers | ForEach-Object { Format-ForeignWorkerHtml $_ }) -join "`n")</div>"
     }
     if ($appActivityWorkers.Count) {
-        $workersHtml += "<div class=""agent-name agent-workers agent-activity-workers""><h3>Trabajadores en actividades fuera de tareas</h3><p class=""meta"">Delegados en una actividad que no cuelga de una tarea; también figuran en la sección «Fuera de tareas».</p>$(($appActivityWorkers | ForEach-Object { Format-ActivityWorkerHtml $_ }) -join "`n")</div>"
+        $workersHtml += "<div class=""agent-name agent-workers agent-activity-workers""><h3>Workers on activities outside task cards</h3><p class=""meta"">Delegated to an activity that is not attached to a task; also listed in the 'Outside task work' section.</p>$(($appActivityWorkers | ForEach-Object { Format-ActivityWorkerHtml $_ }) -join "`n")</div>"
     }
     $idleHtml = ''
     if ($idleMembers.Count) {
-        $idleLabel = if ($liveWorkers.Count) { 'sin tarea propia' } else { 'sin actividad' }
+        $idleLabel = if ($liveWorkers.Count) { 'no active task' } else { 'no activity' }
         $idleHtml = "<p class=""meta agent-idle"">${idleLabel}: $(Encode (($idleMembers | ForEach-Object Name) -join ', '))</p>" +
-            (($idleMembers | ForEach-Object { "<details class=""agent-instance""><summary>Detalle de $(Encode $_.Name)</summary>$($_.Html)</details>" }) -join "`n")
+            (($idleMembers | ForEach-Object { "<details class=""agent-instance""><summary>Details for $(Encode $_.Name)</summary>$($_.Html)</details>" }) -join "`n")
     }
     @"
 <section class="panel agent-card">
@@ -2908,40 +2982,40 @@ $retired = @($registeredAgents | Where-Object { $_.State -eq 'PAUSADO' -and @($a
 if ($retired) {
     $retiredItems = foreach ($r in $retired) {
         $count = @($agentBoard.History | Where-Object Agent -ieq $r.Name).Count
-        "<li><strong>$(Encode $r.Name)</strong> · $count acción(es) en el historial del tablero</li>"
+        "<li><strong>$(Encode $r.Name)</strong> · $count action(s) in board history</li>"
     }
-    $agentCards = @($agentCards) + "<details class=""panel""><summary>Nombres anteriores (PAUSADO)</summary><ul>$($retiredItems -join "`n")</ul><p class=""meta"">Sus entregas no se renombran; ya no leen ni registran en el canal.</p></details>"
+    $agentCards = @($agentCards) + "<details class=""panel""><summary>Former names (PAUSED)</summary><ul>$($retiredItems -join "`n")</ul><p class=""meta"">Their deliveries are not renamed; they no longer read from or write to the channel.</p></details>"
 }
 $agentNotice = if (-not $agentBoard.Available) {
-    'La fuente del tablero no está disponible; no se infiere que los agentes estén inactivos.'
+    'The board source is unavailable; this does not imply that agents are inactive.'
 } elseif ($agentBoard.Partial) {
-    "Vista parcial: se omitieron $($agentBoard.Issues) fichas o filas de historial con formato no válido o no accesibles."
+    "Partial view: skipped $($agentBoard.Issues) cards or history rows with invalid formatting or inaccessible files."
 } else { '' }
 $agentsView = @"
-<p class="meta">Fuente: tablero e historiales de tareas locales; las asignaciones cloud aparecen en una sección separada y son registros manuales. Esto no informa presencia de procesos ni actividad en vivo.</p>
+<p class="meta">Source: local task board and task histories; cloud assignments appear separately as manual records. This does not indicate process presence or live activity.</p>
 $(if ($agentNotice) { "<div class=""stop"">$(Encode $agentNotice)</div>" })
 $(Get-ActivitiesHtml $activityBoard)
 <div class="agent-grid">$($agentCards -join "`n")</div>
-<section class="panel cloud-assignment-group"><h2>Asignaciones externas registradas</h2><p class="meta">Los estados cloud proceden de acciones de preparación/importación o declaraciones manuales del operador; no son telemetría del proveedor.</p>$($cloudAssignmentPanel)</section>
+<section class="panel cloud-assignment-group"><h2>Recorded external assignments</h2><p class="meta">Cloud statuses come from package preparation/import actions or manual operator declarations; they are not provider telemetry.</p>$($cloudAssignmentPanel)</section>
 "@
 $ideasView = Get-IdeasHtml
 $cloudButton = if ($flowListener -and $cloudToken) {
-    '<button id="prepare-cloud" class="action-button" type="button">Preparar paquete para agente cloud</button>'
+    '<button id="prepare-cloud" class="action-button" type="button">Prepare package for cloud agent</button>'
 } else {
-    '<button id="prepare-cloud" class="action-button" type="button" disabled title="Abre el visualizador con Seguimiento.cmd">Preparar paquete para agente cloud</button>'
+    '<button id="prepare-cloud" class="action-button" type="button" disabled title="Open the viewer with Seguimiento.cmd">Prepare package for cloud agent</button>'
 }
 $cloudTrackingButton = if ($flowListener -and $cloudTrackingToken) {
-    '<button id="manage-cloud-assignments" class="action-button" type="button">Actualizar seguimiento de asignaciones</button>'
+    '<button id="manage-cloud-assignments" class="action-button" type="button">Update assignment tracking</button>'
 } else {
-    '<button id="manage-cloud-assignments" class="action-button" type="button" disabled title="Abre el visualizador con Seguimiento.cmd">Actualizar seguimiento de asignaciones</button>'
+    '<button id="manage-cloud-assignments" class="action-button" type="button" disabled title="Open the viewer with Seguimiento.cmd">Update assignment tracking</button>'
 }
 
-# FLU-T06: the panel «Esperan tu decisión» (always visible, above the tabs) and its counter in the page title.
+# FLU-T06: the user-wait panel (always visible, above the tabs) and its counter in the page title.
 $userWaits = Get-UserWaitsPanel $esperaItems.ToArray()
-$pageTitle = if ($userWaits.Count) { "($($userWaits.Count)) Seguimiento del proyecto" } else { 'Seguimiento del proyecto' }
+$pageTitle = if ($userWaits.Count) { "($($userWaits.Count)) Project tracker" } else { 'Project tracker' }
 $html = @"
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -3041,7 +3115,7 @@ summary { cursor:pointer; }
 .s-unknown { background:var(--warn-bg); border:1px solid var(--warn-line); }
 .s-bloqueada { background:var(--accent-soft); color:var(--muted); border:1px dashed var(--warn-line); }
 .s-espera { background:var(--accent-soft); border:1px dashed var(--accent); }
-/* FLU-T06: esperas visibles (panel «Esperan tu decisión», insignias de la ficha, «sin actividad»). */
+/* FLU-T06: visible waits (user-wait panel, task-card badges, "No activity" label). */
 .seg-esperas { max-width:1100px; margin:8px auto 0; padding:0 16px; }
 .espera-panel { background:var(--ask-bg); border:1px solid var(--ask-line); border-left:6px solid var(--ask-line); border-radius:10px; padding:10px 16px; }
 .espera-panel h2 { margin:0 0 4px; font-size:18px; display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; }
@@ -3105,45 +3179,45 @@ summary { cursor:pointer; }
 </head>
 <body>
 <header>
-  <h1>Seguimiento del proyecto &mdash; Multi-Agent Framework</h1>
-  <p>Generado desde el tablero de tareas, el canal y el repositorio de integración a las $(Get-Date -Format 'HH:mm:ss'). Se recarga sola cada 30 s mientras la ventana de Seguimiento.cmd siga abierta.</p>
+  <h1>Project tracker &mdash; Multi-Agent Framework</h1>
+  <p>Generated from the task board, channel, and integration repository at $(Get-Date -Format 'HH:mm:ss'). The page reloads every 30 seconds while the Seguimiento.cmd window remains open.</p>
 </header>
 $integrationNoticeHtml
 $($userWaits.Html)
 <nav>
-  <button data-tab="resumen">Resumen</button>
-  <button data-tab="tareas">Tareas</button>
-  <button data-tab="agentes">Agentes</button>
+  <button data-tab="resumen">Summary</button>
+  <button data-tab="tareas">Tasks</button>
+  <button data-tab="agentes">Agents</button>
   <button data-tab="ideas">Ideas</button>
-  <button data-tab="cloud">Agente cloud</button>
-  <button data-tab="historico">Etapas completadas</button>
-  <button data-tab="etapas">Plan de etapas</button>
+  <button data-tab="cloud">Cloud agent</button>
+  <button data-tab="historico">Completed stages</button>
+  <button data-tab="etapas">Stage plan</button>
   <button data-tab="roadmap">Roadmap</button>
-  $(if ($LeerApi) { '<button data-tab="api">API core</button>' })
-  $(if ($flowListener) { "<button id=""run-flow"" type=""button"" aria-label=""Abrir el ciclo global de integración"">Abrir ciclo de integración</button>" } else { '<button id="run-flow" type="button" disabled title="El puente local no está activo; inicia el visor con Seguimiento.cmd">Abrir ciclo de integración</button>' })
+  $(if ($LeerApi) { '<button data-tab="api">Core API</button>' })
+  $(if ($flowListener) { "<button id=""run-flow"" type=""button"" aria-label=""Open the global integration cycle"">Open integration cycle</button>" } else { '<button id="run-flow" type="button" disabled title="The local bridge is inactive; start the viewer with Seguimiento.cmd">Open integration cycle</button>' })
 </nav>
 <p id="flow-status" class="meta" role="status" aria-live="polite" style="max-width:1100px;margin:6px auto;padding:0 16px"></p>
 <main>
   <div class="tab" id="resumen">
-    <section class="panel todo"><h2>Qué tienes que hacer ahora</h2>$todo</section>
-    <h2>Etapas activas</h2>
-    $(if ($cards.Count) { "<section class=""cards"">$($cards -join "`n")</section>" } else { '<section class="panel">No hay etapas activas en el tablero.</section>' })
+    <section class="panel todo"><h2>What you need to do now</h2>$todo</section>
+    <h2>Active stages</h2>
+    $(if ($cards.Count) { "<section class=""cards"">$($cards -join "`n")</section>" } else { '<section class="panel">No active stages on the board.</section>' })
     $integrationPanel
-    $(if ($archiveLinks.Count) { "<section class=""panel todo""><h2>Etapas completadas</h2>$($archiveLinks -join "`n")</section>" })
+    $(if ($archiveLinks.Count) { "<section class=""panel todo""><h2>Completed stages</h2>$($archiveLinks -join "`n")</section>" })
   </div>
-  <div class="tab" id="tareas"><div class="seg-toolbar"><button type="button" class="seg-btn" data-seg-action="expand" data-seg-scope="tab">Expandir todo</button> <button type="button" class="seg-btn" data-seg-action="collapse" data-seg-scope="tab">Compactar todo</button></div>$($boards -join "`n")$frozenSection</div>
+  <div class="tab" id="tareas"><div class="seg-toolbar"><button type="button" class="seg-btn" data-seg-action="expand" data-seg-scope="tab">Expand all</button> <button type="button" class="seg-btn" data-seg-action="collapse" data-seg-scope="tab">Collapse all</button></div>$($boards -join "`n")$frozenSection</div>
   <div class="tab" id="agentes">$agentsView</div>
   <div class="tab" id="ideas">$ideasView</div>
   <div class="tab" id="cloud">
     <section class="panel cloud-panel">
-      <h2>Preparación para agente cloud</h2>
-      <p>Esta herramienta es independiente de la biblioteca de Ideas. Prepara localmente un paquete para subirlo manualmente a un agente cloud; este botón no envía archivos ni inicia una tarea.</p>
+      <h2>Prepare for a cloud agent</h2>
+      <p>This tool is separate from the Ideas library. It prepares a package locally for manual upload to a cloud agent; this button does not send files or start a task.</p>
       $cloudButton
       <p id="cloud-status" class="meta" role="status" aria-live="polite"></p>
     </section>
     <section class="panel cloud-panel">
-      <h2>Registro y seguimiento de asignaciones</h2>
-      <p>La preparación crea un registro con la tarea, el operador, el destino declarado y los archivos relativos incluidos. El envío es manual; los estados posteriores se actualizan aquí como declaraciones del operador, sin confirmar actividad del proveedor.</p>
+      <h2>Assignment registry and tracking</h2>
+      <p>Preparation creates a record with the task, operator, declared destination, and included relative file paths. Sending is manual; later statuses are updated here as operator declarations and do not confirm provider activity.</p>
       $cloudTrackingButton
       <p id="cloud-tracking-status" class="meta" role="status" aria-live="polite"></p>
     </section>
@@ -3151,11 +3225,11 @@ $($userWaits.Html)
   </div>
   <div class="tab" id="historico">
     <div class="seg-toolbar"><button type="button" class="seg-btn" data-seg-action="expand" data-seg-scope="tab">Expandir todo</button> <button type="button" class="seg-btn" data-seg-action="collapse" data-seg-scope="tab">Compactar todo</button></div>
-    <p class="meta">Archivo de visualización de solo lectura. Los cierres se derivan de ETAPA.md, fichas de tareas, commits Git y reportes. Una etapa es pública cuando su commit de cierre está en $(if ($publicRepo) { "<code>$(Encode $publicRef)</code> del repositorio público (según el último push o fetch)" } else { 'la rama pública, pero falta <code>repositorio-publico.txt</code> en el canal' }). No mueve ni modifica las fuentes.</p>
-    <section class="panel todo"><h2>Verificadas y presentes en el repositorio público</h2>$($publicVerifiedBoards -join "`n")</section>
-    <section class="panel todo"><h2>Cerradas e integradas localmente; publicación no confirmada</h2>$(if ($archiveBoards) { $archiveBoards } else { '<section class="panel">No hay cierres verificados localmente.</section>' })</section>
-    <section class="todo"><h2>Cierres pendientes de verificación</h2>$uncertainBoards</section>
-    $(if ($reportedClosedNotVerified.Count) { "<section class=""history-warning""><h2>Etapas marcadas cerradas en el seguimiento, sin evidencia canónica completa</h2>$($reportedClosedNotVerified -join "`n")</section>" })
+    <p class="meta">Read-only archive view. Closures are derived from ETAPA.md, task cards, Git commits, and reports. A stage is public when its closure commit is in $(if ($publicRepo) { "<code>$(Encode $publicRef)</code> of the public repository (as of the latest push or fetch)" } else { 'the public branch, but <code>repositorio-publico.txt</code> is missing from the channel' }). Source files are not moved or modified.</p>
+    <section class="panel todo"><h2>Verified and present in the public repository</h2>$($publicVerifiedBoards -join "`n")</section>
+    <section class="panel todo"><h2>Closed and integrated locally; publication unconfirmed</h2>$(if ($archiveBoards) { $archiveBoards } else { '<section class="panel">No locally verified closures.</section>' })</section>
+    <section class="todo"><h2>Closures awaiting verification</h2>$uncertainBoards</section>
+    $(if ($reportedClosedNotVerified.Count) { "<section class=""history-warning""><h2>Stages marked closed in tracking without complete canonical evidence</h2>$($reportedClosedNotVerified -join "`n")</section>" })
   </div>
   <div class="tab" id="etapas"><section class="panel doc features">$features</section></div>
   <div class="tab" id="roadmap"><section class="panel doc">$fullRoadmap</section></div>
@@ -3175,13 +3249,13 @@ $($userWaits.Html)
     flowButton.addEventListener('click', async () => {
       flowButton.disabled = true;
       const status = document.getElementById('flow-status');
-      status.textContent = 'Abriendo Flujo.cmd en una ventana de consola...';
+      status.textContent = 'Opening Flujo.cmd in a console window...';
       try {
         const response = await fetch('http://127.0.0.1:$flowPort/$flowToken', { method: 'GET', mode: 'cors', cache: 'no-store' });
-        if (!response.ok) throw new Error('El puente local rechazó la solicitud (' + response.status + ').');
-        status.textContent = 'Flujo.cmd se abrió en una ventana aparte. Sigue allí sus confirmaciones; esta página no limita las tareas que seleccionas.';
+        if (!response.ok) throw new Error('The local bridge rejected the request (' + response.status + ').');
+        status.textContent = 'Flujo.cmd opened in a separate window. Follow its prompts there; this page does not limit the tasks you select.';
       } catch (error) {
-        status.textContent = 'No se pudo abrir Flujo.cmd. Abre Seguimiento.cmd de nuevo para restablecer el botón.';
+        status.textContent = 'Could not open Flujo.cmd. Reopen Seguimiento.cmd to reset the button.';
         flowButton.disabled = false;
       }
     });
@@ -3191,13 +3265,13 @@ $($userWaits.Html)
     ideasButton.addEventListener('click', async () => {
       ideasButton.disabled = true;
       const status = document.getElementById('ideas-status');
-      status.textContent = 'Abriendo la biblioteca editable de prompts...';
+      status.textContent = 'Opening the editable prompts library...';
       try {
         const response = await fetch('http://127.0.0.1:$flowPort/ideas/$ideasToken', { method: 'GET', mode: 'cors', cache: 'no-store' });
-        if (!response.ok) throw new Error('El puente local rechazó la solicitud (' + response.status + ').');
-        status.textContent = 'Gestor abierto en una consola aparte. Los prompts no se asignan ni ejecutan automáticamente.';
+        if (!response.ok) throw new Error('The local bridge rejected the request (' + response.status + ').');
+        status.textContent = 'Manager opened in a separate console. Prompts are not assigned or run automatically.';
       } catch (error) {
-        status.textContent = 'No se pudo abrir la biblioteca. Abre Seguimiento.cmd de nuevo para restablecer el botón.';
+        status.textContent = 'Could not open the library. Reopen Seguimiento.cmd to reset the button.';
         ideasButton.disabled = false;
       }
     });
@@ -3207,13 +3281,13 @@ $($userWaits.Html)
     cloudButton.addEventListener('click', async () => {
       cloudButton.disabled = true;
       const status = document.getElementById('cloud-status');
-      status.textContent = 'Abriendo el preparador local de paquetes cloud...';
+      status.textContent = 'Opening the local cloud package preparer...';
       try {
         const response = await fetch('http://127.0.0.1:$flowPort/cloud/$cloudToken', { method: 'GET', mode: 'cors', cache: 'no-store' });
-        if (!response.ok) throw new Error('El puente local rechazó la solicitud (' + response.status + ').');
-        status.textContent = 'Preparador abierto. El paquete se crea localmente; subirlo al agente cloud es un paso manual e independiente.';
+        if (!response.ok) throw new Error('The local bridge rejected the request (' + response.status + ').');
+        status.textContent = 'Preparer opened. The package is created locally; uploading it to the cloud agent is a separate manual step.';
       } catch (error) {
-        status.textContent = 'No se pudo abrir el preparador cloud. Abre Seguimiento.cmd de nuevo para restablecer el botón.';
+        status.textContent = 'Could not open the cloud preparer. Reopen Seguimiento.cmd to reset the button.';
         cloudButton.disabled = false;
       }
     });
@@ -3223,13 +3297,13 @@ $($userWaits.Html)
     cloudTrackingButton.addEventListener('click', async () => {
       cloudTrackingButton.disabled = true;
       const status = document.getElementById('cloud-tracking-status');
-      status.textContent = 'Abriendo el gestor de seguimiento cloud...';
+      status.textContent = 'Opening the cloud assignment tracker...';
       try {
         const response = await fetch('http://127.0.0.1:$flowPort/cloud-tracking/$cloudTrackingToken', { method: 'GET', mode: 'cors', cache: 'no-store' });
-        if (!response.ok) throw new Error('El puente local rechazó la solicitud (' + response.status + ').');
-        status.textContent = 'Gestor abierto. Cada cambio se registra como acción declarada por el operador.';
+        if (!response.ok) throw new Error('The local bridge rejected the request (' + response.status + ').');
+        status.textContent = 'Manager opened. Each change is recorded as an operator-declared action.';
       } catch (error) {
-        status.textContent = 'No se pudo abrir el seguimiento cloud. Abre Seguimiento.cmd de nuevo para restablecer el botón.';
+        status.textContent = 'Could not open cloud tracking. Reopen Seguimiento.cmd to reset the button.';
         cloudTrackingButton.disabled = false;
       }
     });
@@ -3300,10 +3374,10 @@ function Get-Stamp {
     # A watcher that stops writing (lost, killed) leaves its file as it is, yet its label must change: while one is live the page is also
     # regenerated once a minute.
     if ($liveWaitFiles.Count) { $stamp += "-esperas:$([long][Math]::Floor([datetime]::UtcNow.Ticks / [timespan]::TicksPerMinute))" }
-    # FLU-T06: «sin actividad» depends on the clock, not on a file: while a card en curso has no Espera, regenerate every 15 minutes.
+    # FLU-T06: "No activity" depends on the clock, not a file: while an en curso card has no Espera, regenerate every 15 minutes.
     if ($script:SinActividadWatch) { $stamp += "-ahora:$([long][Math]::Floor([datetime]::UtcNow.Ticks / (15 * [timespan]::TicksPerMinute)))" }
-    # Workers write their progress to their own transcripts and run outputs (not to the cards), and plan usage moves with the clock:
-    # while a card is en curso the page is regenerated once a minute.
+    # Workers write progress to their transcripts and run outputs (not the cards), and plan usage changes with time:
+    # while a card is en curso, regenerate the page once a minute.
     if ($script:EnCursoWatch) { $stamp += "-en-curso:$([long][Math]::Floor([datetime]::UtcNow.Ticks / [timespan]::TicksPerMinute))" }
     $stamp
 }
@@ -3352,7 +3426,7 @@ function Start-FlowListener {
         $script:ideasToken = ''
         $script:cloudToken = ''
         $script:cloudTrackingToken = ''
-        Write-Warning "No se pudieron habilitar los botones de acciones locales: $($_.Exception.Message)"
+        Write-Warning "Could not enable local action buttons: $($_.Exception.Message)"
         return $false
     }
 }
@@ -3466,7 +3540,7 @@ function Invoke-FlowListenerRequest {
         Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', $command) -WorkingDirectory $script:repoRoot -WindowStyle Normal
         Send-FlowResponse $stream 200 'OK' 'Flow started'
     } catch {
-        Write-Warning "La solicitud para abrir Flujo.cmd falló: $($_.Exception.Message)"
+        Write-Warning "The request to open Flujo.cmd failed: $($_.Exception.Message)"
         if ($client -and $client.Connected) {
             try { Send-FlowResponse $client.GetStream() 500 'Internal Server Error' } catch { }
         }
@@ -3477,7 +3551,7 @@ function Invoke-FlowListenerRequest {
 
 if ((-not $NoAbrir -and (Get-EdgePath)) -or $Vigilar) { $null = Start-FlowListener }
 Build-Page
-Write-Host "Visualizador generado: $output"
+Write-Host "Viewer generated: $output"
 
 $edge = if (-not $NoAbrir) { Get-EdgePath }
 if (-not $NoAbrir -and -not $Reanudar) {
@@ -3531,7 +3605,7 @@ try {
         Invoke-FlowListenerRequest
         $stamp = Get-Stamp
         if ($stamp -ne $last) {
-            try { Build-Page; $last = $stamp } catch { Write-Warning "No se pudo actualizar la página de seguimiento: $_" }
+            try { Build-Page; $last = $stamp } catch { Write-Warning "Could not update the tracking page: $_" }
         }
         Start-Sleep -Milliseconds 250
     }

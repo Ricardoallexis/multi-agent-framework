@@ -19,18 +19,18 @@ try {
     $codex = Format-PlanUsage Codex $report
     $copilot = Format-PlanUsage Copilot $report
     $claude = Format-PlanUsage Claude $report
-    Assert ($codex.Contains('&lt;Plus&gt;') -and $codex.Contains('40 % usado')) 'plan and percent escaped'
-    Assert ($codex.Contains('dentro del tiempo') -and $codex.Contains('hace 1 min')) 'pace and freshness'
+    Assert ($codex.Contains('&lt;Plus&gt;') -and $codex.Contains('40 % used')) 'plan and percent escaped'
+    Assert ($codex.Contains('within elapsed time') -and $codex.Contains('1 min ago')) 'pace and freshness'
     $localReset = ([datetimeoffset]'2030-11-01T00:00:00Z').ToLocalTime().ToString('dd/MM HH:mm zzz')
-    Assert ($copilot.Contains('99,5 % usado') -and $copilot.Contains("sin cuota hasta $localReset")) 'quota independent of percent'
-    Assert ($copilot.Contains('dato viejo')) 'old observation'
-    Assert ($claude.Contains('Example') -and $claude.Contains('20 % usado')) 'Claude orchestrator snapshot'
-    Assert ((Format-PlanUsage Unknown $report).Contains('sin dato')) 'missing app'
+    Assert ($copilot.Contains('99.5 % used') -and $copilot.Contains("quota unavailable until $localReset")) 'quota independent of percent'
+    Assert ($copilot.Contains('stale data')) 'old observation'
+    Assert ($claude.Contains('Example') -and $claude.Contains('20 % used')) 'Claude orchestrator snapshot'
+    Assert ((Format-PlanUsage Unknown $report).Contains('No data')) 'missing app'
     Set-Content "$channel/contexto/uso-claude.json" '{broken'
-    Assert ((Format-PlanUsage Claude $report).Contains('sin dato')) 'malformed snapshot'
+    Assert ((Format-PlanUsage Claude $report).Contains('No data')) 'malformed snapshot'
     $script:nowOverride = [datetime]'2030-11-02T00:00:00Z'
     $expired = Format-PlanUsage Copilot $report
-    Assert ($expired.Contains('ventana vencida') -and -not $expired.Contains('99,5 % usado') -and -not $expired.Contains('sin cuota hasta')) 'expired percent and quota suppressed'
+    Assert ($expired.Contains('window expired') -and -not $expired.Contains('99.5 % used') -and -not $expired.Contains('quota unavailable until')) 'expired percent and quota suppressed'
     $script:nowOverride = [datetime]'2030-10-29T12:00:00Z'
     $script:calls = 0
     function Invoke-PlanReport { $script:calls++; return $report }

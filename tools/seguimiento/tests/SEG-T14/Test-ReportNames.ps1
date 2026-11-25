@@ -37,9 +37,9 @@ function Invoke-Viewer {
     Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot | Out-Null
     [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
 }
-# The text of "Última prueba de integración", decoded, and the class of its state badge.
+# The text of "Latest integration test", decoded, and the class of its state badge.
 function Get-LastReading([string]$html) {
-    $m = [regex]::Match($html, '<strong>Última prueba de integración:</strong>\s*(.*?)</p>', 'Singleline')
+    $m = [regex]::Match($html, '<strong>Latest integration test:</strong>\s*(.*?)</p>', 'Singleline')
     Assert-True $m.Success 'the Integración panel shows the last reading'
     $badge = [regex]::Match($m.Groups[1].Value, '<span class="state (s-[a-z-]+)">')
     # Text is what follows the state badge ("<id> · <N passed>").
@@ -102,24 +102,24 @@ try {
     $closure = Get-Closure 'OLD'
     Assert-True ($closure.Status -eq 'complete' -and $closure.Report -ceq "${oldId}_integracion.md") "the old yyyy-MM-dd_HHmm form still verifies (got $($closure.Status): $($closure.Reason))"
     $closure = Get-Closure 'MIS'
-    Assert-True ($closure.Status -eq 'unknown' -and $closure.Reason -match 'no existe') 'a seconds report that does not exist is unverifiable'
+    Assert-True ($closure.Status -eq 'unknown' -and $closure.Reason -match 'does not exist') 'a seconds report that does not exist is unverifiable'
     $closure = Get-Closure 'RED'
-    Assert-True ($closure.Status -eq 'unknown' -and $closure.Reason -match 'no confirma') 'a seconds report recorded FALLO is unverifiable'
+    Assert-True ($closure.Status -eq 'unknown' -and $closure.Reason -match 'does not confirm') 'a seconds report recorded FALLO is unverifiable'
     $closure = Get-Closure 'TRU'
-    Assert-True ($closure.Status -eq 'unknown' -and $closure.Reason -match 'no existe') 'a seconds id is never cut to its minute: the green minute-only report does not stand in'
+    Assert-True ($closure.Status -eq 'unknown' -and $closure.Reason -match 'does not exist') 'a seconds id is never cut to its minute: the green minute-only report does not stand in'
 
     # The page agrees with the function.
     $html = Invoke-Viewer
     foreach ($stage in 'NEW', 'OLD', 'PAT', 'BAR', 'CCF') {
         $badge = Get-Badge (Get-Summary $html "seg:$stage")
-        Assert-True ($badge.Text -ceq 'Cerrada' -and $badge.Class -eq 's-integrada') "$stage shows as a verified closed stage (got '$($badge.Text)' $($badge.Class))"
+        Assert-True ($badge.Text -ceq 'Closed' -and $badge.Class -eq 's-integrada') "$stage shows as a verified closed stage (got '$($badge.Text)' $($badge.Class))"
     }
     foreach ($stage in 'MIS', 'RED', 'TRU') {
         $badge = Get-Badge (Get-Summary $html "seg:$stage")
-        Assert-True ($badge.Text -ceq 'cierre no verificado' -and $badge.Class -eq 's-unknown') "$stage shows as an unverified closure (got '$($badge.Text)' $($badge.Class))"
+        Assert-True ($badge.Text -ceq 'Closure unverified' -and $badge.Class -eq 's-unknown') "$stage shows as an unverified closure (got '$($badge.Text)' $($badge.Class))"
     }
     $plain = [System.Net.WebUtility]::HtmlDecode($html)
-    Assert-True ($plain -match "href=""[^""]*${newId}_integracion\.md"">Reporte de integración OK") 'the closed stage links the full report name'
+    Assert-True ($plain -match "href=""[^""]*${newId}_integracion\.md"">Successful integration report") 'the closed stage links the full report name'
 
     # ---- last reading: the latest by time across both forms, wherever it sits in the file ----
     function Assert-LastReading([string]$what, [string[]]$rows, [string]$stem, [string]$class, [string]$passed) {
@@ -146,7 +146,7 @@ try {
 
     Set-Reads @()
     $last = Get-LastReading (Invoke-Viewer)
-    Assert-True ($last.Text -ceq 'Sin reportes registrados.') 'no readings: Sin reportes registrados'
+    Assert-True ($last.Text -ceq 'No reports recorded.') 'no readings: No reports recorded'
 }
 catch {
     Write-Host $_.Exception.Message

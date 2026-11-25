@@ -49,15 +49,15 @@ try {
     $html = Get-Content (Join-Path $channel 'SEGUIMIENTO.html') -Raw
     switch ($Scenario) {
         'success' {
-            foreach ($needle in @('API core','task.accepted','accepted</code>','API no provee tokens','API no provee costo','Git y reportes de integración se leen aparte')) { if (-not $html.Contains($needle)) { throw ("Success fixture missing: $needle; panel: " + $html.Substring($html.IndexOf('<div class="tab" id="api">'), [Math]::Min(1200, $html.Length - $html.IndexOf('<div class="tab" id="api">')))) } }
+            foreach ($needle in @('Core API','task.accepted','accepted</code>','Unknown · API does not provide tokens','Unknown · API does not provide cost','Git and integration reports are read separately')) { if (-not $html.Contains($needle)) { throw ("Success fixture missing: $needle; panel: " + $html.Substring($html.IndexOf('<div class="tab" id="api">'), [Math]::Min(1200, $html.Length - $html.IndexOf('<div class="tab" id="api">')))) } }
             if ($html.Contains('<script>alert') -or -not $html.Contains('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; review')) { throw 'API title was not HTML escaped.' }
             if ($html.Contains('Integrada · accepted') -or $html.Contains('Probada · accepted')) { throw 'Core accepted status was misrepresented as a legacy milestone.' }
         }
-        'empty' { if ($html -notmatch 'API confirmó grupos, tareas y eventos vacíos') { throw 'Valid empty snapshot not labelled as API-confirmed empty.' } }
-        'schema' { if ($html -notmatch 'API desconocida o no disponible' -or $html -notmatch 'Conteo API inconsistente' -or $html -match 'API confirmó grupos') { throw 'Invalid group counts were not shown as an error.' } }
-        'schema-count' { if (-not $html.Contains('API desconocida o no disponible') -or -not $html.Contains('debe ser entero') -or $html.Contains('API confirmó grupos')) { throw 'Null group count was not rejected as invalid schema.' } }
-        'offline' { if ($html -notmatch 'API desconocida o no disponible' -or $html -match 'API confirmó grupos') { throw 'Offline API was presented as an empty successful board.' } }
-        'timeout' { if ($html -notmatch 'API desconocida o no disponible' -or $html -match 'API confirmó grupos') { throw 'API timeout was presented as an empty successful board.' } }
+        'empty' { if ($html -notmatch 'API confirmed that groups, tasks, and events are empty') { throw 'Valid empty snapshot not labelled as API-confirmed empty.' } }
+        'schema' { if ($html -notmatch 'API status unknown or unavailable' -or $html -notmatch 'Inconsistent API count' -or $html -match 'API confirmed that groups') { throw 'Invalid group counts were not shown as an error.' } }
+        'schema-count' { if (-not $html.Contains('API status unknown or unavailable') -or -not $html.Contains('must be an integer') -or $html.Contains('API confirmed that groups')) { throw 'Null group count was not rejected as invalid schema.' } }
+        'offline' { if ($html -notmatch 'API status unknown or unavailable' -or $html -match 'API confirmed that groups') { throw 'Offline API was presented as an empty successful board.' } }
+        'timeout' { if ($html -notmatch 'API status unknown or unavailable' -or $html -match 'API confirmed that groups') { throw 'API timeout was presented as an empty successful board.' } }
     }
     if ($Scenario -eq 'success') {
         $defaultChannel = Join-Path $temp 'default'

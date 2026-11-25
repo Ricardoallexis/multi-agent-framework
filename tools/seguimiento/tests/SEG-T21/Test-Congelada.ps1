@@ -66,33 +66,33 @@ try {
 
     # The frozen task is recognized: its own state badge, not pending, not available.
     $aaa = Get-Section $html 'AAA'
-    Assert-True ($aaa -match '<span class="state s-congelada">congelada</span>') 'the frozen task shows the state congelada'
+    Assert-True ($aaa -match '<span class="state s-congelada">Frozen</span>') 'the frozen task shows the frozen state'
     $rowFrozen = [regex]::Match($aaa, '(?s)<tr><td><a [^>]*>[^<]*Tarea congelada uno.*?</tr>').Value
     Assert-True ($rowFrozen -and $rowFrozen -notmatch 's-pendiente|s-disponible|Disponible|Bloqueada') 'the frozen task row is neither pendiente nor disponible'
-    Assert-True ($aaa -match '0/1' -and $aaa -match '0 de 1 terminadas o integradas · 1 congeladas') 'the frozen task is not part of the stage total'
-    Assert-True ($html -match '1 disponibles · 1 congeladas') 'the summary card counts one available and one frozen'
-    Assert-True ($aaa -match '1 disponible · 1 congelada') 'the stage header lists congelada apart'
+    Assert-True ($aaa -match '0/1' -and $aaa -match '0 of 1 completed or integrated · 1 frozen') 'the frozen task is not part of the stage total'
+    Assert-True ($html -match '1 available · 1 frozen') 'the summary card counts one available and one frozen'
+    Assert-True ($aaa -match '1 Available · 1 Frozen') 'the stage header lists frozen tasks separately'
     # Its label only follows the non-frozen tasks (T02 is available).
-    Assert-True ($aaa -match '<span class="state s-disponible">(?:Lista|Disponible)</span>') 'the stage label ignores the frozen task'
+    Assert-True ($aaa -match '<span class="state s-disponible">Available</span>') 'the stage label ignores the frozen task'
 
-    # A stage where every task is frozen reads Congelada, not «En espera de dependencias».
+    # A stage where every task is frozen reads Frozen, not "Waiting for dependencies".
     $ccc = Get-Section $html 'CCC'
-    Assert-True ($ccc -match '<span class="state s-congelada">Congelada</span>' -and $ccc -notmatch 'En espera de dependencias') 'a stage with only frozen tasks reads Congelada'
+    Assert-True ($ccc -match '<span class="state s-congelada">Frozen</span>' -and $ccc -notmatch 'Waiting for dependencies') 'a stage with only frozen tasks reads Frozen'
 
     # The frozen stage is shown apart, after the active ones, with no card among the active stages and no pending item for the user.
-    $frozenAt = $html.IndexOf('<h2 class="seg-frozen-title">Etapas congeladas</h2>')
-    Assert-True ($frozenAt -ge 0) 'a section «Etapas congeladas» exists'
+    $frozenAt = $html.IndexOf('<h2 class="seg-frozen-title">Frozen stages</h2>')
+    Assert-True ($frozenAt -ge 0) 'a frozen-stages section exists'
     $bbbAt = $html.IndexOf('BBB · Etapa de prueba BBB')
     Assert-True ($bbbAt -gt $frozenAt) 'the frozen stage BBB is inside the frozen section'
     Assert-True ($html.IndexOf('AAA · Etapa de prueba AAA') -lt $frozenAt) 'active stages come before the frozen section'
     $bbb = [regex]::Match($html.Substring($bbbAt - 200), '(?s)<details class="panel board seg-stage".*?</details>').Value
-    Assert-True ($bbb -match '<span class="state s-congelada">Congelada</span>' -and $bbb -notmatch '<details[^>]* open>' -and $bbb -cnotmatch 'Lista|Disponible' -and $bbb -match 'etapa congelada') 'BBB reads Congelada, collapsed, with its closure line'
-    Assert-True ($bbb -match 'Etapa congelada · estado en la ficha: en curso') 'the tasks of a frozen stage read congelada and keep their card state as a note'
+    Assert-True ($bbb -match '<span class="state s-congelada">Frozen</span>' -and $bbb -notmatch '<details[^>]* open>' -and $bbb -cnotmatch 'Available' -and $bbb -match 'Stage frozen') 'BBB reads Frozen, collapsed, with its closure line'
+    Assert-True ($bbb -match 'Stage frozen · card status: In progress') 'tasks of a frozen stage read Frozen and keep the card status as a note'
     Assert-True ($bbb -notmatch 'Decisión sintética pendiente' -and $html -notmatch 'espera-sin-actividad') 'a frozen stage creates neither a task Espera badge nor an inactivity alert'
-    Assert-True ($bbb -notmatch '<span class="state s-disponible">' -and $bbb -notmatch 'cierre no verificado') 'BBB is not available and not an unverified closure'
+    Assert-True ($bbb -notmatch '<span class="state s-disponible">' -and $bbb -notmatch 'Closure unverified') 'BBB is not available and not an unverified closure'
     Assert-True ($html -match 'trabaja en AAA' -and $html -notmatch 'trabaja en BBB') 'the available task of the active stage is a to-do item, the one of the frozen stage is not'
     Assert-True ($html -notmatch '<span class="gate">BBB</span>') 'the frozen stage makes no active summary card'
-    Assert-True ($html -notmatch 'Cierre no verificado') 'a frozen stage is not an unverified closure'
+    Assert-True ($html -notmatch 'Closure unverified') 'a frozen stage is not an unverified closure'
 
     # Without any frozen stage the section does not appear.
     Remove-Item (Join-Path $channel 'tareas\BBB') -Recurse -Force

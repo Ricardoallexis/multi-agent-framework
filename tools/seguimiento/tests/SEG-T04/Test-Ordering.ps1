@@ -86,35 +86,35 @@ try {
     $html = [IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html'))
 
     # 1. Completed stages (Resumen list): newest closure first, then card date, then unknown is not listed there.
-    $resumen = $html.Substring($html.IndexOf('<h2>Etapas completadas</h2>'))
+    $resumen = $html.Substring($html.IndexOf('<h2>Completed stages</h2>'))
     $resumen = $resumen.Substring(0, $resumen.IndexOf('</section>'))
-    Assert-Order $resumen @('Cerrada el 2026-04-20 08:30', 'Cerrada el 2026-03-05 12:00') 'closed stages'
-    Assert-True ($resumen -match 'Cerrada el 2026-04-20 \d{2}:\d{2} \(hace \d+ (d(í|&#237;)as|d(í|&#237;)a|horas|hora|minutos|minuto)\)') 'closure "hace" text'
+    Assert-Order $resumen @('Closed on 2026-04-20 08:30', 'Closed on 2026-03-05 12:00') 'closed stages'
+    Assert-True ($resumen -match 'Closed on 2026-04-20 \d{2}:\d{2} \(\d+ (days?|hours?|minutes?) ago\)') 'closure age text'
     $titleOrder = @($resumen.IndexOf('BBB'), $resumen.IndexOf('AAA'))
     Assert-True ($titleOrder[0] -ge 0 -and $titleOrder[0] -lt $titleOrder[1]) 'BBB must come before AAA'
 
     # Historical tab: unverified closures, card date and unknown date last.
-    $cccAt = $html.IndexOf('Cerrada el 2026-02-10 18:45')
+    $cccAt = $html.IndexOf('Closed on 2026-02-10 18:45')
     Assert-True ($cccAt -ge 0) 'card-based closure date shown'
     $cccText = $html.Substring($cccAt, 200)
-    Assert-True ($cccText -match 'según la ficha') 'card-based closure labelled "según la ficha"'
-    $unknownAt = $html.IndexOf('fecha de cierre desconocida', $html.IndexOf('<h2>Cierres pendientes de verificación</h2>'))
+    Assert-True ($cccText -match 'from task card') 'card-based closure labelled "from task card"'
+    $unknownAt = $html.IndexOf('unknown closure date', $html.IndexOf('<h2>Closures awaiting verification</h2>'))
     Assert-True ($unknownAt -gt $cccAt) 'unknown closure date listed after dated ones'
-    Assert-True ($html.IndexOf('Cerrada el 2026-02-10 18:45', $html.IndexOf('<h2>Cierres pendientes de verificación</h2>')) -ge 0) 'card closure in pending list'
+    Assert-True ($html.IndexOf('Closed on 2026-02-10 18:45', $html.IndexOf('<h2>Closures awaiting verification</h2>')) -ge 0) 'card closure in pending list'
 
     # 2. Active stage cards by last activity: FFF (05-20), EEE (05-12 17:20), CCC/DDD/GGG appear by their own activity.
     $cards = $html.Substring($html.IndexOf('<section class="cards">'))
     $cards = $cards.Substring(0, $cards.IndexOf('</section>'))
-    Assert-True ($cards -match 'Última actividad: 2026-06-05 14:10 · GGG-T02 terminada \(Claude-Opus\)') 'GGG last activity text'
-    Assert-True ($cards -match 'Última actividad: 2026-05-20 00:00 · Replanificada la etapa con nuevos criterios \(Claude-Sonnet\)') 'FFF ETAPA line text'
-    Assert-True ($cards -match 'Última actividad: 2026-05-12 17:20 · EEE-T01 terminada \(Claude-Opus\)') 'EEE last activity text'
+    Assert-True ($cards -match 'Last activity: 2026-06-05 14:10 · GGG-T02 terminada \(Claude-Opus\)') 'GGG last activity text'
+    Assert-True ($cards -match 'Last activity: 2026-05-20 00:00 · Replanificada la etapa con nuevos criterios \(Claude-Sonnet\)') 'FFF ETAPA line text'
+    Assert-True ($cards -match 'Last activity: 2026-05-12 17:20 · EEE-T01 terminada \(Claude-Opus\)') 'EEE last activity text'
     Assert-Order $cards @('>GGG<', '>FFF<', '>EEE<') 'active stage cards'
 
     # 3. Tasks of GGG follow their code (SEG-T05); each still shows its own last activity.
     $board = $html.Substring($html.IndexOf('<h2>GGG'))
     $board = $board.Substring(0, $board.IndexOf('</section>'))
     Assert-Order $board @('GGG-T01', 'GGG-T02', 'GGG-T03', 'GGG-T04') 'task order'
-    Assert-True ($board -match 'Última actividad 2026-06-05 14:10') 'task last activity still shown'
+    Assert-True ($board -match 'Last activity 2026-06-05 14:10') 'task last activity still shown'
 }
 catch {
     Write-Host $_.Exception.Message

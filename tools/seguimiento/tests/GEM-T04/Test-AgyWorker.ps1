@@ -1,8 +1,8 @@
-# GEM-T04 (viewer part, REGLAS 33): Antigravity (agy) is one more entry of the table of applications ($script:WorkerApps). A worker with the
-# reference agy:<conversation_id> appears in the card of its own application (Antigravity), whichever application orchestrates it: "trabajando
-# para <orquestador> en <tarea>", its real activity (from the modification time of conversations\<id>.db, else of the json that the orchestrator
-# saves in orquestacion\herramientas\agy-<n>.json) and its registered name, which already carries the model. Synthetic folders only; the content of
-# the conversations is never printed (nor read: only times and the conversation id of the saved json).
+# GEM-T04 (viewer part, RULE 33): Antigravity (agy) is one more entry in the application table ($script:WorkerApps). A worker with the
+# reference agy:<conversation_id> appears in the card for its own application (Antigravity), whichever application orchestrates it: "working
+# for <orchestrator> on <task>", its real activity (from the modification time of conversations\<id>.db, or from the JSON the orchestrator
+# saves in orquestacion\herramientas\agy-<n>.json) and its registered name, which already carries the model. Synthetic folders only; conversation
+# content is never printed (or read: only times and the conversation id in the saved JSON).
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $viewer = Join-Path $root 'tools\seguimiento\ver-seguimiento.ps1'
@@ -77,9 +77,9 @@ try {
     git -C $repo init -q | Out-Null
     Set-Content (Join-Path $channel 'tareas\AAA\ETAPA.md') @('# AAA · Etapa de prueba', '', '| Campo | Valor |', '|---|---|', '| Autorizada | sí |', '| Estado | abierta |', '', '## Fases de tareas', '', '| Fase | Tareas | Descripción |', '|---|---|---|', '| Fase 1 | T01, T02 | x |', '', '## Historial de decisiones', '', '- 2026-11-18 · Claude-Opus · Se abre la etapa') -Encoding utf8
 
-    New-AgyConversation $ag.work 3        # trabajando
-    New-AgyConversation $ag.quiet 20      # sin actividad reciente
-    New-AgyConversation $ag.stop 90       # probablemente detenido
+    New-AgyConversation $ag.work 3        # Working
+    New-AgyConversation $ag.quiet 20      # No recent activity
+    New-AgyConversation $ag.stop 90       # Probably stopped
     New-AgyRunJson 'agy-01.json' $ag.json 25   # no .db: the saved json of the run is the source (ended 25 minutes ago)
     New-AgyRunJson 'agy-02.json' $ag.none 1    # a json of another conversation: does not answer for the ids below
 
@@ -104,35 +104,35 @@ try {
 
     $status = Get-CardStatus $agy
     Assert-True ($status.Groups[1].Value -eq 's-en-curso') 'the Antigravity card is active'
-    Assert-True ($agy -notmatch '<span class="state s-idle">sin actividad') 'the Antigravity card does not say sin actividad while it has active workers'
+    Assert-True ($agy -notmatch '<span class="state s-idle">no activity') 'the Antigravity card does not say no activity while it has active workers'
 
     # db of a conversation: its modification time is the activity; the registered name stays (no "Antigravity ·" prefix, the model is not on disk).
     $w1 = Get-WorkerBlock $agy 'pieza uno'
     Assert-True ($w1 -match '<strong>Antigravity-Flash \(T2\)</strong>') 'T01 agy worker shows its registered name and level'
-    Assert-True ($w1 -match 'Activo · trabajando para Claude-Opus en AAA-T01') 'T01 agy worker: trabajando para <orquestador> en <tarea>'
-    Assert-True ($w1 -match 'Actividad: Trabajando · delegado desde 11:00 · pieza uno') 'T01 agy worker: real activity from the conversation file'
-    Assert-True ($w1 -match 'Tarea: AAA-T01 · Tarea de prueba T01') 'T01 agy worker: task'
+    Assert-True ($w1 -match 'Active · working for Claude-Opus on AAA-T01') 'T01 agy worker: working for <orchestrator> on <task>'
+    Assert-True ($w1 -match 'Activity: Working · delegated since 11:00 · pieza uno') 'T01 agy worker: real activity from the conversation file'
+    Assert-True ($w1 -match 'Task: AAA-T01 · Tarea de prueba T01') 'T01 agy worker: task'
     $w2 = Get-WorkerBlock $agy 'pieza dos'
-    Assert-True ($w2 -match 'Antigravity-Sonnet' -and $w2 -match 'Actividad: Sin actividad reciente · última hace 20 min') 'quiet conversation (20 min)'
+    Assert-True ($w2 -match 'Antigravity-Sonnet' -and $w2 -match 'Activity: No recent activity · last seen 20 min ago') 'quiet conversation (20 min)'
     $w3 = Get-WorkerBlock $agy 'pieza tres'
-    Assert-True ($w3 -match 'Probablemente detenido · delegado por Claude-Opus en AAA-T01' -and $w3 -notmatch 'trabajando para') 'stopped conversation (90 min) is listed, not counted as active'
-    # without the .db: the json that the orchestrator saved from the run
+    Assert-True ($w3 -match 'Probably stopped · delegated by Claude-Opus on AAA-T01' -and $w3 -notmatch 'working for') 'stopped conversation (90 min) is listed, not counted as active'
+    # Without the .db: use the JSON saved by the orchestrator from the run.
     $w4 = Get-WorkerBlock $agy 'pieza cuatro'
-    Assert-True ($w4 -match 'Antigravity-Hydrogen' -and $w4 -match 'Actividad: Sin actividad reciente · última hace 25 min') 'json of the run as the source when the conversation file is missing'
-    # nothing on disk: no activity signal, still listed
+    Assert-True ($w4 -match 'Antigravity-Hydrogen' -and $w4 -match 'Activity: No recent activity · last seen 25 min ago') 'json of the run as the source when the conversation file is missing'
+    # Nothing on disk: no activity signal, still listed.
     $w5 = Get-WorkerBlock $agy 'pieza cinco'
-    Assert-True ($w5 -match 'Actividad: sin señal de actividad') 'a reference without any file has no activity signal'
-    # no reference: the application comes from the name
+    Assert-True ($w5 -match 'Activity: No activity signal') 'a reference without any file has no activity signal'
+    # No reference: the application comes from the name.
     $w6 = Get-WorkerBlock $agy 'pieza seis sin referencia'
-    Assert-True ($w6 -match '<strong>Antigravity-Opus \(T2\)</strong>' -and $w6 -match 'trabajando para Claude-Opus en AAA-T01' -and $w6 -match 'Actividad: sin señal de actividad') 'no reference: application from the worker name'
-    # another orchestrator
+    Assert-True ($w6 -match '<strong>Antigravity-Opus \(T2\)</strong>' -and $w6 -match 'working for Claude-Opus on AAA-T01' -and $w6 -match 'Activity: No activity signal') 'no reference: application from the worker name'
+    # Another orchestrator.
     $w7 = Get-WorkerBlock $agy 'pieza siete'
-    Assert-True ($w7 -match 'trabajando para Codex en AAA-T02' -and $w7 -match 'Actividad: Trabajando') 'agy worker delegated by Codex is in the Antigravity card'
+    Assert-True ($w7 -match 'working for Codex on AAA-T02' -and $w7 -match 'Activity: Working') 'agy worker delegated by Codex is in the Antigravity card'
     Assert-True (@(Get-WorkerBlocks $agy).Count -eq 7) 'seven agy workers in the Antigravity card'
 
     # The orchestrators keep their delegations and none of the workers leaks into another application's card.
-    Assert-True ($claude -match 'Antigravity-Flash \(T2\) desde 11:00 · Trabajando · pieza uno') 'Claude-Opus card still lists the agy delegation'
-    Assert-True ($codex -match 'Antigravity-Flash \(T2\) desde 11:30 · Trabajando · pieza siete') 'Codex card still lists the agy delegation'
+    Assert-True ($claude -match 'Antigravity-Flash \(T2\) since 11:00 · Working · pieza uno') 'Claude-Opus card still lists the agy delegation'
+    Assert-True ($codex -match 'Antigravity-Flash \(T2\) since 11:30 · Working · pieza siete') 'Codex card still lists the agy delegation'
     Assert-True (@(Get-WorkerBlocks $claude).Count -eq 0 -and @(Get-WorkerBlocks $codex).Count -eq 0) 'agy workers are not placed in the Claude or Codex cards'
 
     # Nothing of the conversations is printed: no content, no ids, no file locations.
@@ -147,7 +147,7 @@ try {
     Remove-Item (Join-Path $channel 'tareas\AAA\T02-x.md')
     $agents = Run-Viewer
     $agy = Get-AppCard $agents 'Antigravity'
-    Assert-True ($agy -notmatch 'pieza nueve' -and (Get-CardStatus $agy).Groups[2].Value -eq 'sin actividad') 'a delivered task has no active agy worker: the card says sin actividad'
+    Assert-True ($agy -notmatch 'pieza nueve' -and (Get-CardStatus $agy).Groups[2].Value -eq 'no activity') 'a delivered task has no active agy worker: the card says no activity'
 }
 catch {
     Write-Host $_.Exception.Message

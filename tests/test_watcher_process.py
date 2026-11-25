@@ -374,7 +374,7 @@ def test_channel_integration_round_blocks_even_when_condition_holds(channel):
     assert not (channel.root / "orquestacion/esperas/listas").exists()
     # The block must come from the round file itself (not from any other error, such as a wrongly built path).
     log = next((channel.root / "orquestacion/esperas").glob("*.log")).read_text(encoding="utf-8-sig")
-    assert "integration_active" in log and "no se ejecut" in log
+    assert "integration_active" in log and "the action was not executed" in log
     closed = list((channel.root / "orquestacion/esperas/terminadas").glob("*.json"))
     assert len(closed) == 1 and json.loads(closed[0].read_text(encoding="utf-8-sig"))["estado"] == "vencida"
 

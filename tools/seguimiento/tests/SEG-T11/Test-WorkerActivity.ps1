@@ -60,18 +60,18 @@ try {
     Set-ViewerPlanCache $channel $now; & $viewer -ChannelPath $channel -RepoPath $repo -NoAbrir -SubagentRoots $subRoot -NowOverride $now | Out-Null
     $html = [System.Net.WebUtility]::HtmlDecode([IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html')))
 
-    Assert-True ($html -match 'T01: Claude Sonnet 5\.5 \(T2\) desde 11:00 · Trabajando · pieza uno') 'T01 Trabajando with piece'
-    Assert-True ($html -match 'T02: Claude Sonnet 5\.5 \(T2\) desde 11:30 · Ejecutando prueba · desde 11:40 · pieza dos') 'T02 Ejecutando prueba'
-    Assert-True ($html -match 'desde 11:00 · Sin actividad reciente · última hace 30 min · pieza tres') 'T03 sin actividad'
-    Assert-True ($html -match 'desde 11:05 · Probablemente detenido · pieza cuatro') 'T03 detenido'
-    Assert-True ($html -match 'desde 11:00 · sin señal de actividad · pieza cinco') 'T04 file missing'
-    Assert-True ($html -match 'Claude Haiku \(T1\) desde 11:10 · sin señal de actividad · sin referencia') 'T04 no reference'
+    Assert-True ($html -match 'T01: Claude Sonnet 5\.5 \(T2\) since 11:00 · Working · pieza uno') 'T01 working with piece'
+    Assert-True ($html -match 'T02: Claude Sonnet 5\.5 \(T2\) since 11:30 · Running test · since 11:40 · pieza dos') 'T02 running a test'
+    Assert-True ($html -match 'since 11:00 · No recent activity · last seen 30 min ago · pieza tres') 'T03 no recent activity'
+    Assert-True ($html -match 'since 11:05 · Probably stopped · pieza cuatro') 'T03 stopped'
+    Assert-True ($html -match 'since 11:00 · No activity signal · pieza cinco') 'T04 file missing'
+    Assert-True ($html -match 'Claude Haiku \(T1\) since 11:10 · No activity signal · sin referencia') 'T04 no reference'
     # SEG-T12: the Trabajaron column lists every delegation of the task (piece included); what must not appear is an activity line.
     Assert-True ($html -notmatch 'T05: [^<]*pieza reasignada') 'T05 closed by takeover'
     Assert-True ($html -notmatch 'T06: [^<]*pieza terminada') 'T06 closed by card state'
     Assert-True ($html -notmatch 'T07: [^<]*pieza devuelta') 'T07 returned'
-    Assert-True ($html -match 'desde 11:00 · Sin actividad reciente · última hace 20 min · pieza ocho') 'T08 answered tool is not a running test'
-    Assert-True ($html -match 'desde 10:00 · Probablemente detenido · pieza nueve') 'T09 long test over threshold'
+    Assert-True ($html -match 'since 11:00 · No recent activity · last seen 20 min ago · pieza ocho') 'T08 answered tool is not a running test'
+    Assert-True ($html -match 'since 10:00 · Probably stopped · pieza nueve') 'T09 long test over threshold'
     Assert-True ($html -notmatch '\[ref:') 'reference kept out of the displayed piece'
     Assert-True ($html -notmatch 'SECRET-CONTENT') 'subagent content never printed'
 }

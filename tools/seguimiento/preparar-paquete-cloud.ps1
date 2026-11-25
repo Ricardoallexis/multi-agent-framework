@@ -8,7 +8,7 @@ param(
     [Parameter(Mandatory)][string]$ChannelPath,
     [string]$RepoPath,
     [string]$OutputPath,
-    [string]$CloudAgent = 'Agente cloud',
+    [string]$CloudAgent = 'Cloud agent',
     [switch]$Interactive,
     [switch]$ConfirmReservation,
     [switch]$ReleaseReservation,
@@ -434,10 +434,10 @@ function Reserve-Task([string]$Channel, [string]$TaskPath, [string]$TaskIdValue,
         if (Test-Path -LiteralPath $OutputFinal) { Fail 'Output ZIP already exists; choose a different path.' }
         $reserved = Set-CardField $current 'Estado' 'pendiente'
         $reserved = Set-CardField $reserved 'Agente' $AgentName
-        $reserved = [regex]::Replace($reserved, '(?s)(## Dónde quedó\s*\r?\n).*?(?=\r?\n## Qué falta)', ('$1' + "Paquete cloud local preparado; request_id $RequestGuid; base $BaseCommit. Reservada por $AgentName mientras espera el ZIP de retorno."))
-        $reserved = [regex]::Replace($reserved, '(?s)(## Qué falta\s*\r?\n).*?(?=\r?\n## Historial)', ('$1' + "Esperando ZIP de retorno. Importar con importar-paquete-nube.ps1 para $TaskIdValue y request_id $RequestGuid; la validación no aplica el parche."))
+        $reserved = [regex]::Replace($reserved, '(?s)(## Dónde quedó\s*\r?\n).*?(?=\r?\n## Qué falta)', ('$1' + "Cloud package prepared locally; request_id $RequestGuid; base $BaseCommit. Reserved by $AgentName while awaiting the returned ZIP."))
+        $reserved = [regex]::Replace($reserved, '(?s)(## Qué falta\s*\r?\n).*?(?=\r?\n## Historial)', ('$1' + "Awaiting the returned ZIP. Import it with importar-paquete-nube.ps1 for $TaskIdValue and request_id $RequestGuid; validation does not apply the patch."))
         $now = Get-Date -Format 'yyyy-MM-dd HH:mm'
-        $reserved = $reserved.TrimEnd() + "`r`n| $now | $AgentName | pausada | Reserva cloud request_id $RequestGuid; esperando respuesta, sin afirmar presencia de proceso. |`r`n"
+        $reserved = $reserved.TrimEnd() + "`r`n| $now | $AgentName | pausada | Cloud reservation request_id $RequestGuid; awaiting a response, with no claim of live process presence. |`r`n"
         $marker = [ordered]@{
             schema_version = 1
             task_id = $TaskIdValue
@@ -466,7 +466,7 @@ function Reserve-Task([string]$Channel, [string]$TaskPath, [string]$TaskIdValue,
         $outputMoved = $true
         $store = Get-CloudAssignmentsPath $Channel
         Set-CloudAssignmentState -StorePath $store -RequestId $RequestGuid -State ready_to_send `
-            -Actor $AgentName -Detail 'El paquete ZIP quedó creado localmente y la reserva se registró. No se ha enviado al agente cloud.' `
+            -Actor $AgentName -Detail 'The ZIP was created locally and the reservation was recorded. It has not been sent to the cloud agent.' `
             -PackageSha256 $marker.package_sha256 | Out-Null
     } catch {
         if ($cardChanged -and [System.IO.File]::ReadAllText($TaskPath) -ceq $reserved) {
@@ -503,13 +503,13 @@ function Release-Task([string]$Channel, [string]$TaskPath, [string]$TaskIdValue,
         $restored = Set-CardField $restored 'Estado' $originalState
         $restored = Set-CardField $restored 'Agente' $originalAgent
         $date = Get-Date -Format 'yyyy-MM-dd HH:mm'
-        $restored = $restored.TrimEnd() + "`r`n| $date | $AgentName | liberada | Reserva cloud $RequestGuid cancelada por el usuario; el paquete ya no es importable. |`r`n"
+        $restored = $restored.TrimEnd() + "`r`n| $date | $AgentName | liberada | Cloud reservation $RequestGuid cancelled by the user; the package can no longer be imported. |`r`n"
         Write-AtomicChannelFile $TaskPath $restored
         $assignmentPath = Get-CloudAssignmentsPath $Channel
         $assignment = @(Get-CloudAssignmentByRequestId -StorePath $assignmentPath -RequestId $RequestGuid)
         if ($assignment.Count) {
             Set-CloudAssignmentState -StorePath $assignmentPath -RequestId $RequestGuid -State cancelled `
-                -Actor $AgentName -Detail 'El usuario canceló la reserva local; el ZIP no es importable.' | Out-Null
+                -Actor $AgentName -Detail 'The user cancelled the local reservation; the ZIP cannot be imported.' | Out-Null
         }
         Remove-Item -LiteralPath $markerPath -Force
         Write-Host "Reservation cancelled for $TaskIdValue. The original task card was restored; no task was completed."
@@ -565,7 +565,7 @@ function Invoke-Prepare {
         -OriginAgent $Agent -DestinationAgent $CloudAgent -Title $taskTitle.Groups[1].Value `
         -Goal (Get-TaskContent $original 'Objetivo') -BaseCommit $ready.Snapshot.BaseCommit `
         -PackageName ([System.IO.Path]::GetFileName($outputFinal)) -Files $ready.Snapshot.Files `
-        -Detail 'Inicio de preparación local confirmado por el operador; todavía no existe un paquete enviado.'
+        -Detail 'The operator confirmed the start of local preparation; no package has been sent.'
     try {
         try {
             $document = New-RequestDocument $TaskId $requestGuid $ready.Snapshot.BaseCommit $Agent $original $ready.Snapshot.Files $channel
@@ -577,7 +577,7 @@ function Invoke-Prepare {
             if ($currentAssignment.Count -and $currentAssignment[0].state -eq 'preparing_transfer') {
                 try {
                     Set-CloudAssignmentState -StorePath $assignmentPath -RequestId $requestGuid -State preparation_failed `
-                        -Actor $Agent -Detail 'La preparación o reserva local falló; el paquete no quedó disponible para envío.' | Out-Null
+                        -Actor $Agent -Detail 'Local preparation or reservation failed; the package was not made available for sending.' | Out-Null
                 } catch {
                     $trackingError = $_.Exception.Message
                     throw "Package preparation failed ($preparationError); assignment status could not be updated ($trackingError)."
@@ -592,23 +592,23 @@ function Invoke-Prepare {
 
 try {
     if ($Interactive) {
-        Write-Host 'Preparacion local para trabajo cloud. No se conecta a ningun proveedor.'
-        $TaskId = (Read-Host 'ID de tarea (etapa-Txx)').Trim()
+        Write-Host 'Local preparation for cloud work. No provider connection is made.'
+        $TaskId = (Read-Host 'Task ID (stage-Txx)').Trim()
         if (-not $TaskId) { throw 'TaskId is required.' }
-        $AgentInput = (Read-Host "Agente local responsable [$Agent]").Trim()
+        $AgentInput = (Read-Host "Responsible local agent [$Agent]").Trim()
         if ($AgentInput) { $Agent = $AgentInput }
-        $CloudAgentInput = (Read-Host "Agente cloud destino [$CloudAgent]").Trim()
+        $CloudAgentInput = (Read-Host "Destination cloud agent [$CloudAgent]").Trim()
         if ($CloudAgentInput) { $CloudAgent = $CloudAgentInput }
-        Write-Host "`n1. Preparar ZIP y reservar la tarea`n2. Cancelar una reserva intacta"
-        switch ((Read-Host 'Seleccion').Trim()) {
+        Write-Host "`n1. Prepare ZIP and reserve the task`n2. Cancel an unchanged reservation"
+        switch ((Read-Host 'Select').Trim()) {
             '1' {
-                if ((Read-Host 'Confirma generar el paquete y reservar esta tarea? [s/N]').Trim() -notmatch '^(?i:s|si|sí)$') { return }
+                if ((Read-Host 'Confirm package creation and task reservation? [y/N]').Trim() -notmatch '^(?i:y|yes|s|si|sí)$') { return }
                 $ConfirmReservation = $true
             }
             '2' {
-                $RequestId = (Read-Host 'ID de solicitud mostrado al preparar el ZIP').Trim()
+                $RequestId = (Read-Host 'Request ID shown when preparing the ZIP').Trim()
                 if (-not $RequestId) { throw 'RequestId is required to release a reservation.' }
-                if ((Read-Host 'Confirma cancelar esta reserva? [s/N]').Trim() -notmatch '^(?i:s|si|sí)$') { return }
+                if ((Read-Host 'Confirm cancellation of this reservation? [y/N]').Trim() -notmatch '^(?i:y|yes|s|si|sí)$') { return }
                 $ReleaseReservation = $true
             }
             default { throw 'Invalid selection.' }

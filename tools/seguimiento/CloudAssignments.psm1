@@ -16,16 +16,16 @@ $script:Transitions = @{
     cancelled = @()
 }
 $script:StateLabels = @{
-    preparing_transfer = 'Preparando transferencia'
-    ready_to_send = 'Lista para enviar · no enviada'
-    sent_to_cloud = 'Enviada · reportado por operador'
-    in_execution = 'Ejecución declarada · sin señal en vivo'
-    waiting_response = 'Esperando respuesta · reportado por operador'
-    human_review = 'Revisión humana'
-    integrating_result = 'Integrando resultado · reportado por operador'
-    completed = 'Completada · confirmación manual'
-    cancelled = 'Cancelada · confirmación manual'
-    preparation_failed = 'Falló la preparación'
+    preparing_transfer = 'Preparing transfer'
+    ready_to_send = 'Ready to send · not sent'
+    sent_to_cloud = 'Sent · reported by operator'
+    in_execution = 'Execution declared · no live signal'
+    waiting_response = 'Awaiting response · reported by operator'
+    human_review = 'Human review'
+    integrating_result = 'Integrating result · reported by operator'
+    completed = 'Completed · manually confirmed'
+    cancelled = 'Cancelled · manually confirmed'
+    preparation_failed = 'Preparation failed'
 }
 
 function Get-CloudAssignmentsPath([string]$SystemRoot) {
@@ -207,7 +207,7 @@ function New-CloudAssignment {
         base_commit = $BaseCommit.ToLowerInvariant()
         package_name = Get-CloudSafeText $PackageName 'PackageName' 240
         package_sha256 = ''
-        context_summary = 'TASK.md (objetivo, criterios, dependencias y reglas de retorno), manifest.json y archivos fuente permitidos con sus hashes; no incluye historial completo del canal.'
+        context_summary = 'TASK.md (objective, criteria, dependencies, and return instructions), manifest.json, and allowed source files with their hashes; excludes the full channel history.'
         files = @($Files | ForEach-Object {
             if ($_.Path -notmatch '^[^\\/:]+(?:/[^\\/:]+)*$' -or $_.Path -match '(^|/)\.\.(/|$)' -or $_.Sha256 -notmatch '^[0-9a-f]{64}$') {
                 throw 'A package file reference is invalid.'

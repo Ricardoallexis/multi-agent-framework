@@ -23,16 +23,16 @@ function Read-Operators {
 function Read-Actor([string]$CurrentActor) {
     $operators = @(Read-Operators)
     if ($CurrentActor -notin $operators) { $CurrentActor = 'Usuario' }
-    Write-Host 'Quien registra el cambio (declaracion manual):'
+    Write-Host 'Who is recording the change (manual declaration):'
     for ($index = 0; $index -lt $operators.Count; $index++) {
         Write-Host "$($index + 1). $($operators[$index])"
     }
     $current = [Array]::IndexOf($operators, $CurrentActor) + 1
-    $choice = (Read-Host "Seleccion [$current]").Trim()
+    $choice = (Read-Host "Select [$current]").Trim()
     if (-not $choice) { return $CurrentActor }
     $number = 0
     if (-not [int]::TryParse($choice, [ref]$number) -or $number -lt 1 -or $number -gt $operators.Count) {
-        throw "Selecciona un operador del 1 al $($operators.Count)."
+        throw "Select an operator from 1 to $($operators.Count)."
     }
     $operators[$number - 1]
 }
@@ -50,31 +50,31 @@ function Write-AssignmentList([object[]]$Items) {
         $item = $Items[$index]
         $label = Get-CloudAssignmentStateLabel $item.state
         Write-Host "$($index + 1). $($item.task_id) · $($item.title) · $label"
-        Write-Host "   Destino declarado: $($item.destination_agent) · seguimiento: $($item.follow_up_agent)"
+        Write-Host "   Declared destination: $($item.destination_agent) · follow-up: $($item.follow_up_agent)"
     }
 }
 
 function Select-Assignment([object[]]$Items, [string]$Prompt) {
-    if (-not $Items.Count) { Write-Host 'No hay asignaciones para mostrar.'; return $null }
+    if (-not $Items.Count) { Write-Host 'No assignments to display.'; return $null }
     Write-AssignmentList $Items
     $choice = (Read-Host $Prompt).Trim()
     $number = 0
     if (-not [int]::TryParse($choice, [ref]$number) -or $number -lt 1 -or $number -gt $Items.Count) {
-        throw "Selecciona un numero del 1 al $($Items.Count)."
+        throw "Select a number from 1 to $($Items.Count)."
     }
     $Items[$number - 1]
 }
 
 function Show-AssignmentHistory($Item) {
     Write-Host "`n$($Item.task_id) · $($Item.title)"
-    Write-Host "Objetivo: $($Item.goal)"
-    Write-Host "Origen: $($Item.origin_agent) · destino declarado: $($Item.destination_agent)"
-    Write-Host "Paquete: $($Item.package_name) · request_id: $($Item.request_id)"
-    if ($Item.package_sha256) { Write-Host "SHA-256 del paquete: $($Item.package_sha256)" }
-    Write-Host "Contexto registrado: $($Item.context_summary)"
-    Write-Host "Archivos incluidos:"
+    Write-Host "Goal: $($Item.goal)"
+    Write-Host "Origin: $($Item.origin_agent) · declared destination: $($Item.destination_agent)"
+    Write-Host "Package: $($Item.package_name) · request_id: $($Item.request_id)"
+    if ($Item.package_sha256) { Write-Host "Package SHA-256: $($Item.package_sha256)" }
+    Write-Host "Recorded context: $($Item.context_summary)"
+    Write-Host "Included files:"
     foreach ($file in $Item.files) { Write-Host "  $($file.path)" }
-    Write-Host "`nHistorial (fechas UTC; acciones reportadas por el actor):"
+    Write-Host "`nHistory (UTC dates; actions reported by the actor):"
     foreach ($event in $Item.history) {
         $when = [DateTimeOffset]::Parse($event.occurred_utc).ToString('yyyy-MM-dd HH:mm:ss') + ' UTC'
         Write-Host "$when · $($event.actor) · $(Get-CloudAssignmentStateLabel $event.state)"
@@ -83,72 +83,72 @@ function Show-AssignmentHistory($Item) {
 }
 
 function Invoke-AssignmentUpdate {
-    $item = Select-Assignment (Get-ActiveAssignments) 'Numero de asignacion'
+    $item = Select-Assignment (Get-ActiveAssignments) 'Assignment number'
     if (-not $item) { return }
     $nextStates = @(Get-CloudAssignmentNextStates $item.state)
-    if (-not $nextStates.Count) { Write-Host 'La asignacion esta cerrada; su historial sigue disponible.'; return }
-    Write-Host "`nEstado actual: $(Get-CloudAssignmentStateLabel $item.state)"
+    if (-not $nextStates.Count) { Write-Host 'The assignment is closed; its history is still available.'; return }
+    Write-Host "`nCurrent status: $(Get-CloudAssignmentStateLabel $item.state)"
     for ($index = 0; $index -lt $nextStates.Count; $index++) {
         Write-Host "$($index + 1). $(Get-CloudAssignmentStateLabel $nextStates[$index])"
     }
-    $choice = (Read-Host 'Nuevo estado').Trim()
+    $choice = (Read-Host 'New status').Trim()
     $number = 0
     if (-not [int]::TryParse($choice, [ref]$number) -or $number -lt 1 -or $number -gt $nextStates.Count) {
-        throw "Selecciona un estado del 1 al $($nextStates.Count)."
+        throw "Select a status from 1 to $($nextStates.Count)."
     }
     $next = $nextStates[$number - 1]
-    if ($next -eq 'sent_to_cloud' -and (Read-Host 'Confirma que el ZIP ya se subio manualmente al destino cloud: escribe ENVIADO') -cne 'ENVIADO') {
-        Write-Host 'No se registro el envio.'
+    if ($next -eq 'sent_to_cloud' -and (Read-Host 'Confirm that the ZIP was manually uploaded to the cloud destination: type ENVIADO') -cne 'ENVIADO') {
+        Write-Host 'The upload was not recorded.'
         return
     }
-    if ($next -eq 'completed' -and (Read-Host 'Confirma que la integracion fue completada: escribe INTEGRADO') -cne 'INTEGRADO') {
-        Write-Host 'No se registro el cierre.'
+    if ($next -eq 'completed' -and (Read-Host 'Confirm that integration is complete: type INTEGRADO') -cne 'INTEGRADO') {
+        Write-Host 'The completion was not recorded.'
         return
     }
-    if ($next -eq 'cancelled' -and (Read-Host 'Confirma la cancelacion: escribe CANCELAR') -cne 'CANCELAR') {
-        Write-Host 'No se registro la cancelacion.'
+    if ($next -eq 'cancelled' -and (Read-Host 'Confirm cancellation: type CANCELAR') -cne 'CANCELAR') {
+        Write-Host 'The cancellation was not recorded.'
         return
     }
     $actor = Read-Actor $Actor
-    $detail = (Read-Host 'Detalle de la accion (opcional)').Trim()
+    $detail = (Read-Host 'Action details (optional)').Trim()
     if (-not $detail) {
         $detail = switch ($next) {
-            'sent_to_cloud' { 'El operador declara que subio manualmente el ZIP; el sistema no verifica la transferencia.' }
-            'in_execution' { 'El operador declara el inicio o continuidad; esto no es una señal de proceso en vivo.' }
-            'waiting_response' { 'El operador declara que espera respuesta; esto no es telemetria del proveedor.' }
-            'human_review' { 'El resultado queda en revision humana.' }
-            'integrating_result' { 'El operador declara que comenzo a integrar el resultado.' }
-            'completed' { 'El operador confirma que la integracion termino.' }
-            'cancelled' { 'El operador confirma la cancelacion de la asignacion.' }
-            default { 'Cambio de estado registrado por el operador.' }
+            'sent_to_cloud' { 'The operator reports manually uploading the ZIP; the system does not verify the transfer.' }
+            'in_execution' { 'The operator reports that work started or is ongoing; this is not a live process signal.' }
+            'waiting_response' { 'The operator reports awaiting a response; this is not provider telemetry.' }
+            'human_review' { 'The result is awaiting human review.' }
+            'integrating_result' { 'The operator reports starting to integrate the result.' }
+            'completed' { 'The operator confirms that integration is complete.' }
+            'cancelled' { 'The operator confirms cancellation of the assignment.' }
+            default { 'Status change recorded by the operator.' }
         }
     }
     $null = Set-CloudAssignmentState -StorePath $storePath -RequestId $item.request_id `
         -State $next -Actor $actor -Detail $detail
-    Write-Host "Estado registrado: $(Get-CloudAssignmentStateLabel $next)"
+    Write-Host "Status recorded: $(Get-CloudAssignmentStateLabel $next)"
 }
 
 while ($true) {
-    Write-Host "`nSeguimiento de asignaciones cloud (registro manual; no es presencia en vivo)"
-    Write-Host '1. Ver asignaciones activas'
-    Write-Host '2. Registrar cambio de estado'
-    Write-Host '3. Consultar historial'
-    Write-Host '0. Salir'
-    $choice = (Read-Host 'Seleccion').Trim()
+    Write-Host "`nCloud assignment tracker (manual record; not live presence)"
+    Write-Host '1. View active assignments'
+    Write-Host '2. Record a status change'
+    Write-Host '3. View history'
+    Write-Host '0. Exit'
+    $choice = (Read-Host 'Select').Trim()
     if ($choice -eq '0') { break }
     try {
         switch ($choice) {
             '1' {
                 $active = @(Get-ActiveAssignments)
-                if ($active.Count) { Write-AssignmentList $active } else { Write-Host 'No hay asignaciones cloud activas.' }
+                if ($active.Count) { Write-AssignmentList $active } else { Write-Host 'No active cloud assignments.' }
             }
             '2' { Invoke-AssignmentUpdate }
             '3' {
                 $items = @(Get-CloudAssignments -StorePath $storePath | Sort-Object created_utc -Descending)
-                $item = Select-Assignment $items 'Numero de asignacion'
+                $item = Select-Assignment $items 'Assignment number'
                 if ($item) { Show-AssignmentHistory $item }
             }
-            default { Write-Warning 'Seleccion no valida.' }
+            default { Write-Warning 'Invalid selection.' }
         }
     } catch {
         Write-Error -ErrorAction Continue $_.Exception.Message

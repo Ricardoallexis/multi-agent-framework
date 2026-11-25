@@ -62,19 +62,19 @@ try {
 
     # Summary lines.
     $a = Get-Summary $html 'seg:AAA'
-    Assert-True ($a -match '2 integrada' -and $a -match '1 en curso' -and $a -match '2 disponible') 'stage counts by state'
-    Assert-True ($a -match 'Última actividad 2026-05-04 09:25') 'stage last activity'
-    Assert-True ($a -match 'trabajando: Claude-Opus en T03') 'active worker'
-    Assert-True ((Get-Summary $html 'seg:AAA:fase-a') -match 'Fase A.*2 de 2 terminadas o integradas') 'phase A summary'
-    Assert-True ((Get-Summary $html 'seg:AAA:fase-b') -match 'Fase B.*0 de 2 terminadas o integradas') 'phase B summary'
+    Assert-True ($a -match '2 Integrated' -and $a -match '1 In progress' -and $a -match '2 Available') 'stage counts by state'
+    Assert-True ($a -match 'Last activity 2026-05-04 09:25') 'stage last activity'
+    Assert-True ($a -match 'working: Claude-Opus on T03') 'active worker'
+    Assert-True ((Get-Summary $html 'seg:AAA:fase-a') -match 'Fase A.*2 of 2 completed or integrated') 'phase A summary'
+    Assert-True ((Get-Summary $html 'seg:AAA:fase-b') -match 'Fase B.*0 of 2 completed or integrated') 'phase B summary'
     $z = Get-Summary $html 'seg:ZZZ'
-    Assert-True ($z -match 'Cerrada el 2026-02-10 18:45') 'closed stage date'
-    Assert-True ($z -match '1 integrada') 'closed stage counts'
+    Assert-True ($z -match 'Closed on 2026-02-10 18:45') 'closed stage date'
+    Assert-True ($z -match '1 Integrated') 'closed stage counts'
 
     # Buttons: two per tab (tareas, historico) plus two per stage.
     Assert-True ([regex]::Matches($html, 'data-seg-scope="tab"').Count -eq 4) 'tab buttons'
     Assert-True ([regex]::Matches($html, 'data-seg-scope="stage"').Count -eq 4) 'stage buttons'
-    Assert-True ($html -match '>Expandir todo<' -and $html -match '>Compactar todo<') 'button labels'
+    Assert-True ($html -match '>Expand all<' -and $html -match '>Collapse all<') 'button labels'
 
     # Script: remembered state, guarded by try/catch.
     $script = [regex]::Match($html, '(?s)<script>(.*)</script>').Groups[1].Value

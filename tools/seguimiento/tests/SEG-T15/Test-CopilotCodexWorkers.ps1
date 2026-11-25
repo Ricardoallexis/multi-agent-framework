@@ -137,7 +137,7 @@ try {
     Write-Card 'T12' 'en curso' @((Deleg '11:00' 'GPT worker' "copilot:$($cp.work)" 'pieza devuelta'), '| 2026-10-11 11:30 | Claude-Opus | devuelta | GPT worker: listo |')
     # T13: reference written in upper case (kept lower case by registrar-delegacion.ps1, but a hand-written card must still work).
     Write-Card 'T13' 'en curso' @((Deleg '11:00' 'GPT worker' "COPILOT:$($cp.upper.ToUpperInvariant())" 'pieza mayúsculas'))
-    # T14: terminada task, not an activity line; T15: worker only in ejecuciones.jsonl with a Codex reference.
+    # T14: completed task, not an activity line; T15: worker only in ejecuciones.jsonl with a Codex reference.
     Write-Card 'T14' 'terminada' @((Deleg '11:00' 'GPT worker' "copilot:$($cp.work)" 'pieza terminada'))
     Write-Card 'T15' 'en curso' @()
     Set-Content (Join-Path $channel 'orquestacion\AAA\ejecuciones.jsonl') @(
@@ -148,45 +148,45 @@ try {
     $html = [System.Net.WebUtility]::HtmlDecode([IO.File]::ReadAllText((Join-Path $channel 'SEGUIMIENTO.html')))
 
     # Copilot: activity states and app · model
-    Assert-True ($html -match 'T01: Copilot · gpt-5\.6-luna \(T2\) desde 11:00 · Trabajando · pieza uno') 'T01 Copilot working, app · model'
-    Assert-True ($html -match 'T02: Copilot · gpt-5\.6-luna \(T2\) desde 11:30 · Ejecutando prueba · desde 11:38 · pieza dos') 'T02 Copilot running a test (start 11:38 = unanswered tool.execution_start)'
-    Assert-True ($html -match 'T03: Copilot · gpt-5\.6-luna \(T2\) desde 11:00 · Sin actividad reciente · última hace 20 min · pieza tres') 'T03 answered tool is not a running test'
-    Assert-True ($html -match 'T03: Copilot · gpt-5\.6-luna \(T2\) desde 11:05 · Probablemente detenido · pieza cuatro') 'T03 Copilot stopped'
-    Assert-True ($html -match 'T04: Copilot · gpt-5\.6-luna \(T2\) desde 11:00 · Sin actividad reciente · última hace 20 min · pieza cinco') 'T04 a non-shell tool mentioning pytest is not a test'
-    Assert-True ($html -match 'T05: Copilot · claude-sonnet-5\.5 \(T2\) desde 11:00 · Trabajando · pieza seis') 'T05 model from the head when the tail has none'
-    Assert-True ($html -match 'T06: Copilot GPT-5\.2 \(T2\) desde 11:00 · sin señal de actividad · pieza siete') 'T06 missing session: worker already named Copilot'
-    Assert-True ($html -match 'T06: Copilot · GPT-5\.2 \(T1\) desde 11:10 · sin señal de actividad · pieza ocho') 'T06 missing session: app prefix added'
+    Assert-True ($html -match 'T01: Copilot · gpt-5\.6-luna \(T2\) since 11:00 · Working · pieza uno') 'T01 Copilot working, app · model'
+    Assert-True ($html -match 'T02: Copilot · gpt-5\.6-luna \(T2\) since 11:30 · Running test · since 11:38 · pieza dos') 'T02 Copilot running a test (start 11:38 = unanswered tool.execution_start)'
+    Assert-True ($html -match 'T03: Copilot · gpt-5\.6-luna \(T2\) since 11:00 · No recent activity · last seen 20 min ago · pieza tres') 'T03 answered tool is not a running test'
+    Assert-True ($html -match 'T03: Copilot · gpt-5\.6-luna \(T2\) since 11:05 · Probably stopped · pieza cuatro') 'T03 Copilot stopped'
+    Assert-True ($html -match 'T04: Copilot · gpt-5\.6-luna \(T2\) since 11:00 · No recent activity · last seen 20 min ago · pieza cinco') 'T04 a non-shell tool mentioning pytest is not a test'
+    Assert-True ($html -match 'T05: Copilot · claude-sonnet-5\.5 \(T2\) since 11:00 · Working · pieza seis') 'T05 model from the head when the tail has none'
+    Assert-True ($html -match 'T06: Copilot GPT-5\.2 \(T2\) since 11:00 · No activity signal · pieza siete') 'T06 missing session: worker already named Copilot'
+    Assert-True ($html -match 'T06: Copilot · GPT-5\.2 \(T1\) since 11:10 · No activity signal · pieza ocho') 'T06 missing session: app prefix added'
     # Codex
-    Assert-True ($html -match 'T07: Codex · gpt-6-luna \(T2\) desde 11:00 · Trabajando · pieza nueve') 'T07 Codex working, app · model'
-    Assert-True ($html -match 'T08: Codex · gpt-6-luna \(T2\) desde 11:30 · Ejecutando prueba · desde 11:38 · pieza diez') 'T08 Codex running a test'
-    Assert-True ($html -match 'T09: Codex · gpt-6-luna \(T2\) desde 11:00 · Sin actividad reciente · última hace 20 min · pieza once') 'T09 answered call is not a running test'
-    Assert-True ($html -match 'T09: Codex · gpt-6-luna \(T2\) desde 11:05 · Probablemente detenido · pieza doce') 'T09 Codex stopped'
-    Assert-True ($html -match 'T10: Codex · gpt-6-luna \(T2\) desde 11:00 · Sin actividad reciente · última hace 20 min · pieza trece') 'T10 send_message mentioning pytest is not a test'
-    Assert-True ($html -match 'T10: Codex · gpt-6-luna \(T2\) desde 11:10 · Ejecutando prueba · desde 11:38 · pieza catorce') 'T10 probar.ps1 through shell_command'
-    Assert-True ($html -match 'T11: Codex · gpt-6-sol \(T2\) desde 11:00 · Trabajando · pieza quince') 'T11 model from the head of the rollout'
-    Assert-True ($html -match 'T11: Codex · GPT \(T1\) desde 11:10 · sin señal de actividad · pieza dieciséis') 'T11 missing thread: app prefix added'
-    Assert-True ($html -match 'T13: Copilot · gpt-5\.6-luna \(T2\) desde 11:00 · Trabajando · pieza mayúsculas') 'T13 upper case reference'
+    Assert-True ($html -match 'T07: Codex · gpt-6-luna \(T2\) since 11:00 · Working · pieza nueve') 'T07 Codex working, app · model'
+    Assert-True ($html -match 'T08: Codex · gpt-6-luna \(T2\) since 11:30 · Running test · since 11:38 · pieza diez') 'T08 Codex running a test'
+    Assert-True ($html -match 'T09: Codex · gpt-6-luna \(T2\) since 11:00 · No recent activity · last seen 20 min ago · pieza once') 'T09 answered call is not a running test'
+    Assert-True ($html -match 'T09: Codex · gpt-6-luna \(T2\) since 11:05 · Probably stopped · pieza doce') 'T09 Codex stopped'
+    Assert-True ($html -match 'T10: Codex · gpt-6-luna \(T2\) since 11:00 · No recent activity · last seen 20 min ago · pieza trece') 'T10 send_message mentioning pytest is not a test'
+    Assert-True ($html -match 'T10: Codex · gpt-6-luna \(T2\) since 11:10 · Running test · since 11:38 · pieza catorce') 'T10 probar.ps1 through shell_command'
+    Assert-True ($html -match 'T11: Codex · gpt-6-sol \(T2\) since 11:00 · Working · pieza quince') 'T11 model from the head of the rollout'
+    Assert-True ($html -match 'T11: Codex · GPT \(T1\) since 11:10 · No activity signal · pieza dieciséis') 'T11 missing thread: app prefix added'
+    Assert-True ($html -match 'T13: Copilot · gpt-5\.6-luna \(T2\) since 11:00 · Working · pieza mayúsculas') 'T13 upper case reference'
     Assert-True ($html -notmatch 'T12: [^<]*pieza devuelta') 'T12 returned delegation is not an activity line'
     Assert-True ($html -notmatch 'T14: [^<]*pieza terminada') 'T14 delivered task has no activity line'
 
     # Trabajaron column: app · model in the worker label, tokens/activity lines untouched
     $c1 = Get-Cell (Get-Row $html 'T01')
-    Assert-True ($c1 -match '<summary>Copilot · gpt-5\.6-luna \(T2, esfuerzo medio\)') 'T01 Trabajaron label: Copilot · model (level, effort)'
-    Assert-True ($c1 -match 'desde 11:00 · en curso · Trabajando') 'T01 activity in the Trabajaron cell'
+    Assert-True ($c1 -match '<summary>Copilot · gpt-5\.6-luna \(T2, effort medium\)') 'T01 Contributors label: Copilot · model (level, effort)'
+    Assert-True ($c1 -match 'since 11:00 · in progress · Working') 'T01 activity in the Contributors cell'
     Assert-True ($c1 -notmatch 'GPT worker') 'T01 the registered name is replaced by app · model'
     $c7 = Get-Cell (Get-Row $html 'T07')
-    Assert-True ($c7 -match '<summary>Codex · gpt-6-luna \(T2, esfuerzo medio\)') 'T07 Trabajaron label: Codex · model'
-    Assert-True ($c7 -match 'Tokens: 485 · entrada 310 · salida 45 · exacto por ventana') 'T07 exact tokens with child threads shown'
-    Assert-True ((Get-Cell (Get-Row $html 'T08')) -match 'Tokens: sin datos') 'T08 tokens sin datos'
+    Assert-True ($c7 -match '<summary>Codex · gpt-6-luna \(T2, effort medium\)') 'T07 Contributors label: Codex · model'
+    Assert-True ($c7 -match 'Tokens: 485 · input 310 · output 45 · exact per window') 'T07 exact tokens with child threads shown'
+    Assert-True ((Get-Cell (Get-Row $html 'T08')) -match 'Tokens: no data') 'T08 tokens without data'
     $c12 = Get-Cell (Get-Row $html 'T12')
-    Assert-True ($c12 -match '<summary>Copilot · gpt-5\.6-luna \(T2, esfuerzo medio\)') 'T12 returned delegation keeps app · model'
-    Assert-True ($c12 -match 'desde 11:00 hasta 11:30' -and $c12 -match 'Resultado: listo') 'T12 times and result'
+    Assert-True ($c12 -match '<summary>Copilot · gpt-5\.6-luna \(T2, effort medium\)') 'T12 returned delegation keeps app · model'
+    Assert-True ($c12 -match 'since 11:00 until 11:30' -and $c12 -match 'Result: listo') 'T12 times and result'
     $c14 = Get-Cell (Get-Row $html 'T14')
-    Assert-True ($c14 -match '<summary>Copilot · gpt-5\.6-luna \(T2, esfuerzo medio\)' -and $c14 -match 'sin devolver') 'T14 listed as worked, not active'
+    Assert-True ($c14 -match '<summary>Copilot · gpt-5\.6-luna \(T2, effort medium\)' -and $c14 -match 'not returned') 'T14 listed as worked, not active'
     $c15 = Get-Cell (Get-Row $html 'T15')
-    Assert-True ($c15 -match '<summary>Codex · gpt-6-luna \(gpt-6, esfuerzo high\)') 'T15 worker only in ejecuciones.jsonl: Codex · model'
+    Assert-True ($c15 -match '<summary>Codex · gpt-6-luna \(gpt-6, effort high\)') 'T15 worker only in ejecuciones.jsonl: Codex · model'
     $c6 = Get-Cell (Get-Row $html 'T06')
-    Assert-True ($c6 -match '<summary>Copilot GPT-5\.2 \(T2, esfuerzo medio\)') 'T06 label without data keeps the worker name'
+    Assert-True ($c6 -match '<summary>Copilot GPT-5\.2 \(T2, effort medium\)') 'T06 label without data keeps the worker name'
 
     # Nothing of the sessions is printed
     Assert-True ($html -notmatch 'SECRET-CONTENT' -and $html -notmatch 'SECRET-CMD') 'session content never printed'
