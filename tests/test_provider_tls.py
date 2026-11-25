@@ -239,7 +239,7 @@ def test_probe_only_on_request(tmp_path, fresh_gemini_state):
     services = _stub_services(tmp_path, {"ollama": FakeProvider(), "openai": openai, "gemini": gemini})
     connections = ConnectionServices(services, detector=_detector)
     client, headers = _client(tmp_path, connections)
-    assert len(client.get("/gui/api/connections", headers=headers).json()["connections"]) == 7
+    assert len(client.get("/gui/api/connections", headers=headers).json()["connections"]) == 8
     assert client.post("/gui/api/connections/openai/check", headers=headers, json={}).status_code == 200
     assert (openai.probes, gemini.probes) == (0, 0)
     row = client.post("/gui/api/connections/openai/probe", headers=headers, json={}).json()

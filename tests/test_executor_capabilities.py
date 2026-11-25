@@ -100,6 +100,25 @@ def test_model_and_note_are_optional_and_round_trip_without_changing_the_old_sha
     assert "model" not in legacy["model_support"] and ExecutorDescriptor(**legacy).model_support == _evidence()
 
 
+def test_transport_evidence_round_trips_and_is_bound_to_the_descriptor():
+    descriptor = validate_executor_descriptor(ExecutorDescriptor(
+        executor_id="codex_cli", surface="codex_cli", transports=("cli", "acp"),
+        transport_evidence=_evidence(scope="codex_cli", values=("acp",))))
+    restored = ExecutorDescriptor(**json.loads(json.dumps(descriptor.to_dict())))
+    assert restored == descriptor
+    assert restored.transports == ("cli", "acp")
+    assert restored.transport_evidence.values == frozenset({"acp"})
+    assert descriptor_from_declaration("codex_cli", {"surface": "codex_cli"}).transports == ("cli",)
+
+    with pytest.raises(ValueError, match="transport evidence values"):
+        validate_executor_descriptor(ExecutorDescriptor(
+            executor_id="codex_cli", surface="codex_cli", transports=("cli",),
+            transport_evidence=_evidence(scope="codex_cli", values=("acp",))))
+    with pytest.raises(ValueError, match="unique cli or acp"):
+        validate_executor_descriptor(ExecutorDescriptor(
+            executor_id="codex_cli", surface="codex_cli", transports=("cli", "cli")))
+
+
 # -- validation ---------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("name", EXECUTOR_EVIDENCE_FIELDS)

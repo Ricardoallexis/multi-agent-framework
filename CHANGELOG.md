@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Executors: an explicit, bounded Codex ACP initialize probe with transport evidence while the adapter stays disabled until a person activates it.
 - Executors: a result-preserving CLI transport interface for executor adapters, with bounded post-run events and session-safe resume.
 - Corrections the person asks for are no longer capped: they do not count against max_iterations, each gets its own model-call and time allowance, and a run stopped by its own call or time limit accepts a correction again (in Mock too). Automatic revision loops stay bounded and the provider's quota still blocks the exhausted model. New read-only run limit state at GET /gui/api/runs/{run_id}/limit; the run thread offers “changes” again after a cut by the run's own limits.
 - Docs: restore the full capability and framework comparison while distinguishing published 1.0, unreleased checkout work, and roadmap status; add dated CLI orchestrator research.

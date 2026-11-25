@@ -26,8 +26,12 @@ def add_connection_routes(api: APIRouter, services) -> None:
         return connections.check(connection_id)
 
     @api.post("/connections/{connection_id}/probe")
-    def probe_connection(connection_id: str):    # the only route that asks a provider anything; the person pressed it
+    def probe_connection(connection_id: str):    # explicit provider probe; the person requested it
         return connections.probe(connection_id)
+
+    @api.post("/connections/{connection_id}/acp-probe")
+    def probe_acp_connection(connection_id: str):
+        return connections.probe_acp(connection_id)
 
     @api.post("/connections/{connection_id}/tls-trust")
     def set_tls_trust(connection_id: str, body: TlsTrustBody):

@@ -4,18 +4,23 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from ..adapters.tls import effective_tls_trust, is_tls_failure, provider_ssl_context
 from ..executors.antigravity import LAUNCH_FLOOR_PERCENT, NOTICE_ID, PAUSE_FLOOR_PERCENT
+from ..executors.acp_probe import probe_codex_acp, resolve_codex_acp
+from ..routing.executor_capabilities import CapabilityEvidence, SupportState, validate_executor_descriptor
 from ..setup.detect import detect
 from .errors import NOT_FOUND, ServiceError
 from .limits import LIMIT_REASONS, limit_notice
 
-IDS = ("gemini", "openai", "ollama", "claude_cli", "codex_cli", "copilot_cli", "antigravity_cli")
+IDS = ("gemini", "openai", "ollama", "claude_cli", "codex_cli", "codex_acp", "copilot_cli", "antigravity_cli")
 APPS = {"claude_cli": "claude", "codex_cli": "codex", "copilot_cli": "copilot", "antigravity_cli": "agy"}
+ACP_CONNECTION_ID = "codex_acp"
+ACP_EXECUTOR_ID = "codex_cli"
 KEYS = {"gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}
 KEY_FILE = ".local/.env"
 PROVIDERS = ("gemini", "openai", "ollama")     # the rows with a model provider: they share the certificates setting
@@ -37,13 +42,18 @@ class ConnectionServices:
     """Inspect fixed, non-generating signals; never return credentials or raw command output."""
 
     def __init__(self, services, *, detector: Callable[..., dict] = detect,
-                 clock: Callable[[], datetime] | None = None):
+                 clock: Callable[[], datetime] | None = None,
+                 acp_resolver: Callable[[Path], str | None] = resolve_codex_acp,
+                 acp_probe: Callable[..., dict[str, Any]] = probe_codex_acp):
         self._services = services
         self.detector = detector
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self._acp_resolver = acp_resolver
+        self._acp_probe = acp_probe
         self._last: dict[str, dict[str, Any]] = {}
         self._batch_detection: dict[str, Any] | None = None
         self._probed: dict[str, str] = {}      # the outcome of the last "Test connection" of each provider
+        self._acp_probe_result: dict[str, Any] | None = None
 
     def list(self) -> dict[str, Any]:
         if any(identifier not in self._last for identifier in APPS):
@@ -72,13 +82,14 @@ class ConnectionServices:
         if identifier not in IDS:
             raise ServiceError(NOT_FOUND, "Connection not found", status=404, details={"id": identifier})
         now = self.clock().astimezone(timezone.utc).isoformat()
-        row: dict[str, Any] = {"id": identifier, "kind": "executor" if identifier in APPS else "model",
+        row: dict[str, Any] = {"id": identifier,
+                               "kind": "executor" if identifier in APPS or identifier == ACP_CONNECTION_ID else "model",
                                "installed": None, "version": None, "session": "not_applicable",
                                "key_configured": None, "key_setting": None, "key_file": None,
                                "reachable": None, "enabled": True, "quota": None,
                                "available": False, "reason": None, "missing_step": None,
                                "checked_at": now}
-        if identifier in APPS:
+        if identifier in APPS or identifier == ACP_CONNECTION_ID:
             self._executor(row)
         else:
             self._model(row)
@@ -94,6 +105,14 @@ class ConnectionServices:
 
     def _executor(self, row: dict[str, Any]) -> None:
         identifier = row["id"]
+        if identifier == ACP_CONNECTION_ID:
+            installed = self._acp_resolver(Path.cwd()) is not None
+            row.update(installed=installed, enabled=False, session="not_applicable",
+                       reason="disabled" if installed else "not_installed",
+                       missing_step="enable" if installed else "install")
+            if self._acp_probe_result is not None:
+                row["acp_probe"] = dict(self._acp_probe_result)
+            return
         app = APPS[identifier]
         settings = self._services.settings
         try:
@@ -271,6 +290,38 @@ class ConnectionServices:
         row = self.check(identifier)
         row["probe"] = outcome
         return row
+
+    def probe_acp(self, identifier: str) -> dict[str, Any]:
+        """Explicitly probe the installed Codex ACP adapter with initialize only; never activate or persist it."""
+        if identifier != ACP_CONNECTION_ID:
+            raise ServiceError(NOT_FOUND, "Connection not found", status=404, details={"id": identifier})
+        row = self.check(identifier)
+        if row["installed"] is not True:
+            result = {"status": "not_installed"}
+        else:
+            executable = self._acp_resolver(Path.cwd())
+            result = ({"status": "not_installed"} if executable is None else
+                      self._acp_probe(executable, cwd=Path.cwd()))
+        if result.get("status") == "compatible":
+            registry = getattr(self._services.executors, "registry", None)
+            descriptor = registry.get(ACP_EXECUTOR_ID) if registry is not None else None
+            if descriptor is None:
+                result["descriptor_error"] = "executor_descriptor_unavailable"
+            else:
+                observed_at = self.clock().astimezone(timezone.utc).isoformat()
+                evidence = CapabilityEvidence(
+                    status=SupportState.SUPPORTED, source="codex-acp initialize",
+                    provenance="runtime_probe", scope=ACP_EXECUTOR_ID, observed_at=observed_at,
+                    values=frozenset({"acp"}))
+                overlay = validate_executor_descriptor(replace(
+                    descriptor, transports=tuple(dict.fromkeys((*descriptor.transports, "cli", "acp"))),
+                    transport_evidence=evidence))
+                result["observed_at"] = observed_at
+                result["descriptor"] = overlay.to_dict()
+        self._acp_probe_result = dict(result)
+        row["acp_probe"] = dict(result)
+        self._last[identifier] = row
+        return dict(row)
 
     def set_tls_trust(self, identifier: str, trust: str, *, actor: str = "user:gui", channel: str = "gui") -> dict[str, Any]:
         """Write ``provider_tls_trust`` (``system`` or ``certifi``), record the change, drop the cached clients and probe again."""

@@ -41,7 +41,8 @@ BASE_EVIDENCE_FIELDS = ("model_support", "effort_support", "context_isolation", 
 # open); UNSUPPORTED means it was observed not to hold; UNKNOWN (default) means no evidence either way.
 EXECUTOR_EVIDENCE_FIELDS = ("noninteractive_launch", "structured_output", "session_store", "resume",
                             "blocks_when_open", "open_in_app", "quota_signal", "terms")
-EVIDENCE_FIELDS = BASE_EVIDENCE_FIELDS + EXECUTOR_EVIDENCE_FIELDS
+TRANSPORT_EVIDENCE_FIELDS = ("transport_evidence",)
+EVIDENCE_FIELDS = BASE_EVIDENCE_FIELDS + EXECUTOR_EVIDENCE_FIELDS + TRANSPORT_EVIDENCE_FIELDS
 _SET_FIELDS = ("capabilities_available", "roles_available", "permissions_available",
                "permissions_required", "permissions_consumed", "permission_ceiling",
                "allowed_data_classes", "execution_modes")
@@ -125,10 +126,20 @@ class ExecutorDescriptor:
     terms: CapabilityEvidence = field(default_factory=CapabilityEvidence)
     # An executor declared ``enabled: false`` is never selected, whatever its mode or evidence.
     enabled: bool = True
+    transports: tuple[str, ...] = ()
+    transport_evidence: CapabilityEvidence = field(default_factory=CapabilityEvidence)
 
     def __post_init__(self) -> None:
         for name in _SET_FIELDS:
             object.__setattr__(self, name, _set(getattr(self, name)))
+        transports = self.transports
+        if isinstance(transports, str):
+            transports = (transports,)
+        elif isinstance(transports, (set, frozenset)):
+            transports = tuple(sorted(transports))
+        elif not isinstance(transports, (tuple, list)):
+            raise TypeError("transports must be a sequence of transport names")
+        object.__setattr__(self, "transports", tuple(transports))
         for name in EVIDENCE_FIELDS:
             value = getattr(self, name)
             if value is None:
@@ -144,6 +155,8 @@ class ExecutorDescriptor:
                 result[name] = sorted(value)
             elif isinstance(value, CapabilityEvidence):
                 result[name] = value.to_dict()
+            elif isinstance(value, tuple):
+                result[name] = list(value)
             else:
                 result[name] = value
         return result
@@ -160,6 +173,9 @@ def validate_executor_descriptor(value: ExecutorDescriptor | Mapping[str, Any]) 
         raise ValueError("executor_id, surface, and version are required")
     if descriptor.mode not in {"automatic", "manual", "inherited", "unknown"}:
         raise ValueError("executor mode must be automatic, manual, inherited, or unknown")
+    if (len(descriptor.transports) != len(set(descriptor.transports))
+            or any(not isinstance(item, str) or item not in {"cli", "acp"} for item in descriptor.transports)):
+        raise ValueError("executor transports must contain unique cli or acp names")
     for name in ("model_support", "effort_support", "context_isolation"):
         evidence = getattr(descriptor, name)
         if evidence.status is not SupportState.SUPPORTED:
@@ -172,7 +188,7 @@ def validate_executor_descriptor(value: ExecutorDescriptor | Mapping[str, Any]) 
             raise ValueError(f"supported {name} requires source, provenance, and scope")
     if not isinstance(descriptor.enabled, bool):
         raise ValueError("executor enabled must be true or false")
-    for name in EXECUTOR_EVIDENCE_FIELDS:
+    for name in (*EXECUTOR_EVIDENCE_FIELDS, *TRANSPORT_EVIDENCE_FIELDS):
         evidence = getattr(descriptor, name)
         if not isinstance(evidence, CapabilityEvidence):
             raise ValueError(f"{name} must be capability evidence")
@@ -184,6 +200,8 @@ def validate_executor_descriptor(value: ExecutorDescriptor | Mapping[str, Any]) 
             raise ValueError(f"{name} evidence requires source, provenance, scope, and observed_at")
         if evidence.status is SupportState.SUPPORTED and name != "blocks_when_open" and not evidence.values:
             raise ValueError(f"supported {name} requires explicit values")
+        if name == "transport_evidence" and evidence.values and not evidence.values <= set(descriptor.transports):
+            raise ValueError("transport evidence values must be listed in transports")
     return descriptor
 
 
@@ -196,10 +214,14 @@ def descriptor_from_declaration(executor_id: str, declaration: Mapping[str, Any]
     """Manual descriptor from a catalog declaration (no adapter): never automatic, evidence as declared."""
     kwargs: dict[str, Any] = {name: declaration.get(name) for name in _SET_FIELDS}
     kwargs.update({name: declaration.get(name) for name in EVIDENCE_FIELDS if declaration.get(name) is not None})
+    surface = str(declaration.get("surface", "unknown"))
+    transports = declaration.get("transports")
+    if transports is None:
+        transports = ("cli",) if surface.endswith("_cli") else ()
     descriptor = validate_executor_descriptor(ExecutorDescriptor(
-        executor_id=str(executor_id), surface=str(declaration.get("surface", "unknown")),
-        version=str(declaration.get("version", "1")), mode="manual", provenance="catalog_declared",
-        enabled=declaration.get("enabled", True) is True, **kwargs))
+        executor_id=str(executor_id), surface=surface, version=str(declaration.get("version", "1")),
+        mode="manual", provenance="catalog_declared", enabled=declaration.get("enabled", True) is True,
+        transports=transports, **kwargs))
     # S5.C1: existing declarations may use ids outside the namespaced pattern; warn, never reject.
     for bad in executor_capability_warnings(descriptor):
         with _warning_lock:
@@ -233,6 +255,9 @@ def validate_executor_config(config: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(f"executor {executor_id} requires a nonempty surface ID")
         if "enabled" in entry and not isinstance(entry["enabled"], bool):
             raise ValueError(f"executor {executor_id} enabled must be true or false")
+        transports = entry.get("transports")
+        if transports is not None and not isinstance(transports, (list, tuple, set, frozenset)):
+            raise ValueError(f"executor {executor_id} transports must be a list of names")
         for name in EVIDENCE_FIELDS:
             evidence = entry.get(name)
             if evidence is None:

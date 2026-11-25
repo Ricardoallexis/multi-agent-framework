@@ -147,6 +147,13 @@ The framework installs nothing in the background and never types credentials. Wh
 signed in, «Apps y agentes» offers **Activar**
 ([Only a person turns an executor on](#only-a-person-turns-an-executor-on)); it no longer shows lines to copy.
 
+Codex ACP is a separate `codex-acp` executable; finding `codex` does not mean that `codex-acp` is installed. A person
+may explicitly probe an installed adapter with one ACP `initialize` request. The probe creates no session, sends no
+prompt, does not authenticate or activate the executor, and does not install an adapter. Any `agentInfo`,
+capabilities, and authentication methods in its result are claims announced by that process, not identity,
+authentication, permission, quota, or task-compatibility checks. Evidence is kept in memory and can be refreshed by
+another explicit probe.
+
 ### Turning an executor on by hand
 
 The manual way stays in the advanced mode, for another system or when the GUI is not at hand. It is the person's step,
