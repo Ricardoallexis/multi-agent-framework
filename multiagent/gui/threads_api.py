@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Query
 
+from ..call_guards import cut_by_run_limits
 from .runs import _clean, run_view
 
 
@@ -26,7 +27,9 @@ _FINALS = {"workflow_completed", "workflow_failed", "workflow_cancelled", "human
 
 def _decision(run: dict[str, Any], view: dict[str, Any]) -> dict[str, Any]:
     reason = run.get("waiting_reason") or "review"
-    actions = (["approve", "changes", "reject"] if reason in _REVIEW and not run.get("budget_exhausted")
+    exhausted = bool(run.get("budget_exhausted")) or reason == "budget_exhausted"
+    actions = (["approve", "changes", "reject"] if (reason in _REVIEW and not run.get("budget_exhausted"))
+               or (exhausted and reason in _REVIEW | {"budget_exhausted"} and cut_by_run_limits(run))  # still takes corrections
                else ["approve", "reject"] if reason in _REVIEW or reason in _APPROVE_REJECT else [])
     if reason in {"execute_step", "research"}:
         actions = ["human-submit", "reject"]

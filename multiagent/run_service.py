@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .call_guards import cut_by_run_limits
 from .config import Settings
 from .contracts import HumanStepSubmission, RunStatus, SocialPostRequest, WaitingReason
 from .db.store import Store
@@ -176,7 +177,8 @@ class RunService:
             WaitingReason.REVIEW.value, WaitingReason.APPROVAL_PENDING.value, WaitingReason.BUDGET_EXHAUSTED.value, ""
         }:
             raise InvalidStateTransition("Revisions can only be requested in WAITING_HUMAN/review")
-        if run.get("budget_exhausted") or run.get("waiting_reason") == WaitingReason.BUDGET_EXHAUSTED.value:
+        exhausted = bool(run.get("budget_exhausted")) or run.get("waiting_reason") == WaitingReason.BUDGET_EXHAUSTED.value
+        if exhausted and not cut_by_run_limits(run):
             raise BudgetExceeded("The budget is exhausted; only the existing artifact can be approved or rejected")
         if not feedback.strip() and not comments and not regenerate:
             raise ValueError("Feedback is required for revise")
@@ -187,8 +189,13 @@ class RunService:
         feedback = "" if regenerate else feedback.strip()
         rendered = render_revision_feedback(feedback, comments, step_id=artifact["step_id"],
                                             attempt=artifact["attempt"])
+        current_step = run["current_step"]
+        if exhausted:
+            # The cut left the cursor on the step that could not run: the correction redoes the step under review.
+            definition, _ = self.engine.review_point(run)
+            current_step = [step.id for step in definition.steps].index(artifact["step_id"])
         self.store.finish_review(
-            run, artifact, approve=False, current_step=run["current_step"],
+            run, artifact, approve=False, current_step=current_step,
             feedback=feedback, revision_feedback=rendered,
             comments=[comment.model_dump() for comment in comments], by=by, channel=channel,
             regenerate=regenerate,

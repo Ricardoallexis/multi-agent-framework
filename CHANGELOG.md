@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Corrections the person asks for are no longer capped: they do not count against max_iterations, each gets its own model-call and time allowance, and a run stopped by its own call or time limit accepts a correction again (in Mock too). Automatic revision loops stay bounded and the provider's quota still blocks the exhausted model. New read-only run limit state at GET /gui/api/runs/{run_id}/limit; the run thread offers “changes” again after a cut by the run's own limits.
 - Docs: restore the full capability and framework comparison while distinguishing published 1.0, unreleased checkout work, and roadmap status; add dated CLI orchestrator research.
 - GUI: a language selector in «Personalizar» switches the navigation, «Personalizar» and the Ctrl+K palette between English and Spanish at once, through per-view dictionaries (`static/i18n/<lang>/`); the GUI tests read the visible text through `ui_text()` so they follow a view once it is translated.
 - Server: the CLI, API and service messages a person reads (activation notes, detection, first run, package warnings, office requirements, approvals, errors and inbox states) are in English; error codes, keys, paths and response shapes are unchanged.

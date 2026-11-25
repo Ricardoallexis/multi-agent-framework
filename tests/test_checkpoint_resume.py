@@ -282,6 +282,10 @@ def test_budget_stop_approves_existing_result_without_resuming(system, legacy):
     assert (stopped["waiting_step"], stopped["waiting_attempt"]) == ("strategy", 1)
     if legacy:
         system.store.update_run(run["id"], waiting_step="", waiting_attempt=None)
+    # The cut came from the run's own limits, so a correction would be accepted (LIM-T01); the provider's quota
+    # is what still refuses it.
+    system.store.db.log_event(run["id"], "model_attempt", {"step_id": "strategy", "model": "m", "provider": "p",
+                                                           "error_type": "QuotaExceeded"})
     with pytest.raises(BudgetExceeded):
         system.run_service.changes(run["id"], "Try again")
     completed = system.run_service.approve(run["id"])

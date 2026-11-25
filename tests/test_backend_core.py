@@ -111,16 +111,16 @@ def test_changes_repeat_only_create_step(tmp_path):
     assert create_attempts == 2
 
 
-def test_max_revision_iterations(tmp_path):
+def test_person_corrections_do_not_count_against_max_iterations(tmp_path):
+    # LIM-T01: max_iterations bounds automatic revision loops; every correction the person asks for is answered.
     s = settings_for(tmp_path); system = build_system(s, dry_run=True)
     run = system.run_service.create_social_post(SocialPostRequest(project_name="p-loop", objective="Create an educational post", topic="KNX"))
     system.worker.process_once()
-    for text in ["change 1", "change 2"]:
+    for text in ["change 1", "change 2", "change 3", "change 4"]:
         system.run_service.changes(run["id"], text); system.worker.process_once()
-    # A third revision request would trigger attempt=4 > max_iterations+1.
-    system.run_service.changes(run["id"], "change 3"); system.worker.process_once()
-    assert system.run_service.get(run["id"])["status"] == RunStatus.WAITING_HUMAN.value
-    assert system.run_service.get(run["id"])["budget_exhausted"] == 1
+    state = system.run_service.get(run["id"])
+    assert state["status"] == RunStatus.WAITING_HUMAN.value
+    assert state["waiting_reason"] == "review" and state["budget_exhausted"] == 0
 
 
 def test_approve_marks_artifact(tmp_path):

@@ -48,6 +48,7 @@ from ..workflow_validation import (
     validate_workflow_definition,
 )
 from ..workflows import WorkflowDefinition, WorkflowStep, condition_is_true
+from ..call_guards import grant_correction_allowance, person_correction_pending
 from .base import BackendContext
 
 
@@ -362,6 +363,7 @@ class MockBackend:
                 heartbeat_at=utcnow(),
             )
             self.store.db.log_event(run_id, "run_started", {})
+            grant_correction_allowance(self.store, self.settings, run_id, run, base_active)
 
             while index < len(definition.steps):
                 self._check_cancel(run_id)
@@ -378,7 +380,8 @@ class MockBackend:
                     continue
 
                 attempt = self.store.latest_step_attempt(run_id, step.id) + 1
-                if attempt > definition.max_iterations + 1:
+                if (attempt > definition.max_iterations + 1
+                        and not person_correction_pending(run.get("events"), step.id, attempt)):
                     raise BudgetExceeded(f"Maximum revision count reached for step={step.id}")
 
                 fresh = self.store.get_run(run_id)

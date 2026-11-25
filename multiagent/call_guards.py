@@ -304,6 +304,60 @@ class RunLimitsGuard:
 
 
 # ---------------------------------------------------------------------------------------------------------
+# Corrections the person asks for (LIM-T01)
+# ---------------------------------------------------------------------------------------------------------
+
+def cut_by_run_limits(run: Mapping[str, Any]) -> bool:
+    """Whether the cut of an exhausted run came from the run's own call or time limits (LIM-T01).
+
+    Those are automatic limits, so the person may still ask for a correction. A cut by the provider's quota (the last
+    model attempt failed with ``QuotaExceeded`` or ``RateLimitExceeded``) or by any other guard is not. One criterion for
+    ``RunService.changes`` and for the actions the thread offers."""
+    if not str(run.get("error") or "").startswith(("max_llm_calls reached", "max_run_seconds reached")):
+        return False
+    attempts = [event.get("payload") or {} for event in run.get("events") or [] if event.get("event_type") == "model_attempt"]
+    return not (attempts and attempts[-1].get("error_type") in ("QuotaExceeded", "RateLimitExceeded"))
+
+
+def person_correction_pending(events: Iterable[Mapping[str, Any]] | None, step_id: str, attempt: int) -> bool:
+    """Whether ``attempt`` of ``step_id`` is the answer to a correction the person asked for.
+
+    A ``human_revision`` of the step reviewed at attempt N makes attempt N+1. Such an attempt does not count against the
+    workflow's ``max_iterations``, which bounds automatic revision loops only. Any later attempt that no person
+    asked for (N+2 and so on) is not covered, so those loops stay bounded as before."""
+    last = None
+    for event in events or ():
+        payload = event.get("payload") or {}
+        if event.get("event_type") == "human_revision" and payload.get("step_id") == step_id:
+            last = payload.get("attempt")
+    return type(last) is int and attempt <= last + 1
+
+
+def grant_correction_allowance(store: Any, settings: Any, run_id: str, run: Mapping[str, Any], base_active: float) -> None:
+    """A correction the person asked for gets its own call and time allowance.
+
+    ``max_llm_calls`` and ``max_run_seconds`` stop *automatic* work. Each ``human_revision`` that no earlier
+    ``correction_allowance`` covers raises the two limits of the run to ``used + the configured value`` (never lowers
+    them) and clears the run's ``budget_exhausted`` flag, which a cut by those limits had set: the corrected result is
+    reviewed like any other. The allowance is still a limit, spent by the retries and escalations of that correction, and
+    the provider's own quota is untouched (a ``QuotaExceeded`` still stops the model). One event per revision."""
+    last_revision = last_grant = 0
+    for position, event in enumerate(run.get("events") or [], start=1):
+        if event.get("event_type") == "human_revision":
+            last_revision = position
+        elif event.get("event_type") == "correction_allowance":
+            last_grant = position
+    if not last_revision or last_grant > last_revision:
+        return
+    calls = max(int(run["max_llm_calls"]), int(run["llm_calls"]) + int(settings.max_llm_calls))
+    seconds = max(int(run["max_run_seconds"]), int(base_active) + 1 + int(settings.max_run_seconds))
+    with store.db.tx() as conn:
+        conn.execute("UPDATE runs SET max_llm_calls=?, max_run_seconds=?, budget_exhausted=0 WHERE id=?",
+                     (calls, seconds, run_id))
+    store.db.log_event(run_id, "correction_allowance", {"max_llm_calls": calls, "max_run_seconds": seconds})
+
+
+# ---------------------------------------------------------------------------------------------------------
 # Building the chain
 # ---------------------------------------------------------------------------------------------------------
 

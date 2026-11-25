@@ -266,7 +266,8 @@ def test_mid_inference_cancel_discards_result(tmp_path):
     assert any(e["event_type"] == "workflow_cancelled" for e in state["events"])
 
 
-def test_budget_exhausted_with_artifact_remains_approvable(tmp_path):
+def test_a_correction_after_the_call_limit_is_answered_and_approvable(tmp_path):
+    # LIM-T01: the run's own call limit never refuses a correction the person asked for.
     system = build_system(settings_for(tmp_path, max_llm_calls=1), dry_run=True)
     run = system.run_service.create_social_post(SocialPostRequest(project_name="budget", objective="Create content", topic="KNX"))
     system.worker.process_once()
@@ -274,8 +275,8 @@ def test_budget_exhausted_with_artifact_remains_approvable(tmp_path):
     system.worker.process_once()
     state = system.run_service.get(run["id"])
     assert state["status"] == RunStatus.WAITING_HUMAN.value
-    assert state["waiting_reason"] == "budget_exhausted"
-    assert state["budget_exhausted"] == 1
+    assert state["waiting_reason"] == "review"
+    assert state["budget_exhausted"] == 0
     approved = system.run_service.approve(run["id"])
     assert approved["status"] == RunStatus.COMPLETED.value
 

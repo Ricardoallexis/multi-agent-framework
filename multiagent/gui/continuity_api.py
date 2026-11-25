@@ -349,6 +349,92 @@ def decide(services: Any, task_id: str, body: ContinuityDecisionBody) -> dict[st
     return {"ok": True, "executed": False, "repeated": repeated, "decision": body.decision, "task_id": task_id, "card": card}
 
 
+# --------------------------------------------------------------------------- run limit (LIM-T01)
+
+RUN_LIMIT_VERSION = 1
+LIMIT_STATES = ("reached", "not_reached", "unknown", "not_applicable")
+
+
+def _observed_limit(run: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The last model attempt of the run when it failed on the provider's quota or rate limit, else ``None``.
+
+    Only a failure the provider reported counts as evidence; a run that merely used many calls says nothing."""
+    from ..services.limits import LIMIT_ERRORS
+
+    found = None
+    for event in run.get("events") or []:
+        payload = event.get("payload") or {}
+        if event.get("event_type") == "model_attempt":
+            found = ({"at": event.get("ts"), **payload} if payload.get("error_type") in LIMIT_ERRORS else None)
+    return found
+
+
+def _price_per_input_token(spec: Any, now: Any) -> tuple[float, str] | None:
+    """(amount per token, currency) of the catalog's input price when it is current and per token, else ``None``."""
+    from ..catalog import current_price, normalize_price_unit
+
+    prices = current_price(getattr(spec, "pricing", None), now=now)
+    if not prices:
+        return None
+    amount, currency, denominator, unit = prices[0]
+    return (amount / denominator, currency) if normalize_price_unit(unit) == "token" and denominator else None
+
+
+def run_limit_state(services: Any, run: Mapping[str, Any], *, estimated_input_tokens: int | None = None,
+                    now: Any = None) -> dict[str, Any]:
+    """What a person needs to decide about a run whose model reached a usage limit (versioned for EJC).
+
+    ``limit_state`` is ``reached`` only with evidence: the provider's own quota or rate-limit failure on a model attempt
+    of this run (``source`` ``model_attempt``) or a plan window the usage service reads as ``limit_reached``
+    (``source`` ``plan``). A local model has no provider quota (``not_applicable``); anything else is ``unknown``,
+    never "at the maximum". ``candidates`` are the enabled connections other than the affected one; those outside the
+    machine appear only when the run already carries the person's cloud confirmation. ``estimated_input_tokens`` is the
+    size of the payload the caller says would be sent (``None`` when unknown) and ``estimated_cost`` prices only that
+    input, from a current catalog price per token, else ``None``. The object executes and enables nothing: the person
+    confirms the change, once, elsewhere (``executes`` and ``enables`` are false)."""
+    from datetime import datetime, timezone
+
+    from ..services.limits import _instant, limit_notice
+
+    now = now or datetime.now(timezone.utc)
+    models = getattr(getattr(services.system, "catalog", None), "models", None) or {}
+    observed = _observed_limit(run)
+    model_id = str((observed or {}).get("model") or "") or None
+    spec = models.get(model_id) if model_id else None
+    provider = str((observed or {}).get("provider") or getattr(spec, "provider", "") or "") or None
+    state, source, observed_at, resets_at, confidence = "unknown", None, None, None, "none"
+    if observed is not None:
+        state, source, observed_at = "reached", "model_attempt", _instant(observed.get("at"))
+        resets_at = _instant(observed.get("retry_at"))
+        confidence = "high" if resets_at else "none"
+    if provider == "ollama" or str(getattr(spec, "tier", "")).casefold() == "local":
+        state, source, observed_at, resets_at, confidence = "not_applicable", None, None, None, "none"
+    rows = services.connections.list()["connections"]
+    notice = limit_notice(services, model_id or provider or "", retry_at=resets_at, rows=rows, provider=provider)
+    if state == "reached" and resets_at is None and notice["resets_at"] is not None:
+        resets_at, confidence, source = notice["resets_at"], "medium", "plan"
+    confirmed_cloud = bool((run.get("request") or {}).get("confirm_cloud"))
+    candidates = []
+    for row in rows:
+        row_id = row.get("id")
+        if row.get("enabled") is not True or row.get("available") is not True or row_id in {model_id, provider}:
+            continue
+        candidate_spec = models.get(row_id)
+        local = str(getattr(candidate_spec, "tier", "")).casefold() == "local" if candidate_spec else False
+        if not local and not confirmed_cloud:
+            continue
+        price = _price_per_input_token(candidate_spec, now) if candidate_spec is not None else None
+        cost = ({"input_only": True, "amount": round(price[0] * estimated_input_tokens, 6), "currency": price[1]}
+                if price and estimated_input_tokens is not None else None)
+        candidates.append({"id": row_id, "kind": row.get("kind"), "level": getattr(candidate_spec, "level", None),
+                           "local": local, "estimated_input_tokens": estimated_input_tokens, "estimated_cost": cost})
+    return {"version": RUN_LIMIT_VERSION, "run_id": run.get("id"), "limit_state": state, "source": source,
+            "observed_at": observed_at, "resets_at": resets_at, "reset_confidence": confidence, "model": model_id,
+            "provider": provider, "candidates": candidates if state == "reached" else [],
+            "estimated_input_tokens": estimated_input_tokens, "requires_decision": state == "reached",
+            "executes": False, "enables": False}
+
+
 # --------------------------------------------------------------------------- routes
 
 def add_continuity_routes(api: APIRouter, services: Any) -> None:
@@ -373,6 +459,13 @@ def add_continuity_routes(api: APIRouter, services: Any) -> None:
         card = next((item for item in build_cards(services) if native and item["session_id"] == native), None)
         return {"held": card is not None, "session_id": session_id, "card": card}
 
+    @api.get("/runs/{run_id}/limit")
+    def run_limit(run_id: str):
+        """The limit state of a run (LIM-T01): evidence, reset, enabled candidates and the size of what would be sent."""
+        if len(run_id) > 128:
+            raise ServiceError(NOT_FOUND, "Run not found", status=404, details={"run": run_id[:128]})
+        return run_limit_state(services, services.runs.get(run_id))
+
     @api.post("/tasks/{task_id}/continuity/decision")
     def continuity_decision(task_id: str, body: ContinuityDecisionBody):
         """Record the person's confirmed choice (wait or delegate) on the hold; it never starts another executor."""
@@ -382,4 +475,4 @@ def add_continuity_routes(api: APIRouter, services: Any) -> None:
 
 
 __all__ = ["BLOCK_DELEGATION", "DECIDED_EVENT", "ContinuityDecisionBody", "add_continuity_routes", "build_cards", "decide",
-           "held_children", "policy_view", "with_extra_children"]
+           "held_children", "policy_view", "run_limit_state", "with_extra_children"]

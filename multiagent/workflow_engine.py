@@ -20,6 +20,7 @@ from .budget_cut import BudgetPolicy, policy_from_settings
 from .functions import FunctionStepError, execute_function_step
 from .call_guards import (
     SCOPE_RUN_STEP, STOP_USER_CANCEL, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
+    grant_correction_allowance, person_correction_pending,
 )
 from .catalog import Catalog, CatalogError, ModelSpec, validate_routing_profile
 from .context.project_memory import (
@@ -446,6 +447,7 @@ class WorkflowEngine:
                 heartbeat_at=self._now(),
             )
             self.store.db.log_event(run_id, "run_started", {})
+            self._grant_correction_allowance(run_id, run, base_active)
             while index < len(definition.steps):
                 self._check_cancel(run_id)
                 self.store.heartbeat(run_id)
@@ -461,7 +463,8 @@ class WorkflowEngine:
                     continue
 
                 attempt = self.store.latest_step_attempt(run_id, step.id) + 1
-                if attempt > definition.max_iterations + 1:
+                if (attempt > definition.max_iterations + 1
+                        and not person_correction_pending(run.get("events"), step.id, attempt)):
                     raise BudgetExceeded(f"Maximum revision count reached for step={step.id}")
 
                 fresh = self.store.get_run(run_id)
@@ -2272,6 +2275,10 @@ class WorkflowEngine:
     def _check_cancel(self, run_id: str) -> None:
         if self.store.get_run(run_id)["cancel_requested"]:
             raise _CancelledSignal()
+
+    def _grant_correction_allowance(self, run_id: str, run: dict[str, Any], base_active: float) -> None:
+        """A correction the person asked for gets its own call and time allowance (LIM-T01, ``call_guards``)."""
+        grant_correction_allowance(self.store, self.settings, run_id, run, base_active)
 
     def _check_active_budget(self, run_id: str, base_active: float, started_mono: float) -> None:
         fresh = self.store.get_run(run_id)
