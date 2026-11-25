@@ -1139,7 +1139,7 @@ Done steps never come back: the server keeps them, and the screen reads `pending
 
 - **«Pasar a modelos reales»** first shows the fixed note «Los modelos reales pueden costar dinero o usar tu cuota.
   Puedes volver a Mock aquí mismo» and waits for a second click. It then posts `{"models": "real"}` and shows the
-  server's text («Cierra esta ventana y vuelve a abrir Iniciar»). «Volver a Mock» posts `{"models": "mock"}`.
+  server's text («Close this window and reopen the Iniciar launcher»). «Volver a Mock» posts `{"models": "mock"}`.
 - **Tiempos** shows `times_text` as plain text, and «Copiar» writes exactly that text to the clipboard. It is the only
   «Copiar» of the screen, and it copies the hours, never a setting.
 - **Refresh.** The screen asks again every 4 seconds while it is open and when it is opened again. It never sends a
@@ -1366,7 +1366,7 @@ How the click is protected:
   `HttpOnly`, `SameSite=Strict` cookie limited to `/gui/api/approvals`. With `--no-browser` the printed URL
   carries the code, so open that URL yourself.
 - **One browser.** Only the first exchange works for each start. A second tab or browser, or a page opened
-  without the code, sees «Otra pestaña o navegador ya tomó las aprobaciones: reinicia la GUI», and the card
+  without the code, sees «Another tab or browser has already taken the approvals; restart the GUI», and the card
   asks you to restart the GUI. Restarting invalidates every cookie and code.
 - **One code for each decision.** The card asks for a challenge code tied to that approval, its SHA-256 and the
   browser session (`POST /gui/api/approvals/{id}/challenge`), and sends the decision with it in the same click

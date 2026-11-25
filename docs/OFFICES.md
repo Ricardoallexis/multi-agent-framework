@@ -244,7 +244,7 @@ The card shows the office name, each area that is new, changed or removed, its m
 requirements, privacy level, local-only setting, and declared workflows, contracts and roles. A reimport omits areas
 that have not changed. Adding one area shows the office it will join. The fixed notice is:
 
-> Las instrucciones de esta oficina las escribió otra persona. Un ejecutor activado las sigue dentro de su carpeta de trabajo
+> Someone else wrote the instructions in this office. An active executor follows them within its working directory.
 
 ### Data-only and code offices
 

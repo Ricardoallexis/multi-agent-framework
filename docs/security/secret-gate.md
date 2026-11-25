@@ -57,7 +57,7 @@ person at the keyboard.
 - The page exchanges the code once for a cookie (`HttpOnly`, `SameSite=Strict`, limited to
   `/gui/api/approvals`). The code then stops working. Only one browser takes the approvals for each start of
   the GUI; a second tab or browser, or a reload after the code was used, shows
-  «Otra pestaña o navegador ya tomó las aprobaciones: reinicia la GUI». Restarting the GUI creates a new
+  «Another tab or browser has already taken the approvals; restart the GUI». Restarting the GUI creates a new
   code and drops the old cookie and any open challenge.
 - A decision needs the GUI token, the cookie and one more thing: a challenge code made for that approval.
   `POST /gui/api/approvals/{id}/challenge` returns a one-use code tied to the approval, its SHA-256 and the
