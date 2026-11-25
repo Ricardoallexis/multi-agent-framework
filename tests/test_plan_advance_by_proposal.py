@@ -180,7 +180,7 @@ def test_gui_route_conflicts_on_an_unapproved_proposal(env):
 # --- the view ---------------------------------------------------------------------------------------------------
 
 def test_the_advance_button_is_wired_and_helped():
-    view = (JS / "plans.js").read_text(encoding="utf-8")
+    view = ui_text(JS / "plans.js")
     help_text = ui_text(JS / "help-text.js")
     for expected in ('"/advance"', "Avanzar plan", "<${Confirm}", 'topic="plans.advance"', 'helpFor("plans.advance")'):
         assert expected in view, expected
@@ -195,12 +195,19 @@ def test_advance_summary_and_node_check():
     for name in ("plans.js", "help-text.js"):
         checked = subprocess.run([NODE, "--check", str(JS / name)], capture_output=True, text=True, encoding="utf-8", timeout=60)
         assert checked.returncode == 0, (name, checked.stderr)
-    source = (JS / "plans.js").read_text(encoding="utf-8")
-    body = re.search(r"export function advanceSummary\(result\) \{.*?\n\}\n", source, re.S).group(0)
-    script = body.replace("export ", "") + (
-        "console.log(JSON.stringify([advanceSummary(null), advanceSummary({advanced: []}),"
-        " advanceSummary({advanced: [{task_id: 'a'}, {task_id: 'b'}]})]));")
-    out = subprocess.run([NODE, "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    source = ui_text(JS / "plans.js")
+    assert "advanceSummary" in source
+    script = f"""
+      globalThis.window = {{ localStorage: {{ getItem: () => null, setItem: () => {{}} }} }};
+      globalThis.document = {{ documentElement: {{ lang: "" }} }};
+      const ui = await import({json.dumps((JS / "i18n.js").as_uri())});
+      ui.setLanguage("es");
+      const plans = await import({json.dumps((JS / "plans.js").as_uri())});
+      console.log(JSON.stringify([plans.advanceSummary(null), plans.advanceSummary({{advanced: []}}),
+        plans.advanceSummary({{advanced: [{{task_id: "a"}}, {{task_id: "b"}}]}})]));
+    """
+    out = subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True,
+                         encoding="utf-8", timeout=60)
     assert out.returncode == 0, out.stderr
     assert json.loads(out.stdout) == ["No había nada que avanzar.", "No había nada que avanzar.",
                                       "Plan avanzado: a, b."]

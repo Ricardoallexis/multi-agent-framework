@@ -218,7 +218,7 @@ def node_root(tmp_path_factory):
 
 def run_node(root, body):
     script = root / "teams-view.mjs"
-    script.write_text(body, encoding="utf-8")
+    script.write_text('import { setLanguage } from "./js/i18n.js";\nsetLanguage("es");\n' + body, encoding="utf-8")
     result = subprocess.run([NODE, str(script)], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)

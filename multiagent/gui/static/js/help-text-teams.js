@@ -6,416 +6,416 @@
 
 export const HELP = {
   "work_map.refresh": {
-    "title": "Actualizar el mapa",
-    "hint": "Vuelve a leer proyectos y sesiones disponibles.",
-    "more": ["El mapa usa una lectura protegida del servidor local.", "Los avisos de las fuentes no muestran sus identificadores privados."]
+    "title": "Refresh the map",
+    "hint": "Reload available projects and sessions.",
+    "more": ["The map reads from the local server using a protected request.", "Source notices do not show private identifiers."]
   },
   "work_map.search": {
-    "title": "Buscar en el mapa",
-    "hint": "Filtra con el mismo texto el árbol y la lista.",
-    "more": ["Se conservan los ancestros de cada coincidencia.", "La búsqueda cubre proyectos, tareas, sesiones y agentes."]
+    "title": "Search the map",
+    "hint": "Filter the tree and list with the same text.",
+    "more": ["Each match keeps its ancestors.", "Search covers projects, tasks, sessions, and agents."]
   },
   "work_map.active": {
-    "title": "Solo activos",
-    "hint": "Muestra sesiones y agentes que siguen activos.",
-    "more": ["El filtro inicial incluye sesiones activas y sin actividad reciente.", "Puedes quitarlo para incluir elementos terminados."]
+    "title": "Active only",
+    "hint": "Show sessions and agents that are still active.",
+    "more": ["The default filter includes active sessions and those with no recent activity.", "Turn it off to include finished items."]
   },
   "work_map.fold_finished": {
-    "title": "Plegar terminados",
-    "hint": "Pliega los hijos de elementos terminados.",
-    "more": ["La vista inicia con esta opción activada.", "Usa el botón junto a cada elemento para abrir o cerrar sus hijos."]
+    "title": "Collapse finished items",
+    "hint": "Collapse the children of finished items.",
+    "more": ["This option is on when the view opens.", "Use the button beside an item to show or hide its children."]
   },
   "work_map.tree": {
-    "title": "Vista de árbol",
-    "hint": "Organiza proyectos, etapas, tareas y sesiones por relación.",
-    "more": ["Los botones de cada rama permiten plegar sus hijos.", "Las sesiones muestran los agentes enlazados que permite la fuente."]
+    "title": "Tree view",
+    "hint": "Group projects, stages, tasks, and sessions by relationship.",
+    "more": ["Each branch has a button to collapse its children.", "Sessions show linked agents when the source provides them."]
   },
   "work_map.list": {
-    "title": "Vista de lista",
-    "hint": "Presenta los mismos elementos en filas para pantallas estrechas.",
-    "more": ["La búsqueda y el filtro activo se comparten con el árbol.", "Cada fila conserva su nivel de relación."]
+    "title": "List view",
+    "hint": "Show the same items in rows on narrow screens.",
+    "more": ["Search and the active filter are shared with the tree.", "Each row keeps its relationship level."]
   },
   "work_map.fold": {
-    "title": "Plegar rama",
-    "hint": "Oculta o muestra los elementos descendientes.",
-    "more": ["El nombre del botón indica la acción y la rama afectada.", "Los elementos terminados pueden iniciar plegados."]
+    "title": "Collapse branch",
+    "hint": "Hide or show descendant items.",
+    "more": ["The button names the action and the affected branch.", "Finished items may start collapsed."]
   },
   "work_map.open_session": {
-    "title": "Abrir sesión",
-    "hint": "Abre el detalle de esta sesión en la vista Sesiones.",
-    "more": ["La navegación conserva el identificador de la sesión.", "El contenido se vuelve a leer desde el servidor local."]
+    "title": "Open session",
+    "hint": "Open this session's details in the Sessions view.",
+    "more": ["Navigation keeps the session ID.", "Content is reloaded from the local server."]
   },
   "work_map.assignment_edge": {
-    "title": "Encargo de tarea",
-    "hint": "Abre la sesión enlazada a esta tarea.",
-    "more": ["La relación viene del registro de tareas del proyecto.", "El botón funciona con teclado y conserva el foco visible."]
+    "title": "Task assignment",
+    "hint": "Open the session linked to this task.",
+    "more": ["The link comes from the project's task record.", "The button works with a keyboard and keeps focus visible."]
   },
   "work_map.notice_edge": {
-    "title": "Aviso a sesión hija",
-    "hint": "Abre la sesión hija enlazada a este agente.",
-    "more": ["La relación usa el identificador de sesión permitido por la fuente.", "No se muestra el texto privado de la descripción del hijo."]
+    "title": "Child session notice",
+    "hint": "Open the child session linked to this agent.",
+    "more": ["The link uses the session ID allowed by the source.", "The child's private description is not shown."]
   },
 
   "teams.section": {
-    "title": "Equipos",
-    "hint": "Consulta los equipos de los bundles, su organigrama y sus versiones.",
+    "title": "Teams",
+    "hint": "View teams from bundles, their org charts, and their versions.",
     "more": [
-      "Cada equipo se define en el archivo team.yaml de su bundle y se propone desde la línea de comandos o la API.",
-      "Solo una persona puede aprobar o rechazar una propuesta, y aquí queda registrada a nombre del operador."
+      "Each team is defined in its bundle's team.yaml file and proposed from the command line or API.",
+      "Only a person can approve or reject a proposal. The decision is recorded here under the operator's name."
     ]
   },
   "teams.refresh": {
-    "title": "Actualizar los equipos",
-    "hint": "Vuelve a leer los equipos o el equipo abierto.",
+    "title": "Refresh teams",
+    "hint": "Reload the teams or the open team.",
     "more": [
-      "La pantalla conserva la última respuesta si la lectura falla.",
-      "Una propuesta nueva aparece al actualizar."
+      "The screen keeps the last response if loading fails.",
+      "Refresh to see a new proposal."
     ]
   },
   "teams.list": {
-    "title": "Lista de equipos",
-    "hint": "Muestra cada equipo con su versión aprobada y su propuesta pendiente.",
+    "title": "Team list",
+    "hint": "Show each team with its approved version and pending proposal.",
     "more": [
-      "Solo aparecen los bundles que tienen un equipo definido.",
-      "Abre un equipo con su nombre para ver su organigrama, sus versiones y decidir sobre la propuesta."
+      "Only bundles with a defined team are shown.",
+      "Open a team by its name to see its org chart and versions, and decide on its proposal."
     ]
   },
   "teams.decision": {
-    "title": "Propuesta pendiente",
-    "hint": "Muestra la última propuesta que espera una decisión y permite aprobarla o rechazarla.",
+    "title": "Pending proposal",
+    "hint": "Show the latest proposal awaiting a decision, with options to approve or reject it.",
     "more": [
-      "Aprobar la convierte en la versión activa del equipo; rechazarla deja la versión aprobada como estaba.",
-      "Si otra persona ya decidió, el servidor lo dice y la pantalla se actualiza."
+      "Approving makes it the active team version; rejecting leaves the approved version unchanged.",
+      "If someone else has already decided, the server reports it and the screen reloads."
     ]
   },
   "teams.approve": {
-    "title": "Aprobar la propuesta",
-    "hint": "Pide confirmación antes de aprobar la propuesta pendiente.",
+    "title": "Approve the proposal",
+    "hint": "Ask for confirmation before approving the pending proposal.",
     "more": [
-      "La versión aprobada pasa a ser la activa del equipo.",
-      "La decisión queda registrada a nombre del operador, con el canal de la interfaz y la nota que escribas."
+      "The approved version becomes the active team version.",
+      "The decision is recorded under the operator's name, with the interface channel and your note."
     ]
   },
   "teams.reject": {
-    "title": "Rechazar la propuesta",
-    "hint": "Pide confirmación antes de rechazar la propuesta pendiente.",
+    "title": "Reject the proposal",
+    "hint": "Ask for confirmation before rejecting the pending proposal.",
     "more": [
-      "La propuesta queda rechazada y la versión aprobada actual no cambia.",
-      "Una propuesta rechazada no se puede aprobar después: hay que proponer una versión nueva."
+      "The proposal is rejected and the current approved version stays unchanged.",
+      "A rejected proposal cannot be approved later; a new version must be proposed."
     ]
   },
   "teams.note": {
-    "title": "Nota de la decisión",
-    "hint": "Texto opcional que queda guardado junto a la decisión.",
+    "title": "Decision note",
+    "hint": "Optional text saved with the decision.",
     "more": [
-      "Sirve para explicar por qué se aprueba o se rechaza.",
-      "Puede quedar vacía."
+      "Use it to explain why you approved or rejected the proposal.",
+      "You can leave it empty."
     ]
   },
   "teams.chart": {
-    "title": "Organigrama",
-    "hint": "Muestra los puestos como una lista anidada: cada puesto cuelga de aquel a quien reporta.",
+    "title": "Org chart",
+    "hint": "Show roles in a nested list. Each role appears under the role it reports to.",
     "more": [
-      "Cada puesto dice su propósito, quién lo ocupa y su estado en palabras: Ocupado, Vacante o Pendiente de aprobar.",
-      "Pendiente de aprobar marca lo que cambia en la propuesta; Se quitará indica un puesto que la propuesta elimina.",
-      "Si el equipo tiene varias raíces, la vista lo avisa."
+      "Each role shows its purpose, assignee, and status: Occupied, Vacant, or Pending approval.",
+      "Pending approval marks a change in the proposal; Will be removed marks a role the proposal removes.",
+      "The view warns you if the team has several roots."
     ]
   },
   "teams.links": {
-    "title": "Relaciones aparte",
-    "hint": "Lista las revisiones y delegaciones, que no forman parte de la jerarquía.",
+    "title": "Other relationships",
+    "hint": "List reviews and delegations, which are outside the hierarchy.",
     "more": [
-      "Revisa a indica quién revisa el trabajo de otro puesto; delega en, a quién pasa trabajo.",
-      "No cambian el árbol: la jerarquía solo sigue las relaciones de reporte."
+      "Reviews shows who reviews another role's work; delegates to shows where work is passed.",
+      "These do not change the tree. The hierarchy follows reporting relationships only."
     ]
   },
   "teams.mermaid": {
-    "title": "Texto Mermaid",
-    "hint": "Es el mismo organigrama como diagrama en texto, listo para pegar en otra herramienta.",
+    "title": "Mermaid text",
+    "hint": "The org chart as text, ready to paste into another tool.",
     "more": [
-      "Esta vista no dibuja el diagrama: solo muestra el texto.",
-      "Pégalo en un editor que entienda Mermaid para verlo dibujado."
+      "This view does not draw the diagram; it only shows the text.",
+      "Paste it into an editor that supports Mermaid to see the diagram."
     ]
   },
   "teams.copy": {
-    "title": "Copiar el texto Mermaid",
-    "hint": "Copia el texto del diagrama al portapapeles.",
+    "title": "Copy Mermaid text",
+    "hint": "Copy the diagram text to the clipboard.",
     "more": [
-      "Si el navegador no deja copiar, la vista lo avisa y puedes seleccionar el texto a mano.",
-      "No se envía nada fuera de tu equipo."
+      "If the browser blocks copying, the view will tell you and you can select the text yourself.",
+      "Nothing is sent outside your team."
     ]
   },
   "teams.versions": {
-    "title": "Versiones del equipo",
-    "hint": "Lista las versiones guardadas, de la más antigua a la más reciente.",
+    "title": "Team versions",
+    "hint": "List saved versions from oldest to newest.",
     "more": [
-      "Cada fila dice su estado: Borrador, Propuesta, Aprobada o Rechazada, y quién decidió.",
-      "La versión activa es la última aprobada."
+      "Each row shows its status: Draft, Proposed, Approved, or Rejected, and who decided.",
+      "The active version is the latest approved version."
     ]
   },
   "teams.diff": {
-    "title": "Cambios de una versión",
-    "hint": "Muestra qué cambia esa versión respecto de la versión aprobada.",
+    "title": "Version changes",
+    "hint": "Show what changed from the approved version.",
     "more": [
-      "Separa puestos, miembros, asignaciones y relaciones añadidos, quitados o cambiados.",
-      "Si no hay versión aprobada, todo cuenta como añadido."
+      "Changes are grouped into added, removed, and changed roles, members, assignments, and relationships.",
+      "If there is no approved version, everything is listed as added."
     ]
   },
   "plans.section": {
-    "title": "Planes propuestos",
-    "hint": "Revisa las propuestas de plan guardadas antes de crear tareas.",
+    "title": "Proposed plans",
+    "hint": "Review saved plan proposals before creating tasks.",
     "more": [
-      "Una propuesta reúne las tareas, dependencias y flujos sugeridos para un objetivo.",
-      "Solo una persona puede aprobar o rechazar una propuesta, y aquí queda registrada a nombre del operador."
+      "A proposal groups suggested tasks, dependencies, and workflows for a goal.",
+      "Only a person can approve or reject a proposal. The decision is recorded here under the operator's name."
     ]
   },
   "plans.refresh": {
-    "title": "Actualizar los planes",
-    "hint": "Vuelve a leer la lista de propuestas o la propuesta abierta.",
+    "title": "Refresh plans",
+    "hint": "Reload the proposal list or the open proposal.",
     "more": [
-      "La pantalla conserva la última respuesta si la lectura falla.",
-      "Una propuesta guardada o editada por otro canal aparece al actualizar."
+      "The screen keeps the last response if loading fails.",
+      "Refresh to see a proposal saved or edited through another channel."
     ]
   },
   "plans.filter": {
-    "title": "Filtrar por estado",
-    "hint": "Muestra todas las propuestas o solo las pendientes, aprobadas o rechazadas.",
+    "title": "Filter by status",
+    "hint": "Show all proposals, or only pending, approved, or rejected ones.",
     "more": [
-      "Propuesta indica que espera una decisión; Aprobada, que sus tareas ya se crearon.",
-      "El filtro consulta al servidor local cada vez que cambias la selección."
+      "Proposed means a decision is pending; Approved means its tasks have been created.",
+      "The filter checks the local server each time you change the selection."
     ]
   },
   "plans.list": {
-    "title": "Lista de propuestas",
-    "hint": "Muestra cada propuesta con su grupo, estado, revisión y número de tareas.",
+    "title": "Proposal list",
+    "hint": "Show each proposal's group, status, revision, and task count.",
     "more": [
-      "Cada cambio guardado en una propuesta pendiente sube su número de revisión.",
-      "Abre una propuesta por su enlace para ver sus tareas, historial y acciones."
+      "Each saved change to a pending proposal increases its revision number.",
+      "Open a proposal from its link to see its tasks, history, and actions."
     ]
   },
   "plans.detail": {
-    "title": "Tareas y dependencias",
-    "hint": "Lista las tareas de la propuesta, de qué tareas dependen, su flujo y su preferente.",
+    "title": "Tasks and dependencies",
+    "hint": "List proposal tasks, their dependencies, workflow, and preferred assignee.",
     "more": [
-      "Las dependencias indican qué tareas deben terminar antes de que otra pueda empezar.",
-      "El preferente señala el agente o persona sugerida para tomar la tarea, si existe."
+      "Dependencies show which tasks must finish before another can start.",
+      "The preferred assignee is the suggested agent or person for a task, if one is set."
     ]
   },
   "plans.history": {
-    "title": "Historial de cambios",
-    "hint": "Muestra quién guardó, editó, reasignó o decidió cada revisión de la propuesta.",
+    "title": "Change history",
+    "hint": "Show who saved, edited, reassigned, or decided each proposal revision.",
     "more": [
-      "Cada línea anota la fecha, el número de revisión, el actor, el canal y las tareas modificadas.",
-      "Las notas opcionales escritas al confirmar quedan guardadas debajo de cada movimiento."
+      "Each line records the date, revision number, actor, channel, and changed tasks.",
+      "Optional notes entered at confirmation are saved under each action."
     ]
   },
   "plans.edit": {
-    "title": "Editar tareas",
-    "hint": "Modifica títulos, objetivos, dependencias, flujos o preferentes antes de aprobar.",
+    "title": "Edit tasks",
+    "hint": "Change titles, goals, dependencies, workflows, or preferred assignees before approval.",
     "more": [
-      "Al confirmar se valida la propuesta completa sobre la revisión que estás viendo.",
-      "Si alguien cambió la propuesta antes, la pantalla avisa del conflicto y vuelve a cargarla."
+      "On confirmation, the full proposal is checked against the revision you are viewing.",
+      "If someone changed the proposal first, the screen reports a conflict and reloads it."
     ]
   },
   "plans.reassign": {
-    "title": "Reasignar una tarea",
-    "hint": "Cambia el preferente, el workflow o el bundle de una sola tarea sin editar las demás.",
+    "title": "Reassign a task",
+    "hint": "Change one task's preferred assignee, workflow, or bundle without editing other tasks.",
     "more": [
-      "Deja vacío el bundle si el workflow pertenece a los incluidos en el framework.",
-      "Pide confirmación antes de enviar y sube la revisión si no hay conflicto."
+      "Leave the bundle empty if the workflow is included in the framework.",
+      "Ask for confirmation before submitting. The revision increases if there is no conflict."
     ]
   },
   "plans.approve": {
-    "title": "Aprobar el plan",
-    "hint": "Pide confirmación antes de aprobar la revisión visible y crear las tareas.",
+    "title": "Approve the plan",
+    "hint": "Ask for confirmation before approving the visible revision and creating its tasks.",
     "more": [
-      "Al aprobar se crean el grupo si falta y todas las tareas, y arrancan las que no tienen dependencias.",
-      "Si la revisión cambió o ya existe una tarea con ese identificador, el servidor rechaza el cambio."
+      "Approval creates the group if needed, creates all tasks, and starts tasks with no dependencies.",
+      "The server rejects the change if the revision changed or a task with that ID already exists."
     ]
   },
   "plans.reject": {
-    "title": "Rechazar el plan",
-    "hint": "Pide confirmación antes de rechazar la propuesta sin crear tareas.",
+    "title": "Reject the plan",
+    "hint": "Ask for confirmation before rejecting the proposal without creating tasks.",
     "more": [
-      "La propuesta queda cerrada como rechazada y no admite más ediciones ni decisiones.",
-      "La decisión queda anotada a nombre del operador con el canal de la interfaz."
+      "The proposal is closed as rejected and cannot be edited or decided on again.",
+      "The decision is recorded under the operator's name with the interface channel."
     ]
   },
   "plans.advance": {
-    "title": "Avanzar el plan",
-    "hint": "Pide confirmación y avanza una vez el plan de esta propuesta aprobada.",
+    "title": "Advance the plan",
+    "hint": "Ask for confirmation, then advance this approved proposal's plan once.",
     "more": [
-      "Pasa a revisión las tareas cuyo run terminó y arranca las que ya pueden empezar. Si no hay nada que mover, lo avisa.",
-      "Queda a nombre del operador con el canal de la interfaz; el plan no avanza solo."
+      "Move tasks with finished runs to review and start tasks that are ready. The view says so if there is nothing to move.",
+      "The action is recorded under the operator's name with the interface channel; the plan does not advance by itself."
     ]
   },
   "plans.note": {
-    "title": "Nota de la acción",
-    "hint": "Texto opcional que queda guardado en el historial de la propuesta.",
+    "title": "Action note",
+    "hint": "Optional text saved in the proposal history.",
     "more": [
-      "Sirve para explicar por qué editas, reasignas, apruebas o rechazas.",
-      "Puedes dejar este campo vacío."
+      "Use it to explain why you edit, reassign, approve, or reject.",
+      "You can leave this field empty."
     ]
   },
 
   "agent_tree.open": {
-    "title": "Árbol de agentes",
-    "hint": "Abre el árbol de agentes de esta sesión.",
+    "title": "Agent tree",
+    "hint": "Open this session's agent tree.",
     "more": [
-      "Muestra quién trabaja en la sesión y en qué: el orquestador y los agentes que lanzó, agrupados por nivel.",
-      "Es una vista de solo lectura; no inicia ni detiene ningún trabajo.",
-      "Se actualiza sola mientras la sesión cambia."
+      "See who is working in the session and on what: the orchestrator and its agents, grouped by level.",
+      "This view is read-only; it does not start or stop work.",
+      "The view updates as the session changes."
     ]
   },
   "agent_tree.view": {
-    "title": "Árbol de la sesión",
-    "hint": "El orquestador y sus agentes, por nivel, con su estado.",
+    "title": "Session tree",
+    "hint": "The orchestrator and its agents, grouped by level and status.",
     "more": [
-      "Arriba está el orquestador, que es la sesión que abriste; debajo, los agentes que lanzó, agrupados de T1 a T4.",
-      "Cada nodo dice su modelo, su nivel, su estado y en qué trabaja; el nivel y el estado siempre van escritos, nunca solo en color.",
-      "El registro de abajo anota los cambios de estado desde que abriste esta pantalla."
+      "The orchestrator is at the top; it is the session you opened. Its agents are below, grouped from T1 to T4.",
+      "Each node shows its model, level, status, and current work. Level and status are always written out, not shown by color alone.",
+      "The log below records status changes since you opened this screen."
     ]
   },
   "agent_tree.back": {
-    "title": "Volver a la sesión",
-    "hint": "Regresa a la conversación de esta sesión.",
+    "title": "Back to session",
+    "hint": "Return to this session's conversation.",
     "more": [
-      "El árbol no cambia la sesión ni ejecuta acciones.",
-      "Puedes volver a abrirlo desde la cabecera de la sesión."
+      "The tree does not change the session or run actions.",
+      "You can reopen it from the session header."
     ]
   },
   "agent_tree.filter": {
-    "title": "Solo activos",
-    "hint": "Oculta los agentes que ya terminaron.",
+    "title": "Active only",
+    "hint": "Hide agents that have finished.",
     "more": [
-      "Deja los que trabajan, los que llevan un rato sin actividad y los que esperan un límite de uso o a una persona.",
-      "Quita los terminados y los detenidos; el orquestador siempre se ve.",
-      "Desactívalo para volver a ver todos."
+      "Keep agents that are working, inactive for a while, or waiting for a usage limit or a person.",
+      "Hide finished and stopped agents; the orchestrator always stays visible.",
+      "Turn it off to see all agents again."
     ]
   },
   "agent_tree.node": {
-    "title": "Moverse por el árbol",
-    "hint": "Flechas para moverte, Enter para elegir, Esc para soltar.",
+    "title": "Move through the tree",
+    "hint": "Use arrows to move, Enter to select, and Esc to clear.",
     "more": [
-      "Con el foco en el árbol, las flechas arriba y abajo pasan de un nodo al siguiente; Inicio y Fin saltan al primero y al último.",
-      "Enter o la barra espaciadora elige el nodo y muestra sus datos a un lado; Esc quita la elección.",
-      "También puedes elegir un nodo con el ratón o con el dedo."
+      "With focus in the tree, use Up and Down to move between nodes; Home and End go to the first and last nodes.",
+      "Enter or Space selects a node and shows its details beside the tree; Esc clears the selection.",
+      "You can also select a node with a mouse or touch."
     ]
   },
   "agent_tree.log": {
-    "title": "Registro de cambios",
-    "hint": "Los cambios de estado de los agentes desde que abriste esta pantalla.",
+    "title": "Change log",
+    "hint": "Agent status changes since you opened this screen.",
     "more": [
-      "Anota cuando un agente aparece o cambia de estado, con la hora local.",
-      "Guarda solo los últimos doce cambios y empieza vacío cada vez que abres la pantalla.",
-      "No es un historial de la sesión: para eso está su conversación."
+      "Records when an agent appears or changes status, using local time.",
+      "Keeps only the last twelve changes and starts empty each time you open the screen.",
+      "This is not the session history; see the conversation for that."
     ]
   },
   "agent_tree.open_child": {
-    "title": "Abrir su conversación",
-    "hint": "Abre la conversación del agente o la ejecución de su paso.",
+    "title": "Open its conversation",
+    "hint": "Open the agent's conversation or the run for its step.",
     "more": [
-      "Si el agente tiene conversación propia, se abre en esta misma pantalla.",
-      "Los pasos de una ejecución del framework abren la ejecución que los contiene.",
-      "Este enlace solo cambia la vista; no inicia ni modifica ningún trabajo."
+      "If the agent has its own conversation, it opens on this screen.",
+      "A framework run step opens the run that contains it.",
+      "This link only changes the view; it does not start or change any work."
     ]
   },
 
   "team_card.mode": {
-    "title": "Modo del equipo",
-    "hint": "Dice con qué modo corren las ejecuciones que usan este equipo: supervisado o autónomo.",
-    "more": ["Una ejecución hereda este modo si no se elige otro al lanzarla.", "Los valores posibles son supervisado y autónomo.", "Si la versión no declara un modo, la tarjeta lo dice."]
+    "title": "Team mode",
+    "hint": "The mode used by runs with this team: supervised or autonomous.",
+    "more": ["A run uses this mode unless another is chosen when it starts.", "The possible values are supervised and autonomous.", "The card says if the version does not declare a mode."]
   },
   "team_card.section": {
-    "title": "Puestos, reglas, permisos y modelo",
-    "hint": "Por cada puesto: sus reglas, lo que puede hacer y el modelo que usaría su agente.",
-    "more": ["Las reglas y los permisos salen de la versión que vas a decidir.", "El modelo se lee de los flujos y del catálogo del bundle tal como están ahora.", "Si un puesto no tiene agente o su modelo no está en el catálogo, la tarjeta lo dice en lugar de ocultarlo."]
+    "title": "Roles, rules, permissions, and model",
+    "hint": "For each role: its rules, what it can do, and the model its agent would use.",
+    "more": ["Rules and permissions come from the version awaiting your decision.", "The model comes from the bundle's current workflows and catalog.", "The card explains if a role has no agent or its model is missing from the catalog."]
   },
   "team_card.diff": {
-    "title": "Cambios de la versión",
-    "hint": "Lo que cambia frente a la versión aprobada, o todo lo nuevo si no hay ninguna.",
-    "more": ["Incluye los datos del equipo, los puestos con sus reglas y permisos, los miembros, las asignaciones y las relaciones.", "La primera versión se compara contra un equipo vacío."]
+    "title": "Version changes",
+    "hint": "What changed from the approved version, or everything new if there is none.",
+    "more": ["Includes team details, roles and their rules and permissions, members, assignments, and relationships.", "The first version is compared with an empty team."]
   },
   "team_card.approve": {
-    "title": "Aprobar la versión",
-    "hint": "Pide confirmación antes de aprobar esta versión del equipo.",
-    "more": ["La versión aprobada pasa a ser la activa del equipo.", "La decisión queda registrada a nombre del operador, con el canal de la interfaz y tu nota."]
+    "title": "Approve the version",
+    "hint": "Ask for confirmation before approving this team version.",
+    "more": ["The approved version becomes the active team version.", "The decision is recorded under the operator's name, with the interface channel and your note."]
   },
   "team_card.reject": {
-    "title": "Rechazar la versión",
-    "hint": "Pide confirmación antes de rechazar esta versión del equipo.",
-    "more": ["La versión queda rechazada y la aprobada actual no cambia.", "Una versión rechazada no se puede aprobar después: hay que proponer otra."]
+    "title": "Reject the version",
+    "hint": "Ask for confirmation before rejecting this team version.",
+    "more": ["The version is rejected and the current approved version stays unchanged.", "A rejected version cannot be approved later; another version must be proposed."]
   },
   "team_card.note": {
-    "title": "Nota de la decisión",
-    "hint": "Texto opcional que queda guardado junto a la decisión.",
-    "more": ["Sirve para explicar por qué se aprueba o se rechaza.", "Puede quedar vacía."]
+    "title": "Decision note",
+    "hint": "Optional text saved with the decision.",
+    "more": ["Use it to explain why you approved or rejected the version.", "You can leave it empty."]
   },
   "team_card.confirm": {
-    "title": "Confirmar la decisión",
-    "hint": "Envía la decisión sobre esta versión o vuelve sin decidir.",
-    "more": ["Sí envía la decisión con tu nota.", "Volver cierra la confirmación y no cambia nada."]
+    "title": "Confirm the decision",
+    "hint": "Submit your decision on this version or go back without deciding.",
+    "more": ["Yes submits the decision with your note.", "Back closes the confirmation without making changes."]
   },
   "team_card.open": {
-    "title": "Ver en Equipos",
-    "hint": "Abre el equipo en la vista de Equipos, con su organigrama y sus versiones.",
-    "more": ["La decisión se puede tomar aquí o allí: es la misma.", "No cambia nada por sí solo."]
+    "title": "View in Teams",
+    "hint": "Open the team in Teams to see its org chart and versions.",
+    "more": ["You can make the same decision here or there.", "Opening it makes no changes."]
   },
   "team_card.refresh": {
-    "title": "Actualizar la versión",
-    "hint": "Vuelve a leer la versión del equipo y su tarjeta.",
-    "more": ["Sirve si otra persona ya decidió o si cambió el catálogo del bundle.", "No cambia nada en el servidor."]
+    "title": "Refresh the version",
+    "hint": "Reload the team version and its card.",
+    "more": ["Use this if someone else has decided or the bundle catalog has changed.", "This makes no changes on the server."]
   },
 
   "plan_card.inputs": {
-    "title": "Entradas de las tareas",
-    "hint": "Muestra lo que recibirá cada tarea del plan al correr.",
-    "more": ["Los textos largos van plegados y un objeto se resume en campos legibles.", "Salen del documento del plan guardado en la propuesta, sin cambios.", "Para editarlas hay que usar la vista de Planes."]
+    "title": "Task inputs",
+    "hint": "Show what each task in the plan receives when it runs.",
+    "more": ["Long text is collapsed, and objects are summarized in readable fields.", "Inputs are shown unchanged from the plan document saved in the proposal.", "Edit them in the Plans view."]
   },
   "plan_card.approve": {
-    "title": "Aprobar el plan",
-    "hint": "Pide confirmación antes de aprobar el plan con la revisión que ves.",
-    "more": ["Se crean las tareas y arrancan las que no esperan a otra.", "La decisión queda registrada a nombre del operador, con tu nota.", "Si el plan cambió mientras lo mirabas, el servidor lo rechaza y la tarjeta se vuelve a leer.", "Se desactiva si falta el equipo aprobado de un paquete con puestos."]
+    "title": "Approve the plan",
+    "hint": "Ask for confirmation before approving the plan revision shown.",
+    "more": ["Tasks are created, and tasks with no dependencies start.", "The decision is recorded under the operator's name with your note.", "If the plan changed while you were viewing it, the server rejects the change and the card reloads.", "Approval is disabled if a package with roles has no approved team."]
   },
   "plan_card.reject": {
-    "title": "Rechazar el plan",
-    "hint": "Pide confirmación antes de rechazar el plan.",
-    "more": ["El plan queda cerrado como rechazado y no se crean tareas.", "Un plan rechazado no se puede aprobar después: hay que proponer otro."]
+    "title": "Reject the plan",
+    "hint": "Ask for confirmation before rejecting the plan.",
+    "more": ["The plan is closed as rejected and no tasks are created.", "A rejected plan cannot be approved later; another must be proposed."]
   },
   "plan_card.note": {
-    "title": "Nota de la decisión",
-    "hint": "Texto opcional que queda guardado junto a la decisión.",
-    "more": ["Sirve para explicar por qué se aprueba o se rechaza.", "Puede quedar vacía."]
+    "title": "Decision note",
+    "hint": "Optional text saved with the decision.",
+    "more": ["Use it to explain why you approved or rejected the plan.", "You can leave it empty."]
   },
   "plan_card.confirm": {
-    "title": "Confirmar la decisión",
-    "hint": "Envía la decisión sobre este plan o vuelve sin decidir.",
-    "more": ["Sí envía la decisión con tu nota y la revisión que ves.", "Volver cierra la confirmación y no cambia nada."]
+    "title": "Confirm the decision",
+    "hint": "Submit your decision on this plan or go back without deciding.",
+    "more": ["Yes submits the decision with your note and the revision shown.", "Back closes the confirmation without making changes."]
   },
   "plan_card.team": {
-    "title": "Equipo que falta",
-    "hint": "Abre la versión propuesta del equipo, o la vista de Equipos si no hay ninguna.",
-    "more": ["Los pasos con puestos necesitan un equipo aprobado del paquete.", "Al aprobar el equipo, vuelve a este plan y pulsa Actualizar."]
+    "title": "Missing team",
+    "hint": "Open the proposed team version, or Teams if there is no proposal.",
+    "more": ["Steps with roles need an approved team from the package.", "After approving the team, return to this plan and select Refresh."]
   },
   "plan_card.run": {
-    "title": "Run de la tarea",
-    "hint": "Abre el hilo del run que creó el plan para esta tarea.",
-    "more": ["Ahí ves los pasos, las paradas y el resultado.", "No cambia nada por sí solo."]
+    "title": "Task run",
+    "hint": "Open the run thread created for this task by the plan.",
+    "more": ["See the steps, pauses, and result there.", "Opening it makes no changes."]
   },
   "plan_card.open": {
-    "title": "Ver en Planes",
-    "hint": "Abre el plan en la vista de Planes, con su historial y sus ediciones.",
-    "more": ["La decisión se puede tomar aquí o allí: es la misma.", "No cambia nada por sí solo."]
+    "title": "View in Plans",
+    "hint": "Open the plan in Plans to see its history and edits.",
+    "more": ["You can make the same decision here or there.", "Opening it makes no changes."]
   },
   "plan_card.refresh": {
-    "title": "Actualizar el plan",
-    "hint": "Vuelve a leer la propuesta, sus avisos y los runs de sus tareas.",
-    "more": ["Sirve si otra persona ya decidió o si se aprobó el equipo que faltaba.", "No cambia nada en el servidor."]
+    "title": "Refresh the plan",
+    "hint": "Reload the proposal, its notices, and its task runs.",
+    "more": ["Use this if someone else has decided or the missing team was approved.", "This makes no changes on the server."]
   },
 
   "plan.auto_advance": {
-    "title": "El plan avanza solo",
-    "hint": "Cuando termina un run del plan o aceptas una de sus tareas, las que esperaban arrancan solas.",
-    "more": ["Lo hace el sistema (actor system:worker) cada vez que termina un run del plan o se acepta una de sus tareas, y lo deja anotado aquí.", "Si no pudo avanzar, el mensaje dice por qué y aparece «Avanzar el plan» para hacerlo a mano.", "Un run que se recuperó al arrancar no avanza solo: usa «Avanzar el plan»."]
+    "title": "The plan advances automatically",
+    "hint": "When a plan run finishes or you accept one of its tasks, waiting tasks start automatically.",
+    "more": ["The system (actor system:worker) does this whenever a plan run finishes or one of its tasks is accepted, and records it here.", "If it cannot advance, the message explains why and shows «Advance the plan» so you can do it manually.", "A run recovered at startup does not advance the plan automatically; use «Advance the plan»."]
   }
 };

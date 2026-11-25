@@ -14,6 +14,7 @@ import { sessionTitle, sourceLabel, surfaceLabel } from "./session-text.js";
 import { followChildren } from "./subagents-panel.js";
 import { NO_CONVERSATION, childrenWarning } from "./subagents-text.js";
 import { errorText } from "./text.js";
+import { currentLanguage, onLanguageChange, t } from "./i18n.js";
 import {
   LEVELS, ROOT_ID, UNKNOWN_LEVEL, childLink, countStatuses, describeNode, describeRoot, detailFacts, diffSnapshots,
   filterChildren, groupByLevel, levelText, moveFocus, nodeAriaLabel, rootFacts, snapshot, visibleOrder,
@@ -26,7 +27,7 @@ const ALL_LEVELS = [...LEVELS, UNKNOWN_LEVEL];
 
 const sessionPath = (id, tail = "") => "/gui/api/sessions/" + encodeURIComponent(id) + tail;
 const asApiError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
-const clock = () => new Date().toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const clock = (time) => new Date(time).toLocaleTimeString(currentLanguage(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 // --- local pieces (to be replaced by the shared components of GUI2-T11) ---
 
@@ -40,8 +41,17 @@ function LevelBadge({ view }) {
   return html`<span class=${"at-level-badge lv-" + view.tier}>${view.level || view.levelText}</span>`;
 }
 
-const levelHeading = (level, count) =>
-  (level === UNKNOWN_LEVEL ? "Nivel no disponible" : levelText(level)) + " · " + count + (count === 1 ? " agente" : " agentes");
+const levelHeading = (level, count) => t("agent_tree.level.heading", {
+  level: level === UNKNOWN_LEVEL ? t("agent_tree.level.unavailable") : levelText(level),
+  count,
+  agents: t(count === 1 ? "agent_tree.level.agent_singular" : "agent_tree.level.agent_plural"),
+});
+const logLine = (entry) => {
+  const timestamp = clock(entry.time);
+  return entry.appeared
+    ? `${timestamp} · ${entry.title} · ${t("agent_tree.log.appears")} · ${entry.state}`
+    : `${timestamp} · ${entry.title} · ${entry.previousState} → ${entry.state}`;
+};
 
 // --- the tree ---
 
@@ -86,6 +96,7 @@ export function AgentTree({ token, sessionId }) {
   const [selected, setSelected] = useState(ROOT_ID);   // a node id, or null after Esc
   const [focused, setFocused] = useState(ROOT_ID);     // the one tab stop of the tree (roving tabindex)
   const [log, setLog] = useState([]);
+  const [, setLanguageVersion] = useState(0);
   const [stream, setStream] = useState("reconnecting");
   const [now, setNow] = useState(Date.now());
   const alive = useRef(true);
@@ -99,6 +110,8 @@ export function AgentTree({ token, sessionId }) {
   const detailBox = useRef(null);
   const reveal = useRef(false);   // a node was chosen: show its detail if the screen stacks it below the tree
 
+  useEffect(() => onLanguageChange(() => setLanguageVersion((version) => version + 1)), []);
+
   async function refresh() {
     if (!alive.current || !sessionId) return;
     const mine = ++ticket.current;
@@ -110,8 +123,16 @@ export function AgentTree({ token, sessionId }) {
       if (seen.current) {
         const lines = diffSnapshots(seen.current, after);
         if (lines.length) {
-          const time = clock();
-          setLog((previous) => [...lines.map((line) => time + " · " + line), ...previous].slice(0, LOG_LIMIT));
+          const time = Date.now();
+          const changes = [];
+          for (const [id, current] of after) {
+            const previous = seen.current.get(id);
+            if (!previous) changes.push({ time, title: current.title, state: current.state, appeared: true });
+            else if (previous.state !== current.state) {
+              changes.push({ time, title: current.title, previousState: previous.state, state: current.state, appeared: false });
+            }
+          }
+          setLog((previous) => [...changes, ...previous].slice(0, LOG_LIMIT));
         }
       }
       seen.current = after;
@@ -161,7 +182,7 @@ export function AgentTree({ token, sessionId }) {
   }, [selected]);
 
   if (!sessionId) {
-    return html`<section class="agent-tree"><p class="muted">Abre una sesión y pulsa «Árbol de agentes» en su cabecera.</p></section>`;
+    return html`<section class="agent-tree"><p class="muted">${t("agent_tree.no_session")}</p></section>`;
   }
 
   const children = data.children;
@@ -177,9 +198,9 @@ export function AgentTree({ token, sessionId }) {
   const rootView = describeRoot(summary, now);
   const title = summary ? sessionTitle(summary) : sessionId;
   const meta = summary
-    ? [sourceLabel(summary.source), surfaceLabel(summary.surface), summary.mode && "Modo: " + summary.mode,
-      summary.profile && "Perfil: " + summary.profile].filter(Boolean).join(" · ")
-    : (error ? "" : "Cargando…");
+    ? [sourceLabel(summary.source), surfaceLabel(summary.surface), summary.mode && t("agent_tree.meta.mode", { value: summary.mode }),
+      summary.profile && t("agent_tree.meta.profile", { value: summary.profile })].filter(Boolean).join(" · ")
+    : (error ? "" : t("agent_tree.loading"));
 
   const choose = (id) => { reveal.current = true; setFocused(id); setSelected(id); };
   const nodeProps = (id) => ({
@@ -214,55 +235,55 @@ export function AgentTree({ token, sessionId }) {
   return html`<section class="agent-tree" aria-labelledby="agent-tree-title" aria-busy=${data.loaded || error ? "false" : "true"}>
     <header class="at-head">
       <div class="at-head-text">
-        <h3 id="agent-tree-title" tabindex="-1" ref=${heading}>Sesión: ${title}</h3>
+        <h3 id="agent-tree-title" tabindex="-1" ref=${heading}>${t("agent_tree.session_title", { title })}</h3>
         <${Help} topic="agent_tree.view" compact=${true} />
         <p class="muted small at-meta">${meta}</p>
       </div>
       <div class="header-tools">
-        <a class="btn secondary" href=${routeHref("sessions", sessionId)} ...${helpFor("agent_tree.back")}>Volver a la sesión</a>
+        <a class="btn secondary" href=${routeHref("sessions", sessionId)} ...${helpFor("agent_tree.back")}>${t("agent_tree.back")}</a>
         <${Help} topic="agent_tree.back" compact=${true} />
       </div>
     </header>
     <div class="at-toolbar">
       <p class="at-counts" role="status" aria-live="polite">
-        <span class="at-count">Activos · ${counts.active}</span>
-        <span class="at-count">Terminados · ${counts.done}</span>
-        <span class="at-count">En espera · ${counts.waiting}</span>
+        <span class="at-count">${t("agent_tree.count.active")} · ${counts.active}</span>
+        <span class="at-count">${t("agent_tree.count.done")} · ${counts.done}</span>
+        <span class="at-count">${t("agent_tree.count.waiting")} · ${counts.waiting}</span>
       </p>
       <label class="at-filter"><input type="checkbox" checked=${onlyActive} ...${helpFor("agent_tree.filter")}
-        onChange=${(event) => setOnlyActive(event.currentTarget.checked)} /> Solo activos</label>
+        onChange=${(event) => setOnlyActive(event.currentTarget.checked)} /> ${t("agent_tree.filter.active")}</label>
       <${Help} topic="agent_tree.filter" compact=${true} />
     </div>
-    ${stream === "failed" && html`<p class="muted small">Sin actualización en vivo; se revisa cada 10 segundos.</p>`}
-    ${error && html`<p class="message error" role="alert">No se pudo cargar el árbol: ${errorText(error)}</p>`}
+    ${stream === "failed" && html`<p class="muted small">${t("agent_tree.stream.failed")}</p>`}
+    ${error && html`<p class="message error" role="alert">${t("agent_tree.error.load", { error: errorText(error) })}</p>`}
     <div class="at-columns">
       <div class="at-main" ref=${mainBox}>
         <${Help} topic="agent_tree.node" />
-        <div class="at-tree" role="tree" aria-label="Agentes de la sesión" ...${helpFor("agent_tree.node")} onKeyDown=${onTreeKey}>
+        <div class="at-tree" role="tree" aria-label=${t("agent_tree.accessibility.tree")} ...${helpFor("agent_tree.node")} onKeyDown=${onTreeKey}>
           <${NodeItem} view=${rootView} root=${true} ...${nodeProps(ROOT_ID)} />
           ${ALL_LEVELS.map((level) => grouped[level].length > 0 && html`<div key=${level} role="group" class="at-level" aria-labelledby=${"at-level-" + level}>
             <h4 id=${"at-level-" + level}>${levelHeading(level, grouped[level].length)}</h4>
             ${grouped[level].map((child) => html`<${NodeItem} key=${child.id} view=${describeNode(child, now)} ...${nodeProps(child.id)} />`)}
           </div>`)}
         </div>
-        ${withoutAgents && html`<p class="muted">Esta sesión no ha lanzado agentes.</p>`}
-        ${nothingShown && html`<p class="muted">Ningún agente activo ahora mismo.</p>`}
+        ${withoutAgents && html`<p class="muted">${t("agent_tree.empty.no_agents")}</p>`}
+        ${nothingShown && html`<p class="muted">${t("agent_tree.empty.no_active_agents")}</p>`}
         ${data.warnings.length > 0 && html`<p class="muted small">${data.warnings.map(childrenWarning).join(" ")}</p>`}
       </div>
       <aside class="at-detail" aria-labelledby="at-detail-title" ref=${detailBox}>
         ${choice === null
-          ? html`<h4 id="at-detail-title">Detalle</h4><p class="muted">Elige un agente del árbol para ver sus datos.</p>`
+          ? html`<h4 id="at-detail-title">${t("agent_tree.detail.title")}</h4><p class="muted">${t("agent_tree.detail.choose")}</p>`
           : html`<${Detail} sessionId=${sessionId} child=${chosen} summary=${summary} now=${now} />`}
       </aside>
     </div>
     <section class="at-log" aria-labelledby="at-log-title">
       <div class="at-log-head">
-        <h4 id="at-log-title">Cambios desde que abriste esta pantalla</h4>
+        <h4 id="at-log-title">${t("agent_tree.log.title")}</h4>
         <${Help} topic="agent_tree.log" compact=${true} />
       </div>
       ${log.length
-        ? html`<ul class="at-log-list">${log.map((line, index) => html`<li key=${index}>${line}</li>`)}</ul>`
-        : html`<p class="muted">Todavía no ha cambiado el estado de ningún agente.</p>`}
+        ? html`<ul class="at-log-list">${log.map((entry, index) => html`<li key=${index}>${logLine(entry)}</li>`)}</ul>`
+        : html`<p class="muted">${t("agent_tree.log.empty")}</p>`}
     </section>
   </section>`;
 }

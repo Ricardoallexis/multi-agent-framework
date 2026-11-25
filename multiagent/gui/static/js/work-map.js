@@ -12,6 +12,7 @@ import { Progress } from "./ui/progress.js";
 import { StatusChip } from "./ui/status-chip.js";
 import { followChildren } from "./subagents-panel.js";
 import { errorText } from "./text.js";
+import { currentLanguage, onLanguageChange, t } from "./i18n.js";
 
 const LIMIT = 300;
 const REFRESH_MS = 10000;
@@ -25,19 +26,27 @@ export const isNodeCollapsed = (node, folded, overrides = new Map()) =>
   Boolean((overrides.has(node.id) ? overrides.get(node.id) : (folded && isFinished(node))) && node.children?.length);
 const statusMap = (node) => node.label && node.status ? { [node.status]: { text: displayLabel(node.label, node.status), tone: labelTone(node.label) } } : null;
 const statusLabels = (node) => node.kind === "stage" && node.status === "active"
-  ? { active: { text: "Activa", tone: node.label?.tone ? labelTone(node.label) : "success" } } : statusMap(node);
-const kindLabel = (kind) => ({
-  project: "Proyecto", stage: "Etapa", task: "Tarea", session: "Sesión", child: "Hijo", group: "Grupo",
-}[kind] || "Elemento");
-const STATE_LABELS_ES = {
-  active: "En curso", archived: "Archivado", blocked: "Con bloqueo", cancelled: "Cancelado", closed: "Cerrado",
-  completed: "Completado", doing: "En curso", done: "Terminado", failed: "Fallido", idle: "Sin actividad",
-  integrated: "Integrado", interrupted: "Interrumpido", not_run: "No ejecutado", paused: "En pausa",
-  pending: "Pendiente", queued: "En cola", ready: "Listo", rejected: "Rechazado", review: "En revisión",
-  running: "En ejecución", skipped: "Omitido", stopped: "Detenido", success: "Correcto", waiting_human: "Esperando a una persona",
-  waiting_review: "Esperando revisión", will_skip: "Se omitirá",
+  ? { active: { text: localizedState(node.status), tone: node.label?.tone ? labelTone(node.label) : "success" } } : statusMap(node);
+const KIND_KEYS = {
+  project: "work_map.kind.project", stage: "work_map.kind.stage", task: "work_map.kind.task",
+  session: "work_map.kind.session", child: "work_map.kind.child", group: "work_map.kind.group",
 };
-const localizedState = (state) => STATE_LABELS_ES[String(state || "").toLowerCase()] || state;
+const STATE_KEYS = {
+  active: "work_map.state.active", archived: "work_map.state.archived", blocked: "work_map.state.blocked",
+  cancelled: "work_map.state.cancelled", closed: "work_map.state.closed", completed: "work_map.state.completed",
+  doing: "work_map.state.doing", done: "work_map.state.done", failed: "work_map.state.failed",
+  idle: "work_map.state.idle", integrated: "work_map.state.integrated", interrupted: "work_map.state.interrupted",
+  not_run: "work_map.state.not_run", paused: "work_map.state.paused", pending: "work_map.state.pending",
+  queued: "work_map.state.queued", ready: "work_map.state.ready", rejected: "work_map.state.rejected",
+  review: "work_map.state.review", running: "work_map.state.running", skipped: "work_map.state.skipped",
+  stopped: "work_map.state.stopped", success: "work_map.state.success", waiting_human: "work_map.state.waiting_human",
+  waiting_review: "work_map.state.waiting_review", will_skip: "work_map.state.will_skip",
+};
+const kindLabel = (kind) => t(KIND_KEYS[kind] || "work_map.kind.item");
+const localizedState = (state) => {
+  const key = STATE_KEYS[String(state || "").toLowerCase()];
+  return key ? t(key) : state;
+};
 const statusSet = (node) => {
   const labels = statusLabels(node) || (node.kind === "session" ? "session" : node.kind === "child" ? "subagent" : "run");
   const entry = labelEntry(resolveLabels(labels), node.status);
@@ -48,10 +57,10 @@ export function nodeAccessibleLabel(node) {
     ? labelEntry(resolveLabels(statusSet(node)), node.status).text
     : "";
   const translated = state === String(node.status) ? localizedState(node.status) : state;
-  return `${kindLabel(node.kind)}: ${node.title}${node.status ? `. Estado: ${translated}` : ""}`;
+  return `${kindLabel(node.kind)}: ${node.title}${node.status ? `. ${t("work_map.accessibility.status")}: ${translated}` : ""}`;
 }
 export function relationAccessibleLabel(type, id, state = "") {
-  return `${type}: ${id}${state ? `, estado: ${localizedState(state)}` : ""}`;
+  return `${type}: ${id}${state ? `, ${t("work_map.accessibility.relation_status")}: ${localizedState(state)}` : ""}`;
 }
 export function restoreMapFocus(root, focused, doc = document) {
   if (!root || !focused || doc.activeElement !== doc.body || doc.hasFocus?.() === false) return false;
@@ -63,10 +72,11 @@ export function restoreMapFocus(root, focused, doc = document) {
   return true;
 }
 const tokenText = (tokens) => {
-  if (!tokens || typeof tokens !== "object") return "Tokens: no disponibles";
+  if (!tokens || typeof tokens !== "object") return t("work_map.tokens.unavailable");
   const input = Number.isFinite(tokens.input) ? tokens.input : Number.isFinite(tokens.input_tokens) ? tokens.input_tokens : null;
   const output = Number.isFinite(tokens.output) ? tokens.output : Number.isFinite(tokens.output_tokens) ? tokens.output_tokens : null;
-  return input === null && output === null ? "Tokens: no disponibles" : `Tokens: ${input === null ? "—" : input} entrada · ${output === null ? "—" : output} salida`;
+  return input === null && output === null ? t("work_map.tokens.unavailable")
+    : t("work_map.tokens.count", { input: input === null ? "—" : input, output: output === null ? "—" : output });
 };
 const snapshotKey = (value) => value && typeof value === "object"
   ? value.id ?? value.group_id ?? (value.task_id && value.session_id ? `${value.task_id}\0${value.session_id}` : null)
@@ -206,18 +216,18 @@ export function followMapSessions({ token, sessionIds, onChange, follow = follow
 }
 
 export function mapCountAnnouncement(visible, total, remaining) {
-  return `${visible} elementos visibles; ${total} en total; ${remaining} ocultos por el límite.`;
+  return t("work_map.count_announcement", { visible, total, remaining });
 }
 
 export const progressText = (progress) => {
-  if (!progress || !Number.isFinite(progress.done) || !Number.isFinite(progress.total)) return "Progreso no disponible";
+  if (!progress || !Number.isFinite(progress.done) || !Number.isFinite(progress.total)) return t("work_map.progress.unavailable");
   const cancelled = Number.isFinite(progress.cancelled) ? progress.cancelled : 0;
   const counted = Math.max(0, progress.total - cancelled);
   const done = Math.min(progress.done, counted);
-  const cancelledText = cancelled ? ` · ${cancelled} canceladas` : "";
+  const cancelledText = cancelled ? t("work_map.progress.cancelled", { count: cancelled }) : "";
   return progress.percent === null || !Number.isFinite(progress.percent)
-    ? `${done} de ${counted} tareas contadas${cancelledText} · porcentaje no disponible`
-    : `${done} de ${counted} tareas contadas${cancelledText} · ${progress.percent}%`;
+    ? t("work_map.progress.counted_unavailable", { done, counted, cancelled: cancelledText })
+    : t("work_map.progress.counted_percent", { done, counted, cancelled: cancelledText, percent: progress.percent });
 };
 export function projectRows(data, onlyActive = false, query = "") {
   const projects = data?.projects || [];
@@ -232,7 +242,7 @@ export function projectRows(data, onlyActive = false, query = "") {
   const active = (session) => ["active", "idle"].includes(session?.status);
   const seenRoots = new Set();
   const seenSessions = new Set();
-  const matches = (text) => !query || String(text || "").toLocaleLowerCase("es").includes(query);
+  const matches = (text) => !query || String(text || "").toLocaleLowerCase(currentLanguage()).includes(query);
 
   const childNodes = (sid, depth, ancestry = new Set()) => {
     const session = sessions[sid];
@@ -241,7 +251,7 @@ export function projectRows(data, onlyActive = false, query = "") {
     return children.map((child) => {
       const linked = child.link_id && sessions[child.link_id]
         ? sessionNode(child.link_id, depth + 2, ancestry, "aviso") : null;
-      return { kind: "child", id: `child:${encodeURIComponent(sid)}:${encodeURIComponent(child.id)}`, title: child.name || "Agente sin nombre", source: child.source,
+      return { kind: "child", id: `child:${encodeURIComponent(sid)}:${encodeURIComponent(child.id)}`, title: child.name || t("work_map.fallback.agent_name"), source: child.source,
         status: child.status, model: child.model, level: child.level, tokens: child.tokens, depth: depth + 1,
         linkedSessionId: child.link_id || null, children: linked ? [linked] : [] };
     });
@@ -254,7 +264,7 @@ export function projectRows(data, onlyActive = false, query = "") {
     const nextAncestry = new Set(ancestry); nextAncestry.add(sid);
     const childLinks = new Set((session.children || []).map((child) => child.link_id).filter(Boolean));
     const children = Object.entries(sessions).filter(([id, value]) => value.parent_id === sid && !childLinks.has(id)).map(([id]) => id).sort();
-    return { kind: "session", id: "session:" + sid, title: session.name || "Sesión sin título", source: session.source, status: session.status,
+    return { kind: "session", id: "session:" + sid, title: session.name || t("work_map.fallback.session_title"), source: session.source, status: session.status,
       model: Array.isArray(session.model) ? session.model.filter(Boolean).join(", ") : session.model,
       tokens: session.tokens, depth, sessionId: sid, relation, children: [
         ...children.map((id) => sessionNode(id, depth + 1, nextAncestry)).filter(Boolean), ...childNodes(sid, depth, nextAncestry),
@@ -264,10 +274,10 @@ export function projectRows(data, onlyActive = false, query = "") {
     const ids = links.get(task.id) || [];
     const assignmentEdges = includeLinks ? ids.filter((id) => sessions[id] && (!onlyActive || active(sessions[id]))).map((id) => {
       seenRoots.add(id);
-      return { sessionId: id, title: sessions[id].name || "Sesión sin título" };
+      return { sessionId: id, title: sessions[id].name || t("work_map.fallback.session_title") };
     }) : [];
     const linked = assignmentEdges.map(({ sessionId }) => sessionNode(sessionId, 4, new Set(), "encargo")).filter(Boolean);
-    const content = titleOf(task, task.id || "Tarea sin título");
+    const content = titleOf(task, task.id || t("work_map.fallback.task_title"));
     return { kind: "task", id: "task:" + task.id, title: content, status: task.label?.key || task.status || task.state,
       label: task.label, depth: 3, phase: task.phase, dueAt: task.due_at, assignee: task.assignee_info || task.assignee || task.preferred,
       dependsOn: task.depends_on || [], blockers: task.blockers || [], assignmentEdges, children: linked,
@@ -276,17 +286,17 @@ export function projectRows(data, onlyActive = false, query = "") {
 
   for (const project of projects) {
     const stageRows = (project.stages || []).map((stage) => ({ kind: "stage", id: "stage:" + (stage.group_id || stage.code),
-      title: titleOf(stage, stage.code || "Etapa"), status: stage.label?.key || stage.lifecycle_state || stage.status, label: stage.label,
+      title: titleOf(stage, stage.code || t("work_map.fallback.stage_title")), status: stage.label?.key || stage.lifecycle_state || stage.status, label: stage.label,
       progress: stage.progress, depth: 1,
       children: (stage.tasks || []).map((task) => taskNode(task, titleOf(stage, ""))) }));
     const attention = project.attention || {};
     const attentionTasks = [...new Map([...(attention.reviews || []), ...(attention.mine || []), ...(attention.blocked || [])].map((task) => [task.id, task])).values()];
-    const attentionRows = attentionTasks.map((task) => taskNode(task, "Atención", false));
+    const attentionRows = attentionTasks.map((task) => taskNode(task, t("work_map.group.attention"), false));
     const verificationRows = (attention.verifications || []).map((stage) => ({ kind: "stage", id: "verify:" + stage.group_id,
-      title: titleOf(stage, "Verificación"), status: stage.label?.key || stage.lifecycle_state, label: stage.label, depth: 2, children: [] }));
+      title: titleOf(stage, t("work_map.fallback.verification_title")), status: stage.label?.key || stage.lifecycle_state, label: stage.label, depth: 2, children: [] }));
     const children = [...stageRows, ...((attentionRows.length || verificationRows.length) ? [{ kind: "group", id: "attention:" + project.id,
-      title: "Atención", depth: 1, children: [...verificationRows, ...attentionRows] }] : [])];
-    rows.push({ kind: "project", id: "project:" + project.id, title: titleOf(project, project.id || "Proyecto"),
+      title: t("work_map.group.attention"), depth: 1, children: [...verificationRows, ...attentionRows] }] : [])];
+    rows.push({ kind: "project", id: "project:" + project.id, title: titleOf(project, project.id || t("work_map.fallback.project_title")),
       progress: project.progress, depth: 0, children, visibility: project.visibility });
   }
   const orphanRoots = Object.keys(sessions).filter((id) => !seenRoots.has(id) && !seenSessions.has(id)
@@ -298,7 +308,7 @@ export function projectRows(data, onlyActive = false, query = "") {
       if (node) unlinked.push(node); // orphaned cycles have no parentless root
     }
   }
-  if (unlinked.length) rows.push({ kind: "group", id: "untasked", title: "Sesiones sin tarea", depth: 0, children: unlinked });
+  if (unlinked.length) rows.push({ kind: "group", id: "untasked", title: t("work_map.group.unassigned_sessions"), depth: 0, children: unlinked });
 
   const filterTree = (node) => {
     if (onlyActive && isFinished(node)) return null;
@@ -337,27 +347,27 @@ export function Node({ node, onlyActive, folded, foldedIds, onToggleFold }) {
     tabindex="0" aria-label=${relationAccessibleLabel(type, id, state)}>${type} · ${id}${state ? ` (${localizedState(state)})` : ""}</span>`;
   return html`<li class=${"wm-node wm-depth-" + Math.min(node.depth || 0, 6) + (isChild ? " " + appClass(node.source) : "")}>
     <div class="wm-row" role="group" tabindex="0" aria-label=${nodeAccessibleLabel(node)} data-wm-node=${node.id}>
-      ${hasChildren ? html`<button type="button" class="wm-fold" aria-label=${(collapsed ? "Expandir " : "Contraer ") + node.title}
+      ${hasChildren ? html`<button type="button" class="wm-fold" aria-label=${t(collapsed ? "work_map.fold.expand" : "work_map.fold.collapse", { title: node.title })}
         aria-expanded=${collapsed ? "false" : "true"} ...${helpFor("work_map.fold")} onClick=${() => onToggleFold(node.id, collapsed)}> ${collapsed ? "+" : "−"}</button>` : html`<span class="wm-fold-space" aria-hidden="true"></span>`}
-      <span class="wm-kind">${node.kind === "project" ? "Proyecto" : node.kind === "stage" ? "Etapa" : node.kind === "task" ? "Tarea" : isSession ? "Sesión" : isChild ? "Hijo" : "Grupo"}</span>
+      <span class="wm-kind">${kindLabel(node.kind)}</span>
       <strong class="wm-title">${node.title}</strong>
-      ${node.visibility === "private" && html`<span class="wm-private-badge" aria-label="Proyecto privado">Privado</span>`}
+      ${node.visibility === "private" && html`<span class="wm-private-badge" aria-label=${t("work_map.private.badge_aria")}>${t("work_map.private.badge")}</span>`}
       ${node.source && html`<span class=${"wm-app-tag " + appClass(node.source)}>${node.source}</span>`}
-      ${(isSession || isChild) && html`<span class="wm-model">${node.model || "Modelo no disponible"}</span>`}
+      ${(isSession || isChild) && html`<span class="wm-model">${node.model || t("work_map.fallback.model")}</span>`}
       ${node.level && html`<${LevelBadge} level=${node.level} />`}
       ${node.status && html`<${StatusChip} status=${node.status} labels=${statusSet(node)} />`}
-      ${node.progress && html`<${Progress} className="wm-progress" label=${node.kind === "project" ? "Progreso del proyecto" : "Progreso de la etapa"} value=${node.progress.percent} valueText=${progressText(node.progress)} tone="info" />`}
+      ${node.progress && html`<${Progress} className="wm-progress" label=${t(node.kind === "project" ? "work_map.progress.project" : "work_map.progress.stage")} value=${node.progress.percent} valueText=${progressText(node.progress)} tone="info" />`}
       ${isTask && node.phase && html`<span class="wm-detail">${node.phase}</span>`}
-      ${isTask && node.dueAt && html`<span class="wm-detail">Fecha: ${node.dueAt}</span>`}
-      ${isTask && node.dependsOn?.map((id) => relation("Depende de", id))}
-      ${isTask && node.blockers?.map((blocker) => relation("Bloqueo", blocker.task_id, blocker.state || "estado no disponible"))}
-      ${isTask && node.assignmentEdges?.map((edge) => html`<button key=${node.id + edge.sessionId} type="button" class="wm-relation-button" ...${helpFor("work_map.assignment_edge")} onClick=${() => navigate("sessions", edge.sessionId)}>Encargo → ${edge.title}</button>`)}
-      ${isChild && node.linkedSessionId && html`<button type="button" class="wm-relation-button" ...${helpFor("work_map.notice_edge")} onClick=${() => navigate("sessions", node.linkedSessionId)}>Aviso → abrir sesión hija</button>`}
+      ${isTask && node.dueAt && html`<span class="wm-detail">${t("work_map.due_date", { date: node.dueAt })}</span>`}
+      ${isTask && node.dependsOn?.map((id) => relation(t("work_map.relation.depends_on"), id))}
+      ${isTask && node.blockers?.map((blocker) => relation(t("work_map.relation.blocker"), blocker.task_id, blocker.state || t("work_map.fallback.status_unavailable")))}
+      ${isTask && node.assignmentEdges?.map((edge) => html`<button key=${node.id + edge.sessionId} type="button" class="wm-relation-button" ...${helpFor("work_map.assignment_edge")} onClick=${() => navigate("sessions", edge.sessionId)}>${t("work_map.assignment.open", { title: edge.title })}</button>`)}
+      ${isChild && node.linkedSessionId && html`<button type="button" class="wm-relation-button" ...${helpFor("work_map.notice_edge")} onClick=${() => navigate("sessions", node.linkedSessionId)}>${t("work_map.notice.open_child")}</button>`}
       ${isSession && html`<span class="wm-tokens">${tokenText(node.tokens)}</span>`}
       ${isChild && html`<span class="wm-tokens">${tokenText(node.tokens)}</span>`}
-      ${isSession && html`<button type="button" class="btn secondary wm-open" ...${helpFor("work_map.open_session")} onClick=${() => navigate("sessions", node.sessionId)}>Abrir sesión</button>`}
+      ${isSession && html`<button type="button" class="btn secondary wm-open" ...${helpFor("work_map.open_session")} onClick=${() => navigate("sessions", node.sessionId)}>${t("work_map.session.open")}</button>`}
     </div>
-    ${node.visibility === "private" && html`<p class="wm-private" role="note">Proyecto privado. Revisa el destino antes de compartir datos de sus tareas con una aplicación.</p>`}
+    ${node.visibility === "private" && html`<p class="wm-private" role="note">${t("work_map.private.warning")}</p>`}
     ${!collapsed && hasChildren && html`<ul class="wm-children">${node.children.map((child) => html`<${Node} key=${child.id} node=${child} onlyActive=${onlyActive} folded=${folded} foldedIds=${foldedIds} onToggleFold=${onToggleFold} />`)}</ul>`}
   </li>`;
 }
@@ -368,20 +378,20 @@ export function ListItem({ node }) {
   return html`<div role="listitem" tabindex="0" aria-label=${nodeAccessibleLabel(node)} data-wm-node=${node.id}
     key=${node.id} class=${"wm-list-row wm-depth-" + Math.min(node.depth || 0, 6)}>
     <span class="wm-kind">${kindLabel(node.kind)}</span><strong>${node.title}</strong>
-    ${node.visibility === "private" && html`<span class="wm-private-badge">Privado</span>`}
+    ${node.visibility === "private" && html`<span class="wm-private-badge">${t("work_map.private.badge")}</span>`}
     ${node.source && html`<span class=${"wm-app-tag " + appClass(node.source)}>${node.source}</span>`}
-    ${(node.kind === "session" || node.kind === "child") && html`<span class="wm-model">${node.model || "Modelo no disponible"}</span>`}
+    ${(node.kind === "session" || node.kind === "child") && html`<span class="wm-model">${node.model || t("work_map.fallback.model")}</span>`}
     ${node.level && html`<${LevelBadge} level=${node.level} />`}
     ${node.status && html`<${StatusChip} status=${node.status} labels=${statusSet(node)} />`}
-    ${node.progress && html`<${Progress} className="wm-progress" label=${node.kind === "project" ? "Progreso del proyecto" : "Progreso de la etapa"} value=${node.progress.percent} valueText=${progressText(node.progress)} tone="info" />`}
-    ${node.phase && html`<span class="wm-detail">${node.phase}</span>`}${node.dueAt && html`<span class="wm-detail">Fecha: ${node.dueAt}</span>`}
-    ${node.dependsOn?.map((id) => relation(id, "Depende de"))}
-    ${node.blockers?.map((blocker) => relation(blocker.task_id, "Bloqueo", blocker.state || "estado no disponible"))}
-    ${node.kind === "task" && node.assignmentEdges?.map((edge) => html`<button key=${node.id + edge.sessionId} type="button" class="wm-relation-button" ...${helpFor("work_map.assignment_edge")} onClick=${() => navigate("sessions", edge.sessionId)}>Encargo → ${edge.title}</button>`)}
-    ${node.kind === "child" && node.linkedSessionId && html`<button type="button" class="wm-relation-button" ...${helpFor("work_map.notice_edge")} onClick=${() => navigate("sessions", node.linkedSessionId)}>Aviso → abrir sesión hija</button>`}
+    ${node.progress && html`<${Progress} className="wm-progress" label=${t(node.kind === "project" ? "work_map.progress.project" : "work_map.progress.stage")} value=${node.progress.percent} valueText=${progressText(node.progress)} tone="info" />`}
+    ${node.phase && html`<span class="wm-detail">${node.phase}</span>`}${node.dueAt && html`<span class="wm-detail">${t("work_map.due_date", { date: node.dueAt })}</span>`}
+    ${node.dependsOn?.map((id) => relation(id, t("work_map.relation.depends_on")))}
+    ${node.blockers?.map((blocker) => relation(blocker.task_id, t("work_map.relation.blocker"), blocker.state || t("work_map.fallback.status_unavailable")))}
+    ${node.kind === "task" && node.assignmentEdges?.map((edge) => html`<button key=${node.id + edge.sessionId} type="button" class="wm-relation-button" ...${helpFor("work_map.assignment_edge")} onClick=${() => navigate("sessions", edge.sessionId)}>${t("work_map.assignment.open", { title: edge.title })}</button>`)}
+    ${node.kind === "child" && node.linkedSessionId && html`<button type="button" class="wm-relation-button" ...${helpFor("work_map.notice_edge")} onClick=${() => navigate("sessions", node.linkedSessionId)}>${t("work_map.notice.open_child")}</button>`}
     ${(node.kind === "session" || node.kind === "child") && html`<span class="wm-tokens">${tokenText(node.tokens)}</span>`}
-    ${node.kind === "session" && html`<button type="button" class="btn secondary wm-open" ...${helpFor("work_map.open_session")} onClick=${() => navigate("sessions", node.sessionId)}>Abrir sesión</button>`}
-    ${node.visibility === "private" && html`<span class="wm-private">Proyecto privado. Revisa el destino antes de compartir datos de sus tareas con una aplicación.</span>`}
+    ${node.kind === "session" && html`<button type="button" class="btn secondary wm-open" ...${helpFor("work_map.open_session")} onClick=${() => navigate("sessions", node.sessionId)}>${t("work_map.session.open")}</button>`}
+    ${node.visibility === "private" && html`<span class="wm-private">${t("work_map.private.warning")}</span>`}
   </div>`;
 }
 
@@ -389,6 +399,7 @@ export function WorkMap({ token }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [languageVersion, setLanguageVersion] = useState(0);
   const [onlyActive, setOnlyActive] = useState(true);
   const [folded, setFolded] = useState(true);
   const [query, setQuery] = useState("");
@@ -403,6 +414,7 @@ export function WorkMap({ token }) {
   const dataToken = useRef(token);
   const currentData = dataToken.current === token ? data : null;
   const load = () => refreshRef.current?.({ showLoading: true, manual: true });
+  useEffect(() => onLanguageChange(() => setLanguageVersion((version) => version + 1)), []);
   useEffect(() => {
     dataToken.current = token;
     setData(null);
@@ -428,11 +440,11 @@ export function WorkMap({ token }) {
     };
   }, [token]);
   const projected = useMemo(() => {
-    const fresh = projectRows(currentData, onlyActive, query.trim().toLocaleLowerCase("es"));
+    const fresh = projectRows(currentData, onlyActive, query.trim().toLocaleLowerCase(currentLanguage()));
     const stable = reconcileMapSnapshot(projectionRef.current, fresh);
     projectionRef.current = stable;
     return stable;
-  }, [currentData, onlyActive, query]);
+  }, [currentData, onlyActive, query, languageVersion]);
   const sessionIds = useMemo(() => {
     const found = [];
     const visit = (nodes) => nodes.forEach((node) => {
@@ -506,22 +518,22 @@ export function WorkMap({ token }) {
   const countStatus = mapCountAnnouncement(visibleCount, projected.total, projected.remaining);
   return html`<section ref=${rootRef} class="work-map" tabindex="0" aria-labelledby="work-map-title" aria-busy=${loading ? "true" : "false"}
     onFocus=${rememberFocus} onBlur=${leaveFocus}>
-    <header class="wm-head"><div><h3 id="work-map-title">Mapa de trabajo</h3><${Help} topic="work_map.refresh" compact=${true} /><${Help} topic="work_map.open_session" compact=${true} /><p class="muted">Proyectos, tareas y sesiones disponibles para esta interfaz.</p></div>
-      <button type="button" class="btn secondary" ...${helpFor("work_map.refresh")} onClick=${load}>Actualizar</button></header>
-    <div class="wm-toolbar" role="search" aria-label="Filtros del mapa">
-      <label for="wm-query">Buscar en el mapa</label><${Help} topic="work_map.search" compact=${true} /><input id="wm-query" type="search" maxlength="120" ...${helpFor("work_map.search")} value=${query} onInput=${(event) => setQuery(event.currentTarget.value)} />
-      <label class="wm-check"><input type="checkbox" checked=${onlyActive} ...${helpFor("work_map.active")} onChange=${(event) => setOnlyActive(event.currentTarget.checked)} /> Solo activos</label><${Help} topic="work_map.active" compact=${true} />
-      <label class="wm-check"><input type="checkbox" checked=${folded} ...${helpFor("work_map.fold_finished")} onChange=${(event) => setFolded(event.currentTarget.checked)} /> Plegar terminados</label><${Help} topic="work_map.fold_finished" compact=${true} />
-      <div class="wm-layout" role="group" aria-label="Presentación del mapa"><button type="button" aria-pressed=${layout === "tree"} ...${helpFor("work_map.tree")} onClick=${() => setLayout("tree")}>Árbol</button><${Help} topic="work_map.tree" compact=${true} /><button type="button" aria-pressed=${layout === "list"} ...${helpFor("work_map.list")} onClick=${() => setLayout("list")}>Lista</button><${Help} topic="work_map.list" compact=${true} /></div><${Help} topic="work_map.fold" compact=${true} /><${Help} topic="work_map.assignment_edge" compact=${true} /><${Help} topic="work_map.notice_edge" compact=${true} />
+    <header class="wm-head"><div><h3 id="work-map-title">${t("work_map.title")}</h3><${Help} topic="work_map.refresh" compact=${true} /><${Help} topic="work_map.open_session" compact=${true} /><p class="muted">${t("work_map.intro")}</p></div>
+      <button type="button" class="btn secondary" ...${helpFor("work_map.refresh")} onClick=${load}>${t("work_map.refresh")}</button></header>
+    <div class="wm-toolbar" role="search" aria-label=${t("work_map.accessibility.filters")}>
+      <label for="wm-query">${t("work_map.search.label")}</label><${Help} topic="work_map.search" compact=${true} /><input id="wm-query" type="search" maxlength="120" ...${helpFor("work_map.search")} value=${query} onInput=${(event) => setQuery(event.currentTarget.value)} />
+      <label class="wm-check"><input type="checkbox" checked=${onlyActive} ...${helpFor("work_map.active")} onChange=${(event) => setOnlyActive(event.currentTarget.checked)} /> ${t("work_map.filter.active")}</label><${Help} topic="work_map.active" compact=${true} />
+      <label class="wm-check"><input type="checkbox" checked=${folded} ...${helpFor("work_map.fold_finished")} onChange=${(event) => setFolded(event.currentTarget.checked)} /> ${t("work_map.filter.fold_finished")}</label><${Help} topic="work_map.fold_finished" compact=${true} />
+      <div class="wm-layout" role="group" aria-label=${t("work_map.accessibility.layout")}><button type="button" aria-pressed=${layout === "tree"} ...${helpFor("work_map.tree")} onClick=${() => setLayout("tree")}>${t("work_map.layout.tree")}</button><${Help} topic="work_map.tree" compact=${true} /><button type="button" aria-pressed=${layout === "list"} ...${helpFor("work_map.list")} onClick=${() => setLayout("list")}>${t("work_map.layout.list")}</button><${Help} topic="work_map.list" compact=${true} /></div><${Help} topic="work_map.fold" compact=${true} /><${Help} topic="work_map.assignment_edge" compact=${true} /><${Help} topic="work_map.notice_edge" compact=${true} />
     </div>
     <p class="wm-count" role="status" aria-live="polite">${countStatus}</p>
-    ${loading && !currentData && html`<p class="muted">Cargando el mapa…</p>`}
-    ${error && html`<p class="message error" role="alert">No se pudo cargar el mapa: ${errorText(error)}</p><button type="button" class="btn secondary" ...${helpFor("work_map.refresh")} onClick=${load}>Reintentar</button>`}
-    ${currentData?.warnings?.length > 0 && html`<p class="wm-private" role="note">Algunas fuentes no estuvieron disponibles. Los avisos se omitieron para no mostrar identificadores privados.</p>`}
-    ${projected.capped && html`<p class="wm-private" role="note">Se muestran ${LIMIT} elementos; ${projected.remaining} más están ocultos. Ajusta la búsqueda para acotar el mapa.</p>`}
-    <div class="wm-results" role="region" tabindex="0" aria-label=${layout === "tree" ? "Resultados del mapa, árbol" : "Resultados del mapa, lista"}>
-      ${layout === "tree" ? html`<ul class="wm-tree" aria-label="Proyecto y sesiones, árbol">${projected.tree.map((node) => html`<${Node} key=${node.id} node=${node} onlyActive=${onlyActive} folded=${folded} foldedIds=${foldedIds} onToggleFold=${toggleFold} />`)}</ul>` : html`<div class="wm-list" role="list" aria-label="Elementos del mapa">${flattened.map((node) => html`<${ListItem} key=${node.id} node=${node} />`)}</div>`}
+    ${loading && !currentData && html`<p class="muted">${t("work_map.loading")}</p>`}
+    ${error && html`<p class="message error" role="alert">${t("work_map.error.load", { error: errorText(error) })}</p><button type="button" class="btn secondary" ...${helpFor("work_map.refresh")} onClick=${load}>${t("work_map.retry")}</button>`}
+    ${currentData?.warnings?.length > 0 && html`<p class="wm-private" role="note">${t("work_map.warning.sources_unavailable")}</p>`}
+    ${projected.capped && html`<p class="wm-private" role="note">${t("work_map.warning.capped", { limit: LIMIT, remaining: projected.remaining })}</p>`}
+    <div class="wm-results" role="region" tabindex="0" aria-label=${t(layout === "tree" ? "work_map.accessibility.results_tree" : "work_map.accessibility.results_list")}>
+      ${layout === "tree" ? html`<ul class="wm-tree" aria-label=${t("work_map.accessibility.project_sessions_tree")}>${projected.tree.map((node) => html`<${Node} key=${node.id} node=${node} onlyActive=${onlyActive} folded=${folded} foldedIds=${foldedIds} onToggleFold=${toggleFold} />`)}</ul>` : html`<div class="wm-list" role="list" aria-label=${t("work_map.accessibility.items")}>${flattened.map((node) => html`<${ListItem} key=${node.id} node=${node} />`)}</div>`}
     </div>
-    ${!loading && projected.count === 0 && html`<p class="muted">No hay elementos que coincidan con estos filtros.</p>`}
+    ${!loading && projected.count === 0 && html`<p class="muted">${t("work_map.empty")}</p>`}
   </section>`;
 }

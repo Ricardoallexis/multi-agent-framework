@@ -200,7 +200,7 @@ def node_root(tmp_path_factory):
 
 def run_node(root, body):
     script = root / "card.mjs"
-    script.write_text(body, encoding="utf-8")
+    script.write_text('import { setLanguage } from "./js/i18n.js";\nsetLanguage("es");\n' + body, encoding="utf-8")
     result = subprocess.run([NODE, str(script)], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -323,5 +323,5 @@ def test_team_version_status_labels_are_shared_and_unknown_codes_are_hidden(node
 
 
 def test_the_server_fixes_the_actor_so_the_card_never_sends_one():
-    block = read("team-card.js").split("CHT-T05: the card of a team version")[1]
+    block = (JS / "team-card.js").read_text(encoding="utf-8").split("CHT-T05: the card of a team version")[1]
     assert "actor" not in block and "channel" not in block

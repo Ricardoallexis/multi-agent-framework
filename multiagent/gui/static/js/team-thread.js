@@ -7,6 +7,7 @@ import { apiGet } from "./api.js";
 import { Help, helpFor } from "./help.js";
 import { errorText } from "./text.js";
 import { TeamVersionCard } from "./team-card.js";
+import { t } from "./i18n.js";
 
 export function TeamThread({ token, versionId }) {
   const [state, setState] = useState({ loaded: false, entries: [], error: null });
@@ -25,13 +26,13 @@ export function TeamThread({ token, versionId }) {
     load();
     return () => { ticket.current += 1; };
   }, [versionId, token]);
-  return html`<section class="ns thread-view" aria-label="Hilo de una versión de equipo">
-    <div class="thread-head"><h3>Versión de equipo</h3><span class="muted">${versionId}</span>
-      <button type="button" class="btn secondary" ...${helpFor("team_card.refresh")} onClick=${load}>Actualizar</button>
+  return html`<section class="ns thread-view" aria-label=${t("teams.thread.aria")}>
+    <div class="thread-head"><h3>${t("teams.thread.title")}</h3><span class="muted">${versionId}</span>
+      <button type="button" class="btn secondary" ...${helpFor("team_card.refresh")} onClick=${load}>${t("teams.page.refresh")}</button>
       <${Help} topic="team_card.refresh" compact=${true} /></div>
-    ${state.error && html`<p class="message error" role="alert">No se pudo leer la versión: ${errorText(state.error)}</p>`}
-    ${!state.loaded && html`<p class="muted" aria-busy="true">Cargando la versión…</p>`}
-    <ol class="thread-list" aria-label="Versión de equipo">
+    ${state.error && html`<p class="message error" role="alert">${t("teams.thread.read_error")}: ${errorText(state.error)}</p>`}
+    ${!state.loaded && html`<p class="muted" aria-busy="true">${t("teams.loading.version")}</p>`}
+    <ol class="thread-list" aria-label=${t("teams.thread.title")}>
       ${state.entries.map((entry) => html`<${TeamVersionCard} key=${entry.seq} entry=${entry} token=${token} onDone=${load} />`)}
     </ol>
   </section>`;

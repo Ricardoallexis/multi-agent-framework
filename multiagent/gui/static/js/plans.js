@@ -12,45 +12,46 @@ import { routeHref } from "./route.js";
 import { StatusChip } from "./ui/index.js";
 import { TaskInputs } from "./plan-thread.js";   // CHT-T06
 import { inputsValue } from "./plan-card-model.js";
+import { currentLanguage, t } from "./i18n.js";
 
 const BASE = "/gui/api/plan-proposals";
 const enc = encodeURIComponent;
 
 export const PLAN_STATUS = {
-  proposed: { text: "Propuesta", tone: "attention", explanation: "Espera revisión y decisión de una persona." },
-  approved: { text: "Aprobada", tone: "success", explanation: "Aprobada; sus tareas quedaron creadas." },
-  rejected: { text: "Rechazada", tone: "danger", explanation: "Rechazada; no admite más cambios." },
+  proposed: { get text() { return t("plans.status.proposed"); }, tone: "attention", get explanation() { return t("plans.status.proposedExplanation"); } },
+  approved: { get text() { return t("plans.status.approved"); }, tone: "success", get explanation() { return t("plans.status.approvedExplanation"); } },
+  rejected: { get text() { return t("plans.status.rejected"); }, tone: "danger", get explanation() { return t("plans.status.rejectedExplanation"); } },
 };
 
 export const HISTORY_KIND = {
-  save: "Guardada",
-  edit: "Editada",
-  reassign: "Reasignada",
-  approve: "Aprobada",
-  reject: "Rechazada",
+  get save() { return t("plans.historyKind.save"); },
+  get edit() { return t("plans.historyKind.edit"); },
+  get reassign() { return t("plans.historyKind.reassign"); },
+  get approve() { return t("plans.historyKind.approve"); },
+  get reject() { return t("plans.historyKind.reject"); },
 };
 
 // What «Avanzar plan» answers, as one sentence: the tasks that moved, or that nothing was left to advance.
 export function advanceSummary(result) {
   const moved = result && Array.isArray(result.advanced) ? result.advanced : [];
-  if (!moved.length) return "No había nada que avanzar.";
-  return "Plan avanzado: " + moved.map((item) => item.task_id).join(", ") + ".";
+  if (!moved.length) return t("plans.advance.nothingToAdvance");
+  return t("plans.advance.summary", { taskIds: moved.map((item) => item.task_id).join(", ") });
 }
 
 const when = (value) => {
-  if (!value) return "Sin fecha";
+  if (!value) return t("plans.date.none");
   const date = new Date(value);
   return Number.isNaN(date.valueOf())
-    ? "Fecha no disponible"
-    : new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short" }).format(date);
+    ? t("plans.date.unavailable")
+    : new Intl.DateTimeFormat(currentLanguage() === "es" ? "es-MX" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(date);
 };
 
 // The error of the service as it came: its message and its code.
 export const failureText = (error) =>
-  (error && error.message ? error.message : "Error desconocido") + (error && error.code ? " (" + error.code + ")" : "");
+  (error && error.message ? error.message : t("plans.error.unknown")) + (error && error.code ? " (" + error.code + ")" : "");
 
 export const formatDependencies = (deps) =>
-  Array.isArray(deps) && deps.length ? deps.join(", ") : "Ninguna";
+  Array.isArray(deps) && deps.length ? deps.join(", ") : t("plans.dependencies.none");
 
 export const parseDependencies = (text) => {
   const seen = new Set();
@@ -116,7 +117,7 @@ export const changedTaskIds = (changes) =>
   changes && typeof changes === "object" ? Object.keys(changes) : [];
 
 function Failure({ error }) {
-  return html`<p class="message error" role="alert">${error ? failureText(error) : "No se pudo leer el plan."}</p>`;
+  return html`<p class="message error" role="alert">${error ? failureText(error) : t("plans.error.readPlan")}</p>`;
 }
 
 function useLoad(path, token) {
@@ -138,10 +139,10 @@ function useLoad(path, token) {
 
 export function PlanList({ data }) {
   const proposals = Array.isArray(data && data.proposals) ? data.proposals : [];
-  if (!proposals.length) return html`<p>No hay propuestas de plan con este filtro.</p>`;
+  if (!proposals.length) return html`<p>${t("plans.list.empty")}</p>`;
   return html`<div class="usage-table-wrap"><table class="usage-table">
-    <caption class="sr-only">Propuestas de plan</caption>
-    <thead><tr><th scope="col">Propuesta</th><th scope="col">Grupo</th><th scope="col">Estado</th><th scope="col">Revisión</th><th scope="col">Tareas</th><th scope="col">Creada</th></tr></thead>
+    <caption class="sr-only">${t("plans.list.caption")}</caption>
+    <thead><tr><th scope="col">${t("plans.list.proposal")}</th><th scope="col">${t("plans.list.group")}</th><th scope="col">${t("plans.list.status")}</th><th scope="col">${t("plans.list.revision")}</th><th scope="col">${t("plans.list.tasks")}</th><th scope="col">${t("plans.list.created")}</th></tr></thead>
     <tbody>${proposals.map((entry) => {
       const tasks = entry.proposal && Array.isArray(entry.proposal.tasks) ? entry.proposal.tasks : [];
       return html`<tr key=${entry.id}>
@@ -149,9 +150,9 @@ export function PlanList({ data }) {
           <div class="muted small">${entry.id} · ${entry.planner}</div></th>
         <td>${entry.group_id}</td>
         <td><${StatusChip} status=${entry.status} labels=${PLAN_STATUS} /></td>
-        <td>${"r" + entry.revision}</td>
+        <td>${t("plans.revision.value", { revision: entry.revision })}</td>
         <td>${tasks.length}</td>
-        <td>${entry.created_by || "Sin dato"} <span class="muted small">${when(entry.created_at)}</span></td>
+        <td>${entry.created_by || t("plans.data.notProvided")} <span class="muted small">${when(entry.created_at)}</span></td>
       </tr>`;
     })}</tbody>
   </table></div>`;
@@ -159,10 +160,10 @@ export function PlanList({ data }) {
 
 export function TasksTable({ tasks }) {
   const list = Array.isArray(tasks) ? tasks : [];
-  if (!list.length) return html`<p>La propuesta no contiene tareas.</p>`;
+  if (!list.length) return html`<p>${t("plans.tasks.empty")}</p>`;
   return html`<div class="usage-table-wrap"><table class="usage-table">
-    <caption class="sr-only">Tareas de la propuesta</caption>
-    <thead><tr><th scope="col">Tarea</th><th scope="col">Dependencias</th><th scope="col">Workflow</th><th scope="col">Preferente</th></tr></thead>
+    <caption class="sr-only">${t("plans.tasks.caption")}</caption>
+    <thead><tr><th scope="col">${t("plans.tasks.task")}</th><th scope="col">${t("plans.tasks.dependencies")}</th><th scope="col">${t("plans.tasks.workflow")}</th><th scope="col">${t("plans.tasks.preferred")}</th></tr></thead>
     <tbody>${list.map((task) => html`<tr key=${task.id}>
       <th scope="row">${task.title}
         <div class="muted small">${task.id}</div>
@@ -170,23 +171,23 @@ export function TasksTable({ tasks }) {
         ${inputsValue(task.inputs) && html`<${TaskInputs} inputs=${task.inputs} />`}</th>
       <td>${Array.isArray(task.depends_on) && task.depends_on.length
         ? html`<ul>${task.depends_on.map((dep) => html`<li key=${dep}>${dep}</li>`)}</ul>`
-        : "Ninguna"}</td>
+        : t("plans.dependencies.none")}</td>
       <td>${task.workflow}${task.bundle ? " (" + task.bundle + ")" : ""}</td>
-      <td>${task.preferred || "Sin preferencia"}</td>
+      <td>${task.preferred || t("plans.tasks.noPreference")}</td>
     </tr>`)}</tbody>
   </table></div>`;
 }
 
 export function HistoryList({ history }) {
   const entries = Array.isArray(history) ? history : [];
-  if (!entries.length) return html`<p>Sin movimientos registrados.</p>`;
+  if (!entries.length) return html`<p>${t("plans.history.empty")}</p>`;
   return html`<ul class="history">
     ${entries.map((entry, index) => {
       const touched = changedTaskIds(entry.changes);
       return html`<li key=${entry.id || index}>
-        <span class="when">${when(entry.at)} · r${entry.revision}</span>
-        <span class="who">${HISTORY_KIND[entry.kind] || entry.kind} · ${entry.actor} (${entry.channel})</span>
-        ${touched.length > 0 && html`<span class="what">Tareas modificadas: ${touched.join(", ")}</span>`}
+        <span class="when">${when(entry.at)} · ${t("plans.revision.value", { revision: entry.revision })}</span>
+        <span class="who">${Object.prototype.hasOwnProperty.call(HISTORY_KIND, entry.kind) ? HISTORY_KIND[entry.kind] : entry.kind} · ${entry.actor} (${entry.channel})</span>
+        ${touched.length > 0 && html`<span class="what">${t("plans.history.tasksModified")}: ${touched.join(", ")}</span>`}
         ${entry.note && html`<blockquote>${entry.note}</blockquote>`}
       </li>`;
     })}
@@ -201,7 +202,7 @@ function AdvanceAction({ token, proposal }) {
   const advance = async () => {
     if (busy) return;
     setBusy(true);
-    setMessage({ kind: "info", text: "Enviando…" });
+    setMessage({ kind: "info", text: t("plans.action.sending") });
     try {
       const result = await apiPost(BASE + "/" + enc(proposal.id) + "/advance", token, {});
       setMessage({ kind: "ok", text: advanceSummary(result) });
@@ -214,14 +215,14 @@ function AdvanceAction({ token, proposal }) {
     }
   };
   return html`<div class="panel">
-    <h4>Avanzar el plan</h4><${Help} topic="plans.advance" />
+    <h4>${t("plans.advance.title")}</h4><${Help} topic="plans.advance" />
     <div class="actions">
       <button type="button" class="btn" disabled=${busy} ...${helpFor("plans.advance")}
-        onClick=${() => setConfirm(true)}>Avanzar plan…</button>
+        onClick=${() => setConfirm(true)}>${t("plans.advance.action")}</button>
     </div>
-    ${confirm && html`<${Confirm} title="¿Avanzar el plan una vez?" confirmLabel="Sí, avanzar"
-      keepLabel="Cancelar" danger=${false} busy=${busy} onKeep=${() => setConfirm(false)} onConfirm=${advance}>
-      <p class="muted">Se pasan a revisión las tareas cuyo run terminó y arrancan las que ya pueden empezar, a nombre del operador.</p>
+    ${confirm && html`<${Confirm} title=${t("plans.advance.confirmTitle")} confirmLabel=${t("plans.advance.confirm")}
+      keepLabel=${t("plans.action.cancel")} danger=${false} busy=${busy} onKeep=${() => setConfirm(false)} onConfirm=${advance}>
+      <p class="muted">${t("plans.advance.explanation")}</p>
     <//>`}
     ${message && html`<p class=${"message " + message.kind} role=${message.kind === "error" ? "alert" : "status"}>${message.text}</p>`}
   </div>`;
@@ -280,7 +281,7 @@ function PlanActions({ token, proposal, onUpdated, onReload }) {
   const submitAction = async (action, payload, okText) => {
     if (busy) return;
     setBusy(true);
-    setMessage({ kind: "info", text: "Enviando…" });
+    setMessage({ kind: "info", text: t("plans.action.sending") });
     try {
       const updated = await apiPost(BASE + "/" + enc(proposal.id) + "/" + action, token, payload);
       setConfirm(null);
@@ -292,7 +293,10 @@ function PlanActions({ token, proposal, onUpdated, onReload }) {
       const failure = error instanceof ApiError ? error : new ApiError({ message: String(error) });
       setConfirm(null);
       if (failure.status === 409 || failure.code === "invalid_state") {
-        setMessage({ kind: "error", text: "Conflicto: " + failureText(failure) + ". Se recargó la propuesta." });
+        setMessage({
+          kind: "error",
+          text: t("plans.action.conflictReloaded", { error: failureText(failure) }),
+        });
         await onReload();
       } else {
         setMessage({ kind: "error", text: failureText(failure) });
@@ -304,8 +308,12 @@ function PlanActions({ token, proposal, onUpdated, onReload }) {
   };
 
   if (proposal.status !== "proposed") {
+    const status = Object.prototype.hasOwnProperty.call(PLAN_STATUS, proposal.status)
+      ? PLAN_STATUS[proposal.status].text : (proposal.status ? String(proposal.status) : "");
     return html`<div class="panel">
-      <p class="muted">Esta propuesta ya fue decidida (${(PLAN_STATUS[proposal.status] || { text: proposal.status }).text}) y no admite más cambios.</p>
+      <p class="muted">${t("plans.action.alreadyDecided", {
+        status,
+      })}</p>
       ${message && html`<p class=${"message " + message.kind} role=${message.kind === "error" ? "alert" : "status"}>${message.text}</p>`}
       ${proposal.status === "approved" && html`<${AdvanceAction} token=${token} proposal=${proposal} />`}
     </div>`;
@@ -314,41 +322,41 @@ function PlanActions({ token, proposal, onUpdated, onReload }) {
   const chosenTask = tasks.find((item) => item.id === taskId) || tasks[0];
   const confirmBox = () => {
     if (confirm === "edit") {
-      return html`<${Confirm} title="¿Guardar los cambios de las tareas?" confirmLabel="Sí, guardar cambios"
-        keepLabel="Seguir editando" danger=${false} busy=${busy} onKeep=${() => setConfirm(null)}
+      return html`<${Confirm} title=${t("plans.confirm.editTitle")} confirmLabel=${t("plans.confirm.edit")}
+        keepLabel=${t("plans.confirm.keepEditing")} danger=${false} busy=${busy} onKeep=${() => setConfirm(null)}
         onConfirm=${() => submitAction("edit", { tasks: buildEditedTasks(editDrafts), expected_revision: proposal.revision, note: note.trim() },
-          "Cambios guardados en una nueva revisión.")}>
-        <p class="muted">Se validarán las tareas y dependencias sobre la revisión r${proposal.revision}.</p>
-        <label for="plan-note">Nota (opcional)</label><${Help} topic="plans.note" />
+          t("plans.confirm.editSuccess"))}>
+        <p class="muted">${t("plans.confirm.editExplanation", { revision: proposal.revision })}</p>
+        <label for="plan-note">${t("plans.note.label")}</label><${Help} topic="plans.note" />
         <textarea id="plan-note" rows="2" maxlength="4000" value=${note} ...${helpFor("plans.note")} onInput=${(e) => setNote(e.target.value)}></textarea>
       <//>`;
     }
     if (confirm === "reassign" && chosenTask) {
-      return html`<${Confirm} title=${"¿Reasignar la tarea «" + chosenTask.id + "»?"} confirmLabel="Sí, reasignar"
-        keepLabel="Cancelar" danger=${false} busy=${busy} onKeep=${() => setConfirm(null)}
+      return html`<${Confirm} title=${t("plans.confirm.reassignTitle", { taskId: chosenTask.id })} confirmLabel=${t("plans.confirm.reassign")}
+        keepLabel=${t("plans.action.cancel")} danger=${false} busy=${busy} onKeep=${() => setConfirm(null)}
         onConfirm=${() => submitAction("reassign", buildReassignPayload(chosenTask, reassignDraft, proposal.revision, note),
-          "Tarea reasignada en una nueva revisión.")}>
-        <p class="muted">Se actualizará la asignación de ${chosenTask.id} sobre la revisión r${proposal.revision}.</p>
-        <label for="plan-note">Nota (opcional)</label><${Help} topic="plans.note" />
+          t("plans.confirm.reassignSuccess"))}>
+        <p class="muted">${t("plans.confirm.reassignExplanation", { taskId: chosenTask.id, revision: proposal.revision })}</p>
+        <label for="plan-note">${t("plans.note.label")}</label><${Help} topic="plans.note" />
         <textarea id="plan-note" rows="2" maxlength="4000" value=${note} ...${helpFor("plans.note")} onInput=${(e) => setNote(e.target.value)}></textarea>
       <//>`;
     }
     if (confirm === "approve") {
-      return html`<${Confirm} title="¿Aprobar esta propuesta de plan?" confirmLabel="Sí, aprobar"
-        keepLabel="Mantenerla pendiente" danger=${false} busy=${busy} onKeep=${() => setConfirm(null)}
+      return html`<${Confirm} title=${t("plans.confirm.approveTitle")} confirmLabel=${t("plans.confirm.approve")}
+        keepLabel=${t("plans.confirm.keepPending")} danger=${false} busy=${busy} onKeep=${() => setConfirm(null)}
         onConfirm=${() => submitAction("approve", { expected_revision: proposal.revision, note: note.trim() },
-          "La propuesta quedó aprobada y se crearon sus tareas.")}>
-        <p class="muted">Se crearán las tareas de la revisión r${proposal.revision} a nombre del operador y arrancarán las que no tengan dependencias pendientes.</p>
-        <label for="plan-note">Nota (opcional)</label><${Help} topic="plans.note" />
+          t("plans.confirm.approveSuccess"))}>
+        <p class="muted">${t("plans.confirm.approveExplanation", { revision: proposal.revision })}</p>
+        <label for="plan-note">${t("plans.note.label")}</label><${Help} topic="plans.note" />
         <textarea id="plan-note" rows="2" maxlength="4000" value=${note} ...${helpFor("plans.note")} onInput=${(e) => setNote(e.target.value)}></textarea>
       <//>`;
     }
     if (confirm === "reject") {
-      return html`<${Confirm} title="¿Rechazar esta propuesta de plan?" confirmLabel="Sí, rechazar"
-        keepLabel="Mantenerla pendiente" danger=${true} busy=${busy} onKeep=${() => setConfirm(null)}
-        onConfirm=${() => submitAction("reject", { note: note.trim() }, "La propuesta quedó rechazada.")}>
-        <p class="muted">Quedará cerrada como rechazada sin crear tareas. No se puede deshacer.</p>
-        <label for="plan-note">Nota (opcional)</label><${Help} topic="plans.note" />
+      return html`<${Confirm} title=${t("plans.confirm.rejectTitle")} confirmLabel=${t("plans.confirm.reject")}
+        keepLabel=${t("plans.confirm.keepPending")} danger=${true} busy=${busy} onKeep=${() => setConfirm(null)}
+        onConfirm=${() => submitAction("reject", { note: note.trim() }, t("plans.confirm.rejectSuccess"))}>
+        <p class="muted">${t("plans.confirm.rejectExplanation")}</p>
+        <label for="plan-note">${t("plans.note.label")}</label><${Help} topic="plans.note" />
         <textarea id="plan-note" rows="2" maxlength="4000" value=${note} ...${helpFor("plans.note")} onInput=${(e) => setNote(e.target.value)}></textarea>
       <//>`;
     }
@@ -357,90 +365,90 @@ function PlanActions({ token, proposal, onUpdated, onReload }) {
 
   return html`<div class="stack">
     <div class="panel">
-      <h4>Editar tareas</h4><${Help} topic="plans.edit" />
+      <h4>${t("plans.edit.title")}</h4><${Help} topic="plans.edit" />
       <div class="actions">
         <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("plans.edit")}
           onClick=${() => { setEditDrafts(toEditDrafts(tasks)); setEditing((open) => !open); setConfirm(null); }}>
-          ${editing ? "Cerrar editor" : "Editar tareas"}
+          ${editing ? t("plans.edit.close") : t("plans.edit.action")}
         </button>
       </div>
       ${editing && html`<div class="stack">
         ${editDrafts.map((task, index) => html`<fieldset class="inputs" key=${task.id}>
-          <legend>Tarea: ${task.id}</legend>
-          <label for=${"edit-title-" + task.id}>Título</label>
+          <legend>${t("plans.edit.taskLegend", { taskId: task.id })}</legend>
+          <label for=${"edit-title-" + task.id}>${t("plans.edit.titleLabel")}</label>
           <input id=${"edit-title-" + task.id} type="text" maxlength="200" value=${task.title} ...${helpFor("plans.edit")}
             onInput=${(e) => updateDraft(index, "title", e.target.value)} />
-          <label for=${"edit-obj-" + task.id}>Objetivo</label>
+          <label for=${"edit-obj-" + task.id}>${t("plans.edit.objectiveLabel")}</label>
           <textarea id=${"edit-obj-" + task.id} rows="2" maxlength="4000" value=${task.objective} ...${helpFor("plans.edit")}
             onInput=${(e) => updateDraft(index, "objective", e.target.value)}></textarea>
-          <label for=${"edit-deps-" + task.id}>Dependencias (identificadores separados por coma)</label>
+          <label for=${"edit-deps-" + task.id}>${t("plans.edit.dependenciesLabel")}</label>
           <input id=${"edit-deps-" + task.id} type="text" value=${task.depends_on_text} ...${helpFor("plans.edit")}
             onInput=${(e) => updateDraft(index, "depends_on_text", e.target.value)} />
           <div class="two">
             <div>
-              <label for=${"edit-wf-" + task.id}>Workflow</label>
+              <label for=${"edit-wf-" + task.id}>${t("plans.edit.workflowLabel")}</label>
               <input id=${"edit-wf-" + task.id} type="text" value=${task.workflow} ...${helpFor("plans.edit")}
                 onInput=${(e) => updateDraft(index, "workflow", e.target.value)} />
             </div>
             <div>
-              <label for=${"edit-bundle-" + task.id}>Bundle (opcional)</label>
+              <label for=${"edit-bundle-" + task.id}>${t("plans.edit.bundleLabel")}</label>
               <input id=${"edit-bundle-" + task.id} type="text" value=${task.bundle} ...${helpFor("plans.edit")}
                 onInput=${(e) => updateDraft(index, "bundle", e.target.value)} />
             </div>
           </div>
-          <label for=${"edit-pref-" + task.id}>Preferente (opcional)</label>
+          <label for=${"edit-pref-" + task.id}>${t("plans.edit.preferredLabel")}</label>
           <input id=${"edit-pref-" + task.id} type="text" maxlength="100" value=${task.preferred} ...${helpFor("plans.edit")}
             onInput=${(e) => updateDraft(index, "preferred", e.target.value)} />
         </fieldset>`)}
         <div class="actions">
           <button type="button" class="btn" disabled=${busy} ...${helpFor("plans.edit")}
-            onClick=${() => setConfirm("edit")}>Guardar edición…</button>
+            onClick=${() => setConfirm("edit")}>${t("plans.edit.save")}</button>
         </div>
         ${confirm === "edit" && confirmBox()}
       </div>`}
     </div>
 
     <div class="panel">
-      <h4>Reasignar una tarea</h4><${Help} topic="plans.reassign" />
+      <h4>${t("plans.reassign.title")}</h4><${Help} topic="plans.reassign" />
       <div class="stack">
-        <label for="reassign-task">Tarea</label>
+        <label for="reassign-task">${t("plans.tasks.task")}</label>
         <select id="reassign-task" value=${taskId} ...${helpFor("plans.reassign")} onChange=${(e) => selectReassignTask(e.target.value)}>
           ${tasks.map((task) => html`<option key=${task.id} value=${task.id}>${task.id} — ${task.title}</option>`)}
         </select>
         <div class="two">
           <div>
-            <label for="reassign-preferred">Preferente</label>
+            <label for="reassign-preferred">${t("plans.edit.preferredField")}</label>
             <input id="reassign-preferred" type="text" maxlength="100" value=${reassignDraft.preferred} ...${helpFor("plans.reassign")}
               onInput=${(e) => setReassignDraft((prev) => ({ ...prev, preferred: e.target.value }))} />
           </div>
           <div>
-            <label for="reassign-workflow">Workflow</label>
+            <label for="reassign-workflow">${t("plans.edit.workflowLabel")}</label>
             <input id="reassign-workflow" type="text" maxlength="120" value=${reassignDraft.workflow} ...${helpFor("plans.reassign")}
               onInput=${(e) => setReassignDraft((prev) => ({ ...prev, workflow: e.target.value }))} />
           </div>
         </div>
-        <label for="reassign-bundle">Bundle (opcional)</label>
+        <label for="reassign-bundle">${t("plans.edit.bundleLabel")}</label>
         <input id="reassign-bundle" type="text" maxlength="120" value=${reassignDraft.bundle} ...${helpFor("plans.reassign")}
           onInput=${(e) => setReassignDraft((prev) => ({ ...prev, bundle: e.target.value }))} />
         <div class="actions">
           <button type="button" class="btn secondary" disabled=${busy || !chosenTask} ...${helpFor("plans.reassign")}
-            onClick=${() => setConfirm("reassign")}>Reasignar tarea…</button>
+            onClick=${() => setConfirm("reassign")}>${t("plans.reassign.action")}</button>
         </div>
         ${confirm === "reassign" && confirmBox()}
       </div>
     </div>
 
     <div class="panel">
-      <h4>Decisión</h4>
+      <h4>${t("plans.decision.title")}</h4>
       <div class="actions">
         <span class="action-item">
           <button type="button" class="btn" disabled=${busy} ...${helpFor("plans.approve")}
-            onClick=${() => setConfirm("approve")}>Aprobar plan…</button>
+            onClick=${() => setConfirm("approve")}>${t("plans.decision.approve")}</button>
           <${Help} topic="plans.approve" />
         </span>
         <span class="action-item">
           <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("plans.reject")}
-            onClick=${() => setConfirm("reject")}>Rechazar plan…</button>
+            onClick=${() => setConfirm("reject")}>${t("plans.decision.reject")}</button>
           <${Help} topic="plans.reject" />
         </span>
       </div>
@@ -456,28 +464,28 @@ function PlanDetail({ token, proposalId, reloadRef }) {
   const proposal = state.data;
   const tasks = proposal && proposal.proposal && Array.isArray(proposal.proposal.tasks) ? proposal.proposal.tasks : [];
   return html`<div>
-    <p><a href=${routeHref("plans")}>← Todos los planes</a></p>
+    <p><a href=${routeHref("plans")}>${t("plans.detail.allPlans")}</a></p>
     ${state.error && html`<${Failure} error=${state.error} />`}
-    ${state.loading && !proposal ? html`<p role="status" aria-live="polite">Cargando la propuesta…</p>` : proposal && html`<div class="stack">
+    ${state.loading && !proposal ? html`<p role="status" aria-live="polite">${t("plans.detail.loading")}</p>` : proposal && html`<div class="stack">
       <div class="panel">
         <h4>${proposal.goal}</h4>
         <dl class="facts">
-          <dt>Identificador</dt><dd>${proposal.id}</dd>
-          <dt>Grupo</dt><dd>${proposal.group_id}</dd>
-          <dt>Estado</dt><dd><${StatusChip} status=${proposal.status} labels=${PLAN_STATUS} /></dd>
-          <dt>Revisión</dt><dd>r${proposal.revision}</dd>
-          <dt>Planificador</dt><dd>${proposal.planner}</dd>
-          <dt>Creada por</dt><dd>${proposal.created_by} (${proposal.created_channel}) · ${when(proposal.created_at)}</dd>
-          ${proposal.decided_by && html`<dt>Decisión</dt><dd>${proposal.decided_by} (${proposal.decided_channel}) · ${when(proposal.decided_at)}</dd>`}
-          ${proposal.proposal && proposal.proposal.rationale && html`<dt>Justificación</dt><dd>${proposal.proposal.rationale}</dd>`}
+          <dt>${t("plans.detail.identifier")}</dt><dd>${proposal.id}</dd>
+          <dt>${t("plans.list.group")}</dt><dd>${proposal.group_id}</dd>
+          <dt>${t("plans.list.status")}</dt><dd><${StatusChip} status=${proposal.status} labels=${PLAN_STATUS} /></dd>
+          <dt>${t("plans.list.revision")}</dt><dd>${t("plans.revision.value", { revision: proposal.revision })}</dd>
+          <dt>${t("plans.detail.planner")}</dt><dd>${proposal.planner}</dd>
+          <dt>${t("plans.detail.createdBy")}</dt><dd>${proposal.created_by} (${proposal.created_channel}) · ${when(proposal.created_at)}</dd>
+          ${proposal.decided_by && html`<dt>${t("plans.detail.decision")}</dt><dd>${proposal.decided_by} (${proposal.decided_channel}) · ${when(proposal.decided_at)}</dd>`}
+          ${proposal.proposal && proposal.proposal.rationale && html`<dt>${t("plans.detail.rationale")}</dt><dd>${proposal.proposal.rationale}</dd>`}
         </dl>
       </div>
-      <h4>Tareas y dependencias</h4><${Help} topic="plans.detail" />
+      <h4>${t("plans.detail.tasksAndDependencies")}</h4><${Help} topic="plans.detail" />
       <${TasksTable} tasks=${tasks} />
       <${PlanActions} token=${token} proposal=${proposal}
         onUpdated=${(updated) => setState({ loading: false, data: updated, error: null })}
         onReload=${load} />
-      <h4>Historial de cambios</h4><${Help} topic="plans.history" />
+      <h4>${t("plans.detail.changeHistory")}</h4><${Help} topic="plans.history" />
       <${HistoryList} history=${proposal.history} />
     </div>`}
   </div>`;
@@ -498,28 +506,28 @@ export function Plans({ token, route }) {
   };
   const busy = !proposalId && list.loading;
   return html`<div class="usage-view">
-    <h3 id="plans-title">Planes propuestos</h3><${Help} topic="plans.section" always=${true} />
+    <h3 id="plans-title">${t("plans.title")}</h3><${Help} topic="plans.section" always=${true} />
     <div class="usage-title-row">
-      <p class="muted">Propuestas de plan guardadas antes de crear tareas. Una persona revisa, ajusta y decide.</p>
-      <div class="usage-refresh-control" role="group" aria-label="Actualizar los planes">
-        <button type="button" class="btn" disabled=${busy} ...${helpFor("plans.refresh")} onClick=${refresh}>${busy ? "Actualizando…" : "Actualizar"}</button>
+      <p class="muted">${t("plans.subtitle")}</p>
+      <div class="usage-refresh-control" role="group" aria-label=${t("plans.refresh.groupLabel")}>
+        <button type="button" class="btn" disabled=${busy} ...${helpFor("plans.refresh")} onClick=${refresh}>${busy ? t("plans.refresh.updating") : t("plans.refresh.action")}</button>
         <${Help} topic="plans.refresh" compact=${true} />
       </div>
     </div>
     ${proposalId ? html`<${PlanDetail} key=${proposalId} token=${token} proposalId=${proposalId} reloadRef=${reloadRef} />` : html`<div>
       <div class="filters">
-        <label for="plans-status">Estado</label>
+        <label for="plans-status">${t("plans.list.status")}</label>
         <select id="plans-status" value=${statusFilter} ...${helpFor("plans.filter")} onChange=${(e) => setStatusFilter(e.target.value)}>
-          <option value="">Todos</option>
-          <option value="proposed">Propuesta</option>
-          <option value="approved">Aprobada</option>
-          <option value="rejected">Rechazada</option>
+          <option value="">${t("plans.filter.all")}</option>
+          <option value="proposed">${t("plans.status.proposed")}</option>
+          <option value="approved">${t("plans.status.approved")}</option>
+          <option value="rejected">${t("plans.status.rejected")}</option>
         </select>
         <${Help} topic="plans.filter" />
       </div>
-      <h4>Lista de propuestas</h4><${Help} topic="plans.list" />
+      <h4>${t("plans.list.title")}</h4><${Help} topic="plans.list" />
       ${list.error && html`<${Failure} error=${list.error} />`}
-      ${list.loading && !list.data ? html`<p role="status" aria-live="polite">Cargando los planes…</p>` : list.data && html`<${PlanList} data=${list.data} />`}
+      ${list.loading && !list.data ? html`<p role="status" aria-live="polite">${t("plans.list.loading")}</p>` : list.data && html`<${PlanList} data=${list.data} />`}
     </div>`}
   </div>`;
 }

@@ -4,24 +4,52 @@
 // permissions, and the model its agent resolves to in the catalog; plus the team mode) and its `diff` against the approved
 // version, or against an empty team when there is none. Everything here returns plain text or plain data.
 
-export const MODE_TEXT = { supervised: "Supervisado", autonomous: "Autónomo" };
-export const PERMISSION_TEXT = { read: "leer", write: "escribir", destructive: "borrar o destruir", external: "salir a servicios externos" };
-export const MODEL_STATUS_TEXT = {
-  no_agent: "Sin agente: este puesto lo ocupa una persona o nadie, así que no usa un modelo.",
-  agent_not_in_catalog: "El agente no está en el catálogo del bundle, así que no se sabe qué modelo usaría.",
-  no_step: "Ningún paso de los flujos del bundle usa a este agente, así que no tiene un modelo asignado.",
-  not_in_catalog: "Los pasos piden un modelo que no está en el catálogo del bundle.",
-  partial: "Algunos modelos de sus pasos no están en el catálogo del bundle.",
-  unavailable: "No se pudo leer el catálogo del bundle, así que no se sabe qué modelo usaría.",
-};
-export const SECTION_TEXT = { roles: "Puestos", members: "Miembros", assignments: "Asignaciones", relationships: "Relaciones" };
-export const LINK_TEXT = { reviews: "revisa a", delegates_to: "delega en", reports_to: "reporta a" };
-const BUCKET_TEXT = { added: "Añadidos", removed: "Quitados", changed: "Cambiados" };
-const HEADER_TEXT = { id: "Identificador", description: "Descripción", schema_version: "Versión del esquema", mode: "Modo" };
+import { t } from "./i18n.js";
 
-export const modeText = (mode) => MODE_TEXT[mode] || (mode ? String(mode) : "Sin modo declarado");
+export const MODE_TEXT = {
+  get supervised() { return t("teams.mode.supervised"); },
+  get autonomous() { return t("teams.mode.autonomous"); },
+};
+export const PERMISSION_TEXT = {
+  get read() { return t("teams.permission.read"); },
+  get write() { return t("teams.permission.write"); },
+  get destructive() { return t("teams.permission.destructive"); },
+  get external() { return t("teams.permission.external"); },
+};
+export const MODEL_STATUS_TEXT = {
+  get no_agent() { return t("teams.model.no_agent"); },
+  get agent_not_in_catalog() { return t("teams.model.agent_not_in_catalog"); },
+  get no_step() { return t("teams.model.no_step"); },
+  get not_in_catalog() { return t("teams.model.not_in_catalog"); },
+  get partial() { return t("teams.model.partial"); },
+  get unavailable() { return t("teams.model.unavailable"); },
+};
+export const SECTION_TEXT = {
+  get roles() { return t("teams.section.roles"); },
+  get members() { return t("teams.section.members"); },
+  get assignments() { return t("teams.section.assignments"); },
+  get relationships() { return t("teams.section.relationships"); },
+};
+export const LINK_TEXT = {
+  get reviews() { return t("teams.link.reviews"); },
+  get delegates_to() { return t("teams.link.delegates_to"); },
+  get reports_to() { return t("teams.link.reports_to"); },
+};
+const BUCKET_TEXT = {
+  get added() { return t("teams.bucket.added"); },
+  get removed() { return t("teams.bucket.removed"); },
+  get changed() { return t("teams.bucket.changed"); },
+};
+const HEADER_TEXT = {
+  get id() { return t("teams.header.id"); },
+  get description() { return t("teams.header.description"); },
+  get schema_version() { return t("teams.header.schema_version"); },
+  get mode() { return t("teams.header.mode"); },
+};
+
+export const modeText = (mode) => MODE_TEXT[mode] || (mode ? String(mode) : t("teams.mode.none"));
 export const permissionText = (permissions) => Array.isArray(permissions) && permissions.length
-  ? permissions.map((item) => PERMISSION_TEXT[item] || String(item)).join(", ") : "Ninguno";
+  ? permissions.map((item) => PERMISSION_TEXT[item] || String(item)).join(", ") : t("teams.permission.none");
 
 // One model as "gemini-x (proveedor, nivel)"; the catalog id is part of it so a person can find it in models.yaml.
 export const modelLine = (model) => !model ? "" : String(model.model || model.id) +
@@ -33,13 +61,14 @@ export function modelSummary(role) {
   const lines = (info.models || []).map(modelLine);
   const notes = [];
   if (info.status !== "resolved" && MODEL_STATUS_TEXT[info.status]) notes.push(MODEL_STATUS_TEXT[info.status]);
-  if ((info.missing || []).length) notes.push("Falta en el catálogo: " + info.missing.join(", ") + ".");
+  if ((info.missing || []).length) notes.push(t("teams.model.missing", { models: info.missing.join(", ") }));
   return { status: info.status || "unavailable", lines, notes, ok: info.status === "resolved" };
 }
 
 export const membersLine = (members) => Array.isArray(members) && members.length
-  ? members.map((member) => (member.name || member.id) + " (" + (member.kind === "agent" ? "agente " + (member.agent || "") : "persona") + ")").join(", ")
-  : "Nadie";
+  ? members.map((member) => (member.name || member.id) + " (" + (member.kind === "agent"
+    ? t("teams.member.agent", { agent: member.agent || "" }) : t("teams.member.person")) + ")").join(", ")
+  : t("teams.member.none");
 
 // The rows of one role of the card, as label/value text; an empty list says so instead of leaving a blank.
 export function roleRows(role) {
@@ -49,10 +78,10 @@ export function roleRows(role) {
     id: String(role.id),
     purpose: role.purpose || "",
     rows: [
-      { key: "rules", label: "Reglas", text: list(role.rules, "Sin reglas declaradas") },
-      { key: "permissions", label: "Permisos", text: permissionText(role.permissions) },
-      { key: "model", label: "Modelo", text: model.lines.length ? model.lines.join("; ") : "Sin modelo resuelto" },
-      { key: "members", label: "Ocupa", text: membersLine(role.members) },
+      { key: "rules", label: t("teams.card.rules"), text: list(role.rules, t("teams.card.no_rules")) },
+      { key: "permissions", label: t("teams.card.permissions"), text: permissionText(role.permissions) },
+      { key: "model", label: t("teams.card.model"), text: model.lines.length ? model.lines.join("; ") : t("teams.card.no_model") },
+      { key: "members", label: t("teams.position.has"), text: membersLine(role.members) },
     ],
     notes: model.notes,
     modelStatus: model.status,
@@ -61,20 +90,22 @@ export function roleRows(role) {
 
 export const cardRoles = (card) => Array.isArray(card && card.roles) ? card.roles.map(roleRows) : [];
 
-const fieldValue = (value) => value === null || value === undefined ? "(vacío)" : typeof value === "string" ? value : JSON.stringify(value);
+const fieldValue = (value) => value === null || value === undefined ? t("teams.value.empty") : typeof value === "string" ? value : JSON.stringify(value);
 export const fieldChanges = (fields) => Object.keys(fields || {}).map((name) =>
   (HEADER_TEXT[name] || name) + ": " + fieldValue(fields[name].before) + " → " + fieldValue(fields[name].after));
 
 // One line for an added or removed item of a diff section; a role also says its rules and permissions.
 export function itemLine(section, item) {
   if (!item) return "";
-  if (section === "assignments") return item.member + " en " + item.role;
+  if (section === "assignments") return item.member + " " + t("teams.diff.in") + " " + item.role;
   if (section === "relationships") return item.from + " " + (LINK_TEXT[item.type] || item.type) + " " + item.to;
   if (section === "roles") {
     const rules = Array.isArray(item.rules) ? item.rules.length : 0;
-    return item.id + " (" + rules + (rules === 1 ? " regla" : " reglas") + "; permisos: " + permissionText(item.permissions) + ")";
+    return item.id + " (" + t(rules === 1 ? "teams.item.one_rule" : "teams.item.many_rules", { count: rules })
+      + "; " + t("teams.card.permissions").toLowerCase() + ": " + permissionText(item.permissions) + ")";
   }
-  if (section === "members") return item.id + " (" + (item.kind === "agent" ? "agente " + (item.agent || "") : "persona") + ")";
+  if (section === "members") return item.id + " (" + (item.kind === "agent"
+    ? t("teams.member.agent", { agent: item.agent || "" }) : t("teams.member.person")) + ")";
   return String(item.id);
 }
 
@@ -93,8 +124,8 @@ export function diffLines(diff) {
     }));
     if (buckets.length) sections.push({ section, label: SECTION_TEXT[section], buckets });
   }
-  const base = diff.base_version ? "Frente a la versión " + diff.base_version + " aprobada."
-    : "No hay versión aprobada con la que comparar: todo lo que sigue es nuevo.";
+  const base = diff.base_version ? t("teams.diff.base_present", { version: diff.base_version })
+    : t("teams.diff.base_empty");
   return { base, empty: !header.length && !sections.length, header, sections };
 }
 
