@@ -5,6 +5,8 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: «Oficinas», «Proyecto», the document alerts, «Esperan tu decisión» and the office privacy question follow the language selector (English base, Spanish translation), help included. Names, ids, codes and server messages stay as data.
+- A workflow step prompt now tells the model today's date (ISO date, weekday and the local UTC offset), read from the machine's clock as a context section so it never enters the stable prompt prefix, the run inputs or a context summary.
 - GUI: «Apps y agentes», the approvals, continuity and «Abrir en la app» follow the language selector (English base, Spanish translation), help included. Server messages, error output, names, ids and codes stay as data.
 - GUI: «Inicio», «Sesiones», «Paquetes», «Pendientes», «Uso», «Evaluación», the «Contexto» panel and the subagents follow the language selector (English base, Spanish translation), help included. The double-click start's console hint names the English labels (Start › Switch to real models). Titles, names, ids and codes stay as they are.
 - GUI: «Ejecuciones», the run detail and actions, the run thread and the shared status, progress and level labels follow the language selector (English base, Spanish translation), help included. Messages, payloads, ids and codes stay as they are.
