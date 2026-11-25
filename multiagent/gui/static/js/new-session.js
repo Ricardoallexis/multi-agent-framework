@@ -16,6 +16,7 @@ import { currentMode } from "./gui-mode.js";   // SIM-T03
 import { modeHelpEntry } from "./help-text.js";
 import { ModelPicker } from "./model-picker.js";
 import { buildModelPicker } from "./model-picker-model.js";
+import { askLevelOnce, LEVEL_OPTIONS, QUESTION_LINES } from "./office-level-question.js";
 import {
   PROJECT_KEY, SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_NOTICE, SECRET_REVIEW_REASON, answerRows, buildLimitNotice,
   cardDescription, connectionLabel, createConversation, createSecretReview, currentQuestion, executorLaunchBody, formSeed, inputsPath,
@@ -688,6 +689,8 @@ export function NewSession({ token, mock }) {
   const [projects, setProjects] = useState([]);
   const [busy, setBusy] = useState(false);
   const [pendingCloud, setPendingCloud] = useState(null);
+  const [officeLevelQuestion, setOfficeLevelQuestion] = useState(null);
+  const [officeLevelNotice, setOfficeLevelNotice] = useState(null);
   const [pendingSecret, setPendingSecret] = useState(restored ? restored.pendingSecret : null);
   const [limitNotice, setLimitNotice] = useState(null);
   const [planDraft, setPlanDraft] = useState(null);                  // ARR3-T02: the draft of a plan_suggested answer
@@ -873,6 +876,9 @@ export function NewSession({ token, mock }) {
     const nextKey = [route.kind, officeId, officeArea].join("|");
     if (officeRouteKey.current === nextKey) return;
     officeRouteKey.current = nextKey;
+    setBusy(false);
+    setOfficeLevelQuestion(null);
+    setOfficeLevelNotice(null);
     store.current = createConversation();
     setConv(store.current);
     setDraft("");
@@ -1009,11 +1015,67 @@ export function NewSession({ token, mock }) {
     return { source: SOURCE_KEYWORDS, reason: "model_error", proposal: null };
   }
 
-  function showOfficeLevelRequired(failure) {
+  function showOfficeLevelRequired(failure, { startKey, retry, onResult } = {}) {
     const text = officeLevelRequiredText(failure);
     if (!text) return false;
+    const area = failure?.details?.area;
+    if (currentMode() === "simple" && officeId && typeof area === "string" && retry && onResult) {
+      const areaName = currentOfficeDetail?.areas?.find((item) => item.id === area)?.name || area;
+      setOfficeLevelNotice(null);
+      setOfficeLevelQuestion({ area, areaName, officeId, routeKey: startKey, retry, onResult });
+      return true;
+    }
     dispatch({ type: "notice", text }, { keepDraft: true });
+    setOfficeLevelQuestion(null);
+    setOfficeLevelNotice({ text: "", officeId });
     return true;
+  }
+
+  async function chooseOfficeLevel(chosen) {
+    if (!officeLevelQuestion || busy) return;
+    const pending = officeLevelQuestion;
+    const startKey = officeRouteKey.current;
+    const stale = () => replyIsStale(startKey) || startKey !== pending.routeKey || routeKey !== startKey;
+    if (stale()) {
+      setOfficeLevelQuestion(null);
+      return;
+    }
+    setOfficeLevelQuestion(null);
+    setOfficeLevelNotice(null);
+    setBusy(true);
+    try {
+      const result = await askLevelOnce({
+        token,
+        officeId: pending.officeId,
+        area: pending.area,
+        post: apiPost,
+        isStale: stale,
+        retry: (question) => {
+          if (question) return Promise.resolve(chosen);
+          if (stale()) return Promise.resolve(null);
+          return pending.retry();
+        },
+      });
+      if (stale()) return;
+      if (result !== null) pending.onResult(result);
+    } catch (failure) {
+      if (stale()) return;
+      setOfficeLevelNotice({
+        text: officeLevelRequiredText(failure) || errorText(asError(failure)),
+        officeId: pending.officeId,
+      });
+    } finally {
+      if (!stale()) setBusy(false);
+    }
+  }
+
+  function cancelOfficeLevelQuestion() {
+    setOfficeLevelQuestion(null);
+  }
+
+  function queuePendingCloud(question, startKey) {
+    const pending = { ...question, routeKey: startKey };
+    setPendingCloud(pending);
   }
 
   function finishInterpretation(text, entries, interpretation, keptDraft) {
@@ -1044,7 +1106,7 @@ export function NewSession({ token, mock }) {
   async function submit(text) {
     const trimmed = String(text).trim();
     const asking = store.current.phase === "ask";
-    if (busy || pendingCloud || pendingSecret || (!asking && !trimmed)) return;
+    if (busy || pendingCloud || pendingSecret || officeLevelQuestion || (!asking && !trimmed)) return;
     const startKey = officeRouteKey.current;
     const command = parseCommand(trimmed);
     let entries = activeCatalog.entries;
@@ -1069,7 +1131,22 @@ export function NewSession({ token, mock }) {
         interpretation = await interpretText(command ? command.rest : trimmed);
       } catch (failure) {
         if (replyIsStale(startKey)) return;
-        if (showOfficeLevelRequired(failure)) return;
+        const requestText = command ? command.rest : trimmed;
+        if (showOfficeLevelRequired(failure, {
+          startKey,
+          retry: () => interpretText(requestText),
+          onResult: (answer) => {
+            if (answer?.reason === "cloud_confirmation_required") {
+              queuePendingCloud({ text: trimmed, requestText, entries, interpretation: answer }, startKey);
+            } else if (isSecretReviewRequired(answer)) {
+              holdSecret(createSecretReview({
+                text: trimmed, requestText, confirmCloud: false, approvalId: answer.approval_id || "",
+              }), String(text));
+            } else {
+              finishInterpretation(trimmed, entries, answer, String(text));
+            }
+          },
+        })) return;
         interpretation = secretInterpretationFromError(failure);     // the words are compared instead on model error
       } finally { setBusy(false); }
       if (replyIsStale(startKey)) return;
@@ -1105,7 +1182,21 @@ export function NewSession({ token, mock }) {
         interpretation = await interpretText(requestText, true);
       } catch (failure) {
         if (replyIsStale(startKey)) return;
-        if (showOfficeLevelRequired(failure)) return;
+        if (showOfficeLevelRequired(failure, {
+          startKey,
+          retry: () => interpretText(requestText, true),
+          onResult: (answer) => {
+            if (answer?.reason === "cloud_confirmation_required") {
+              queuePendingCloud({ text, requestText, entries, interpretation: answer }, startKey);
+            } else if (isSecretReviewRequired(answer)) {
+              holdSecret(createSecretReview({
+                text, requestText, confirmCloud: true, approvalId: answer.approval_id || "",
+              }), draft);
+            } else {
+              finishInterpretation(text, entries, answer, draft);
+            }
+          },
+        })) return;
         interpretation = secretInterpretationFromError(failure);
       } finally { setBusy(false); }
       if (replyIsStale(startKey)) return;
@@ -1129,6 +1220,7 @@ export function NewSession({ token, mock }) {
     const startKey = officeRouteKey.current;
     setBusy(true);
     let entries = activeCatalog.entries;
+    const req = secretResendRequest(current);
     let interpretation = null;
     try {
       const loaded = await settledCatalog();
@@ -1138,11 +1230,28 @@ export function NewSession({ token, mock }) {
         return;
       }
       if (replyIsStale(startKey)) return;
-      const req = secretResendRequest(current);
       interpretation = await interpretText(req.text, req.confirmCloud, req.approvalId);
     } catch (failure) {
       if (replyIsStale(startKey)) return;
-      if (showOfficeLevelRequired(failure)) {
+      if (showOfficeLevelRequired(failure, {
+        startKey,
+        retry: () => interpretText(req.text, req.confirmCloud, req.approvalId),
+        onResult: (answer) => {
+          if (answer?.reason === "cloud_confirmation_required") {
+            clearSecret();
+            queuePendingCloud({ text: current.text, requestText: current.requestText, entries,
+                                interpretation: answer }, startKey);
+          } else if (isSecretReviewRequired(answer)) {
+            holdSecret(createSecretReview({
+              text: current.text, requestText: current.requestText, confirmCloud: current.confirmCloud,
+              approvalId: answer.approval_id || current.approvalId || "",
+            }), draft);
+          } else {
+            clearSecret();
+            finishInterpretation(current.text, entries, answer, draft);
+          }
+        },
+      })) {
         clearSecret();
         return;
       }
@@ -1363,7 +1472,7 @@ export function NewSession({ token, mock }) {
       <${Help} topic="chat.welcome" />
     </div>
     <${SessionBox} task=${draft} onTask=${typing} onSubmit=${submit}
-      disabled=${busy || pendingCloud || pendingSecret || conv.phase === "launched"} label=${label}
+      disabled=${busy || pendingCloud || pendingSecret || officeLevelQuestion || conv.phase === "launched"} label=${label}
       placeholder=${placeholder} rows=${rows} mode=${officeSingle ? "single" : "orchestrator"} onMode=${chooseMode}
       modelControl=${modelControl} project=${project} projects=${projects} onProject=${chooseProject}
       onExecutor=${() => { writeNewSessionMode("single"); setSingleExecutorId(""); setSessionKind("single-executor"); }} onForm=${openForm}
@@ -1387,6 +1496,23 @@ export function NewSession({ token, mock }) {
     <${Messages} messages=${conv.messages} />
     ${planDraft && html`<${PlanDraftCard} token=${token} draft=${planDraft} catalog=${activeCatalog.entries}
       onSaved=${(href) => { setPlanDraft(null); location.hash = href; }} onCancel=${() => setPlanDraft(null)} />`}
+    ${officeLevelQuestion && html`<div class="ns-msg ns-bot notice" role="group" aria-label="Pregunta de privacidad">
+      <p>¿Qué tan privados son los datos de ${officeLevelQuestion.areaName}?</p>
+      <div class="actions">
+        ${LEVEL_OPTIONS.map((option) => html`<button key=${option.value} type="button" class="btn secondary"
+          disabled=${busy} ...${helpFor("chat.office", { scope: "office-level-question" })}
+          onClick=${() => chooseOfficeLevel(option.value)}>${QUESTION_LINES[option.value]}</button>`)}
+        <button type="button" class="btn secondary" disabled=${busy}
+          ...${helpFor("chat.office", { scope: "office-level-question" })} onClick=${cancelOfficeLevelQuestion}>Cancelar</button>
+        <${Help} topic="chat.office" compact=${true} scope="office-level-question" />
+      </div>
+    </div>`}
+    ${officeLevelNotice && html`<div class="ns-msg ns-bot notice" role="alert">
+      ${officeLevelNotice.text && html`<p>${officeLevelNotice.text}</p>`}
+      ${officeLevelNotice.officeId && html`<a class="btn secondary small" href=${routeHref("offices", officeLevelNotice.officeId)}
+        ...${helpFor("chat.office", { scope: "office-privacy-link" })}>Privacidad</a>
+        <${Help} topic="chat.office" compact=${true} scope="office-privacy-link" />`}
+    </div>`}
     ${pendingCloud && html`<div class="ns-msg ns-bot" role="group" aria-label="Confirmación de envío a la nube">
       <p>¿Enviar este texto a ${pendingCloud.interpretation.model} (nube)?</p>
       <div class="actions">

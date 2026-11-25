@@ -78,6 +78,14 @@ def test_a_late_reply_never_lands_on_another_office():
         assert "if (!alive.current) return;" not in body, name
     assert source.count("setPendingCloud({") == source.count("routeKey: startKey })") == 2
     assert "if (askedFor !== startKey) return;" in source
+    # VOF-T04: after the one-time level question the cloud question goes through one helper that adds the same route
+    # key, and every call hands it the key its handler started with.
+    assert "const pending = { ...question, routeKey: startKey };" in source
+    assert source.count("queuePendingCloud({") == source.count("}, startKey);") == 3
+    body = source.split("  async function chooseOfficeLevel(", 1)[1].split("\n  }\n", 1)[0]
+    assert "const startKey = officeRouteKey.current;" in body
+    assert "const stale = () => replyIsStale(startKey) || startKey !== pending.routeKey" in body
+    assert body.count("stale()") >= body.count("await ") + 1
 
 
 def test_components_use_the_htm_form():

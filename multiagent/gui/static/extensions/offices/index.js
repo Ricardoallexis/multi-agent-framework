@@ -10,6 +10,7 @@ import { officeHref, planThreadHref, teamThreadHref } from "../../js/route.js";
 import { HELP } from "./help.js";
 import { ImportOffice, exportOffice } from "./import.js";
 import { errorText, exportFileName, exportWarningText, includeCodeVisible, REMOVE_NOTICE } from "./import-model.js";
+import { PrivacyPanel } from "./privacy.js";
 import {
   createScenePoller,
   degradedAction,
@@ -58,15 +59,18 @@ function OfficeAskButton({ officeId, area = null }) {
   </div>`;
 }
 
-function OfficeCard({ office, detail, detailError, scene, offline, token, onImport, onChanged }) {
+function OfficeCard({ office, detail, detailError, scene, offline, token, onImport, onChanged, privacyOpenFor }) {
   const rows = officeRows(scene, detail?.requirements);
   const simple = currentMode() === "simple";
   const [busy, setBusy] = useState(false);
   const [includeCode, setIncludeCode] = useState(false);
   const [message, setMessage] = useState(null);
   const [removing, setRemoving] = useState(null);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const showIncludeCode = includeCodeVisible(currentMode());
   const officeScope = office.id;
+
+  useEffect(() => setPrivacyOpen(privacyOpenFor === office.id), [privacyOpenFor, office.id]);
 
   async function doExport(area = null) {
     if (busy) return;
@@ -174,12 +178,17 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
         onClick=${() => onImport({ reimport: office.id })}>Reimportar</button>
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: officeScope })}
         onClick=${() => onImport({ into: office.id })}>Añadir un área</button>
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.privacy", { scope: officeScope })}
+        onClick=${() => setPrivacyOpen((open) => !open)}>Privacidad</button>
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.remove", { scope: officeScope })}
         onClick=${() => setRemoving("office")}>Quitar</button>
       <${Help} topic="offices.export" compact=${true} scope=${officeScope} />
       <${Help} topic="offices.import_office" compact=${true} scope=${officeScope} />
+      <${Help} topic="offices.privacy" compact=${true} scope=${officeScope} />
       <${Help} topic="offices.remove" compact=${true} scope=${officeScope} />
     </div>
+    ${privacyOpen && html`<${PrivacyPanel} token=${token} officeId=${office.id} areas=${detail?.areas || []}
+      onClose=${() => setPrivacyOpen(false)} />`}
     ${showIncludeCode && html`<label class="check-inline offices-include-code">
       <input type="checkbox" checked=${includeCode} disabled=${busy} ...${helpFor("offices.include_code", { scope: officeScope })}
         onChange=${(event) => setIncludeCode(event.target.checked)} />
@@ -192,7 +201,7 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
   </article>`;
 }
 
-export function OfficesView({ token }) {
+export function OfficesView({ token, route }) {
   const [offices, setOffices] = useState(null);
   const [details, setDetails] = useState({});
   const [detailErrors, setDetailErrors] = useState({});
@@ -201,6 +210,7 @@ export function OfficesView({ token }) {
   const [listError, setListError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [importTarget, setImportTarget] = useState(null);
+  const privacyOpenFor = route?.id || null;
 
   useEffect(() => {
     let active = true;
@@ -290,7 +300,8 @@ export function OfficesView({ token }) {
       ${offices.map((office) => html`<${OfficeCard} key=${office.id} office=${office}
         detail=${details[office.id]} detailError=${detailErrors[office.id]}
         scene=${scenes[office.id]} offline=${Boolean(offline[office.id])} token=${token}
-        onImport=${startImport} onChanged=${() => setRefreshKey((current) => current + 1)} />`)}
+        onImport=${startImport} onChanged=${() => setRefreshKey((current) => current + 1)}
+        privacyOpenFor=${privacyOpenFor} />`)}
     </div>`}
   </section>`;
 }

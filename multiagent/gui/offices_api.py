@@ -6,7 +6,7 @@ from __future__ import annotations
 import base64
 import binascii
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import anyio
 from fastapi import APIRouter, Request
@@ -43,6 +43,31 @@ class _StageInstallBody(_Body):
 class _ExportBody(_Body):
     area: str | None = None
     include_code: bool = Field(default=False, strict=True)
+
+
+class _PrivacyLevelBody(_Body):
+    area: str | None = None
+    sensitivity: Literal["normal", "sensitive"] | None = None
+    local_only: bool | None = Field(default=None, strict=True)
+
+
+class _PrivacyRaiseBody(_PrivacyLevelBody):
+    cloud_allowed: bool | None = Field(default=None, strict=True)
+
+
+class _PrivacyLowerBody(_Body):
+    area: str | None = None
+    approval_id: str = Field(min_length=1)
+
+
+class _PrivacyCloudRequestBody(_Body):
+    area: str | None = None
+    allowed: Literal[True] = True
+
+
+class _PrivacyCloudBody(_Body):
+    area: str | None = None
+    approval_id: str = Field(min_length=1)
 
 
 class _EmptyBody(_Body):
@@ -173,3 +198,36 @@ def add_office_routes(api: APIRouter, services: Any) -> None:
     def remove_office_area(office_id: str, area_id: str, body: _EmptyBody) -> dict[str, Any]:
         return _read_office(office_id, lambda target: services.offices.remove_area(
             target, area_id, actor=ACTOR, channel=CHANNEL))
+
+    # VOF-T04: privacy levels and one-use cloud permission are managed only in this GUI.
+    @api.get("/offices/{office_id}/privacy")
+    def office_privacy(office_id: str) -> dict[str, Any]:
+        return _read_office(office_id, services.offices.privacy)
+
+    @api.post("/offices/{office_id}/privacy/raise")
+    def raise_office_privacy(office_id: str, body: _PrivacyRaiseBody) -> dict[str, Any]:
+        return _read_office(office_id, lambda target: services.offices.raise_level(
+            target, body.area, sensitivity=body.sensitivity, local_only=body.local_only,
+            cloud_allowed=body.cloud_allowed,
+            actor=ACTOR, channel=CHANNEL))
+
+    @api.post("/offices/{office_id}/privacy/lower-request")
+    def request_office_privacy_lowering(office_id: str, body: _PrivacyLevelBody) -> dict[str, str]:
+        approval = _read_office(office_id, lambda target: services.offices.request_lowering(
+            target, body.area, sensitivity=body.sensitivity, local_only=body.local_only))
+        return {"approval_id": approval["id"], "sha256": approval["sha256"]}
+
+    @api.post("/offices/{office_id}/privacy/lower")
+    def lower_office_privacy(office_id: str, body: _PrivacyLowerBody) -> dict[str, Any]:
+        return _read_office(office_id, lambda target: services.offices.lower_level(
+            target, body.area, approval_id=body.approval_id, actor="user:operator", channel=CHANNEL))
+
+    @api.post("/offices/{office_id}/privacy/cloud-request")
+    def request_office_cloud_permission(office_id: str, body: _PrivacyCloudRequestBody) -> dict[str, str]:
+        return _read_office(office_id, lambda target: services.offices.request_cloud_permission(
+            target, body.area))
+
+    @api.post("/offices/{office_id}/privacy/cloud")
+    def grant_office_cloud_permission(office_id: str, body: _PrivacyCloudBody) -> dict[str, Any]:
+        return _read_office(office_id, lambda target: services.offices.grant_cloud_permission(
+            target, body.area, approval_id=body.approval_id, actor="user:operator", channel=CHANNEL))

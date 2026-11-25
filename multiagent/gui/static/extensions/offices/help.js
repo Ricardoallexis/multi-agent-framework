@@ -108,5 +108,38 @@ export const HELP = {
       "«Pedir a esta área» abre sus opciones en Sesión única.",
       "Abrir esta pantalla no guarda ni ejecuta nada."
     ]
+  },
+  "offices.privacy": {
+    "title": "Privacidad de la oficina",
+    "hint": "Ajusta los niveles de cada área y el permiso para modelos de la nube.",
+    "more": [
+      "Subir el nivel o quitar el permiso de nube se aplica al momento.",
+      "Bajar un nivel o permitir modelos de la nube requiere un código de un solo uso.",
+      "Un área Sensible o Solo local nunca usa la nube, aunque el permiso esté activo."
+    ]
+  },
+  "offices.privacy_note": {
+    "title": "Lo que esta opción no libera",
+    "hint": "La nota explica qué protecciones siguen vigentes.",
+    "more": [
+      "El nivel del área y el permiso de nube son ajustes separados.",
+      "Esta opción no autoriza destinos ni permite enviar datos a un destino concreto."
+    ]
+  },
+  "offices.lower": {
+    "title": "Bajar el nivel",
+    "hint": "Este cambio necesita una aprobación de un solo uso.",
+    "more": [
+      "El nivel no cambia hasta completar la aprobación.",
+      "Cancelar rechaza la aprobación y conserva el nivel actual."
+    ]
+  },
+  "offices.level_question": {
+    "title": "Pregunta de privacidad",
+    "hint": "La primera petición a un área sin nivel pregunta qué opción guardar.",
+    "more": [
+      "La opción elegida se guarda y la petición se repite una sola vez.",
+      "Si vuelve a fallar, verás el error y no se vuelve a preguntar."
+    ]
   }
 };

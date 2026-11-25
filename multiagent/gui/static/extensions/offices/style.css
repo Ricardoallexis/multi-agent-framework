@@ -251,3 +251,93 @@
 .offices-remove-confirm p {
   flex-basis: 100%;
 }
+
+.offices-privacy,
+.offices-privacy-office,
+.offices-privacy-areas,
+.offices-privacy-area,
+.offices-privacy-note {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.offices-privacy {
+  min-width: 0;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.offices-privacy-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.offices-privacy-title,
+.offices-privacy-area-title,
+.offices-privacy-note-title {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.offices-privacy-area {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.offices-privacy-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.offices-privacy-field select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
+.offices-privacy-toggle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.offices-privacy-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+}
+
+.offices-privacy-confirm p,
+.offices-privacy-note ul {
+  flex-basis: 100%;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.offices-privacy-note {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.offices-privacy-note ul {
+  padding-left: 20px;
+}

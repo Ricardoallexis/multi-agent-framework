@@ -318,7 +318,9 @@ def test_raise_by_api_and_cli(world, monkeypatch, capsys):
         assert locked["local_only"] is True and {area["data_class"] for area in locked["areas"]} == {"restricted"}
         routes = {route.path for route in http.app.routes}
         assert "/api/v1/offices/{office_id}/privacy/raise" in routes
-        assert not [path for path in routes if "lower" in path or path.endswith("/privacy/lower")]
+        # API v1 never lowers a level; only the GUI does, with its one-use code (VOF-T04).
+        assert not [path for path in routes if path.startswith("/api/v1/") and "lower" in path]
+        assert "/gui/api/offices/{office_id}/privacy/lower" in routes
     assert via_cli.offices.area_class("demo__recepcion") == "restricted"
 
 

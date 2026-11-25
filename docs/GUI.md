@@ -284,7 +284,15 @@ where workflows are grouped by area and only the selected area's workflows are l
 The office label shows its highest data level. If any area is not Normal, this flow
 offers no cloud models or cloud executors. If the office is no longer installed, the
 GUI says so and returns to `#new`. An office plan fallback explains why the default
-plan was prepared.
+plan was prepared. Each office card opens **Privacy**, where the whole-office
+local-only setting, each area's level and the separate cloud permission are shown
+with their source. Raising privacy and revoking cloud permission apply immediately;
+lowering a level and granting cloud permission require the one-use approval. Sensitive
+and local-only areas never use the cloud, even when permission is stored. The panel
+always shows the fixed privacy note and does not authorize destinations. In simple
+mode, a cloud request for an area without a level asks once whether to save Normal,
+Sensitive or Local only, then retries once; a repeated error is shown without asking
+again. Advanced mode links the error to the Privacy view instead.
 
 **One task box.** «Nueva sesión» starts from a single box (`js/new-session.js`): the task
 text and, in one row of 44 px controls, «＋», «Modo», «Modelo», «Proyecto» and «Enviar».
