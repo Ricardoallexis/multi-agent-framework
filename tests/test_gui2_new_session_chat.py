@@ -447,7 +447,8 @@ def test_the_conversation_flows_from_the_greeting_to_the_summary_without_running
     assert log["confirm"]["phase"] == "confirm"
     assert [(r["label"], r["value"], r["empty"]) for r in log["confirm"]["rows"]] == [
         ("Pregunta", "Elegir un CRM", False), ("Contexto", "", True), ("Nivel", "media", False), ("Tone", "serio", False), ("Proyecto", "Proy", False)]
-    assert "Nada se ejecuta hasta que pulses «Lanzar»" in log["confirm"]["last"]
+    assert log["confirm"]["last"] == "Listo para iniciar: summarize_document."
+    assert "Todo listo: nada se ejecuta hasta que pulses «Lanzar»." in source("new-session.js")
     # the body is the one the form sends: every input of the workflow (the unasked context one empty), project trimmed
     assert log["body"] == {"workflow_id": "summarize_document", "bundle": "general", "project_name": "Proy",
                            "inputs": {"question": "Elegir un CRM", "background": "", "level": "media", "brand_context": "", "tone": "serio"},

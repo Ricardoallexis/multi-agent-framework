@@ -9,6 +9,9 @@ import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalo
 import { ApiError, apiGet, apiPost } from "./api.js";
 import { Help, helpFor } from "./help.js";
 import { fieldHelpEntry, modeHelpEntry } from "./help-text.js";
+import {
+  hasAvailableLocalModel, officeAreaAllowsCloud, officeAreaForBundle, officeAreaPrivacy, officeAreaRequiresLocal,
+} from "./new-session-model.js";
 import { errorText, exampleText, inputHelp, inputsNote, skipReason } from "./text.js";
 import { t } from "./i18n.js";
 
@@ -114,8 +117,8 @@ export function PreviewPanel({ preview, error, loading }) {
   </section>`;
 }
 
-// initial (optional): { bundle, workflowId, project, values, mode, sensitive } to open the form with those answers already
-// in place; the guided chat (new-session.js) uses it for «Ver como formulario». Without it the form opens empty.
+// initial may include { bundle, workflowId, project, values, mode, sensitive } plus officeId, privacy, connections and
+// sensitiveTouched; the guided chat uses this context for «Ver como formulario». Without it the form opens empty.
 export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {
   const [bundles, setBundles] = useState([]);
   const [bundle, setBundle] = useState(initial ? initial.bundle || "" : "");
@@ -127,22 +130,70 @@ export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {
   const [project, setProject] = useState(initial ? initial.project || "" : "");
   const [mode, setMode] = useState(initial && initial.mode ? initial.mode : "auto");
   const [operatingMode, setOperatingMode] = useState(initial && initial.operatingMode ? initial.operatingMode : "");
-  const [sensitive, setSensitive] = useState(Boolean(initial && initial.sensitive));
+  const [sensitive, setSensitiveState] = useState(Boolean(initial && initial.sensitive));
+  const [connections, setConnections] = useState(initial?.connections || null);
+  const [connectionsLoading, setConnectionsLoading] = useState(!initial?.connections);
+  const [connectionsError, setConnectionsError] = useState(null);
+  const [officeList, setOfficeList] = useState({
+    offices: Array.isArray(initial?.offices) ? initial.offices : (initial?.officeId ? [{ id: initial.officeId }] : []),
+    loading: !Array.isArray(initial?.offices),
+    error: null,
+  });
+  const [privacy, setPrivacy] = useState({
+    officeId: initial?.officeId || "", data: initial?.privacy || null, loading: false, error: null,
+  });
+  const sensitiveTouched = useRef(Boolean(initial?.sensitiveTouched));
+  const setSensitive = (value) => { sensitiveTouched.current = true; setSensitiveState(value); };
   const [confirmReal, setConfirmReal] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [previewWorkflowKey, setPreviewWorkflowKey] = useState("");
   const [previewError, setPreviewError] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const ticket = useRef(0);
   const attempt = useRef({ fingerprint: "", key: "" });
+  const sensitivityWorkflow = useRef([initial?.bundle || "", initial?.workflowId || ""].join("|"));
   // The first load keeps the workflow and the values of `initial`; after that, changing the origin or the workflow clears them.
   const seed = useRef(initial);
 
   useEffect(() => {
     apiGet("/gui/api/bundles", token).then((list) => setBundles(list)).catch((error) => setLoadError(asError(error)));
   }, [token]);
+
+  useEffect(() => {
+    if (connections) return undefined;
+    let active = true;
+    setConnectionsLoading(true);
+    apiGet("/gui/api/connections", token).then(
+      (data) => { if (active) { setConnections(data); setConnectionsLoading(false); setConnectionsError(null); } },
+      (failure) => {
+        if (active) { setConnectionsLoading(false); setConnectionsError(asError(failure)); }
+      },
+    );
+    return () => { active = false; };
+  }, [connections, token]);
+
+  useEffect(() => {
+    if (Array.isArray(initial?.offices)) {
+      setOfficeList({ offices: initial.offices, loading: false, error: null });
+      return undefined;
+    }
+    let active = true;
+    setOfficeList((current) => ({ ...current, loading: true, error: null }));
+    apiGet("/gui/api/offices", token).then(
+      (result) => {
+        if (active) setOfficeList({
+          offices: Array.isArray(result?.offices) ? result.offices : [], loading: false, error: null,
+        });
+      },
+      (failure) => {
+        if (active) setOfficeList((current) => ({ ...current, loading: false, error: asError(failure) }));
+      },
+    );
+    return () => { active = false; };
+  }, [initial?.offices, token]);
 
   useEffect(() => {
     let current = true;
@@ -153,6 +204,29 @@ export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {
       .catch((error) => { if (current) setLoadError(asError(error)); });
     return () => { current = false; };
   }, [bundle, token]);
+
+  useEffect(() => {
+    const area = officeAreaForBundle(bundle, officeList.offices);
+    if (!bundle || !area) {
+      setPrivacy({
+        officeId: "", data: null, loading: Boolean(bundle && bundle.includes("__") && officeList.loading), error: null,
+      });
+      return undefined;
+    }
+    if (initial?.officeId === area.officeId && initial.privacy) {
+      setPrivacy({ officeId: area.officeId, data: initial.privacy, loading: false, error: null });
+      return undefined;
+    }
+    let active = true;
+    setPrivacy({ officeId: area.officeId, data: null, loading: true, error: null });
+    apiGet("/gui/api/offices/" + encodeURIComponent(area.officeId) + "/privacy", token).then(
+      (data) => { if (active) setPrivacy({ officeId: area.officeId, data, loading: false, error: null }); },
+      (failure) => {
+        if (active) setPrivacy({ officeId: area.officeId, data: null, loading: false, error: asError(failure) });
+      },
+    );
+    return () => { active = false; };
+  }, [bundle, officeList, token, initial]);
 
   useEffect(() => {
     let current = true;
@@ -168,24 +242,71 @@ export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {
 
   const inputs = () => Object.fromEntries((spec ? spec.inputs : []).map((item) => [item.name, values[item.name] || ""]));
 
+  const bundleOffice = officeAreaForBundle(bundle, officeList.offices);
+  const privacyArea = bundleOffice && privacy.officeId === bundleOffice.officeId
+    ? officeAreaPrivacy(privacy.data, bundleOffice.areaId) : null;
+  const unresolvedOfficeBundle = Boolean(bundle && bundle.includes("__")
+    && (officeList.error || (officeList.loading && !bundleOffice)));
+  const privacyRequiresLocal = Boolean(bundleOffice && (
+    privacy.officeId !== bundleOffice.officeId || privacy.loading || privacy.error
+    || officeAreaRequiresLocal(privacy.data, bundleOffice.areaId)
+  )) || unresolvedOfficeBundle;
+  const sensitiveSelection = sensitive || privacyRequiresLocal;
+  const privacyReason = privacyArea?.data_class === "sensitive"
+    ? "privacy.sensitive_reason"
+    : privacyArea?.data_class === "restricted"
+      ? "privacy.local_only_reason"
+      : privacyArea && !officeAreaAllowsCloud(privacy.data, bundleOffice.areaId)
+        ? "privacy.office_reason" : "";
+  const cloudPermission = bundleOffice
+    ? officeAreaAllowsCloud(privacy.data, bundleOffice.areaId) && privacy.officeId === bundleOffice.officeId
+    : !unresolvedOfficeBundle;
+  const cloudAllowed = cloudPermission && !sensitiveSelection;
+  const availableModes = MODES.filter((value) => cloudAllowed || value !== "cloud");
+  const localModelKnown = Boolean(preview?.routing && previewWorkflowKey === [bundle || "", workflowId].join("|")
+    && !previewing && !previewError
+    && !connectionsLoading && !connectionsError && connections);
+  const localModelAvailable = localModelKnown && hasAvailableLocalModel(connections, preview.routing);
+
+  useEffect(() => {
+    const key = [bundle, workflowId].join("|");
+    if (sensitivityWorkflow.current !== key) {
+      sensitivityWorkflow.current = key;
+      sensitiveTouched.current = false;
+      setSensitiveState(false);
+    }
+  }, [bundle, workflowId]);
+
+  useEffect(() => {
+    if (!workflowId || !spec) return;
+    if (privacyRequiresLocal) setSensitiveState(true);
+    else if (localModelKnown && !sensitiveTouched.current) setSensitiveState(localModelAvailable);
+  }, [workflowId, spec, privacyRequiresLocal, localModelKnown, localModelAvailable]);
+
+  useEffect(() => {
+    if (mode === "cloud" && !cloudAllowed) setMode("auto");
+  }, [mode, cloudAllowed]);
+
   useEffect(() => {
     if (!spec) return undefined;
     const mine = ++ticket.current;
+    setPreviewWorkflowKey("");
     setPreviewing(true);
     const timer = setTimeout(async () => {
       try {
         const result = await apiPost("/gui/api/runs/preview", token, {
-          workflow_id: workflowId, bundle: bundle || null, inputs: inputs(), execution_mode: mode, sensitive,
+          workflow_id: workflowId, bundle: bundle || null, inputs: inputs(), execution_mode: mode, sensitive: sensitiveSelection,
         });
         if (mine !== ticket.current) return;
-        setPreview(result); setPreviewError(null); setPreviewing(false);
+        setPreview(result); setPreviewWorkflowKey([bundle || "", workflowId].join("|"));
+        setPreviewError(null); setPreviewing(false);
       } catch (error) {
         if (mine !== ticket.current) return;
         setPreviewError(asError(error)); setPreviewing(false);
       }
     }, PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [spec, values, mode, sensitive, token]);
+  }, [spec, values, mode, sensitiveSelection, token]);
 
   const missing = spec ? spec.inputs.filter((item) => item.required && !(values[item.name] || "").trim()) : [];
   const blockers = [];
@@ -208,7 +329,7 @@ export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {
       return;
     }
     const body = buildCreateRunBody({
-      workflowId, bundle, project, inputs: inputs(), mode, sensitive, operatingMode,
+      workflowId, bundle, project, inputs: inputs(), mode, sensitive: sensitiveSelection, operatingMode,
     });
     const fingerprint = JSON.stringify(body);
     if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: newKey() };
@@ -247,6 +368,13 @@ export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {
         <${Help} topic="create.back" compact=${true} /></div>
     </header>
     ${loadError && html`<p class="message error" role="alert">${errorText(loadError)}</p>`}
+    ${connectionsError && html`<p class="message error" role="alert">${errorText(connectionsError)}</p>`}
+    ${officeList.error && html`<p class="message error" role="alert">${errorText(officeList.error)}</p>`}
+    ${privacy.error && html`<p class="message error" role="alert">${errorText(privacy.error)}</p>`}
+    ${privacy.loading && html`<p class="muted small" role="status">${t("new_session.loading_office_options")}</p>`}
+    ${privacyReason && html`<p class="hint" role="status">${t(privacyReason)}</p>`}
+    ${privacyRequiresLocal && localModelKnown && !localModelAvailable
+      && html`<p class="hint" role="status">${t("privacy.no_local_model")}</p>`}
     <form class="stack" noValidate onSubmit=${submit} aria-busy=${busy ? "true" : "false"}>
       <div class="two">
         <div><label for="cr-bundle">${t("create_run.workflow_source")}</label>
@@ -280,10 +408,10 @@ export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {
         <div><label for="cr-mode">${t("create_run.execution_mode")}</label>
           <${Help} topic="create.mode" entry=${modeHelpEntry(mode)} />
           <select id="cr-mode" ...${helpFor("create.mode")} value=${mode} disabled=${busy} onChange=${(event) => setMode(event.target.value)}>
-            ${MODES.map((value) => html`<option key=${value} value=${value}>${t("create_run.execution_mode_" + value)}</option>`)}
+            ${availableModes.map((value) => html`<option key=${value} value=${value}>${t("create_run.execution_mode_" + value)}</option>`)}
           </select></div>
-        <div class="check"><label><input type="checkbox" checked=${sensitive} disabled=${busy} ...${helpFor("create.sensitive")}
-          onChange=${(event) => setSensitive(event.target.checked)} /> ${t("create_run.sensitive_content")}</label>
+        <div class="check"><label><input type="checkbox" checked=${sensitiveSelection} disabled=${busy || privacyRequiresLocal} ...${helpFor("create.sensitive")}
+          onChange=${(event) => setSensitive(event.target.checked)} /> ${t("privacy.local_only")}</label>
           <${Help} topic="create.sensitive" /></div>
       </div>
       <${OperatingModeSelect} value=${operatingMode} disabled=${busy} onChange=${setOperatingMode} />

@@ -126,7 +126,8 @@ def test_selector_hidden_without_offices():
     """)
     assert out == [{"value": "", "label": "Ninguna"}]
     source = ui_text((JS / "new-session.js"))
-    assert 'officeList.offices.length > 0 && html`<div class="ns-office-select">' in source
+    assert "if (!Array.isArray(offices) || offices.length === 0) return null;" in source
+    assert '<${OfficeSelector} offices=${officeList.offices} officeId=${officeId} onSelect=${selectOffice} />' in source
 
 
 @needs_node

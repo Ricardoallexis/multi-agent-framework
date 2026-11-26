@@ -278,6 +278,42 @@ export function officeAllowsCloud(scene) {
   return areas.length > 0 && areas.every((area) => area?.data_class === "non_sensitive");
 }
 
+export function officeAreaForBundle(bundle, offices) {
+  const name = String(bundle || "");
+  const matches = (Array.isArray(offices) ? offices : [])
+    .map((office) => String(office?.id || ""))
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+  const officeId = matches.find((id) => name.startsWith(id + "__"));
+  return officeId ? { officeId, areaId: name.slice(officeId.length + 2) } : null;
+}
+
+export function officeAreaPrivacy(privacy, areaId) {
+  return (Array.isArray(privacy?.areas) ? privacy.areas : [])
+    .find((area) => area?.id === areaId) || null;
+}
+
+export function officeAreaAllowsCloud(privacy, areaId) {
+  const area = officeAreaPrivacy(privacy, areaId);
+  return area?.data_class === "non_sensitive" && area.cloud_effective === true;
+}
+
+export function officeAreaRequiresLocal(privacy, areaId) {
+  return !officeAreaAllowsCloud(privacy, areaId);
+}
+
+export function hasAvailableLocalModel(connections, routing) {
+  const localConnection = (Array.isArray(connections?.connections) ? connections.connections : [])
+    .some((connection) => connection?.id === "ollama" && connection.enabled === true && connection.available === true);
+  if (!localConnection) return false;
+  const localModels = new Set((Array.isArray(routing?.catalog_models) ? routing.catalog_models : [])
+    .filter((model) => model?.provider === "ollama")
+    .map((model) => model.id));
+  const allowedModels = new Set((Array.isArray(routing?.steps) ? routing.steps : [])
+    .flatMap((step) => Array.isArray(step?.model_options) ? step.model_options : []));
+  return [...localModels].some((model) => allowedModels.has(model));
+}
+
 export function officeConnectionData(payload, scene) {
   if (!payload || typeof payload !== "object") return payload;
   const cloudAllowed = officeAllowsCloud(scene);
@@ -511,7 +547,11 @@ function say(state, role, text) {
 const clearWorkflow = (state) => ({ ...state, proposal: null, workflow: null, questions: [], inputNames: [], answers: {}, pendingPrefill: [], index: 0, error: "" });
 
 export const currentQuestion = (state) => (state.phase === "ask" ? state.questions[state.index] || null : null);
-export const progress = (state) => ({ n: state.index + 1, total: state.questions.length });
+export const progress = (state) => {
+  const asked = state.questions.filter((question) => !state.pendingPrefill.includes(question.key));
+  const current = asked.findIndex((question) => question.key === currentQuestion(state)?.key);
+  return { n: current + 1, total: asked.length };
+};
 
 function questionLine(state) {
   const question = state.questions[state.index];
@@ -615,7 +655,7 @@ function advance(state, value, echo) {
     next = { ...next, index: following };
     return say(next, "assistant", questionLine(next));
   }
-  return say({ ...next, phase: "confirm" }, "assistant", t("new_session.review_before_launch"));
+  return say({ ...next, phase: "confirm" }, "assistant", t("launch.ready", { workflow: state.workflow.id }));
 }
 
 function onAnswer(state, text) {
@@ -678,7 +718,7 @@ function onPick(state, action) {
     workflow: { id: workflow.id, bundle: workflow.bundle || null, description: spec.description || workflow.description || "" },
     questions, inputNames: (spec.inputs || []).map((item) => item.name),
   };
-  if (started.phase === "confirm") return say(started, "assistant", t("new_session.review_before_launch"));
+  if (started.phase === "confirm") return say(started, "assistant", t("launch.ready", { workflow: workflow.id }));
   return say(started, "assistant", questionLine(started));
 }
 

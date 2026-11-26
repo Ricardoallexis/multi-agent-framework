@@ -20,10 +20,11 @@ import { askLevelOnce, LEVEL_OPTIONS, QUESTION_LINES } from "./office-level-ques
 import {
   PROJECT_KEY, SOURCE_KEYWORDS, SOURCE_MODEL, STARTERS, SECRET_REVIEW_REASON, answerRows, buildLimitNotice,
   cardDescription, connectionLabel, createConversation, createSecretReview, currentQuestion, executorLaunchBody, formSeed, inputsPath,
-  cardOrigin, interpretBody, isSecretReviewRequired, loadCatalog, officeAllowsCloud, officeConnectionData,
+  cardOrigin, originLabel, interpretBody, isSecretReviewRequired, loadCatalog, officeConnectionData,
   officeExecutionModes, officeLevelRequiredText, officeLimitNotice, officeModelOptions, officeModelValue, officeOptions,
   officeRequestBody,
-  officeLevelText, officeWorkflowGroups, parseCommand, plusMenuEntries, pickRuns, progress,
+  officeAreaAllowsCloud, officeAreaForBundle, officeAreaPrivacy, officeAreaRequiresLocal, officeLevelText,
+  officeWorkflowGroups, hasAvailableLocalModel, parseCommand, plusMenuEntries, pickRuns, progress,
   quotaRemainingLines, reduce, runBody, secretResendRequest, selectOrchestratorSuggestion,
   selectSingleExecutorSuggestion, selectSingleModelSuggestion, singleSessionBody, singleSessionModels, suggestedEntries,
 } from "./new-session-model.js";
@@ -82,6 +83,19 @@ function OfficeWorkflowPicker({ groups, areas, disabled, onPick }) {
     </div>`)}
     <${Help} topic="chat.office" compact=${true} scope="office-workflows" />
   </section>`;
+}
+
+function OfficeSelector({ offices, officeId, onSelect }) {
+  if (!Array.isArray(offices) || offices.length === 0) return null;
+  const choices = officeOptions({ offices });
+  return html`<div class="ns-office-select">
+    <label for="ns-office-select">${t("new_session.office")}</label>
+    <select id="ns-office-select" value=${officeId} ...${helpFor("chat.office", { scope: "office-select" })}
+      onChange=${(event) => onSelect(event.target.value)}>
+      ${choices.map((item) => html`<option key=${item.value || "none"} value=${item.value}>${item.label}</option>`)}
+    </select>
+    <${Help} topic="chat.office" compact=${true} scope="office-select" />
+  </div>`;
 }
 
 // SEC-T04: keep held secret-review state in memory while the user visits #approvals/<id> and returns to #new.
@@ -172,7 +186,7 @@ function QuestionCard({ question, n, total, disabled, onChoose }) {
 function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef }) {
   const { mode, setMode, sensitive, setSensitive, confirmReal, setConfirmReal, preview, previewError, previewing,
     routing, routingError, routingLoading, launchError, routingOverrides, setRoutingOverrides,
-    fileToolsNotice, fileToolsMissing } = state;
+    fileToolsNotice, fileToolsMissing, privacyReason, localModelAvailable, localModelKnown, sensitiveLocked } = state;
   const cloudAllowed = state.cloudAllowed !== false;
   const blockers = [];
   if (!mock && !confirmReal) blockers.push(t("create_run.blocker_confirm_real"));
@@ -196,7 +210,9 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
     <p class="ns-confirm-title"><strong>${t("new_session.ready_to_launch", { workflow: conv.workflow.id })}</strong> ${cardOrigin(conv.workflow, currentMode()) && html`<span class="muted">· ${cardOrigin(conv.workflow, currentMode())}</span>`}</p>
     <${Help} topic="chat.confirm" />
     <dl class="ns-answers">
-      ${answerRows(conv).map((row) => html`<div key=${row.key} class="ns-answer"><dt>${row.label}</dt>
+      <div class="ns-answer"><dt>${t("create_run.workflow_source")}</dt>
+        <dd>${originLabel(conv.workflow)}</dd></div>
+      ${answerRows(conv).filter((row) => !row.empty).map((row) => html`<div key=${row.key} class="ns-answer"><dt>${row.label}</dt>
         <dd>${row.empty ? html`<span class="muted">${t("new_session.no_answer")}</span>` : row.value}</dd></div>`)}
     </dl>
     <section class="ns-routing" aria-label=${t("new_session.workflow_routing")}>
@@ -254,9 +270,11 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
         <select id="ns-mode" ...${helpFor("create.mode")} value=${mode} disabled=${busy || changedRoutes.length > 0} onChange=${(event) => setMode(event.target.value)}>
           ${officeExecutionModes(MODES, cloudAllowed).map((value) => html`<option key=${value} value=${value}>${t("create_run.execution_mode_" + value)}</option>`)}
         </select></div>
-      <div class="check"><label><input type="checkbox" checked=${sensitive} disabled=${busy || changedRoutes.length > 0} ...${helpFor("create.sensitive")}
-        onChange=${(event) => setSensitive(event.target.checked)} /> ${t("create_run.sensitive_content")}</label>
-        <${Help} topic="create.sensitive" /></div>
+      <div class="check"><label><input type="checkbox" checked=${sensitive} disabled=${busy || changedRoutes.length > 0 || sensitiveLocked} ...${helpFor("create.sensitive")}
+        onChange=${(event) => setSensitive(event.target.checked)} /> ${t("privacy.local_only")}</label>
+        <${Help} topic="create.sensitive" />
+        ${privacyReason && html`<p class="hint" role="status">${t(privacyReason)}</p>`}
+        ${sensitiveLocked && localModelKnown && !localModelAvailable && html`<p class="hint" role="status">${t("privacy.no_local_model")}</p>`}</div>
     </div>
     ${!mock && html`<div class="notice check"><label><input type="checkbox" checked=${confirmReal} disabled=${busy} ...${helpFor("create.confirm_real")}
       onChange=${(event) => setConfirmReal(event.target.checked)} /> ${t("create_run.confirm_real_text")}</label>
@@ -265,7 +283,8 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
     ${launchError && html`<p class="message error" role="alert">${errorText(launchError)}</p>`}
     ${fileToolsNotice && fileToolsMissing && html`<p class="message error small" role="alert">${fileToolsNotice}</p>`}
     ${fileToolsNotice && !fileToolsMissing && html`<p class="hint" role="status">${fileToolsNotice}</p>`}
-    <p id="ns-blockers" class="hint" role="status">${blockers.length ? t("new_session.blockers_summary", { blockers: blockers.join(" ") }) : t("new_session.launch_ready")}</p>
+    ${blockers.length > 0 && html`<p id="ns-blockers" class="hint" role="status">${t("new_session.blockers_summary", { blockers: blockers.join(" ") })}</p>`}
+    <p class="hint" role="status">${t("new_session.launch_ready")}</p>
     ${changedRoutes.length > 0 && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.routing")}
       onClick=${() => setRoutingOverrides({})}>${t("new_session.reset_routing")}</button>`}
     <div class="actions">
@@ -296,7 +315,7 @@ function LimitBanner({ notice, connections, busy, onSelectSuggestion }) {
 // GUI3-T06: the same task box is used by all three flows; its controls only choose or navigate.
 function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows = 2, mode, onMode,
   modelControl, project, projects, onProject, onExecutor, onForm, error, describedBy = "", onBack, onSkip, inputRef,
-  executorActive = false, maxLength, allowExecutor = true, allowForm = true }) {
+  executorActive = false, maxLength, allowExecutor = true, allowForm = true, showProject = true }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef(null);
   return html`<form class="ns-composer" onSubmit=${(event) => { event.preventDefault(); onSubmit(task); }} aria-busy=${disabled ? "true" : "false"}>
@@ -329,11 +348,11 @@ function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows
         onChange=${(event) => onMode(event.target.value)}><option value="orchestrator">${t("new_session.orchestrator")}</option>
         <option value="single">${t("new_session.single_session")}</option></select><${Help} topic="chat.session_mode" compact=${true} /></div>
       ${modelControl}
-      <div class="ns-box-select"><label for="ns-project-select">${t("new_session.project")}</label><select id="ns-project-select" aria-label=${t("new_session.project")} value=${executorActive ? "" : project} disabled=${executorActive}
+      ${showProject && html`<div class="ns-box-select"><label for="ns-project-select">${t("new_session.project")}</label><select id="ns-project-select" aria-label=${t("new_session.project")} value=${executorActive ? "" : project} disabled=${executorActive}
         ...${helpFor("chat.project_select")} onChange=${(event) => onProject(event.target.value)}>
         <option value="">${executorActive ? t("new_session.not_for_executor") : t("new_session.choose_on_confirm")}</option>
         ${projects.map((name) => html`<option key=${name} value=${name}>${name}</option>`)}</select>
-        <${Help} topic="chat.project_select" compact=${true} /></div>
+        <${Help} topic="chat.project_select" compact=${true} /></div>`}
       <button type="submit" class="btn ns-send" disabled=${disabled} ...${helpFor("chat.send")}>${t("new_session.send")}</button>
       <${Help} topic="chat.send" compact=${true} />
     </div>
@@ -599,7 +618,7 @@ function SingleExecutorSession({
       ${!launched && html`<button type="button" class="btn secondary" ...${helpFor("chat.executor_launch")}
         onClick=${onBack}>${t("new_session.back_to_model_session")}</button><${Help} topic="chat.executor_launch" compact=${true} />`}
     </div>
-    ${!launched && html`<${SessionBox} task=${task} onTask=${(value) => { updateTask(value); edit(); }}
+    ${!launched && !ready && html`<${SessionBox} task=${task} onTask=${(value) => { updateTask(value); edit(); }}
       onSubmit=${() => { if (canReview) setReady(true); }} disabled=${ready || busy}
       label=${t("new_session.task")} placeholder=${t("new_session.task_placeholder")} rows=${5} maxLength=${4000} executorActive=${true}
       mode="single" onMode=${onMode}
@@ -666,9 +685,6 @@ function SingleExecutorSession({
         <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("chat.executor_launch")} onClick=${edit}>${t("new_session.edit")}</button>
         <${Help} topic="chat.executor_launch" compact=${true} />
       </section>`}
-      ${!ready && html`<button type="button" class="btn" disabled=${!canReview}
-        ...${helpFor("chat.executor_launch")} onClick=${() => setReady(true)}>${t("new_session.review_launch")}</button>
-        <${Help} topic="chat.executor_launch" compact=${true} />`}
     `}
     ${launched && html`<section class="ns-executor-tracking panel" aria-label=${t("new_session.executor_tracking")}>
       <h4>${t("new_session.task_tracking")}</h4>
@@ -712,6 +728,7 @@ export function NewSession({ token, mock }) {
   const [OfficeSourceUpdateView, setOfficeSourceUpdateView] = useState(null);
   const [sourceUpdateLoadFailed, setSourceUpdateLoadFailed] = useState(false);
   const [officeScene, setOfficeScene] = useState(null);
+  const [officePrivacy, setOfficePrivacy] = useState({ officeId: "", data: null, loading: false, error: null });
   const [officeLoading, setOfficeLoading] = useState(false);
   const [officeError, setOfficeError] = useState(null);
   const [unknownOfficeNotice, setUnknownOfficeNotice] = useState(false);
@@ -733,9 +750,12 @@ export function NewSession({ token, mock }) {
   const [singleProvider, setSingleProvider] = useState("");
   const [runs, setRuns] = useState(null);
   const [mode, setMode] = useState("auto");
-  const [sensitive, setSensitive] = useState(false);
+  const [sensitive, setSensitiveState] = useState(false);
+  const sensitiveTouched = useRef(false);
+  const setSensitive = (value) => { sensitiveTouched.current = true; setSensitiveState(value); };
   const [confirmReal, setConfirmReal] = useState(false);
   const [preview, setPreview] = useState(null);
+  const [previewWorkflowKey, setPreviewWorkflowKey] = useState("");
   const [previewError, setPreviewError] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [launchError, setLaunchError] = useState(null);
@@ -746,6 +766,12 @@ export function NewSession({ token, mock }) {
   const officeRouteKey = useRef([route.kind, officeId, officeArea].join("|"));
   const routeKey = [route.kind, officeId, officeArea].join("|");
   const routeChanged = officeRouteKey.current !== routeKey;
+  const selectedWorkflow = conv.workflow;
+  const officesForBundle = officeId ? [...officeList.offices, { id: officeId }] : officeList.offices;
+  const selectedBundleArea = officeAreaForBundle(selectedWorkflow?.bundle, officesForBundle);
+  const unresolvedOfficeBundle = Boolean(selectedWorkflow?.bundle?.includes("__")
+    && (officeList.error || (officeList.loading && !selectedBundleArea)));
+  const effectiveOfficeId = selectedBundleArea?.officeId || officeId;
   // A reply that comes back after the route changed (another office, another area or plain #new) belongs to the old
   // screen, and its handler still holds the old office: nothing it brings back is shown or confirmed here.
   const replyIsStale = (startKey) => !alive.current || officeRouteKey.current !== startKey;
@@ -908,10 +934,28 @@ export function NewSession({ token, mock }) {
   }, [officeId, officeDetail, officeCatalogVersion, token]);
 
   useEffect(() => {
+    if (!effectiveOfficeId) {
+      setOfficePrivacy({ officeId: "", data: null, loading: false, error: null });
+      return undefined;
+    }
+    let active = true;
+    setOfficePrivacy({ officeId: effectiveOfficeId, data: null, loading: true, error: null });
+    apiGet(OFFICE_LIST_PATH + "/" + encodeURIComponent(effectiveOfficeId) + "/privacy", token).then(
+      (data) => { if (active) setOfficePrivacy({ officeId: effectiveOfficeId, data, loading: false, error: null }); },
+      (failure) => {
+        if (active) setOfficePrivacy({ officeId: effectiveOfficeId, data: null, loading: false, error: asError(failure) });
+      },
+    );
+    return () => { active = false; };
+  }, [effectiveOfficeId, token]);
+
+  useEffect(() => {
     const nextKey = [route.kind, officeId, officeArea].join("|");
     if (officeRouteKey.current === nextKey) return;
     officeRouteKey.current = nextKey;
     setBusy(false);
+    sensitiveTouched.current = false;
+    setSensitiveState(false);
     setOfficeLevelQuestion(null);
     setOfficeLevelNotice(null);
     store.current = createConversation();
@@ -928,11 +972,6 @@ export function NewSession({ token, mock }) {
     setSessionKind(route.kind === "office" ? (officeArea ? "single" : "orchestrator") : readNewSessionMode());
     if (route.kind === "office") setUnknownOfficeNotice(false);
   }, [route.kind, officeId, officeArea]);
-
-  useEffect(() => {
-    if (officeId && mode === "cloud" &&
-        !(officeScene?.office?.id === officeId && officeAllowsCloud(officeScene))) setMode("auto");
-  }, [officeId, officeScene, mode]);
 
   // SES-T02: connection checks only read status; choosing a row never launches it.
   function refreshConnections() {
@@ -957,6 +996,29 @@ export function NewSession({ token, mock }) {
   }, [token, runId]);
 
   const question = currentQuestion(conv);
+  const currentOfficePrivacyState = officePrivacy.officeId === effectiveOfficeId ? officePrivacy : null;
+  const privacyAreaId = selectedWorkflow
+    ? (selectedBundleArea?.officeId === effectiveOfficeId ? selectedBundleArea.areaId : null)
+    : officeArea;
+  const currentOfficePrivacy = currentOfficePrivacyState?.data || null;
+  const currentAreaPrivacy = officeAreaPrivacy(currentOfficePrivacy, privacyAreaId);
+  const privacyRequiresLocal = unresolvedOfficeBundle
+    || (Boolean(effectiveOfficeId) && officeAreaRequiresLocal(currentOfficePrivacy, privacyAreaId));
+  const privacyReason = !privacyAreaId ? ""
+    : currentAreaPrivacy?.data_class === "sensitive"
+      ? "privacy.sensitive_reason"
+      : currentAreaPrivacy?.data_class === "restricted"
+        ? "privacy.local_only_reason"
+        : currentAreaPrivacy && !officeAreaAllowsCloud(currentOfficePrivacy, privacyAreaId)
+          ? "privacy.office_reason" : "";
+  const cloudPermission = !unresolvedOfficeBundle
+    && (!effectiveOfficeId || officeAreaAllowsCloud(currentOfficePrivacy, privacyAreaId));
+  const sensitiveSelection = sensitive || privacyRequiresLocal;
+  const cloudAllowed = cloudPermission && !sensitiveSelection;
+  const currentWorkflowKey = selectedWorkflow ? [selectedWorkflow.bundle || "", selectedWorkflow.id].join("|") : "";
+  const localModelKnown = Boolean(connections.data && !connections.loading && !connections.error
+    && preview?.routing && previewWorkflowKey === currentWorkflowKey && !previewing && !previewError);
+  const localModelAvailable = localModelKnown && hasAvailableLocalModel(connections.data, preview.routing);
 
   // Focus: the composer after every step; the summary card (never its «Lanzar» button) when it appears.
   useEffect(() => {
@@ -985,16 +1047,23 @@ export function NewSession({ token, mock }) {
   useEffect(() => {
     if (conv.phase !== "confirm") return undefined;
     const mine = ++ticket.current;
-    const body = runBody(conv, { mode, sensitive });
-    setPreview(null); setPreviewError(null); setPreviewing(true);
+    const body = runBody(conv, { mode, sensitive: sensitiveSelection });
+    setPreview(null); setPreviewWorkflowKey(""); setPreviewError(null); setPreviewing(true);
     apiPost("/gui/api/runs/preview", token, {
-      workflow_id: body.workflow_id, bundle: body.bundle, inputs: body.inputs, execution_mode: mode, sensitive, routing_preferences: routingOverrides,
+      workflow_id: body.workflow_id, bundle: body.bundle, inputs: body.inputs, execution_mode: mode,
+      sensitive: sensitiveSelection, routing_preferences: routingOverrides,
     }).then(
-      (result) => { if (mine === ticket.current) { setPreview(result); setPreviewing(false); } },
+      (result) => {
+        if (mine === ticket.current) {
+          setPreview(result);
+          setPreviewWorkflowKey([body.bundle || "", body.workflow_id].join("|"));
+          setPreviewing(false);
+        }
+      },
       (failure) => { if (mine === ticket.current) { setPreviewError(asError(failure)); setPreviewing(false); } },
     );
     return () => { ticket.current += 1; };
-  }, [conv.phase, conv.workflow, conv.answers, mode, sensitive, routingOverrides, token]);
+  }, [conv.phase, conv.workflow, conv.answers, mode, sensitiveSelection, routingOverrides, token]);
 
   const currentOfficeDetail = officeDetail?.id === officeId ? officeDetail : null;
   const sourceUpdateAvailable = Boolean(currentOfficeDetail?.source_update?.tracked
@@ -1020,12 +1089,18 @@ export function NewSession({ token, mock }) {
     ? (currentOfficeDetail ? officeCatalog : { entries: [], loading: officeLoading, error: null })
     : catalog;
   const officeSingle = Boolean(officeId && (officeArea || (!routeChanged && sessionKind === "single")));
-  const cloudAllowed = !officeId || officeAllowsCloud(currentOfficeScene);
+  useEffect(() => {
+    if (!selectedWorkflow) return;
+    if (privacyRequiresLocal) setSensitiveState(true);
+    else if (localModelKnown && !sensitiveTouched.current) setSensitiveState(localModelAvailable);
+  }, [selectedWorkflow?.bundle, selectedWorkflow?.id, privacyRequiresLocal, localModelKnown, localModelAvailable]);
+  useEffect(() => {
+    if (mode === "cloud" && !cloudAllowed) setMode("auto");
+  }, [mode, cloudAllowed]);
   const officeGroups = officeWorkflowGroups(
     officeArea || (currentOfficeDetail?.areas || []),
     activeCatalog.entries,
   );
-  const selectedWorkflow = conv.workflow;
   const selectedWorkflowArea = currentOfficeDetail?.areas?.find((area) => area.bundle === selectedWorkflow?.bundle);
   const selectedWorkflowDeclaration = selectedWorkflowArea?.workflow_declarations?.find(
     (item) => item.id === selectedWorkflow?.id,
@@ -1381,6 +1456,8 @@ export function NewSession({ token, mock }) {
   async function pick(entry) {
     if (busy) return;
     setBusy(true);
+    sensitiveTouched.current = false;
+    setSensitiveState(false);
     setRoutingOverrides({});
     try {
       const spec = await apiGet(inputsPath(entry), token);
@@ -1399,7 +1476,7 @@ export function NewSession({ token, mock }) {
     const state = store.current;
     if (busy || state.phase !== "confirm" || (!mock && !confirmReal)) return;
     if (previewing || previewError || !preview) return;
-    const body = { ...runBody(state, { mode, sensitive }), routing_preferences: routingOverrides };
+    const body = { ...runBody(state, { mode, sensitive: sensitiveSelection }), routing_preferences: routingOverrides };
     const fingerprint = JSON.stringify(body);
     if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: newKey() };
     setBusy(true);
@@ -1419,11 +1496,16 @@ export function NewSession({ token, mock }) {
       setLaunchError(new ApiError({ message: t("new_session.form_routing_unsupported") }));
       return;
     }
-    const seed = sessionKind === "orchestrator" ? formSeed(store.current, { mode, sensitive }) : {
+    const seed = sessionKind === "orchestrator" ? formSeed(store.current, { mode, sensitive: sensitiveSelection }) : {
       bundle: "general", workflowId: "ask_once", project: project || "Sesión única",
       values: { task: draft }, mode: "auto", sensitive: false,
     };
-    setFormInitial(seed ? { ...seed, project: project || seed.project } : { project });
+    const formContext = {
+      connections: connections.data,
+      ...(!officeList.loading && !officeList.error ? { offices: officeList.offices } : {}),
+      officeId, privacy: currentOfficePrivacy, sensitiveTouched: sensitiveTouched.current,
+    };
+    setFormInitial(seed ? { ...seed, ...formContext, project: project || seed.project } : { ...formContext, project });
     setView("form");
   }
 
@@ -1474,19 +1556,28 @@ export function NewSession({ token, mock }) {
     return html`<${CreateRun} token=${token} mock=${mock} initial=${formInitial}
       onClose=${() => setView("chat")} onCreated=${(run) => navigate("runs", run.id)} />`;
   }
-  if (sessionKind === "single" && !officeId) return html`<${SingleSession} token=${token} mock=${mock} connections=${connections.data}
+  if (sessionKind === "single" && !officeId) return html`<div class="ns">
+    <${OfficeSelector} offices=${officeList.offices} officeId=${officeId} onSelect=${selectOffice} />
+    ${officeList.error && html`<p class="message error small" role="alert">${t("new_session.office_list_failed", { error: errorText(officeList.error) })}</p>`}
+    ${officePrivacy.error && html`<p class="message error small" role="alert">${errorText(officePrivacy.error)}</p>`}
+    <${SingleSession} token=${token} mock=${mock} connections=${connections.data}
     task=${draft} onTaskChange=${setDraft} project=${project} projects=${projects} onProject=${chooseProject}
     onMode=${chooseMode} onForm=${openForm} initialProvider=${singleProvider}
     onSwitchExecutor=${(executorId, keptTask) => {
       setDraft(keptTask); setSingleExecutorId(executorId); setSessionKind("single-executor");
-    }} />`;
-  if (sessionKind === "single-executor" && !officeId) return html`<${SingleExecutorSession} token=${token} mock=${mock}
+    }} />
+  </div>`;
+  if (sessionKind === "single-executor" && !officeId) return html`<div class="ns">
+    <${OfficeSelector} offices=${officeList.offices} officeId=${officeId} onSelect=${selectOffice} />
+    ${officeList.error && html`<p class="message error small" role="alert">${t("new_session.office_list_failed", { error: errorText(officeList.error) })}</p>`}
+    <${SingleExecutorSession} token=${token} mock=${mock}
     connections=${connections.data} connectionLoading=${connections.loading} connectionError=${connections.error}
     task=${draft} onTaskChange=${setDraft} project=${project} projects=${projects} onProject=${chooseProject}
     onMode=${chooseMode} onForm=${openForm} initialExecutorId=${singleExecutorId}
     onSwitchModel=${(provider, keptTask) => {
       setDraft(keptTask); setSingleProvider(provider); setSessionKind("single");
-    }} onRetry=${refreshConnections} onBack=${() => setSessionKind("single")} />`;
+    }} onRetry=${refreshConnections} onBack=${() => setSessionKind("single")} />
+  </div>`;
 
   const { n, total } = progress(conv);
   const suggestions = suggestedEntries(conv, activeCatalog.entries);
@@ -1508,24 +1599,22 @@ export function NewSession({ token, mock }) {
     retry: html`<${Help} topic="chat.model_retry" compact=${true} />`,
     connect: html`<${Help} topic="chat.connect_other" compact=${true} />`,
   };
-  const connectionData = officeId ? officeConnectionData(connections.data, currentOfficeScene) : connections.data;
+  const connectionData = officeId && !cloudPermission
+    ? officeConnectionData(connections.data, { areas: [{ data_class: "restricted" }] })
+    : connections.data;
   const activeLimitNotice = officeId ? officeLimitNotice(limitNotice, currentOfficeScene) : limitNotice;
   const modelControl = officeSingle ? null : html`<${ModelPicker} connections=${connectionData} selectedId=${selectedConnection}
     onSelect=${setSelectedConnection} loading=${connections.loading} error=${connections.error}
     onRetry=${refreshConnections} onConnect=${() => { location.hash = routeHref("apps"); }} help=${pickerHelp} />`;
   const noConnectedModels = !officeId && !connections.loading && buildModelPicker(connectionData).models.length === 0;
-  const officeChoices = officeOptions(officeList);
-
   return html`<div class="ns">
-    ${officeList.offices.length > 0 && html`<div class="ns-office-select">
-      <label for="ns-office-select">${t("new_session.office")}</label>
-      <select id="ns-office-select" value=${officeId} ...${helpFor("chat.office", { scope: "office-select" })}
-        onChange=${(event) => selectOffice(event.target.value)}>
-        ${officeChoices.map((item) => html`<option key=${item.value || "none"} value=${item.value}>${item.label}</option>`)}
-      </select>
-      <${Help} topic="chat.office" compact=${true} scope="office-select" />
-      ${officeId && currentOfficeScene && html`<p class="muted small" role="status">${t("new_session.highest_privacy", { level: officeLevelText(currentOfficeScene) })}</p>`}
-    </div>`}
+    <${OfficeSelector} offices=${officeList.offices} officeId=${officeId} onSelect=${selectOffice} />
+    ${officeId && currentOfficeScene && html`<p class="muted small" role="status">${t("new_session.highest_privacy", { level: officeLevelText(currentOfficeScene) })}</p>`}
+    ${currentOfficePrivacyState?.error && html`<p class="message error small" role="alert">${errorText(currentOfficePrivacyState.error)}</p>`}
+    ${effectiveOfficeId && currentOfficePrivacyState?.loading && html`<p class="muted small" role="status">${t("new_session.loading_office_options")}</p>`}
+    ${effectiveOfficeId && privacyReason && html`<p class="hint" role="status">${t(privacyReason)}</p>`}
+    ${effectiveOfficeId && privacyRequiresLocal && localModelKnown && !localModelAvailable
+      && html`<p class="hint" role="status">${t("privacy.no_local_model")}</p>`}
     ${officeList.error && html`<p class="message error small" role="alert">${t("new_session.office_list_failed", { error: errorText(officeList.error) })}</p>`}
     ${unknownOfficeNotice && html`<p class="message error small" role="alert">${t("new_session.office_unavailable")}</p>`}
     ${officeError && html`<p class="message error small" role="alert">${t("new_session.office_failed", { error: errorText(officeError) })}</p>`}
@@ -1536,22 +1625,23 @@ export function NewSession({ token, mock }) {
         : t("new_session.chat_welcome")}</p>
       <${Help} topic="chat.welcome" />
     </div>
-    <${SessionBox} task=${draft} onTask=${typing} onSubmit=${submit}
+    ${conv.phase !== "confirm" && html`<${SessionBox} task=${draft} onTask=${typing} onSubmit=${submit}
       disabled=${busy || pendingCloud || pendingSecret || officeLevelQuestion || conv.phase === "launched"} label=${label}
       placeholder=${placeholder} rows=${rows} mode=${officeSingle ? "single" : "orchestrator"} onMode=${chooseMode}
       modelControl=${modelControl} project=${project} projects=${projects} onProject=${chooseProject}
       onExecutor=${() => { writeNewSessionMode("single"); setSingleExecutorId(""); setSessionKind("single-executor"); }} onForm=${openForm}
       allowExecutor=${!officeId} allowForm=${!officeId}
+      showProject=${question?.source !== "project"}
       error=${conv.error} describedBy=${describedBy} inputRef=${composer}
       onBack=${canBack ? () => dispatch({ type: "back" }) : null}
-      onSkip=${canSkip ? () => dispatch({ type: "skip" }) : null} />
+      onSkip=${canSkip ? () => dispatch({ type: "skip" }) : null} />`}
     ${noConnectedModels && html`${isRegisteredView("apps") && html`<a class="btn secondary small" href=${routeHref("apps")}
       ...${helpFor("chat.connect_other")}>${t("model_picker.connect_another_short")}</a>`}`}
     <${LimitBanner} notice=${activeLimitNotice} connections=${connectionData} busy=${busy} onSelectSuggestion=${pickOrchestratorSuggestion} />
     ${mock && html`<p class="muted small ns-mock-note">${t("new_session.mock_note")}</p>`}
     ${conv.phase === "welcome" && !officeSingle && html`<${Starters} disabled=${busy} onPick=${chooseStarter} />`}
     ${(conv.phase === "welcome" || conv.phase === "choose") && html`<p class="muted small" role="status" aria-live="polite">${status}</p>`}
-    ${officeSingle && currentOfficeDetail && conv.phase === "welcome" && !activeCatalog.loading && !activeCatalog.error && html`<${OfficeWorkflowPicker}
+    ${officeId && currentOfficeDetail && conv.phase === "welcome" && !activeCatalog.loading && !activeCatalog.error && html`<${OfficeWorkflowPicker}
       groups=${officeGroups} areas=${currentOfficeDetail?.areas || []} disabled=${busy || officeLoading}
       onPick=${pickOfficeWorkflow} />`}
     ${activeCatalog.error && html`<div class="ns-row"><p class="message error" role="alert">
@@ -1619,9 +1709,10 @@ export function NewSession({ token, mock }) {
     ${conv.phase === "continue" && html`<${RunsList} runs=${runs} />`}
     ${question && html`<${QuestionCard} question=${question} n=${n} total=${total} disabled=${busy} onChoose=${(choice) => submit(choice)} />`}
     ${conv.phase === "confirm" && html`<${ConfirmCard} conv=${conv} mock=${mock} busy=${busy} boxRef=${confirmBox}
-      state=${{ mode, setMode, sensitive, setSensitive, confirmReal, setConfirmReal, preview, previewError, previewing,
+      state=${{ mode, setMode, sensitive: sensitiveSelection, setSensitive, confirmReal, setConfirmReal, preview, previewError, previewing,
         routing: preview && preview.routing, routingError: previewError, routingLoading: previewing, launchError,
-        routingOverrides, setRoutingOverrides, cloudAllowed, fileToolsNotice, fileToolsMissing }}
+        routingOverrides, setRoutingOverrides, cloudAllowed, fileToolsNotice, fileToolsMissing,
+        privacyReason, localModelAvailable, localModelKnown, sensitiveLocked: privacyRequiresLocal }}
       onLaunch=${launch} onEdit=${() => dispatch({ type: "edit" })} onForm=${openForm} />`}
     <div class="ns-end" ref=${endMark}></div>
     <div class="ns-tools">
