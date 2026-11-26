@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import threading
 from datetime import datetime, timezone
+from math import isfinite
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal
 
+from ..config import DEFAULT_CONTINUITY_CANDIDATES
 from .errors import INVALID_REQUEST, INVALID_STATE, ServiceError
 from .concurrency import DEFAULT_MARGINS, MARGINS, MODES as CONCURRENCY_MODES, _instant, active_mode
 
@@ -32,6 +36,8 @@ ALLOWED_VALUES: dict[str, tuple[str, ...]] = {"mode": MODES, "provider_tls_trust
                                             "models": ("mock", "real")}
 _DEFAULTS = {"mode": DEFAULT_MODE}
 _META_KEYS = ("schema", "updated_at", "updated_by")
+_PROVIDER = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+_CONTINUITY_APPS = frozenset(("claude_cli", "codex_cli", "copilot_cli"))
 
 
 def load_file(local_dir: Path) -> dict[str, Any]:
@@ -56,6 +62,12 @@ def _written(local_dir: Path) -> dict[str, Any]:
             kept["concurrency"] = _validate_concurrency(raw["concurrency"])
         except ServiceError:
             pass
+    for key, validator in (("budget", _validate_budget), ("continuity", _validate_continuity)):
+        if isinstance(raw.get(key), dict):
+            try:
+                kept[key] = validator(raw[key])
+            except ServiceError:
+                pass
     if isinstance(raw.get("model_levels"), dict):
         kept["model_levels"] = {model: value for model, value in raw["model_levels"].items()
                                 if isinstance(model, str) and isinstance(value, dict)
@@ -70,6 +82,43 @@ def _invalid(field_name: str, message: str) -> ServiceError:
 
 def _positive(value: Any) -> bool:
     return type(value) is int and 1 <= value <= 256
+
+
+def _validate_budget(value: Any, known: frozenset[str] | None = None) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {"providers"} or not isinstance(value["providers"], dict):
+        raise _invalid("budget", "Invalid budget settings")
+    providers = value["providers"]
+    if len(providers) > 32:
+        raise _invalid("providers", "Too many providers")
+    for name, entry in providers.items():
+        if not isinstance(name, str) or not _PROVIDER.fullmatch(name) or not isinstance(entry, dict) or set(entry) != {"amount", "mode"}:
+            raise _invalid("providers", "Invalid provider budget")
+        if known is not None and name not in known:
+            raise _invalid("providers", f"Unknown provider: {name}")
+        amount = entry["amount"]
+        invalid_amount = amount is not None and (type(amount) not in (int, float) or amount < 0
+                                                  or amount > 1_000_000_000
+                                                  or (type(amount) is float and not isfinite(amount)))
+        if invalid_amount or entry["mode"] not in ("warn", "cut"):
+            raise _invalid("providers", "Invalid amount or budget mode")
+    # -0.0 is stored as 0.0; ``0`` stays "spend nothing" and ``None`` stays "no budget".
+    return {"providers": {name: {"amount": 0.0 if entry["amount"] == 0 and type(entry["amount"]) is float else entry["amount"],
+                                 "mode": entry["mode"]} for name, entry in providers.items()}}
+
+
+def _validate_continuity(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {"mode", "wait_threshold_hours", "candidates"}:
+        raise _invalid("continuity", "Invalid continuity settings")
+    if value["mode"] not in ("manual", "semi_auto"):
+        raise _invalid("mode", "Unknown continuity mode")
+    if type(value["wait_threshold_hours"]) is not int or value["wait_threshold_hours"] not in (1, 3, 5, 24):
+        raise _invalid("wait_threshold_hours", "Invalid wait threshold")
+    candidates = value["candidates"]
+    if not isinstance(candidates, dict) or set(candidates) != _CONTINUITY_APPS or any(
+            policy not in ("no_ask", "ask", "never") for policy in candidates.values()):
+        raise _invalid("candidates", "Invalid continuity candidates")
+    return {"mode": value["mode"], "wait_threshold_hours": value["wait_threshold_hours"],
+            "candidates": dict(candidates)}
 
 
 def _validate_concurrency(value: Any) -> dict[str, Any]:
@@ -134,6 +183,52 @@ class GuiSettingsServices:
         mode = active_mode(config, now=now)
         return {**config, "mode": mode, "margin": config["margins"][mode],
                 "reason": "temporary_mode_expired" if mode != config["mode"] else "saved_setting"}
+
+    def resolve(self, kind: Literal["budget", "continuity"]) -> dict[str, Any]:
+        """The saved GUI value wins; otherwise the environment-backed settings remain in force."""
+        saved = _written(self._dir).get(kind)
+        settings = self.services.settings
+        if kind == "budget":
+            if saved is not None:
+                budgets = [SimpleNamespace(id=f"gui.{provider}", scope="month", project=None, currency="USD",
+                                           amount=entry["amount"], mode=entry["mode"], alerts=None, provider=provider)
+                           for provider, entry in saved["providers"].items() if entry["amount"] is not None]
+                return {"source": "gui", "providers": saved["providers"], "budgets": budgets,
+                        "mode": settings.usage_budget_mode, "alerts": settings.usage_budget_alerts}
+            return {"source": "environment" if "usage_budgets" in settings.model_fields_set else "default",
+                    "providers": {}, "budgets": list(settings.usage_budgets),
+                    "mode": settings.usage_budget_mode, "alerts": settings.usage_budget_alerts}
+        if saved is not None:
+            return {"source": "gui", **saved, "max_handoffs": settings.continuity_max_handoffs,
+                    "candidates": {**DEFAULT_CONTINUITY_CANDIDATES, **saved["candidates"]},
+                    "automatic": False}
+        return {"source": "environment" if any(key in settings.model_fields_set for key in
+                ("continuity_mode", "continuity_wait_threshold_hours", "continuity_max_handoffs",
+                 "continuity_candidates")) else "default",
+                "mode": settings.continuity_mode, "wait_threshold_hours": settings.continuity_wait_threshold_hours,
+                "candidates": dict(settings.continuity_candidates), "max_handoffs": settings.continuity_max_handoffs,
+                "automatic": False}
+
+    def known_providers(self) -> frozenset[str] | None:
+        """The providers of the catalog's models: the names ``BudgetGuard`` compares. ``None`` without a catalog."""
+        models = getattr(getattr(self.services.system, "catalog", None), "models", None)
+        if not models:
+            return None
+        return frozenset(spec.provider for spec in models.values() if getattr(spec, "provider", None))
+
+    def set_usage(self, kind: Literal["budget", "continuity"], value: dict[str, Any], *,
+                  actor: str = "user:gui") -> dict[str, Any]:
+        if actor != "user:gui":
+            raise _invalid("actor", "Only a GUI user may change usage settings")
+        validator = _validate_budget if kind == "budget" else _validate_continuity
+        checked = validator(value, self.known_providers()) if kind == "budget" else validator(value)
+        with self._lock:
+            content = {"schema": GUI_SETTINGS_SCHEMA, **_written(self._dir)}
+            content[kind] = checked
+            content["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            content["updated_by"] = "user:gui@gui"
+            self._write(content)
+        return self.resolve(kind)
 
     def set_concurrency(self, value: dict[str, Any], *, actor: str = "user:gui") -> dict[str, Any]:
         with self._lock:

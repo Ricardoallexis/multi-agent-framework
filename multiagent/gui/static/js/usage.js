@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Usage view: presents local measurements from the usage API as untrusted text.
 import { html, useEffect, useState } from "../vendor/htm-preact-standalone.module.js";
-import { apiGet } from "./api.js";
+import { ApiError, apiGet, apiPut } from "./api.js";
 import { Help, helpFor } from "./help.js";
 import { t, currentLanguage } from "./i18n.js";
 import { registeredUsageSections } from "./extensions.js";
+import { currentMode, onModeChange } from "./gui-mode.js";
+import { navigate } from "./route.js";
+import { BUDGET_MODES, budgetChanged, openTab, budgetPayload, budgetRows, budgetValid, paceText, parseAmount, sourceText, usagePace, usageTabFromHash } from "./usage-model.js";
 import { Progress, Tabs, LevelBadge, StatusChip, levelInfo } from "./ui/index.js";
 
 const APPS = { claude: "Claude", codex: "Codex", copilot: "Copilot" };
@@ -138,7 +141,86 @@ export function CostGroup({ item, title, scope = "total" }) {
   </article>`;
 }
 
-function Costs({ data }) {
+// «Tu ritmo» (USO-T07): one sentence per app that has a plan, worked out from used_percent and elapsed_percent. No model.
+export function PaceSentences({ plans }) {
+  const items = usagePace(plans);
+  return html`<section class="usage-pace" aria-label=${t("usage.pace.title")}>
+    <h3>${t("usage.pace.title")}</h3>
+    ${items.length ? html`<ul class="usage-pace-list">${items.map((item) => html`<li key=${item.app} class=${"usage-pace-item usage-pace-" + item.kind}>
+      <strong>${APPS[item.app] || item.app || t("usage.app")}</strong> <span>${paceText(item)}</span></li>`)}</ul>`
+      : html`<p class="muted">${t("usage.pace.no_data")}</p>`}
+  </section>`;
+}
+
+// The budget of each API provider, changed here (USO-T07). An empty amount is «sin presupuesto», 0 is «no gastar». The form
+// sends nothing while it matches what the server holds. Saving replaces the budgets that came from the environment.
+export function BudgetSettings({ token }) {
+  const [state, setState] = useState({ loading: true, data: null, error: "" });
+  const [rows, setRows] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  async function load() {
+    try {
+      const data = await apiGet("/gui/api/settings/budget", token);
+      setState({ loading: false, data, error: "" });
+      setRows(budgetRows(data));
+    } catch (failure) {
+      setState((previous) => ({ ...previous, loading: false, error: failure instanceof ApiError ? failure.message : String(failure) }));
+    }
+  }
+  useEffect(() => { load(); }, [token]);
+  const original = state.data ? budgetRows(state.data) : [];
+  const valid = budgetValid(rows);
+  const changed = budgetChanged(rows, original);
+  const edit = (provider, change) => { setSaved(false); setRows(rows.map((row) => row.provider === provider ? { ...row, ...change } : row)); };
+  async function save(event) {
+    event.preventDefault();
+    if (!changed || !valid || saving) return;
+    setSaving(true);
+    try {
+      const data = await apiPut("/gui/api/settings/budget", token, budgetPayload(rows));
+      setState({ loading: false, data, error: "" });
+      setRows(budgetRows(data));
+      setSaved(true);
+    } catch (failure) {
+      setSaved(false);
+      setState((previous) => ({ ...previous, error: failure instanceof ApiError ? failure.message : String(failure) }));
+    }
+    setSaving(false);
+  }
+  const data = state.data;
+  const environmentBudgets = data && data.source === "environment" && Array.isArray(data.budgets) ? data.budgets : [];
+  return html`<section class="usage-budget" aria-label=${t("usage.budget.title")}>
+    <h3>${t("usage.budget.title")}</h3><${Help} topic="usage.costs" scope="budget" />
+    ${state.error && html`<p class="message error" role="alert">${t("usage.budget.error", { message: state.error })}</p>`}
+    ${state.loading ? html`<p role="status">${t("usage.budget.loading")}</p>` : data && html`<form class="usage-budget-form" onSubmit=${save}>
+      <p class="muted small usage-budget-source">${t("usage.budget.source", { source: sourceText(data.source) })}</p>
+      ${environmentBudgets.length > 0 && html`<div class="usage-budget-environment"><p class="muted small">${t("usage.budget.environment_note")}</p>
+        <ul>${environmentBudgets.map((budget) => html`<li key=${budget.id}>${budget.id} · ${budget.scope} · ${money(budget.amount)} · ${t("usage.budget.mode." + budget.mode)}</li>`)}</ul></div>`}
+      <div class="usage-budget-rows">${rows.map((row) => {
+        const parsed = parseAmount(row.amount);
+        const id = "usage-budget-" + row.provider;
+        return html`<div class="usage-budget-row" key=${row.provider}>
+          <label for=${id + "-amount"}>${row.provider} · ${t("usage.budget.amount")}</label>
+          <input id=${id + "-amount"} type="text" inputmode="decimal" autocomplete="off" value=${row.amount} placeholder=${t("usage.budget.no_budget")}
+            aria-invalid=${parsed.valid ? "false" : "true"} ...${helpFor("usage.costs", { scope: "budget" })} onInput=${(event) => edit(row.provider, { amount: event.currentTarget.value })} />
+          <label for=${id + "-mode"}>${t("usage.budget.when_reached")}</label>
+          <select id=${id + "-mode"} value=${row.mode} ...${helpFor("usage.costs", { scope: "budget" })} onChange=${(event) => edit(row.provider, { mode: event.currentTarget.value })}>
+            ${BUDGET_MODES.map((mode) => html`<option key=${mode} value=${mode} selected=${row.mode === mode}>${t("usage.budget.mode." + mode)}</option>`)}
+          </select>
+          ${!parsed.valid && html`<p class="message error small" role="alert">${t("usage.budget.invalid_amount", { provider: row.provider })}</p>`}
+        </div>`;
+      })}</div>
+      <p class="muted small">${t("usage.budget.amount_note")}</p>
+      <p class="muted small">${t("usage.budget.mode_note")}</p>
+      <div class="usage-budget-actions"><button type="submit" class="btn" disabled=${!changed || !valid || saving} ...${helpFor("usage.costs", { scope: "budget" })}>${saving ? t("usage.budget.saving") : t("usage.budget.save")}</button>
+        ${!changed && valid && html`<span class="muted small">${t("usage.budget.no_changes")}</span>`}
+        ${saved && html`<span class="muted small" role="status">${t("usage.budget.saved")}</span>`}</div>
+    </form>`}
+  </section>`;
+}
+
+function Costs({ data, token }) {
   const totals = data?.totals || {};
   const byMonth = Array.isArray(data?.by_month) ? data.by_month : [];
   const byModel = Array.isArray(data?.by_model) ? data.by_model : [];
@@ -149,13 +231,30 @@ function Costs({ data }) {
     <h4>${t("usage.by_month")}</h4><div class="usage-grid">${byMonth.length ? byMonth.map((item, index) => html`<${CostGroup} key=${item.month || index} item=${item} title=${item.month || t("usage.month")} scope=${"month-" + (item.month || index)} />`) : html`<p>${t("usage.no_period_costs")}</p>`}</div>
     <h4>${t("usage.by_model")}</h4><div class="usage-grid">${byModel.length ? byModel.map((item, index) => html`<${CostGroup} key=${item.model || index} item=${item} title=${item.model || t("usage.unknown_model")} scope=${"model-" + (item.model || index)} />`) : html`<p>${t("usage.no_cost_calls")}</p>`}</div>
     <p class="notice">${t("usage.budget_notice")}</p>
+    <${BudgetSettings} token=${token} />
   </section>`;
+}
+
+// The tab comes from the address: #usage/plans, #usage/global, #usage/costs, #usage/continuity. #usage alone opens the first tab
+// in the advanced mode and leaves every detail folded in the simple mode.
+function useUsageTab() {
+  const read = () => typeof location === "undefined" ? "" : usageTabFromHash(location.hash);
+  const [tab, setTab] = useState(read);
+  useEffect(() => {
+    const update = () => setTab(read());
+    window.addEventListener("hashchange", update);
+    update();
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
+  return tab;
 }
 
 export function Usage({ token }) {
   const [data, setData] = useState({ loading: true, plans: null, today: null, week: null, costs: null, errors: [] });
   const [period, setPeriod] = useState("today");
-  const [view, setView] = useState("plans");
+  const addressed = useUsageTab();
+  const [mode, setMode] = useState(currentMode);
+  useEffect(() => onModeChange(setMode), []);
   const [refreshing, setRefreshing] = useState(false);
   async function refresh() {
     setRefreshing(true);
@@ -179,7 +278,17 @@ export function Usage({ token }) {
   }
   useEffect(() => { refresh(); }, [token]);
   const extra = registeredUsageSections();   // tabs that extensions add (CNT-T06); none unless one registered
-  const extraSection = extra.find((section) => section.id === view);
+  const tabs = [
+    { id: "plans", label: t("usage.plans_tab") }, { id: "global", label: t("usage.global_tab") }, { id: "costs", label: t("usage.costs_heading") },
+    ...extra.map((section) => ({ id: section.id, label: section.label })),
+  ];
+  const advanced = mode === "advanced";
+  const view = openTab(mode, addressed, tabs.map((tab) => tab.id));
+  const body = (id) => {
+    const extraSection = extra.find((section) => section.id === id);
+    return id === "plans" ? html`<${Plans} data=${data.plans} />` : id === "global" ? html`<${Global} today=${data.today} week=${data.week} period=${period} setPeriod=${setPeriod} />`
+      : extraSection ? html`<${extraSection.component} token=${token} />` : html`<${Costs} data=${data.costs} token=${token} />`;
+  };
   return html`<div class="usage-view">
     <h3 id="usage-title">${t("usage.title")}</h3><${Help} topic="usage.section" always=${true} />
     <div class="usage-title-row"><p class="muted">${t("usage.intro")}</p>
@@ -190,11 +299,21 @@ export function Usage({ token }) {
     </div>
     ${data.errors.length > 0 && html`<p class="message error" role="alert">${t("usage.update_error", { sources: data.errors.join(", ") })}</p>`}
     ${data.loading && !data.plans && !data.today && !data.costs ? html`<p role="status" aria-live="polite">${t("usage.loading")}</p>`
-      : html`<${Tabs} id="usageview" label=${t("usage.sections")} tabs=${[
-        { id: "plans", label: t("usage.plans_tab") }, { id: "global", label: t("usage.global_tab") }, { id: "costs", label: t("usage.costs_heading") },
-        ...extra.map((section) => ({ id: section.id, label: section.label })),
-      ]} selected=${view} onSelect=${setView} ...${helpFor("usage.view")} after=${html`<${Help} topic="usage.view" compact=${true} />`}>
-        ${view === "plans" ? html`<${Plans} data=${data.plans} />` : view === "global" ? html`<${Global} today=${data.today} week=${data.week} period=${period} setPeriod=${setPeriod} />` : extraSection ? html`<${extraSection.component} token=${token} />` : html`<${Costs} data=${data.costs} />`}
-      <//>`}
+      : html`<${PaceSentences} plans=${data.plans} />
+      ${advanced ? html`<${Tabs} id="usageview" label=${t("usage.sections")} tabs=${tabs} selected=${view} onSelect=${(id) => navigate("usage", id)}
+        ...${helpFor("usage.view")} after=${html`<${Help} topic="usage.view" compact=${true} />`}>
+        ${body(view)}
+      <//>` : html`<div class="usage-folds" role="group" aria-label=${t("usage.sections")}>
+        ${tabs.map((tab) => {
+          const open = view === tab.id;
+          return html`<section class="usage-fold" key=${tab.id}>
+            <h4 class="usage-fold-title"><button type="button" class="btn secondary usage-fold-toggle" aria-expanded=${open ? "true" : "false"}
+              aria-controls=${"usage-fold-" + tab.id} ...${helpFor("usage.view")} onClick=${() => navigate("usage", open ? "" : tab.id)}>
+              ${tab.label} · ${open ? t("usage.hide_detail") : t("usage.see_detail")}</button></h4>
+            <div id=${"usage-fold-" + tab.id} class="usage-fold-body" hidden=${!open}>${open ? body(tab.id) : null}</div>
+          </section>`;
+        })}
+        <${Help} topic="usage.view" compact=${true} />
+      </div>`}`}
   </div>`;
 }

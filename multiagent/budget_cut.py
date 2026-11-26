@@ -130,7 +130,8 @@ class BudgetPolicy:
 
 def policy_from_settings(settings: Any, reader: BudgetReader | None = None) -> BudgetPolicy | None:
     """The policy for the configured budgets, or ``None`` when there is none (no guard, nothing changes)."""
-    budgets = getattr(settings, "usage_budgets", None)
+    effective = getattr(reader, "effective_budgets", None)
+    budgets = effective() if callable(effective) else getattr(settings, "usage_budgets", None)
     if not budgets:
         return None
     default = getattr(settings, "usage_budget_mode", "warn")
@@ -278,6 +279,9 @@ class BudgetGuard:
 
         A run whose project is unknown is limited by every project budget (fail closed).
         """
+        provider = row.get("provider")
+        if provider is not None and provider != getattr(call.spec, "provider", None):
+            return False
         if row.get("scope") == "run":
             return call.run_id is not None and row.get("run_id") == call.run_id
         project = row.get("project")

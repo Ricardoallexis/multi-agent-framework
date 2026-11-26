@@ -3094,10 +3094,10 @@ class ExecutorServices:
 
     # -------- continuity policy and hand-off (CNT-T05) --------
     def _profile_policy(self) -> _handoff.Policy:
-        settings = self._services.settings
+        settings = self._services.gui_settings.resolve("continuity")
         return _handoff.Policy(
-            mode=settings.continuity_mode, wait_threshold_hours=settings.continuity_wait_threshold_hours,
-            max_handoffs=settings.continuity_max_handoffs, candidates=dict(settings.continuity_candidates))
+            mode=settings["mode"], wait_threshold_hours=settings["wait_threshold_hours"],
+            max_handoffs=settings["max_handoffs"], candidates=dict(settings["candidates"]))
 
     def _policy_of(self, continuity: Mapping[str, Any] | None) -> _handoff.Policy:
         """The policy in force for a task: the settings, restricted by what the task's continuity block says (it only restricts)."""

@@ -42,6 +42,7 @@ async function request(method, path, token, body) {
 
 export const apiGet = (path, token) => request("GET", path, token);
 export const apiPost = (path, token, body) => request("POST", path, token, body);
+export const apiPut = (path, token, body) => request("PUT", path, token, body);
 
 export const runPath = (runId, action = "") =>
   "/gui/api/runs/" + encodeURIComponent(runId) + (action ? "/" + action : "");

@@ -288,6 +288,28 @@ sample and `sha256`), `user_approval.decided` (`approved` or `rejected`, with th
 The usage records of a call that the gate held do not exist, because the provider was not called. Nothing here goes
 to a telemetry service, and the OpenTelemetry export does not carry these events.
 
+## Usage settings in the GUI
+
+The token-protected GUI API exposes `GET` and `PUT /gui/api/settings/budget`.
+The budget request is a complete `providers` map. Each provider has an `amount`
+in USD per UTC calendar month (`null` removes its cap; `0` with `cut` holds paid calls for approval)
+and a `mode` of `warn` or `cut`. The response includes `source` (`gui`,
+`environment`, or `default`) and the effective budgets. A saved GUI map takes
+precedence over all environment budgets; with no saved map the existing budgets
+remain in force. Only calls to the named provider count against a GUI budget.
+A provider must be one the model catalog knows (the `provider` of its models, which is what the guard compares);
+the response lists them as `known_providers`, and any other name is a 422.
+`cut` pauses a call for human approval before it exceeds the cap. Changing a
+budget does not approve any paused call or allow paid overage.
+
+`GET` and `PUT /gui/api/settings/continuity` expose `mode` (`manual` or
+`semi_auto`), `wait_threshold_hours` (1, 3, 5, or 24), and candidate policies
+for the three subscription CLIs (`no_ask`, `ask`, or `never`). The response
+includes the effective source, the fixed hand-off limit, and `automatic: false`.
+Task policy can still restrict the GUI policy. Automatic mode is not offered by
+these routes because the server's policy does not implement it yet. Neither
+route changes the integration guard, payment approval, or the hand-off limit.
+
 ## Dashboard guidance
 
 A future local dashboard can use the usage response without reading the

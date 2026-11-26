@@ -25,7 +25,7 @@ export const HELP = {
     "hint": "How the framework responds when an app reaches its limit.",
     "more": [
       "Shows the mode, how long to wait before suggesting another agent, and how many hand-offs are allowed.",
-      "These are the framework defaults; this screen only displays them.",
+      "Below the values you can change the mode, the wait threshold and the apps that may take over.",
       "A task is never handed off during an integration."
     ]
   },

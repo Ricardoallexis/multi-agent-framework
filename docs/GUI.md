@@ -643,9 +643,32 @@ The **Uso** view (`#usage`) has **Planes**, **Global** and **API y presupuesto**
 tabs. It reads `GET /gui/api/usage/plans`, `/gui/api/usage/tokens` and
 `/gui/api/usage/costs` for plan measurements, token totals by app, model, level
 and role, and estimated framework provider costs with price evidence. Missing
-and reset measurements stay unavailable rather than becoming zero. The service
-does not expose a budget or an alert/cutoff mode, so the view does not
-calculate budget percentages or offer those controls.
+and reset measurements stay unavailable rather than becoming zero. The budget
+and its Warn or Cut mode are set in **API y presupuesto**, described below; the
+view does not calculate budget percentages.
+
+**Usage.** The Usage screen has four sections: Plans, Overall, API and budget,
+and Continuity. Both modes show all of them. Above the sections, one sentence
+per app with a plan compares what you have used with the time that has passed
+("On track", "Going fast", "Little left"), or says "no data". It is worked
+out from two percentages, without a model and without predicting a date. In the
+simple mode the sections are folded under "See details"; in the advanced mode
+they are tabs. Each section has an address: `#usage/plans`, `#usage/global`,
+`#usage/costs` and `#usage/continuity`. `#usage` alone opens the first tab in
+the advanced mode and leaves every detail folded in the simple mode.
+
+In API and budget you set a monthly amount in USD for each API provider and
+choose Warn or Cut. An empty amount means no budget; 0 means do not spend. Cut
+pauses calls to that provider until a person approves each one. In Continuity
+you choose what happens when a limit is reached (Manual always asks;
+Semi-automatic proposes the hand-off and waits for your yes), how long a wait
+is acceptable before another agent is suggested, and which apps may take over.
+Each form says where its current values come from (this GUI, the environment,
+or the defaults), and sends nothing until something changes. Three rules are
+fixed and shown as a note, with no control: at most one hand-off per run, a
+running step or an integration is never cut, and it never moves to paid extra
+usage or a paid API without asking. These settings do not enable executors, do
+not allow paid usage, do not raise the budget and do not add destinations.
 
 The **Evaluación** view (`#evaluation`) is read only. It lists the evaluation sets
 that have saved runs, each with its latest score, whether that run was Mock or

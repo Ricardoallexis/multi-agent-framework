@@ -324,7 +324,7 @@ class UsageServices:
         both as used and as reserved (a call checked right then is held, never let through); the other way round would
         under-count.
         """
-        if not self._services.settings.usage_budgets:
+        if not self.effective_budgets():
             return
         try:
             self._settle_call(record.run_id, record.step_id, record.attempt)
@@ -841,6 +841,9 @@ class UsageServices:
 
     # --- budgets (USO-T03) ----------------------------------------------------------
 
+    def effective_budgets(self) -> list[Any]:
+        return self._services.gui_settings.resolve("budget")["budgets"]
+
     @service_errors
     def budgets(self, *, run_id: Any = None) -> dict[str, Any]:
         """Every configured budget with its consumption, percent, state and alerts (read-only).
@@ -869,20 +872,21 @@ class UsageServices:
         ``recent_alerts`` are the latest ``budget.threshold`` events (newest first, at most ``MAX_RECENT_ALERTS``).
         Without budgets everything is empty.
         """
-        settings = self._services.settings
-        configured = list(settings.usage_budgets)
+        resolved = self._services.gui_settings.resolve("budget")
+        configured = resolved["budgets"]
         now = self._now()
         month_start, month_end = sources.month_start(now), sources.next_month(now)
         month = {"key": month_start.strftime("%Y-%m"), "since": _iso(month_start), "until": _iso(month_end)}
-        defaults = {"mode": settings.usage_budget_mode, "alerts": list(settings.usage_budget_alerts)}
+        defaults = {"mode": resolved["mode"], "alerts": list(resolved["alerts"])}
         run = self._budget_run(run_id)
         rows, truncated = self._budget_rows(configured, defaults, run, month_start, month_end, month["key"])
         counts = {state: sum(1 for row in rows if row["state"] == state) for state in ("ok", "alert", "limit_reached")}
         return {
-            "generated_at": _iso(now), "month": month, "defaults": defaults,
+            "generated_at": _iso(now), "month": month, "defaults": defaults, "source": resolved["source"],
             "budgets": [{"id": b.id, "scope": b.scope, "project": b.project, "currency": b.currency, "amount": b.amount,
                          "mode": b.mode or defaults["mode"],
-                         "alerts": list(b.alerts if b.alerts is not None else defaults["alerts"])}
+                         "alerts": list(b.alerts if b.alerts is not None else defaults["alerts"]),
+                         **({"provider": b.provider} if getattr(b, "provider", None) is not None else {})}
                         for b in configured],
             "status": rows, "counts": counts, "worst_percent": max((row["percent"] for row in rows), default=None),
             "runs_truncated": truncated, "recent_alerts": self._recent_budget_alerts(),
@@ -914,7 +918,8 @@ class UsageServices:
         runs: list[dict[str, Any]] | None = None
         for budget in configured:
             if budget.scope == "month":
-                rows.append(self._budget_row(budget, defaults, [r for r in in_month if _in_project(r, budget.project)],
+                rows.append(self._budget_row(budget, defaults, [r for r in in_month if _in_project(r, budget.project)
+                            and (getattr(budget, "provider", None) is None or r["provider"] == budget.provider)],
                                              period=month_key, since=month_start, until=month_end))
             elif budget.scope == "project":
                 if budget.project not in by_project:
@@ -976,11 +981,11 @@ class UsageServices:
                 other[spent[0]] = other.get(spent[0], 0.0) + spent[1]
         exact_used = used           # what the budget guard compares; ``used`` below is cut to six decimals for display
         used = round(used, 6)
-        percent = used / budget.amount * 100
+        percent = used / budget.amount * 100 if budget.amount else (100.0 if used else 0.0)
         alerts = list(budget.alerts if budget.alerts is not None else defaults["alerts"])
-        crossed = [alert for alert in alerts if percent >= alert - _PERCENT_EPS]
+        crossed = [alert for alert in alerts if used > 0 and percent >= alert - _PERCENT_EPS]
         unknown = sum(reasons.values())
-        state = "limit_reached" if percent >= 100 - _PERCENT_EPS else ("alert" if crossed else "ok")
+        state = "limit_reached" if budget.amount == 0 or percent >= 100 - _PERCENT_EPS else ("alert" if crossed else "ok")
         return {
             "budget_id": budget.id, "scope": budget.scope, "project": budget.project,
             "project_id": _project_id_of(records) if budget.project is not None else None,
@@ -994,6 +999,7 @@ class UsageServices:
             "cost_unknown_reasons": dict(sorted(reasons.items())),
             "cost_other_currencies": {currency: round(total, 6) for currency, total in sorted(other.items())},
             "complete": unknown == 0 and not other,
+            **({"provider": budget.provider} if getattr(budget, "provider", None) is not None else {}),
         }
 
     def _recent_budget_alerts(self) -> list[dict[str, Any]]:

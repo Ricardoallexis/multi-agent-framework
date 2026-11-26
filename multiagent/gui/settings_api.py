@@ -34,7 +34,45 @@ class ModelLevelBody(BaseModel):
     source: StrictStr
 
 
+class BudgetBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    providers: dict[str, dict[str, Any]]
+
+
+class ContinuityBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: StrictStr
+    wait_threshold_hours: StrictInt
+    candidates: dict[str, StrictStr]
+
+
 def add_settings_routes(api: APIRouter, services: Any) -> None:
+    def budget_view():
+        resolved = services.gui_settings.resolve("budget")
+        return {"source": resolved["source"], "providers": resolved["providers"],
+                "known_providers": sorted(services.gui_settings.known_providers() or ()),
+                "budgets": [{"id": budget.id, "scope": budget.scope, "project": budget.project,
+                             "currency": budget.currency, "amount": budget.amount,
+                             "mode": budget.mode or resolved["mode"],
+                             "provider": getattr(budget, "provider", None)} for budget in resolved["budgets"]]}
+
+    @api.get("/settings/budget")
+    def read_budget():
+        return budget_view()
+
+    @api.put("/settings/budget")
+    def set_budget(body: BudgetBody):
+        services.gui_settings.set_usage("budget", body.model_dump())
+        return budget_view()
+
+    @api.get("/settings/continuity")
+    def read_continuity():
+        return services.gui_settings.resolve("continuity")
+
+    @api.put("/settings/continuity")
+    def set_continuity(body: ContinuityBody):
+        return services.gui_settings.set_usage("continuity", body.model_dump())
+
     @api.get("/settings/concurrency")
     def read_concurrency():
         return services.concurrency.effective()

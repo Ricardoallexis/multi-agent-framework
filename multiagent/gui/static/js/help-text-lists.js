@@ -283,7 +283,8 @@ export const HELP = {
     "hint": "Show estimated costs with their evidence and separate unknown amounts.",
     "more": [
       "Cost uses observed tokens and available prices.",
-      "It is not a billed amount. A call without a current price stays unknown."
+      "It is not a billed amount. A call without a current price stays unknown.",
+      "Below, you set a monthly budget for each API provider: an empty amount means no budget and 0 means do not spend."
     ]
   },
   "usage.refresh": {
@@ -299,7 +300,7 @@ export const HELP = {
     "hint": "Choose plans, overall usage, or API costs.",
     "more": [
       "Each section shows what its local source can measure.",
-      "Use the arrow keys to move among these tabs."
+      "In the advanced mode, use the arrow keys to move among these tabs."
     ]
   },
   "usage.plan_notes": {

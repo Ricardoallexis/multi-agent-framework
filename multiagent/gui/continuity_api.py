@@ -45,7 +45,6 @@ DECIDED_EVENT = "continuity.decided"
 BLOCK_DELEGATION = "delegation_requested"
 MODES = ("manual", "semi_auto", "auto")
 CANDIDATE_POLICIES = ("no_ask", "ask", "never")
-_POLICY_SETTINGS = ("continuity_mode", "continuity_wait_threshold_hours", "continuity_max_handoffs", "continuity_candidates")
 APPS = {"claude_cli": ("Claude", "claude"), "codex_cli": ("Codex", "codex"), "copilot_cli": ("Copilot", "copilot"),
         "antigravity_cli": ("Antigravity", "antigravity")}
 LEVELS = ("T1", "T2", "T3", "T4")
@@ -217,10 +216,11 @@ def policy_view(services: Any) -> dict[str, Any]:
             "enabled": row.get("enabled") is True, "available": bool(row.get("available")),
             "paused_until": row.get("paused_until"), "paused_open_ended": bool(row.get("paused_open_ended")),
             "policy": _candidate_policy(policy["candidates"], str(row["executor_id"]), row.get("surface"))})
-    given = bool(set(_POLICY_SETTINGS) & set(services.settings.model_fields_set))
+    origin = services.gui_settings.resolve("continuity")["source"]
     return {"mode": policy["mode"], "modes": list(MODES), "wait_threshold_hours": policy["wait_threshold_hours"],
             "max_handoffs": policy["max_handoffs"], "max_failed_resumes": _hold.MAX_FAILED_RESUMES,
-            "never_during_integration": True, "auto_scope": "project", "source": "settings" if given else "default",
+            "never_during_integration": True, "auto_scope": "project",
+            "source": "default" if origin == "default" else "settings", "origin": origin,
             "candidates": candidates}
 
 
