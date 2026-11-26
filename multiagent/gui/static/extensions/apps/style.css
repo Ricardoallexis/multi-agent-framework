@@ -322,3 +322,11 @@
   gap: 8px;
   min-width: 0;
 }
+
+.apps-tabs {
+  margin: 0;
+}
+
+.apps-tabs > .tab-panel > .apps-section {
+  padding-top: 4px;
+}

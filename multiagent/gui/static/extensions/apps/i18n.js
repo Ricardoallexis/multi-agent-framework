@@ -204,7 +204,16 @@ const en = {
   "ext.apps.empty": "No configured tools to show.",
   "ext.apps.executors": "Apps and executors",
   "ext.apps.models": "Models",
-  "ext.apps.view": "Apps and agents"
+  "ext.apps.view": "Apps and agents",
+  "ext.apps.read_options_failed": "Could not read app and model categories",
+  "ext.apps.tabs.label": "Apps and agents by type",
+  "ext.apps.tab.apps.simple": "Apps on your PC",
+  "ext.apps.tab.local.simple": "On your PC (local)",
+  "ext.apps.tab.cloud.simple": "Cloud services",
+  "ext.apps.tab.apps.advanced": "Apps (CLI)",
+  "ext.apps.tab.local.advanced": "Local",
+  "ext.apps.tab.cloud.advanced": "API",
+  "ext.apps.empty_group": "No apps or models in this category."
 };
 const es = {
   "ext.apps.activation.state.not_installed": "No instalado",
@@ -408,6 +417,15 @@ const es = {
   "ext.apps.executors": "Apps y ejecutores",
   "ext.apps.models": "Modelos",
   "ext.apps.view": "Apps y agentes",
+  "ext.apps.read_options_failed": "No se pudieron leer las categorías de apps y modelos",
+  "ext.apps.tabs.label": "Apps y agentes por tipo",
+  "ext.apps.tab.apps.simple": "Apps en tu PC",
+  "ext.apps.tab.local.simple": "En tu PC (local)",
+  "ext.apps.tab.cloud.simple": "Servicios en la nube",
+  "ext.apps.tab.apps.advanced": "Apps (CLI)",
+  "ext.apps.tab.local.advanced": "Locales",
+  "ext.apps.tab.cloud.advanced": "API",
+  "ext.apps.empty_group": "No hay apps ni modelos en esta categoría.",
   "help.apps.view": {
     "title": "Apps y agentes",
     "hint": "Estado de cada modelo y ejecutor, y solo el paso que falta.",

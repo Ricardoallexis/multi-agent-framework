@@ -329,6 +329,25 @@ export function missingSummaryLine(row, action, chip, reasonText) {
   return null;
 }
 
+export function canShowAllReady(item) {
+  return item.available === true && !item.action && (!item.activation || item.activation.state === "active");
+}
+
+export function groupModelsByType(models, composerOptionsPayload = null) {
+  const optionKinds = new Map((Array.isArray(composerOptionsPayload?.options) ? composerOptionsPayload.options : [])
+    .filter((option) => option && typeof option.id === "string")
+    .map((option) => [option.id, option.kind]));
+  const modelKind = (item) => {
+    const kind = optionKinds.get(item.id);
+    if (kind === "local" || kind === "cloud") return kind;
+    return item.id === "ollama" ? "local" : "cloud";
+  };
+  return {
+    localModels: models.filter((item) => modelKind(item) === "local"),
+    cloudModels: models.filter((item) => modelKind(item) === "cloud"),
+  };
+}
+
 // ARR3-T07: the server decides when a card may offer the certificate button; here it is only read.
 function tlsButton(button) {
   if (!button || typeof button.trust !== "string" || typeof button.label !== "string" || !button.label) return null;
@@ -390,9 +409,11 @@ export function buildAppsView(connectionsPayload, setupStatus = null, mode = "ad
   const executors = EXECUTOR_IDS.map((id) => byId.get(id)).filter(Boolean)
     .map((row) => buildEntry(row, "executor", setupStatus, mode, activationById.get(row.id) || null));
   const models = MODEL_IDS.map((id) => byId.get(id)).filter(Boolean).map((row) => buildEntry(row, "model", setupStatus, mode));
+  const modelGroups = groupModelsByType(models);
   return {
     executors,
     models,
+    ...modelGroups,
     allowLaunch: setupStatus ? Boolean(setupStatus.allow_launch) : true,
     consoleSupported: setupStatus ? Boolean(setupStatus.console_supported) : true,
     empty: executors.length === 0 && models.length === 0,

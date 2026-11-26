@@ -10,8 +10,9 @@ import { Help, helpFor } from "../../js/help.js";
 import { errorText, fmtDate } from "../../js/text.js";
 import { t } from "../../js/i18n.js";
 import { StatusChip } from "../../js/ui/status-chip.js";
+import { Tabs } from "../../js/ui/tabs.js";
 import { HELP } from "./help.js";
-import { buildAppsView } from "./model.js";
+import { buildAppsView, canShowAllReady, groupModelsByType } from "./model.js";
 import { activationNote, stopAllConfirmText } from "./activation-model.js";   // EJE-T02
 import { activateExecutor, deactivateExecutor, requestActivation, stopAllExecutors } from "./activation.js";
 
@@ -184,6 +185,7 @@ function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDon
 function MissingStep({ item, allowLaunch, consoleSupported, token, onRecheck, busyAny, onBusyChange }) {
   const action = item.action;
   if (!action) {
+    if (!canShowAllReady(item)) return null;
     return html`<p class="apps-status-line message ok">${t("ext.apps.all_ready")}</p>`;
   }
   if (action.kind === "console") {
@@ -247,6 +249,7 @@ function ActivationPanel({ item, token, onChanged }) {
     if (!outcome.ok) {
       setMessage({ ok: false, text: outcome.message });
       setPhase("idle");
+      if (outcome.refresh || outcome.restart) onChanged(item.id);
       return;
     }
     setRequest(outcome.request);
@@ -268,7 +271,7 @@ function ActivationPanel({ item, token, onChanged }) {
     setRequest(null);
     setPhase("idle");
     setMessage({ ok: outcome.ok, text: outcome.message });
-    if (outcome.ok) onChanged(item.id);
+    if (outcome.ok || outcome.refresh || outcome.restart) onChanged(item.id);
   }
 
   async function turnOff() {
@@ -438,6 +441,8 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, on
   </li>`;
 }
 
+const foldedCard = (item) => ({ ...item, defaultOpen: Boolean(item.defaultOpen) });
+
 export function AppsView({ token }) {
   const [connections, setConnections] = useState(null);
   const [setupStatus, setSetupStatus] = useState(null);
@@ -446,17 +451,23 @@ export function AppsView({ token }) {
   const [setupWarning, setSetupWarning] = useState(null);
   const [consoleBusy, setConsoleBusy] = useState(false);
   const [activations, setActivations] = useState(null);
+  const [composerOptions, setComposerOptions] = useState(null);
+  const [optionsWarning, setOptionsWarning] = useState(null);
+  const [tab, setTab] = useState("apps");
 
   async function loadAll() {
     setLoading(true);
     setError(null);
     setSetupWarning(null);
-    const [connRes, setupRes, activationRes] = await Promise.allSettled([
+    setOptionsWarning(null);
+    const [connRes, setupRes, activationRes, optionsRes] = await Promise.allSettled([
       apiGet("/gui/api/connections", token),
       apiGet("/gui/api/setup/status", token),
       apiGet("/gui/api/executors/activations", token),   // EJE-T02
+      apiGet("/gui/api/composer/options", token),
     ]);
     setActivations(activationRes.status === "fulfilled" ? activationRes.value : null);
+    setComposerOptions(optionsRes.status === "fulfilled" ? optionsRes.value : null);
     if (connRes.status === "fulfilled") {
       setConnections(connRes.value);
     } else {
@@ -466,6 +477,9 @@ export function AppsView({ token }) {
       setSetupStatus(setupRes.value);
     } else {
       setSetupWarning(asError(setupRes.reason));
+    }
+    if (optionsRes.status === "rejected") {
+      setOptionsWarning(asError(optionsRes.reason));
     }
     setLoading(false);
   }
@@ -498,6 +512,21 @@ export function AppsView({ token }) {
   }
 
   const view = buildAppsView(connections, setupStatus, currentMode(), activations);
+  const mode = currentMode();
+  const modelGroups = groupModelsByType(view.models, composerOptions);
+  const tabs = mode === "simple"
+    ? [
+      { id: "apps", label: t("ext.apps.tab.apps.simple") },
+      { id: "local", label: t("ext.apps.tab.local.simple") },
+      { id: "cloud", label: t("ext.apps.tab.cloud.simple") },
+    ]
+    : [
+      { id: "apps", label: t("ext.apps.tab.apps.advanced") },
+      { id: "local", label: t("ext.apps.tab.local.advanced") },
+      { id: "cloud", label: t("ext.apps.tab.cloud.advanced") },
+    ];
+  const selectedTab = tabs.find((item) => item.id === tab) || tabs[0];
+  const items = tab === "apps" ? view.executors : tab === "local" ? modelGroups.localModels : modelGroups.cloudModels;
 
   return html`<section class="apps-view" aria-label=${t("ext.apps.view")} aria-busy=${loading ? "true" : "false"}>
     <div class="apps-head">
@@ -510,29 +539,24 @@ export function AppsView({ token }) {
     </div>
     ${error && html`<p class="message error" role="alert">${t("ext.apps.read_connections_failed")}: ${errorText(error)}</p>`}
     ${setupWarning && html`<p class="message" role="status">${t("ext.apps.read_templates_failed")}: ${errorText(setupWarning)}</p>`}
+    ${optionsWarning && html`<p class="message" role="status">${t("ext.apps.read_options_failed")}: ${errorText(optionsWarning)}</p>`}
     ${loading && !connections && html`<p class="muted" role="status">${t("ext.apps.loading")}</p>`}
     ${!loading && !error && view.empty && html`<p class="muted">${t("ext.apps.empty")}</p>`}
-    ${view.executors.length > 0 && html`<section class="apps-section" aria-labelledby="apps-executors-title">
-      <div class="apps-section-head">
-        <h4 id="apps-executors-title">${t("ext.apps.executors")}</h4><${Help} topic="apps.executors" />
-      </div>
-      ${view.canStopAll && html`<${StopAll} token=${token} onChanged=${() => handleActivationChanged(null)} />`}
-      <ul class="apps-grid">
-        ${view.executors.map((item) => html`<${ToolCard} key=${item.id} item=${item}
-          allowLaunch=${view.allowLaunch} consoleSupported=${view.consoleSupported} token=${token}
-          onRowUpdated=${handleRowUpdated} onActivationChanged=${handleActivationChanged} busyAny=${consoleBusy} onBusyChange=${setConsoleBusy} />`)}
-      </ul>
-    </section>`}
-    ${view.models.length > 0 && html`<section class="apps-section" aria-labelledby="apps-models-title">
-      <div class="apps-section-head">
-        <h4 id="apps-models-title">${t("ext.apps.models")}</h4><${Help} topic="apps.models" />
-      </div>
-      <ul class="apps-grid">
-        ${view.models.map((item) => html`<${ToolCard} key=${item.id} item=${item}
-          allowLaunch=${view.allowLaunch} consoleSupported=${view.consoleSupported} token=${token}
-          onRowUpdated=${handleRowUpdated} busyAny=${consoleBusy} onBusyChange=${setConsoleBusy} />`)}
-      </ul>
-    </section>`}
+    ${!view.empty && html`
+      ${view.executors.length > 0 && view.canStopAll && html`<${StopAll} token=${token} onChanged=${() => handleActivationChanged(null)} />`}
+      <${Tabs} id="apps-tabs" label=${t("ext.apps.tabs.label")} className="apps-tabs" selected=${tab} tabs=${tabs} onSelect=${setTab}
+        after=${tab === "apps"
+          ? html`<${Help} key=${tab === "apps" ? "executors" : "models"} topic="apps.executors" compact=${true} />`
+          : html`<${Help} key=${tab === "apps" ? "executors" : "models"} topic="apps.models" compact=${true} />`}
+        ...${tab === "apps" ? helpFor("apps.executors") : helpFor("apps.models")}>
+        <section class="apps-section" aria-label=${selectedTab.label}>
+          ${items.length > 0 ? html`<ul class="apps-grid">
+            ${items.map((item) => html`<${ToolCard} key=${item.id} item=${foldedCard(item)}
+              allowLaunch=${view.allowLaunch} consoleSupported=${view.consoleSupported} token=${token}
+              onRowUpdated=${handleRowUpdated} onActivationChanged=${handleActivationChanged} busyAny=${consoleBusy} onBusyChange=${setConsoleBusy} />`)}
+          </ul>` : html`<p class="muted">${t("ext.apps.empty_group")}</p>`}
+        </section>
+      <//>`}
   </section>`;
 }
 
