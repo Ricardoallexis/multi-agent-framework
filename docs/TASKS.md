@@ -53,6 +53,36 @@ it. Imported `source_state`, a group's `authorized` flag and
 `lifecycle_state`, native task `state`, effective `blocked`/`ready` status, and
 legacy release readiness remain separate values.
 
+### Weighted progress
+
+A project view carries `progress` (`done` of the tasks that count) and, next to it,
+`progress_weighted`, which moves before a task finishes. The weight comes from the
+stored `state`, not from the label, and lives in the `weights` key of
+`multiagent/tasks/labels.json`, the same file as the labels.
+
+| Step | Stored state | Weight |
+| --- | --- | --- |
+| 1 | `open` (pending, ready or blocked) | 0 |
+| 2 | `claimed` | 0.10 |
+| 3 | `running`, `paused` | 0.30 |
+| 4 | `validating`, `needs_changes` | 0.60 |
+| 5 | `submitted` | 0.80 |
+| 6 | `accepted`; `submitted` whose release evidence releases it | 1 |
+
+`cancelled` leaves the count; `failed` counts and weighs 0. Every task weighs the
+same. `progress_weighted` is `{percent, counted}`; `percent` is `null` when nothing
+counts. The sum is made in hundredths and rounded half up, like `progress`. A task
+can go back (`submitted` to `needs_changes`), and then the bar goes down.
+`progress.percent` keeps its meaning and value.
+
+Projects and stages also carry:
+
+- `remaining`: `{tasks, layers}`, the tasks not finished and how many layers of
+  tasks that can run in parallel they form (`parallel_layers`). It is a fact of the
+  graph, not an estimate of time.
+- `last_change`: `{seq, created_at}` of the last team event of the project (or of the
+  stage), or `null` when it has none.
+
 ## Dependencies
 
 A dependency says that one task waits for another. It is satisfied when the task

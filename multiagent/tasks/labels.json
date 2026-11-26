@@ -69,6 +69,18 @@
       "explanation": "La etapa está autorizada y tiene trabajo por hacer."
     }
   },
+  "weights": {
+    "open": 0,
+    "claimed": 0.1,
+    "running": 0.3,
+    "paused": 0.3,
+    "validating": 0.6,
+    "needs_changes": 0.6,
+    "submitted": 0.8,
+    "accepted": 1,
+    "failed": 0,
+    "cancelled": 0
+  },
   "details": {
     "paused": "en pausa",
     "validating": "comprobación automática"

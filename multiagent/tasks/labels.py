@@ -13,6 +13,10 @@ lifecycle, its authorization and the labels of its tasks.
 
 Progress is ``done / (total - cancelled)``; ``percent`` is ``None`` when nothing counts, never a
 made-up 0 or 100.
+
+``progress_weighted`` is the finer sibling: each stored state carries a weight from ``labels.json`` (``weights``), so
+the bar moves before a task is done. It reads the stored state, not the label, because the label "doing" joins four
+states. ``progress`` and its ``percent`` are unchanged.
 """
 from __future__ import annotations
 
@@ -30,6 +34,9 @@ TASK_KEYS = ("done", "cancelled", "failed", "review", "changes", "doing", "todo"
 STAGE_KEYS = ("closed", "verify", "todo", "doing")
 _DOING_STATES = ("claimed", "running", "paused", "validating")
 _DETAIL_OF_STATE = {"paused": "paused", "validating": "validating"}
+# Every stored state of a task: ``weights`` in labels.json gives each one a weight.
+STORED_STATES = ("open", "claimed", "running", "paused", "submitted", "validating", "needs_changes",
+                 "accepted", "failed", "cancelled")
 
 
 @lru_cache(maxsize=1)
@@ -43,11 +50,25 @@ def _load() -> dict[str, Any]:
         for key in keys:
             if set(data[scope][key]) != {"text", "tone", "explanation"}:
                 raise ValueError(f"labels.json {scope}.{key} needs text, tone and explanation")
+    weights = data.get("weights")
+    if not isinstance(weights, dict):
+        raise ValueError("labels.json needs a weights map: the weight of every stored state")
+    missing = [state for state in STORED_STATES if state not in weights]
+    unknown = [state for state in weights if state not in STORED_STATES]
+    if missing or unknown:
+        raise ValueError(f"labels.json weights must name exactly the stored states; missing: {missing}, unknown: {unknown}")
+    for state, weight in weights.items():
+        if isinstance(weight, bool) or not isinstance(weight, (int, float)) or not 0 <= weight <= 1:
+            raise ValueError(f"labels.json weights.{state} must be a number between 0 and 1")
+        if abs(weight * 100 - round(weight * 100)) > 1e-9:
+            raise ValueError(f"labels.json weights.{state} must have at most two decimals")
+    if weights["accepted"] != 1:
+        raise ValueError("labels.json weights.accepted must be 1")
     return data
 
 
 def load() -> dict[str, Any]:
-    """The whole map (a copy): ``{schema, task, stage, details}``; ``task`` and ``stage`` map key -> text, tone, explanation."""
+    """The whole map (a copy): ``{schema, task, stage, weights, details}``; ``task`` and ``stage`` map key -> text, tone, explanation."""
     return copy.deepcopy(_load())
 
 
@@ -117,3 +138,33 @@ def progress(task_keys: Iterable[str]) -> dict[str, Any]:
     counted = total - found["cancelled"]
     percent = (100 * found["done"] * 2 + counted) // (2 * counted) if counted else None  # half up, integers only
     return {"done": found["done"], "cancelled": found["cancelled"], "total": total, "percent": percent}
+
+
+def weight_of(state: str, *, released: bool = False) -> float:
+    """The weight (0..1) of a stored state, read from ``labels.json``; a ``submitted`` task that is released weighs as ``accepted``.
+
+    A state the file does not list is an error, never a silent 0.
+    """
+    weights = _load()["weights"]
+    if state not in weights:
+        raise ValueError(f"No weight for the task state {state!r}")
+    return weights[state if not (state == "submitted" and released) else "accepted"]
+
+
+def progress_weighted(states: Iterable[Any]) -> dict[str, Any]:
+    """``{percent, counted}`` from stored states: each item is a state or a ``(state, released)`` pair.
+
+    ``counted`` is every task but the cancelled ones; ``failed`` counts and adds nothing. The sum is made in
+    hundredths (integers) and rounded half up like ``progress``; ``percent`` is ``None`` when nothing counts.
+    """
+    counted = 0
+    hundredths = 0
+    for item in states:
+        state, released = (item, False) if isinstance(item, str) else (item[0], bool(item[1]))
+        weight = weight_of(state, released=released)  # raises for an unknown state, cancelled included
+        if state == "cancelled":
+            continue
+        counted += 1
+        hundredths += round(weight * 100)
+    percent = (hundredths * 2 + counted) // (2 * counted) if counted else None
+    return {"percent": percent, "counted": counted}

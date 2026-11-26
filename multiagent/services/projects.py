@@ -209,7 +209,7 @@ class ProjectServices:
     # ------------------------------------------------------------------ labels
     @service_errors
     def labels(self) -> dict[str, Any]:
-        """The shared map of labels (``labels.json``): ``{schema, task, stage, details}``."""
+        """The shared map of labels (``labels.json``): ``{schema, task, stage, weights, details}``."""
         return labels.load()
 
     # ------------------------------------------------------------------ plans
@@ -562,6 +562,31 @@ class ProjectServices:
                 "closed_at": closed_at, "counts": labels.counts(keys), "progress": labels.progress(keys),
                 "tasks": refs}
 
+    def _weighted(self, refs: list[dict[str, Any]], ctx: Mapping[str, Any]) -> dict[str, Any]:
+        """``progress_weighted`` and ``remaining`` of these task references, from the stored states already read."""
+        tasks = [ctx["tasks"][ref["id"]] for ref in refs]
+        released = {task["id"]: self._tasks._released(task, ctx["release"]["groups"][task["group_id"]], ctx["release"])
+                    for task in tasks}
+        weighted = labels.progress_weighted((task["state"], released[task["id"]]) for task in tasks)
+        left = [task["id"] for task in tasks if task["state"] != "cancelled"
+                and labels.weight_of(task["state"], released=released[task["id"]]) < 1]
+        return {"progress_weighted": weighted,
+                "remaining": {"tasks": len(left), "layers": len(graph.parallel_layers(left, ctx["deps"]))}}
+
+    @staticmethod
+    def _last_changes(conn: sqlite3.Connection, project_id: str) -> dict[str, dict[str, Any]]:
+        """The last team event of the project (key ``""``) and of each of its stages (key: the group id)."""
+        rows = conn.execute(
+            "SELECT seq, group_id, created_at FROM team_events WHERE ref=? OR group_id IN "
+            "(SELECT id FROM task_groups WHERE project_id=?)", (f"project:{project_id}", project_id)).fetchall()
+        found: dict[str, dict[str, Any]] = {}
+        for seq, group_id, at in rows:
+            change = {"seq": seq, "created_at": at}
+            for key in ("", group_id):
+                if key not in found or seq > found[key]["seq"]:
+                    found[key] = change
+        return found
+
     def _activity_refs(self, groups: Iterable[Mapping[str, Any]], ctx: Mapping[str, Any]) -> list[dict[str, Any]]:
         """The activities of these groups, in creation order, as task references (``kind = "activity"``)."""
         refs = []
@@ -576,6 +601,10 @@ class ProjectServices:
         stages = [self._stage_view(conn, project["id"], group, ctx) for group in groups
                   if group.get("kind", "stage") == "stage"]
         activity_groups = [group for group in groups if group.get("kind") == "activities"]
+        changes = self._last_changes(conn, project["id"])
+        for stage in stages:
+            stage.update(self._weighted(stage["tasks"], ctx))
+            stage["last_change"] = changes.get(stage["group_id"])
         refs = [ref for stage in stages for ref in stage["tasks"]]
         keys = [ref["label"]["key"] for ref in refs]
         activities = self._activity_refs(activity_groups, ctx)
@@ -597,7 +626,8 @@ class ProjectServices:
             "id": project["id"], "name": project["name"], "title": project["title"] or project["name"],
             "visibility": project["visibility"], "archived": project["archived"], "archived_at": project["archived_at"],
             "created_by": project["created_by"], "created_at": project["created_at"], "revision": project["revision"],
-            "progress": labels.progress(keys), "counts": labels.counts(keys), "stages": stages,
+            "progress": labels.progress(keys), **self._weighted(refs, ctx), "last_change": changes.get(""),
+            "counts": labels.counts(keys), "stages": stages,
             "activities": {"group_id": activity_groups[0]["id"] if activity_groups else None,
                            "total": len(activities), "doing": activity_keys.count("doing"),
                            "done": activity_keys.count("done"), "counts": labels.counts(activity_keys),
@@ -625,7 +655,10 @@ class ProjectServices:
     def get(self, project_id: str) -> dict[str, Any]:
         """The aggregated view of a project.
 
-        ``progress`` (``done`` / (``total`` - ``cancelled``)), ``counts`` per task label, the ``stages`` in order
+        ``progress`` (``done`` / (``total`` - ``cancelled``)), ``progress_weighted`` (``percent`` and ``counted``, each
+        stored state weighing what ``labels.json`` says), ``remaining`` (``tasks`` not finished and the parallel
+        ``layers`` they form; numbers, never a time), ``last_change`` (``seq`` and ``created_at`` of the last team event, or
+        ``None``; the stages carry the same three keys), ``counts`` per task label, the ``stages`` in order
         (label, phases, planned dates, real ``closed_at`` and their tasks), ``attention`` ("what you have to do":
         ``reviews``, ``verifications``, ``mine`` and ``blocked`` with their blockers), ``working_now`` and
         ``milestones`` (planned end and real closing of every stage). ``activities`` counts the project's activities
