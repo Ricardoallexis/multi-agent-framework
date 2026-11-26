@@ -748,6 +748,14 @@ puts first the ones that hold up the most other tasks. The "Tree" button
 draws the map with its relations, with the same filters. The layout you pick
 is remembered in this browser.
 
+**Projects view.** The Projects view follows sequence-only change notices
+for the selected active project and reloads its existing read route at
+most once per second. Network failures and timed stream closures trigger
+a 10-second polling fallback while the stream reconnects with its latest
+sequence cursor. Polling stops when the stream reconnects or the project
+becomes unavailable. Leaving the view or selecting another project closes
+the stream. Refresh remains available.
+
 The token-protected GUI routes these views use:
 
 | Route | Purpose |
@@ -755,6 +763,7 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/sessions/counts` | Session totals by source and status. |
 | `GET /gui/api/sessions/{id}/children` | Child agents for the right panel, tree and map. |
 | `GET /gui/api/stream?session=<id>&only=children` | Lightweight child-change notices. |
+| `GET /gui/api/stream?project=<id>` | Sequence-only change notices for one active project. |
 | `GET /gui/api/map?project=<id>&only=active\|all` | Project, task and linked-session map. |
 | `GET /gui/api/usage/plans`, `/usage/tokens`, `/usage/costs` | Plan measurements, token totals and estimated costs for Uso. |
 | `GET /gui/api/evaluations`, `/evaluations/runs`, `/evaluations/runs/{id}`, `/evaluations/comparison?set_name=` | Evaluation sets, saved runs and the latest run against the baseline (read only). |

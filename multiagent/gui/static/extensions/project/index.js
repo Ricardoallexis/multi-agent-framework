@@ -11,8 +11,10 @@ import { useContentReport } from "../../js/context-report.js";
 import { registerHelp, registerSlot, registerView } from "../../js/extensions.js";
 import { Help, helpFor } from "../../js/help.js";
 import { apiGet, apiPost } from "../../js/api.js";
+import { authHeaders } from "../../js/auth.js";
 import { t } from "../../js/i18n.js";
 import { navigate, routeHref } from "../../js/route.js";
+import { parseBlock } from "../../js/stream.js";
 import { Progress } from "../../js/ui/progress.js";
 import { Tabs } from "../../js/ui/tabs.js";
 import { HELP } from "./help.js";
@@ -26,6 +28,118 @@ const NO_REVIEW = { open: false, text: "", busy: false };
 const enc = encodeURIComponent;
 const CHANGED = "project:changed";      // the screen tells the panel card that the numbers moved (a decision, a refresh)
 const announce = () => window.dispatchEvent(new Event(CHANGED));
+const PROJECT_POLL_MS = 10000;
+const PROJECT_REFRESH_MS = 1000;
+const RECONNECT_MIN_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
+
+// The shared stream parser handles SSE framing; this view supplies the project URL and lifecycle.
+export function followProject({ token, projectId, after, onChange, onState }) {
+  let stopped = false;
+  let controller = null;
+  let cursor = after;
+  let delay = RECONNECT_MIN_MS;
+  let timer = null;
+  let wake = null;
+  (async () => {
+    while (!stopped) {
+      controller = new AbortController();
+      let connected = false;
+      try {
+        const response = await fetch("/gui/api/stream?project=" + enc(projectId) + "&after=" + enc(cursor), {
+          headers: { ...authHeaders(token), Accept: "text/event-stream", "Last-Event-ID": String(cursor) },
+          cache: "no-store", signal: controller.signal,
+        });
+        if (stopped) return;
+        if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+          onState("unavailable");
+          return;
+        }
+        if (!response.ok || !response.body) throw new Error("Project stream unavailable");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done || stopped) break;
+          buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+          let end;
+          while ((end = buffer.indexOf("\n\n")) >= 0) {
+            const block = buffer.slice(0, end);
+            buffer = buffer.slice(end + 2);
+            if (block === ": connected") {
+              connected = true;
+              delay = RECONNECT_MIN_MS;
+              onState("connected");
+              continue;
+            }
+            const event = parseBlock(block);
+            if (event?.type !== "project") continue;
+            try {
+              const seq = JSON.parse(event.data)?.seq;
+              if (Number.isSafeInteger(seq) && seq > cursor) { cursor = seq; onChange(seq); }
+            } catch (_) { /* ignore malformed notices */ }
+          }
+        }
+        if (!stopped && !connected) { onState("unavailable"); return; }
+        if (!stopped) onState("reconnecting");
+      } catch (_) {
+        if (stopped) return;
+        onState("failed");
+      }
+      if (stopped) return;
+      await new Promise((resolve) => {
+        wake = resolve;
+        timer = setTimeout(resolve, delay);
+      });
+      timer = null;
+      wake = null;
+      delay = Math.min(delay * 2, RECONNECT_MAX_MS);
+    }
+  })();
+  return () => {
+    stopped = true;
+    if (controller) controller.abort();
+    if (timer !== null) clearTimeout(timer);
+    if (wake) wake();
+  };
+}
+
+export function projectPollFallback(refresh) {
+  let timer = null;
+  return {
+    onState(state) {
+      if (state === "connected" || state === "unavailable") {
+        if (timer !== null) { clearInterval(timer); timer = null; }
+      } else if (timer === null) {
+        timer = setInterval(refresh, PROJECT_POLL_MS);
+      }
+    },
+    stop() { if (timer !== null) { clearInterval(timer); timer = null; } },
+  };
+}
+
+export function projectRefreshQueue(seenProject, refresh) {
+  let lastRefresh = 0;
+  let timer = null;
+  let stopped = false;
+  const refreshNow = () => {
+    if (stopped) return;
+    lastRefresh = Date.now();
+    refresh();
+  };
+  return {
+    refresh: refreshNow,
+    queue(seq) {
+      if (stopped || seq <= seenProject.current.seq) return;
+      seenProject.current.seq = seq;
+      if (timer !== null) return;
+      timer = setTimeout(() => { timer = null; refreshNow(); },
+        Math.max(0, PROJECT_REFRESH_MS - (Date.now() - lastRefresh)));
+    },
+    stop() { stopped = true; if (timer !== null) clearTimeout(timer); },
+  };
+}
 // What the user reads when a call fails: a clash of revisions or a missing task gets its own words; the rest is the server's.
 function failure(error, fallbackKey) {
   if (error && error.status === 409) return t("ext.project.error.changed");
@@ -55,8 +169,11 @@ export function ProjectView({ token, route }) {
   const [notice, setNotice] = useState("");
   const [review, setReview] = useState(NO_REVIEW);
   const calls = useRef({ project: 0, task: 0 });          // an answer that arrives after a newer request is dropped
+  const seenProject = useRef({ id: "", seq: 0 });
   const heading = useRef(null);
   const focusTask = useRef(false);
+  const taskIdRef = useRef("");
+  taskIdRef.current = taskId;
 
   const closeTask = () => {
     calls.current.task += 1;
@@ -65,6 +182,7 @@ export function ProjectView({ token, route }) {
 
   const selectProject = (id) => {
     calls.current.project += 1;
+    seenProject.current = { id, seq: 0 };
     setSelected(id); setProject(null); setError(""); setFilter(NO_FILTER); setListFilter(NO_LIST_FILTER); setCollapsed(new Set()); closeTask();
   };
 
@@ -86,7 +204,11 @@ export function ProjectView({ token, route }) {
     setLoading(true); setError("");
     try {
       const data = await apiGet("/gui/api/projects/" + enc(id), token);
-      if (call === calls.current.project) setProject(data);
+      if (call === calls.current.project) {
+        const seq = data?.last_change?.seq || 0;
+        seenProject.current = { id, seq: Math.max(seenProject.current.id === id ? seenProject.current.seq : 0, seq) };
+        setProject(data);
+      }
     } catch (err) {
       if (call === calls.current.project) setError(failure(err, "ext.project.error.load_project"));
     } finally {
@@ -111,6 +233,26 @@ export function ProjectView({ token, route }) {
 
   useEffect(() => { loadProjects(); }, [token]);
   useEffect(() => { if (selected) loadProject(selected); }, [selected, token]);
+  useEffect(() => {
+    if (!selected || project?.id !== selected) return;
+    if (seenProject.current.id !== selected) seenProject.current = { id: selected, seq: project.last_change?.seq || 0 };
+    let alive = true;
+    const refresh = () => {
+      if (!alive) return;
+      loadProject(selected).then(() => { if (alive) announce(); });
+      if (taskIdRef.current) loadTask(taskIdRef.current);
+    };
+    const refreshQueue = projectRefreshQueue(seenProject, refresh);
+    const fallback = projectPollFallback(refreshQueue.refresh);
+    const stop = followProject({ token, projectId: selected, after: seenProject.current.seq, onChange: refreshQueue.queue,
+      onState: (state) => { if (alive) fallback.onState(state); } });
+    return () => {
+      alive = false;
+      stop();
+      refreshQueue.stop();
+      fallback.stop();
+    };
+  }, [selected, project?.id, token]);
   // «#project/<id>» from a link or the Back button.
   useEffect(() => { if (route?.id && route.id !== selected) selectProject(route.id); }, [route?.id]);
   // After a task opens from a row, the detail takes the focus (on a phone it is below the list).

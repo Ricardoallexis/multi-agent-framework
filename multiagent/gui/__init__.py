@@ -87,14 +87,31 @@ def mount_gui(app: FastAPI) -> None:
     @api.get("/stream")
     async def stream(request: Request, after: str | None = Query(None, max_length=64),
                      session: str | None = Query(None, max_length=200),
+                     project: str | None = Query(None, max_length=128),
                      only: str | None = Query(None, pattern="^children$"),
                      last_event_id: str | None = Header(None, alias="Last-Event-ID")):
         timing = dict(heartbeat=settings.gui_heartbeat_seconds, poll=settings.gui_poll_seconds,
                       max_seconds=settings.gui_stream_max_seconds)
+        if project is not None and (session is not None or only is not None):
+            raise ServiceError(INVALID_REQUEST, "project cannot be combined with session or only", status=422,
+                               details={"field": "project"})
         if only is not None and session is None:
             raise ServiceError(INVALID_REQUEST, "only=children needs a session", status=422,
                                details={"field": "only"})
-        if session is None:  # every run event of the system store
+        if project is not None:
+            if after is not None and _INT_CURSOR.fullmatch(after) is None:
+                raise ServiceError(INVALID_REQUEST, "after must be an integer >= 0", status=422,
+                                   details={"field": "after"})
+            cursor = int(after or 0)
+            if last_event_id and _INT_CURSOR.fullmatch(last_event_id.strip()):
+                cursor = max(cursor, int(last_event_id))
+            latest = lambda: services.tasks.store.latest_project_seq(project)
+            if await anyio.to_thread.run_sync(latest) is None:
+                body = iter(())  # unavailable projects end without revealing why
+            else:
+                body = events.stream_project(latest, after=cursor, interval=max(timing["poll"], 0.05),
+                                             heartbeat=timing["heartbeat"], max_seconds=timing["max_seconds"])
+        elif session is None:  # every run event of the system store
             if after is not None and _INT_CURSOR.fullmatch(after) is None:
                 raise ServiceError(INVALID_REQUEST, "after must be an integer >= 0", status=422,
                                    details={"field": "after"})

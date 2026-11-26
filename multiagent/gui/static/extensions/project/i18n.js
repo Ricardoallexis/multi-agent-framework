@@ -261,7 +261,7 @@ const es = {
     "title": "Actualizar",
     "hint": "Vuelve a pedir los datos del proyecto al servidor.",
     "more": [
-      "La pantalla no se actualiza sola mientras otras personas o agentes trabajan.",
+      "La pantalla se actualiza sola mientras otras personas o agentes trabajan; Actualizar lo pide ya.",
       "Usa este botón para ver los cambios más recientes."
     ]
   },

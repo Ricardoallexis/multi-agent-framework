@@ -437,6 +437,17 @@ class TaskStore:
         return bool(cursor.rowcount)
 
     # -------- team events --------
+    def latest_project_seq(self, project_id: str, *, conn: sqlite3.Connection | None = None) -> int | None:
+        """Last event included in a project's view; ``None`` if the project is absent or archived."""
+        with self._reader(conn) as c:
+            row = c.execute(
+                "SELECT (SELECT MAX(seq) FROM team_events WHERE ref=? OR group_id IN "
+                "(SELECT id FROM task_groups WHERE project_id=?)) AS seq "
+                "FROM projects WHERE id=? AND archived_at IS NULL",
+                (f"project:{project_id}", project_id, project_id),
+            ).fetchone()
+        return None if row is None else int(row["seq"] or 0)
+
     def append_event(self, conn: sqlite3.Connection, event_type: str, *, actor: str, group_id: str = "",
                      task_id: str = "", cause: str = "", ref: str = "",
                      payload: dict[str, Any] | None = None) -> int:

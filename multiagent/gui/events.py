@@ -199,3 +199,31 @@ async def stream_children(read: Callable[[], dict[str, Any]], *, interval: float
         if max_seconds and now - started >= max_seconds:
             return
         await _pause(interval)
+
+
+async def stream_project(read: Callable[[], int | None], *, after: int, interval: float, heartbeat: float,
+                         max_seconds: float) -> AsyncIterator[str]:
+    """Send only a project's newest team-event sequence when it moves beyond ``after``.
+
+    The reader returns ``None`` when the project is no longer available; the stream then ends quietly.
+    """
+    started = last_beat = time.monotonic()
+    cursor = after
+    yield ": connected\n\n"
+    while True:
+        if is_shutting_down():
+            return
+        seq = await anyio.to_thread.run_sync(read)
+        if seq is None:
+            return
+        now = time.monotonic()
+        if seq > cursor:
+            cursor = seq
+            last_beat = now
+            yield format_notice("project", {"seq": seq})
+        elif now - last_beat >= heartbeat:
+            last_beat = now
+            yield ": heartbeat\n\n"
+        if max_seconds and now - started >= max_seconds:
+            return
+        await _pause(interval)

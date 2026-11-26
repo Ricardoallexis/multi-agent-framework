@@ -23,7 +23,7 @@ export const HELP = {
     "title": "Refresh",
     "hint": "Load the project's data from the server again.",
     "more": [
-      "The screen does not update automatically while other people or agents work.",
+      "The screen updates by itself while other people or agents work; Refresh asks for it now.",
       "Use this button to see the latest changes."
     ]
   },
