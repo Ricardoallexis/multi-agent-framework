@@ -81,6 +81,7 @@ class FailureKind(str, Enum):
     BLOCKED_OPEN_SESSION = "blocked_open_session"
     AUTHENTICATION = "authentication"
     PERMISSION_DENIED = "permission_denied"
+    TRANSPORT_UNAVAILABLE = "transport_unavailable"
     OTHER = "other"
 
     @classmethod

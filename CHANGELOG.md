@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Executors: An ACP v1 transport for executor adapters, not yet wired into runs: a reused session keeps each turn's result and usage apart, cancelling is race-safe, a timeout is told apart from a failure, file access stays inside the work folder, and anything beyond reading needs write permission and the area's consent.
 - GUI: The work map opens as a list with a summary line (projects, tasks by state, tokens), filters by project, stage and app kept in the address, and a What is left view ordered by what blocks other tasks; the tree drawing stays one click away and the layout you pick is remembered in this browser.
 - GUI: The agent tree shows how many agents are active out of all of them, the tokens used (marked partial when an app does not report them) and the share of input served from cache, with a bar per level for its share of the agents' tokens; the back link reads Back to orchestrator, and a framework run without listed steps is drawn as a tree of its steps.
 - Projects: The project view now carries a weighted progress in six steps by stored task state (weights in labels.json), what is left (unfinished tasks and the parallel layers they form) and the last change, per project and per stage. The existing percent does not change.

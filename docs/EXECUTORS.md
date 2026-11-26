@@ -165,6 +165,35 @@ has no activation record; **Apagar todos** does not turn it off either.
 
 ## Results, sessions, and limits
 
+Codex can also use the explicitly selected `AcpTransport` for an interactive session. It starts an already installed
+`codex-acp` through the bounded process runner, negotiates ACP protocol version 1, then sends `session/new` and
+`session/prompt` over JSON-RPC 2.0 on stdio. `session/update` provides live events. `session/cancel` waits briefly for
+the pending prompt to return `stopReason: "cancelled"`, keeping the session available for another turn; an unresponsive
+agent's process tree is stopped. The client announces `fs.readTextFile` only with a verified scope, and
+`fs.writeTextFile` only when that scope also permits writing and the launch has write permission; the request methods
+are `fs/read_text_file` and `fs/write_text_file`. It does not announce
+`terminal`. File requests require the session id and absolute paths canonically inside the selected workdir. Reads
+require a verified office or area scope; writes also require the executor's write permission and configured ACP
+consent to write. Reads accept optional one-based `line` and positive `limit`; content is bounded by the protocol line limit.
+
+The session opener must provide an event sink with a trusted `AcpConsent` as `acp_consent`. Without that association
+and configured policy, ACP permission requests are cancelled. Only `read`, `search`, and `think` requests can pass
+without write permission and configured write consent. Every location of a tool call must stay within the workdir.
+The sink resolves each allowed request from the
+scope's consent configuration; `allow_always` is offered only when that configuration permits it. The agent's
+tool title does not establish a scope or grant permission. ACP file controls and permission messages are not a
+sandbox: the external process runs with the host user's permissions and may have its own tools. Keep the executor
+permission and launch safety checks in force as well.
+ACP-T04 must provide a cancellation signal to unblock a sink waiting for a human permission decision. The current
+`EventSink.on_permission` interface has no such signal: cancelling the process does not itself interrupt a blocked
+callback. The host must release that callback and return a cancelled decision before reusing the session.
+ACP `usage_update` records `used` and `size` context-token counts and optional `cost` in the result's `usage` mapping;
+these are not input/output token totals.
+
+An absent adapter, incompatible version, malformed protocol, or failed pipe is reported as
+`transport_unavailable`. ACP never starts CLI as a fallback. The person can separately choose the existing CLI
+path. The framework does not install or authenticate the adapter, select billing, or send API credentials.
+
 The service submits only a parsed task-result envelope through the normal result submission path; the task gate still
 decides acceptance. A missing, malformed, or rejected envelope leaves the attempt failed with bounded evidence. The
 service does not automatically retry failures.

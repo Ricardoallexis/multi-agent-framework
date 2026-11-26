@@ -39,6 +39,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import queue
 import re
 import shutil
 import signal
@@ -305,6 +306,47 @@ def _pump(stream: IO[bytes], buffer: _TailBuffer) -> None:
         return
 
 
+_LINE_OVERFLOW = object()
+
+
+def _pump_lines(stream: IO[bytes], buffer: _TailBuffer, lines: queue.Queue[bytes | object | None], cap: int,
+                stopped: threading.Event) -> None:
+    def put(value: bytes | object | None) -> bool:
+        while not stopped.is_set():
+            try:
+                lines.put(value, timeout=0.1)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    pending = bytearray()
+    try:
+        while chunk := stream.read1(READ_CHUNK):  # type: ignore[attr-defined]
+            buffer.feed(chunk)
+            pending.extend(chunk)
+            if len(pending) > cap and b"\n" not in pending:
+                put(_LINE_OVERFLOW)
+                return
+            while b"\n" in pending:
+                line, _, rest = pending.partition(b"\n")
+                pending = bytearray(rest)
+                if len(line) > cap:
+                    put(_LINE_OVERFLOW)
+                    return
+                if not put(bytes(line[:-1] if line.endswith(b"\r") else line)):
+                    return
+            if len(pending) > cap:
+                put(_LINE_OVERFLOW)
+                return
+        if pending:
+            put(bytes(pending))
+    except (OSError, ValueError):
+        put(_LINE_OVERFLOW)
+    finally:
+        put(None)
+
+
 def _write_stdin(stream: IO[bytes], data: bytes) -> None:
     try:
         stream.write(data)
@@ -416,7 +458,8 @@ class ProcessHandle:
     """A running program. ``wait`` gives its ``ProcessOutcome``; ``cancel`` kills its process tree."""
 
     def __init__(self, proc: subprocess.Popen[bytes], command: CommandRecord, timeout_seconds: float,
-                 output_cap_bytes: int, stdin_data: bytes | None, watch: ProcessWatch | None = None):
+                 output_cap_bytes: int, stdin_data: bytes | None, watch: ProcessWatch | None = None,
+                 duplex: bool = False):
         self._proc = proc
         self._command = command
         self._timeout = timeout_seconds
@@ -430,10 +473,16 @@ class ProcessHandle:
         self._cancelled = False
         self._out = _TailBuffer(output_cap_bytes)
         self._err = _TailBuffer(output_cap_bytes)
+        self._duplex = duplex
+        self._lines: queue.Queue[bytes | object | None] | None = queue.Queue(maxsize=128) if duplex else None
+        self._line_stop = threading.Event()
+        self._stdin_lock = threading.Lock()
         self._job: Any = _open_job(proc.pid) if sys.platform == "win32" else None  # a Windows Job Object
         assert proc.stdout is not None and proc.stderr is not None
         self._readers = [
-            threading.Thread(target=_pump, args=(proc.stdout, self._out), name=f"proc-{proc.pid}-out", daemon=True),
+            threading.Thread(target=_pump_lines if duplex else _pump,
+                             args=(proc.stdout, self._out, self._lines, output_cap_bytes, self._line_stop) if duplex
+                             else (proc.stdout, self._out), name=f"proc-{proc.pid}-out", daemon=True),
             threading.Thread(target=_pump, args=(proc.stderr, self._err), name=f"proc-{proc.pid}-err", daemon=True),
         ]
         if stdin_data is not None:
@@ -479,12 +528,43 @@ class ProcessHandle:
         assert self._outcome is not None
         return self._outcome
 
+    def write_line(self, text: str) -> None:
+        """Send one UTF-8 protocol line while a duplex child is running."""
+        if not self._duplex or not isinstance(text, str) or "\n" in text or "\r" in text:
+            raise ValueError("duplex stdin requires one text line")
+        data = (text + "\n").encode("utf-8")
+        if len(data) > self._out.cap:
+            raise ValueError("protocol line exceeds output cap")
+        with self._stdin_lock:
+            if self._done.is_set() or self._proc.poll() is not None or self._proc.stdin is None:
+                raise BrokenPipeError("process is no longer running")
+            self._proc.stdin.write(data)
+            self._proc.stdin.flush()
+
+    def read_line(self, timeout: float | None = None) -> str | None:
+        """Read a bounded stdout line; None means EOF, TimeoutError means no line yet."""
+        if self._lines is None:
+            raise ValueError("process was not started in duplex mode")
+        while True:
+            try:
+                line = self._lines.get(timeout=0.1 if timeout is None else timeout)
+                break
+            except queue.Empty as exc:
+                if self._line_stop.is_set() or (self.done() and not self._readers[0].is_alive()):
+                    return None
+                if timeout is not None:
+                    raise TimeoutError("no protocol line received") from exc
+        if line is _LINE_OVERFLOW:
+            raise ValueError("protocol line exceeds output cap")
+        return None if line is None else line.decode("utf-8", errors="strict")
+
     def cancel(self) -> bool:
         """Kill the process tree. True when the program was still running (the outcome will say ``cancelled``)."""
         with self._lock:
             if self._done.is_set() or self._proc.poll() is not None:
                 return False
             self._cancelled = True
+            self._line_stop.set()
         _logger.warning("process %s cancelled: killing its process tree", self._proc.pid)
         self._kill_tree()
         return True
@@ -565,9 +645,9 @@ class ProcessHandle:
 
     def _collect(self) -> None:
         deadline = time.monotonic() + READER_GRACE_SECONDS
-        for thread in self._readers:
+        for thread in self._readers[1:] if self._duplex else self._readers:
             thread.join(max(0.0, deadline - time.monotonic()))
-        if any(thread.is_alive() for thread in self._readers):
+        if any(thread.is_alive() for thread in (self._readers[1:] if self._duplex else self._readers)):
             self._kill_leftovers()
             for thread in self._readers:
                 thread.join(READER_GRACE_SECONDS)
@@ -610,7 +690,7 @@ def check_launch(argv: list[str], *, cwd: Path | str) -> str:
 
 def start(argv: list[str], *, cwd: Path | str, stdin_text: str | None, timeout_seconds: float,
           env_extra: Mapping[str, str] | None = None, output_cap_bytes: int = DEFAULT_OUTPUT_CAP_BYTES,
-          watch: ProcessWatch | None = None) -> ProcessHandle:
+          watch: ProcessWatch | None = None, duplex: bool = False) -> ProcessHandle:
     """Validate and start the program; returns at once with a handle (``handle.wait()`` for the outcome)."""
     arguments = validate_argv(argv)
     folder = validate_cwd(cwd)
@@ -620,6 +700,8 @@ def start(argv: list[str], *, cwd: Path | str, stdin_text: str | None, timeout_s
         raise ProcessLaunchError(INVALID_LIMIT, "watch must be a ProcessWatch")
     if stdin_text is not None and not isinstance(stdin_text, str):
         raise ProcessLaunchError(INVALID_ARGV, "stdin_text must be a string or None")
+    if duplex and stdin_text is not None:
+        raise ProcessLaunchError(INVALID_ARGV, "duplex process cannot take one-shot stdin")
     executable = resolve_executable(arguments[0], folder)
     arguments[0] = executable
     if _is_shim(executable):
@@ -638,12 +720,12 @@ def start(argv: list[str], *, cwd: Path | str, stdin_text: str | None, timeout_s
     try:
         proc = subprocess.Popen(
             arguments, cwd=str(folder), env=env, shell=False,
-            stdin=subprocess.DEVNULL if stdin_data is None else subprocess.PIPE,
+            stdin=subprocess.PIPE if duplex or stdin_data is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, **flags)  # type: ignore[arg-type]
     except (OSError, ValueError) as exc:
         _logger.error("process could not start: argv=%s error=%s", arguments, exc)
         raise ProcessLaunchError(LAUNCH_FAILED, f"the program could not be started: {exc}") from exc
-    handle = ProcessHandle(proc, command, timeout, cap, stdin_data, selected_watch)
+    handle = ProcessHandle(proc, command, timeout, cap, stdin_data, selected_watch, duplex=duplex)
     sink = _HANDLE_CONTEXT.get()
     if sink is not None:
         try:

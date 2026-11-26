@@ -13,6 +13,7 @@ import stat
 import subprocess
 import sys
 import time
+from threading import Event, Thread
 from datetime import datetime
 from pathlib import Path
 
@@ -33,6 +34,13 @@ if mode == "report":
     json.dump({"env": dict(os.environ), "cwd": os.getcwd(), "argv": sys.argv[2:]}, sys.stdout)
 elif mode == "echo":
     sys.stdout.buffer.write(sys.stdin.buffer.read())
+elif mode == "dialog":
+    for line in sys.stdin:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+elif mode == "blank_line":
+    sys.stdout.buffer.write(b"\nready\n")
+    sys.stdout.buffer.flush()
 elif mode == "exit":
     sys.stderr.write("bye")
     sys.exit(int(sys.argv[2]))
@@ -243,6 +251,69 @@ def test_argv_must_be_a_list_of_plain_strings_and_never_carry_free_text(workdir,
 
 def test_stdin_text_must_be_text(cli, workdir):
     refused(process.INVALID_ARGV, cli("echo"), workdir, stdin_text=b"bytes")
+
+
+def test_duplex_lines_keep_stdin_open_and_are_bounded(cli, workdir):
+    handle = start(cli("dialog"), cwd=workdir, stdin_text=None, timeout_seconds=3,
+                   output_cap_bytes=64, duplex=True)
+    try:
+        handle.write_line("first")
+        assert handle.read_line(timeout=2) == "first"
+        handle.write_line("second")
+        assert handle.read_line(timeout=2) == "second"
+        with pytest.raises(ValueError):
+            handle.write_line("bad\nline")
+    finally:
+        assert handle.cancel()
+    assert handle.wait(timeout=3).cancelled
+
+
+def test_duplex_timeout_and_one_shot_stdin_are_distinct(cli, workdir):
+    handle = start(cli("sleep", "10"), cwd=workdir, stdin_text=None,
+                   timeout_seconds=0.2, duplex=True)
+    with pytest.raises(TimeoutError):
+        handle.read_line(timeout=0.05)
+    assert handle.wait(timeout=3).timed_out
+    with pytest.raises(ProcessLaunchError):
+        start(cli("echo"), cwd=workdir, stdin_text="one shot", timeout_seconds=3, duplex=True)
+    assert go(cli("echo"), workdir, stdin_text="one shot").stdout_tail == "one shot"
+
+
+def test_duplex_rejects_oversized_stdout_line(cli, workdir):
+    handle = start(cli("flood", "200"), cwd=workdir, stdin_text=None,
+                   timeout_seconds=2, output_cap_bytes=64, duplex=True)
+    with pytest.raises(ValueError, match="exceeds output cap"):
+        handle.read_line(timeout=2)
+    assert handle.wait(timeout=3).stdout_truncated
+
+
+def test_duplex_empty_line_is_not_an_overflow(cli, workdir):
+    handle = start(cli("blank_line"), cwd=workdir, stdin_text=None,
+                   timeout_seconds=3, output_cap_bytes=64, duplex=True)
+    assert handle.read_line(timeout=2) == ""
+    assert handle.read_line(timeout=2) == "ready"
+    assert handle.read_line(timeout=2) is None
+    assert handle.wait(timeout=3).exit_code == 0
+
+
+def test_unbounded_read_returns_after_cancel(cli, workdir):
+    handle = start(cli("sleep", "10"), cwd=workdir, stdin_text=None,
+                   timeout_seconds=20, duplex=True)
+    started = Event()
+    result = []
+
+    def read():
+        started.set()
+        result.append(handle.read_line())
+
+    reader = Thread(target=read)
+    reader.start()
+    assert started.wait(2)
+    assert handle.cancel()
+    reader.join(3)
+    assert not reader.is_alive()
+    assert result == [None]
+    assert handle.wait(timeout=3).cancelled
 
 
 @pytest.mark.parametrize("name", ["./tool", "bin/tool", "../tool", "sub/dir/tool.exe"])

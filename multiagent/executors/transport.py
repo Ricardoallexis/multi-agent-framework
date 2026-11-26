@@ -37,6 +37,7 @@ class PermissionAsk:
     tool: str
     target: str | None
     options: tuple[str, ...]
+    targets: tuple[str, ...] = ()
 
 
 class EventSink(Protocol):
