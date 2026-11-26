@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: A new "Work at once" card, linked from Apps and agents, sets how many jobs run at once (Auto by quota or a fixed number) and the Eco, Normal, Performance or Maximum mode with its own renewal margin. In advanced mode it also sets per-app and per-model caps and "Allow T4". It saves only when you press Save, and the budget and limit decisions stay in Usage.
 - GUI: Apps and agents is grouped by type in three tabs: apps on your PC, local models and cloud services, read from the composer options. Stop all stays above the tabs, a card with a missing step opens on its own and the others start folded, and a paused executor no longer reads as ready.
 - GUI: in simple mode the session list becomes "All conversations", grouped by date, with one search box that matches titles, offices, projects, folders, source apps and linked task IDs (never message text); the filters stay folded under it. Simple mode opens on New session, and a step waiting for you to run it can be run from the thread.
 - Concurrency: native workflow steps now follow the saved concurrency mode. Eco and Maximum set the model level bounds when a step starts, and flows that run at the same time share one place per model, waiting for their turn (with the reason in the run events) instead of failing or switching model.

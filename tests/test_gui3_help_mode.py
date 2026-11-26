@@ -138,7 +138,7 @@ def test_extension_views_get_their_title_help_right_after_the_h2():
     topics = set()
     for path in sorted((STATIC_DIR / "extensions").glob("*/index.js")):
         topics.update(m.group(1) for m in re.finditer(r'topic: "([a-z_]+\.view)"', read(path)))
-    assert topics == {"approvals.view", "apps.view", "continuity.view", "document_alerts.view", "floor_plan.view", "offices.view", "project.view",
+    assert topics == {"approvals.view", "apps.view", "concurrency.view", "continuity.view", "document_alerts.view", "floor_plan.view", "offices.view", "project.view",
                       "task_waiting.view"}
 
 

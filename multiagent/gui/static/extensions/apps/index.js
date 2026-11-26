@@ -535,6 +535,8 @@ export function AppsView({ token }) {
           ${loading ? t("ext.apps.refreshing") : t("ext.apps.refresh")}
         </button>
         <${Help} topic="apps.refresh" compact=${true} />
+        <a class="btn secondary" href="#concurrency" ...${helpFor("concurrency.view", { scope: "apps-link" })}>${t("ext.concurrency.link")}</a>
+        <${Help} topic="concurrency.view" scope="apps-link" compact=${true} />
       </div>
     </div>
     ${error && html`<p class="message error" role="alert">${t("ext.apps.read_connections_failed")}: ${errorText(error)}</p>`}
