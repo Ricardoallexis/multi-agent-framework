@@ -137,7 +137,8 @@ def test_the_route_is_reserved_reachable_and_drawn():
     assert '"customize"' in re.search(r"RESERVED_SECTIONS = \[(.*?)\]", read("extensions.js"))[1]
     main = read("main.js")
     assert '{ id: "customize", label: "Personalizar", icon: "settings", mode: "simple" }' in main   # SIM-T02: the mode is explicit
-    assert "<${Customize} token=${token} sections=${allSections()} mode=${mode} />" in main
+    assert "const sections = allSections(mode);" in main      # GUI4-T13: the list is computed once and shared with the Sidebar
+    assert "<${Customize} token=${token} sections=${sections} mode=${mode} />" in main
     shell = read("shell.js")
     assert 'navigate("customize")' in shell and 'helpFor("shell.customize")' in shell     # the gear of the sidebar footer
     sidebar = read("sidebar.js")
