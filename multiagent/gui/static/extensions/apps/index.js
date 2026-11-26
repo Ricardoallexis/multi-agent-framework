@@ -15,6 +15,7 @@ import { HELP } from "./help.js";
 import { buildAppsView, canShowAllReady, groupModelsByType } from "./model.js";
 import { activationNote, stopAllConfirmText } from "./activation-model.js";   // EJE-T02
 import { activateExecutor, deactivateExecutor, requestActivation, stopAllExecutors } from "./activation.js";
+import { AcpPanel } from "./acp.js";   // ACP-T04
 
 registerHelp(HELP, "apps");
 
@@ -188,6 +189,7 @@ function MissingStep({ item, allowLaunch, consoleSupported, token, onRecheck, bu
     if (!canShowAllReady(item)) return null;
     return html`<p class="apps-status-line message ok">${t("ext.apps.all_ready")}</p>`;
   }
+  if (action.kind === "acp_install" || action.kind === "acp_probe") return null;   // ACP-T04: the card draws them (acp.js)
   if (action.kind === "console") {
     return html`<${ConsoleStep} item=${item} action=${action} allowLaunch=${allowLaunch} consoleSupported=${consoleSupported}
       token=${token} onDone=${onRecheck} busyAny=${busyAny} onBusyChange=${onBusyChange} />`;
@@ -401,11 +403,12 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, on
       </summary>
       <div class="apps-card-body">
         <dl class="apps-facts">
+          ${item.acp ? item.acp.facts.map((fact) => html`<dt key=${"t" + fact.id}>${fact.label}</dt><dd key=${"d" + fact.id}>${fact.value}</dd>`) : html`
           <dt>${t("ext.apps.field.installed")}</dt><dd>${item.installed}</dd>
           <dt>${t("ext.apps.field.version")}</dt><dd>${item.version}</dd>
           <dt>${t("ext.apps.field.session")}</dt><dd>${settingText(item.session)}</dd>
           <dt>${t("ext.apps.field.status")}</dt><dd>${item.enabled}</dd>
-          <dt>${t("ext.apps.field.permissions")}</dt><dd>${item.permissions}</dd>
+          <dt>${t("ext.apps.field.permissions")}</dt><dd>${item.permissions}</dd>`}
           ${item.quota.length > 0 && html`<dt>${t("ext.apps.field.quota")}</dt><dd class="apps-quota">${item.quota.map((line) => html`<span key=${line}>${line}</span>`)}</dd>`}
           ${item.reasonText && html`<dt>${t("ext.apps.field.reason")}</dt><dd>${item.reasonText}</dd>`}
           <dt>${t("ext.apps.field.checked")}</dt><dd>${item.checkedAt ? fmtDate(item.checkedAt) : t("ext.apps.no_date")}</dd>
@@ -415,6 +418,7 @@ function ToolCard({ item, allowLaunch, consoleSupported, token, onRowUpdated, on
           consoleSupported=${consoleSupported} token=${token} onRecheck=${recheck} busyAny=${busyAny} onBusyChange=${onBusyChange} />`}
         ${item.activation && ["ready", "active", "paused"].includes(item.activation.state) && html`<${ActivationPanel} item=${item}
           token=${token} onChanged=${onActivationChanged} />`}
+        ${item.acp && html`<${AcpPanel} item=${item} token=${token} onRowUpdated=${onRowUpdated} onChanged=${onActivationChanged} />`}
         ${(item.tlsFix || item.tlsRevert) && html`<div class="apps-step apps-tls">
           <p class="apps-step-text">${item.tlsFix
             ? t("ext.apps.tls.system_store")

@@ -31,6 +31,12 @@ export function parseRoute(hash) {
   // CHT-T06: "#new/plan/<proposal id>" is a plan proposal as a thread of the chat; main.js mounts plan-thread.js for it.
   const newPlan = /^new\/plan\/(.+)$/.exec(text);
   if (newPlan) return { section: NEW_SECTION, id: safeDecode(newPlan[1]), kind: "plan" };
+  // ACP-T04: "#new/acp/<session id>" is the live conversation with Codex ACP; new-session.js draws it.
+  // "#new/acp-new/<package>" is the first message of a conversation in that package; it cannot collide with "acp/<id>".
+  const newAcpStart = /^new\/acp-new\/(.+)$/.exec(text);
+  if (newAcpStart) return { section: NEW_SECTION, id: safeDecode(newAcpStart[1]), kind: "acp-new" };
+  const newAcp = /^new\/acp\/(.+)$/.exec(text);
+  if (newAcp) return { section: NEW_SECTION, id: safeDecode(newAcp[1]), kind: "acp" };
   const newRun = /^new\/run\/(.+)$/.exec(text);
   if (newRun) return { section: NEW_SECTION, id: safeDecode(newRun[1]) };
   const legacy = /^run=(.+)$/.exec(text);
@@ -51,6 +57,8 @@ export function routeHref(section, id) {
 }
 
 export const threadHref = (runId) => "#new/run/" + encodeURIComponent(runId);
+export const acpStartHref = (bundle) => "#new/acp-new/" + encodeURIComponent(bundle);   // ACP-T04
+export const acpThreadHref = (sessionId) => "#new/acp/" + encodeURIComponent(sessionId);   // ACP-T04
 export const teamThreadHref = (versionId) => "#new/team/" + encodeURIComponent(versionId);   // CHT-T05
 export const planThreadHref = (proposalId) => "#new/plan/" + encodeURIComponent(proposalId);   // CHT-T06
 export const officeHref = (officeId, area = null) =>

@@ -328,3 +328,36 @@ export function ThreadCard({ entry, status, runId, token, reviewView, busy, onAc
     ${output && html`<pre class="thread-output">${output}</pre>`}
   </li>`;
 }
+
+// ACP-T04: one block of a Codex ACP conversation. Everything in `view` came from the agent: it is drawn as text only (no HTML, no
+// link that opens, no command that runs). A path is shown whole, as text.
+function AcpDiff({ diff }) {
+  return html`<div class="acp-diff">
+    <p class="acp-path"><code>${diff.path}</code></p>
+    ${diff.oldText && html`<div class="acp-before"><pre class="acp-pre" aria-label=${t("thread.acp.diff.before")}>${diff.oldText}</pre></div>`}
+    ${diff.newText && html`<div class="acp-after"><pre class="acp-pre" aria-label=${t("thread.acp.diff.after")}>${diff.newText}</pre></div>`}
+  </div>`;
+}
+
+export function AcpCard({ item }) {
+  const view = item.view;
+  const label = t("thread.acp.kind." + view.kind);
+  const paths = view.paths.map((path) => html`<li key=${path}><code>${path}</code></li>`);
+  if (view.kind === "thought") {
+    return html`<li class="thread-card acp-card acp-thought"><details>
+      <summary>${label}</summary><p class="acp-text">${view.text}</p></details></li>`;
+  }
+  return html`<li class=${"thread-card acp-card acp-" + view.kind}>
+    <p class="acp-head"><strong>${label}</strong>${view.status ? html` <span class=${"acp-status acp-status-" + view.status}>${t("thread.acp.tool_status." + view.status)}</span>` : ""}</p>
+    ${view.title && html`<p class="acp-text">${view.title}</p>`}
+    ${view.kind === "end_turn" && html`<p class="acp-text">${view.stop ? t("thread.acp.end_turn", { reason: view.stop }) : t("thread.acp.end_turn_plain")}</p>`}
+    ${view.text && html`<p class=${"acp-text" + (view.kind === "error" ? " message error" : "")} role=${view.kind === "error" ? "alert" : undefined}>${view.text}</p>`}
+    ${view.kind === "error" && !view.text && html`<p class="message error acp-text" role="alert">${t("thread.acp.error_plain")}</p>`}
+    ${paths.length > 0 && html`<ul class="acp-paths">${paths}</ul>`}
+    ${view.diffs.map((diff, index) => html`<${AcpDiff} key=${index} diff=${diff} />`)}
+    ${view.rows.length > 0 && html`<ul class="acp-plan">${view.rows.map((row, index) => html`<li key=${index}>${row.status ? "[" + row.status + "] " : ""}${row.text}</li>`)}</ul>`}
+    ${view.kind === "usage" && html`<p class="acp-text">${t("thread.acp.usage", {
+      used: view.used === null ? "?" : String(view.used), size: view.size === null ? "?" : String(view.size) })}${view.cost
+      ? " · " + t("thread.acp.usage_cost", { amount: String(view.cost.amount), currency: view.cost.currency }) : ""}</p>`}
+  </li>`;
+}

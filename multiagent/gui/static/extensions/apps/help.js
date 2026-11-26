@@ -128,5 +128,61 @@ export const HELP = {
       "This happens if the app path, major version, or account changed, or if you clicked “Turn all off”.",
       "“Review and activate” shows the notice again. A new minor version does not pause it."
     ]
+  },
+  "apps.acp_install": {
+    "title": "Install the adapter",
+    "hint": "See the exact command, its version and its license.",
+    "more": [
+      "The app never runs the command. You copy it and run it in your own console.",
+      "When it finishes, press “Check again” so the app notices the adapter."
+    ]
+  },
+  "apps.acp_probe": {
+    "title": "Check the adapter",
+    "hint": "Ask the installed adapter to introduce itself.",
+    "more": [
+      "It only checks that the adapter is compatible. It does not activate it or sign in.",
+      "Run it again after installing or changing the adapter."
+    ]
+  },
+  "apps.acp_area": {
+    "title": "Office and area",
+    "hint": "Choose the area whose folder Codex ACP may work in.",
+    "more": [
+      "The consent and the conversation belong to the area you choose here.",
+      "The server finds the office and the area from the package; this page never sends them."
+    ]
+  },
+  "apps.acp_consent": {
+    "title": "Area consent",
+    "hint": "Decide once what the agent may do in this area.",
+    "more": [
+      "Without it, every permission request of the agent is denied.",
+      "It does not activate executors, allow paid usage, or expand the working folder."
+    ]
+  },
+  "apps.acp_write": {
+    "title": "Allow file writes",
+    "hint": "Let the agent write files inside this area's folder.",
+    "more": [
+      "Reading and searching are allowed with the consent; writing needs this switch.",
+      "The agent can never write outside the folder of the area."
+    ]
+  },
+  "apps.acp_start": {
+    "title": "Start the conversation",
+    "hint": "Open a live conversation with Codex ACP in this area.",
+    "more": [
+      "It needs the adapter checked and activated, and an area chosen.",
+      "If ACP is not available, nothing switches to CLI by itself: you choose."
+    ]
+  },
+  "apps.acp_cli": {
+    "title": "Choose CLI",
+    "hint": "Go to a new session and use the command-line app instead.",
+    "more": [
+      "CLI is the default transport and handles work without a live conversation.",
+      "This link only opens the new session screen."
+    ]
   }
 };

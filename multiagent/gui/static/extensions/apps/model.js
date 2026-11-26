@@ -6,13 +6,15 @@ import { t } from "../../js/i18n.js";
 import { formatQuotaLines } from "../../js/quota-text.js";
 import { limitReachedText, quotaWarningText } from "../../js/new-session-model.js";
 import { activationView, manualEnableText } from "./activation-model.js";   // EJE-T02
+import { ACP_ID, acpView } from "./acp-model.js";   // ACP-T04
 
-export const EXECUTOR_IDS = ["claude_cli", "codex_cli", "copilot_cli", "antigravity_cli"];
+export const EXECUTOR_IDS = ["claude_cli", "codex_cli", "codex_acp", "copilot_cli", "antigravity_cli"];
 export const MODEL_IDS = ["gemini", "openai", "ollama"];
 
 const LABELS = {
   claude_cli: "Claude Code",
   codex_cli: "Codex CLI",
+  codex_acp: "Codex ACP",
   copilot_cli: "GitHub Copilot CLI",
   antigravity_cli: "Antigravity (agy)",
   gemini: "Gemini",
@@ -39,6 +41,7 @@ const REASONS = {
   quota_below_pause_floor: "ext.apps.reason.quota_below_pause_floor",
   quota_below_launch_floor: "ext.apps.reason.quota_below_launch_floor",
   usage_unavailable: "ext.apps.reason.usage_unavailable",
+  acp_probe_required: "ext.apps.reason.acp_probe_required",
 };
 const reasonText = (reason) => REASONS[reason] ? t(REASONS[reason]) : t("ext.apps.reason.unavailable");
 
@@ -132,11 +135,12 @@ function consoleAction(row, step, title, detail, setupStatus, { optional = false
 // an API key) say that they belong to advanced mode; the console steps keep their button and lose the command text.
 export const advancedStepText = () => t("ext.apps.advanced_step");
 // EJE-T02: «Activar» is not a file edit, so an executor keeps its button in both modes.
-const ADVANCED_STEP_KINDS = ["enable_model", "key"];
+const ADVANCED_STEP_KINDS = ["enable_model", "key", "acp_install"];   // ACP-T04: a command to copy is advanced too
 
 export function missingAction(row, kind, setupStatus, mode = "advanced") {
   const action = advancedAction(row, kind, setupStatus);
   if (mode !== "simple" || !action) return action;
+  if (action.kind === "acp_install") return { kind: "advanced_only", title: action.title, text: t("ext.apps.acp.install.advanced_only") };
   if (ADVANCED_STEP_KINDS.includes(action.kind)) return { kind: "advanced_only", title: action.title, text: advancedStepText() };
   if (action.kind === "console") {
     const { commandText, ...rest } = action;
@@ -152,6 +156,11 @@ export function missingAction(row, kind, setupStatus, mode = "advanced") {
 function advancedAction(row, kind, setupStatus) {
   if (row.available === true) return null;
   const step = row.missing_step;
+  if (row.id === ACP_ID && (step === "install" || step === "probe")) {   // ACP-T04: the card draws these two steps itself (acp.js)
+    return step === "install"
+      ? { kind: "acp_install", title: t("ext.apps.acp.install.title"), detail: t("ext.apps.acp.install.detail") }
+      : { kind: "acp_probe", title: t("ext.apps.acp.probe.title"), detail: t("ext.apps.acp.probe.detail") };
+  }
   if (step === "install") {
     if (row.id === "antigravity_cli") {
       return {
@@ -364,7 +373,9 @@ function buildEntry(row, kind, setupStatus, mode, activation = null) {
     ? { ...activationViewModel, state: "conflict", label: t("ext.apps.status.conflict"), actions: [] }
     : activationViewModel;
   // Without the answer of the server the chip stays what it was: an executor enabled by hand is «Listo», not «Listo para activar».
-  const chip = statusChipFor(row, activationRow ? view : null);
+  // ACP-T04: an adapter that is installed but not probed is waiting for «Comprobar», not «Listo para activar».
+  const acpProbing = row.id === ACP_ID && view?.state === "ready" && (row.missing_step === "probe" || activationRow?.probe_required === true);
+  const chip = statusChipFor(row, activationRow && !acpProbing ? view : null);
   const limited = row.available !== true && (Boolean(row.limit) || row.reason === "limit_reached" || row.reason === "quota_paused");
   const reasonText = row.available
     ? null
@@ -392,6 +403,7 @@ function buildEntry(row, kind, setupStatus, mode, activation = null) {
     quota: row.id === "gemini" ? [t("ext.apps.gemini.no_quota")] : quotaLines(row.quota),
     warning: quotaWarningText(row.warning),
     canProbe: kind === "model",
+    acp: row.id === ACP_ID ? acpView(row, activationRow) : null,
     activation: view,
     tlsFix: tlsButton(row.tls_fix),
     tlsRevert: tlsButton(row.tls_revert),

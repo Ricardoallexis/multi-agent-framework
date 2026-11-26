@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: Apps & agents shows a Codex ACP card with five separate facts (installed, compatible, authenticated, activated, default transport), an install panel that shows the exact command and never runs it, an explicit check before "Activate", and an area consent switch; "Start conversation" opens a first-message view at `#new/acp-new/<package>` and then a live ACP thread at `#new/acp/<id>` with resumable events and turn cancellation. CLI stays the default and ACP never switches transport by itself.
 - GUI: The project Summary shows the tokens and API cost recorded for the project (partial, or "No known price" when calls report no tokens or have no price); the table of stages adds a tokens and cost column in advanced mode, and a folded timeline shows each stage's planned start and end next to its real closing. New read-only route `GET /gui/api/projects/{id}/costs`.
 - GUI: The header of a session and of a run thread share one row of links to the agent tree, the project, usage and the map, shown only where each view exists and folded into a "More" menu on narrow screens.
 - GUI: Usage › Continuity gets an off-by-default switch, "Keep going by itself with another model or app when a limit is reached", that only the person turns on: a task stopped by a new usage limit goes at once to the best app marked "No prompt" (never extra paid use, a paid API, a running step or an integration), and every automatic hand-off leaves a notice on the session.

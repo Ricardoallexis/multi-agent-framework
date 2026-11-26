@@ -213,7 +213,62 @@ const en = {
   "ext.apps.tab.apps.advanced": "Apps (CLI)",
   "ext.apps.tab.local.advanced": "Local",
   "ext.apps.tab.cloud.advanced": "API",
-  "ext.apps.empty_group": "No apps or models in this category."
+  "ext.apps.empty_group": "No apps or models in this category.",
+  "ext.apps.acp.no_data_yet": "No data yet",
+  "ext.apps.acp.field.installed": "Installed",
+  "ext.apps.acp.field.compatible": "Compatible",
+  "ext.apps.acp.field.authenticated": "Authenticated",
+  "ext.apps.acp.field.activated": "Activated",
+  "ext.apps.acp.field.transport": "Default transport",
+  "ext.apps.acp.transport_cli": "CLI",
+  "ext.apps.acp.field.version": "Adapter version",
+  "ext.apps.acp.field.protocol": "Protocol",
+  "ext.apps.acp.install.title": "Install the Codex ACP adapter",
+  "ext.apps.acp.install.detail": "Codex ACP needs a separate adapter, and it is not installed on this computer.",
+  "ext.apps.acp.install.button": "Install",
+  "ext.apps.acp.install.you_run_it": "The app never runs this command. Copy it, run it yourself in your own console, then check again.",
+  "ext.apps.acp.install.command": "Command",
+  "ext.apps.acp.install.version": "Version",
+  "ext.apps.acp.install.license": "License",
+  "ext.apps.acp.install.source": "Source",
+  "ext.apps.acp.install.advanced_only": "Installing the adapter needs a command in your console. Turn on advanced mode in Customize to see it.",
+  "ext.apps.acp.check_again": "Check again",
+  "ext.apps.acp.probing": "Checking…",
+  "ext.apps.acp.probe.title": "Check the adapter",
+  "ext.apps.acp.probe.detail": "The adapter is installed but not checked yet. Checking asks it to introduce itself; it does not activate anything.",
+  "ext.apps.acp.probe.button": "Check",
+  "ext.apps.acp.probe_first": "Check the adapter before activating it.",
+  "ext.apps.acp.area.label": "Office and area",
+  "ext.apps.acp.area.choose": "Choose an area",
+  "ext.apps.acp.area.loading": "Loading areas…",
+  "ext.apps.acp.area.failed": "Could not read the offices: {message}",
+  "ext.apps.acp.area.none": "There are no office areas yet.",
+  "ext.apps.acp.area_required": "The server cannot confirm an office area for that package.",
+  "ext.apps.acp.consent.title": "Area consent",
+  "ext.apps.acp.consent.note": "Consent does not activate executors, allow paid usage, or expand the working folder.",
+  "ext.apps.acp.consent.loading": "Reading the consent…",
+  "ext.apps.acp.consent.not_configured": "Not configured: permissions are denied until you configure it.",
+  "ext.apps.acp.consent.read": "Configured: the agent may read and search in this area, not write.",
+  "ext.apps.acp.consent.write": "Configured: the agent may also write files in this area.",
+  "ext.apps.acp.consent.configure": "Configure area consent",
+  "ext.apps.acp.consent.change": "Change area consent",
+  "ext.apps.acp.consent.allow_write": "Allow file writes in this area",
+  "ext.apps.acp.consent.save": "Save consent",
+  "ext.apps.acp.consent.saving": "Saving…",
+  "ext.apps.acp.consent.saved": "Consent saved.",
+  "ext.apps.acp.consent.not_found": "That package no longer exists.",
+  "ext.apps.acp.consent.failed": "Could not read or save the consent.",
+  "ext.apps.acp.start.button": "Start conversation with Codex ACP",
+  "ext.apps.acp.start.failed": "Could not start the conversation.",
+  "ext.apps.acp.unavailable": "ACP unavailable",
+  "ext.apps.acp.choose_cli": "Choose CLI",
+  "ext.apps.acp.reason.acp_unavailable": "The adapter could not open a session.",
+  "ext.apps.acp.reason.acp_activation_required": "Codex ACP is not activated.",
+  "ext.apps.acp.reason.acp_probe_required": "Check the adapter first.",
+  "ext.apps.acp.reason.acp_session_limit": "Too many ACP conversations are open.",
+  "ext.apps.acp.reason.executor_paused_changed": "Codex ACP changed and is paused: activate it again.",
+  "ext.apps.acp.reason.executor_stopped_by_person": "Codex ACP is paused because you turned all executors off.",
+  "ext.apps.reason.acp_probe_required": "The adapter has not been checked yet."
 };
 const es = {
   "ext.apps.activation.state.not_installed": "No instalado",
@@ -550,6 +605,117 @@ const es = {
     "more": [
       "Pasa si cambió la ruta de la aplicación, su versión principal o la cuenta, o si pulsaste «Apagar todos».",
       "«Revisar y activar» muestra la nota otra vez. Una versión menor nueva no pausa nada."
+    ]
+  },
+  "ext.apps.acp.no_data_yet": "Sin dato todavía",
+  "ext.apps.acp.field.installed": "Instalado",
+  "ext.apps.acp.field.compatible": "Compatible",
+  "ext.apps.acp.field.authenticated": "Autenticado",
+  "ext.apps.acp.field.activated": "Activado",
+  "ext.apps.acp.field.transport": "Transporte por defecto",
+  "ext.apps.acp.transport_cli": "CLI",
+  "ext.apps.acp.field.version": "Versión del adaptador",
+  "ext.apps.acp.field.protocol": "Protocolo",
+  "ext.apps.acp.install.title": "Instalar el adaptador de Codex ACP",
+  "ext.apps.acp.install.detail": "Codex ACP necesita un adaptador aparte y no está instalado en este equipo.",
+  "ext.apps.acp.install.button": "Instalar",
+  "ext.apps.acp.install.you_run_it": "La aplicación nunca ejecuta este comando. Cópialo, córrelo tú en tu propia consola y vuelve a comprobar.",
+  "ext.apps.acp.install.command": "Comando",
+  "ext.apps.acp.install.version": "Versión",
+  "ext.apps.acp.install.license": "Licencia",
+  "ext.apps.acp.install.source": "Origen",
+  "ext.apps.acp.install.advanced_only": "Instalar el adaptador necesita un comando en tu consola. Activa el modo avanzado en Personalizar para verlo.",
+  "ext.apps.acp.check_again": "Comprobar otra vez",
+  "ext.apps.acp.probing": "Comprobando…",
+  "ext.apps.acp.probe.title": "Comprobar el adaptador",
+  "ext.apps.acp.probe.detail": "El adaptador está instalado pero aún no se ha comprobado. Comprobar le pide que se presente; no activa nada.",
+  "ext.apps.acp.probe.button": "Comprobar",
+  "ext.apps.acp.probe_first": "Comprueba el adaptador antes de activarlo.",
+  "ext.apps.acp.area.label": "Oficina y área",
+  "ext.apps.acp.area.choose": "Elige un área",
+  "ext.apps.acp.area.loading": "Cargando áreas…",
+  "ext.apps.acp.area.failed": "No se pudieron leer las oficinas: {message}",
+  "ext.apps.acp.area.none": "Todavía no hay áreas de oficina.",
+  "ext.apps.acp.area_required": "El servidor no puede confirmar un área de oficina para ese paquete.",
+  "ext.apps.acp.consent.title": "Consentimiento del área",
+  "ext.apps.acp.consent.note": "El consentimiento no activa ejecutores, no permite uso de pago ni amplía la carpeta de trabajo.",
+  "ext.apps.acp.consent.loading": "Leyendo el consentimiento…",
+  "ext.apps.acp.consent.not_configured": "Sin configurar: los permisos se niegan hasta que lo configures.",
+  "ext.apps.acp.consent.read": "Configurado: el agente puede leer y buscar en esta área, no escribir.",
+  "ext.apps.acp.consent.write": "Configurado: el agente también puede escribir archivos en esta área.",
+  "ext.apps.acp.consent.configure": "Configurar consentimiento del área",
+  "ext.apps.acp.consent.change": "Cambiar el consentimiento del área",
+  "ext.apps.acp.consent.allow_write": "Permitir escribir archivos en esta área",
+  "ext.apps.acp.consent.save": "Guardar consentimiento",
+  "ext.apps.acp.consent.saving": "Guardando…",
+  "ext.apps.acp.consent.saved": "Consentimiento guardado.",
+  "ext.apps.acp.consent.not_found": "Ese paquete ya no existe.",
+  "ext.apps.acp.consent.failed": "No se pudo leer ni guardar el consentimiento.",
+  "ext.apps.acp.start.button": "Empezar conversación con Codex ACP",
+  "ext.apps.acp.start.failed": "No se pudo empezar la conversación.",
+  "ext.apps.acp.unavailable": "ACP no disponible",
+  "ext.apps.acp.choose_cli": "Elegir CLI",
+  "ext.apps.acp.reason.acp_unavailable": "El adaptador no pudo abrir una sesión.",
+  "ext.apps.acp.reason.acp_activation_required": "Codex ACP no está activado.",
+  "ext.apps.acp.reason.acp_probe_required": "Comprueba el adaptador primero.",
+  "ext.apps.acp.reason.acp_session_limit": "Hay demasiadas conversaciones ACP abiertas.",
+  "ext.apps.acp.reason.executor_paused_changed": "Codex ACP cambió y está en pausa: actívalo otra vez.",
+  "ext.apps.acp.reason.executor_stopped_by_person": "Codex ACP está en pausa porque apagaste todos los ejecutores.",
+  "ext.apps.reason.acp_probe_required": "El adaptador aún no se ha comprobado.",
+  "help.apps.acp_install": {
+    "title": "Instalar el adaptador",
+    "hint": "Mira el comando exacto, su versión y su licencia.",
+    "more": [
+      "La aplicación nunca ejecuta el comando. Tú lo copias y lo corres en tu propia consola.",
+      "Al terminar, pulsa «Comprobar otra vez» para que la aplicación vea el adaptador."
+    ]
+  },
+  "help.apps.acp_probe": {
+    "title": "Comprobar el adaptador",
+    "hint": "Pide al adaptador instalado que se presente.",
+    "more": [
+      "Solo comprueba que el adaptador es compatible. No lo activa ni inicia sesión.",
+      "Vuelve a hacerlo después de instalar o cambiar el adaptador."
+    ]
+  },
+  "help.apps.acp_area": {
+    "title": "Oficina y área",
+    "hint": "Elige el área en cuya carpeta puede trabajar Codex ACP.",
+    "more": [
+      "El consentimiento y la conversación pertenecen al área que eliges aquí.",
+      "El servidor deduce la oficina y el área desde el paquete; esta página nunca las envía."
+    ]
+  },
+  "help.apps.acp_consent": {
+    "title": "Consentimiento del área",
+    "hint": "Decide una vez qué puede hacer el agente en esta área.",
+    "more": [
+      "Sin él, toda petición de permiso del agente se niega.",
+      "No activa ejecutores, no permite uso de pago ni amplía la carpeta de trabajo."
+    ]
+  },
+  "help.apps.acp_write": {
+    "title": "Permitir escribir archivos",
+    "hint": "Deja que el agente escriba archivos dentro de la carpeta de esta área.",
+    "more": [
+      "Leer y buscar se permiten con el consentimiento; escribir necesita este interruptor.",
+      "El agente nunca puede escribir fuera de la carpeta del área."
+    ]
+  },
+  "help.apps.acp_start": {
+    "title": "Empezar la conversación",
+    "hint": "Abre una conversación en vivo con Codex ACP en esta área.",
+    "more": [
+      "Necesita el adaptador comprobado y activado, y un área elegida.",
+      "Si ACP no está disponible, nada pasa a CLI por su cuenta: tú eliges."
+    ]
+  },
+  "help.apps.acp_cli": {
+    "title": "Elegir CLI",
+    "hint": "Ve a una sesión nueva y usa la aplicación de línea de comandos.",
+    "more": [
+      "CLI es el transporte por defecto y atiende el trabajo sin conversación en vivo.",
+      "Este enlace solo abre la pantalla de sesión nueva."
     ]
   }
 };

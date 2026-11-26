@@ -32,7 +32,7 @@ import { PlanDraftCard } from "./plan-draft.js";   // ARR3-T02
 import { isPlanSuggested } from "./plan-draft-model.js";
 import { navigate, officeHref, routeHref, threadHref, useRoute } from "./route.js";
 import { readNewSessionMode, writeNewSessionMode } from "./shell-state.js";
-import { RunThread } from "./thread.js";
+import { AcpStart, AcpThread, RunThread } from "./thread.js";
 import { MODE_LABELS, errorText, exampleText, fmtDate, statusInfo } from "./text.js";
 import { t } from "./i18n.js";
 
@@ -1701,6 +1701,8 @@ export function NewSession({ token, mock }) {
     if (entry) pick(entry);
   }
 
+  if (runId && route.kind === "acp-new") return html`<${AcpStart} key=${runId} token=${token} bundle=${runId} />`;
+  if (runId && route.kind === "acp") return html`<${AcpThread} key=${runId} token=${token} threadId=${runId} />`;
   if (runId) return html`<${RunThread} key=${runId} token=${token} runId=${runId} />`;
 
   if (view === "form") {

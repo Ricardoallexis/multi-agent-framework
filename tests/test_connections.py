@@ -76,7 +76,8 @@ def test_codex_and_codex_acp_detection_are_independent():
     assert acp_only["codex_acp"]["installed"] is True
     assert acp_only["codex_acp"]["enabled"] is False
     assert acp_only["codex_acp"]["available"] is False
-    assert acp_only["codex_acp"]["reason"] == "disabled"
+    assert acp_only["codex_acp"]["reason"] == "acp_probe_required"
+    assert acp_only["codex_acp"]["missing_step"] == "probe"
 
     cli_only = {row["id"]: row for row in fixture().list()["connections"]}
     assert cli_only["codex_cli"]["installed"] is True
@@ -217,3 +218,49 @@ def test_certificate_failure_is_found_in_the_cause_chain_for_ollama():
     assert row["reason"] == "tls_certificate" and "TLS certificate" in row["diagnosis"]
     assert row["tls_trust"] == "certifi" and row["tls_fix"]["trust"] == "system"   # the stub has no local_dir: certifi
     assert fixture(health={"available": False, "error": "timed out"}).check("ollama")["reason"] == "unreachable"
+
+
+def test_codex_acp_missing_step_is_install_probe_then_enable():
+    def compatible(executable, *, cwd):
+        return {"status": "compatible", "protocol_version": 1}
+
+    absent = fixture(acp_installed=False).check("codex_acp")
+    assert (absent["reason"], absent["missing_step"]) == ("not_installed", "install")
+    unprobed = fixture(acp_installed=True).check("codex_acp")
+    assert (unprobed["installed"], unprobed["compatible"]) == (True, False)
+    assert (unprobed["reason"], unprobed["missing_step"]) == ("acp_probe_required", "probe")
+    probed = fixture(acp_installed=True, acp_probe=compatible)
+    row = probed.probe_acp("codex_acp")
+    assert row["compatible"] is True and row["missing_step"] == "enable"
+
+
+def test_codex_acp_row_carries_read_only_install_data_and_runs_nothing(monkeypatch):
+    import subprocess
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("the product must never run the install command")
+
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
+    row = fixture(acp_installed=False).check("codex_acp")
+    assert row["install"] == {
+        "package": "@agentclientprotocol/codex-acp", "version": "2.12.0", "license": "Apache-2.0",
+        "command": "npm install -g @agentclientprotocol/codex-acp@2.12.0",
+        "source": "https://www.npmjs.com/package/@agentclientprotocol/codex-acp"}
+    assert "install" not in fixture().check("claude_cli")
+
+
+def test_stale_probe_of_another_executable_is_not_exposed():
+    paths = [r"C:\synthetic\one.exe"]
+
+    def fake_probe(executable, *, cwd):
+        return {"status": "compatible", "protocol_version": 1, "agent_info": {"version": "9.9"}}
+
+    service = fixture(acp_installed=True, acp_probe=fake_probe)
+    service._acp_resolver = lambda cwd: paths[0]
+    first = service.probe_acp("codex_acp")
+    assert first["compatible"] is True and first["protocol_version"] == 1 and first["version"] == "9.9"
+    paths[0] = r"C:\synthetic	wo.exe"
+    second = service.check("codex_acp")
+    assert second["compatible"] is False and second["missing_step"] == "probe"
+    assert second["protocol_version"] is None and second["version"] is None and "acp_probe" not in second

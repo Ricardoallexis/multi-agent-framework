@@ -543,6 +543,39 @@ not write, the card says «agy está apagado por un archivo que no puso la app; 
 is only in the advanced mode. Help keys: `apps.activate`, `apps.activation_note`, `apps.deactivate`, `apps.stop_all` and
 `apps.paused`. The rules are in [Only a person turns an executor on](EXECUTORS.md#only-a-person-turns-an-executor-on).
 
+*Codex ACP in Apps and agents.* The Codex ACP card is the same card as the other executors and shows five facts apart:
+installed, compatible, authenticated (empty until a session has opened), activated and the default transport, which is
+CLI. The adapter version and protocol show only while they belong to the executable that is installed now. The step
+that is missing comes first:
+
+- **Install.** “Install” opens a panel with the exact command (copyable), its version, its license and its source as
+  an ordinary link. The app never runs the command: you run it in your own console and then press “Check again”. In
+  simple mode this step only says it belongs to advanced mode.
+- **Check.** “Check” (or “Check again”) asks the installed adapter to introduce itself and nothing else. It never
+  activates or signs in. “Activate” does not appear until the check is done; if the executable changes later, the card
+  asks for a new check and the saved activation is not paused for that.
+- **Activate.** “Activate” works as for every executor: a fixed notice, its fingerprint and the one-use approval that
+  only you can press. No agent accepts the notice.
+
+Once Codex ACP is activated, choose an office and area (the same ones the sidebar lists). **Area consent** is read per
+package and, until it is configured, the card offers “Configure area consent” with the switch “Allow file writes in
+this area”. The server finds the office and area from the package; the page never sends them. The note beside it is
+fixed: consent does not activate executors, allow paid usage, or expand the working folder.
+
+The consent for file writes is a switch with its visible label. With the area chosen, “Start conversation with Codex
+ACP” is a link that only navigates to the conversation view for that package (`#new/acp-new/<package>`); Apps has no
+text field. There you see the package, the permissions notice if the area has no consent, and the box for your first
+message. “Start conversation” sends it and replaces that entry with the live thread (`#new/acp/<id>`), so Back does
+not return to an empty form. If ACP is not available, either the card or that view says “ACP unavailable” with the
+reason and keeps “Choose CLI” visible; it never changes transport by itself.
+
+*The ACP thread.* The header has “Refresh” and the usual shortcuts. Messages, thoughts (folded), tools with their
+status, changes, plans, session usage, the end of each turn and errors appear in order and continue from the last one
+received after a reconnection. Everything the agent writes is plain text: paths are shown whole and nothing is opened
+or run. “Cancel turn” appears while a turn runs; otherwise a box and “Send” start another turn. If the area has no
+consent, the thread says once that permissions are denied and links to the card. The session lives in memory: a
+restart loses it and the thread says so, without retrying.
+
 *Probar conexión and the provider certificates.* A model card has **Probar conexión**
 (`POST /gui/api/connections/{id}/probe`). It makes one request that generates no text:
 the model list of Gemini or OpenAI, or Ollama's health. It runs only when the person

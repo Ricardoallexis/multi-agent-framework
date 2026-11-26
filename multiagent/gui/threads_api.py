@@ -6,13 +6,16 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Query
-from pydantic import BaseModel, ConfigDict
+import anyio
+from fastapi import APIRouter, Header, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..call_guards import cut_by_run_limits
 from ..errors import InvalidStateTransition
 from ..services.errors import INVALID_REQUEST, INVALID_STATE, ServiceError
 from .runs import _clean, run_view
+from . import events
 
 
 _WAIT_EVENTS = {
@@ -34,6 +37,21 @@ _FINALS = {"workflow_completed", "workflow_failed", "workflow_cancelled", "human
 class InputCorrection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     inputs: dict[str, str]
+
+
+class AcpStartBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bundle: str = Field(min_length=1, max_length=128)
+    text: str = Field(min_length=1, max_length=20000)
+
+
+class AcpPromptBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=20000)
+
+
+class AcpEmptyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 def _input_correction(run: dict[str, Any], view: dict[str, Any], declarations: list[dict[str, Any]]) -> bool:
@@ -295,6 +313,34 @@ def _plan_events(services: Any, group_id: str, proposal_id: str) -> list[dict[st
 
 
 def add_thread_routes(api: APIRouter, services: Any) -> None:
+    @api.post("/threads/acp")
+    async def start_acp(body: AcpStartBody):
+        return await anyio.to_thread.run_sync(services.runs.acp.start, body.bundle, body.text)
+
+    @api.post("/threads/acp/{session_id}/prompts")
+    async def prompt_acp(session_id: str, body: AcpPromptBody):
+        return await anyio.to_thread.run_sync(services.runs.acp.prompt, session_id, body.text)
+
+    @api.get("/threads/acp/{session_id}")
+    def acp_thread(session_id: str, after: int = Query(0, ge=0)):
+        return services.runs.acp.page(session_id, after)
+
+    @api.post("/threads/acp/{session_id}/cancel")
+    async def cancel_acp(session_id: str, body: AcpEmptyBody):
+        return await anyio.to_thread.run_sync(services.runs.acp.cancel, session_id)
+
+    @api.get("/threads/acp/{session_id}/stream")
+    def acp_stream(session_id: str, after: int = Query(0, ge=0),
+                   last_event_id: str | None = Header(None, alias="Last-Event-ID")):
+        services.runs.acp.page(session_id, after)  # validate before opening the stream
+        cursor = max(after, int(last_event_id)) if last_event_id and last_event_id.isdecimal() else after
+        settings = services.settings
+        body = events.stream_acp(lambda position: services.runs.acp.page(session_id, position), after=cursor,
+                                 heartbeat=settings.gui_heartbeat_seconds, poll=settings.gui_poll_seconds,
+                                 max_seconds=settings.gui_stream_max_seconds)
+        return StreamingResponse(body, media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
     @api.get("/threads/runs/{run_id}")
     def thread(run_id: str, after: int = Query(0, ge=0)):
         return build_thread(services, services.runs.get(run_id), after=after)

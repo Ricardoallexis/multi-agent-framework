@@ -154,6 +154,35 @@ capabilities, and authentication methods in its result are claims announced by t
 authentication, permission, quota, or task-compatibility checks. Evidence is kept in memory and can be refreshed by
 another explicit probe.
 
+### Codex ACP interactive sessions
+
+The Apps card keeps CLI as the default. Codex ACP is a separate, explicit choice for an interactive conversation.
+Its row distinguishes an installed executable, a compatible `initialize` result, authentication confirmed by a
+successful `session/new`, a human activation, and the transport selected for this conversation. A probe only establishes
+protocol compatibility; its evidence is process-local and must be refreshed after a restart. The card never runs an
+installation command when it opens. A person may inspect the version and license of the suggested
+`@agentclientprotocol/codex-acp` package, run the displayed install command in their own console, and then probe again.
+The package reference must be revalidated before it is displayed. The row carries the package, version, license, exact command and source as read-only `install` data
+(`CODEX_ACP_INSTALL` in `multiagent/services/connections.py`); the product never runs that command. An adapter that
+is installed but not yet probed reports `missing_step: "probe"` (and `probe_required: true` in the activation status, whose `state` stays `ready`), and requesting its activation is refused with
+`acp_probe_required`. Installation does not activate ACP. Activation uses
+the same one-use approval, note, and executable fingerprint as other executors, but has its own `codex_acp` record.
+
+An interactive ACP session requires an installed area package that the server can associate with an office and area.
+The server derives that association from its installed office registry; the client cannot declare a scope. A person
+configures ACP consent once for that area. The fixed notice says that consent does not activate an executor, allow paid
+usage, or expand the workdir. Without consent, the session can show text but all ACP permission requests are denied.
+With consent, think is allowed once, read/search require an in-scope target, and a file change (`edit`, the standard
+ACP kind, or `write`) also requires `allow_write` and every target inside the workdir. `delete`, `move`, `execute`,
+`fetch`, `switch_mode`, `other` and any unknown kind are always denied, as is a target that cannot be resolved. This policy never grants `allow_always`. The GUI offers the configuration action once, rather
+than asking on each send. The session emits ordered message, thought, tool, diff, plan, usage, end-turn and error data;
+the GUI must render this data as untrusted text. Usage here describes this ACP session, not commercial quota.
+
+`POST /gui/api/threads/acp` opens the session, and `/gui/api/threads/acp/{id}` and its `/stream` variant replay events
+after a cursor. `/prompts` sends another turn; `/cancel` cancels the active turn. An ACP error remains an ACP error:
+the GUI shows that ACP is unavailable and leaves CLI available for a separate human selection. Workflows, batches and
+scheduled resumes continue through CLI.
+
 ### Turning an executor on by hand
 
 The manual way stays in the advanced mode, for another system or when the GUI is not at hand. It is the person's step,
@@ -184,9 +213,8 @@ scope's consent configuration; `allow_always` is offered only when that configur
 tool title does not establish a scope or grant permission. ACP file controls and permission messages are not a
 sandbox: the external process runs with the host user's permissions and may have its own tools. Keep the executor
 permission and launch safety checks in force as well.
-ACP-T04 must provide a cancellation signal to unblock a sink waiting for a human permission decision. The current
-`EventSink.on_permission` interface has no such signal: cancelling the process does not itself interrupt a blocked
-callback. The host must release that callback and return a cancelled decision before reusing the session.
+Today the interactive session's sink never waits for a person, because consent is area configuration and resolves at
+once. If a future sink waits for a person, cancelling must unblock it with `cancelled`.
 ACP `usage_update` records `used` and `size` context-token counts and optional `cost` in the result's `usage` mapping;
 these are not input/output token totals.
 

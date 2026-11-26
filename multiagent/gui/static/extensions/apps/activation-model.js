@@ -21,6 +21,7 @@ export const STATE_LABELS = Object.defineProperties({}, Object.fromEntries(
 // The names the server uses in the note (``services/executor_activations.py``).
 export const EXECUTOR_NAMES = {
   codex_cli: "Codex",
+  codex_acp: "Codex ACP",
   claude_cli: "Claude",
   copilot_cli: "Copilot",
   antigravity_cli: "Antigravity (agy)",
@@ -80,7 +81,10 @@ export function activationView(row, activation) {
   if (state === "no_session") {
     actions = ["login"];
   } else if (state === "ready") {
-    actions = ["activate"];
+    // ACP-T04: the adapter must be probed before it can be activated; the server says so with ``probe_required``
+    const probeFirst = Boolean(activation && activation.probe_required === true);
+    actions = probeFirst ? [] : ["activate"];
+    detail = probeFirst ? t("ext.apps.acp.probe_first") : "";
   } else if (state === "active") {
     actions = ["deactivate"];
     const when = shortDate(activation && activation.activated_at);

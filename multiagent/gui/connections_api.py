@@ -3,8 +3,8 @@
 """Token-protected, read-only connection checks."""
 from __future__ import annotations
 
-from fastapi import APIRouter
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..services.connections import ConnectionServices
 
@@ -13,6 +13,12 @@ class TlsTrustBody(BaseModel):
     """ARR3-T07: ``system`` or ``certifi``. A ``file:`` value is only for ``.local/.env`` and gets a 422."""
     model_config = ConfigDict(extra="forbid")
     trust: str
+
+
+class AcpConsentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bundle: str = Field(min_length=1, max_length=128)
+    allow_write: bool = False
 
 
 def add_connection_routes(api: APIRouter, services) -> None:
@@ -32,6 +38,14 @@ def add_connection_routes(api: APIRouter, services) -> None:
     @api.post("/connections/{connection_id}/acp-probe")
     def probe_acp_connection(connection_id: str):
         return connections.probe_acp(connection_id)
+
+    @api.get("/connections/codex_acp/consent")
+    def get_acp_consent(bundle: str = Query(min_length=1, max_length=128)):
+        return connections.acp_consent(bundle)
+
+    @api.put("/connections/codex_acp/consent")
+    def set_acp_consent(body: AcpConsentBody):
+        return connections.set_acp_consent(body.bundle, body.allow_write)
 
     @api.post("/connections/{connection_id}/tls-trust")
     def set_tls_trust(connection_id: str, body: TlsTrustBody):

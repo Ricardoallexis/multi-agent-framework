@@ -26,6 +26,7 @@ import os
 import time
 import uuid
 import unicodedata
+from pathlib import Path
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -50,6 +51,9 @@ from ..worker import LocalWorker, SharedSlots, concurrency_limit_source
 from .plan_autoadvance import notify_run_finished
 from ..workflow_engine import WorkflowEngine
 from .errors import HUMAN_STEP_UNAVAILABLE, HUMAN_SUBMISSION_INVALID, INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
+from ..executors.acp import AcpConsent, AcpTransport
+from ..executors.contract import ExecutorLaunchRequest, Permission
+from ..executors.transport import AgentEvent, PermissionAsk
 
 if TYPE_CHECKING:
     from . import ApplicationServices
@@ -113,6 +117,7 @@ class RunServices:
         self._lock = threading.Lock()
         self._bundle_runtimes: dict[str, _Runtime] = {}
         self._closed = False                      # CER-T01: after ``close`` no runtime of a package is built
+        self.acp = AcpInteractiveSessions(services)
         self._external_now = time.time
         self._slots = SharedSlots()               # PAR-T03: the total cap of every worker of this process
         # PAR-T03: the worker of the system follows the concurrency mode saved in the GUI settings, and the end of a batch
@@ -304,6 +309,7 @@ class RunServices:
         held while a worker stops: a run thread that is finishing reads the runtimes (the plan hook), and holding it
         here made the stop wait for the thread and the thread wait for the lock. ``reopen`` lifts the refusal.
         """
+        self.acp.close_all()
         with self._lock:
             self._closed = True
             runtimes = list(self._bundle_runtimes.values())
@@ -921,3 +927,192 @@ class RunServices:
         return {"schema": "maf.run-document/1", "run_id": run_id, "title": title, "step_id": step_id,
                 "filename": document_filename(title, run_id),
                 "markdown": render_markdown(title, outputs[step_id] or {}, schema)}
+
+
+class _AcpSink:
+    """Trusted policy and ordered, in-memory events for one interactive session."""
+
+    def __init__(self, consent: AcpConsent, folder: Path):
+        self.acp_consent = consent
+        self.folder = folder
+        self.events: list[dict[str, Any]] = []
+        self.lock = threading.Lock()
+
+    def on_event(self, event: AgentEvent) -> None:
+        with self.lock:
+            self.events.append({"cursor": len(self.events) + 1, "kind": event.kind,
+                                "tool_status": event.tool_status, "data": dict(event.data)})
+
+    def _inside(self, target: str) -> bool:
+        """Only an absolute target whose resolved path stays in the folder; a path that cannot be resolved is outside."""
+        try:
+            path = Path(target)
+            return path.is_absolute() and path.resolve().is_relative_to(self.folder)
+        except (OSError, RuntimeError, ValueError):
+            return False
+
+    def on_permission(self, ask: PermissionAsk) -> str:
+        if not self.acp_consent.scope_id:
+            return "reject_once"
+        if ask.targets and not all(self._inside(target) for target in ask.targets):
+            return "reject_once"
+        if ask.tool == "think":
+            return "allow_once"
+        if ask.tool in {"read", "search"} and ask.targets:
+            return "allow_once"
+        # ACP names a file change "edit"; "write" is accepted too. delete, move, execute, fetch, switch_mode,
+        # other and any unknown kind are always rejected.
+        if ask.tool in {"edit", "write"} and self.acp_consent.allow_write and ask.targets:
+            return "allow_once"
+        return "reject_once"
+
+    def page(self, after: int) -> list[dict[str, Any]]:
+        with self.lock:
+            return [dict(item) for item in self.events[after:]]
+
+
+class AcpInteractiveSessions:
+    """GUI-only ACP sessions; no workflow, batch, or CLI fallback enters here."""
+
+    def __init__(self, services: ApplicationServices, *, transport_factory=None):
+        self.services = services
+        self.transport_factory = transport_factory or AcpTransport
+        self._lock = threading.RLock()
+        self._sessions: dict[str, dict[str, Any]] = {}
+        self._opening = 0       # sessions whose process is being opened; they count against the limit
+
+    def _get(self, identifier: str) -> dict[str, Any]:
+        with self._lock:
+            item = self._sessions.get(identifier)
+        if item is None:
+            raise ServiceError(NOT_FOUND, "ACP session not found", status=404)
+        return item
+
+    def start(self, bundle: str, text: str) -> dict[str, Any]:
+        if not isinstance(text, str) or not text.strip() or len(text) > 20000:
+            raise ServiceError(INVALID_REQUEST, "Invalid ACP prompt", status=422)
+        try:
+            folder = self.services.bundle_path(bundle).resolve(strict=True)
+        except OSError as exc:
+            raise ServiceError(INVALID_STATE, "ACP workdir unavailable", status=409,
+                               details={"reason": "acp_unavailable"}) from exc
+        located = self.services.offices.office_of(bundle)
+        if located is None:
+            raise ServiceError(INVALID_STATE, "ACP requires a verified office area", status=409,
+                               details={"reason": "acp_area_required"})
+        scope = "/".join(located)
+        connections = self.services.connections
+        executable = connections._acp_resolver(Path.cwd())
+        if executable is None:
+            raise ServiceError(INVALID_STATE, "ACP unavailable", status=409,
+                               details={"reason": "acp_unavailable"})
+        activation = self.services.executor_activations._read().get("codex_acp")
+        if activation is not None:     # its own reason first: acp_probe_required or the pause
+            self.services.executor_activations.check_launch("codex_acp")
+        if executable != connections._acp_probe_path or (
+                connections._acp_probe_result or {}).get("status") != "compatible":
+            raise ServiceError(INVALID_STATE, "ACP unavailable", status=409,
+                               details={"reason": "acp_unavailable"})
+        if activation is None:
+            raise ServiceError(INVALID_STATE, "ACP activation required", status=409,
+                               details={"reason": "acp_activation_required"})
+        setting = self.services.gui_settings.acp_consent(scope)
+        consent = AcpConsent(scope_id=scope if setting is not None else "",
+                             allow_write=bool(setting and setting["allow_write"]), allow_always=False)
+        with self._lock:     # checked before any process exists; the reservation below re-checks under the same lock
+            if len(self._sessions) + self._opening >= 16:
+                raise ServiceError(INVALID_STATE, "Too many ACP sessions", status=409,
+                                   details={"reason": "acp_session_limit"})
+            self._opening += 1
+        sink = _AcpSink(consent, folder)
+        request = ExecutorLaunchRequest(task_id=uuid.uuid4().hex, task_envelope={}, workdir=folder,
+                                        permission=Permission.WRITE if consent.allow_write else Permission.READ)
+        try:
+            session = self.transport_factory(executable).open_session(request, sink)
+        except Exception as exc:
+            with self._lock:
+                self._opening -= 1
+            connections._acp_authenticated = None
+            raise ServiceError(INVALID_STATE, "ACP unavailable", status=409,
+                               details={"reason": "acp_unavailable"}) from exc
+        connections._acp_authenticated = True  # session/new succeeded; the probe alone never sets this
+        identifier = uuid.uuid4().hex
+        item = {"session": session, "sink": sink, "bundle": bundle, "scope": scope,
+                "consent_configured": setting is not None, "active": False,
+                "cancel_early": False}
+        with self._lock:
+            self._opening -= 1
+            self._sessions[identifier] = item
+        self.prompt(identifier, text)
+        return {"id": identifier, "transport": "acp", "bundle": bundle, "scope": scope,
+                "consent_configured": setting is not None, "selected": True}
+
+    def prompt(self, identifier: str, text: str) -> dict[str, Any]:
+        if not isinstance(text, str) or not text.strip() or len(text) > 20000:
+            raise ServiceError(INVALID_REQUEST, "Invalid ACP prompt", status=422)
+        item = self._get(identifier)
+        with self._lock:
+            if item["active"]:
+                raise ServiceError(INVALID_STATE, "ACP turn is already active", status=409)
+            item["active"] = True
+            item["cancel_early"] = False
+
+        def run_turn() -> None:
+            try:
+                with self._lock:
+                    early = item["cancel_early"]
+                    item["cancel_early"] = False
+                if early:       # a cancel arrived before the turn reached the adapter
+                    item["sink"].on_event(AgentEvent("end_turn", data={"stop_reason": "cancelled"}))
+                    return
+                item["session"].prompt(text)
+            except Exception:
+                item["sink"].on_event(AgentEvent("error", data={"status": "transport_unavailable"}))
+            finally:
+                with self._lock:
+                    item["active"] = False
+
+        threading.Thread(target=run_turn, daemon=True, name="acp-interactive-turn").start()
+        return {"id": identifier, "active": True}
+
+    def page(self, identifier: str, after: int = 0) -> dict[str, Any]:
+        item = self._get(identifier)
+        entries = item["sink"].page(after)
+        return {"id": identifier, "events": entries, "next_cursor": entries[-1]["cursor"] if entries else after,
+                "active": item["active"], "consent_configured": item["consent_configured"]}
+
+    def cancel(self, identifier: str) -> dict[str, Any]:
+        item = self._get(identifier)
+        cancelled = item["session"].cancel()
+        if not cancelled:
+            with self._lock:
+                if item["active"]:      # the turn exists but has not entered the adapter yet: mark it
+                    item["cancel_early"] = True
+                    cancelled = True
+        return {"id": identifier, "cancelled": cancelled}
+
+    def close_all(self) -> None:
+        with self._lock:
+            sessions = list(self._sessions.values())
+            self._sessions.clear()
+        self._close_sessions(sessions)
+
+    def close_scope(self, scope: str) -> None:
+        """A consent change retires sessions using the prior policy immediately."""
+        with self._lock:
+            sessions = [item for item in self._sessions.values() if item["scope"] == scope]
+            self._sessions = {key: item for key, item in self._sessions.items() if item["scope"] != scope}
+        self._close_sessions(sessions)
+
+    @staticmethod
+    def _close_sessions(sessions: list[dict[str, Any]]) -> None:
+        for item in sessions:
+            if item["active"]:
+                try:
+                    item["session"].cancel()
+                except Exception:
+                    pass  # a dead transport cannot keep an old consent in use
+            try:
+                item["session"].close()
+            except Exception:
+                pass

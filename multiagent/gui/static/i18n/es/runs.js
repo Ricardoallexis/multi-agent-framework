@@ -744,5 +744,61 @@ export default {
       "«Pasos» muestra el avance y los contadores; «Resultados» reúne las salidas por paso e intento.",
       "«Detalles» guarda el historial humano, las entradas y los eventos técnicos."
     ]
+  },
+  "help.acp_thread.section": {
+    "title": "Conversación con Codex ACP",
+    "hint": "Los mensajes del agente aparecen aquí en el orden en que llegan.",
+    "more": [
+      "Todo lo que escribe el agente se muestra como texto: nada se abre ni se ejecuta.",
+      "Si cierras la página, al volver sigue desde el último mensaje recibido."
+    ]
+  },
+  "help.acp_thread.cancel": {
+    "title": "Cancelar turno",
+    "hint": "Pide al agente que pare el turno que está en marcha.",
+    "more": [
+      "La conversación sigue abierta: puedes mandar otro mensaje después.",
+      "Si el agente no responde a la cancelación, el turno acaba por sí solo."
+    ]
+  },
+  "help.acp_thread.text": {
+    "title": "Mensaje para Codex ACP",
+    "hint": "Escribe lo que quieres pedir en el siguiente turno.",
+    "more": [
+      "Solo se puede enviar cuando no hay un turno en marcha.",
+      "El agente solo trabaja en la carpeta del área elegida."
+    ]
+  },
+  "help.acp_thread.send": {
+    "title": "Enviar mensaje",
+    "hint": "Empieza otro turno con este texto.",
+    "more": [
+      "Si el consentimiento del área no está configurado, los permisos de archivos se niegan.",
+      "Nada cambia de transporte por su cuenta."
+    ]
+  },
+  "help.acp_thread.start_text": {
+    "title": "Primer mensaje",
+    "hint": "Escribe lo que quieres pedirle a Codex ACP.",
+    "more": [
+      "Es el primer turno de la conversación, en el paquete del área que ves arriba.",
+      "Podrás seguir escribiendo en la conversación que se abre."
+    ]
+  },
+  "help.acp_thread.start": {
+    "title": "Empezar conversación",
+    "hint": "Abre una conversación en vivo con Codex ACP y envía este mensaje.",
+    "more": [
+      "Necesita el adaptador comprobado y activado.",
+      "Si ACP no está disponible, nada pasa a CLI por su cuenta: tú eliges."
+    ]
+  },
+  "help.acp_thread.cli": {
+    "title": "Elegir CLI",
+    "hint": "Ve a una sesión nueva y usa la aplicación de línea de comandos.",
+    "more": [
+      "CLI es el transporte por defecto.",
+      "Este enlace solo abre la pantalla de sesión nueva."
+    ]
   }
 };

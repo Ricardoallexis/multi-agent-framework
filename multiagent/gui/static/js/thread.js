@@ -2,15 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // The run conversation in Nueva sesión. Reads only while this view is mounted and visible.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
-import { apiGet, apiPost, runPath } from "./api.js";
+import { ApiError, apiGet, apiPost, runPath } from "./api.js";
 import { HumanActions } from "./human-actions.js";
 import { Help, helpFor } from "./help.js";
 import { errorText } from "./text.js";
-import { ThreadCard } from "./thread-cards.js";
+import { AcpCard, ThreadCard } from "./thread-cards.js";
+import { authHeaders } from "./auth.js";
+import { parseBlock } from "./stream.js";
 import { DocumentCard } from "./document-card.js";
+import { acpThreadHref } from "./route.js";
 import { currentMode } from "./gui-mode.js";   // SIM-T03
 import { POLL_MS, composerState, createThread, entryKey, groupThread, isNearEnd, isTerminal, mergeThread, pollAfter,
-  nextFollowing, shouldFollow, SMOOTH_MS, tailKey, projectOf, shortcutsFor } from "./thread-model.js";
+  nextFollowing, shouldFollow, SMOOTH_MS, tailKey, projectOf, shortcutsFor,
+  ACP_START_PATH, acpConsentReadPath, acpStartBody, acpStartFailure, acpStartedId,
+  acpComposerState, acpNeedsConsentNotice, acpPath, acpStreamPath, applyAcpStreamBlock, createAcpThread, groupAcpEvents, isAcpLost,
+  mergeAcpPage } from "./thread-model.js";
 import { MESSAGE_KINDS, NEEDS_CONFIRMATION, messageError, messageId, messagePath } from "./inbox-model.js";
 import { t } from "./i18n.js";
 
@@ -253,5 +259,177 @@ function RunInbox({ runId, token, status, onSent }) {
     <${Help} topic="inbox.send" compact=${true} />
     <${Help} topic="inbox.confirm" compact=${true} />
     <${Help} topic="inbox.back" compact=${true} />
+  </section>`;
+}
+
+// ACP-T04: the live conversation with Codex ACP (#new/acp/<id>). It reads the events from the first one, follows the stream from
+// the last cursor it holds and, when the stream ends, reads the page again (that is where `active` comes from). The session lives
+// in the memory of the app: a 404, or an `error` block of the stream, ends the conversation here and nothing is retried.
+const ACP_RECONNECT_MS = 1000;
+
+export function AcpThread({ token, threadId }) {
+  const [thread, setThread] = useState(createAcpThread);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [text, setText] = useState("");
+  const [epoch, setEpoch] = useState(0);   // another turn started: follow again
+  const current = useRef(createAcpThread());
+  const endRef = useRef(null);
+  const commit = (next) => { current.current = next; setThread(next); };
+
+  async function readPage() {
+    try {
+      commit(mergeAcpPage(current.current, await apiGet(acpPath(threadId, "?after=" + current.current.cursor), token)));
+      return true;
+    } catch (failure) {
+      if (isAcpLost(failure)) commit({ ...current.current, lost: true, active: false, loaded: true });
+      else setError(failure);
+      return false;
+    }
+  }
+
+  useEffect(() => {   // a new conversation starts from nothing, before it reads
+    current.current = createAcpThread(); setThread(current.current); setError(null); setText("");
+  }, [threadId]);
+  useEffect(() => {
+    let stopped = false;
+    let controller = null;
+    async function follow() {
+      setError(null);
+      if (!(await readPage())) return;
+      while (!stopped && !current.current.lost && current.current.active) {
+        controller = new AbortController();
+        try {
+          const response = await fetch(acpStreamPath(threadId, current.current.cursor), {
+            headers: { ...authHeaders(token), Accept: "text/event-stream", "Last-Event-ID": String(current.current.cursor) },
+            cache: "no-store", signal: controller.signal });
+          if (response.status === 404) { commit({ ...current.current, lost: true, active: false }); return; }
+          if (!response.ok || !response.body) throw new Error("HTTP " + response.status);
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+            let end;
+            while ((end = buffer.indexOf("\n\n")) >= 0) {
+              const block = parseBlock(buffer.slice(0, end));
+              buffer = buffer.slice(end + 2);
+              if (block) commit(applyAcpStreamBlock(current.current, block));
+            }
+            if (current.current.lost) return;
+          }
+        } catch (_) {
+          if (stopped) return;
+        }
+        if (stopped || current.current.lost) return;
+        if (!(await readPage())) return;
+        if (current.current.active) await new Promise((resolve) => setTimeout(resolve, ACP_RECONNECT_MS));
+      }
+    }
+    follow();
+    return () => { stopped = true; if (controller) controller.abort(); };
+  }, [threadId, token, epoch]);
+
+  useEffect(() => { if (endRef.current && thread.active) endRef.current.scrollIntoView({ block: "end" }); }, [thread.events.length]);
+
+  async function act(path, body, then) {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      await apiPost(acpPath(threadId, path), token, body);
+      then();
+      setEpoch((value) => value + 1);
+    } catch (failure) {
+      if (isAcpLost(failure)) commit({ ...current.current, lost: true, active: false });
+      else setError(failure);
+    } finally { setBusy(false); }
+  }
+  const send = () => { if (text.trim()) act("/prompts", { text: text.trim() }, () => setText("")); };
+  const cancel = () => act("/cancel", {}, () => {});
+
+  const state = acpComposerState(thread);
+  const groups = groupAcpEvents(thread.events);
+  return html`<section class="ns thread-view acp-thread" aria-label=${t("thread.acp.title")}>
+    <div class="thread-head"><h3>${t("thread.acp.title")}</h3><span class="muted">${threadId}</span>
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("thread.refresh")}
+        onClick=${() => setEpoch((value) => value + 1)}>${t("thread.refresh")}</button><${Help} topic="thread.refresh" compact=${true} />
+      <${Shortcuts} mode=${currentMode()} sessionId="" project=${null} scope="acp" /></div>
+    <${Help} topic="acp_thread.section" />
+    ${state === "lost" && html`<p class="message error" role="alert">${t("thread.acp.lost")}</p>`}
+    ${error && html`<p class="message error" role="alert">${t("thread.refresh.error", { message: errorText(error) })}</p>`}
+    ${acpNeedsConsentNotice(thread) && state !== "lost" && html`<p class="message acp-consent-note" role="status">${t("thread.acp.consent_missing")}
+      <a class="acp-consent-link" href="#apps">${t("thread.acp.consent_link")}</a></p>`}
+    ${state === "loading" && !error && html`<p class="muted" aria-busy="true">${t("thread.loading")}</p>`}
+    <ol class="thread-list" role="log" aria-label=${t("thread.acp.messages.aria")}>
+      ${groups.map((item) => html`<${AcpCard} key=${item.key} item=${item} />`)}
+    </ol>
+    <div ref=${endRef} class="thread-end" aria-hidden="true"></div>
+    ${state === "active" && html`<div class="acp-controls">
+      <p class="muted" role="status" aria-live="polite">${t("thread.acp.running")}</p>
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("acp_thread.cancel")}
+        onClick=${cancel}>${t("thread.acp.cancel")}</button><${Help} topic="acp_thread.cancel" compact=${true} />
+    </div>`}
+    ${state === "idle" && html`<div class="acp-controls">
+      <label for="acp-thread-text">${t("thread.acp.message")}</label>
+      <textarea id="acp-thread-text" rows="3" value=${text} disabled=${busy} ...${helpFor("acp_thread.text")}
+        onInput=${(event) => setText(event.target.value)}></textarea>
+      <${Help} topic="acp_thread.text" compact=${true} />
+      <button type="button" class="btn" disabled=${busy || !text.trim()} ...${helpFor("acp_thread.send")}
+        onClick=${send}>${t("thread.acp.send")}</button><${Help} topic="acp_thread.send" compact=${true} />
+    </div>`}
+  </section>`;
+}
+
+// ACP-T04: the first message of a Codex ACP conversation. The route carries the package; Apps only navigated here. Sending opens the
+// live thread in place of this entry, so Back does not return to an empty form.
+export function AcpStart({ token, bundle }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState(null);
+  const [consent, setConsent] = useState(null);   // null while it loads, else the answer of the server
+  const body = acpStartBody(bundle, text);
+
+  useEffect(() => {
+    let active = true;
+    setConsent(null);
+    apiGet(acpConsentReadPath(bundle), token).then((payload) => { if (active) setConsent(payload); }, () => { if (active) setConsent({}); });
+    return () => { active = false; };
+  }, [bundle, token]);
+
+  async function start() {
+    if (busy || !body) return;
+    setBusy(true); setFailure(null);
+    try {
+      const id = acpStartedId(await apiPost(ACP_START_PATH, token, body));
+      if (id) { location.replace(acpThreadHref(id)); return; }
+      setFailure(acpStartFailure(null));
+    } catch (error) {
+      setFailure(acpStartFailure(error instanceof ApiError ? error : new ApiError({ message: String(error) })));
+    }
+    setBusy(false);
+  }
+
+  return html`<section class="ns thread-view acp-thread acp-start" aria-label=${t("thread.acp.start.title")}>
+    <div class="thread-head"><h3>${t("thread.acp.start.title")}</h3></div>
+    <p class="acp-start-area">${t("thread.acp.start.area")} <code>${bundle}</code></p>
+    ${consent && consent.configured !== true && html`<p class="message acp-consent-note" role="status">${t("thread.acp.consent_missing")}
+      <a class="acp-consent-link" href="#apps">${t("thread.acp.consent_link")}</a></p>`}
+    <div class="acp-controls">
+      <label for="acp-start-text">${t("thread.acp.start.label")}</label>
+      <textarea id="acp-start-text" rows="4" value=${text} disabled=${busy} ...${helpFor("acp_thread.start_text")}
+        onInput=${(event) => setText(event.target.value)}></textarea>
+      <${Help} topic="acp_thread.start_text" compact=${true} />
+      <button type="button" class="btn" disabled=${busy || !body} ...${helpFor("acp_thread.start")}
+        onClick=${start}>${busy ? t("thread.acp.start.starting") : t("thread.acp.start.button")}</button><${Help} topic="acp_thread.start" compact=${true} />
+    </div>
+    ${failure && html`<div class="acp-unavailable" role="alert">
+      ${failure.titleKey && html`<p class="acp-unavailable-title">${t(failure.titleKey)}</p>`}
+      <p class="message error">${failure.message || t(failure.textKey)}</p>
+      ${failure.unavailable && html`<div class="acp-controls">
+        <a class="btn secondary" href="#new" ...${helpFor("acp_thread.cli")}>${t("thread.acp.choose_cli")}</a><${Help} topic="acp_thread.cli" compact=${true} />
+      </div>`}
+    </div>`}
   </section>`;
 }

@@ -154,3 +154,138 @@ export function shortcutsFor({ mode = "advanced", workers = null, project = null
   if (advanced) list.push({ id: "map", href: routeHref("map"), label: "thread.shortcut.map", data: {} });
   return list;
 }
+
+// ACP-T04: the live thread of a Codex ACP conversation (#new/acp/<id>). Pure state; everything the agent sends is untrusted text.
+// The server numbers every event (`cursor`, 1, 2, 3...). A page (GET ?after=) and the stream (item events) bring the same events:
+// they merge by cursor, so a reconnect from the last cursor never repeats or loses one.
+export const ACP_KINDS = ["message", "thought", "tool", "diff", "plan", "usage", "end_turn", "error"];
+export const ACP_TOOL_STATUSES = ["pending", "in_progress", "completed", "failed"];
+export const ACP_TEXT_LIMIT = 8000;
+export const createAcpThread = () => ({ events: [], cursor: 0, active: false, consentConfigured: null, loaded: false, lost: false });
+export const acpPath = (id, rest = "") => "/gui/api/threads/acp/" + encodeURIComponent(id) + rest;
+export const acpStreamPath = (id, cursor) => acpPath(id, "/stream?after=" + Math.max(0, Number(cursor) || 0));
+
+const validEvent = (event) => Boolean(event) && Number.isInteger(event.cursor) && event.cursor > 0 && ACP_KINDS.includes(event.kind);
+
+export function mergeAcpEvents(state, incoming) {
+  const byCursor = new Map(state.events.map((event) => [event.cursor, event]));
+  for (const event of Array.isArray(incoming) ? incoming : []) {
+    if (validEvent(event) && !byCursor.has(event.cursor)) byCursor.set(event.cursor, event);
+  }
+  const events = [...byCursor.values()].sort((a, b) => a.cursor - b.cursor);
+  return { ...state, events, cursor: Math.max(state.cursor, events.length ? events[events.length - 1].cursor : 0) };
+}
+
+// A page of GET /threads/acp/{id}?after=: events, next_cursor, active and consent_configured.
+export function mergeAcpPage(state, page) {
+  const merged = mergeAcpEvents(state, page && page.events);
+  const next = Number.isInteger(page && page.next_cursor) ? Math.max(merged.cursor, page.next_cursor) : merged.cursor;
+  return { ...merged, cursor: next, loaded: true,
+    active: typeof (page && page.active) === "boolean" ? page.active : merged.active,
+    consentConfigured: typeof (page && page.consent_configured) === "boolean" ? page.consent_configured : merged.consentConfigured };
+}
+
+// One block of the stream, already parsed ({ type, data }): an `item` is an event, an `error` says the session is gone for good.
+export function applyAcpStreamBlock(state, block) {
+  if (!block) return state;
+  if (block.type === "error") return { ...state, lost: true, active: false };
+  if (block.type !== "item") return state;
+  let event = null;
+  try { event = JSON.parse(block.data); } catch (_) { return state; }
+  return mergeAcpEvents(state, [event]);
+}
+
+// A session that no longer exists: a 404 of any call. It lives in memory, so a restart of the app loses it.
+export const isAcpLost = (failure) => Boolean(failure) && failure.status === 404;
+
+const clip = (text) => (text.length > ACP_TEXT_LIMIT ? text.slice(0, ACP_TEXT_LIMIT) + "…" : text);
+const asText = (value) => (typeof value === "string" ? clip(value) : "");
+const plain = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
+
+// The text blocks and the diffs of a `content` field, which is an object, a list of blocks or a plain `text` of the event.
+function readContent(data) {
+  const texts = [];
+  const diffs = [];
+  const visit = (block, depth) => {
+    if (depth > 3 || !block) return;
+    if (Array.isArray(block)) { block.forEach((item) => visit(item, depth + 1)); return; }
+    if (typeof block === "string") { texts.push(clip(block)); return; }
+    if (typeof block !== "object") return;
+    if (block.type === "diff" || (typeof block.path === "string" && (block.newText !== undefined || block.oldText !== undefined))) {
+      diffs.push({ path: asText(block.path), oldText: asText(block.oldText), newText: asText(block.newText) });
+      return;
+    }
+    if (typeof block.text === "string") texts.push(clip(block.text));
+    else if (block.content) visit(block.content, depth + 1);
+  };
+  visit(data.text, 0);
+  visit(data.content, 0);
+  return { texts, diffs };
+}
+
+const pathsOf = (data) => (Array.isArray(data.locations) ? data.locations : [])
+  .map((location) => (typeof location === "string" ? location : plain(location).path))
+  .filter((path) => typeof path === "string" && path).map(clip);
+
+const planRows = (data) => (Array.isArray(data.entries) ? data.entries : []).map((entry) => {
+  const row = plain(entry);
+  return { text: asText(row.content), status: asText(row.status), priority: asText(row.priority) };
+}).filter((row) => row.text);
+
+// The shape a card draws. Nothing here is HTML: every field is a string the view puts in as text.
+export function acpEventView(event) {
+  const data = plain(event && event.data);
+  const base = { kind: event.kind, cursor: event.cursor, status: ACP_TOOL_STATUSES.includes(event.tool_status) ? event.tool_status : null,
+    text: "", title: "", paths: [], diffs: [], rows: [], used: null, size: null, cost: null, stop: "" };
+  const { texts, diffs } = readContent(data);
+  if (event.kind === "message" || event.kind === "thought") return { ...base, text: texts.join("\n") };
+  if (event.kind === "tool") return { ...base, title: asText(data.title) || asText(data.kind), text: texts.join("\n"), paths: pathsOf(data), diffs };
+  if (event.kind === "diff") return { ...base, title: asText(data.title), paths: pathsOf(data), diffs: diffs.length ? diffs
+    : [{ path: asText(data.path), oldText: asText(data.oldText), newText: asText(data.newText) }].filter((item) => item.path), text: texts.join("\n") };
+  if (event.kind === "plan") return { ...base, rows: planRows(data) };
+  if (event.kind === "usage") {
+    const cost = plain(data.cost);
+    return { ...base, used: Number.isFinite(data.used) ? data.used : null, size: Number.isFinite(data.size) ? data.size : null,
+      cost: Number.isFinite(cost.amount) ? { amount: cost.amount, currency: asText(cost.currency) } : null };
+  }
+  if (event.kind === "end_turn") return { ...base, stop: asText(data.stop_reason) };
+  return { ...base, text: asText(data.message) || asText(data.status) || asText(data.code) || texts.join("\n") };   // error
+}
+
+// Consecutive message chunks (and thought chunks) read as one block; every other event keeps its own place.
+export function groupAcpEvents(events) {
+  const groups = [];
+  for (const event of events) {
+    const last = groups[groups.length - 1];
+    if ((event.kind === "message" || event.kind === "thought") && last && last.kind === event.kind) last.events.push(event);
+    else groups.push({ kind: event.kind, events: [event], key: "acp-" + event.cursor });
+  }
+  return groups.map((group) => ({ kind: group.kind, key: group.key, cursor: group.events[group.events.length - 1].cursor,
+    view: group.events.length === 1 ? acpEventView(group.events[0])
+      : { ...acpEventView(group.events[0]), text: group.events.map((event) => acpEventView(event).text).join("") } }));
+}
+
+// The notice about permissions is one line for the whole thread, only while the area has no consent configured.
+export const acpNeedsConsentNotice = (state) => state.consentConfigured === false;
+export const acpComposerState = (state) => (state.lost ? "lost" : !state.loaded ? "loading" : state.active ? "active" : "idle");
+
+// ACP-T04: the first message of a conversation is written in the thread view, in the package the route carries.
+export const ACP_START_PATH = "/gui/api/threads/acp";
+export const ACP_CONSENT_PATH = "/gui/api/connections/codex_acp/consent";
+export const acpConsentReadPath = (bundle) => ACP_CONSENT_PATH + "?bundle=" + encodeURIComponent(bundle);
+export const acpStartBody = (bundle, message) => {
+  const body = typeof message === "string" ? message.trim() : "";
+  return bundle && body ? { bundle, text: body } : null;
+};
+export const acpStartedId = (answer) => (answer && typeof answer.id === "string" && answer.id ? answer.id : "");
+const ACP_UNAVAILABLE = ["acp_unavailable", "acp_activation_required", "acp_probe_required", "acp_area_required", "acp_session_limit",
+  "executor_paused_changed", "executor_stopped_by_person"];
+// A 409 reads «ACP no disponible» with its reason and keeps CLI as an option. Nothing starts CLI by itself. Keys, not texts.
+export function acpStartFailure(failure) {
+  const reason = failure && failure.details && typeof failure.details === "object" ? failure.details.reason : "";
+  if (failure && failure.status === 409 && ACP_UNAVAILABLE.includes(reason)) {
+    return { unavailable: true, reason, titleKey: "thread.acp.unavailable", textKey: "thread.acp.reason." + reason, message: "" };
+  }
+  if (failure && failure.status === 404) return { unavailable: false, reason: "not_found", titleKey: "", textKey: "thread.acp.start.not_found", message: "" };
+  return { unavailable: false, reason: "failed", titleKey: "", textKey: "thread.acp.start.failed", message: (failure && failure.message) || "" };
+}

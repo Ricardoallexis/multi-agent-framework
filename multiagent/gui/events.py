@@ -111,6 +111,37 @@ async def stream(store, *, after: int, heartbeat: float, poll: float, max_second
         await _pause(poll)
 
 
+async def stream_acp(read: Callable[[int], dict[str, Any]], *, after: int, heartbeat: float,
+                     poll: float, max_seconds: float) -> AsyncIterator[str]:
+    """Replay and follow one in-memory ACP session with ordered, resumable cursors."""
+    started = last_beat = time.monotonic()
+    cursor = after
+    yield ": connected\n\n"
+    while not is_shutting_down():
+        try:
+            page = await anyio.to_thread.run_sync(read, cursor)
+        except Exception as exc:  # the session was closed (consent change, deactivation, shutdown) while followed
+            code, message = getattr(exc, "code", None), getattr(exc, "message", None)
+            yield format_notice("error", {"code": code if isinstance(code, str) else "session_unavailable",
+                                          "message": message if isinstance(message, str)
+                                          else "The session can no longer be read"})
+            return
+        for event in page["events"]:
+            cursor = event["cursor"]
+            yield format_item(event)
+        if not page["active"]:
+            return
+        now = time.monotonic()
+        if page["events"]:
+            last_beat = now
+        elif now - last_beat >= heartbeat:
+            last_beat = now
+            yield ": heartbeat\n\n"
+        if max_seconds and now - started >= max_seconds:
+            return
+        await _pause(poll)
+
+
 def format_item(item: dict[str, Any]) -> str:
     data = json.dumps(item, ensure_ascii=False, separators=(",", ":"))
     return f"id: {item['cursor']}\nevent: item\ndata: {data}\n\n"

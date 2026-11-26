@@ -978,3 +978,32 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
   .shortcuts-list.open { display: flex; }
 }
 @media (forced-colors: active) { .shortcuts .btn { border-color: CanvasText; } }
+
+/* ACP-T04: the live thread of a Codex ACP conversation (#new/acp/<id>). Everything the agent sends is plain text, so long lines,
+   paths and diffs wrap inside the card: no horizontal scroll at 375 and 390 px. */
+.acp-thread { min-width: 0; }
+.acp-card { min-width: 0; }
+.acp-card .acp-text { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.acp-head { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.acp-card .acp-head strong { font-size: .75rem; font-weight: 600; }
+.acp-thought summary { display: flex; align-items: center; min-height: var(--target); cursor: pointer; font-weight: 600; }
+.acp-status { padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 999px; font-size: .75rem; }
+.acp-status-failed { border-color: var(--bad); color: var(--bad); }
+.acp-status-completed { border-color: var(--ok); color: var(--ok); }
+.acp-paths, .acp-plan { margin: 8px 0 0; padding-left: 20px; overflow-wrap: anywhere; }
+.acp-path { margin: 8px 0 0; overflow-wrap: anywhere; }
+.acp-pre { margin: 8px 0 0; max-width: 100%; max-height: 16rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font: .8125rem var(--mono); }
+.acp-before .acp-pre { border-color: var(--bad); }
+.acp-after .acp-pre { border-color: var(--ok); }
+.acp-controls { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; min-width: 0; }
+.acp-controls .btn { align-self: flex-start; min-height: var(--target); }
+.acp-controls textarea { width: 100%; max-width: 100%; min-width: 0; }
+.acp-consent-note { overflow-wrap: anywhere; }
+.acp-start-area, .acp-unavailable { overflow-wrap: anywhere; min-width: 0; }
+.acp-unavailable-title { font-weight: 600; margin: 0; }
+.acp-consent-link { display: inline-block; min-height: var(--target); line-height: var(--target); overflow-wrap: anywhere; }
+@media (max-width: 599.98px) { .acp-controls .btn { align-self: stretch; } }
+@media (forced-colors: active) {
+  .acp-card, .acp-pre, .acp-status { border: 1px solid CanvasText; }
+}

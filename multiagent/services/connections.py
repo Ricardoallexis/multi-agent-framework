@@ -21,6 +21,16 @@ IDS = ("gemini", "openai", "ollama", "claude_cli", "codex_cli", "codex_acp", "co
 APPS = {"claude_cli": "claude", "codex_cli": "codex", "copilot_cli": "copilot", "antigravity_cli": "agy"}
 ACP_CONNECTION_ID = "codex_acp"
 ACP_EXECUTOR_ID = "codex_cli"
+# How a person installs the Codex ACP adapter. It is shown as read-only data (row ``install``); the product never runs it.
+# Revalidated by the orchestrator on 2026-11-26 against registry.npmjs.org: 2.12.0 exists and is Apache-2.0;
+# 2.12.1, published the same day, is not adopted yet.
+CODEX_ACP_INSTALL = {
+    "package": "@agentclientprotocol/codex-acp",
+    "version": "2.12.0",
+    "license": "Apache-2.0",
+    "command": "npm install -g @agentclientprotocol/codex-acp@2.12.0",
+    "source": "https://www.npmjs.com/package/@agentclientprotocol/codex-acp",
+}
 KEYS = {"gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}
 KEY_FILE = ".local/.env"
 PROVIDERS = ("gemini", "openai", "ollama")     # the rows with a model provider: they share the certificates setting
@@ -54,6 +64,7 @@ class ConnectionServices:
         self._batch_detection: dict[str, Any] | None = None
         self._probed: dict[str, str] = {}      # the outcome of the last "Test connection" of each provider
         self._acp_probe_result: dict[str, Any] | None = None
+        self._acp_probe_path: str | None = None
 
     def list(self) -> dict[str, Any]:
         if any(identifier not in self._last for identifier in APPS):
@@ -65,7 +76,7 @@ class ConnectionServices:
                 self._batch_detection = {}
         try:
             for identifier in IDS:
-                if identifier == "gemini" or identifier not in self._last:
+                if identifier in {"gemini", ACP_CONNECTION_ID} or identifier not in self._last:
                     self.check(identifier)
         finally:
             self._batch_detection = None
@@ -110,14 +121,37 @@ class ConnectionServices:
         self._last[identifier] = row
         return dict(row)
 
+    def acp_probe_state(self) -> tuple[str | None, bool, dict[str, Any]]:
+        """``(resolved executable, probe is of that executable, the probe evidence that still applies)``.
+
+        Evidence belongs to the executable that was probed; another executable shows none of it. One helper for the
+        connection row and for the activation service, so both judge a stale probe the same way.
+        """
+        current = self._acp_resolver(Path.cwd())
+        fresh = self._acp_probe_path == current
+        return current, fresh, (dict(self._acp_probe_result or {}) if fresh else {})
+
     def _executor(self, row: dict[str, Any]) -> None:
         identifier = row["id"]
         if identifier == ACP_CONNECTION_ID:
-            installed = self._acp_resolver(Path.cwd()) is not None
-            row.update(installed=installed, enabled=False, session="not_applicable",
-                       reason="disabled" if installed else "not_installed",
-                       missing_step="enable" if installed else "install")
-            if self._acp_probe_result is not None:
+            current, fresh, probe = self.acp_probe_state()
+            installed = current is not None
+            compatible = fresh and probe.get("status") == "compatible"
+            activations = getattr(self._services, "executor_activations", None)
+            activation = activations._read().get(ACP_CONNECTION_ID) if activations is not None else None
+            activated = bool(activation and not activation.get("paused"))
+            authenticated = getattr(self, "_acp_authenticated", None)
+            row.update(installed=installed, compatible=bool(compatible), authenticated=authenticated,
+                       activated=activated, selected=False, selected_transport="cli", enabled=activated,
+                       protocol_version=probe.get("protocol_version"),
+                       version=(probe.get("agent_info") or {}).get("version") if isinstance(probe.get("agent_info"), dict) else None,
+                       session="signed_in" if authenticated is True else "not_applicable",
+                       install=dict(CODEX_ACP_INSTALL),
+                       reason="not_installed" if not installed else "acp_probe_required" if not compatible
+                       else "disabled" if not activated else None,
+                       missing_step="install" if not installed else "probe" if not compatible
+                       else "enable" if not activated else None)
+            if fresh and self._acp_probe_result is not None:
                 row["acp_probe"] = dict(self._acp_probe_result)
             return
         app = APPS[identifier]
@@ -312,12 +346,11 @@ class ConnectionServices:
         if identifier != ACP_CONNECTION_ID:
             raise ServiceError(NOT_FOUND, "Connection not found", status=404, details={"id": identifier})
         row = self.check(identifier)
-        if row["installed"] is not True:
+        executable = self._acp_resolver(Path.cwd())
+        if executable is None:
             result = {"status": "not_installed"}
         else:
-            executable = self._acp_resolver(Path.cwd())
-            result = ({"status": "not_installed"} if executable is None else
-                      self._acp_probe(executable, cwd=Path.cwd()))
+            result = self._acp_probe(executable, cwd=Path.cwd())
         if result.get("status") == "compatible":
             registry = getattr(self._services.executors, "registry", None)
             descriptor = registry.get(ACP_EXECUTOR_ID) if registry is not None else None
@@ -335,9 +368,26 @@ class ConnectionServices:
                 result["observed_at"] = observed_at
                 result["descriptor"] = overlay.to_dict()
         self._acp_probe_result = dict(result)
-        row["acp_probe"] = dict(result)
-        self._last[identifier] = row
-        return dict(row)
+        self._acp_probe_path = executable
+        return self.check(identifier)
+
+    def acp_consent(self, bundle: str) -> dict[str, Any]:
+        """Resolve the office area on the server; a client-supplied scope is never trusted."""
+        self._services.bundle_path(bundle)
+        located = self._services.offices.office_of(bundle)
+        if located is None:
+            raise ServiceError("invalid_state", "ACP requires a verified office area", status=409,
+                               details={"reason": "acp_area_required"})
+        scope = "/".join(located)
+        setting = self._services.gui_settings.acp_consent(scope)
+        return {"bundle": bundle, "scope": scope, "configured": setting is not None,
+                "allow_write": bool(setting and setting["allow_write"]), "allow_always": False}
+
+    def set_acp_consent(self, bundle: str, allow_write: bool) -> dict[str, Any]:
+        current = self.acp_consent(bundle)
+        self._services.gui_settings.set_acp_consent(current["scope"], allow_write=allow_write)
+        self._services.runs.acp.close_scope(current["scope"])
+        return self.acp_consent(bundle)
 
     def set_tls_trust(self, identifier: str, trust: str, *, actor: str = "user:gui", channel: str = "gui") -> dict[str, Any]:
         """Write ``provider_tls_trust`` (``system`` or ``certifi``), record the change, drop the cached clients and probe again."""

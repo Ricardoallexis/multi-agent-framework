@@ -501,5 +501,61 @@ export const HELP = {
       "“Steps” shows progress and counters; “Results” groups outputs by step and attempt.",
       "“Details” contains the human action history, inputs, and technical events."
     ]
+  },
+  "acp_thread.section": {
+    "title": "Codex ACP conversation",
+    "hint": "The agent's messages appear here in the order they arrive.",
+    "more": [
+      "Everything the agent writes is shown as text: nothing opens and nothing runs.",
+      "If you close the page, it continues from the last message it received when you return."
+    ]
+  },
+  "acp_thread.cancel": {
+    "title": "Cancel turn",
+    "hint": "Ask the agent to stop the turn that is running.",
+    "more": [
+      "The conversation stays open: you can send another message afterward.",
+      "If the agent does not answer the cancellation, the turn ends by itself."
+    ]
+  },
+  "acp_thread.text": {
+    "title": "Message for Codex ACP",
+    "hint": "Write what you want to ask in the next turn.",
+    "more": [
+      "You can send it only when no turn is running.",
+      "The agent works only in the folder of the chosen area."
+    ]
+  },
+  "acp_thread.send": {
+    "title": "Send message",
+    "hint": "Start another turn with this text.",
+    "more": [
+      "If the area consent is not set up, file permissions are denied.",
+      "Nothing switches transport by itself."
+    ]
+  },
+  "acp_thread.start_text": {
+    "title": "First message",
+    "hint": "Write what you want to ask Codex ACP.",
+    "more": [
+      "It is the first turn of the conversation, in the area package shown above.",
+      "You can keep writing in the conversation that opens."
+    ]
+  },
+  "acp_thread.start": {
+    "title": "Start conversation",
+    "hint": "Open a live conversation with Codex ACP and send this message.",
+    "more": [
+      "Needs the adapter checked and activated.",
+      "If ACP is not available, nothing switches to CLI by itself: you choose."
+    ]
+  },
+  "acp_thread.cli": {
+    "title": "Choose CLI",
+    "hint": "Go to a new session and use the command-line app instead.",
+    "more": [
+      "CLI is the default transport.",
+      "This link only opens the new-session screen."
+    ]
   }
 };

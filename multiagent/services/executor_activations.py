@@ -32,7 +32,7 @@ ACTIVATIONS_FILE = "executors-activados.json"
 ACTIVATIONS_SCHEMA = "maf.executor-activations/1"
 KILL_MARKER = "maf.kill-switch/1"
 NOTICE_IDS = {"antigravity_cli": "agy-third-party-notice/1"}
-EXECUTOR_IDS = ("codex_cli", "claude_cli", "copilot_cli", "antigravity_cli")
+EXECUTOR_IDS = ("codex_cli", "claude_cli", "copilot_cli", "antigravity_cli", "codex_acp")
 STATES = ("not_installed", "no_session", "ready", "active", "paused")
 APPROVAL_KIND = "executor_activate"
 NOTE_ID = "executor-activation-note/1"
@@ -43,7 +43,7 @@ SYSTEM_ACTOR = "system:executor-activations"
 CHANNEL = "gui"
 # the executor ids and the app names of the detector (``setup/detect.py``)
 _APPS = {"codex_cli": "codex", "claude_cli": "claude", "copilot_cli": "copilot", "antigravity_cli": "agy"}
-_LABELS = {"codex_cli": "Codex", "claude_cli": "Claude", "copilot_cli": "Copilot", "antigravity_cli": "Antigravity (agy)"}
+_LABELS = {"codex_cli": "Codex", "claude_cli": "Claude", "copilot_cli": "Copilot", "antigravity_cli": "Antigravity (agy)", "codex_acp": "Codex ACP"}
 _MAJOR = re.compile(r"v?(\d+)")
 
 
@@ -91,6 +91,13 @@ def compare(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, An
 
 def note_text(executor_id: str, fingerprint: Mapping[str, Any]) -> str:
     """The fixed note the person reads before "Activate" (rule 3). Only the application and the account vary."""
+    if executor_id == "codex_acp":
+        return (f"You are about to activate Codex ACP at {fingerprint.get('path') or 'your computer'} "
+                f"with protocol version {fingerprint.get('major')}.\n"
+                "This enables an interactive transport, not the Codex CLI executor. "
+                "An office or area consent must be configured separately before file permissions are granted.\n"
+                "Activation does not allow paid usage or expand the working directory. "
+                "Provider terms and quota still apply. You can deactivate it at any time.")
     label = _LABELS[executor_id]
     account = fingerprint.get("account")
     who = (f"the account {account}" if account else "the account you signed in with in that application")
@@ -199,6 +206,15 @@ class ExecutorActivationServices:
     # -------- the fingerprint --------
     def _observe(self, executor_id: str, report: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """``{fingerprint, installed, session}`` from the detector. A detector that fails reads as not installed."""
+        if executor_id == "codex_acp":
+            connections = self._services.connections
+            path, fresh, probe = connections.acp_probe_state()
+            compatible = bool(path and fresh and probe.get("status") == "compatible")
+            major = str(probe.get("protocol_version")) if compatible else None
+            normalized = _same_path(path) if compatible else None
+            return {"fingerprint": {"path": normalized, "major": major, "account": None,
+                                    "sha256": _digest(normalized, major, None)},
+                    "installed": bool(path), "probed": compatible, "session": "unknown"}
         app = _APPS[executor_id]
         try:
             observed = report if report is not None else self.detector(
@@ -241,11 +257,24 @@ class ExecutorActivationServices:
             return "foreign"
         return "marked" if first == KILL_MARKER else "foreign"
 
+    def _acp_probe_required(self) -> bool:
+        """True when the probe in memory is missing or is of another executable than the one resolved now.
+
+        A resolved executable that is gone is not this case: that stays a change in the fingerprint.
+        """
+        connections = self._services.connections
+        current, fresh, _ = connections.acp_probe_state()
+        if current is None:
+            return False
+        return (connections._acp_probe_result or {}).get("status") != "compatible" or not fresh
+
     def status(self) -> list[dict[str, Any]]:
         entries = self._read()
         # A status refresh must expose drift even when no new launch was attempted.
         for executor_id, entry in entries.items():
             if entry["paused"] is None:
+                if executor_id == "codex_acp" and self._acp_probe_required():
+                    continue  # evidence is process-local; a restart requires a new probe, not a new activation
                 try:
                     self.check_launch(executor_id)
                 except ServiceError as exc:
@@ -253,7 +282,7 @@ class ExecutorActivationServices:
                         raise
         entries = self._read()
         report: Mapping[str, Any] | None = None
-        if any(executor_id not in entries for executor_id in EXECUTOR_IDS):
+        if any(executor_id not in entries for executor_id in _APPS):
             try:
                 report = self.detector(cwd=Path.cwd(), context="packaged_process", include_antigravity=True)
             except Exception:  # noqa: BLE001
@@ -276,6 +305,9 @@ class ExecutorActivationServices:
                          "activated_by": entry.get("by") if entry else None,
                          "paused": paused, "changes": list(paused.get("changes", [])) if paused else [],
                          "kill_switch_foreign": foreign and executor_id == "antigravity_cli"})
+            if executor_id == "codex_acp":
+                # the state stays one of the five of the contract; this flag says the next step is to probe
+                rows[-1].update(self._probe_flag(executor_id))
         return rows
 
     def active_ids(self) -> list[str]:
@@ -308,6 +340,8 @@ class ExecutorActivationServices:
         seen = self._observe(executor_id)
         if not seen["installed"]:
             raise _conflict("not_installed", f"{_LABELS[executor_id]} is not installed", executor_id=executor_id)
+        if seen.get("probed") is False:     # the executable exists, but no compatible probe has run in this process
+            raise _conflict("acp_probe_required", "Probe Codex ACP before activating it", executor_id=executor_id)
         if seen["session"] == "signed_out":
             raise _conflict("no_session", f"{_LABELS[executor_id]} has no open session", executor_id=executor_id)
         fingerprint = seen["fingerprint"]
@@ -361,8 +395,17 @@ class ExecutorActivationServices:
                 raise _conflict("not_active", f"{_LABELS[executor_id]} is not activated", executor_id=executor_id)
             self._write(entries)
         self._changed()
+        if executor_id == "codex_acp":
+            self._close_acp_sessions()
         self._event(DEACTIVATED_EVENT, executor_id, entry["fingerprint"], actor=USER_ACTOR, reason="by_person")
         return self._row(executor_id)
+
+    def _close_acp_sessions(self) -> None:
+        """Interactive ACP sessions never outlive the activation or "Turn all off"."""
+        acp = getattr(getattr(self._services, "runs", None), "acp", None)
+        close_all = getattr(acp, "close_all", None)
+        if callable(close_all):
+            close_all()
 
     def stop_all(self) -> dict[str, Any]:
         """"Turn all off": stop what runs, pause every activation and write the agy kill switch."""
@@ -379,6 +422,7 @@ class ExecutorActivationServices:
         for executor_id in paused:
             self._event(DEACTIVATED_EVENT, executor_id, entries[executor_id]["fingerprint"], actor=USER_ACTOR,
                         reason="stopped_by_person")
+        self._close_acp_sessions()
         background = self._services.executors.background
         stopped = [item["task_id"] for item in background.active() if background.cancel(item["task_id"])]
         kill = self._write_kill_switch()
@@ -406,7 +450,15 @@ class ExecutorActivationServices:
         return {"id": executor_id, "state": ("paused" if paused else "active") if entry else "ready",
                 "activated_at": entry.get("at") if entry else None, "activated_by": entry.get("by") if entry else None,
                 "paused": paused, "changes": list(paused.get("changes", [])) if paused else [],
-                "kill_switch_foreign": self._kill_state() == "foreign" and executor_id == "antigravity_cli"}
+                "kill_switch_foreign": self._kill_state() == "foreign" and executor_id == "antigravity_cli",
+                **self._probe_flag(executor_id)}
+
+    def _probe_flag(self, executor_id: str) -> dict[str, bool]:
+        """``probe_required`` (codex_acp only): installed, but no compatible probe of the executable resolved now."""
+        if executor_id != "codex_acp":
+            return {}
+        seen = self._observe(executor_id)
+        return {"probe_required": bool(seen["installed"] and seen.get("probed") is False)}
 
     # -------- every launch (rule 5) --------
     def check_launch(self, executor_id: str) -> None:
@@ -415,6 +467,8 @@ class ExecutorActivationServices:
             entry = self._read().get(executor_id)
         if entry is None:
             return
+        if executor_id == "codex_acp" and self._acp_probe_required():
+            raise _conflict("acp_probe_required", "Probe Codex ACP before opening a session", executor_id=executor_id)
         paused = entry["paused"]
         if paused is not None:
             reason = "executor_paused_changed" if paused.get("reason") == "changed" else "executor_stopped_by_person"

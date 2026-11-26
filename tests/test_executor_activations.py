@@ -418,8 +418,9 @@ def test_one_by_one(env):
 def test_status_rows_have_the_documented_fields(env):
     rows = env.activations.status()
     assert [row["id"] for row in rows] == list(ea.EXECUTOR_IDS)
-    assert all(set(row) == {"id", "state", "session", "activated_at", "activated_by", "paused", "changes",
-                            "kill_switch_foreign"} for row in rows)
+    fields = {"id", "state", "session", "activated_at", "activated_by", "paused", "changes", "kill_switch_foreign"}
+    # only the codex_acp row adds one field: whether its next step is a probe rather than an activation
+    assert all(set(row) == (fields | {"probe_required"} if row["id"] == "codex_acp" else fields) for row in rows)
     assert {row["state"] for row in rows} <= set(ea.STATES)
     listed = env.client.get("/gui/api/executors/activations", headers=env.headers)
     assert listed.status_code == 200 and [row["id"] for row in listed.json()["executors"]] == list(ea.EXECUTOR_IDS)
