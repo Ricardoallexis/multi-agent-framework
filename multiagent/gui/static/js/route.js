@@ -12,6 +12,11 @@ export const DEFAULT_SECTION = "sessions";
 const SECTION_IDS = ["sessions", "runs", "usage", "evaluation", "teams", "plans", "tree", "map", "pending", "customize", "packages", "start"];   // extensions.js keeps RESERVED_SECTIONS equal to this plus "new"
 export const NEW_SECTION = "new";
 
+export function initialSection(mode, startPending = false) {
+  if (mode !== "simple") return DEFAULT_SECTION;
+  return startPending ? "start" : NEW_SECTION;
+}
+
 export function parseRoute(hash) {
   const text = String(hash || "").replace(/^#\/?/, "");
   if (text === NEW_SECTION) return { section: NEW_SECTION, id: null };

@@ -929,3 +929,32 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .hover-hint[hidden] { display: none; }
 .hover-hint-title { font-weight: 600; }
 .hover-hint-text { color: var(--muted); }
+
+/* GUI4-T13 */
+.session-search { margin: 12px 0; }
+.session-search > label { display: block; margin-bottom: 4px; font-weight: 600; }
+.session-search-controls { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.session-search-controls input { flex: 1 1 auto; min-width: 0; }
+.session-search input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+.session-search-clear { display: inline-grid; flex: none; place-items: center; box-sizing: border-box; width: var(--target);
+  min-height: var(--target); padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  color: var(--text); font: inherit; font-size: 1.25rem; cursor: pointer; }
+.session-search-clear:disabled { opacity: .55; cursor: default; }
+.session-filter-details { margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.session-filter-details > summary { display: flex; align-items: center; min-height: var(--target); padding: 0 12px;
+  cursor: pointer; font-weight: 600; }
+.session-filter-details[open] { padding-bottom: 8px; }
+.session-filter-details > .filters { margin: 8px 12px 0; }
+.session-date-group { margin-top: 16px; }
+.session-date-group h4 { margin: 0 0 8px; font-size: .9375rem; }
+.session-row-simple { gap: 6px; }
+.session-row-simple .row-top { justify-content: space-between; }
+.session-simple-meta { display: flex; flex-wrap: wrap; gap: 0 4px; color: var(--muted); }
+.session-search :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 599.98px) {
+  .session-row-simple .row-top { align-items: flex-start; }
+  .session-row-simple .session-title { flex-basis: 100%; }
+}
+@media (forced-colors: active) {
+  .session-search-clear, .session-filter-details { border-color: CanvasText; }
+}

@@ -48,7 +48,7 @@ const FOLLOW_TEXT = {
   failed: "sessions.follow_failed",
 };
 
-function Header({ token, summary, onRefresh }) {
+function Header({ token, summary, onRefresh, mode }) {
   const isRun = summary.source === "framework";
   return html`<header class="session-header">
     <h3 id="session-title">${sessionTitle(summary)}</h3>
@@ -70,18 +70,18 @@ function Header({ token, summary, onRefresh }) {
     </dl>
     <${Help} topic="session.facts" />
     <div class="header-actions">
-      ${isRun && html`<a class="btn secondary" href=${routeHref("runs", summary.native_id)} ...${helpFor("session.run_link")}>${t("sessions.view_run")}</a>
+      ${isRun && mode !== "simple" && html`<a class="btn secondary" href=${routeHref("runs", summary.native_id)} ...${helpFor("session.run_link")}>${t("sessions.view_run")}</a>
         <${Help} topic="session.run_link" compact=${true} />`}
       <button type="button" class="btn secondary small" ...${helpFor("session.refresh")} onClick=${onRefresh}>${t("sessions.refresh_details")}</button>
       <${Help} topic="session.refresh" compact=${true} />
-      <a class="btn secondary small" href=${routeHref("tree", summary.id)} ...${helpFor("agent_tree.open")}>${t("sessions.agent_tree")}</a>
-      <${Help} topic="agent_tree.open" compact=${true} />
+      ${mode !== "simple" && html`<a class="btn secondary small" href=${routeHref("tree", summary.id)} ...${helpFor("agent_tree.open")}>${t("sessions.agent_tree")}</a>
+        <${Help} topic="agent_tree.open" compact=${true} />`}
     </div>
     <div id="open-in-app-slot" class="open-in-app-slot"><${OpenInApp} token=${token} summary=${summary} /></div>
   </header>`;
 }
 
-export function SessionDetail({ token, sessionId, onBack }) {
+export function SessionDetail({ token, sessionId, onBack, mode = "advanced" }) {
   const isRun = sessionId.startsWith("framework:");
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState(null);
@@ -220,7 +220,7 @@ export function SessionDetail({ token, sessionId, onBack }) {
   return html`<article class="session-detail" aria-labelledby="session-title" tabindex="-1" ref=${article}>
     ${back}
     ${!summary && html`<h3 id="session-title">${t("sessions.session")}</h3><p class="muted" aria-busy="true">${t("sessions.loading_session")}</p>`}
-    ${summary && html`<${Header} token=${token} summary=${summary} onRefresh=${refreshSummary} />`}
+    ${summary && html`<${Header} token=${token} summary=${summary} onRefresh=${refreshSummary} mode=${mode} />`}
     <section class="panel live-bar" aria-label=${t("sessions.live_follow")}>
       <span class=${"badge live live-" + followState} role="status" aria-live="polite">${followText}</span>
       ${page.done && !retryable && html`<button type="button" class="btn secondary small" ...${helpFor("session.pause")} onClick=${() => setPaused(!paused)}>

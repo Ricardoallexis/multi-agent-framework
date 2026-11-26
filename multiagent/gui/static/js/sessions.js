@@ -6,7 +6,8 @@ import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalo
 import { ApiError, apiGet } from "./api.js";
 import { Help, helpFor } from "./help.js";
 import { t } from "./i18n.js";
-import { navigate, routeHref } from "./route.js";
+import { navigate, routeHref, threadHref } from "./route.js";
+import { groupRecentEntries } from "./command-palette-model.js";
 import { SessionDetail } from "./session-detail.js";
 import {
   ROOTS_HELP, SOURCES, SURFACES, modelsText, relativeTime, sessionTitle, sourceLabel, surfaceLabel,
@@ -47,9 +48,9 @@ function listQuery(filters, after) {
 
 const hasFilters = (filters) => Object.values(filters).some((value) => value !== "");
 
-function Filters({ draft, showSubagents, onChange, onSubmit, onClear, onToggleSubagents }) {
+function Filters({ draft, showSubagents, onChange, onClear, onToggleSubagents }) {
   const field = (key, immediate) => (event) => onChange(key, event.target.value, immediate);
-  return html`<form class="filters" role="search" aria-label=${t("sessions.filter")} onSubmit=${onSubmit}>
+  return html`<div class="filters">
     <div class="filter-grid">
       <div><label for="sf-source">${t("sessions.source")}</label>
         <${Help} topic="sessions.source" />
@@ -63,9 +64,6 @@ function Filters({ draft, showSubagents, onChange, onSubmit, onClear, onToggleSu
           <option value="">${t("sessions.all_surfaces")}</option>
           ${SURFACES.map((s) => html`<option key=${s.id} value=${s.id}>${s.label}</option>`)}
         </select></div>
-      <div><label for="sf-text">${t("sessions.title_contains")}</label>
-        <${Help} topic="sessions.text" />
-        <input id="sf-text" type="search" maxlength="200" ...${helpFor("sessions.text")} value=${draft.text} onInput=${field("text", false)} /></div>
       <div><label for="sf-cwd">${t("sessions.folder_within")}</label>
         <${Help} topic="sessions.cwd" />
         <input id="sf-cwd" type="text" maxlength="1000" ...${helpFor("sessions.cwd")} value=${draft.cwd} onInput=${field("cwd", false)} /></div>
@@ -82,12 +80,10 @@ function Filters({ draft, showSubagents, onChange, onSubmit, onClear, onToggleSu
       <${Help} topic="sessions.subagents" />
     </div>
     <div class="actions">
-      <button type="submit" class="btn small" ...${helpFor("sessions.search")}>${t("sessions.search")}</button>
-      <${Help} topic="sessions.search" compact=${true} />
       <button type="button" class="btn secondary small" ...${helpFor("sessions.clear")} onClick=${onClear}>${t("sessions.clear")}</button>
       <${Help} topic="sessions.clear" compact=${true} />
     </div>
-  </form>`;
+  </div>`;
 }
 
 function RootsHelp({ hint }) {
@@ -101,24 +97,44 @@ function RootsHelp({ hint }) {
   </section>`;
 }
 
-function Row({ session, now }) {
-  return html`<li>
-    <a class="session-row" href=${routeHref("sessions", session.id)} data-sid=${session.id}>
-      <span class="row-top">
-        <span class=${"badge src src-" + session.source}>${sourceLabel(session.source)}</span>
-        <span class="badge">${surfaceLabel(session.surface)}</span>
-        ${session.parent_id && html`<span class="badge">${t("sessions.subagent")}</span>`}
-        <span class="session-title">${sessionTitle(session)}</span>
-        <${StatusChip} status=${session.status} labels="session" />
-      </span>
-      <span class="row-line muted small">${t("sessions.folder")}${session.cwd || (session.source === "framework" ? t("sessions.no_folder_run") : t("sessions.no_folder"))}</span>
-      <span class="row-line small">${t("sessions.updated")}${relativeTime(session.updated_at, now)} · ${fmtDate(session.updated_at)}</span>
-      <span class="row-line small">${t("sessions.models")}${modelsText(session.models)} · ${t("sessions.tokens")}${tokensText(session.tokens, { brief: true })} · ${t("sessions.subagents")}${session.child_count}</span>
-    </a>
-  </li>`;
+function Row({ session, now, mode }) {
+  const where = session.cwd || (session.source === "framework" ? t("sessions.no_folder_run") : t("sessions.no_folder"));
+  const content = mode === "simple" ? html`
+    <span class="row-top">
+      <span class="session-title">${sessionTitle(session)}</span>
+      <${StatusChip} status=${session.status} labels="session" />
+    </span>
+    <span class="row-line small session-simple-meta">
+      <span>${where}</span><span aria-hidden="true"> · </span><span>${sourceLabel(session.source)}</span>
+      <span aria-hidden="true"> · </span><span>${relativeTime(session.updated_at, now)} · ${fmtDate(session.updated_at)}</span>
+    </span>`
+    : html`
+    <span class="row-top">
+      <span class=${"badge src src-" + session.source}>${sourceLabel(session.source)}</span>
+      <span class="badge">${surfaceLabel(session.surface)}</span>
+      ${session.parent_id && html`<span class="badge">${t("sessions.subagent")}</span>`}
+      <span class="session-title">${sessionTitle(session)}</span>
+      <${StatusChip} status=${session.status} labels="session" />
+    </span>
+    <span class="row-line muted small">${t("sessions.folder")}${session.cwd || (session.source === "framework" ? t("sessions.no_folder_run") : t("sessions.no_folder"))}</span>
+    <span class="row-line small">${t("sessions.updated")}${relativeTime(session.updated_at, now)} · ${fmtDate(session.updated_at)}</span>
+    <span class="row-line small">${t("sessions.models")}${modelsText(session.models)} · ${t("sessions.tokens")}${tokensText(session.tokens, { brief: true })} · ${t("sessions.subagents")}${session.child_count}</span>`;
+  const link = mode === "simple" && session.source === "framework"
+    ? html`<a class="session-row session-row-simple" href=${threadHref(session.native_id)} data-sid=${session.id}>${content}</a>`
+    : mode === "simple"
+      ? html`<a class="session-row session-row-simple" href=${routeHref("sessions", session.id)} data-sid=${session.id}>${content}</a>`
+      : html`<a class="session-row" href=${routeHref("sessions", session.id)} data-sid=${session.id}>${content}</a>`;
+  return html`<li>${link}</li>`;
 }
 
-function SessionList({ token }) {
+const DATE_GROUP_TITLES = {
+  today: "sessions.today",
+  yesterday: "sessions.yesterday",
+  week: "sessions.this_week",
+  older: "sessions.earlier",
+};
+
+function SessionList({ token, mode }) {
   const [draft, setDraft] = useState(EMPTY_FILTERS);
   const [applied, setApplied] = useState(EMPTY_FILTERS);
   const [showSubagents, setShowSubagents] = useState(false);
@@ -214,9 +230,41 @@ function SessionList({ token }) {
     if (immediate) setApplied(next);
   };
   const clear = () => { setDraft(EMPTY_FILTERS); setApplied(EMPTY_FILTERS); };
+  const clearText = () => {
+    const next = { ...draft, text: "" };
+    setDraft(next);
+    setApplied(next);
+  };
   const submit = (event) => { event.preventDefault(); setApplied(draft); setReload((value) => value + 1); };
 
   const rows = visible(data.sessions);
+  const grouped = mode === "simple"
+    ? groupRecentEntries(rows.map((session) => ({ ...session, updatedAt: session.updated_at, attention: false })), now)
+    : [];
+  const groups = [];
+  for (const session of grouped) {
+    let group = groups[groups.length - 1];
+    if (!group || group.key !== session.subgroup) {
+      group = { key: session.subgroup, rows: [] };
+      groups.push(group);
+    }
+    group.rows.push(session);
+  }
+  const searchHelp = {
+    title: t("sessions.search_conversations"),
+    hint: t("sessions.search_help_hint"),
+    more: [t("sessions.search_help_scope"), t("sessions.search_help_filters")],
+  };
+  const applyHelp = {
+    title: t("sessions.search_apply_title"),
+    hint: t("sessions.search_apply_hint"),
+    more: [t("sessions.search_apply_more")],
+  };
+  const filterHelp = {
+    title: t("sessions.filters"),
+    hint: t("sessions.filters_help_hint"),
+    more: [t("sessions.filters_help_combine"), t("sessions.filters_help_subagents")],
+  };
   const noRoots = data.loaded && Boolean(data.hint) && data.sessions.length === 0;
   let summary = "";
   if (loading && !data.loaded) summary = t("sessions.loading");
@@ -225,15 +273,30 @@ function SessionList({ token }) {
 
   return html`<section class="session-list" aria-labelledby="sessions-title">
     <div class="row">
-      <h3 id="sessions-title" tabindex="-1">${t("sessions.all_sessions")}</h3>
+      <h3 id="sessions-title" tabindex="-1">${mode === "simple" ? t("sessions.all_conversations") : t("sessions.all_sessions")}</h3>
       <div class="header-tools">
         <button type="button" class="btn secondary small" ...${helpFor("sessions.refresh")} onClick=${() => setReload((value) => value + 1)} disabled=${loading}>${t("sessions.refresh")}</button>
         <${Help} topic="sessions.refresh" compact=${true} />
       </div>
     </div>
     <${Help} topic="sessions.list" always=${true} />
-    <${Filters} draft=${draft} showSubagents=${showSubagents} onChange=${change} onSubmit=${submit} onClear=${clear}
-      onToggleSubagents=${setShowSubagents} />
+    <form class="session-search" role="search" aria-label=${t("sessions.filter")} onSubmit=${submit}>
+      <label for="sf-text">${t("sessions.search_conversations")}</label>
+      <${Help} topic="sessions.text" entry=${searchHelp} />
+      <${Help} topic="sessions.search" entry=${applyHelp} compact=${true} />
+      <div class="session-search-controls">
+        <input id="sf-text" type="search" maxlength="200" ...${helpFor("sessions.text")}
+          value=${draft.text} onInput=${(event) => change("text", event.target.value, false)} />
+        <button type="button" class="session-search-clear" aria-label=${t("sessions.clear_search")} ...${helpFor("sessions.text")}
+          onClick=${clearText} disabled=${!draft.text}>×</button>
+      </div>
+      <details class="session-filter-details">
+        <summary ...${helpFor("sessions.list", { scope: "filter-disclosure" })}>${t("sessions.filters")}</summary>
+        <${Help} topic="sessions.list" entry=${filterHelp} scope="filter-disclosure" />
+        <${Filters} draft=${draft} showSubagents=${showSubagents} onChange=${change} onClear=${clear}
+          onToggleSubagents=${setShowSubagents} />
+      </details>
+    </form>
     <p class="muted" role="status" aria-live="polite" aria-busy=${loading ? "true" : "false"}>${summary}</p>
     ${error && html`<div class="message error" role="alert">${errorText(error)}
       <button type="button" class="btn secondary small" ...${helpFor("sessions.retry")} onClick=${() => setReload((value) => value + 1)}>${t("sessions.retry")}</button>
@@ -248,8 +311,14 @@ function SessionList({ token }) {
       <${Help} topic="sessions.warnings" />
       <ul class="warnings">${data.warnings.map((warning) => html`<li key=${warning} class="note small">${warningText(warning)}</li>`)}</ul>
     </details>`}
-    ${rows.length > 0 && html`<ul class="session-rows" aria-label=${t("sessions.sessions")}>
-      ${rows.map((session) => html`<${Row} key=${session.id} session=${session} now=${now} />`)}
+    ${mode === "simple" && groups.length > 0 && html`${groups.map((group) => html`<section key=${group.key} class="session-date-group">
+      <h4>${t(DATE_GROUP_TITLES[group.key])}</h4>
+      <ul class="session-rows" aria-label=${t("sessions.sessions")}>
+        ${group.rows.map((session) => html`<${Row} key=${session.id} session=${session} now=${now} mode=${mode} />`)}
+      </ul>
+    </section>`)}`}
+    ${mode !== "simple" && rows.length > 0 && html`<ul class="session-rows" aria-label=${t("sessions.sessions")}>
+      ${rows.map((session) => html`<${Row} key=${session.id} session=${session} now=${now} mode=${mode} />`)}
     </ul>`}
     ${data.next && html`<div><button type="button" class="btn secondary" disabled=${loadingMore || loading} ...${helpFor("sessions.more")} onClick=${loadMore}>
       ${loadingMore ? t("sessions.loading_more") : t("sessions.load_more")}</button>
@@ -257,7 +326,7 @@ function SessionList({ token }) {
   </section>`;
 }
 
-export function Sessions({ token, route, active }) {
+export function Sessions({ token, route, active, mode = "advanced" }) {
   const selectedId = active ? route.id : null;
   const wrapper = useRef(null);
   const previous = useRef(null);
@@ -274,8 +343,8 @@ export function Sessions({ token, route, active }) {
   }, [selectedId, active]);
 
   return html`<div class="sessions" hidden=${!active} ref=${wrapper}>
-    <div hidden=${Boolean(selectedId)}><${SessionList} token=${token} /></div>
-    ${selectedId && html`<${SessionDetail} key=${selectedId} token=${token} sessionId=${selectedId}
+    <div hidden=${Boolean(selectedId)}><${SessionList} token=${token} mode=${mode} /></div>
+    ${selectedId && html`<${SessionDetail} key=${selectedId} token=${token} mode=${mode} sessionId=${selectedId}
       onBack=${() => navigate("sessions")} />`}
   </div>`;
 }

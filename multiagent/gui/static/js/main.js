@@ -5,11 +5,11 @@
 // Screens, right-panel sections and help texts that tasks add come from static/extensions/<name>/ (extensions.js, FLU-T04):
 // loadExtensions() runs before the first render (for at most LOAD_BUDGET_MS), so a registered view is one more button in the
 // sidebar and one more route here, and nothing in this file changes when an extension is added.
-import { html, render, useState, useEffect } from "../vendor/htm-preact-standalone.module.js";
+import { html, render, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { loadToken, clearToken, getJSON } from "./auth.js";
 import { startStream } from "./stream.js";
 import { publishEvent } from "./bus.js";
-import { useRoute, NEW_SECTION } from "./route.js";
+import { initialSection, navigate, useRoute, NEW_SECTION } from "./route.js";
 import { Help, helpFor } from "./help.js";
 import { NewSession } from "./new-session.js";
 import { TeamThread } from "./team-thread.js";   // CHT-T05
@@ -29,7 +29,8 @@ import { Evaluation } from "./evaluation.js";
 import { Teams } from "./teams.js";
 import { Plans } from "./plans.js";
 import { Packages } from "./packages.js";   // PAQ-T02
-import { Start } from "./start.js";   // INI-T03
+import { Start, useStartStatus } from "./start.js";   // INI-T03
+import { inStartSidebar } from "./start-model.js";   // INI-T03
 import { setInstanceLabel } from "./instance.js";   // PRV-T01
 import { ADVANCED_ONLY_TEXT, currentMode, onModeChange, saveMode, setCurrentMode, visibleIn } from "./gui-mode.js";   // SIM-T02
 import { extensionFailures, loadExtensions, registeredViews, registryVersion, subscribeRegistry } from "./extensions.js";
@@ -56,7 +57,10 @@ const SECTIONS = [
   { id: "start", label: t("main.start"), icon: "check", mode: "simple" },   // INI-T03: in the sidebar while a step is missing, in «Más» after
 ];
 // The built-in screens, then the ones extensions registered (by their `order`).
-const allSections = () => [...SECTIONS.map((section) => ({ ...section, label: t("main." + section.id) })), ...registeredViews().map((view) => ({ id: view.id, label: view.label, group: view.group, icon: view.icon, mode: view.mode }))];
+const allSections = (mode = currentMode()) => [...SECTIONS.map((section) => ({
+  ...section,
+  label: section.id === "sessions" && mode === "simple" ? t([section.id, "all_conversations"].join(".")) : t("main." + section.id),
+})), ...registeredViews().map((view) => ({ id: view.id, label: view.label, group: view.group, icon: view.icon, mode: view.mode }))];
 
 // "#new" is not a section of its own: it shows the guided chat of a new session (new-session.js), which falls back to the
 // create-run form on request.
@@ -100,6 +104,8 @@ function App({ token }) {
     setLanguageVersion((version) => version + 1);
   }), []);
   const route = useRoute();
+  const start = useStartStatus(token);
+  const initialAddressDone = useRef(Boolean(location.hash));
   const failed = extensionFailures();
   const [status, setStatus] = useState("reconnecting");
   const [mock, setMock] = useState(false);
@@ -109,6 +115,13 @@ function App({ token }) {
   const [modeKnown, setModeKnown] = useState(false);      // the line of an advanced route waits for the server's answer
 
   useEffect(() => onModeChange(setMode), []);
+  useEffect(() => {
+    if (initialAddressDone.current || !modeKnown) return;
+    if (location.hash) { initialAddressDone.current = true; return; }
+    if (mode === "simple" && !start.status && !start.failed) return;
+    navigate(initialSection(mode, inStartSidebar(start.status)));
+    initialAddressDone.current = true;
+  }, [mode, modeKnown, start.status, start.failed]);
   useEffect(() => {
     getJSON("/gui/api/session", token).then((s) => { setMock(Boolean(s.mock)); setCurrentMode(s.mode); setModeKnown(true); setInstanceLabel(s.instance_label); })
       .catch(() => setModeKnown(true));
@@ -123,7 +136,8 @@ function App({ token }) {
   useEffect(() => { window.scrollTo(0, 0); }, [section]);   // a new screen starts at its top, not at the old one's scroll
   const creating = section === NEW_SECTION;
   const tree = section === TREE_SECTION;
-  const current = allSections().find((s) => s.id === section);
+  const sections = allSections(mode);
+  const current = sections.find((s) => s.id === section);
   const views = registeredViews();
   const pendingViews = views.filter((view) => view.group === "pending");
   const inPending = section === "pending" || pendingViews.some((view) => view.id === section);   // GUI3-T05: one screen, a tab per view
@@ -131,7 +145,7 @@ function App({ token }) {
   const blocked = modeKnown && !creating && !inPending && !visibleIn(tree ? { mode: "advanced" } : current, mode);   // SIM-T02
   // The sidebar and the right panel treat the tree of a session as the session itself (it stays marked, its panel stays).
   const context = tree ? { section: "sessions", id: route.id } : route;
-  const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} sections=${allSections()} mode=${mode} />`;
+  const sidebar = html`<${Sidebar} token=${token} status=${status} route=${context} sections=${sections} mode=${mode} />`;
   const panel = html`<${RightPanel} token=${token} route=${context} onDot=${setContextDot} />`;
   const hasSubject = Boolean(subjectOf(context, context.section === "sessions" ? context.id : null));   // a session or a run is open
   return html`<${Shell} status=${status} statusText=${STATUS_TEXT[status]} mock=${mock} sidebar=${sidebar} panel=${panel}
@@ -139,7 +153,7 @@ function App({ token }) {
     ${section === "usage" ? html`<h2 id="usage-title">${t("main.usage")}</h2>` : html`<h2>${creating ? t("main.new_session") : tree ? t("main.agent_tree") : inPending ? t("main.pending") : current?.label}</h2>`}
     ${blocked && html`<${AdvancedOnly} token=${token} />`}
     ${!blocked && entry?.topic && html`<${Help} key=${entry.id} topic=${entry.topic} />`}
-    <${Sessions} token=${token} route=${route} active=${section === "sessions" && !blocked} />
+    <${Sessions} token=${token} route=${route} active=${section === "sessions" && !blocked} mode=${mode} />
     ${!blocked && tree && html`<${AgentTree} key=${route.id || ""} token=${token} sessionId=${route.id} />`}
     ${creating && route.kind === "team" && html`<${TeamThread} key=${route.id} token=${token} versionId=${route.id} />`}
     ${creating && route.kind === "plan" && html`<${PlanThread} key=${route.id} token=${token} proposalId=${route.id} />`}
@@ -150,7 +164,7 @@ function App({ token }) {
     ${!blocked && section === "teams" && html`<${Teams} token=${token} route=${route} />`}
     ${!blocked && section === "plans" && html`<${Plans} token=${token} route=${route} />`}
     ${!blocked && section === "map" && html`<${WorkMap} token=${token} />`}
-    ${section === "customize" && html`<${Customize} token=${token} sections=${allSections()} mode=${mode} />`}
+    ${section === "customize" && html`<${Customize} token=${token} sections=${sections} mode=${mode} />`}
     ${!blocked && section === "packages" && html`<${Packages} token=${token} />`}
     ${!blocked && section === "start" && html`<${Start} token=${token} />`}
     ${inPending && html`<${PendingScreen} views=${pendingViews} route=${route} token=${token} status=${status} mock=${mock} />`}

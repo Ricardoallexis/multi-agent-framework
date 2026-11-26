@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -175,6 +176,57 @@ def test_filters(services, stores):
     assert f"claude:{CLAUDE_ID}" not in ids(sessions.list_sessions(since="2026-10-02"))
     assert ids(sessions.list_sessions(since="2026-10-01T10:00:00Z", until="2026-10-01T11:00:00Z")) == [f"claude:{CLAUDE_ID}"]
     assert sessions.list_sessions(since="2999-01-01")["sessions"] == []
+
+
+def test_text_search_matches_title_folder_source_and_framework_source_not_messages(services, stores):
+    run_id = add_framework_run(services)
+    sessions = services.sessions
+
+    assert ids(sessions.list_sessions(text="CLAUDE work")) == [f"claude:{CLAUDE_ID}"]
+    assert set(ids(sessions.list_sessions(text=str(stores.work)))) == {
+        f"claude:{CLAUDE_ID}", f"codex:{CODEX_ID}", f"copilot:{COPILOT_ID}"}
+    assert ids(sessions.list_sessions(text="FRAMEWORK")) == [f"framework:{run_id}"]
+    assert sessions.list_sessions(text="private reasoning")["sessions"] == []
+
+
+def test_text_search_matches_office_metadata_on_framework_runs(services, monkeypatch):
+    run_id = add_framework_run(services, name="office-search")
+    monkeypatch.setattr(services.runs, "_runtimes", lambda: [
+        SimpleNamespace(bundle="office-bundle", store=services.system),
+    ])
+    monkeypatch.setattr(services.offices, "office_of", lambda _bundle: ("office-id", "area-id"))
+    monkeypatch.setattr(services.offices, "get", lambda _office_id: {"name": "Northern office"})
+
+    assert ids(services.sessions.list_sessions(text="northern office")) == [f"framework:{run_id}"]
+    assert ids(services.sessions.list_sessions(text="office-id")) == [f"framework:{run_id}"]
+    summary = services.sessions.list_sessions(text="northern office")["sessions"][0]
+    assert not {"office_id", "office_name"} & summary.keys()
+
+    def missing_office(_office_id):
+        raise ServiceError("office_not_installed", "Office was removed", status=404)
+
+    monkeypatch.setattr(services.offices, "get", missing_office)
+    assert ids(services.sessions.list_sessions(text="office-id")) == [f"framework:{run_id}"]
+
+
+def test_text_search_matches_project_metadata_on_runs_and_linked_sessions(services):
+    run_id = add_framework_run(services, name="run-project-search")
+    projects = services.projects.store
+    with projects.db.tx() as conn:
+        projects.insert_project(
+            conn, "linked-project-search", "Linked project title", visibility="private", created_by="test")
+    services.tasks.create_group("linked-project-group", "Linked project group", actor="test")
+    with projects.db.tx() as conn:
+        assert projects.attach_group(conn, "linked-project-group", "linked-project-search", 1)
+    services.tasks.create_task("linked-project-group", "linked-task-search", "Linked task", actor="test")
+    with projects.db.tx() as conn:
+        projects.add_session_link(conn, "linked-task-search", f"claude:{CLAUDE_ID}", linked_by="test")
+
+    assert ids(services.sessions.list_sessions(text="run-project-search")) == [f"framework:{run_id}"]
+    assert ids(services.sessions.list_sessions(text="linked project title")) == [f"claude:{CLAUDE_ID}"]
+    assert ids(services.sessions.list_sessions(text="linked-task-search")) == [f"claude:{CLAUDE_ID}"]
+    summary = services.sessions.list_sessions(text="linked project title")["sessions"][0]
+    assert not {"project_id", "project_name", "project_title"} & summary.keys()
 
 
 @pytest.mark.parametrize("filters", [

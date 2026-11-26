@@ -605,11 +605,17 @@ exists only on Windows. The reasons and the quota text come as the services repo
 so one can appear in English. See [Install and sign in](EXECUTORS.md#installing-and-signing-in-to-an-executor)
 for the command line.
 
-**Sesiones** is the default view. It combines a read-only, filterable and
-paginated list of Claude Code, Claude Desktop, Codex, GitHub Copilot, and
-framework-run sessions. Details are rendered according to item kind and
-include subagents; keyboard navigation and live follow over server-sent events
-(SSE) are supported.
+**Sessions** is the advanced-mode view; in simple mode it is **All conversations**.
+Both show the same read-only, paginated list of Claude Code, Claude Desktop,
+Codex, GitHub Copilot, and framework-run sessions. A single search applies as
+you type across titles, office names and IDs for runs from office bundles,
+project names, titles and IDs for runs and linked tasks, folders, source apps,
+and linked task IDs when available; it never searches conversation messages.
+The same server-side `text` filter is used by
+`multiagent sessions list --text`, so the CLI and GUI stay in parity. The other
+session filters remain under a collapsed **Filters** section in both modes.
+Details include subagents; keyboard navigation and live follow over
+server-sent events (SSE) are supported.
 
 The **agent tree** is available at `#tree/<session-id>` from a session's
 «Árbol de agentes» link. It places the session above its children, shows
@@ -1001,8 +1007,12 @@ The switch **Modo avanzado** in «Personalizar» changes it and the GUI draws ag
 - **Simple** shows only a closed list. The sidebar has «Nueva sesión», «Buscar», «Pendientes»,
   «Proyectos», «Apps y agentes» and the list of sessions. «Más» has «Uso», «Personalizar» and
   «Ayuda» (a row that turns help mode on, not a view). The panel «Contexto» stays in both modes.
+- With no address, simple mode opens «Nueva sesión», unless a setup step is missing, when it opens
+  «Inicio»; advanced mode opens «Sessions». Explicit and shared addresses keep their route.
 - Ctrl+K searches only what the mode shows: sections, the tabs of «Pendientes», sessions and help texts.
 - In simple mode a run of the list opens its thread (`#new/run/<id>`), not `#runs/<id>`.
+- A waiting manual step can be submitted from the simple run thread; the links to the advanced run
+  detail and agent tree are shown only in advanced mode.
 - A section you pinned that is advanced is hidden in simple mode, not released: it is pinned again
   when you go back to advanced.
 - A route of an advanced view in simple mode (for example `#runs` from a link) shows the line

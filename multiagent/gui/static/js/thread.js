@@ -3,6 +3,7 @@
 // The run conversation in Nueva sesión. Reads only while this view is mounted and visible.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { apiGet, apiPost, runPath } from "./api.js";
+import { HumanActions } from "./human-actions.js";
 import { Help, helpFor } from "./help.js";
 import { errorText } from "./text.js";
 import { ThreadCard } from "./thread-cards.js";
@@ -126,6 +127,9 @@ export function RunThread({ token, runId }) {
             status=${thread.status} runId=${runId} token=${token} reviewView=${null} busy=${busy} onAction=${act}
             mode=${currentMode()} />`)}</ol></details></li>`)}
     </ol>
+    ${currentMode() === "simple" && reviewView?.waiting?.reason === "execute_step" && html`
+      <${HumanActions} token=${token} view=${reviewView} onUpdate=${(updated) => { setReviewView(updated); load(true); }}
+        onStale=${() => load(true)} />`}
     <div ref=${endRef} class="thread-end" aria-hidden="true"></div>
     ${thread.status === "completed" && html`<${DocumentCard} token=${token} runId=${runId} />`}
     <${RunInbox} runId=${runId} token=${token} status=${thread.status} onSent=${() => load(true)} />

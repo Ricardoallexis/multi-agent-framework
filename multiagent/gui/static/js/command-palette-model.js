@@ -153,6 +153,8 @@ function groupRecentEntries(entries, now = Date.now()) {
     .map(({ originalIndex, ...entry }) => entry);
 }
 
+export { groupRecentEntries };
+
 export function groupPaletteResults(results) {
   const entries = Array.isArray(results) ? results : [];
   if (!entries.some((entry) => entry.group)) {

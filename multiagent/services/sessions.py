@@ -208,12 +208,14 @@ class SessionServices:
 
     def _framework_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for _, store in self._stores():
+        for bundle, store in self._stores():
             with store.db.connect() as conn:
                 found = conn.execute(
-                    "SELECT id,workflow_id,status,created_at,updated_at,task_id FROM runs ORDER BY created_at DESC LIMIT ?",
+                    "SELECT r.id,r.workflow_id,r.status,r.created_at,r.updated_at,r.task_id,r.project_id,"
+                    "p.name AS project_name,p.title AS project_title FROM runs r "
+                    "LEFT JOIN projects p ON p.id=r.project_id ORDER BY r.created_at DESC LIMIT ?",
                     (MAX_FRAMEWORK_RUNS,)).fetchall()
-            rows.extend(dict(r) | {"_store": store} for r in found)
+            rows.extend(dict(r) | {"_store": store, "_bundle": bundle} for r in found)
         return rows
 
     def _find_run(self, run_id: str) -> tuple[Any, dict[str, Any]]:
@@ -257,6 +259,12 @@ class SessionServices:
             open_in_app=OpenInApp("url", f"/gui/#run={row['id']}", False), reader=FRAMEWORK_READER,
             task_ids=[row["task_id"]] if row.get("task_id") else [])
 
+    @staticmethod
+    def _text_matches(summary: SessionSummary, text: str, metadata: tuple[Any, ...] = ()) -> bool:
+        query = text.casefold()
+        values = (summary.title, summary.cwd, summary.source.value, *summary.task_ids, *metadata)
+        return any(isinstance(value, str) and query in value.casefold() for value in values)
+
     def _framework_matches(self, filters: SessionFilters) -> list[tuple[SessionSummary, Any]]:
         """``(summary, store)`` of the runs matching the filters, without usage (added for the page only)."""
         if filters.surface not in (None, "framework") or filters.cwd:  # runs have no working folder
@@ -264,14 +272,31 @@ class SessionServices:
         since = normalize_ts(filters.since) if filters.since else None
         until = normalize_ts(filters.until) if filters.until else None
         keep = []
+        offices: dict[str, tuple[Any, ...]] = {}
         for row in self._framework_rows():
             summary = self._framework_summary(row)
             if since and (summary.updated_at or "") < since:
                 continue
             if until and (summary.updated_at or "") > until:
                 continue
-            if filters.text and filters.text.lower() not in (summary.title or "").lower():
-                continue
+            if filters.text:
+                metadata = tuple(row.get(key) for key in ("project_id", "project_name", "project_title"))
+                bundle = row.get("_bundle")
+                if isinstance(bundle, str):
+                    if bundle not in offices:
+                        office = self._services.offices.office_of(bundle)
+                        offices[bundle] = ()
+                        if office:
+                            office_id, _ = office
+                            try:
+                                office_name = self._services.offices.get(office_id).get("name")
+                            except ServiceError:
+                                offices[bundle] = (office_id,)
+                            else:
+                                offices[bundle] = (office_id, office_name)
+                    metadata += offices[bundle]
+                if not self._text_matches(summary, filters.text, metadata):
+                    continue
             keep.append((summary, row["_store"]))
         return keep
 
@@ -301,6 +326,22 @@ class SessionServices:
         linked = self._services.projects.store.task_ids_by_session([s.id for s in external])
         for summary in external:
             summary.task_ids = list(linked.get(summary.id, []))
+
+    def _project_metadata_by_task(self, task_ids: list[str]) -> dict[str, tuple[Any, ...]]:
+        wanted = list(dict.fromkeys(task_ids))
+        found: dict[str, tuple[Any, ...]] = {}
+        with self._services.projects.store.db.connect() as conn:
+            for start in range(0, len(wanted), 500):
+                chunk = wanted[start:start + 500]
+                marks = ",".join("?" * len(chunk))
+                rows = conn.execute(
+                    f"SELECT t.id AS task_id,p.id AS project_id,p.name AS project_name,p.title AS project_title "
+                    f"FROM tasks t JOIN task_groups g ON g.id=t.group_id "
+                    f"JOIN projects p ON p.id=g.project_id WHERE t.id IN ({marks})",
+                    chunk).fetchall()
+                for row in rows:
+                    found[row["task_id"]] = (row["project_id"], row["project_name"], row["project_title"])
+        return found
 
     def _framework_event_items(self, store: Any, run_id: str, after: int, limit: int) -> ItemsPage:
         from ..gui.runs import _clean  # lazy: gui imports this module; same cleaning as the run view
@@ -333,7 +374,8 @@ class SessionServices:
 
         Filters: ``source`` (claude, codex, copilot, antigravity, framework), ``surface`` (desktop, cli, framework,
         unknown), ``cwd`` (only sessions whose folder is under it), ``since``/``until`` (ISO-8601,
-        compared with ``updated_at``) and ``text`` (part of the title). Without operator roots or a created
+        compared with ``updated_at``) and ``text`` (case-insensitive substring of title, folder, source, linked
+        task IDs, office names/IDs, or project names/titles/IDs). Conversation content is not searched. Without operator roots or a created
         executor root, the page is empty and ``hint`` says how to configure roots (``None`` otherwise).
         """
         # An empty value (a blank form field, ``?since=``) means "no filter".
@@ -350,7 +392,15 @@ class SessionServices:
         run_stores: dict[str, Any] = {}
         if source != "framework":
             with _session_errors():  # no lock held: the registry reads files, and the stream polls this service
-                found, found_warnings = self._get_registry().find_sessions(filters)
+                found, found_warnings = self._get_registry().find_sessions(replace(filters, text=None))
+            if filters.text:
+                found = [replace(summary) for summary in found]
+                self._with_task_ids(found)
+                projects = self._project_metadata_by_task(
+                    [task_id for summary in found for task_id in summary.task_ids])
+                found = [summary for summary in found if self._text_matches(
+                    summary, filters.text, tuple(value for task_id in summary.task_ids for value in projects.get(task_id, ()))
+                )]
             rows += found
             warnings += [w for w in found_warnings if w not in warnings]
         if (source in (None, "framework") and "framework" in self._sources()
