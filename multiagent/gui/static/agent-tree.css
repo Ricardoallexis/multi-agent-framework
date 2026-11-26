@@ -85,8 +85,41 @@
 .at-log p { margin: 0; }
 .at-log-list { margin: 0; padding-left: 1.2rem; font: .8125rem var(--mono); color: var(--muted); overflow-wrap: anywhere; }
 
+/* Header figures and per-level bars (ARB-T01). The bar width is a class in steps of 5 %, so there is no inline style. */
+.at-stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.at-stat { display: flex; flex-direction: column; gap: 2px; min-width: 8rem; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.at-stat dt { color: var(--muted); font-size: .75rem; font-weight: 500; }
+.at-stat dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.at-bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.at-bar { flex: 1 1 8rem; min-width: 0; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.at-bar-fill { display: block; height: 100%; border-radius: 4px; }
+.at-bar-text { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.at-bar-fill.lv-unknown { background: var(--muted); }
+.at-w-0 { width: 0%; }
+.at-w-5 { width: 5%; }
+.at-w-10 { width: 10%; }
+.at-w-15 { width: 15%; }
+.at-w-20 { width: 20%; }
+.at-w-25 { width: 25%; }
+.at-w-30 { width: 30%; }
+.at-w-35 { width: 35%; }
+.at-w-40 { width: 40%; }
+.at-w-45 { width: 45%; }
+.at-w-50 { width: 50%; }
+.at-w-55 { width: 55%; }
+.at-w-60 { width: 60%; }
+.at-w-65 { width: 65%; }
+.at-w-70 { width: 70%; }
+.at-w-75 { width: 75%; }
+.at-w-80 { width: 80%; }
+.at-w-85 { width: 85%; }
+.at-w-90 { width: 90%; }
+.at-w-95 { width: 95%; }
+.at-w-100 { width: 100%; }
+
 @media (max-width: 599.98px) {
   .at-level { margin-left: 8px; padding-left: 8px; }
   .at-toolbar { gap: 8px; }
+  .at-stat { flex: 1 1 8rem; }
   .at-facts { grid-template-columns: minmax(0, 1fr); }
 }

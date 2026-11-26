@@ -627,6 +627,18 @@ polls every 10 seconds as a fallback. The tree supports arrow-key navigation,
 Home/End, Enter/Space to select and Esc to clear the selection. It does not
 claim to show every delegation or review relationship.
 
+**Agent tree.** Above the tree, three figures summarise the session: how
+many agents are active out of all the orchestrator launched, the tokens used
+by the orchestrator plus its agents, and the share of the input that came
+from the apps' cache. When some app does not report tokens the total is
+marked «partial»; when none reports cache reads the share says «no data».
+Each level (T1 to T4, or «Level unavailable») shows a bar with its share of
+the agents' tokens; the shares add up to 100 %, and the percentage is always
+written next to the bar. «Back to orchestrator» returns to the root
+conversation. For a framework run whose steps the session reader does not
+list, the tree draws the run's steps as nodes; steps do not report tokens,
+so those show as unknown. The per-agent effort is not shown.
+
 The **Uso** view (`#usage`) has **Planes**, **Global** and **API y presupuesto**
 tabs. It reads `GET /gui/api/usage/plans`, `/gui/api/usage/tokens` and
 `/gui/api/usage/costs` for plan measurements, token totals by app, model, level

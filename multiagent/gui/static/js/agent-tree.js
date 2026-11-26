@@ -17,7 +17,8 @@ import { errorText } from "./text.js";
 import { currentLanguage, onLanguageChange, t } from "./i18n.js";
 import {
   LEVELS, ROOT_ID, UNKNOWN_LEVEL, childLink, countStatuses, describeNode, describeRoot, detailFacts, diffSnapshots,
-  filterChildren, groupByLevel, levelText, moveFocus, nodeAriaLabel, rootFacts, snapshot, visibleOrder,
+  filterChildren, groupByLevel, headerStats, headerTexts, levelShares, levelText, moveFocus, nodeAriaLabel, rootFacts, runStepChildren,
+  snapshot, visibleOrder,
 } from "./agent-tree-model.js";
 
 const TICK_MS = 10000;        // fallback poll while the stream is down; also keeps "Lleva N min" honest
@@ -26,6 +27,7 @@ const LOG_LIMIT = 12;
 const ALL_LEVELS = [...LEVELS, UNKNOWN_LEVEL];
 
 const sessionPath = (id, tail = "") => "/gui/api/sessions/" + encodeURIComponent(id) + tail;
+const FRAMEWORK_PREFIX = "framework:";
 const asApiError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
 const clock = (time) => new Date(time).toLocaleTimeString(currentLanguage(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
@@ -70,6 +72,17 @@ function NodeItem({ view, root = false, selected, tabStop, onSelect, onFocusNode
       <span class="muted">${view.elapsed}</span>
     </div>
     <div class="at-node-tokens small muted">${view.tokens}</div>
+  </div>`;
+}
+
+// A bar for the share of the workers' tokens of one level; the figure is written, the bar only helps.
+function LevelBar({ share }) {
+  const text = share.percent === null
+    ? t("agent_tree.bar.no_data")
+    : t("agent_tree.bar.share", { value: share.percent }) + (share.partial ? " · " + t("agent_tree.stats.partial") : "");
+  return html`<div class="at-bar-row" title=${t("agent_tree.bar.help")}>
+    <span class="at-bar" aria-hidden="true">${share.percent !== null && html`<span class=${"at-bar-fill lv-" + share.level + " at-w-" + share.step}></span>`}</span>
+    <span class="at-bar-text small muted">${text}</span>
   </div>`;
 }
 
@@ -118,7 +131,15 @@ export function AgentTree({ token, sessionId }) {
     try {
       const [session, result] = await Promise.all([apiGet(sessionPath(sessionId), token), apiGet(sessionPath(sessionId, "/children"), token)]);
       if (!alive.current || mine !== ticket.current) return;
-      const next = result.children || [];
+      let next = result.children || [];
+      // A framework run whose reader lists no steps: draw them from the run itself (the answer the run panel already loads).
+      if (next.length === 0 && sessionId.startsWith(FRAMEWORK_PREFIX)) {
+        try {
+          const run = await apiGet("/gui/api/runs/" + encodeURIComponent(sessionId.slice(FRAMEWORK_PREFIX.length)), token);
+          if (!alive.current || mine !== ticket.current) return;
+          next = runStepChildren(run);
+        } catch (failure) { /* the tree stays as the reader gave it */ }
+      }
       const after = snapshot(next);
       if (seen.current) {
         const lines = diffSnapshots(seen.current, after);
@@ -189,6 +210,8 @@ export function AgentTree({ token, sessionId }) {
   const shown = filterChildren(children, onlyActive);
   const grouped = groupByLevel(shown);
   const counts = countStatuses(children);
+  const stats = headerTexts(headerStats(children, summary));
+  const shares = new Map(levelShares(children).map((share) => [share.level, share]));
   const ids = visibleOrder(grouped);
   const tabStop = ids.includes(focused) ? focused : ROOT_ID;
   const byId = new Map(children.map((child) => [child.id, child]));
@@ -240,10 +263,15 @@ export function AgentTree({ token, sessionId }) {
         <p class="muted small at-meta">${meta}</p>
       </div>
       <div class="header-tools">
-        <a class="btn secondary" href=${routeHref("sessions", sessionId)} ...${helpFor("agent_tree.back")}>${t("agent_tree.back")}</a>
+        <a class="btn secondary" href=${routeHref("sessions", (summary && summary.parent_id) || sessionId)} ...${helpFor("agent_tree.back")}>${t("agent_tree.back_orchestrator")}</a>
         <${Help} topic="agent_tree.back" compact=${true} />
       </div>
     </header>
+    <dl class="at-stats" aria-label=${t("agent_tree.stats.title")}>
+      <div class="at-stat" title=${t("agent_tree.stats.active_help")}><dt>${t("agent_tree.stats.active")}</dt><dd>${stats.active}</dd></div>
+      <div class="at-stat" title=${t("agent_tree.stats.tokens_help")}><dt>${t("agent_tree.stats.tokens")}</dt><dd>${stats.tokens}</dd></div>
+      <div class="at-stat" title=${t("agent_tree.stats.cache_help")}><dt>${t("agent_tree.stats.cache")}</dt><dd>${stats.cache}</dd></div>
+    </dl>
     <div class="at-toolbar">
       <p class="at-counts" role="status" aria-live="polite">
         <span class="at-count">${t("agent_tree.count.active")} · ${counts.active}</span>
@@ -263,6 +291,7 @@ export function AgentTree({ token, sessionId }) {
           <${NodeItem} view=${rootView} root=${true} ...${nodeProps(ROOT_ID)} />
           ${ALL_LEVELS.map((level) => grouped[level].length > 0 && html`<div key=${level} role="group" class="at-level" aria-labelledby=${"at-level-" + level}>
             <h4 id=${"at-level-" + level}>${levelHeading(level, grouped[level].length)}</h4>
+            ${shares.has(level) && html`<${LevelBar} share=${shares.get(level)} />`}
             ${grouped[level].map((child) => html`<${NodeItem} key=${child.id} view=${describeNode(child, now)} ...${nodeProps(child.id)} />`)}
           </div>`)}
         </div>
