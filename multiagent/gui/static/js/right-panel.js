@@ -8,12 +8,14 @@
 // GUI3-T04: a card is drawn by its mode (Automatic, Always, Never, context-model.js) and by what it reported; a card
 // that is not drawn stays in the DOM, hidden, so it keeps loading its data and the dot beside Context knows about it.
 import { html, useEffect, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
-import { anyContent, ownContents, sameContent, shownCards } from "./context-model.js";
+import { anyContent, groupShown, ownContents, sameContent, shownCards } from "./context-model.js";
+import { contextWhere } from "./context-where.js";
 import { Help } from "./help.js";
 import { usePanelData } from "./panel-data.js";
 import { t } from "./i18n.js";
 import { subjectOf } from "./panel-model.js";
 import { ChangesSlot, SourcesSlot, SubagentsSlot, TokensSlot, registeredSlots } from "./panel-slots.js";
+import { currentMode } from "./gui-mode.js";
 import { onChoiceChange, readCardModes } from "./shell-state.js";
 
 const OWN_CARDS = [{ name: "changes" }, { name: "subagents" }, { name: "tokens" }, { name: "sources" }];
@@ -24,6 +26,13 @@ function ExtraSection({ entry, slot, shown, onContent }) {
   return html`<section class="rp-section" aria-labelledby=${titleId} hidden=${!shown}>
     <div class="rp-head"><h3 id=${titleId}>${entry.title}</h3>${entry.topic && html`<${Help} topic=${entry.topic} compact=${true} />`}</div>
     <div class="slot" data-slot=${entry.name}><${entry.component} ...${slot} onContent=${onContent} /></div>
+  </section>`;
+}
+
+function ContextGroup({ title, shown, children }) {
+  return html`<section class="rp-section rp-group" aria-label=${title} hidden=${!shown}>
+    <div class="rp-head"><h3>${title}</h3></div>
+    ${children}
   </section>`;
 }
 
@@ -48,26 +57,39 @@ export function RightPanel({ token, route, onDot }) {
   const [modes, setModes] = useState(() => readCardModes());   // «Personalizar» changes them (GUI3-T07)
   useEffect(() => onChoiceChange((change) => { if (change.modes) setModes(change.modes); }), []);
   const shown = shownCards(cards, modes, contents);
+  const where = contextWhere(subject, data);
   const dot = Boolean(subject) && anyContent(cards, modes, contents);
   useEffect(() => { if (typeof onDot === "function") onDot(dot); }, [dot]);
-  return html`<div class="rp">
+  return html`<div class="rp" data-mode=${currentMode()}>
     <h2 class="sr-only">${t("panel.context")}</h2>
-    <section class="rp-section" aria-labelledby="panel-changes-title" hidden=${!shown.changes}>
-      <div class="rp-head"><h3 id="panel-changes-title">${t("panel.changes_heading")}</h3><${Help} topic="panel.changes" compact=${true} /></div>
-      <${ChangesSlot} ...${slot} />
-    </section>
-    <section class="rp-section" aria-labelledby="panel-subagents-title" hidden=${!shown.subagents}>
-      <div class="rp-head"><h3 id="panel-subagents-title">${t("panel.subagents_heading")}</h3><${Help} topic="subagents.panel" compact=${true} /></div>
-      <${SubagentsSlot} ...${slot} onContent=${reporter("subagents")} />
-    </section>
-    <section class="rp-section" aria-labelledby="panel-tokens-title" hidden=${!shown.tokens}>
-      <div class="rp-head"><h3 id="panel-tokens-title">${t("panel.tokens_heading")}</h3><${Help} topic="panel.tokens" compact=${true} /></div>
-      <${TokensSlot} ...${slot} />
-    </section>
-    <section class="rp-section" aria-labelledby="panel-sources-title" hidden=${!shown.sources}>
-      <div class="rp-head"><h3 id="panel-sources-title">${t("panel.sources_heading")}</h3><${Help} topic="panel.sources" compact=${true} /></div>
-      <${SourcesSlot} ...${slot} />
-    </section>
+    <${ContextGroup} title=${t("panel.where_heading")} shown=${where.length > 0}>
+      <dl class="rp-where">
+        ${where.map((row) => html`<div class="rp-where-row" key=${row.label}><dt>${row.label}</dt><dd>${row.value}</dd></div>`)}
+      </dl>
+    <//>
+    <${ContextGroup} title=${t("panel.conversation_heading")} shown=${groupShown(shown, ["tokens"])}>
+      <div class="rp-card" aria-labelledby="panel-tokens-title" hidden=${!shown.tokens}>
+        <div class="rp-card-head"><h4 id="panel-tokens-title">${t("panel.tokens_heading")}</h4><${Help} topic="panel.tokens" compact=${true} /></div>
+        <${TokensSlot} ...${slot} />
+      </div>
+    <//>
+    <${ContextGroup} title=${t("panel.outputs_heading")} shown=${groupShown(shown, ["changes", "sources"])}>
+      <div class="rp-card" aria-labelledby="panel-changes-title" hidden=${!shown.changes}>
+        <div class="rp-card-head"><h4 id="panel-changes-title">${t("panel.changes_heading")}</h4><${Help} topic="panel.changes" compact=${true} /></div>
+        <${ChangesSlot} ...${slot} />
+      </div>
+      <div class="rp-card" aria-labelledby="panel-sources-title" hidden=${!shown.sources}>
+        <div class="rp-card-head"><h4 id="panel-sources-title">${t("panel.sources_heading")}</h4><${Help} topic="panel.sources" compact=${true} /></div>
+        <${SourcesSlot} ...${slot} />
+      </div>
+    <//>
+    <${ContextGroup} title=${t("panel.in_progress_heading")} shown=${groupShown(shown, ["subagents"])}>
+      <div class="rp-card" aria-labelledby="panel-subagents-title" hidden=${!shown.subagents}>
+        <div class="rp-card-head"><h4 id="panel-subagents-title">${t("panel.subagents_heading")}</h4><${Help} topic="subagents.panel" compact=${true} /></div>
+        <${SubagentsSlot} ...${slot} onContent=${reporter("subagents")} />
+      </div>
+      <div class="rp-progress-slot" aria-hidden="true"></div>
+    <//>
     ${extra.map((entry) => html`<${ExtraSection} key=${entry.name} entry=${entry} slot=${slot} shown=${shown[entry.name]} onContent=${reporter(entry.name)} />`)}
   </div>`;
 }

@@ -187,10 +187,17 @@ def test_sidebar_has_new_session_search_groups_and_readable_status():
 
 def test_right_panel_has_the_four_sections_and_a_named_slot_for_subagents():
     panel = read("right-panel.js")
-    titles = re.findall(r'<h3 id="(panel-[a-z]+-title)">([^<]+)</h3>', panel)
-    assert titles == [("panel-changes-title", "Cambios"), ("panel-subagents-title", "Subagentes"),
-                      ("panel-tokens-title", "Tokens"), ("panel-sources-title", "Fuentes")]
-    assert len(re.findall(r'<section class="rp-section" aria-labelledby="panel-[a-z]+-title" hidden=\$\{!shown\.[a-z]+\}>', panel)) == 4
+    groups = re.findall(r'<\$\{ContextGroup\} title="([^"]+)"', panel)
+    assert groups == ["Dónde", "Esta conversación", "Salidas", "En curso"]
+    titles = re.findall(r'<h4 id="(panel-[a-z]+-title)">([^<]+)</h4>', panel)
+    assert titles == [
+        ("panel-tokens-title", "Tokens"),
+        ("panel-changes-title", "Cambios"),
+        ("panel-sources-title", "Fuentes"),
+        ("panel-subagents-title", "Subagentes"),
+    ]
+    assert panel.count("<${ContextGroup}") == 4
+    assert len(re.findall(r'<div class="rp-card" aria-labelledby="panel-[a-z]+-title" hidden=\$\{!shown\.[a-z]+\}>', panel)) == 4
     slots = read("panel-slots.js")
     assert re.search(r'id="subagents-slot" class="slot" data-slot="subagents"', slots)
     for slot in ("ChangesSlot", "SubagentsSlot", "TokensSlot", "SourcesSlot"):
@@ -202,8 +209,8 @@ def test_right_panel_has_the_four_sections_and_a_named_slot_for_subagents():
 
 def test_the_subagents_panel_is_inside_its_section_and_there_is_one_right_panel_only():
     panel, slots, mount = read("right-panel.js"), read("panel-slots.js"), read("subagents-mount.js")
-    # the section «Subagentes» holds the slot, the slot holds the mount, the mount holds the T04 panel
-    section = panel[panel.index('aria-labelledby="panel-subagents-title"'):panel.index('aria-labelledby="panel-tokens-title"')]
+    # the «En curso» group holds the subagents card, slot, mount, and T04 panel
+    section = panel[panel.index('aria-labelledby="panel-subagents-title"'):panel.index("rp-progress-slot")]
     assert "<${SubagentsSlot} ...${slot}" in section and 'topic="subagents.panel"' in section
     assert "<${SubagentsMount} token=${token} openId=${sessionId} onContent=${onContent} />" in slots
     assert "<${SubagentsPanel}" in mount and "export function SubagentsMount" in mount

@@ -72,6 +72,12 @@ export default {
   "panel.subagents_heading": "Subagentes",
   "panel.tokens_heading": "Tokens",
   "panel.sources_heading": "Fuentes",
+  "panel.where_heading": "Dónde",
+  "panel.conversation_heading": "Esta conversación",
+  "panel.outputs_heading": "Salidas",
+  "panel.in_progress_heading": "En curso",
+  "panel.where_app": "Aplicación",
+  "panel.simple_tokens_line": "Total: {total} · Costo estimado: {cost}",
 
   "panel.unknown": "desconocido",
   "panel.edit_one": "edición",

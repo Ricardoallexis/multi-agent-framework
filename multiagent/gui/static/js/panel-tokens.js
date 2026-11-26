@@ -70,8 +70,9 @@ export function TokensPanel({ token, subject }) {
   const { orchestrator, workers, cost } = model;
   const run = model.kind === "run";
   const totalText = tokensLine(model.total) + (model.total && model.incomplete ? t("panel.incomplete") : "");
-  return html`<div class="ctx">
-    <p class="ctx-summary" role="status" aria-live="polite">${t("panel.total_heading")}${totalText}</p>
+  return html`<div class="ctx ctx-tokens">
+    <p class="ctx-summary ctx-summary-advanced" role="status" aria-live="polite">${t("panel.total_heading")}${totalText}</p>
+    <p class="ctx-summary ctx-summary-simple" role="status" aria-live="polite">${t("panel.simple_tokens_line", { total: totalText, cost: costText(cost) })}</p>
     <ul class="ctx-list" aria-label=${t("panel.tokens_aria")}>
       <${Part} name=${orchestrator.label}
         detail=${orchestrator.noModel ? t("panel.no_model_call") : orchestrator.models.join(", ") || t("panel.no_model_reported")}

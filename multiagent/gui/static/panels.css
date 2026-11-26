@@ -66,3 +66,20 @@
 .quota-detail { margin: 4px 0 0; color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
 .limits-popover .btn.text { width: 100%; }
 .limit-chip:focus-visible, .limits-popover .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* GUI4-T09: group the existing context cards without unmounting their data loaders. */
+.rp-card:not([hidden]) ~ .rp-card:not([hidden]) { margin-top: 12px; }
+.rp-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.rp-card-head h4 { flex: 1 1 auto; min-width: 0; margin: 0; font-size: .875rem; font-weight: 600; }
+.rp-where { margin: 0; }
+.rp-where-row { display: flex; flex-wrap: wrap; gap: 4px 8px; min-width: 0; padding: 8px 0; border-top: 1px solid var(--line); }
+.rp-where-row dt { color: var(--muted); font-size: .8125rem; }
+.rp-where-row dd { flex: 1 1 auto; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.rp-progress-slot { min-width: 0; }
+.ctx-summary-simple { display: none; }
+.rp[data-mode="simple"] .ctx-summary-advanced,
+.rp[data-mode="simple"] .ctx-tokens > .ctx-list,
+.rp[data-mode="simple"] .ctx-tokens > .ctx-cost,
+.rp[data-mode="simple"] .ctx-tokens > .ctx-note,
+.rp[data-mode="simple"] .ctx-tokens > .ctx-details-row { display: none; }
+.rp[data-mode="simple"] .ctx-summary-simple { display: block; }

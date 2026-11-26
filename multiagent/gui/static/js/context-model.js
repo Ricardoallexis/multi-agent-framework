@@ -58,6 +58,10 @@ export function shownCards(cards, modes, contents) {
   return shown;
 }
 
+export function groupShown(shown, names) {
+  return names.some((name) => Boolean(shown && shown[name]));
+}
+
 // The dot beside «Contexto»: some card that is drawn has something to show (an empty card drawn by «Siempre» does not count).
 export function anyContent(cards, modes, contents) {
   const shown = shownCards(cards, modes, contents);
