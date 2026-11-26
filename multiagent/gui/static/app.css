@@ -920,3 +920,12 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .palette-group + .palette-group { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
 .palette-group-title, .palette-subgroup { display: block; min-width: 0; padding: 4px 12px; overflow-wrap: anywhere; font-weight: 600; }
 .palette-subgroup { padding-top: 2px; font-weight: 500; }
+
+/* GUI4-T12 */
+.hover-hint { position: fixed; z-index: 60; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; max-width: min(20rem, calc(100vw - 16px));
+  padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); color: var(--text); box-shadow: var(--shadow);
+  font-size: .8125rem; overflow-wrap: anywhere; }
+.hover-hint { right: auto; bottom: auto; margin: 0; overflow: visible; } /* as a popover the UA centres it: the JS sets left and top */
+.hover-hint[hidden] { display: none; }
+.hover-hint-title { font-weight: 600; }
+.hover-hint-text { color: var(--muted); }
