@@ -83,3 +83,16 @@
 .rp[data-mode="simple"] .ctx-tokens > .ctx-note,
 .rp[data-mode="simple"] .ctx-tokens > .ctx-details-row { display: none; }
 .rp[data-mode="simple"] .ctx-summary-simple { display: block; }
+
+/* AVZ-T04: the small bar of the «En curso» group of «Contexto» (SegmentBar, js/segment-bar.js), with the same rules as the thread's. */
+.rp-segbar { display: flex; gap: 2px; min-width: 0; height: 8px; }
+.rp-segbar > [data-state] { flex: 1 1 0; min-width: 1px; border: 1px solid var(--tone, var(--muted)); border-radius: 2px; background: var(--tone, var(--muted)); }
+.rp-segbar > [data-state="todo"], .rp-segbar > [data-state="ready"], .rp-segbar > [data-state="pending"],
+.rp-segbar > [data-state="queued"], .rp-segbar > [data-state="not_run"], .rp-segbar > [data-state="will_skip"] { background: transparent; }
+.rp-progress-line { margin: 4px 0 0; overflow-wrap: anywhere; }
+.rp-card ~ .rp-progress-slot { margin-top: 12px; }
+@media (forced-colors: active) {
+  .rp-segbar > [data-state] { border-color: CanvasText; background: Highlight; }
+  .rp-segbar > [data-state="todo"], .rp-segbar > [data-state="ready"], .rp-segbar > [data-state="pending"],
+  .rp-segbar > [data-state="queued"], .rp-segbar > [data-state="not_run"], .rp-segbar > [data-state="will_skip"] { background: Canvas; }
+}

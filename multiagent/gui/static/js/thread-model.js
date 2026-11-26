@@ -3,6 +3,8 @@
 // Pure run-thread state. A poll overlaps the last seq because synthetic entries may share it.
 
 import { routeHref } from "./route.js";
+import { t } from "./i18n.js";
+import { TASK_STATE_TEXT } from "./plan-card-model.js";
 
 export const POLL_MS = 4000;
 export const createThread = () => ({ entries: [], cursor: 0, status: "", loaded: false });
@@ -288,4 +290,156 @@ export function acpStartFailure(failure) {
   }
   if (failure && failure.status === 404) return { unavailable: false, reason: "not_found", titleKey: "", textKey: "thread.acp.start.not_found", message: "" };
   return { unavailable: false, reason: "failed", titleKey: "", textKey: "thread.acp.start.failed", message: (failure && failure.message) || "" };
+}
+
+// AVZ-T04: the data of the progress bar the run thread, the plan thread and the «En curso» group of «Contexto» share. Everything
+// comes from what the view already loaded (the steps of a run, the task runs of a plan, the counts of a project); a bar with
+// fewer than two pieces says nothing and is not drawn, and a missing list gives no bar, never an invented percentage. Each
+// builder returns null or { segments, summary, line, total, done }: `segments` go to SegmentBar (segment-bar.js), `summary` is
+// its sentence for a screen reader and `line` the text under the bar. The state is always written in words.
+const STEP_TONE = { done: "success", skipped: "muted", will_skip: "warning", waiting_review: "warning", waiting_human: "warning",
+  running: "active", queued: "muted", pending: "muted", failed: "danger", not_run: "muted" };
+const STEP_ACTIVE = ["running", "queued", "waiting_review", "waiting_human", "failed"];
+const STEP_PASSIVE = ["done", "skipped", "will_skip"];
+const MIN_PIECES = 2;
+const MAX_PIECES = 60;
+
+// The keys are held here, not written in the calls, so the model stays a pure module whose source holds no dictionary text.
+const KEYS = { step: "thread.progress.step", stepsDone: "thread.progress.done", tasksDone: "plans.thread.progress.done",
+  noState: "plans.taskRun.noState", taskState: "panel.progress.task.", stepState: "common.status.step." };
+const stepText = (state) => t(KEYS.stepState + state + ".label");
+const extrasOf = (pieces, skip) => {
+  const found = new Map();
+  for (const piece of pieces) if (!skip.includes(piece.state)) found.set(piece.state, { text: piece.text, count: (found.get(piece.state)?.count || 0) + 1 });
+  return [...found.values()].map(({ text, count }) => count + " " + text);
+};
+
+// The steps of a run as the thread knows them. `steps` is the last list of the run view; the thread only re-reads it while the run waits
+// or fails, so what the thread heard since brings it up to date. A step that was waiting counts as done in two cases only:
+//   - the thread heard a completed message of that step AFTER its last wait (the first attempt of a step reports completed before its
+//     review wait, so an older one proves nothing; a wait without a step id, such as the budget one, belongs to the step the list had
+//     waiting, and when that is not one step the answer is unknown);
+//   - the person approved, in this thread and in that very wait, a review of what the step had already produced («waiting_review»).
+// Approving a wait that comes before the step runs («waiting_human») leaves it running until its completed message arrives; asking
+// for changes leaves it running too. `decisions` maps a step id to { wait_seq, choice } (the seq of the wait that was decided,
+// "approve" or "changes"); a decision about an older wait says nothing about a later one. When the step may be running again and
+// nothing says so, the list is empty: no bar says less than a wrong one.
+export function liveSteps(steps, entries = [], status = "", decisions = {}) {
+  if (!Array.isArray(steps)) return [];
+  const lastWait = new Map();
+  const completedAt = new Map();
+  const anonymous = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!entry) continue;
+    const seq = Number(entry.seq) || 0;
+    if (entry.kind === "waiting" && !entry.step_id) anonymous.push(seq);
+    if (!entry.step_id) continue;
+    if (entry.kind === "waiting") lastWait.set(entry.step_id, Math.max(lastWait.get(entry.step_id) ?? -1, seq));
+    else if (entry.kind === "step" && entry.status === "completed") completedAt.set(entry.step_id, Math.max(completedAt.get(entry.step_id) ?? -1, seq));
+  }
+  const listed = steps.filter((step) => step && typeof step.id === "string" && step.id);
+  const waitingIds = listed.filter((step) => step.state === "waiting_review" || step.state === "waiting_human").map((step) => step.id);
+  let unknown = false;
+  const anonymousLast = anonymous.length ? Math.max(...anonymous) : -1;
+  if (waitingIds.length > 1 && anonymous.length && status !== "waiting_human") unknown = true;   // whose wait is it? nobody knows
+  const waitOf = (id) => {
+    const named = lastWait.get(id) ?? -1;
+    return waitingIds.length === 1 && waitingIds[0] === id && status !== "waiting_human" ? Math.max(named, anonymousLast) : named;
+  };
+  const proven = (id) => completedAt.has(id) && completedAt.get(id) > waitOf(id);
+  const choice = decisions && typeof decisions === "object" ? decisions : {};
+  const ended = ["cancelled", "rejected"].includes(status);
+  const live = listed.map((step) => {
+    let state = Object.prototype.hasOwnProperty.call(STEP_TONE, step.state) ? step.state : "pending";
+    const waiting = state === "waiting_review" || state === "waiting_human";
+    if (state === "will_skip") {
+      if (ended) state = "not_run";
+      else if (status === "completed") state = "skipped";
+    } else if (waiting && status !== "waiting_human") {
+      const decision = choice[step.id];
+      const valid = Boolean(decision) && lastWait.has(step.id) && decision.wait_seq === waitOf(step.id);   // about this very wait
+      if (proven(step.id) || status === "completed") state = "done";
+      else if (ended) state = "not_run";
+      else if (valid && decision.choice === "approve" && state === "waiting_review") state = "done";
+      else if (valid && decision.choice === "approve") state = status === "queued" ? "queued" : "running";   // approved to run: not finished
+      else if (valid && decision.choice === "changes") state = "running";
+      else unknown = true;
+    } else if (!waiting && !STEP_PASSIVE.includes(state) && state !== "failed" && proven(step.id)) {
+      state = "done";
+    } else if (ended && !waiting && !STEP_PASSIVE.includes(state) && state !== "failed") {
+      state = "not_run";
+    }
+    return { id: step.id, state };
+  });
+  if (unknown) return [];
+  if ((status === "running" || status === "queued") && !live.some((step) => ["running", "queued", "failed"].includes(step.state))) {
+    const next = live.find((step) => !STEP_PASSIVE.includes(step.state) && step.state !== "not_run");
+    if (next) next.state = status;
+  }
+  return live;
+}
+
+// The wait a decision is about: the seq of the last wait the thread heard for that step (null when it heard none).
+export function waitSeqOf(entries, stepId) {
+  const seqs = (Array.isArray(entries) ? entries : []).filter((entry) => entry && entry.kind === "waiting" && entry.step_id === stepId)
+    .map((entry) => Number(entry.seq) || 0);
+  return seqs.length ? Math.max(...seqs) : null;
+}
+
+export function stepBar(steps, entries = [], status = "", decisions = {}) {
+  const live = liveSteps(steps, entries, status, decisions);
+  if (live.length < MIN_PIECES) return null;
+  const segments = live.map((step) => ({ id: step.id, state: step.state, tone: STEP_TONE[step.state], text: stepText(step.state) }));
+  const done = live.filter((step) => step.state === "done").length;
+  const at = live.findIndex((step) => STEP_ACTIVE.includes(step.state));
+  const doneLine = t(KEYS.stepsDone, { done, total: live.length });
+  const line = at < 0 ? doneLine : t(KEYS.step, { current: at + 1, total: live.length })
+    + (["running", "queued"].includes(live[at].state) ? "" : " · " + segments[at].text);
+  return { segments, summary: [doneLine, ...extrasOf(segments, ["done", "pending"])].join(", "), line, total: live.length, done };
+}
+
+// A plan: a piece per task once the plan is approved (its «task_run» messages carry the state). A cancelled task does not count.
+const PLAN_STATE = { accepted: ["done", "success"], failed: ["failed", "danger"], running: ["doing", "active"], claimed: ["doing", "active"],
+  validating: ["doing", "active"], paused: ["paused", "warning"], submitted: ["review", "attention"], needs_changes: ["changes", "warning"],
+  blocked: ["blocked", "warning"], ready: ["ready", "info"] };
+
+export function planBar(entries) {
+  const runs = (Array.isArray(entries) ? entries : []).filter((entry) => entry && entry.kind === "task_run" && entry.state !== "cancelled");
+  if (runs.length < MIN_PIECES) return null;
+  const segments = runs.map((entry) => {
+    const [state, tone] = PLAN_STATE[entry.state] || ["todo", "neutral"];
+    return { id: entry.task_id || entry.seq, state, tone, text: TASK_STATE_TEXT[entry.state] || t(KEYS.noState) };
+  });
+  const done = segments.filter((piece) => piece.state === "done").length;
+  const doneLine = t(KEYS.tasksDone, { done, total: segments.length });
+  const extras = extrasOf(segments, ["done", "doing", "ready", "todo"]);
+  return { segments, summary: [doneLine, ...extras].join(", "), line: extras.length ? doneLine + " · " + extras.join(", ") : doneLine,
+    total: segments.length, done };
+}
+
+// A project of the list of «Proyectos»: it only carries how many tasks have each label, so the pieces are drawn in groups, finished
+// first. A cancelled task does not count. Above MAX_PIECES the groups keep their share of the pieces (at least one each).
+const COUNT_ORDER = [["done", "success"], ["doing", "active"], ["review", "attention"], ["changes", "warning"], ["failed", "danger"],
+  ["blocked", "warning"], ["ready", "info"], ["todo", "neutral"]];
+
+export function countPieces(counts) {
+  const source = counts && typeof counts === "object" ? counts : {};
+  const groups = COUNT_ORDER.map(([key, tone]) => ({ key, tone, count: Number.isInteger(source[key]) && source[key] > 0 ? source[key] : 0 }))
+    .filter((group) => group.count > 0);
+  const total = groups.reduce((sum, group) => sum + group.count, 0);
+  if (total < MIN_PIECES) return null;
+  const slots = groups.map((group) => (total <= MAX_PIECES ? group.count : Math.max(1, Math.floor((group.count * MAX_PIECES) / total))));
+  for (let over = slots.reduce((sum, count) => sum + count, 0) - MAX_PIECES; over > 0; over -= 1) {
+    slots[slots.indexOf(Math.max(...slots))] -= 1;   // the biggest group gives the pieces back, as condense() does in «Proyectos»
+  }
+  const segments = [];
+  groups.forEach((group, at) => {
+    const text = t(KEYS.taskState + group.key);
+    for (let index = 0; index < slots[at]; index += 1) segments.push({ id: group.key + index, state: group.key, tone: group.tone, text });
+  });
+  const done = groups.find((group) => group.key === "done")?.count || 0;
+  const doneLine = t(KEYS.tasksDone, { done, total });
+  const extras = groups.filter((group) => ["review", "changes", "failed", "blocked"].includes(group.key))
+    .map((group) => group.count + " " + t(KEYS.taskState + group.key));
+  return { segments, summary: [doneLine, ...extras].join(", "), line: doneLine, total, done };
 }

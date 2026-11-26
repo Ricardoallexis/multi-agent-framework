@@ -171,4 +171,5 @@ export default {
   "plans.thread.refresh": "Actualizar",
   "plans.thread.readProposalError": "No se pudo leer la propuesta",
   "plans.thread.loadingProposal": "Cargando la propuesta…",
+  "plans.thread.progress.done": "{done} de {total} tareas hechas",
 };

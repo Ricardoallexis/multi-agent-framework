@@ -14,6 +14,8 @@ import { Help } from "./help.js";
 import { usePanelData } from "./panel-data.js";
 import { t } from "./i18n.js";
 import { subjectOf } from "./panel-model.js";
+import { SegmentBar } from "./segment-bar.js";   // AVZ-T04
+import { stepBar } from "./thread-model.js";
 import { ChangesSlot, SourcesSlot, SubagentsSlot, TokensSlot, registeredSlots } from "./panel-slots.js";
 import { currentMode } from "./gui-mode.js";
 import { onChoiceChange, readCardModes } from "./shell-state.js";
@@ -58,6 +60,7 @@ export function RightPanel({ token, route, onDot }) {
   useEffect(() => onChoiceChange((change) => { if (change.modes) setModes(change.modes); }), []);
   const shown = shownCards(cards, modes, contents);
   const where = contextWhere(subject, data);
+  const bar = subject && subject.kind === "run" && data && data.run ? stepBar(data.run.steps, [], data.run.status) : null;   // AVZ-T04: what the run view already loaded
   const dot = Boolean(subject) && anyContent(cards, modes, contents);
   useEffect(() => { if (typeof onDot === "function") onDot(dot); }, [dot]);
   return html`<div class="rp" data-mode=${currentMode()}>
@@ -83,12 +86,15 @@ export function RightPanel({ token, route, onDot }) {
         <${SourcesSlot} ...${slot} />
       </div>
     <//>
-    <${ContextGroup} title=${t("panel.in_progress_heading")} shown=${groupShown(shown, ["subagents"])}>
+    <${ContextGroup} title=${t("panel.in_progress_heading")} shown=${groupShown(shown, ["subagents"]) || Boolean(bar)}>
       <div class="rp-card" aria-labelledby="panel-subagents-title" hidden=${!shown.subagents}>
         <div class="rp-card-head"><h4 id="panel-subagents-title">${t("panel.subagents_heading")}</h4><${Help} topic="subagents.panel" compact=${true} /></div>
         <${SubagentsSlot} ...${slot} onContent=${reporter("subagents")} />
       </div>
-      <div class="rp-progress-slot" aria-hidden="true"></div>
+      ${bar ? html`<div class="rp-progress-slot">
+        <${SegmentBar} segments=${bar.segments} summary=${bar.summary} className="rp-segbar" />
+        <p class="rp-progress-line muted small">${bar.line}</p></div>`
+        : html`<div class="rp-progress-slot" aria-hidden="true"></div>`}
     <//>
     ${extra.map((entry) => html`<${ExtraSection} key=${entry.name} entry=${entry} slot=${slot} shown=${shown[entry.name]} onContent=${reporter(entry.name)} />`)}
   </div>`;

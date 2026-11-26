@@ -12,6 +12,8 @@ import { errorText } from "./text.js";
 import { readable } from "./readable.js";
 import { ReadableValue } from "./thread-cards.js";
 import { approveBlock, decisionActions, decisionFailure, decisionRevision, inputsValue, missingTeam, planStatusText, taskRunLine } from "./plan-card-model.js";
+import { SegmentBar } from "./segment-bar.js";   // AVZ-T04
+import { planBar } from "./thread-model.js";
 import { t } from "./i18n.js";
 
 const PLAN_ROUTES = "/gui/api/plan-proposals/";
@@ -175,10 +177,14 @@ export function PlanThread({ token, proposalId }) {
     const timer = setInterval(load, 4000);
     return () => { ticket.current += 1; clearInterval(timer); };
   }, [proposalId, token]);
+  const bar = planBar(state.entries);   // AVZ-T04: from the thread the 4 s read already brings
   return html`<section class="ns thread-view" aria-label=${t("plans.thread.threadLabel")}>
     <div class="thread-head"><h3>${t("plans.thread.proposal")}</h3><span class="muted">${proposalId}</span>
       <button type="button" class="btn secondary" ...${helpFor("plan_card.refresh")} onClick=${load}>${t("plans.thread.refresh")}</button>
       <${Help} topic="plan_card.refresh" compact=${true} /></div>
+    ${bar && html`<div class="thread-progress">
+      <${SegmentBar} segments=${bar.segments} summary=${bar.summary} className="thread-segbar" />
+      <p class="thread-progress-line muted small">${bar.line}</p></div>`}
     ${state.error && html`<p class="message error" role="alert">${t("plans.thread.readProposalError")}: ${errorText(state.error)}</p>`}
     ${!state.loaded && html`<p class="muted" aria-busy="true">${t("plans.thread.loadingProposal")}</p>`}
     <ol class="thread-list" aria-label=${t("plans.thread.proposal")}>

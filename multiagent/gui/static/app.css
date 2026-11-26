@@ -1007,3 +1007,17 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 @media (forced-colors: active) {
   .acp-card, .acp-pre, .acp-status { border: 1px solid CanvasText; }
 }
+
+/* AVZ-T04: the progress bar of the run thread and of the plan thread (SegmentBar, js/segment-bar.js). The pieces are equal; a piece
+   that has not started is an outline, so finished and not started differ by more than colour, and the line under the bar says the state. */
+.thread-progress { min-width: 0; margin: 8px 0; }
+.thread-segbar { display: flex; gap: 2px; min-width: 0; height: 10px; }
+.thread-segbar > [data-state] { flex: 1 1 0; min-width: 1px; border: 1px solid var(--tone, var(--muted)); border-radius: 2px; background: var(--tone, var(--muted)); }
+.thread-segbar > [data-state="todo"], .thread-segbar > [data-state="ready"], .thread-segbar > [data-state="pending"],
+.thread-segbar > [data-state="queued"], .thread-segbar > [data-state="not_run"], .thread-segbar > [data-state="will_skip"] { background: transparent; }
+.thread-progress-line { margin: 4px 0 0; overflow-wrap: anywhere; }
+@media (forced-colors: active) {
+  .thread-segbar > [data-state] { border-color: CanvasText; background: Highlight; }
+  .thread-segbar > [data-state="todo"], .thread-segbar > [data-state="ready"], .thread-segbar > [data-state="pending"],
+  .thread-segbar > [data-state="queued"], .thread-segbar > [data-state="not_run"], .thread-segbar > [data-state="will_skip"] { background: Canvas; }
+}

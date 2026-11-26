@@ -134,4 +134,12 @@ export default {
   "panel.no_model": "model not reported",
   "panel.orchestrator_run": "Orchestrator (workflow engine)",
   "panel.workers_steps": "Workers (steps)",
+  "panel.progress.task.done": "Done",
+  "panel.progress.task.doing": "In progress",
+  "panel.progress.task.review": "Waiting for your review",
+  "panel.progress.task.changes": "Changes requested",
+  "panel.progress.task.failed": "Failed",
+  "panel.progress.task.blocked": "Blocked",
+  "panel.progress.task.ready": "Ready",
+  "panel.progress.task.todo": "Not started",
 };

@@ -15,6 +15,8 @@ import { authHeaders } from "../../js/auth.js";
 import { t } from "../../js/i18n.js";
 import { navigate, routeHref } from "../../js/route.js";
 import { parseBlock } from "../../js/stream.js";
+import { SegmentBar } from "../../js/segment-bar.js";   // AVZ-T04
+import { countPieces } from "../../js/thread-model.js";
 import { Progress } from "../../js/ui/progress.js";
 import { Tabs } from "../../js/ui/tabs.js";
 import { HELP } from "./help.js";
@@ -384,9 +386,11 @@ export function ProjectSlot({ token, route, onContent }) {
   const chosen = projects.find((p) => p.id === pickProject(projects, route?.section === "project" ? route.id : ""));
   if (!chosen) return html`<p class="project-empty">${t("ext.project.empty.projects_short")}</p>`;
   const bar = progressOf(chosen.progress);
+  const pieces = countPieces(chosen.counts);   // AVZ-T04: the list already carries the counts per label; none, or fewer than two tasks, no bar
   return html`<div class="project-slot">
     <span class="project-title">${chosen.title || chosen.name || chosen.id}</span>
     <${Progress} label=${t("ext.project.progress.title")} value=${bar.value} max=${bar.max} valueText=${bar.valueText} />
+    ${pieces && html`<${SegmentBar} segments=${pieces.segments} summary=${pieces.summary} className="project-segbar project-segbar-small" />`}
     <p class="project-meta">${needsText(chosen.needs_you)}</p>
     <a class="btn secondary small" href=${routeHref("project", chosen.id)} ...${helpFor("project.open")}>${t("ext.project.open")}</a>
     <${Help} topic="project.open" compact=${true} />

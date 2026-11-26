@@ -10,13 +10,14 @@ import { AcpCard, ThreadCard } from "./thread-cards.js";
 import { authHeaders } from "./auth.js";
 import { parseBlock } from "./stream.js";
 import { DocumentCard } from "./document-card.js";
+import { SegmentBar } from "./segment-bar.js";   // AVZ-T04
 import { acpThreadHref } from "./route.js";
 import { currentMode } from "./gui-mode.js";   // SIM-T03
 import { POLL_MS, composerState, createThread, entryKey, groupThread, isNearEnd, isTerminal, mergeThread, pollAfter,
   nextFollowing, shouldFollow, SMOOTH_MS, tailKey, projectOf, shortcutsFor,
   ACP_START_PATH, acpConsentReadPath, acpStartBody, acpStartFailure, acpStartedId,
   acpComposerState, acpNeedsConsentNotice, acpPath, acpStreamPath, applyAcpStreamBlock, createAcpThread, groupAcpEvents, isAcpLost,
-  mergeAcpPage } from "./thread-model.js";
+  mergeAcpPage, stepBar, waitSeqOf } from "./thread-model.js";
 import { MESSAGE_KINDS, NEEDS_CONFIRMATION, messageError, messageId, messagePath } from "./inbox-model.js";
 import { t } from "./i18n.js";
 
@@ -70,6 +71,8 @@ export function RunThread({ token, runId }) {
   const [error, setError] = useState(null);
   const [reviewView, setReviewView] = useState(null);
   const [runLimit, setRunLimit] = useState(null);
+  const [decisions, setDecisions] = useState({});   // AVZ-T04: what this person decided in this thread, by step id
+  const [runSteps, setRunSteps] = useState(null);   // AVZ-T04: the last list of steps the thread read (the run view, while it waits or fails)
   const [busy, setBusy] = useState(false);
   const current = useRef(createThread());
   const ticket = useRef(0);
@@ -94,6 +97,7 @@ export function RunThread({ token, runId }) {
       setThread(current.current);
       setReviewView(page.status === "waiting_human" ? view : null);
       setRunLimit(view ? view.limit || null : null);
+      if (view && Array.isArray(view.steps)) setRunSteps(view.steps);
       setError(reviewFailure);
     } catch (failure) {
       if (request === ticket.current) setError(failure);
@@ -103,7 +107,7 @@ export function RunThread({ token, runId }) {
   }
 
   useEffect(() => {
-    current.current = createThread(); setThread(current.current); setReviewView(null); setRunLimit(null); setError(null);
+    current.current = createThread(); setThread(current.current); setReviewView(null); setRunLimit(null); setRunSteps(null); setDecisions({}); setError(null);
     load(true);
     const timer = setInterval(() => { if (!isTerminal(current.current.status)) load(); }, POLL_MS);
     const visible = () => { if (!document.hidden && !isTerminal(current.current.status)) load(); };
@@ -134,11 +138,16 @@ export function RunThread({ token, runId }) {
     settle.current = setTimeout(() => { if (endRef.current) following.current = isNearEnd(readPosition(scrollerOf(endRef.current))); }, SMOOTH_MS + 50);
   }, [thread.entries]);
 
-  async function act(action, body) {
+  async function act(action, body, where = null) {
     if (busy) return;
     setBusy(true); setError(null);
     try {
+      const stepId = (where && where.stepId) || reviewView?.waiting?.step_id || "";   // the card that decided, or the view of the wait
+      const waitSeq = where && Number.isFinite(where.waitSeq) ? where.waitSeq : waitSeqOf(thread.entries, stepId);
       await apiPost(runPath(runId, action), token, body);
+      if (stepId && waitSeq !== null && (action === "approve" || action === "changes")) {
+        setDecisions((previous) => ({ ...previous, [stepId]: { wait_seq: waitSeq, choice: action } }));   // tied to that wait
+      }
       await load(true);
     } catch (failure) {
       setError(failure);
@@ -146,22 +155,28 @@ export function RunThread({ token, runId }) {
     } finally { setBusy(false); }
   }
 
+  // AVZ-T04: the card that decides says which wait it decides (its step and its seq), so the decision is tied to it
+  const actFor = (entry) => (action, body) => act(action, body, { stepId: entry.step_id || entry.decision?.step_id || "", waitSeq: Number(entry.seq) });
+  const bar = stepBar(runSteps, thread.entries, thread.status, decisions);
   return html`<section class="ns thread-view" aria-label=${t("thread.title")}>
     <div class="thread-head"><h3>${t("thread.title")}</h3><span class="muted">${runId}</span>
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("thread.refresh")}
         onClick=${() => load(true)}>${t("thread.refresh")}</button><${Help} topic="thread.refresh" compact=${true} />
       <${Shortcuts} mode=${currentMode()} sessionId=${"framework:" + runId} project=${projectOf(reviewView) || projectOf(thread.entries.find((entry) => entry.kind === "launched"))} scope="run" /></div>
     <${Help} topic="thread.section" />
+    ${bar && html`<div class="thread-progress">
+      <${SegmentBar} segments=${bar.segments} summary=${bar.summary} className="thread-segbar" />
+      <p class="thread-progress-line muted small">${bar.line}</p></div>`}
     ${error && html`<p class="message error" role="alert">${t("thread.refresh.error", { message: errorText(error) })}</p>`}
     ${!thread.loaded && !error && html`<p class="muted" aria-busy="true">${t("thread.loading")}</p>`}
     <ol class="thread-list" role="log" aria-label=${t("thread.messages.aria")}>
       ${groupThread(thread.entries, thread.status).map((item) => item.type === "entry"
         ? html`<${ThreadCard} key=${entryKey(item.entry)} entry=${item.entry} status=${thread.status}
-          runId=${runId} token=${token} reviewView=${reviewView} busy=${busy} onAction=${act} limit=${runLimit} mode=${currentMode()} />`
+          runId=${runId} token=${token} reviewView=${reviewView} busy=${busy} onAction=${actFor(item.entry)} limit=${runLimit} mode=${currentMode()} />`
         : html`<li key=${item.key} class="thread-fold"><details class="thread-earlier-reviews">
           <summary>${t("thread.earlier_reviews")} (${item.entries.length})</summary>
           <ol class="thread-list">${item.entries.map((entry) => html`<${ThreadCard} key=${entryKey(entry)} entry=${entry}
-            status=${thread.status} runId=${runId} token=${token} reviewView=${null} busy=${busy} onAction=${act}
+            status=${thread.status} runId=${runId} token=${token} reviewView=${null} busy=${busy} onAction=${actFor(entry)}
             mode=${currentMode()} />`)}</ol></details></li>`)}
     </ol>
     ${currentMode() === "simple" && reviewView?.waiting?.reason === "execute_step" && html`

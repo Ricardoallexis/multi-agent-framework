@@ -142,4 +142,12 @@ export default {
   "help.panel.more": {"title":"Ver más o menos","hint":"Muestra el resto de la lista o la vuelve a plegar.","more":["La lista enseña primero los ocho elementos más recientes.","El botón despliega los demás y, una vez abierta la lista, vuelve a dejar solo los ocho primeros."]},
   "help.panel.by_model": {"title":"Tokens por modelo","hint":"Reparte los tokens entre los modelos que trabajaron.","more":["Agrupa a los trabajadores por modelo y nivel, con las llamadas o subagentes que tuvo cada uno.","Los que no informaron tokens se cuentan aparte, sin sumarlos como cero."]},
   "help.panel.cost_evidence": {"title":"Evidencia de precio","hint":"El precio por token con el que se calculó el costo.","more":["Para cada modelo se ve el precio de entrada y de salida, su fuente, desde y hasta cuándo vale y de dónde viene.","Si una llamada no tiene un precio vigente, su costo queda desconocido y no se suma.","El costo es una estimación: tokens por precio del catálogo, no un importe facturado."]},
+  "panel.progress.task.done": "Terminada",
+  "panel.progress.task.doing": "En curso",
+  "panel.progress.task.review": "Espera tu revisión",
+  "panel.progress.task.changes": "Cambios pedidos",
+  "panel.progress.task.failed": "Falló",
+  "panel.progress.task.blocked": "Bloqueada",
+  "panel.progress.task.ready": "Lista",
+  "panel.progress.task.todo": "Pendiente",
 };

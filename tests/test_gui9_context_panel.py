@@ -49,7 +49,7 @@ def test_context_groups_are_ordered_and_keep_the_existing_slots():
     assert '<${ChangesSlot} ...${slot} />' in panel and '<${SourcesSlot} ...${slot} />' in panel
     assert '<${TokensSlot} ...${slot} />' in panel
     assert 'shown=${groupShown(shown, ["changes", "sources"])}' in panel
-    assert 'shown=${groupShown(shown, ["subagents"])}' in panel
+    assert 'shown=${groupShown(shown, ["subagents"]) || Boolean(bar)}' in panel   # AVZ-T04: a run with steps draws its bar
 
 
 @needs_node

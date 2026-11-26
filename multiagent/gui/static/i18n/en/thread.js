@@ -171,5 +171,7 @@ export default {
   "thread.acp.reason.acp_area_required": "The server cannot confirm an office area for that package.",
   "thread.acp.reason.acp_session_limit": "Too many ACP conversations are open.",
   "thread.acp.reason.executor_paused_changed": "Codex ACP changed and is paused: activate it again.",
-  "thread.acp.reason.executor_stopped_by_person": "Codex ACP is paused because you turned all executors off."
+  "thread.acp.reason.executor_stopped_by_person": "Codex ACP is paused because you turned all executors off.",
+  "thread.progress.step": "Step {current} of {total}",
+  "thread.progress.done": "{done} of {total} steps done",
 };

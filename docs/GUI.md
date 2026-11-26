@@ -828,6 +828,20 @@ attention".
 image with a spoken summary, equal pieces, and the state also given in
 words.
 
+**Progress bar in threads and Context.** A run thread, a plan thread, the
+"In progress" group of the Context panel and the project card there use the
+same bar. It is drawn only from data the view already has, with at least two
+pieces; nothing is requested for it and no percentage is invented. Finished
+pieces are filled, pieces not started are outlined, and the line under the
+bar names the current step and its state ("Step 3 of 7 · Failed"). A plan
+thread has its bar once the plan is approved, one piece per task. A run
+thread reads its steps only when the run stops or fails, so a run that never
+stops has no bar in the thread, though Context still shows one. A step that
+had a stop counts as done only once it has finished after that stop, or when
+you approved its result in that thread; after a decision taken elsewhere the
+bar hides until the next stop. The project card counts tasks by state,
+finished ones first.
+
 **Cost and timeline.** The project Summary adds two figures, Tokens and API
 cost, summed from the calls the framework recorded for the project. A call
 that reported no tokens makes the figure "Partial", and a call with no price
