@@ -136,31 +136,50 @@ export function fmtJson(value) {
 }
 
 export function errorText(error) {
-  const details = error.details || {};
+  const details = error?.details || {};
+  const executor = ({ codex_cli: "Codex", claude_cli: "Claude", copilot_cli: "Copilot",
+    antigravity_cli: "Antigravity (agy)" })[details.executor_id] || details.executor_id || t("new_session.executor");
+  if (error?.code === "executable_not_found" || (details.reason === "executor_unavailable" && details.code === "executable_not_found")) {
+    return t("new_session.executor_not_found", { executor });
+  }
+  if (error?.code === "executor_paused_changed" || details.reason === "executor_paused_changed") {
+    const fields = (Array.isArray(details.changes) ? details.changes : [])
+      .map((change) => change?.field).filter((field) => ["path", "major", "account"].includes(field))
+      .map((field) => t("new_session.executor_change." + field));
+    return t("new_session.executor_changed", { changes: fields.join(", ") || t("new_session.executor_change.settings") });
+  }
+  if (error?.code === "executor_unavailable" || details.reason === "executor_unavailable") {
+    return t("new_session.executor_unavailable", { executor });
+  }
+  if (details.reason === "executor_stopped_by_person") return t("new_session.executor_stopped");
+  const failure = details.failure_kind;
+  if (typeof failure === "string") {
+    const limit = ["quota", "rate_limited", "plan_limit", "credits_exhausted", "limit_unknown"].includes(failure);
+    const key = limit ? "quota" : failure;
+    if (["quota", "blocked_open_session", "authentication", "permission_denied", "other"].includes(key)) {
+      return t("new_session.executor_failure_" + key);
+    }
+  }
   if (details.missing_inputs && details.missing_inputs.length) {
     return t("common.error.missing_inputs", { names: details.missing_inputs.join(", ") });
   }
-  switch (error.code) {
+  switch (error?.code) {
     case "unauthorized":
       return t("common.error.unauthorized");
     case "network_error": return t("common.error.network");
     case "invalid_state":
-    case "invalid_operation":
-      return t("common.error.invalid_state", { message: error.message });
-    case "budget_exceeded": return t("common.error.budget_exceeded", { message: error.message });
-    case "human_submission_invalid": return t("common.error.human_submission_invalid", { message: error.message });
+    case "invalid_operation": return t("new_session.error_invalid_state");
+    case "budget_exceeded": return t("new_session.error_budget_exceeded");
+    case "human_submission_invalid": return t("new_session.error_invalid_submission");
     case "human_step_unavailable": return t("common.error.human_step_unavailable");
-    case "not_found": return t("common.error.not_found", { message: error.message });
+    case "not_found": return t("new_session.error_not_found");
     case "idempotency_conflict": return t("common.error.idempotency_conflict");
     default: {
       const issues = [];
       for (const item of details.errors || []) if (item && item.msg) issues.push(item.msg);
       for (const issue of details.issues || []) if (issue && issue.message) issues.push(issue.message);
-      return t("common.error.unknown", {
-        message: error.message,
-        issues: issues.length ? t("common.error.issue_suffix", { issues: issues.join("; ") }) : "",
-        code: error.code,
-      });
+      return t("new_session.error_unexpected", { code: error?.code || "unknown" })
+        + (issues.length ? t("common.error.issue_suffix", { issues: issues.join("; ") }) : "");
     }
   }
 }

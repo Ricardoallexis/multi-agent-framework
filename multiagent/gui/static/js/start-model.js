@@ -37,7 +37,8 @@ function actionsFor(id, status) {
     case "connect":
       return [link(t("start.connect_agent"), "#apps")];
     case "activate":
-      return [link(t("start.activate_agent"), "#apps")];
+      return status.steps?.find((step) => step.id === "activate")?.applicable === false
+        ? [] : [link(t("start.activate_agent"), "#apps")];
     case "real_run":
       return [...(status.offer_real ? [{ ...post(t("start.real_models"), MODELS_PATH, { models: "real" }), note: REAL_MODELS_NOTE, confirm: true }] : []),
               link(t("start.run_your_data"), "#new")];
@@ -52,10 +53,11 @@ export function startRows(status) {
   if (!status || !Array.isArray(status.steps)) return [];
   const pending = Array.isArray(status.pending) ? new Set(status.pending) : null;
   return status.steps
-    .filter((step) => step && !step.done && (!pending || pending.has(step.id)))
+    .filter((step) => step && !step.done && (step.applicable === false || !pending || pending.has(step.id)))
     .map((step) => {
       const row = { id: step.id, title: String(step.title || ""), actions: actionsFor(step.id, status) };
       if (step.id === "try_mock") row.note = TRY_MOCK_NOTE;
+      if (step.id === "activate" && step.applicable === false) row.note = t("start.not_applicable");
       return row;
     });
 }

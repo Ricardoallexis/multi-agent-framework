@@ -19,13 +19,13 @@ from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.gui.token import ensure_token
 from multiagent.run_request import RunRequest
-from multiagent.services import ApplicationServices
+from multiagent.services import ApplicationServices, ServiceError
 from multiagent.services.first_run import (FIRST_RUN_FILE, FIRST_RUN_SCHEMA, START_FILE, STEP_TITLES, STEPS,
                                            FirstRunServices)
 
 ACTOR = "user:test"
 NOW = datetime(2026, 11, 22, 12, 0, 0, tzinfo=timezone.utc)
-CONNECTION_ROW = {"id": "claude_cli", "kind": "executor", "available": True, "reason": None}
+CONNECTION_ROW = {"id": "claude_cli", "kind": "executor", "installed": True, "available": True, "reason": None}
 
 
 def make_settings(tmp_path, *, mock=True) -> Settings:
@@ -81,7 +81,8 @@ def test_fresh_install_all_pending(env):
     assert status["schema"] == FIRST_RUN_SCHEMA == "maf.first-run/1"
     assert [step["id"] for step in status["steps"]] == list(STEPS)
     assert [step["title"] for step in status["steps"]] == [STEP_TITLES[step] for step in STEPS]
-    assert status["pending"] == list(STEPS) and status["all_done"] is False
+    assert status["pending"] == [step for step in STEPS if step != "activate"] and status["all_done"] is False
+    assert next(step for step in status["steps"] if step["id"] == "activate")["applicable"] is False
     assert status["offer_real"] is False and status["mock"] is True and status["times"] == []
     assert all(step["done_at"] is None for step in status["steps"])
     assert status["install_started_at"]
@@ -152,7 +153,7 @@ def test_done_step_stays_done(env):
 
 def test_a_broken_file_reads_as_empty(env):
     (env.settings.local_dir / FIRST_RUN_FILE).write_text("{not json", encoding="utf-8")
-    assert env.first_run.status()["pending"] == list(STEPS)
+    assert env.first_run.status()["pending"] == [step for step in STEPS if step != "activate"]
 
 
 def test_connect_ignores_mock_double(env):
@@ -176,6 +177,30 @@ def test_activate_from_active_ids(env):
     assert done(env.first_run.status())["activate"] is False
     env.services.executor_activations.active_ids = lambda: ["codex_cli"]               # the double of the activation
     assert done(env.first_run.status())["activate"] is True
+
+
+def test_activate_applies_to_detected_cli_but_not_ollama(env):
+    env.services.connections.list = lambda: {"connections": [{"id": "ollama", "kind": "model", "available": True},
+                                                                {"id": "acp", "kind": "executor", "installed": True}]}
+    only_model = env.first_run.status()
+    activate = next(step for step in only_model["steps"] if step["id"] == "activate")
+    assert activate["applicable"] is False and "activate" not in only_model["pending"]
+    assert "Activate it: not applicable" in env.first_run.times_text(only_model)
+
+    env.services.connections.list = lambda: {"connections": [{"id": "claude_cli", "kind": "executor",
+                                                                "installed": True, "available": False}]}
+    detected = env.first_run.status()
+    activate = next(step for step in detected["steps"] if step["id"] == "activate")
+    assert activate["applicable"] is True and "activate" in detected["pending"]
+
+
+def test_completed_mock_without_renderable_document_remains_pending(env, monkeypatch):
+    install_example(env)
+    complete_run(env)
+    def missing_document(_run_id):
+        raise ServiceError("not_found", "No document", status=404)
+    monkeypatch.setattr(env.services.runs, "document", missing_document)
+    assert done(env.first_run.status())["try_mock"] is False
 
 
 def test_times_from_launcher_start(env):

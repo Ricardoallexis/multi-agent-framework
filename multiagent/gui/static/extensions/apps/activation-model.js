@@ -92,7 +92,7 @@ export function activationView(row, activation) {
       detail = stopAllPausedText();
     } else {
       const changes = changesText((paused && paused.changes) || (activation && activation.changes));
-      detail = changes || t("ext.apps.activation.paused_changed");
+      detail = changes ? t("ext.apps.activation.changed_review", { changes }) : t("ext.apps.activation.paused_changed");
     }
   }
   if (foreign && (state === "ready" || state === "paused")) {

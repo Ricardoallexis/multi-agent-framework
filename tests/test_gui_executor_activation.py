@@ -72,7 +72,7 @@ def test_five_states():
     assert result["out"]["no_session"]["actions"] == ["login"]
     assert result["out"]["not_installed"]["actions"] == []
     assert result["out"]["active"]["detail"] == "Activado por ti el 2026-11-22 03:03"
-    assert result["out"]["paused"]["detail"] == "Cambió la versión 2 → 3"
+    assert result["out"]["paused"]["detail"] == "El ejecutor cambió: Cambió la versión 2 → 3. Revísalo en Apps y agentes."
 
 
 @needs_node

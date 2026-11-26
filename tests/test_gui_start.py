@@ -122,6 +122,23 @@ def test_other_step_actions_are_links():
 
 
 @needs_node
+def test_activation_not_applicable_has_no_action_or_pending_entry():
+    value = status(times_text="Start: 2026-11-23T09:50:00Z\nActivate it: not applicable")
+    value["steps"][3]["applicable"] = False
+    value["pending"].remove("activate")
+    out = run_node(SETUP + """
+      Object.defineProperty(globalThis, "navigator", {value: {language: "es-MX"}, configurable: true});
+      const value = %s;
+      const row = startRows(value).find((item) => item.id === "activate");
+      console.log(JSON.stringify({ row, pending: value.pending, copied: timesText(value) }));
+    """ % json.dumps(value))
+    assert out["row"]["actions"] == []
+    assert out["row"]["note"] == "No aplica: no se detectó ningún ejecutor CLI en este equipo."
+    assert "activate" not in out["pending"]
+    assert out["copied"] == value["times_text"]
+
+
+@needs_node
 def test_try_mock_opens_the_example_office_when_installed():
     out = run_node(SETUP + """
       const ordinary = startRows(%s).find((row) => row.id === "try_mock").actions[0];

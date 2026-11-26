@@ -47,15 +47,15 @@ def test_first_run_path_all_five_steps(tmp_path):
                                           adapter_overrides={"ollama": FakeAdapter()})
         opened.append(mock)
         mock.connections.list = lambda: {"connections": []}      # the real list() reads the home of the machine
-        assert mock.first_run.status()["pending"] == list(STEPS)
+        assert mock.first_run.status()["pending"] == [step for step in STEPS if step != "activate"]
 
         mock.offices.install_example(actor=ACTOR, channel="test")                          # 1. copy the example office
-        assert mock.first_run.status()["pending"] == list(STEPS[1:])
+        assert mock.first_run.status()["pending"] == ["try_mock", "connect", "real_run"]
         run_to_completion(mock)                                                             # 2. a Mock run, completed
         status = mock.first_run.status()
-        assert status["pending"] == list(STEPS[2:]) and status["offer_real"] is True
+        assert status["pending"] == ["connect", "real_run"] and status["offer_real"] is True
         mock.connections.list = lambda: {"connections": [{"id": "claude_cli", "kind": "executor",   # 3. a fake CLI
-                                                          "available": True, "reason": None}]}
+                                                          "installed": True, "available": True, "reason": None}]}
         assert mock.first_run.status()["pending"] == list(STEPS[3:])
         mock.executor_activations.active_ids = lambda: ["claude_cli"]                       # 4. the double of «Activar»
         status = mock.first_run.status()

@@ -9,6 +9,7 @@ export default {
   "start.try_mock": "Try in Mock",
   "start.connect_agent": "Connect an agent",
   "start.activate_agent": "Activate an agent",
+  "start.not_applicable": "Not applicable: no CLI executor was detected on this computer.",
   "start.real_models": "Switch to real models",
   "start.run_your_data": "Run with your data",
   "start.back_to_mock": "Return to Mock",

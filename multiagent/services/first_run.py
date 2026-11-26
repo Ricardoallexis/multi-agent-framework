@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from .executor_activations import EXECUTOR_IDS
 from .errors import ServiceError
 
 if TYPE_CHECKING:
@@ -161,6 +162,11 @@ class FirstRunServices:
     def _check_activate(self) -> bool:
         return bool(self._services.executor_activations.active_ids())
 
+    def _activate_applicable(self) -> bool:
+        """Only a detected CLI executor makes activation a first-run action."""
+        rows = self._services.connections.list().get("connections", [])
+        return any(row.get("id") in EXECUTOR_IDS and row.get("installed") is True for row in rows)
+
     def _process_is_mock(self) -> bool:
         return bool(self._services.settings.mock_mode)
 
@@ -203,7 +209,12 @@ class FirstRunServices:
 
     def _view(self, steps: dict[str, str], start: str) -> dict[str, Any]:
         begun = _parse(start)
-        listing = [{"id": step, "title": STEP_TITLES[step], "done": step in steps, "done_at": steps.get(step)}
+        try:
+            activate_applicable = self._activate_applicable()
+        except Exception:  # a failed check must not silently dismiss a step
+            activate_applicable = True
+        listing = [{"id": step, "title": STEP_TITLES[step], "done": step in steps, "done_at": steps.get(step),
+                    "applicable": step != "activate" or step in steps or activate_applicable}
                    for step in STEPS]
         times = []
         for step in STEPS:
@@ -214,8 +225,8 @@ class FirstRunServices:
             times.append({"id": step, "done_at": steps[step], "minutes": minutes})
         mock = self._process_is_mock()
         return {"schema": FIRST_RUN_SCHEMA, "steps": listing,
-                "pending": [item["id"] for item in listing if not item["done"]],
-                "all_done": all(item["done"] for item in listing),
+                "pending": [item["id"] for item in listing if not item["done"] and item["applicable"]],
+                "all_done": all(item["done"] or not item["applicable"] for item in listing),
                 "mock": mock, "models": "mock" if mock else "real",
                 "offer_real": "try_mock" in steps and mock,
                 "install_started_at": start, "times": times}
@@ -227,10 +238,13 @@ class FirstRunServices:
         status = status if status is not None else self.status()
         lines = [f"Start: {status['install_started_at']}"]
         done = {item["id"]: item for item in status["times"]}
+        not_applicable = {item["id"] for item in status["steps"] if item.get("applicable") is False}
         for step in STEPS:
             if step in done:
                 minutes = done[step]["minutes"]
                 lines.append(f"{STEP_TITLES[step]}: {done[step]['done_at']} ({minutes:g} min from start)")
+            elif step in not_applicable:
+                lines.append(f"{STEP_TITLES[step]}: not applicable")
             else:
                 lines.append(f"{STEP_TITLES[step]}: pending")
         return "\n".join(lines)

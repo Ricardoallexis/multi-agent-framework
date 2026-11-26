@@ -15,6 +15,7 @@ export default {
   "start.try_mock": "Probar en Mock",
   "start.connect_agent": "Conectar un agente",
   "start.activate_agent": "Activar un agente",
+  "start.not_applicable": "No aplica: no se detectó ningún ejecutor CLI en este equipo.",
   "start.real_models": "Pasar a modelos reales",
   "start.run_your_data": "Correr con tus datos",
   "start.back_to_mock": "Volver a Mock",

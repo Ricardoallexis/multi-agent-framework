@@ -243,6 +243,15 @@ class ExecutorActivationServices:
 
     def status(self) -> list[dict[str, Any]]:
         entries = self._read()
+        # A status refresh must expose drift even when no new launch was attempted.
+        for executor_id, entry in entries.items():
+            if entry["paused"] is None:
+                try:
+                    self.check_launch(executor_id)
+                except ServiceError as exc:
+                    if exc.details.get("reason") not in {"executor_paused_changed", "executor_stopped_by_person"}:
+                        raise
+        entries = self._read()
         report: Mapping[str, Any] | None = None
         if any(executor_id not in entries for executor_id in EXECUTOR_IDS):
             try:

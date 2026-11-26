@@ -602,6 +602,12 @@ function SingleExecutorSession({
   const sessions = tracking.data?.task?.sessions || [];
   const attempts = tracking.data?.task?.attempts || [];
   const latestAttempt = attempts[attempts.length - 1] || null;
+  const failureKind = latestAttempt ? latestAttempt.failure_kind : launched?.launch?.failure_kind;
+  const attemptOutcome = latestAttempt?.outcome || launched?.launch?.outcome;
+  const failedAttempt = tracking.data?.task?.state === "failed" || Boolean(failureKind)
+    || ["failed", "quota_exhausted", "permission_blocked", "blocked_open_session", "timeout", "cancelled",
+      "secret_review_required"].includes(attemptOutcome);
+  const failureText = failedAttempt ? errorText({ code: "executor_failure", details: { failure_kind: failureKind || "other" } }) : "";
   const sessionLinks = {
     claude_cli: "claude", codex_cli: "codex", copilot_cli: "copilot", antigravity_cli: "antigravity",
   };
@@ -695,9 +701,12 @@ function SingleExecutorSession({
         <p>${tracking.data.latest_result.summary}</p>
       </div>`}
       ${(latestAttempt?.outcome || launched.launch?.outcome) && html`<p>${t("new_session.last_attempt")}: ${latestAttempt?.outcome || launched.launch?.outcome}</p>`}
-      ${(latestAttempt?.evidence || launched.launch?.evidence) && html`<p class="message error" role="alert">
-        ${displayExecutorEvidence(latestAttempt?.evidence || launched.launch.evidence)}</p>`}
-      ${(latestAttempt?.notes || launched.launch?.notes || []).map((note) => html`<p class="muted small" key=${note}>${displayExecutorNote(note)}</p>`)}
+      ${failureText && html`<p class="message error" role="alert">${failureText}</p>`}
+      ${(latestAttempt?.evidence || launched.launch?.evidence || (latestAttempt?.notes || launched.launch?.notes || []).length > 0) && html`<details>
+        <summary>${t("new_session.technical_details")}</summary>
+        ${(latestAttempt?.evidence || launched.launch?.evidence) && html`<p class="muted small">${displayExecutorEvidence(latestAttempt?.evidence || launched.launch.evidence)}</p>`}
+        ${(latestAttempt?.notes || launched.launch?.notes || []).map((note) => html`<p class="muted small" key=${note}>${displayExecutorNote(note)}</p>`)}
+      </details>`}
       ${sessions.length === 0 && html`<p class="muted small">${t("new_session.waiting_for_session")}</p>`}
       ${sessions.map((session) => {
         const source = sessionLinks[session.executor_id];
