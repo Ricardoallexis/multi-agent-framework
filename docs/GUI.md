@@ -756,6 +756,27 @@ sequence cursor. Polling stops when the stream reconnects or the project
 becomes unavailable. Leaving the view or selecting another project closes
 the stream. Refresh remains available.
 
+**Projects: Overview.** The Overview opens with a strip of figures
+(stages, tasks done out of those that count, weighted progress, tasks in
+review, blocked tasks, and what is left), a bar with one equal piece per
+task (one per stage when a project has more than 60 tasks), and the usual
+count by state. "What needs your attention" starts every row with its
+verb: Review, Verify, Reply or Unblock. A table lists each stage with its
+state, a small bar, and "n of m" tasks done; advanced mode adds the
+weighted progress, the plan and the date of the last change.
+
+**Hiding stages.** In long projects, each stage has a Hide button in the
+table and in the Stages tab. "Hidden stages (n) · Show" brings them all
+back, and "Hide finished stages" hides the closed ones in one tap. The
+choice is kept per project in this browser only; nothing is stored on the
+server. Hiding a stage does not delete it or change any figure, and a task
+in a hidden stage that waits for you still appears under "What needs your
+attention".
+
+**Shared bar.** The bar is a shared component (`js/segment-bar.js`): one
+image with a spoken summary, equal pieces, and the state also given in
+words.
+
 The token-protected GUI routes these views use:
 
 | Route | Purpose |

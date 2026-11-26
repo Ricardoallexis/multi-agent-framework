@@ -204,5 +204,38 @@ export const HELP = {
       "There you can see stages, tasks, and their deliverables.",
       "This link does not change the project."
     ]
+  },
+  "project.stage_table": {
+    "title": "Stages at a glance",
+    "hint": "Each stage with its state, a small bar, and how many tasks are done.",
+    "more": [
+      "The bar has one piece per task of the stage, and every piece is the same width.",
+      "Advanced mode adds the weighted progress, the plan, and the date of the last change."
+    ]
+  },
+  "project.stage_hide": {
+    "title": "Hide stage",
+    "hint": "Take this stage off the screen. Nothing is deleted.",
+    "more": [
+      "The stage keeps its state, and the progress of the project still counts it.",
+      "Anything in it that waits for you stays under What needs your attention.",
+      "The choice is remembered in this browser only."
+    ]
+  },
+  "project.stages_show": {
+    "title": "Show hidden stages",
+    "hint": "Bring back every stage you hid.",
+    "more": [
+      "The number is how many stages are hidden in this project.",
+      "Hidden stages are remembered in this browser, not on the server."
+    ]
+  },
+  "project.stages_hide_done": {
+    "title": "Hide finished stages",
+    "hint": "Hide every stage that is already closed.",
+    "more": [
+      "Only closed stages are hidden. Stages still in progress stay.",
+      "Use Show to bring them back."
+    ]
   }
 };

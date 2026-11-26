@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: The Projects overview shows a strip of figures, a bar with one piece per task and a table of stages; long projects can hide stages, kept per project in this browser, and progress and pending items still count them.
 - GUI: The project view updates by itself: it follows sequence-only change notices for the open project, reloads at most once a second, reconnects with a growing wait and falls back to a 10-second poll while the stream is down; Refresh stays.
 - GUI: Usage can now be set from the GUI. The Usage screen leads with one sentence per app on its pace (on track, going fast, little left, or no data), shows its four sections in both modes (folded in the simple mode) at #usage/plans, #usage/global, #usage/costs and #usage/continuity, and lets the person edit a monthly API budget per provider (Warn or Cut; empty means no budget, 0 means do not spend) and the continuity policy (mode, wait threshold, apps that may take over). Each value says whether it comes from the GUI, the environment or the defaults, and a GUI value wins; only the person can change these settings, and automatic continuity is not offered.
 - Executors: An ACP v1 transport for executor adapters, not yet wired into runs: a reused session keeps each turn's result and usage apart, cancelling is race-safe, a timeout is told apart from a failure, file access stays inside the work folder, and anything beyond reading needs write permission and the area's consent.

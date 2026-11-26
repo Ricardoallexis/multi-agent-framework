@@ -276,3 +276,26 @@ export function readMapLayout() {
 export function writeMapLayout(layout) {
   writeStored(MAP_LAYOUT_KEY, layout === "tree" ? "tree" : "list");
 }
+
+/* AVZ-T03 */
+// The stages of a project that the person hid in this browser (nothing about it is kept on the server). The choice is a list of
+// stage ids per project; an id the project no longer has is ignored by the view. Storage that fails means no hidden stages.
+const HIDDEN_STAGES_KEY = "multiagent.gui.project-hidden-stages";
+
+function readHiddenTable() {
+  let value;
+  try { value = JSON.parse(readStored(HIDDEN_STAGES_KEY) || "{}"); } catch (_) { value = {}; }
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+export function readHiddenStages(projectId) {
+  const ids = readHiddenTable()[String(projectId)];
+  return Array.isArray(ids) ? ids.filter((id) => typeof id === "string") : [];
+}
+
+export function writeHiddenStages(projectId, ids) {
+  const table = readHiddenTable();
+  const list = [...new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string"))];
+  if (list.length) table[String(projectId)] = list; else delete table[String(projectId)];
+  writeStored(HIDDEN_STAGES_KEY, JSON.stringify(table));
+}

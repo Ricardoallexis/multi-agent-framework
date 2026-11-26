@@ -360,3 +360,169 @@
     flex: 1 1 100%;
   }
 }
+
+/* AVZ-T03: the summary. Figures, the bar by pieces, the table of stages and the controls that hide stages. The colour of a piece
+   comes from its tone class (tone-<tone> sets --tone in app.css); the state is also in words (the table, the counts and the label
+   of the bar), so the colour is never the only thing that says it. */
+
+.project-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 8px;
+  margin: 8px 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.project-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.project-figure-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.project-figure-label {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.project-segbar {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  height: 12px;
+  margin: 12px 0 4px;
+}
+
+.project-segbar > [data-state] {
+  flex: 1 1 0;
+  min-width: 1px;
+  border: 1px solid var(--tone, var(--muted));
+  border-radius: 2px;
+  background: var(--tone, var(--muted));
+}
+
+.project-segbar > [data-state="todo"],
+.project-segbar > [data-state="ready"] {
+  background: transparent;
+}
+
+@media (forced-colors: active) {
+  .project-segbar > [data-state] {
+    border-color: CanvasText;
+    background: Highlight;
+  }
+
+  .project-segbar > [data-state="todo"],
+  .project-segbar > [data-state="ready"] {
+    background: Canvas;
+  }
+}
+
+.project-segbar-small {
+  height: 8px;
+  margin: 0;
+}
+
+.project-verb {
+  margin-right: 4px;
+  color: var(--accent);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.project-hidden-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 4px 0 8px;
+}
+
+.project-hidden-count {
+  font-weight: 600;
+}
+
+.project-hide {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.project-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  overflow-wrap: anywhere;
+}
+
+.project-table th,
+.project-table td {
+  min-width: 0;
+  padding: 8px 8px 8px 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.project-table thead th {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.project-cell-name {
+  font-weight: 600;
+}
+
+.project-cell-bar {
+  width: 28%;
+  min-width: 0;
+}
+
+@media (max-width: 599.98px) {
+  .project-table,
+  .project-table tbody,
+  .project-table tr,
+  .project-table th,
+  .project-table td {
+    display: block;
+    width: auto;
+  }
+
+  .project-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .project-table tr {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .project-table th,
+  .project-table td {
+    padding: 2px 0;
+    border-bottom: 0;
+  }
+
+  .project-cell-bar {
+    width: auto;
+  }
+}

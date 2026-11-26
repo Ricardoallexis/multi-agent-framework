@@ -197,3 +197,144 @@ export function needsText(needs) {
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : t("ext.project.needs.none");
 }
+
+// --- The overview of AVZ-T03: figures, bar by pieces, what to do, stages that can be hidden ---------------------------------------
+// Everything here reads what the core already gives (progress, progress_weighted, remaining, counts, attention, last_change) and
+// writes nothing; hiding a stage changes what is drawn, never a figure.
+
+// More tasks than this and the bar of the project has one piece per stage instead of one per task.
+export const SEGMENT_LIMIT = 60;
+
+const SEGMENT_EXTRAS = ["review", "changes", "doing", "blocked", "failed", "verify"];
+
+const countedOf = (progress) => Math.max(0, (Number(progress?.total) || 0) - (Number(progress?.cancelled) || 0));
+
+// The figures of the strip. `percent` is the weighted one (AVZ-T01) and `leftTasks`/`leftSteps` the tasks still to do and the steps
+// they need at best; a value the core did not give is null and the page shows it as «sin dato», never as a number.
+export function overviewFigures(project) {
+  const percent = project?.progress_weighted?.percent;
+  const remaining = project?.remaining && typeof project.remaining === "object" ? project.remaining : {};
+  const counts = project?.counts && typeof project.counts === "object" ? project.counts : {};
+  return {
+    stages: list(project?.stages).length,
+    done: Number(project?.progress?.done) || 0,
+    counted: countedOf(project?.progress),
+    percent: Number.isFinite(percent) ? percent : null,
+    review: Number(counts.review) || 0,
+    blocked: Number(counts.blocked) || 0,
+    leftTasks: Number.isFinite(remaining.tasks) ? remaining.tasks : null,
+    leftSteps: Number.isFinite(remaining.layers) ? remaining.layers : null,
+  };
+}
+
+const pieceOf = (id, label) => ({ id, state: label?.key || "none", tone: label?.tone || "neutral", text: label?.text || "" });
+
+// Keeps at most `limit` pieces by giving each state a share of them in proportion to how many it had (at least one each).
+export function condense(segments, limit = SEGMENT_LIMIT) {
+  const pieces = list(segments);
+  if (pieces.length <= limit) return pieces;
+  const groups = new Map();
+  for (const piece of pieces) {
+    if (!groups.has(piece.state)) groups.set(piece.state, []);
+    groups.get(piece.state).push(piece);
+  }
+  const shares = [...groups.values()].map((group) => ({ group, slots: Math.max(1, Math.floor((group.length * limit) / pieces.length)) }));
+  let total = shares.reduce((sum, share) => sum + share.slots, 0);
+  while (total > limit) {
+    const biggest = shares.reduce((a, b) => (b.slots > a.slots ? b : a));
+    biggest.slots -= 1;
+    total -= 1;
+  }
+  return shares.flatMap(({ group, slots }) => group.slice(0, slots).map((piece, index) => ({ ...piece, id: piece.id + "#" + index })));
+}
+
+// «7 of 12 tasks done, 2 Waiting for your review»: the sentence of a screen reader.
+function sentenceOf(textKey, total, done, pieces) {
+  const extras = [];
+  for (const key of SEGMENT_EXTRAS) {
+    const found = pieces.filter((piece) => piece.state === key);
+    if (found.length) extras.push(found.length + " " + found[0].text);
+  }
+  return [t(textKey, { done, total }), ...extras].join(", ");
+}
+
+// The bar of the whole project: a piece per task (cancelled ones do not count), or per stage when there are more than `limit` tasks.
+export function projectSegments(project, limit = SEGMENT_LIMIT) {
+  const stages = list(project?.stages);
+  const tasks = stages.flatMap((stage) => list(stage.tasks)).filter((task) => task.label?.key !== "cancelled");
+  if (tasks.length > limit) {
+    const segments = stages.map((stage) => pieceOf(stage.group_id, stage.label));
+    const done = segments.filter((piece) => piece.state === "closed").length;
+    return { unit: "stages", segments, total: segments.length, done, summary: sentenceOf("ext.project.segments.stages", segments.length, done, segments) };
+  }
+  const segments = tasks.map((task) => pieceOf(task.id, task.label));
+  const done = segments.filter((piece) => piece.state === "done").length;
+  return { unit: "tasks", segments, total: segments.length, done, summary: sentenceOf("ext.project.segments.tasks", segments.length, done, segments) };
+}
+
+// The small bar of one stage: a piece per task, condensed when it has more than `limit`.
+export function stageSegments(stage, limit = SEGMENT_LIMIT) {
+  const tasks = list(stage?.tasks).filter((task) => task.label?.key !== "cancelled");
+  const all = tasks.map((task) => pieceOf(task.id, task.label));
+  const done = all.filter((piece) => piece.state === "done").length;
+  return { segments: condense(all, limit), total: all.length, done, summary: sentenceOf("ext.project.segments.tasks", all.length, done, all) };
+}
+
+// One line of the table of stages.
+export function stageRow(stage, limit = SEGMENT_LIMIT) {
+  const bar = stageSegments(stage, limit);
+  const percent = stage?.progress_weighted?.percent;
+  return {
+    id: stage.group_id, code: stage.code, title: stage.title, label: stage.label,
+    done: Number(stage.progress?.done) || 0, counted: countedOf(stage.progress),
+    percent: Number.isFinite(percent) ? percent : null,
+    segments: bar.segments, summary: bar.summary,
+    planned: planText(stage), changedAt: stage.last_change?.created_at || null,
+  };
+}
+
+// «What you have to do»: every row of `attention` with the verb it starts with, in the order the page draws them. A row keeps
+// `hidden` to say its stage is hidden, but it stays: hiding a stage never hides something that waits for the person.
+export function attentionRows(project, hidden = []) {
+  const off = new Set(list(hidden));
+  const attention = project?.attention && typeof project.attention === "object" ? project.attention : {};
+  const rows = [];
+  const add = (kind, items, idOf, stageOf) => {
+    for (const item of list(items)) {
+      rows.push({ kind, verb: t("ext.project.verb." + kind), id: idOf(item), stageId: stageOf(item), hidden: off.has(stageOf(item)), item });
+    }
+  };
+  add("review", attention.reviews, (task) => task.id, (task) => task.group_id);
+  add("verify", attention.verifications, (stage) => stage.group_id, (stage) => stage.group_id);
+  add("mine", attention.mine, (task) => task.id, (task) => task.group_id);
+  add("blocked", attention.blocked, (task) => task.id, (task) => task.group_id);
+  return rows;
+}
+
+// Hidden stages. `hidden` is the list of stage ids the browser remembers; an id the project does not have any more is ignored.
+export const stageIds = (project) => list(project?.stages).map((stage) => stage.group_id);
+
+export function hiddenIn(project, hidden) {
+  const off = new Set(list(hidden));
+  return stageIds(project).filter((id) => off.has(id));
+}
+
+export function visibleStages(project, hidden) {
+  const off = new Set(list(hidden));
+  return list(project?.stages).filter((stage) => !off.has(stage.group_id));
+}
+
+export function hideStage(project, hidden, id) {
+  return stageIds(project).includes(id) ? [...new Set([...hiddenIn(project, hidden), id])] : hiddenIn(project, hidden);
+}
+
+// «Hide the finished ones»: adds the closed stages to the hidden ones and nothing else.
+export function hideFinished(project, hidden) {
+  const closed = list(project?.stages).filter((stage) => stage.label?.key === "closed").map((stage) => stage.group_id);
+  return [...new Set([...hiddenIn(project, hidden), ...closed])];
+}
+
+export function hasFinished(project, hidden) {
+  const off = new Set(list(hidden));
+  return list(project?.stages).some((stage) => stage.label?.key === "closed" && !off.has(stage.group_id));
+}

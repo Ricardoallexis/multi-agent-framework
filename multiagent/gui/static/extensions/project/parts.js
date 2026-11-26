@@ -3,23 +3,27 @@
 // The pieces of the project view (PRY-T03): the summary, the stages with their phases and the detail of one task. They draw
 // what index.js loaded and call back for everything that changes something; the rules for what to show are in model.js.
 // Every value is drawn as text (Preact escapes it): results written by agents are untrusted.
-import { html } from "../../vendor/htm-preact-standalone.module.js";
+import { html, useEffect, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { Help, helpFor } from "../../js/help.js";
+import { currentMode, onModeChange } from "../../js/gui-mode.js";
 import { t } from "../../js/i18n.js";
+import { SegmentBar } from "../../js/segment-bar.js";
+import { readHiddenStages, writeHiddenStages } from "../../js/shell-state.js";
 import { Progress } from "../../js/ui/progress.js";
 import { StatusChip } from "../../js/ui/status-chip.js";
 import {
-  canReview, chipOf, dayText, deliverables, detailOf, labelSummary, list, listOwners, listRows, matchesFilter, matchesList, phaseGroups, planText, progressOf, requiresText,
-  shortId, taskIndex, taskName, whoText,
+  attentionRows, canReview, chipOf, dayText, deliverables, detailOf, hasFinished, hiddenIn, hideFinished, hideStage, labelSummary, list, listOwners,
+  listRows, matchesFilter, matchesList, overviewFigures, phaseGroups, planText, progressOf, projectSegments, requiresText, SEGMENT_LIMIT, shortId, stageRow,
+  taskIndex, taskName, visibleStages, whoText,
 } from "./model.js";
 
 // One row of a list of tasks: opens the detail of the task. It is data, not an action, so it has no help of its own.
-function TaskRow({ task, project, current, onOpen, children }) {
+function TaskRow({ task, project, current, onOpen, verb = "", children }) {
   return html`<li>
     <button type="button" class="project-task-row" data-help-exempt="data-row" aria-current=${current ? "true" : "false"}
       onClick=${() => onOpen(task.id)}>
       <span class="project-row-head">
-        <span class="project-title">${task.title}</span>
+        <span class="project-title">${verb ? html`<span class="project-verb">${verb}</span> ` : null}${task.title}</span>
         <${StatusChip} ...${chipOf(task.label)} />
       </span>
       <span class="project-meta">${shortId(task.id, project.id)} · ${whoText(task)} · ${dayText(task.due_at)}</span>
@@ -41,21 +45,125 @@ function BlockerLines({ task, project }) {
   })}</span>`;
 }
 
+// The stages the person hid in this browser (AVZ-T03). The Overview and the Stages tab are never open together, so each reads the
+// choice when it opens and both write it through shell-state.js; a project that changes starts from its own choice.
+function useHiddenStages(project) {
+  const [state, setState] = useState(() => ({ id: project.id, hidden: readHiddenStages(project.id) }));
+  const stored = state.id === project.id ? state.hidden : readHiddenStages(project.id);
+  const save = (next) => {
+    writeHiddenStages(project.id, next);
+    setState({ id: project.id, hidden: next });
+  };
+  return [hiddenIn(project, stored), save];
+}
+
+// The simple or advanced mode of the GUI; the technical columns of the table of stages are for advanced only.
+function useMode() {
+  const [mode, setMode] = useState(currentMode());
+  useEffect(() => onModeChange(setMode), []);
+  return mode;
+}
+
+// «Etapas ocultas (3) · Mostrar» and «Ocultar las terminadas», above the stages of both tabs.
+function HiddenBar({ project, hidden, onChange }) {
+  return html`<div class="project-hidden-bar">
+    ${hidden.length ? html`<span class="project-hidden-count" role="status">${t("ext.project.stages.hidden_count", { count: hidden.length })}</span>
+      <button type="button" class="btn secondary small" onClick=${() => onChange([])} ...${helpFor("project.stages_show")}>${t("ext.project.stages.show")}</button>
+      <${Help} topic="project.stages_show" compact=${true} />` : null}
+    <button type="button" class="btn secondary small" disabled=${!hasFinished(project, hidden)}
+      onClick=${() => onChange(hideFinished(project, hidden))} ...${helpFor("project.stages_hide_done")}>${t("ext.project.stages.hide_done")}</button>
+    <${Help} topic="project.stages_hide_done" compact=${true} />
+  </div>`;
+}
+
+function HideStage({ project, hidden, stage, scope, onChange }) {
+  return html`<span class="project-hide">
+    <button type="button" class="btn secondary small" aria-label=${t("ext.project.stages.hide_stage", { code: stage.code, title: stage.title })}
+      onClick=${() => onChange(hideStage(project, hidden, stage.group_id))} ...${helpFor("project.stage_hide", { scope })}>${t("ext.project.stages.hide")}</button>
+    <${Help} topic="project.stage_hide" scope=${scope} compact=${true} />
+  </span>`;
+}
+
+function Figure({ value, label, note = "" }) {
+  return html`<li class="project-figure">
+    <span class="project-figure-value">${value}</span>
+    <span class="project-figure-label">${label}</span>
+    ${note ? html`<span class="project-meta">${note}</span>` : null}
+  </li>`;
+}
+
+const noData = () => t("ext.project.figures.no_data");
+
+// The strip of figures of the summary: stages, tasks done, weighted progress, in review, blocked and what is left.
+function Figures({ project }) {
+  const figures = overviewFigures(project);
+  return html`<ul class="project-figures" aria-label=${t("ext.project.figures.aria_label")}>
+    <${Figure} value=${figures.stages} label=${t("ext.project.figures.stages")} />
+    <${Figure} value=${t("ext.project.figures.of", { done: figures.done, total: figures.counted })} label=${t("ext.project.figures.tasks")} />
+    <${Figure} value=${figures.percent === null ? noData() : t("ext.project.figures.percent", { percent: figures.percent })}
+      label=${t("ext.project.figures.weighted")} />
+    <${Figure} value=${figures.review} label=${t("ext.project.figures.review")} />
+    <${Figure} value=${figures.blocked} label=${t("ext.project.figures.blocked")} />
+    <${Figure} value=${figures.leftTasks === null ? noData() : figures.leftTasks} label=${t("ext.project.figures.left")}
+      note=${figures.leftSteps === null || figures.leftTasks === 0 ? "" : t("ext.project.figures.left_steps", { count: figures.leftSteps })} />
+  </ul>`;
+}
+
+// The table of stages: name, state, a small bar and «n of m». The technical columns (plan, last change, weighted progress) are for
+// advanced mode. A hidden stage has no row here; it is still counted in every figure above.
+function StageTable({ project, hidden, advanced, onChange }) {
+  const stages = visibleStages(project, hidden);
+  if (!list(project.stages).length) return html`<p class="project-empty">${t("ext.project.stages.none")}</p>`;
+  if (!stages.length) return html`<p class="project-empty">${t("ext.project.stages.all_hidden")}</p>`;
+  return html`<div class="usage-table-wrap"><table class="project-table">
+    <caption class="sr-only">${t("ext.project.table.title")}</caption>
+    <thead><tr>
+      <th scope="col">${t("ext.project.table.stage")}</th>
+      <th scope="col">${t("ext.project.table.state")}</th>
+      <th scope="col">${t("ext.project.table.bar")}</th>
+      <th scope="col">${t("ext.project.table.done")}</th>
+      ${advanced ? html`<th scope="col">${t("ext.project.table.weighted")}</th><th scope="col">${t("ext.project.table.plan")}</th>
+        <th scope="col">${t("ext.project.table.changed")}</th>` : null}
+      <th scope="col"><span class="sr-only">${t("ext.project.table.actions")}</span></th>
+    </tr></thead>
+    <tbody>${stages.map((stage, index) => {
+      const row = stageRow(stage);
+      return html`<tr key=${stage.group_id}>
+        <th scope="row" class="project-cell-name">${row.code} · ${row.title}</th>
+        <td><${StatusChip} ...${chipOf(row.label)} /></td>
+        <td class="project-cell-bar"><${SegmentBar} segments=${row.segments} summary=${row.summary} className="project-segbar project-segbar-small" /></td>
+        <td class="project-cell-done">${t("ext.project.table.n_of_m", { done: row.done, total: row.counted })}</td>
+        ${advanced ? html`<td>${row.percent === null ? noData() : t("ext.project.figures.percent", { percent: row.percent })}</td>
+          <td>${row.planned}</td><td>${row.changedAt ? dayText(row.changedAt) : noData()}</td>` : null}
+        <td class="project-cell-hide"><${HideStage} project=${project} hidden=${hidden} stage=${stage} scope=${"table" + index} onChange=${onChange} /></td>
+      </tr>`;
+    })}</tbody>
+  </table></div>`;
+}
+
 export function Overview({ project, onOpen }) {
+  const [hidden, setHidden] = useHiddenStages(project);
+  const advanced = useMode() === "advanced";
   const bar = progressOf(project.progress);
+  const pieces = projectSegments(project);
   const summary = labelSummary(project);
-  const attention = project.attention || {};
-  const reviews = list(attention.reviews);
-  const verifications = list(attention.verifications);
-  const mine = list(attention.mine);
-  const blocked = list(attention.blocked);
+  const rows = attentionRows(project, hidden);
+  const rowsOf = (kind) => rows.filter((row) => row.kind === kind);
+  const reviews = rowsOf("review");
+  const verifications = rowsOf("verify");
+  const mine = rowsOf("mine");
+  const blocked = rowsOf("blocked");
   const working = list(project.working_now);
   const stages = new Map(list(project.stages).map((stage) => [stage.group_id, stage]));
-  const nothing = !reviews.length && !verifications.length && !mine.length && !blocked.length;
+  const nothing = !rows.length;
+  const hiddenNote = (row) => (row.hidden ? html`<span class="project-meta">${t("ext.project.attention.stage_hidden")}</span>` : null);
   return html`<div class="project-stages">
     <section class="project-section" aria-labelledby="project-progress-title">
       <h4 id="project-progress-title">${t("ext.project.progress.title")}</h4><${Help} topic="project.progress" />
+      <${Figures} project=${project} />
       <${Progress} label=${t("ext.project.progress.aria_label")} value=${bar.value} max=${bar.max} valueText=${bar.valueText} />
+      ${pieces.segments.length ? html`<${SegmentBar} segments=${pieces.segments} summary=${pieces.summary} className="project-segbar" />` : null}
+      ${pieces.unit === "stages" ? html`<p class="project-meta">${t("ext.project.segments.by_stage_note", { limit: SEGMENT_LIMIT })}</p>` : null}
       <ul class="project-counts" aria-label=${t("ext.project.status_counts")}>
         ${summary.map(({ label, count }) => html`<li key=${label.key} class="project-count">
           <${StatusChip} ...${chipOf(label)} /><span class="project-count-number">${count}</span>
@@ -67,18 +175,31 @@ export function Overview({ project, onOpen }) {
       <h4 id="project-attention-title">${t("ext.project.attention.title")}</h4><${Help} topic="project.attention" />
       ${nothing ? html`<p class="project-empty">${t("ext.project.attention.none")}</p>` : null}
       ${reviews.length ? html`<h5 class="project-group-title">${t("ext.project.attention.reviews", { count: reviews.length })}</h5>
-        <ul class="project-items">${reviews.map((task) => html`<${TaskRow} key=${task.id} task=${task} project=${project} onOpen=${onOpen} />`)}</ul>` : null}
+        <ul class="project-items">${reviews.map((row) => html`<${TaskRow} key=${row.id} task=${row.item} project=${project} onOpen=${onOpen} verb=${row.verb}>
+          ${hiddenNote(row)}
+        <//>`)}</ul>` : null}
       ${verifications.length ? html`<h5 class="project-group-title">${t("ext.project.attention.verifications", { count: verifications.length })}</h5>
-        <ul class="project-items">${verifications.map((stage) => html`<li key=${stage.group_id} class="project-line">
-          <span class="project-row-head"><span class="project-title">${stage.code} · ${stage.title}</span><${StatusChip} ...${chipOf(stage.label)} /></span>
+        <ul class="project-items">${verifications.map((row) => html`<li key=${row.id} class="project-line">
+          <span class="project-row-head"><span class="project-title"><span class="project-verb">${row.verb}</span> ${row.item.code} · ${row.item.title}</span>
+            <${StatusChip} ...${chipOf(row.item.label)} /></span>
           <span class="project-meta">${t("ext.project.attention.verify_note")}</span>
+          ${hiddenNote(row)}
         </li>`)}</ul>` : null}
       ${mine.length ? html`<h5 class="project-group-title">${t("ext.project.attention.mine", { count: mine.length })}</h5>
-        <ul class="project-items">${mine.map((task) => html`<${TaskRow} key=${task.id} task=${task} project=${project} onOpen=${onOpen} />`)}</ul>` : null}
-      ${blocked.length ? html`<h5 class="project-group-title">${t("ext.project.attention.blocked", { count: blocked.length })}</h5>
-        <ul class="project-items">${blocked.map((task) => html`<${TaskRow} key=${task.id} task=${task} project=${project} onOpen=${onOpen}>
-          <${BlockerLines} task=${task} project=${project} />
+        <ul class="project-items">${mine.map((row) => html`<${TaskRow} key=${row.id} task=${row.item} project=${project} onOpen=${onOpen} verb=${row.verb}>
+          ${hiddenNote(row)}
         <//>`)}</ul>` : null}
+      ${blocked.length ? html`<h5 class="project-group-title">${t("ext.project.attention.blocked", { count: blocked.length })}</h5>
+        <ul class="project-items">${blocked.map((row) => html`<${TaskRow} key=${row.id} task=${row.item} project=${project} onOpen=${onOpen} verb=${row.verb}>
+          <${BlockerLines} task=${row.item} project=${project} />
+          ${hiddenNote(row)}
+        <//>`)}</ul>` : null}
+    </section>
+
+    <section class="project-section" aria-labelledby="project-stage-table-title">
+      <h4 id="project-stage-table-title">${t("ext.project.table.title")}</h4><${Help} topic="project.stage_table" />
+      <${HiddenBar} project=${project} hidden=${hidden} onChange=${setHidden} />
+      <${StageTable} project=${project} hidden=${hidden} advanced=${advanced} onChange=${setHidden} />
     </section>
 
     <section class="project-section" aria-labelledby="project-working-title">
@@ -128,7 +249,8 @@ function PhaseBlock({ stage, stageIndex, group, groupIndex, collapsed, onToggle,
 }
 
 export function StagesPanel({ project, filter, labels, collapsed, selectedId, onFilter, onToggle, onOpen }) {
-  const stages = list(project.stages);
+  const [hidden, setHidden] = useHiddenStages(project);
+  const stages = visibleStages(project, hidden);
   const filtered = filter.text.trim() !== "" || filter.label !== "";
   return html`<div class="project-stages">
     <h4 id="project-stages-title">${t("ext.project.stages.title")}</h4><${Help} topic="project.stages_view" />
@@ -149,7 +271,9 @@ export function StagesPanel({ project, filter, labels, collapsed, selectedId, on
         <${Help} topic="project.filter_state" />
       </div>
     </div>
-    ${stages.length ? null : html`<p class="project-empty">${t("ext.project.stages.none")}</p>`}
+    <${HiddenBar} project=${project} hidden=${hidden} onChange=${setHidden} />
+    ${list(project.stages).length ? null : html`<p class="project-empty">${t("ext.project.stages.none")}</p>`}
+    ${list(project.stages).length && !stages.length ? html`<p class="project-empty">${t("ext.project.stages.all_hidden")}</p>` : null}
     ${stages.map((stage, stageIndex) => {
       const visible = list(stage.tasks).filter((task) => matchesFilter(task, filter));
       const counted = (stage.progress?.total || 0) - (stage.progress?.cancelled || 0);
@@ -157,6 +281,7 @@ export function StagesPanel({ project, filter, labels, collapsed, selectedId, on
         <div class="project-row-head">
           <h4 class="project-stage-title" data-help-exempt="data-title">${stage.code} · ${stage.title}</h4>
           <${StatusChip} ...${chipOf(stage.label)} />
+          <${HideStage} project=${project} hidden=${hidden} stage=${stage} scope=${"block" + stageIndex} onChange=${setHidden} />
         </div>
         <p class="project-meta">${t("ext.project.stage.progress", { done: stage.progress?.done || 0, total: counted })} · ${planText(stage)}
           ${stage.closed_at ? " · " + t("ext.project.stage.closed", { date: dayText(stage.closed_at) }) : ""}</p>

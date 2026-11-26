@@ -121,6 +121,41 @@ const en = {
   "ext.project.needs.mine": "{count} yours",
   "ext.project.needs.blocked": "{count} blocked",
   "ext.project.needs.none": "Nothing waiting for you",
+  "ext.project.verb.review": "Review",
+  "ext.project.verb.verify": "Verify",
+  "ext.project.verb.mine": "Reply",
+  "ext.project.verb.blocked": "Unblock",
+  "ext.project.attention.stage_hidden": "Its stage is hidden.",
+  "ext.project.figures.aria_label": "Project figures",
+  "ext.project.figures.stages": "Stages",
+  "ext.project.figures.tasks": "Tasks done",
+  "ext.project.figures.of": "{done} of {total}",
+  "ext.project.figures.percent": "{percent}%",
+  "ext.project.figures.weighted": "Weighted progress",
+  "ext.project.figures.review": "In review",
+  "ext.project.figures.blocked": "Blocked",
+  "ext.project.figures.left": "What is left",
+  "ext.project.figures.left_steps": "in at least {count} steps",
+  "ext.project.figures.no_data": "No data",
+  "ext.project.segments.tasks": "{done} of {total} tasks done",
+  "ext.project.segments.stages": "{done} of {total} stages closed",
+  "ext.project.segments.by_stage_note": "More than {limit} tasks: the bar has one piece per stage.",
+  "ext.project.table.title": "Stages at a glance",
+  "ext.project.table.stage": "Stage",
+  "ext.project.table.state": "State",
+  "ext.project.table.bar": "Progress",
+  "ext.project.table.done": "Done",
+  "ext.project.table.weighted": "Weighted",
+  "ext.project.table.plan": "Plan",
+  "ext.project.table.changed": "Last change",
+  "ext.project.table.actions": "Actions",
+  "ext.project.table.n_of_m": "{done} of {total}",
+  "ext.project.stages.hide": "Hide",
+  "ext.project.stages.hide_stage": "Hide stage {code}: {title}",
+  "ext.project.stages.hidden_count": "Hidden stages ({count})",
+  "ext.project.stages.show": "Show",
+  "ext.project.stages.hide_done": "Hide finished stages",
+  "ext.project.stages.all_hidden": "All stages are hidden. Use Show to see them again.",
 };
 
 const es = {
@@ -241,6 +276,41 @@ const es = {
   "ext.project.needs.mine": "{count} tuyas",
   "ext.project.needs.blocked": "{count} bloqueadas",
   "ext.project.needs.none": "Nada pendiente de ti",
+  "ext.project.verb.review": "Revisar",
+  "ext.project.verb.verify": "Verificar",
+  "ext.project.verb.mine": "Responder",
+  "ext.project.verb.blocked": "Desbloquear",
+  "ext.project.attention.stage_hidden": "Su etapa está oculta.",
+  "ext.project.figures.aria_label": "Cifras del proyecto",
+  "ext.project.figures.stages": "Etapas",
+  "ext.project.figures.tasks": "Tareas hechas",
+  "ext.project.figures.of": "{done} de {total}",
+  "ext.project.figures.percent": "{percent} %",
+  "ext.project.figures.weighted": "Avance ponderado",
+  "ext.project.figures.review": "En revisión",
+  "ext.project.figures.blocked": "Bloqueadas",
+  "ext.project.figures.left": "Lo que falta",
+  "ext.project.figures.left_steps": "en al menos {count} pasos",
+  "ext.project.figures.no_data": "Sin dato",
+  "ext.project.segments.tasks": "{done} de {total} tareas hechas",
+  "ext.project.segments.stages": "{done} de {total} etapas cerradas",
+  "ext.project.segments.by_stage_note": "Más de {limit} tareas: la barra tiene un pedazo por etapa.",
+  "ext.project.table.title": "Etapas de un vistazo",
+  "ext.project.table.stage": "Etapa",
+  "ext.project.table.state": "Estado",
+  "ext.project.table.bar": "Avance",
+  "ext.project.table.done": "Hechas",
+  "ext.project.table.weighted": "Ponderado",
+  "ext.project.table.plan": "Plan",
+  "ext.project.table.changed": "Último cambio",
+  "ext.project.table.actions": "Acciones",
+  "ext.project.table.n_of_m": "{done} de {total}",
+  "ext.project.stages.hide": "Ocultar",
+  "ext.project.stages.hide_stage": "Ocultar la etapa {code}: {title}",
+  "ext.project.stages.hidden_count": "Etapas ocultas ({count})",
+  "ext.project.stages.show": "Mostrar",
+  "ext.project.stages.hide_done": "Ocultar las terminadas",
+  "ext.project.stages.all_hidden": "Todas las etapas están ocultas. Pulsa Mostrar para verlas otra vez.",
   "help.project.view": {
     "title": "Proyectos",
     "hint": "Sigue el avance de un proyecto por etapas, fases y tareas.",
@@ -441,6 +511,39 @@ const es = {
     "more": [
       "Allí ves las etapas, las tareas y sus entregables.",
       "El enlace no cambia nada en el proyecto."
+    ]
+  },
+  "help.project.stage_table": {
+    "title": "Etapas de un vistazo",
+    "hint": "Cada etapa con su estado, una barra pequeña y cuántas tareas lleva hechas.",
+    "more": [
+      "La barra tiene un pedazo por tarea de la etapa, y todos miden lo mismo.",
+      "El modo avanzado añade el avance ponderado, el plan y la fecha del último cambio."
+    ]
+  },
+  "help.project.stage_hide": {
+    "title": "Ocultar etapa",
+    "hint": "Quita esta etapa de la pantalla. No se borra nada.",
+    "more": [
+      "La etapa conserva su estado y el avance del proyecto la sigue contando.",
+      "Lo que espera de ti dentro de ella se sigue viendo en «Qué tienes que hacer».",
+      "La elección se recuerda solo en este navegador."
+    ]
+  },
+  "help.project.stages_show": {
+    "title": "Mostrar las etapas ocultas",
+    "hint": "Devuelve todas las etapas que ocultaste.",
+    "more": [
+      "El número es cuántas etapas están ocultas en este proyecto.",
+      "Las etapas ocultas se recuerdan en este navegador, no en el servidor."
+    ]
+  },
+  "help.project.stages_hide_done": {
+    "title": "Ocultar las terminadas",
+    "hint": "Oculta todas las etapas que ya están cerradas.",
+    "more": [
+      "Solo se ocultan las etapas cerradas. Las que siguen en marcha se quedan.",
+      "Con «Mostrar» las recuperas."
     ]
   }
 };
