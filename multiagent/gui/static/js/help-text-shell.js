@@ -350,7 +350,7 @@ export const HELP = {
     "hint": "Choose Orchestrator or Single session before you start.",
     "more": [
       "Orchestrator keeps the current workflow questions, team, and plan.",
-      "Single session lets you choose a model from the general bundle or a connected executor.",
+      "Single session lets you choose a model from the system catalog or a connected executor.",
       "You can change the mode before launch."
     ]
   },
@@ -366,7 +366,7 @@ export const HELP = {
     "title": "Task model",
     "hint": "Choose a supported, connected model.",
     "more": [
-      "Only models in the general bundle catalog with a connected provider appear.",
+      "Only models in the system catalog with a connected provider appear.",
       "If a provider has no supported model, the reason is shown.",
       "The server checks your choice again when you review and launch."
     ]

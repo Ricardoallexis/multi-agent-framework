@@ -25,7 +25,7 @@ import {
   officeRequestBody,
   officeAreaAllowsCloud, officeAreaForBundle, officeAreaPrivacy, officeAreaRequiresLocal, officeLevelText,
   officeWorkflowGroups, hasAvailableLocalModel, parseCommand, plusMenuEntries, pickRuns, progress,
-  quotaRemainingLines, reduce, runBody, secretResendRequest, selectOrchestratorSuggestion,
+  automaticEffortPreferences, limitTimeText, quotaRemainingLines, reduce, runBody, secretResendRequest, selectOrchestratorSuggestion,
   selectSingleExecutorSuggestion, selectSingleModelSuggestion, singleSessionBody, singleSessionModels, suggestedEntries,
 } from "./new-session-model.js";
 import { PlanDraftCard } from "./plan-draft.js";   // ARR3-T02
@@ -68,6 +68,13 @@ const displayExecutorEvidence = (evidence) => {
   return raw.startsWith(stderrPrefix)
     ? t("new_session.executor_stderr", { stderr: "" }) + raw.slice(stderrPrefix.length)
     : raw;
+};
+const mergeRoutingPreferences = (automatic, overrides) => {
+  const merged = { ...automatic };
+  for (const [step, preference] of Object.entries(overrides || {})) {
+    merged[step] = { ...(merged[step] || {}), ...preference };
+  }
+  return merged;
 };
 
 function OfficeWorkflowPicker({ groups, areas, disabled, onPick }) {
@@ -166,6 +173,44 @@ function RunsList({ runs }) {
     </ul>
     <${Help} topic="chat.runs" compact=${true} />
   </div>`;
+}
+
+function RecentConversations({ recent }) {
+  if (recent.error) return html`<p class="message error" role="alert">${errorText(recent.error)}</p>`;
+  const runs = recent.runs || [];
+  return html`<section class="ns-recent" aria-labelledby="ns-recent-title">
+    <div class="ns-recent-head"><h2 id="ns-recent-title">${t("new_session.recent_conversations")}</h2>
+      <a class="btn text" href=${routeHref("runs")} ...${helpFor("chat.runs")}>${t("new_session.view_all_conversations")}</a>
+      <${Help} topic="chat.runs" compact=${true} />
+    </div>
+    ${recent.runs === null
+      ? html`<p class="muted small" role="status" aria-busy="true">${t("new_session.loading_runs")}</p>`
+      : runs.length === 0
+      ? html`<p class="muted small">${t("new_session.no_recent_conversations")}</p>`
+      : html`<div class="ns-recent-grid">
+        ${runs.map((run) => {
+          const info = statusInfo(run.status);
+          return html`<article key=${run.id} class="ns-recent-card">
+            <div class="ns-recent-card-head"><strong>${run.title || run.project_name || run.workflow_id}</strong>
+              <span class=${"ns-recent-status tone-" + info.tone}>${info.label}</span></div>
+            <small>${[run.project_name, fmtDate(run.created_at)].filter(Boolean).join(" · ")}</small>
+            <a class="btn text" href=${threadHref(run.id)} ...${helpFor("chat.runs")}>${t("new_session.continue_conversation")}</a>
+          </article>`;
+        })}
+      </div>`}
+  </section>`;
+}
+
+function OfficeStarters({ groups, disabled, onPick }) {
+  const starters = (groups || []).flatMap((group) => group.items.map((item) => ({ ...item, area: group.area }))).slice(0, 4);
+  if (starters.length === 0) return null;
+  return html`<section class="ns-office-starters" aria-label=${t("new_session.office_starters")}>
+    <h2>${t("new_session.start_with_office")}</h2>
+    <div class="ns-chips">${starters.map((item) => html`<button key=${item.area + "|" + item.id} type="button" class="ns-chip"
+      disabled=${disabled} ...${helpFor("chat.office", { scope: "office-starters" })}
+      onClick=${() => onPick(item.label)}>${item.label}</button>`)}</div>
+    <${Help} topic="chat.office" compact=${true} scope="office-starters" />
+  </section>`;
 }
 
 function QuestionCard({ question, n, total, disabled, onChoose }) {
@@ -298,12 +343,24 @@ function ConfirmCard({ conv, mock, state, busy, onLaunch, onEdit, onForm, boxRef
 }
 
 // CUO-T06: limit notice with local reset time (or unknown) and up to 3 selection-only suggestion buttons.
-function LimitBanner({ notice, connections, busy, onSelectSuggestion }) {
+function LimitBanner({ notice, connections, busy, onSelectSuggestion, onKeepWriting }) {
   const view = notice && notice.text ? notice : buildLimitNotice(notice, connections);
   if (!view) return null;
+  const resetTime = limitTimeText(view.resetsAt);
+  const keepWriting = onKeepWriting || (() => document.getElementById("ns-composer-input")?.focus());
   return html`<div class="ns-msg ns-bot notice" role="status" aria-label=${t("new_session.limit_reached")}>
     <p>${view.text}</p>
-    <${Help} topic="chat.limit_notice" compact=${true} />
+    <p class="ns-limit-note">${t("new_session.limit_text_stays")}</p>
+    <div class="ns-limit-actions">
+      <button type="button" class="btn warn" disabled=${true} ...${helpFor("chat.limit_notice")}>
+        ${resetTime ? t("new_session.return_at", { time: resetTime }) : t("new_session.return_when_reset")}</button>
+      <${Help} topic="chat.limit_notice" compact=${true} />
+      <button type="button" class="btn text" ...${helpFor("chat.composer")} onClick=${keepWriting}>
+        ${t("new_session.keep_writing")}</button>
+      <${Help} topic="chat.composer" compact=${true} />
+      <a class="btn text" href=${routeHref("apps")} ...${helpFor("chat.connect_other")}>${t("new_session.apps_agents")}</a>
+      <${Help} topic="chat.connect_other" compact=${true} />
+    </div>
     ${view.suggestions.length > 0 && html`<div class="ns-chips" role="group" aria-label=${t("new_session.available_alternatives")}>
       ${view.suggestions.map((item) => html`<button key=${item.id} type="button" class="ns-chip" disabled=${busy}
         ...${helpFor("chat.limit_suggestion")} onClick=${() => onSelectSuggestion(item)}>${item.label}</button>`)}
@@ -315,10 +372,11 @@ function LimitBanner({ notice, connections, busy, onSelectSuggestion }) {
 // GUI3-T06: the same task box is used by all three flows; its controls only choose or navigate.
 function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows = 2, mode, onMode,
   modelControl, project, projects, onProject, onExecutor, onForm, error, describedBy = "", onBack, onSkip, inputRef,
-  executorActive = false, maxLength, allowExecutor = true, allowForm = true, showProject = true, showSubmit = true }) {
+  executorActive = false, maxLength, allowExecutor = true, allowForm = true, showProject = true, showSubmit = true, hidden = false }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef(null);
-  return html`<form class="ns-composer" onSubmit=${(event) => { event.preventDefault(); onSubmit(task); }} aria-busy=${disabled ? "true" : "false"}>
+  useEffect(() => { if (hidden) setMenuOpen(false); }, [hidden]);
+  return html`<form class="ns-composer" hidden=${hidden} onSubmit=${(event) => { event.preventDefault(); onSubmit(task); }} aria-busy=${disabled ? "true" : "false"}>
     <div class="ns-composer-head"><label for="ns-composer-input">${label}</label><${Help} topic="chat.composer" compact=${true} /></div>
     <textarea id="ns-composer-input" ref=${inputRef} rows=${rows} maxlength=${maxLength} value=${task} placeholder=${placeholder} disabled=${disabled}
       aria-invalid=${error ? "true" : null} ...${helpFor("chat.composer", { also: [describedBy, error ? "ns-composer-error" : ""].filter(Boolean).join(" ") })}
@@ -344,8 +402,8 @@ function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows
             <${Help} topic="chat.form" compact=${true} />`}
         </div>`}
       </div>
-      <div class="ns-box-select"><label for="ns-mode-select">${t("new_session.mode")}</label><select id="ns-mode-select" aria-label=${t("new_session.session_mode")} value=${mode} ...${helpFor("chat.session_mode")}
-        onChange=${(event) => onMode(event.target.value)}><option value="orchestrator">${t("new_session.orchestrator")}</option>
+      <div class="ns-box-select ns-mode-select"><label class="sr-only" for="ns-mode-select">${t("new_session.mode")}</label><select id="ns-mode-select" aria-label=${t("new_session.session_mode")} value=${mode} ...${helpFor("chat.session_mode")}
+        onChange=${(event) => onMode(event.target.value)}><option value="orchestrator">${t("new_session.coordinator_mode")}</option>
         <option value="single">${t("new_session.single_session")}</option></select><${Help} topic="chat.session_mode" compact=${true} /></div>
       ${modelControl}
       ${showProject && html`<div class="ns-box-select"><label for="ns-project-select">${t("new_session.project")}</label><select id="ns-project-select" aria-label=${t("new_session.project")} value=${executorActive ? "" : project} disabled=${executorActive}
@@ -353,7 +411,8 @@ function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows
         <option value="">${executorActive ? t("new_session.not_for_executor") : t("new_session.choose_on_confirm")}</option>
         ${projects.map((name) => html`<option key=${name} value=${name}>${name}</option>`)}</select>
         <${Help} topic="chat.project_select" compact=${true} /></div>`}
-      ${showSubmit && html`<button type="submit" class="btn ns-send" disabled=${disabled} ...${helpFor("chat.send")}>${t("new_session.send")}</button>
+      ${showSubmit && html`<button type="submit" class="btn ns-send" aria-label=${t("new_session.send")} disabled=${disabled} ...${helpFor("chat.send")}>
+        <span aria-hidden="true">↑</span></button>
       <${Help} topic="chat.send" compact=${true} />`}
     </div>
     ${(onBack || onSkip) && html`<div class="ns-composer-row">
@@ -756,12 +815,14 @@ export function NewSession({ token, mock }) {
   const [officeError, setOfficeError] = useState(null);
   const [unknownOfficeNotice, setUnknownOfficeNotice] = useState(false);
   const [connections, setConnections] = useState({ data: null, loading: true, error: null });
+  const [composerOptions, setComposerOptions] = useState({ data: null, loading: true, error: null });
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [sessionKind, setSessionKind] = useState(restored ? restored.sessionKind
     : officeId ? (officeArea ? "single" : "orchestrator") : readNewSessionMode());
   const [draft, setDraft] = useState(restored ? restored.draft : "");
   const [project, setProject] = useState("");
   const [projects, setProjects] = useState([]);
+  const [recentRuns, setRecentRuns] = useState({ runs: null, error: null });
   const [busy, setBusy] = useState(false);
   const [pendingCloud, setPendingCloud] = useState(null);
   const [officeLevelQuestion, setOfficeLevelQuestion] = useState(null);
@@ -772,6 +833,10 @@ export function NewSession({ token, mock }) {
   const [singleExecutorId, setSingleExecutorId] = useState("");
   const [singleProvider, setSingleProvider] = useState("");
   const [runs, setRuns] = useState(null);
+  const [automaticModel, setAutomaticModel] = useState(true);
+  const [automaticEffort, setAutomaticEffort] = useState("medium");
+  const automaticPreferences = useRef({ workflowKey: "", effort: "", values: {} });
+  const automaticRouting = useRef({ workflowKey: "", routing: null });
   const [mode, setMode] = useState("auto");
   const [sensitive, setSensitiveState] = useState(false);
   const sensitiveTouched = useRef(false);
@@ -808,12 +873,31 @@ export function NewSession({ token, mock }) {
   function chooseMode(value) {
     const next = value === "single" ? "single" : "orchestrator";
     writeNewSessionMode(next);
+    if (next !== sessionKind) {
+      automaticPreferences.current = { workflowKey: "", effort: "", values: {} };
+      automaticRouting.current = { workflowKey: "", routing: null };
+    }
     if (officeId && officeArea && next === "orchestrator") {
       setSessionKind(next);
       location.hash = officeHref(officeId);
       return;
     }
     setSessionKind(next);
+  }
+
+  function chooseExecutor(executorId = "") {
+    writeNewSessionMode("single");
+    setAutomaticModel(true);
+    setAutomaticEffort("medium");
+    automaticPreferences.current = { workflowKey: "", effort: "", values: {} };
+    automaticRouting.current = { workflowKey: "", routing: null };
+    setSingleExecutorId(executorId);
+    setSessionKind("single-executor");
+  }
+
+  function changeAutomaticModel(enabled) {
+    setAutomaticModel(enabled);
+    if (!enabled) automaticPreferences.current = { workflowKey: "", effort: "", values: {} };
   }
 
   function chooseProject(value) {
@@ -989,6 +1073,10 @@ export function NewSession({ token, mock }) {
     setLimitNotice(null);
     setSelectedConnection(null);
     setRoutingOverrides({});
+    setAutomaticModel(true);
+    setAutomaticEffort("medium");
+    automaticPreferences.current = { workflowKey: "", effort: "", values: {} };
+    automaticRouting.current = { workflowKey: "", routing: null };
     setLaunchError(null);
     setView("chat");
     setFormInitial(null);
@@ -1012,9 +1100,15 @@ export function NewSession({ token, mock }) {
   useEffect(() => {
     if (runId) return;
     let active = true;
+    setRecentRuns({ runs: null, error: null });
     apiGet("/gui/api/runs?limit=50", token).then((runs) => {
-      if (active) setProjects([...new Set((Array.isArray(runs) ? runs : []).map((run) => run.project_name).filter(Boolean))]);
-    }, () => {});
+      if (!active) return;
+      const list = Array.isArray(runs) ? runs : [];
+      setProjects([...new Set(list.map((run) => run.project_name).filter(Boolean))]);
+      setRecentRuns({ runs: list.slice(0, 4), error: null });
+    }, (failure) => {
+      if (active) setRecentRuns({ runs: [], error: asError(failure) });
+    });
     return () => { active = false; };
   }, [token, runId]);
 
@@ -1039,6 +1133,20 @@ export function NewSession({ token, mock }) {
   const sensitiveSelection = sensitive || privacyRequiresLocal;
   const cloudAllowed = cloudPermission && !sensitiveSelection;
   const currentWorkflowKey = selectedWorkflow ? [selectedWorkflow.bundle || "", selectedWorkflow.id].join("|") : "";
+  const composerOptionsPath = "/gui/api/composer/options" + (effectiveOfficeId && !cloudPermission ? "?local_only=true" : "");
+  function refreshComposerOptions(isCurrent = () => true) {
+    setComposerOptions({ data: null, loading: true, error: null });
+    apiGet(composerOptionsPath, token).then(
+      (data) => { if (isCurrent()) setComposerOptions({ data, loading: false, error: null }); },
+      (failure) => { if (isCurrent()) setComposerOptions((current) => ({ ...current, loading: false, error: asError(failure) })); },
+    );
+  }
+  useEffect(() => {
+    if (runId) return undefined;
+    let active = true;
+    refreshComposerOptions(() => active);
+    return () => { active = false; };
+  }, [composerOptionsPath, token, runId]);
   const localModelKnown = Boolean(connections.data && !connections.loading && !connections.error
     && preview?.routing && previewWorkflowKey === currentWorkflowKey && !previewing && !previewError);
   const localModelAvailable = localModelKnown && hasAvailableLocalModel(connections.data, preview.routing);
@@ -1071,13 +1179,24 @@ export function NewSession({ token, mock }) {
     if (conv.phase !== "confirm") return undefined;
     const mine = ++ticket.current;
     const body = runBody(conv, { mode, sensitive: sensitiveSelection });
+    const knownRouting = automaticRouting.current.workflowKey === currentWorkflowKey
+      ? automaticRouting.current.routing
+      : previewWorkflowKey === currentWorkflowKey ? preview?.routing : null;
+    const activeAutomaticPreferences = automaticModel
+      ? automaticEffortPreferences(knownRouting, automaticEffort) : {};
+    const routingPreferences = mergeRoutingPreferences(activeAutomaticPreferences, routingOverrides);
     setPreview(null); setPreviewWorkflowKey(""); setPreviewError(null); setPreviewing(true);
     apiPost("/gui/api/runs/preview", token, {
       workflow_id: body.workflow_id, bundle: body.bundle, inputs: body.inputs, execution_mode: mode,
-      sensitive: sensitiveSelection, routing_preferences: routingOverrides,
+      sensitive: sensitiveSelection, routing_preferences: routingPreferences,
     }).then(
       (result) => {
         if (mine === ticket.current) {
+          if (automaticModel) {
+            const values = automaticEffortPreferences(result.routing, automaticEffort);
+            automaticRouting.current = { workflowKey: currentWorkflowKey, routing: result.routing };
+            automaticPreferences.current = { workflowKey: currentWorkflowKey, effort: automaticEffort, values };
+          }
           setPreview(result);
           setPreviewWorkflowKey([body.bundle || "", body.workflow_id].join("|"));
           setPreviewing(false);
@@ -1086,7 +1205,7 @@ export function NewSession({ token, mock }) {
       (failure) => { if (mine === ticket.current) { setPreviewError(asError(failure)); setPreviewing(false); } },
     );
     return () => { ticket.current += 1; };
-  }, [conv.phase, conv.workflow, conv.answers, mode, sensitiveSelection, routingOverrides, token]);
+  }, [conv.phase, conv.workflow, conv.answers, mode, sensitiveSelection, routingOverrides, automaticModel, automaticEffort, token]);
 
   const currentOfficeDetail = officeDetail?.id === officeId ? officeDetail : null;
   const sourceUpdateAvailable = Boolean(currentOfficeDetail?.source_update?.tracked
@@ -1499,7 +1618,14 @@ export function NewSession({ token, mock }) {
     const state = store.current;
     if (busy || state.phase !== "confirm" || (!mock && !confirmReal)) return;
     if (previewing || previewError || !preview) return;
-    const body = { ...runBody(state, { mode, sensitive: sensitiveSelection }), routing_preferences: routingOverrides };
+    const activeAutomaticPreferences = automaticModel
+      && automaticPreferences.current.workflowKey === currentWorkflowKey
+      && automaticPreferences.current.effort === automaticEffort
+      ? automaticPreferences.current.values : {};
+    const body = {
+      ...runBody(state, { mode, sensitive: sensitiveSelection }),
+      routing_preferences: mergeRoutingPreferences(activeAutomaticPreferences, routingOverrides),
+    };
     const fingerprint = JSON.stringify(body);
     if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: newKey() };
     setBusy(true);
@@ -1520,7 +1646,7 @@ export function NewSession({ token, mock }) {
       return;
     }
     const seed = sessionKind === "orchestrator" ? formSeed(store.current, { mode, sensitive: sensitiveSelection }) : {
-      bundle: "", workflowId: "ask_once", project: project || "Sesión única",
+      bundle: "", workflowId: "ask_once", project: project || t("new_session.single_session"),
       values: { task: draft }, mode: "auto", sensitive: false,
     };
     const formContext = {
@@ -1539,6 +1665,8 @@ export function NewSession({ token, mock }) {
     setPlanDraft(null);
     clearSecret();
     setRoutingOverrides({});
+    automaticPreferences.current = { workflowKey: "", effort: "", values: {} };
+    automaticRouting.current = { workflowKey: "", routing: null };
     setConv(store.current);
     setLaunchError(null);
     setDraft("");
@@ -1577,7 +1705,13 @@ export function NewSession({ token, mock }) {
 
   if (view === "form") {
     return html`<${CreateRun} token=${token} mock=${mock} initial=${formInitial}
-      onClose=${() => setView("chat")} onCreated=${(run) => navigate("runs", run.id)} />`;
+      onClose=${() => {
+        setAutomaticModel(true);
+        setAutomaticEffort("medium");
+        automaticPreferences.current = { workflowKey: "", effort: "", values: {} };
+        automaticRouting.current = { workflowKey: "", routing: null };
+        setView("chat");
+      }} onCreated=${(run) => navigate("runs", run.id)} />`;
   }
   if (sessionKind === "single" && !officeId) return html`<div class="ns">
     <${OfficeSelector} offices=${officeList.offices} officeId=${officeId} onSelect=${selectOffice} />
@@ -1626,10 +1760,26 @@ export function NewSession({ token, mock }) {
     ? officeConnectionData(connections.data, { areas: [{ data_class: "restricted" }] })
     : connections.data;
   const activeLimitNotice = officeId ? officeLimitNotice(limitNotice, currentOfficeScene) : limitNotice;
-  const modelControl = officeSingle ? null : html`<${ModelPicker} connections=${connectionData} selectedId=${selectedConnection}
-    onSelect=${setSelectedConnection} loading=${connections.loading} error=${connections.error}
-    onRetry=${refreshConnections} onConnect=${() => { location.hash = routeHref("apps"); }} help=${pickerHelp} />`;
   const noConnectedModels = !officeId && !connections.loading && buildModelPicker(connectionData).models.length === 0;
+  const modelControl = officeSingle ? null : html`<div class="ns-picker-slot">
+    <${ModelPicker} key=${routeKey} connections=${connectionData} selectedId=${selectedConnection}
+      onSelect=${setSelectedConnection} loading=${connections.loading || composerOptions.loading} error=${connections.error}
+      onRetry=${() => { refreshConnections(); refreshComposerOptions(); }}
+      onConnect=${() => { location.hash = routeHref("apps"); }} composerOptions=${composerOptions.data}
+      onAutoChange=${changeAutomaticModel} onEffortChange=${setAutomaticEffort} onSelectExecutor=${chooseExecutor}
+      help=${pickerHelp} />
+    ${composerOptions.error && html`<p class="message error small" role="alert">${errorText(composerOptions.error)}</p>`}
+    ${noConnectedModels && html`${isRegisteredView("apps") && html`<a class="ns-no-model-chip" href=${routeHref("apps")} ...${helpFor("chat.connect_other")}>
+      ${t("new_session.no_model_connect")} <span class="sr-only">${t("new_session.connect_another_short")}</span></a><${Help} topic="chat.connect_other" compact=${true} />`}`}
+    ${noConnectedModels && html`<p class="muted small ns-no-model-note">${t("new_session.connect_model_when_ready")} ${t("new_session.message_stays_local")}</p>`}
+  </div>`;
+  const currentOfficeArea = currentOfficeDetail?.areas?.find((area) => area.id === officeArea);
+  const whereName = officeId ? currentOfficeDetail?.name || officeId : project || t("new_session.no_office");
+  const whereAreaText = currentOfficeArea
+    ? `${currentOfficeArea.name || currentOfficeArea.id} (${currentAreaPrivacy?.data_class === "sensitive"
+      ? t("new_session.privacy_sensitive") + " · " + t("new_session.privacy_local_only")
+      : privacyRequiresLocal ? t("new_session.privacy_local_only") : t("new_session.privacy_normal")})`
+    : "";
   return html`<div class="ns">
     <${OfficeSelector} offices=${officeList.offices} officeId=${officeId} onSelect=${selectOffice} />
     ${officeId && currentOfficeScene && html`<p class="muted small" role="status">${t("new_session.highest_privacy", { level: officeLevelText(currentOfficeScene) })}</p>`}
@@ -1642,25 +1792,35 @@ export function NewSession({ token, mock }) {
     ${unknownOfficeNotice && html`<p class="message error small" role="alert">${t("new_session.office_unavailable")}</p>`}
     ${officeError && html`<p class="message error small" role="alert">${t("new_session.office_failed", { error: errorText(officeError) })}</p>`}
     <div class="ns-intro">
-      <h3 class="ns-title">${t("new_session.welcome_title")}</h3>
+      <h1 class="ns-title">${t("new_session.home_title")}</h1>
       <p class="ns-lead">${officeSingle
         ? t("new_session.office_welcome")
         : t("new_session.chat_welcome")}</p>
       <${Help} topic="chat.welcome" />
     </div>
-    ${conv.phase !== "confirm" && html`<${SessionBox} task=${draft} onTask=${typing} onSubmit=${submit}
-      disabled=${busy || pendingCloud || pendingSecret || officeLevelQuestion || conv.phase === "launched"} label=${label}
+    <${LimitBanner} notice=${activeLimitNotice} connections=${connectionData} busy=${busy}
+      onSelectSuggestion=${pickOrchestratorSuggestion} onKeepWriting=${() => {
+        if (conv.phase === "confirm") dispatch({ type: "edit" });
+        else composer.current?.focus();
+      }} />
+    ${officeId && conv.phase === "welcome" && html`<${OfficeStarters} groups=${officeGroups} disabled=${busy}
+      onPick=${typing} />`}
+    <${SessionBox} hidden=${conv.phase === "confirm"} task=${draft} onTask=${typing} onSubmit=${submit}
+      disabled=${busy || pendingCloud || pendingSecret || officeLevelQuestion || conv.phase === "confirm" || conv.phase === "launched"} label=${label}
       placeholder=${placeholder} rows=${rows} mode=${officeSingle ? "single" : "orchestrator"} onMode=${chooseMode}
       modelControl=${modelControl} project=${project} projects=${projects} onProject=${chooseProject}
-      onExecutor=${() => { writeNewSessionMode("single"); setSingleExecutorId(""); setSessionKind("single-executor"); }} onForm=${openForm}
+      onExecutor=${() => chooseExecutor()} onForm=${openForm}
       allowExecutor=${!officeId} allowForm=${!officeId}
       showProject=${question?.source !== "project"}
       error=${conv.error} describedBy=${describedBy} inputRef=${composer}
       onBack=${canBack ? () => dispatch({ type: "back" }) : null}
-      onSkip=${canSkip ? () => dispatch({ type: "skip" }) : null} />`}
-    ${noConnectedModels && html`${isRegisteredView("apps") && html`<a class="btn secondary small" href=${routeHref("apps")}
-      ...${helpFor("chat.connect_other")}>${t("model_picker.connect_another_short")}</a>`}`}
-    <${LimitBanner} notice=${activeLimitNotice} connections=${connectionData} busy=${busy} onSelectSuggestion=${pickOrchestratorSuggestion} />
+      onSkip=${canSkip ? () => dispatch({ type: "skip" }) : null} />
+    ${conv.phase !== "confirm" && html`<div class="ns-where" role="status" aria-label=${t("new_session.where")}>
+      <span><strong>${t("new_session.where")}:</strong> ${whereName}${whereAreaText ? " · " + whereAreaText : ""}</span>
+      ${mock && html`<><span class="ns-where-separator" aria-hidden="true"></span>
+      <span>${t("new_session.test_run_no_cost")}</span></>`}
+    </div>`}
+    ${conv.phase === "welcome" && html`<${RecentConversations} recent=${recentRuns} />`}
     ${mock && html`<p class="muted small ns-mock-note">${t("new_session.mock_note")}</p>`}
     ${conv.phase === "welcome" && !officeSingle && html`<${Starters} disabled=${busy} onPick=${chooseStarter} />`}
     ${(conv.phase === "welcome" || conv.phase === "choose") && html`<p class="muted small" role="status" aria-live="polite">${status}</p>`}

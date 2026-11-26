@@ -105,7 +105,8 @@ export function pickerGroups(payload, composerOptions = null, query = "") {
           ? item.selectable && option.available
           : item.selectable;
     const reasonKey = option?.reason;
-    const reason = reasonKey ? t(REASONS[reasonKey] || "model_picker.not_connected")
+    const reason = reasonKey && (reasonKey === "local_only" || !item.reason)
+      ? t(REASONS[reasonKey] || "model_picker.not_connected")
       : item.reason || (selectable ? null : t("model_picker.not_connected"));
     const contextWindow = option?.context_window ?? item.contextWindow;
     groups[group].push({ ...item, selectable, reason, models, modelVariants: item.id === "antigravity_cli" ? groupAgyModels(models) : [],

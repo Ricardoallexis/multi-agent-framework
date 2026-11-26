@@ -117,6 +117,7 @@ export function PreviewPanel({ preview, error, loading }) {
   </section>`;
 }
 
+// GUI4-T04: this existing form remains available from the new-session composer menu.
 // initial may include { bundle, workflowId, project, values, mode, sensitive } plus officeId, privacy, connections and
 // sensitiveTouched; the guided chat uses this context for «Ver como formulario». Without it the form opens empty.
 export function CreateRun({ token, mock, onCreated, onClose, initial = null }) {

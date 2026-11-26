@@ -25,7 +25,7 @@ export const PROJECT_MIN = 2;
 export const PROJECT_MAX = 120;
 
 // SES-T03: a single session can offer only a connected provider's model that the
-// ask_once step admits in the general bundle. The server remains the final validator.
+// ask_once step admits in the system catalog. The server remains the final validator.
 export function singleSessionModels(connections, routing) {
   const rows = Array.isArray(connections?.connections) ? connections.connections : [];
   const allowed = new Set(routing?.steps?.find((step) => step.step_id === "answer")?.model_options || []);
@@ -77,7 +77,7 @@ export function singleSessionModels(connections, routing) {
 
 export function singleSessionBody(task, model, confirmCloud = false, project = "") {
   return {
-    workflow_id: "ask_once", bundle: null, project_name: String(project).trim() || "Sesión única",
+    workflow_id: "ask_once", bundle: null, project_name: String(project).trim() || t("new_session.single_session"),
     inputs: { task: String(task).trim() }, execution_mode: model === "cloud_fast" ? "cloud" : "local", sensitive: false,
     ...(confirmCloud ? { confirm_cloud: true } : {}),
   };
@@ -795,6 +795,15 @@ export function runBody(state, { mode = "auto", sensitive = false } = {}) {
     workflow_id: state.workflow.id, bundle: state.workflow.bundle || null,
     project_name: (state.answers[PROJECT_KEY] || "").trim(), inputs, execution_mode: mode, sensitive: Boolean(sensitive),
   };
+}
+
+export function automaticEffortPreferences(routing, effort) {
+  if (!["medium", "high", "max"].includes(effort)) return {};
+  const steps = Array.isArray(routing?.steps) ? routing.steps : [];
+  return Object.fromEntries(steps
+    .filter((step) => step?.step_id && step.status !== "function"
+      && Array.isArray(step.effort_options) && step.effort_options.includes(effort))
+    .map((step) => [step.step_id, { effort }]));
 }
 
 // What «Ver como formulario» hands to the existing form so it opens with the same workflow and answers (null: nothing yet).

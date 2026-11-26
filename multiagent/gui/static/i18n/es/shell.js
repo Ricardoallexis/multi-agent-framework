@@ -417,7 +417,7 @@ export default {
     "hint": "Elige Orquestador o Sesión única antes de empezar.",
     "more": [
       "Orquestador conserva las preguntas del workflow, el equipo y el plan actuales.",
-      "Sesión única permite elegir un modelo del paquete general o un ejecutor conectado.",
+      "Sesión única permite elegir un modelo del catálogo del sistema o un ejecutor conectado.",
       "Puedes volver a elegir el modo antes de lanzar."
     ]
   },
@@ -433,7 +433,7 @@ export default {
     "title": "Modelo para la tarea",
     "hint": "Elige un modelo admitido y conectado.",
     "more": [
-      "Solo aparecen modelos del catálogo del paquete general cuyo proveedor está conectado.",
+      "Solo aparecen modelos del catálogo del sistema cuyo proveedor está conectado.",
       "Si un proveedor no tiene un modelo admitido, se muestra el motivo.",
       "El servidor valida de nuevo la elección al revisar y lanzar."
     ]
