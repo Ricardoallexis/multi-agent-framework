@@ -153,6 +153,6 @@ def test_form_field_hints_follow_their_label_or_control():
     of the session list and the notes of plans and teams put the non-compact <Help> right after the label."""
     sessions = read(JS / "sessions.js")
     for topic in ("source", "surface", "text", "cwd", "since", "until"):
-        assert re.search(r'</label>\s*\n\s*<\$\{Help\} topic="sessions\.%s" />' % topic, sessions), topic
+        assert re.search(r'</label>\s*\n\s*<\$\{Help\} topic="sessions\.%s"(?: entry=\$\{[A-Za-z]+\})? />' % topic, sessions), topic
     assert re.search(r'</label><\$\{Help\} topic="plans\.note" />', read(JS / "plans.js"))
     assert re.search(r'</label><\$\{Help\} topic="teams\.note" />', read(JS / "teams.js"))
