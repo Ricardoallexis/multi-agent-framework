@@ -10,7 +10,70 @@ from .routing_policy import RoutingRequest
 from .run_request import FunctionStepRequestError, validate_function_step_options
 
 
-def resolve_profile(catalog, workflow_id, step_id, kind, preference):
+_APP_OF_PROVIDER = {"codex": "codex", "codex_cli": "codex", "claude": "claude", "claude_cli": "claude",
+                    "copilot": "copilot", "copilot_cli": "copilot", "agy": "antigravity",
+                    "antigravity": "antigravity", "antigravity_cli": "antigravity"}
+
+
+def saved_mode_options(source):
+    """The router arguments of the saved concurrency mode (PAR-T05), or ``None`` when nothing applies.
+
+    ``source`` is ``ConcurrencyServices``. Without a saved mode, or in Normal and Performance (which do not change
+    levels), or when the policy cannot be read, the step is routed exactly as before.
+    """
+    if source is None:
+        return None
+    try:
+        if "concurrency" not in source.services.gui_settings.read():
+            return None
+        options = source.routing_options()
+    except Exception:  # noqa: BLE001 - a policy that cannot be read must not stop a step
+        return None
+    return options if options.get("concurrency_mode") in {"eco", "maximum"} else None
+
+
+def model_limit(source, catalog, model_id):
+    """``(limit, reason)`` of one model for the saved mode; ``(None, "")`` is no limit (also without a saved mode).
+
+    A model of a quota app (Codex, Claude, Copilot, agy) follows ``ConcurrencyServices.effective`` for its app and
+    model, so a quota margin reached gives 0 and the step waits. Any other model (API key, local) is held only by
+    the number the person or the environment set for that model.
+    """
+    if source is None or not model_id:
+        return None, ""
+    try:
+        if "concurrency" not in source.services.gui_settings.read():
+            return None, ""
+        spec = catalog.model(model_id)
+        app = _APP_OF_PROVIDER.get(str(spec.provider).casefold())
+        if app is not None:
+            if app == "antigravity":
+                from .executors.antigravity import bag_of
+                bag = bag_of(spec.model) or bag_of(model_id)       # agy's quota bags are apart: one bag at its margin never holds the other
+                if bag is not None:
+                    app = f"antigravity:{bag}"
+            effective = source.effective(app=app, model=model_id)
+            return int(effective["limit"]), str(effective.get("reason") or "")
+        settings = source.services.settings
+        if "worker_max_active_per_model" in getattr(settings, "model_fields_set", set()):
+            cap = settings.worker_max_active_per_model
+        else:
+            cap = source.services.gui_settings.concurrency()["per_model"].get(model_id)
+        return (int(cap), f"{model_id} limit {int(cap)}") if cap else (None, "")
+    except Exception:  # noqa: BLE001
+        return None, ""
+
+
+def resolve_profile(catalog, workflow_id, step_id, kind, preference, mode_options=None):
+    """The step's profile, with the run's preference and (PAR-T05) the level bounds of Eco or Maximum composed in."""
+    profile_id, profile = _resolve_preference(catalog, workflow_id, step_id, kind, preference)
+    if mode_options and profile_id is not None and isinstance(profile, dict):
+        from .services.concurrency import effective_profile
+        profile = effective_profile(profile, mode_options["concurrency_mode"], allow_t4=bool(mode_options.get("allow_t4")))
+    return profile_id, profile
+
+
+def _resolve_preference(catalog, workflow_id, step_id, kind, preference):
     profile_id, profile = catalog.routing_profile_for(workflow_id, step_id)
     if not preference:
         return profile_id, profile

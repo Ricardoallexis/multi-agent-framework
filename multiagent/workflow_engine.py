@@ -7,6 +7,7 @@ import logging
 import re
 import time
 import math
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Sequence
@@ -21,7 +22,8 @@ from .functions import (FUNCTION_CHANGED, FUNCTION_RUN, FunctionStepError, cance
                         execute_function_step, function_retry_requested, hold_before_function,
                         wait_for_function_failure)
 from .call_guards import (
-    SCOPE_RUN_STEP, STOP_USER_CANCEL, CallContext, CallPaused, GuardEnvironment, Pause, Stop, Verdict, build_call_guards,
+    MODEL_TURNS, SCOPE_RUN_STEP, STOP_USER_CANCEL, CallContext, CallPaused, GuardEnvironment, ModelTurnGate, Pause, Stop, Verdict,
+    build_call_guards,
     grant_correction_allowance, person_correction_pending, profile_dispatches_since_correction,
 )
 from .catalog import Catalog, CatalogError, ModelSpec, validate_routing_profile
@@ -70,7 +72,7 @@ from .errors import (
 from .model_router import ModelBinding, ModelRouter, failure_kind
 from .observability import TokenUsageRecord, UsageRecorder, estimate_call_cost
 from .prompts import PromptManager
-from .routing_preferences import resolve_profile
+from .routing_preferences import model_limit, resolve_profile, saved_mode_options
 from .routing_policy import (
     ESCALATION_APPROVAL_LEVEL, MODEL_LEVELS, RoutingDecision, RoutingEvidence, RoutingRequest,
     summarize_routing_evidence,
@@ -239,6 +241,10 @@ class WorkflowEngine:
     prompts are what they always were. The barrier covers what the framework puts in a prompt; it does not
     cover what an executor application reads from the disk by itself.
     """
+
+    # PAR-T05: ``ConcurrencyServices`` of the host (None: the mode of the person is not read) and the places by model.
+    concurrency_source: Any = None
+    model_gate: ModelTurnGate = MODEL_TURNS
 
     def __init__(self, *, store: Store, catalog: Catalog, prompts: PromptManager,
                  workflows: WorkflowCatalog, router: ModelRouter,
@@ -544,7 +550,8 @@ class WorkflowEngine:
                         raise ValidationFailed("requires_web=True but research_mode=none")
 
                 preference = request.get("routing_preferences", {}).get(step.id, {})
-                profile_id, profile = resolve_profile(self.catalog, run["workflow_id"], step.id, step.kind, preference)
+                profile_id, profile = resolve_profile(self.catalog, run["workflow_id"], step.id, step.kind, preference,
+                                                      saved_mode_options(self.concurrency_source))
                 binding, requirements, routing_reason = self._routing_for_step(
                     step=step,
                     execution_mode=execution_mode,
@@ -784,17 +791,18 @@ class WorkflowEngine:
                 while True:
                     captured_attempts.clear()
                     try:
-                        response, attempts = self.router.execute(
-                            binding=binding,
-                            requirements=requirements,
-                            prompt=final_prompt,
-                            output_schema=output_schema,
-                            before_call=consume_llm_call,
-                            validate_response=validate_response,
-                            on_failed_attempt=record_failed_attempt,
-                            on_attempt=record_attempt,
-                            effort=effective_effort,
-                        )
+                        with self._model_turn(run_id, step, attempt, binding):
+                            response, attempts = self.router.execute(
+                                binding=binding,
+                                requirements=requirements,
+                                prompt=final_prompt,
+                                output_schema=output_schema,
+                                before_call=consume_llm_call,
+                                validate_response=validate_response,
+                                on_failed_attempt=record_failed_attempt,
+                                on_attempt=record_attempt,
+                                effort=effective_effort,
+                            )
                         break
                     except StructuredOutputError as failure:
                         # Only a quality failure that survived its retries (and the fallback) can escalate;
@@ -1134,6 +1142,19 @@ class WorkflowEngine:
         from .external_output import external_output
         return external_output(self, run_id, output, commit=commit)
 
+    # ---------- concurrency mode (PAR-T05) ----------
+    def _model_turn(self, run_id: str, step: WorkflowStep, attempt: int, binding: ModelBinding | None):
+        """A place for the step's model between flows that run at once; no saved mode or no model, no wait."""
+        model = binding.preferred_model if binding is not None else None
+        if self.concurrency_source is None or not model:
+            return nullcontext()
+        return self.model_gate.hold(
+            model, lambda: model_limit(self.concurrency_source, self.catalog, model),
+            on_wait=lambda info: self.store.db.log_event(run_id, "concurrency_wait", {
+                "step_id": step.id, "attempt": attempt, **info}),
+            cancel=lambda: self._check_cancel(run_id),
+        )
+
     # ---------- routing with a profile and bounded escalation (ECO-T06) ----------
     def _route_with_profile(self, *, run_id: str, run: dict[str, Any], state: dict[str, Any], step: WorkflowStep,
                             attempt: int, profile_id: str, profile: dict[str, Any] | None, request: dict[str, Any],
@@ -1181,11 +1202,13 @@ class WorkflowEngine:
         evidence_summary = summarize_routing_evidence(
             run_id, list(state.get("events", [])), read_usage(self.store, run_id)
         )
+        mode_options = saved_mode_options(self.concurrency_source)    # PAR-T05: Eco and Maximum level bounds, at step start
         routing_decision = self.router.select(
             routing_request,
             RoutingEvidence(scope=run_id, stats_by_model=evidence_summary,
                             provenance="single_run_snapshot"),
-            **({"profile_override": profile} if preference else {}),
+            **({"profile_override": profile} if preference or mode_options else {}),
+            **(mode_options or {}),
         )
         decision_data = routing_decision.to_dict()
         decision_data.update({

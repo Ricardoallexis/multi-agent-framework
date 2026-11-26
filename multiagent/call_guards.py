@@ -39,6 +39,8 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Protocol
@@ -444,3 +446,61 @@ def build_call_guards(env: GuardEnvironment, *, cancel: Callable[[CallContext], 
         guards.append(EgressGuard(env.egress, emit=env.emit, secret_guarded=True))
     # CNT-T04/T10: guards.append(QuotaHoldGuard(env))
     return CallGuardChain(guards, cancel=cancel, reserve=reserve)
+
+
+# ---------- PAR-T05: one place per model between flows that run at the same time ----------
+class ModelTurnGate:
+    """How many native steps hold one model right now in this process.
+
+    A step asks for a place with the limit in force; when the model is full it waits for its turn and says why. It never
+    fails for that reason and never stops a step that is already running: a limit that goes down only holds back the
+    next one. A limit of 0 (a quota margin reached) waits until it rises; nothing falls back to another model.
+    """
+
+    def __init__(self, *, poll_seconds: float = 1.0) -> None:
+        self._turns = threading.Condition()
+        self._held: dict[str, int] = {}
+        self.poll_seconds = poll_seconds
+
+    def held(self, model: str | None = None) -> int:
+        with self._turns:
+            return self._held.get(model, 0) if model is not None else sum(self._held.values())
+
+    @contextmanager
+    def hold(self, model: str, limit_of: Callable[[], tuple[int | None, str]], *,
+             on_wait: Callable[[dict[str, Any]], None] | None = None,
+             cancel: Callable[[], None] | None = None):
+        """Hold one place of ``model`` for the ``with`` block. ``limit_of()`` is read again at each turn: ``(limit, reason)``,
+        with ``None`` for no limit. ``on_wait`` hears each new reason once; ``cancel`` may raise to stop the wait."""
+        last: tuple[Any, ...] | None = None
+        while True:
+            if cancel is not None:
+                cancel()
+            try:
+                limit, reason = limit_of()
+            except Exception:  # noqa: BLE001 - a policy that cannot be read must not stop a step the person asked for
+                _logger.warning("the model limit could not be read; the step goes on", exc_info=True)
+                limit, reason = None, ""
+            with self._turns:
+                held = self._held.get(model, 0)
+                if limit is None or held < limit:
+                    self._held[model] = held + 1
+                    break
+                state = (limit, held, reason)
+                if state != last and on_wait is not None:
+                    last = state
+                    on_wait({"model": model, "limit": limit, "running": held, "reason": reason})
+                self._turns.wait(self.poll_seconds)
+        try:
+            yield
+        finally:
+            with self._turns:
+                left = self._held.get(model, 1) - 1
+                if left > 0:
+                    self._held[model] = left
+                else:
+                    self._held.pop(model, None)
+                self._turns.notify_all()
+
+
+MODEL_TURNS = ModelTurnGate()

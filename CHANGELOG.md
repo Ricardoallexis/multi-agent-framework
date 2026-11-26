@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Concurrency: native workflow steps now follow the saved concurrency mode. Eco and Maximum set the model level bounds when a step starts, and flows that run at the same time share one place per model, waiting for their turn (with the reason in the run events) instead of failing or switching model.
 - GUI: the right-hand Context panel groups its cards into four blocks: Where, This conversation (tokens, as one line in simple mode), Outputs (changes and sources) and In progress (subagents, with room for a progress bar). Every card keeps its slot, its own mode and its accessible name.
 - Sessions: a single session no longer needs the general bundle. It runs the built-in "ask once" workflow from the system catalog, also in Mock mode, shows one visible send action per state, and nothing runs until you press Launch.
 - Executors: a single executor session explains a failed, timed-out, cancelled or blocked attempt in plain words above the folded technical details, and errors use stable codes in both languages. The first-run checklist says "Does not apply" when no executor app is detected, and that never blocks connecting one later.

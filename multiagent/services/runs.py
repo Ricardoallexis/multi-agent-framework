@@ -198,6 +198,7 @@ class RunServices:
             usage = getattr(self._services, "usage", None)
             if usage is not None:
                 usage.attach(engine)                               # the same budget guard and alerts as the system engine (USO-T04)
+            engine.concurrency_source = getattr(self._services, "concurrency", None)   # PAR-T05: the saved mode, as the system engine
             engine.memory_source = self._services.memory.entries_for_project_name
             worker = LocalWorker(
                 store, engine, settings.worker_poll_seconds, concurrency=settings.worker_concurrency,

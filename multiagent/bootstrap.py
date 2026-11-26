@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 from .adapters.fake import FakeAdapter
@@ -95,7 +96,46 @@ def build_system(settings: Settings | None = None, *, dry_run: bool = False, ada
     # PAR-T03: a worker that runs alone (``multiagent worker``) follows the concurrency mode saved in the GUI settings.
     # The services that host the GUI replace this source with their own (``RunServices``) before the worker starts.
     worker.limit_source = _saved_mode_limit_source(system)
+    # PAR-T05: the native steps of that worker follow the same saved mode; the services are built only when a mode is saved.
+    system.engine.concurrency_source = _SavedModeConcurrency(system)
     return system
+
+
+class _SavedModeConcurrency:
+    """``ConcurrencyServices`` for an engine built without the services (``multiagent worker``).
+
+    It answers "is a mode saved?" from the settings file alone; only when one is saved does it build the services
+    (once) and delegate. Without a saved mode nothing is built and the engine does what it always did.
+    """
+
+    def __init__(self, system: "System"):
+        self._system = system
+        self._real = None
+        self._lock = threading.Lock()      # two worker threads ask at once: one ApplicationServices only
+
+    services = property(lambda self: self)
+    settings = property(lambda self: self._system.settings)
+    gui_settings = property(lambda self: self)
+
+    def read(self) -> dict:
+        from .services.gui_settings import _written      # the validated reading GuiSettingsServices uses, without services
+        return _written(self._system.settings.local_dir)
+
+    def _application(self):
+        with self._lock:
+            if self._real is None:
+                from .services import ApplicationServices
+                self._real = ApplicationServices(self._system)
+            return self._real
+
+    def concurrency(self, **kwargs):
+        return self._application().gui_settings.concurrency(**kwargs)
+
+    def routing_options(self, **kwargs):
+        return self._application().concurrency.routing_options(**kwargs)
+
+    def effective(self, **kwargs):
+        return self._application().concurrency.effective(**kwargs)
 
 
 def _saved_mode_limit_source(system: "System"):

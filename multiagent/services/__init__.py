@@ -157,6 +157,7 @@ class ApplicationServices:
         engine = getattr(system, "engine", None)
         if engine is not None:
             engine.availability_source = self.inbox.policy
+            engine.concurrency_source = self.concurrency      # PAR-T05: the saved mode reaches native steps
             self.usage.attach(engine)      # USO-T04: the budget guard and the alerts after each recorded call
         backend = getattr(system, "backend", None)
         if backend is not None and backend is not engine and "inbox" in backend.capabilities:
