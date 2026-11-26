@@ -331,7 +331,8 @@ def test_office_workflow_confirmation_uses_its_privacy_and_waits_for_launch():
       const localOnlyLockedWhileOfficeListLoads = localOnlyCheckbox.checked && localOnlyCheckbox.disabled;
       releaseOfficeList();
       await waitUntil(() => root.textContent.includes("Esta área guarda sus datos solo en este equipo."), 5000, "bundle privacy load");
-      const hasComposerWhileConfirming = allElements(root).some((node) => hasClass(node, "ns-composer"));
+      // GUI4-T04 keeps the composer mounted but hidden while confirming, so the picker keeps its state
+      const hasComposerWhileConfirming = allElements(root).some((node) => hasClass(node, "ns-composer") && !node.hidden);
       const inputs = allElements(root).filter((node) => node.localName === "input" && node.type === "checkbox");
       const localOnly = inputs[0];
       const modeSelect = allElements(root).find((node) => node.id === "ns-mode");
