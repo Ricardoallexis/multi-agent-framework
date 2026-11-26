@@ -1,16 +1,16 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-// Ctrl+K (GUI3-T07): one native <dialog> (showModal) with a search field. It finds screens, sessions, runs and help titles;
-// Up and Down move, Intro opens, Esc closes (the dialog does it itself, and the focus goes back to where it was). It only
+// Ctrl+K (GUI3-T07): one native <dialog> (showModal) with a search field. It finds screens, offices, areas, projects, recent
+// conversations and help titles; Up and Down move, Intro opens, Esc closes, and focus goes back to where it was. It only
 // navigates and explains: opening an entry changes the address or shows a help text as plain text, nothing else.
 // The entries come from the sidebar (sidebar.js) and the model is command-palette-model.js.
 import { html, useEffect, useLayoutEffect, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
-import { KINDS, keyAction, moveIndex, openEntry, searchPalette } from "./command-palette-model.js";
+import { groupPaletteResults, KINDS, keyAction, moveIndex, openEntry, searchPalette } from "./command-palette-model.js";
 import { Help, helpFor } from "./help.js";
 import { t } from "./i18n.js";
 
 // open: whether the dialog is shown; onClose(): the parent forgets it; onGo(route): the parent navigates.
-export function CommandPalette({ open, entries, onClose, onGo }) {
+export function CommandPalette({ open, entries, onClose, onGo, areaStatus = "idle" }) {
   const dialog = useRef(null);
   const field = useRef(null);
   const before = useRef(null);
@@ -18,6 +18,7 @@ export function CommandPalette({ open, entries, onClose, onGo }) {
   const [index, setIndex] = useState(0);
   const [detail, setDetail] = useState(null);
   const results = open ? searchPalette(entries, query) : [];
+  const groups = open ? groupPaletteResults(results) : [];
   const active = results.length ? Math.min(index, results.length - 1) : -1;
 
   // Before paint: keys typed right after Ctrl+K or the «Buscar» row already land in the field (a plain effect waits for the
@@ -93,11 +94,18 @@ export function CommandPalette({ open, entries, onClose, onGo }) {
         <${Help} topic="palette.search" compact=${true} />
         <${Help} topic="palette.close" compact=${true} />
       </form>
+      ${areaStatus === "loading" && html`<p class="muted small" role="status">${t("palette.loading_areas")}</p>`}
+      ${areaStatus === "error" && html`<p class="message error small" role="alert">${t("palette.areas_error")}</p>`}
       <ul id="palette-list" class="palette-list" role="listbox" aria-label=${t("palette.results")}>
-        ${results.map((entry, position) => html`<li key=${entry.key} id=${optionId(position)} role="option" class="palette-option"
-          aria-selected=${position === active ? "true" : "false"} onClick=${() => choose(entry)}>
-          <span class="palette-label">${entry.label}</span>
-          <span class="palette-kind">${KINDS[entry.kind]}${entry.hint && entry.kind !== "help" ? " · " + entry.hint : ""}</span>
+        ${groups.map((group) => html`<li key=${group.key} class="palette-group" role=${group.titleKey ? "group" : "presentation"}
+          aria-label=${group.titleKey ? (group.subtitleKey ? t(group.titleKey) + ": " + t(group.subtitleKey) : t(group.titleKey)) : null}>
+          ${group.titleKey && html`<span aria-hidden="true" class="palette-kind palette-group-title">${t(group.titleKey)}</span>`}
+          ${group.subtitleKey && html`<span aria-hidden="true" class="palette-kind palette-subgroup">${t(group.subtitleKey)}</span>`}
+          ${group.items.map(({ entry, position }) => html`<div key=${entry.key} id=${optionId(position)} role="option" class="palette-option"
+            aria-selected=${position === active ? "true" : "false"} onClick=${() => choose(entry)}>
+            <span class="palette-label">${entry.label}</span>
+            <span class="palette-kind">${KINDS[entry.kind]}${entry.hint && entry.kind !== "help" ? " · " + entry.hint : ""}</span>
+          </div>`)}
         </li>`)}
       </ul>
       <p class="muted small" aria-live="polite">${results.length ? results.length + t(results.length === 1 ? "palette.result_one" : "palette.result_many") : t("palette.no_match", { query: query.trim() })}</p>

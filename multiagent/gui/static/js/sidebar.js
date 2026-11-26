@@ -240,11 +240,55 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
   });
 
   /* GUI4-T08 */
+  const [paletteAreaData, setPaletteAreaData] = useState({ areasByOffice: {}, status: "idle" });
+  const paletteAreaDataRef = useRef(paletteAreaData);
+  paletteAreaDataRef.current = paletteAreaData;
+  const updatePaletteAreaData = (next) => {
+    const previous = paletteAreaDataRef.current;
+    if (next.status === "idle" && Object.keys(next.areasByOffice).length === 0
+      && previous.status === "idle" && Object.keys(previous.areasByOffice).length === 0) return;
+    paletteAreaDataRef.current = next;
+    setPaletteAreaData(next);
+  };
+  const paletteOffices = isRegisteredView("offices") ? lists.offices : [];
+  const paletteProjects = isRegisteredView("project") ? lists.projects : [];
+  const paletteOfficeIds = paletteOffices.map((office) => office.id).join("\0");
+  useEffect(() => {
+    if (!paletteOpen) {
+      updatePaletteAreaData({ areasByOffice: {}, status: "idle" });
+      return;
+    }
+    let active = true;
+    if (paletteOffices.length === 0) {
+      updatePaletteAreaData({ areasByOffice: {}, status: "idle" });
+      return () => { active = false; };
+    }
+    updatePaletteAreaData({ areasByOffice: {}, status: "loading" });
+    const requests = paletteOffices.map((office) => Promise.resolve()
+      .then(() => apiGet("/gui/api/offices/" + encodeURIComponent(office.id), token)));
+    Promise.allSettled(requests).then((results) => {
+      if (!active) return;
+      const areasByOffice = {};
+      let failed = false;
+      results.forEach((result, index) => {
+        if (result.status !== "fulfilled" || !Array.isArray(result.value?.areas)) {
+          failed = true;
+          return;
+        }
+        areasByOffice[paletteOffices[index].id] = result.value.areas
+          .filter((area) => area && typeof area.id === "string");
+      });
+      updatePaletteAreaData({ areasByOffice, status: failed ? "error" : "ready" });
+    });
+    return () => { active = false; };
+  }, [paletteOpen, token, paletteOfficeIds]);
+  const paletteItems = itemEntries(sessionItems(data.sessions).concat(runItems(data.runs, mode)), mode, { recent: true, now });
   const paletteEntries = [
     ...sectionEntries(navigation, pendingTabs(registeredViews().filter((view) => visibleIn(view, mode)), [], false)
-      .map((tab) => ({ ...tab, route: tabRoute(tab.id) })), mode),
-    ...itemEntries(sessionItems(data.sessions).concat(runItems(data.runs, mode)), mode),
-    ...helpEntries(HELP),
+      .map((tab) => ({ ...tab, route: tabRoute(tab.id) })), mode, {
+      offices: paletteOffices, projects: paletteProjects, areasByOffice: paletteAreaData.areasByOffice, items: paletteItems,
+    }),
+    ...helpEntries(HELP).map((entry) => ({ ...entry, group: "actions" })),
   ];
 
   return html`<div class="side">
@@ -315,7 +359,7 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
           aria-expanded=${recentExpanded ? "true" : "false"} onClick=${() => setRecentExpanded((value) => !value)}>${recentExpanded ? t("shell.show_fewer") : t("shell.show_more", { count: recent.hidden })}</button>`}
       </${SideSection}>
     </div>
-    <${CommandPalette} open=${paletteOpen} entries=${paletteEntries} onClose=${() => setPaletteOpen(false)}
+    <${CommandPalette} open=${paletteOpen} entries=${paletteEntries} areaStatus=${paletteAreaData.status} onClose=${() => setPaletteOpen(false)}
       onGo=${(target) => navigate(target[0], target[1])} />
   </div>`;
 }

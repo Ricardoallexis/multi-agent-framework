@@ -913,3 +913,10 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
   .quick-guide { margin-top: 8px; max-height: calc(100vh - 16px); }
   .quick-guide-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* GUI4-T08 */
+.palette-list { min-width: 0; }
+.palette-group { display: block; min-width: 0; overflow-wrap: anywhere; }
+.palette-group + .palette-group { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+.palette-group-title, .palette-subgroup { display: block; min-width: 0; padding: 4px 12px; overflow-wrap: anywhere; font-weight: 600; }
+.palette-subgroup { padding-top: 2px; font-weight: 500; }
