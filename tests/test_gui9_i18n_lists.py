@@ -55,7 +55,7 @@ def test_dictionaries_have_matching_keys_and_help_has_spanish_shape_only():
       }
       console.log(JSON.stringify({topics: Object.keys(HELP).length, errors}));
     """ % ", ".join(pairs)
-    assert run_node(source) == {"topics": 78, "errors": []}
+    assert run_node(source) == {"topics": 82, "errors": []}
     for name in DICTIONARIES:
         for lang in ("en", "es"):
             text = (STATIC_DIR / "i18n" / lang / f"{name}.js").read_text(encoding="utf-8")
