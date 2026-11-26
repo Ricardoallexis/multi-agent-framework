@@ -25,7 +25,8 @@ applies to every case. Case IDs must be unique. Inputs are template variables.
 
 An agent or prompt target uses an existing workflow step that names it. The
 step supplies the prompt, skills, output contract, and semantic validation.
-The step is chosen from the first workflow ID and step order that match. These
+The step is chosen from the first workflow ID and step order that match and whose
+declared inputs include every input the set's cases give; if none does, the first match is used. These
 targets use the Mock adapter, with no saved run. A workflow target goes through
 the regular run engine and worker.
 

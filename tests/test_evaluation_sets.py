@@ -34,6 +34,25 @@ def test_examples_pass_in_mock(services, name):
     assert len(report["meta"]["fingerprint"]["set_sha256"]) == 64
 
 
+def _agent_set(inputs):
+    return load_eval_set_from({"name": "pick", "version": "1", "target": {"kind": "agent", "id": "creator"},
+                               "cases": [{"id": "c1", "inputs": inputs,
+                                          "checks": [{"type": "contract_valid"}]}]})
+
+
+def load_eval_set_from(raw):
+    from multiagent.evaluation.cases import EvalSet
+    return EvalSet.model_validate(raw)
+
+
+def test_agent_target_picks_the_workflow_whose_inputs_the_cases_give(services):
+    from multiagent.evaluation.runner import _matching_step
+    social = _matching_step(services, _agent_set({"topic": "t", "platform": "x", "audience": "a"}))
+    assert social.prompt_id.startswith("creator/social_post")
+    once = _matching_step(services, _agent_set({"task": "Explain photosynthesis."}))
+    assert once.prompt_id == "creator/ask_once"
+
+
 def test_unknown_target_and_live_validation(services):
     raw = load_eval_set(EXAMPLES / "agent.yaml").model_dump(mode="json")
     raw["target"]["kind"] = "unknown"

@@ -49,13 +49,22 @@ def _matching_step(services: ApplicationServices, eval_set: EvalSet):
     engine = services.system.engine
     if target.kind == "agent" and target.id not in engine.catalog.agents:
         raise KeyError(f"Agent not found: {target.id}")
+    given = {key for case in eval_set.cases for key in case.inputs}
+    first = None
     for path in sorted(engine.workflows.workflows_dir.glob("*.yaml")):
         definition = engine.workflows.load(path.stem)
+        declared = {item.name for item in definition.inputs}
         for step in definition.steps:
             if (target.kind == "agent" and step.agent == target.id or
                     target.kind == "prompt" and step.prompt_id == target.id and step.prompt_version == target.version):
-                engine.preflight(path.stem)
-                return step
+                if given <= declared:
+                    engine.preflight(path.stem)
+                    return step
+                if first is None:
+                    first = (path.stem, step)
+    if first is not None:
+        engine.preflight(first[0])
+        return first[1]
     raise KeyError(f"No workflow step defines {target.kind} {target.id!r}")
 
 
