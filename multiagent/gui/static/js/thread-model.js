@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Pure run-thread state. A poll overlaps the last seq because synthetic entries may share it.
 
+import { routeHref } from "./route.js";
+
 export const POLL_MS = 4000;
 export const createThread = () => ({ entries: [], cursor: 0, status: "", loaded: false });
 export const pollAfter = (state) => Math.max(0, state.cursor - 1);
@@ -123,4 +125,32 @@ export function modelLimitNotice(limit) {
   if (first) notice.suggested_model = String(first);
   if (first && cost !== undefined && cost !== null && String(cost).trim() !== "") notice.context_cost = String(cost);
   return notice;
+}
+
+// GUI4-T14: the row of shortcuts in the header of a conversation (a session and a run thread draw the same row).
+// Each shortcut is a link with its address. One that has no destination, or whose view does not exist in the person's mode, is
+// not in the list at all (never drawn dimmed): «Árbol» and «Mapa» are views of advanced mode only, «Uso» and «Proyecto» exist in both.
+//   workers   number of agents under the conversation; null when the source does not say (a framework run), which keeps «Árbol»
+//             as it always was in advanced mode, and 0 hides it because there is nothing to see
+//   project   { id, name } of the project the conversation belongs to, or null: «Proyecto» needs the id, and no query is made to find it
+export const SHORTCUT_IDS = ["tree", "project", "usage", "map"];
+export const projectOf = (source) => {
+  const id = source && typeof source.project_id === "string" ? source.project_id.trim() : "";
+  if (!id) return null;
+  const name = [source.project_title, source.project_name].find((value) => typeof value === "string" && value.trim());
+  return { id, name: name ? name.trim() : "" };
+};
+export function shortcutsFor({ mode = "advanced", workers = null, project = null, sessionId = "" } = {}) {
+  const advanced = mode !== "simple";
+  const list = [];
+  if (advanced && sessionId && (workers === null || workers > 0)) {
+    list.push({ id: "tree", href: routeHref("tree", sessionId), label: "sessions.agent_tree", data: {} });
+  }
+  if (project && project.id) {
+    list.push({ id: "project", href: routeHref("project", project.id), data: { name: project.name || "" },
+      label: project.name ? "thread.shortcut.project_named" : "thread.shortcut.project" });
+  }
+  list.push({ id: "usage", href: routeHref("usage"), label: "thread.shortcut.usage", data: {} });
+  if (advanced) list.push({ id: "map", href: routeHref("map"), label: "thread.shortcut.map", data: {} });
+  return list;
 }

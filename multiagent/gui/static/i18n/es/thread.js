@@ -121,5 +121,11 @@ export default {
   "thread.function.approve_once": "Aprobar permite que la función se ejecute una sola vez.",
   "thread.function.code": "Código de error: {code}",
   "thread.model_limit_switch": "Se alcanzó el límite de uso de {model}. Puedes cambiar a {suggested_model}.",
-  "thread.model_limit_only": "Se alcanzó el límite de uso de {model}."
+  "thread.model_limit_only": "Se alcanzó el límite de uso de {model}.",
+  "thread.shortcuts.aria": "Vistas relacionadas",
+  "thread.shortcuts.more": "Más",
+  "thread.shortcut.project": "Proyecto",
+  "thread.shortcut.project_named": "Proyecto: {name}",
+  "thread.shortcut.usage": "Uso",
+  "thread.shortcut.map": "Mapa"
 };

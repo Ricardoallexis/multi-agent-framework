@@ -50,7 +50,8 @@ def world(tmp_path):
 def test_route_is_registered_linked_from_the_session_header_and_mounted_by_main():
     route, main, detail = read("route.js"), read("main.js"), read("session-detail.js")
     assert re.search(r'SECTION_IDS = \[[^\]]*"tree"', route)
-    assert 'routeHref("tree", summary.id)' in detail and "Árbol de agentes" in detail
+    # GUI4-T14: the link is one of the shortcuts that session and thread share (thread-model.js decides, thread.js draws)
+    assert 'routeHref("tree", sessionId)' in read("thread-model.js") and "<${Shortcuts}" in detail and "Árbol de agentes" in detail
     assert 'import { AgentTree } from "./agent-tree.js"' in main
     assert "<${AgentTree} key=${route.id" in main            # one tree per session: no state of another one is kept
     # the tree is a view of the session: the sidebar and the right panel keep treating it as that session
@@ -107,10 +108,10 @@ def test_help_topics_exist_and_the_view_uses_them():
     text, view = read("help-text.js"), read("agent-tree.js")
     for topic in TOPICS:
         assert f'"agent_tree.{topic}": {{' in text, topic
-        assert f'topic="agent_tree.{topic}"' in view + read("session-detail.js"), topic
+        assert f'topic="agent_tree.{topic}"' in view + read("thread.js"), topic
     for control in ("back", "filter", "node", "open_child"):
         assert f'helpFor("agent_tree.{control}")' in view, control
-    assert 'helpFor("agent_tree.open")' in read("session-detail.js")
+    assert 'helpFor("agent_tree.open")' in read("thread.js")
 
 
 @pytest.mark.parametrize("name", TREE_FILES)

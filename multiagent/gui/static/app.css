@@ -966,3 +966,15 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 @media (forced-colors: active) {
   .session-search-clear, .session-filter-details { border-color: CanvasText; }
 }
+
+/* GUI4-T14: the row of shortcuts of a conversation header (the session and the run thread). Wide: the links sit in the row.
+   Narrow: only the «Más» button shows, and it opens the links below it; nothing scrolls sideways. */
+.shortcuts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.shortcuts-list { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.shortcuts-toggle { display: none; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+@media (max-width: 599.98px) {
+  .shortcuts-toggle { display: flex; }
+  .shortcuts-list { display: none; flex-basis: 100%; }
+  .shortcuts-list.open { display: flex; }
+}
+@media (forced-colors: active) { .shortcuts .btn { border-color: CanvasText; } }

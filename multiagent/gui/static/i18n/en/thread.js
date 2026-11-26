@@ -121,5 +121,11 @@ export default {
   "thread.function.approve_once": "Approving lets the function run once.",
   "thread.function.code": "Error code: {code}",
   "thread.model_limit_switch": "{model} has reached its usage limit. You can switch to {suggested_model}.",
-  "thread.model_limit_only": "{model} has reached its usage limit."
+  "thread.model_limit_only": "{model} has reached its usage limit.",
+  "thread.shortcuts.aria": "Related views",
+  "thread.shortcuts.more": "More",
+  "thread.shortcut.project": "Project",
+  "thread.shortcut.project_named": "Project: {name}",
+  "thread.shortcut.usage": "Usage",
+  "thread.shortcut.map": "Map"
 };

@@ -10,7 +10,7 @@ import { ThreadCard } from "./thread-cards.js";
 import { DocumentCard } from "./document-card.js";
 import { currentMode } from "./gui-mode.js";   // SIM-T03
 import { POLL_MS, composerState, createThread, entryKey, groupThread, isNearEnd, isTerminal, mergeThread, pollAfter,
-  nextFollowing, shouldFollow, SMOOTH_MS, tailKey } from "./thread-model.js";
+  nextFollowing, shouldFollow, SMOOTH_MS, tailKey, projectOf, shortcutsFor } from "./thread-model.js";
 import { MESSAGE_KINDS, NEEDS_CONFIRMATION, messageError, messageId, messagePath } from "./inbox-model.js";
 import { t } from "./i18n.js";
 
@@ -23,6 +23,36 @@ function scrollerOf(node) {
   return document.scrollingElement || document.documentElement;
 }
 const readPosition = (scroller) => ({ top: scroller.scrollTop, height: scroller.clientHeight, total: scroller.scrollHeight });
+
+// GUI4-T14: the links to the views that hang from a conversation. The session header and the run thread draw this same row.
+// Each shortcut is a real link (keyboard, middle click, Back). On a narrow screen the row folds into a «Más» button (CSS only
+// shows one or the other; the links are never drawn twice).
+export function Shortcuts({ mode, sessionId, workers = null, project = null, scope = "main" }) {
+  const [open, setOpen] = useState(false);
+  const listId = "shortcuts-list-" + scope;   // two headers mounted together must not repeat the id
+  const found = shortcutsFor({ mode, sessionId, workers, project });
+  if (!found.length) return null;
+  const link = (id) => found.find((item) => item.id === id);
+  const label = (item) => t(item.label, item.data);
+  const [tree, projectLink, usage, map] = ["tree", "project", "usage", "map"].map(link);
+  return html`<nav class="shortcuts" aria-label=${t("thread.shortcuts.aria")}>
+    <div class="shortcuts-toggle">
+      <button type="button" class="btn secondary small" aria-expanded=${open ? "true" : "false"}
+        aria-controls=${listId} ...${helpFor("session.shortcuts_more")} onClick=${() => setOpen(!open)}>${t("thread.shortcuts.more")}</button>
+      <${Help} topic="session.shortcuts_more" compact=${true} />
+    </div>
+    <div id=${listId} class=${"shortcuts-list" + (open ? " open" : "")}>
+      ${tree && html`<a class="btn secondary small" href=${tree.href} ...${helpFor("agent_tree.open")}>${label(tree)}</a>
+        <${Help} topic="agent_tree.open" compact=${true} />`}
+      ${projectLink && html`<a class="btn secondary small" href=${projectLink.href} ...${helpFor("session.shortcut_project")}>${label(projectLink)}</a>
+        <${Help} topic="session.shortcut_project" compact=${true} />`}
+      ${usage && html`<a class="btn secondary small" href=${usage.href} ...${helpFor("session.shortcut_usage")}>${label(usage)}</a>
+        <${Help} topic="session.shortcut_usage" compact=${true} />`}
+      ${map && html`<a class="btn secondary small" href=${map.href} ...${helpFor("session.shortcut_map")}>${label(map)}</a>
+        <${Help} topic="session.shortcut_map" compact=${true} />`}
+    </div>
+  </nav>`;
+}
 
 export function RunThread({ token, runId }) {
   const [thread, setThread] = useState(createThread);
@@ -113,7 +143,8 @@ export function RunThread({ token, runId }) {
   return html`<section class="ns thread-view" aria-label=${t("thread.title")}>
     <div class="thread-head"><h3>${t("thread.title")}</h3><span class="muted">${runId}</span>
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("thread.refresh")}
-        onClick=${() => load(true)}>${t("thread.refresh")}</button><${Help} topic="thread.refresh" compact=${true} /></div>
+        onClick=${() => load(true)}>${t("thread.refresh")}</button><${Help} topic="thread.refresh" compact=${true} />
+      <${Shortcuts} mode=${currentMode()} sessionId=${"framework:" + runId} project=${projectOf(reviewView) || projectOf(thread.entries.find((entry) => entry.kind === "launched"))} scope="run" /></div>
     <${Help} topic="thread.section" />
     ${error && html`<p class="message error" role="alert">${t("thread.refresh.error", { message: errorText(error) })}</p>`}
     ${!thread.loaded && !error && html`<p class="muted" aria-busy="true">${t("thread.loading")}</p>`}

@@ -16,6 +16,8 @@ import {
   contextEventText, modelsText, relativeTime, sessionTitle, sourceLabel, surfaceLabel, tokensText, warningText,
 } from "./session-text.js";
 import { startStream } from "./stream.js";
+import { Shortcuts } from "./thread.js";
+import { projectOf } from "./thread-model.js";
 import { errorText, fmtDate } from "./text.js";
 import { StatusChip } from "./ui/status-chip.js";
 
@@ -74,8 +76,8 @@ function Header({ token, summary, onRefresh, mode }) {
         <${Help} topic="session.run_link" compact=${true} />`}
       <button type="button" class="btn secondary small" ...${helpFor("session.refresh")} onClick=${onRefresh}>${t("sessions.refresh_details")}</button>
       <${Help} topic="session.refresh" compact=${true} />
-      ${mode !== "simple" && html`<a class="btn secondary small" href=${routeHref("tree", summary.id)} ...${helpFor("agent_tree.open")}>${t("sessions.agent_tree")}</a>
-        <${Help} topic="agent_tree.open" compact=${true} />`}
+      <${Shortcuts} mode=${mode} sessionId=${summary.id} workers=${isRun ? null : summary.child_count}
+        project=${projectOf(summary)} scope="session" />
     </div>
     <div id="open-in-app-slot" class="open-in-app-slot"><${OpenInApp} token=${token} summary=${summary} /></div>
   </header>`;

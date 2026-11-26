@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: The header of a session and of a run thread share one row of links to the agent tree, the project, usage and the map, shown only where each view exists and folded into a "More" menu on narrow screens.
 - GUI: Usage › Continuity gets an off-by-default switch, "Keep going by itself with another model or app when a limit is reached", that only the person turns on: a task stopped by a new usage limit goes at once to the best app marked "No prompt" (never extra paid use, a paid API, a running step or an integration), and every automatic hand-off leaves a notice on the session.
 - GUI: The Projects overview shows a strip of figures, a bar with one piece per task and a table of stages; long projects can hide stages, kept per project in this browser, and progress and pending items still count them.
 - GUI: The project view updates by itself: it follows sequence-only change notices for the open project, reloads at most once a second, reconnects with a growing wait and falls back to a 10-second poll while the stream is down; Refresh stays.

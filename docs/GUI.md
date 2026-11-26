@@ -617,6 +617,16 @@ session filters remain under a collapsed **Filters** section in both modes.
 Details include subagents; keyboard navigation and live follow over
 server-sent events (SSE) are supported.
 
+**Shortcuts in the conversation header.** The header of a session and the
+header of a run thread share one row of links to the views that hang from the
+conversation: *Agent tree* (advanced mode, when the conversation has agents),
+*Project* (when the conversation is known to belong to a project), *Usage*,
+and *Map* (advanced mode). Each one is a normal link (keyboard, middle click
+and Back work). A link whose view does not exist in the current mode, or that
+has no destination, is not drawn. On a narrow screen the row folds into a
+*More* button. *View the run*, *Refresh details* and *Open in app* stay where
+they were.
+
 The **agent tree** is available at `#tree/<session-id>` from a session's
 «Árbol de agentes» link. It places the session above its children, shows
 available status, model, level, elapsed time and token data, and offers a

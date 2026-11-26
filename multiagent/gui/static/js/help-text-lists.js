@@ -169,6 +169,38 @@ export const HELP = {
       "The conversation is updated by live follow instead."
     ]
   },
+  "session.shortcut_project": {
+    "title": "Project",
+    "hint": "Open the project this conversation belongs to.",
+    "more": [
+      "See the project's progress, stages, and tasks.",
+      "The link only appears when the conversation is known to belong to a project."
+    ]
+  },
+  "session.shortcut_usage": {
+    "title": "Usage",
+    "hint": "Open Usage to see plans, tokens, and costs.",
+    "more": [
+      "Usage covers all your apps, not only this conversation.",
+      "Opening it does not change anything."
+    ]
+  },
+  "session.shortcut_map": {
+    "title": "Work map",
+    "hint": "Open the map of everything that is running.",
+    "more": [
+      "The map shows the conversations and agents of all your work, as a list or a tree.",
+      "It is read-only and appears in advanced mode."
+    ]
+  },
+  "session.shortcuts_more": {
+    "title": "More views",
+    "hint": "Show or hide the links to the related views.",
+    "more": [
+      "On a narrow screen the links to the agent tree, the project, usage, and the map fold into this button.",
+      "Each link opens its view; Back returns here."
+    ]
+  },
   "session.facts": {
     "title": "Session details",
     "hint": "Where, when, and with which models the session ran.",
