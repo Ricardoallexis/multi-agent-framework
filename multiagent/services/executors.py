@@ -213,7 +213,7 @@ from ..executors.contract import ExecutorApplicationAdapter, ExecutorLaunchReque
 from ..executors.limits import utc_iso
 from ..executors.privacy import decide_privacy, resolve_model_privacy
 from ..executors.selection import (
-    SOURCE_HANDOFF, ExecutorSelection, select_for_executor, select_for_handoff, select_for_resume,
+    SOURCE_HANDOFF, SOURCE_USER, ExecutorSelection, select_for_executor, select_for_handoff, select_for_resume,
 )
 from ..routing.executor_capabilities import CapabilityEvidence, SupportState
 from ..secret_gate import masked_sample as _masked_sample, scan_text as _scan_secrets
@@ -260,6 +260,8 @@ EVENT_TYPES = (SESSION_EVENT, ROUTING_EVENT, ATTEMPT_EVENT, ATTENTION_EVENT, HEA
 PIN_EVENT = "executor.version_changed"    # AXI-T07: an executor's version or digest differs from its pin (see executor_pins)
 PIN_ACTOR = "system:executor-pins"
 EVENT_TYPES += (PIN_EVENT,)
+TURN_EVENT = "executor.waiting_turn"        # PAR-T03: the launch waits for a turn under the active concurrency mode (no failure)
+EVENT_TYPES += (TURN_EVENT,)
 WATCHER_ACTOR = "system:watcher"          # who records the end of a wait by condition (CNT-T12); it resumes as the assignee
 AUTO_TRIGGERS = ("auto", "condition")     # resumptions the service makes by itself: a limit that returns counts as a failed one
 NOT_APPROVERS = ("system:", "executor:")  # the framework never approves in the name of a person
@@ -380,13 +382,16 @@ def _target_view(target: OpenTarget) -> dict[str, Any]:
     return {"kind": target.kind, "value": value, "needs_confirmation": bool(target.needs_confirmation)}
 
 
-def _launch_blocker(adapter: Any) -> str | None:
-    """The reason code an adapter gives for refusing a launch right now (``launch_blocker``, GEM-T03), or None."""
+def _launch_blocker(adapter: Any, workdir: Any = None) -> str | None:
+    """The reason code an adapter gives for refusing a launch right now (``launch_blocker``, GEM-T03), or None.
+
+    An adapter that runs in slots (``slot_aware``, PAR-T03) is asked about the folder of this launch only.
+    """
     check = getattr(adapter, "launch_blocker", None)
     if not callable(check):
         return None
     try:
-        reason = check()
+        reason = check(workdir=workdir) if workdir is not None and getattr(adapter, "slot_aware", False) else check()
     except Exception:  # noqa: BLE001 - a check that breaks proves nothing: refuse
         _logger.warning("the launch check of an executor failed", exc_info=True)
         return "launch_check_failed"
@@ -456,6 +461,7 @@ class _Launch:
     # True once this attempt took its task out of ``running`` (submitted or paused it). From then on the task is no longer
     # this attempt's to touch: a resume keeps the attempt number, so a later run of the same task looks the same as this one.
     settled: bool = False
+    turn: Any = None                                       # PAR-T03: the place this attempt holds in ``_TurnSlots`` (background only)
 
 
 class _Observation(NamedTuple):
@@ -618,6 +624,50 @@ def _stop_background_at_exit() -> None:
 atexit.register(_stop_background_at_exit)
 
 
+@dataclass
+class _TurnToken:
+    """A place held in ``_TurnSlots``. ``handed`` is set when a background attempt took it over: it ends the place."""
+    id: int
+    handed: bool = False
+
+
+class _TurnSlots:
+    """Who runs now in this process, by app, bag, model, project and folder (PAR-T03).
+
+    A launch asks for a place with the limits it was given; when one is full it gets the reason instead of a place and
+    waits for its turn. A place is held until the attempt ends; nothing here stops an attempt that is running.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._held: dict[int, dict[str, str]] = {}
+        self._next = 0
+
+    def reserve(self, keys: Mapping[str, str], limits: Mapping[str, int]) -> _TurnToken | dict[str, Any]:
+        """A token for the place, or ``{"key", "limit", "held"}`` naming the first full key (a limit of 0 is always full)."""
+        with self._lock:
+            for kind, limit in limits.items():
+                key = keys.get(kind)
+                if key is None:
+                    continue
+                held = sum(1 for entry in self._held.values() if entry.get(kind) == key)
+                if held >= limit:
+                    return {"key": kind, "target": key, "limit": limit, "held": held}
+            self._next += 1
+            self._held[self._next] = dict(keys)
+            return _TurnToken(self._next)
+
+    def release(self, token: Any, *, final: bool = False) -> None:
+        """Give the place back; a token a background attempt took over is only given back by that attempt (``final``)."""
+        if isinstance(token, _TurnToken) and (final or not token.handed):
+            with self._lock:
+                self._held.pop(token.id, None)
+
+    def held(self) -> int:
+        with self._lock:
+            return len(self._held)
+
+
 class ExecutorServices:
     def __init__(self, services: ApplicationServices, *, registry: Any = None,
                  clock: Callable[[], datetime] | None = None):
@@ -641,6 +691,8 @@ class ExecutorServices:
         self.availability: AvailabilityPolicy | None = None
         # The attempts launched in the background (AVA-T02): ``cancel``, ``shutdown``, ``active`` and ``join``.
         self.background = BackgroundAttempts()
+        # PAR-T03: who runs now by app, model, project and folder; used only while a concurrency mode is saved.
+        self._turns = _TurnSlots()
         # True while an integration of the work is going on (CNT-T05): a task is never handed over during one. By default it
         # reads the marker of the installation (``Settings.integration_marker``, the one ``multiagent watcher`` takes), so
         # the API and the CLI honour it without being told; a host that coordinates integrations another way replaces it.
@@ -669,8 +721,20 @@ class ExecutorServices:
 
         activations = getattr(self._services, "executor_activations", None)    # EJE-T01: the notice accepted in "Activate"
         notice = activations.notice_accepted("antigravity_cli") if activations is not None else None
-        return default_adapters(session_guard=self.session_guard, settings=getattr(self._services, "settings", None),
-                                antigravity_notice=notice)
+        adapters = default_adapters(session_guard=self.session_guard, settings=getattr(self._services, "settings", None),
+                                    antigravity_notice=notice)
+        for adapter in adapters:
+            if hasattr(adapter, "slot_policy"):
+                adapter.slot_policy = self._mode_saved          # PAR-T03: agy runs in slots only under a saved mode
+        return adapters
+
+    def _mode_saved(self) -> bool:
+        """True when the person saved a concurrency mode in the GUI settings; without one nothing here changes."""
+        gui = getattr(self._services, "gui_settings", None)
+        try:
+            return gui is not None and "concurrency" in gui.read()
+        except Exception:  # noqa: BLE001 - a settings file that cannot be read means no mode
+            return False
 
     # -------- effects (BDI-T04) --------
     @property
@@ -1028,6 +1092,11 @@ class ExecutorServices:
         _check_support(descriptor.effort_support, effort, "effort", executor_id)
         selection = self._routing_selection(decision, model, effort, executor_id=executor_id, descriptor=descriptor,
                                             adapter=adapter)
+        if model and selection.model_source == SOURCE_USER and self._mode_saved():
+            # PAR-T03: the model the person named wins over the level of Eco or Maximum; the notes say it is outside it.
+            notices = self._services.assignment.mode_notices(model, step_kind)
+            if notices:
+                selection = replace(selection, notes=(*selection.notes, *notices))
         return _Plan(executor_id, descriptor, adapter, selection.model, selection.effort, declaration, decision,
                      selection)
 
@@ -1047,6 +1116,127 @@ class ExecutorServices:
         folder = self._services.settings.executor_workdir_root / f"task-{task_id}"
         folder.mkdir(parents=True, exist_ok=True)
         return folder
+
+    # -------- turns (PAR-T03) --------
+    def _take_turn(self, task: Mapping[str, Any], plan: _Plan, actor: str, mode: str,
+                   record: bool = True) -> _TurnToken | dict[str, Any] | None:
+        """A place under the active concurrency mode, or the answer of a launch that waits for its turn.
+
+        None while no mode is saved (nothing is checked, as before). Otherwise the launch needs a place per app (and
+        agy bag), per model, and, for agy, per project and per folder: the limits are ``ConcurrencyServices.effective``
+        and a fixed one for agy's project and folder. A full place is never an error: the task is left as it is, the
+        reason is recorded once (``executor.waiting_turn``) and the answer says ``waiting_turn``. What already runs is never
+        touched, and nothing changes app, bag or model to find room.
+        """
+        token, waiting = self._turn(task, plan.executor_id, plan.model, plan.adapter, plan.declaration, reserve=True)
+        if waiting is None:
+            return token
+        if record:
+            self._record_waiting_turn(task, actor, plan, waiting)
+        return self._waiting_result(task, plan, actor, mode, waiting)
+
+    def _turn(self, task: Mapping[str, Any], executor_id: str, model: str | None, adapter: Any,
+              declaration: Mapping[str, Any], *, reserve: bool) -> tuple[_TurnToken | None, dict[str, Any] | None]:
+        """``(token, None)`` when there is a place, ``(None, waiting)`` when the launch has to wait, ``(None, None)`` without a mode.
+
+        With ``reserve`` False nothing is held: it only says whether the launch would wait now (a hand-off asks before it commits).
+        """
+        if not self._mode_saved():
+            return None, None
+        concurrency = getattr(self._services, "concurrency", None)
+        if concurrency is None:
+            return None, None
+        app = executor_id.removesuffix("_cli")
+        is_agy = executor_id == _antigravity.EXECUTOR_ID
+        bag = _antigravity.bag_of(model) if is_agy else None
+        quota_app = f"{app}:{bag}" if bag is not None else app      # whose quota binds this launch: agy's bags are apart
+        keys: dict[str, str] = {"app": app}
+        targets: dict[str, Mapping[str, Any]] = {"app": {"app": app}}
+        if bag is not None:
+            keys["bag"], targets["bag"] = quota_app, {"app": quota_app}
+        if model:
+            keys["model"], targets["model"] = model, {"app": quota_app, "model": model}   # never another app's quota
+        reasons: dict[str, Mapping[str, Any]] = {}
+        limits: dict[str, int] = {}
+        try:
+            plans = None
+            if self._services.gui_settings.concurrency().get("selection") != "manual":
+                plans = self._services.usage.plans()                  # one reading for every limit of this launch
+            for kind, target in targets.items():
+                if kind == "app" and bag is not None and plans is not None:
+                    # agy in Auto: the quota is the bag's (Gemini never holds Claude/GPT); the app key keeps only the number the
+                    # person or the environment set for the app as a whole.
+                    cap = self._app_cap(app)
+                    if cap is not None:
+                        limits[kind], reasons[kind] = cap, {"code": "app_limit", "reason": f"{app} limit {cap}"}
+                    continue
+                effective = concurrency.effective(plans=plans, **target)
+                limits[kind], reasons[kind] = int(effective["limit"]), effective
+        except Exception:  # noqa: BLE001 - a policy that cannot be read must not stop a launch the person asked for
+            _logger.warning("the concurrency policy could not be read; the launch goes on", exc_info=True)
+            return None, None
+        if is_agy:
+            # One agy run per project and per folder: two in the same place would write over each other.
+            group = self._store.get_group(str(task["group_id"]))
+            keys["project"] = str((group or {}).get("project_id") or task["group_id"])
+            keys["folder"] = self._workdir_key(str(task["id"]), declaration)
+            limits["project"] = limits["folder"] = 1
+            if getattr(adapter, "slot_aware", False) and _launch_blocker(adapter, keys["folder"]) == _antigravity.RUN_IN_PROGRESS:
+                # Another process holds this folder: the same wait as a place taken in this one, not an error.
+                return None, {"executor_id": executor_id, "model": model, "limit_on": "folder", "limit": 1, "running": 1,
+                              "code": "run_in_progress", "reason": "another agy run holds this folder"}
+        result = self._turns.reserve(keys, limits)
+        if not reserve and isinstance(result, _TurnToken):      # a probe holds nothing
+            self._turns.release(result)
+            result = None
+        if result is None or isinstance(result, _TurnToken):
+            return result, None
+        why = reasons.get(result["key"], {})
+        code = str(why.get("code") or f"{result['key']}_limit")
+        reason = (f"{why.get('reason')}" if why.get("reason") else
+                  f"{result['key']} limit {result['limit']} reached ({result['held']} running)")
+        return None, {"executor_id": executor_id, "model": model, "limit_on": result["key"], "limit": result["limit"],
+                      "running": result["held"], "code": code, "reason": reason[:300]}
+
+    def _app_cap(self, app: str) -> int | None:
+        """The number set for one app as a whole (``WORKER_MAX_ACTIVE_PER_APP`` or the saved ``per_app``), if any."""
+        settings = self._services.settings
+        if "worker_max_active_per_app" in getattr(settings, "model_fields_set", set()):
+            value = settings.worker_max_active_per_app
+        else:
+            value = self._services.gui_settings.concurrency().get("per_app", {}).get(app)
+        return int(value) if type(value) is int and value >= 1 else None
+
+    def _workdir_key(self, task_id: str, declaration: Mapping[str, Any]) -> str:
+        """The folder ``_workdir`` will use, without creating it (the effect check comes before the folder exists)."""
+        catalog = getattr(self._services.system, "catalog", None)
+        routing = getattr(catalog, "executor_routing", {}) or {}
+        per_task = routing.get("task_workdirs", {}) if isinstance(routing, Mapping) else {}
+        configured = (per_task.get(task_id) if isinstance(per_task, Mapping) else None) or declaration.get("workdir")
+        folder = Path(str(configured)) if configured else self._services.settings.executor_workdir_root / f"task-{task_id}"
+        return os.path.normcase(os.path.abspath(folder))
+
+    def _record_waiting_turn(self, task: Mapping[str, Any], actor: str, plan: _Plan, payload: dict[str, Any]) -> None:
+        """One event per distinct wait of a task: a poll that finds the same reason adds nothing."""
+        with self._store.db.connect() as conn:
+            previous = self._latest(conn, TURN_EVENT, task_id=str(task["id"]))
+        if previous is not None and previous["payload"] == payload:
+            return
+        self._append(TURN_EVENT, actor=actor, task=task, ref=plan.executor_id, cause="waiting for a turn", payload=payload)
+
+    def _waiting_result(self, task: Mapping[str, Any], plan: _Plan, actor: str, mode: str,
+                        waiting: dict[str, Any]) -> dict[str, Any]:
+        """What ``run_task`` returns for a launch that waits: the task is as it was and no program was started."""
+        task_id = str(task["id"])
+        permission = Permission.WRITE if task["file_scope"] else Permission.READ
+        return {
+            "outcome": "waiting_turn", "run_status": "queued", "task_id": task_id, "executor_id": plan.executor_id,
+            "attempt": task.get("attempt"), "actor": actor, "mode": mode, "session_id": None, "open_target": None,
+            "model": plan.model, "effort": plan.effort,
+            "selection": plan.selection.to_dict() if plan.selection else None, "permission": permission.value,
+            "usage": None, "command": None, "evidence": waiting["reason"], "notes": ["waiting_turn"],
+            "executor_paused_until": None, "checkpoint": None, "hold": None, "context_handoff": None, "result": None,
+            "gate": self._services.gates.get_gate(task_id), "task": self._tasks.get_task(task_id), "waiting": waiting}
 
     def _privacy_decision(self, task: Mapping[str, Any], executor_id: str, descriptor: Any, model: str | None,
                           operator_context: Any, profile_id: str | None = None) -> tuple[Any, str | None, Any]:
@@ -1200,9 +1390,15 @@ class ExecutorServices:
         actor = _text("actor", actor if actor is not None else f"executor:{plan.executor_id}", maximum=100)
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
-        return self._execute(task, plan, actor, timeout, resume_session=None, hold=hold, trigger=trigger, drift=drift,
-                             policy=policy, operator_context=operator_context,
-                             accept_quota_warning=accept_quota_warning)
+        turn = self._take_turn(task, plan, actor, "launch")
+        if isinstance(turn, dict):
+            return turn
+        try:
+            return self._execute(task, plan, actor, timeout, resume_session=None, hold=hold, trigger=trigger,
+                                 drift=drift, policy=policy, operator_context=operator_context,
+                                 accept_quota_warning=accept_quota_warning, turn=turn)
+        finally:
+            self._turns.release(turn)
 
     @service_errors
     def resume_task(self, task_id: str, model: str | None = None, effort: str | None = None,
@@ -1251,14 +1447,21 @@ class ExecutorServices:
         actor = _text("actor", actor or task.get("assignee") or f"executor:{executor_id}", maximum=100)
         timeout = self._timeout(timeout_seconds, self._limit(plan, "timeout_seconds",
                                                              self._services.settings.executor_timeout_seconds))
-        self._privacy_precheck(task, executor_id, descriptor, selection.model)     # MOD-T04: before a session is retired
-        handoff = self._context_handoff(task, session, actor, plan, timeout)
-        # Measuring (a compaction links a snapshot), the checkpoint and the guard all change the task's revision, also
-        # when no hand-off follows: the attempt always starts from the task as it is now.
-        task = self._tasks.get_task(task_id)
-        result = self._execute(task, plan, actor, timeout, resume_session=None if handoff else session_id,
-                               recorded=None if handoff else _session_settings(session), hold=hold,
-                               trigger=trigger, drift=drift)
+        # PAR-T03: the turn comes first: a session is never retired for a launch that has to wait.
+        turn = self._take_turn(task, plan, actor, "resume")
+        if isinstance(turn, dict):
+            return turn
+        try:
+            self._privacy_precheck(task, executor_id, descriptor, selection.model)     # MOD-T04: before a session is retired
+            handoff = self._context_handoff(task, session, actor, plan, timeout)
+            # Measuring (a compaction links a snapshot), the checkpoint and the guard all change the task's revision, also
+            # when no hand-off follows: the attempt always starts from the task as it is now.
+            task = self._tasks.get_task(task_id)
+            result = self._execute(task, plan, actor, timeout, resume_session=None if handoff else session_id,
+                                   recorded=None if handoff else _session_settings(session), hold=hold,
+                                   trigger=trigger, drift=drift, turn=turn)
+        finally:
+            self._turns.release(turn)
         result["context_handoff"] = handoff
         return result
 
@@ -1329,7 +1532,8 @@ class ExecutorServices:
                  resume_session: str | None, recorded: Mapping[str, Any] | None = None,
                  hold: Mapping[str, Any] | None = None, trigger: str = "manual",
                  drift: tuple[str, ...] = (), policy: AvailabilityPolicy | None = None,
-                 operator_context: Any = None, accept_quota_warning: bool = False) -> dict[str, Any]:
+                 operator_context: Any = None, accept_quota_warning: bool = False,
+                 turn: Any = None) -> dict[str, Any]:
         """One attempt. ``hold`` and ``trigger`` (``auto`` from ``resume_due``, ``condition`` from ``resume_met``, else
         ``manual``) say what hold this run ends; ``drift`` is what ``resume_due`` found different before relaunching; ``recorded`` the settings of the
         session being resumed (to compare with what the app reports).
@@ -1384,7 +1588,15 @@ class ExecutorServices:
                          call=call)
         if background is None or policy is None:
             return self._finish_attempt(launch, self._call_with_watch(launch))
-        return self._launch_in_background(launch, background, policy)
+        if isinstance(turn, _TurnToken):
+            turn.handed = True                     # PAR-T03: the attempt in the background gives the place back when it ends
+            launch.turn = turn
+        try:
+            return self._launch_in_background(launch, background, policy)
+        except BaseException:
+            if isinstance(turn, _TurnToken):
+                turn.handed = False                # the thread never ran: the caller gives the place back
+            raise
 
     def _call_with_watch(self, launch: _Launch, *, heartbeat: _Heartbeat | None = None,
                          background: BackgroundAttempt | None = None) -> _Attempt:
@@ -1494,6 +1706,7 @@ class ExecutorServices:
             except Exception:  # noqa: BLE001 - the place of the attempt is released whatever happens
                 _logger.exception("the inbox could not finish the interrupt of %s", launch.task["id"])
             self.background.release(background)
+            self._turns.release(launch.turn, final=True)
             background.done.set()
 
     def _record_background_failure(self, launch: _Launch, background: BackgroundAttempt,
@@ -1637,7 +1850,7 @@ class ExecutorServices:
 
     def _preflight(self, plan: _Plan, request: ExecutorLaunchRequest, resume_session: str | None) -> None:
         """Build the command and find the program before the task changes: a refusal here leaves the task as it was."""
-        blocker = _launch_blocker(plan.adapter)      # GEM-T03: agy's kill switch, notice and one-run-at-a-time lock
+        blocker = _launch_blocker(plan.adapter, request.workdir)    # GEM-T03: agy's kill switch, notice and run lock
         if blocker is not None:
             raise _conflict("executor_unavailable", f"{plan.executor_id} cannot be launched now ({blocker})",
                             executor_id=plan.executor_id, code=blocker)
@@ -2293,7 +2506,11 @@ class ExecutorServices:
             if dry_run:
                 continue
             try:
-                out["resumed"].append(self._resume_one(info, hold, timeout_seconds))
+                item = self._resume_one(info, hold, timeout_seconds)
+                if item["outcome"] == "waiting_turn":       # PAR-T03: not resumed; the hold stays and the next call asks again
+                    out["waiting"].append({**info, "why": "waiting_turn", "waiting": item["waiting"]})
+                else:
+                    out["resumed"].append(item)
             except ServiceError as exc:
                 out["skipped"].append({**info, "why": str(exc.details.get("reason") or exc.code),
                                        "message": exc.message})
@@ -2335,11 +2552,17 @@ class ExecutorServices:
             # MOD-T04: nor may the privacy check refuse it after the retirement (the model is the one ``_relaunch`` sends).
             self._privacy_precheck(task, executor_id, descriptor,
                                    recorded.get("model") if _supports(descriptor.model_support, recorded.get("model")) else None)
+            _unused, waiting = self._turn(task, executor_id, recorded.get("model"), adapter, _declaration, reserve=False)
+            if waiting is not None:
+                # PAR-T03: no place now: the old session is not retired, the hold stays and the next call asks again.
+                return self._waiting_item(task_id, executor_id, hold, waiting)
             if not (hold.get("secret_gate") and not hold.get("session_id")):
                 # SEC-T03: a launch the secret gate held has nothing to retire, and a checkpoint would change the text.
                 self._supersede(task_id, hold, actor)
             result = self._relaunch(task_id, executor_id, recorded.get("model"), recorded.get("effort"), actor, hold,
                                     drift, timeout_seconds, trigger)
+        if result["outcome"] == "waiting_turn":
+            return self._waiting_item(task_id, executor_id, hold, result["waiting"])
         since = _hold.parse_utc(hold.get("since"))
         waited = max(int((self.clock() - since).total_seconds() // 60), 0) if since is not None else None
         item = {"task_id": task_id, "mode": "resume" if history and not result.get("context_handoff") else "relaunch",
@@ -2349,6 +2572,13 @@ class ExecutorServices:
         if result.get("context_handoff"):
             item["context_handoff"] = result["context_handoff"]      # only a hand-off adds the key: the shape stays
         return item
+
+    @staticmethod
+    def _waiting_item(task_id: str, executor_id: str, hold: Mapping[str, Any], waiting: Mapping[str, Any]) -> dict[str, Any]:
+        """What a resumption that found no place answers: it is not a resumption, the hold stays (PAR-T03)."""
+        return {"task_id": task_id, "mode": "waiting", "outcome": "waiting_turn", "executor_id": executor_id,
+                "session_id": None, "attempt": hold.get("attempt"), "config_drift": [], "minutes_waited": None,
+                "hold": dict(hold), "waiting": dict(waiting)}
 
     def _drift_before(self, task: Mapping[str, Any], executor_id: str, descriptor: Any, adapter: Any,
                       recorded: Mapping[str, Any]) -> list[str]:
@@ -2852,8 +3082,11 @@ class ExecutorServices:
             if dry_run:
                 continue
             try:
-                out["resumed"].append({**self._resume_one(info, hold, timeout_seconds, trigger="condition"),
-                                       "hold_id": info.get("hold_id")})
+                item = self._resume_one(info, hold, timeout_seconds, trigger="condition")
+                if item["outcome"] == "waiting_turn":       # PAR-T03: the watcher keeps waiting and asks again
+                    out["waiting"].append({**info, "why": "waiting_turn", "waiting": item["waiting"]})
+                else:
+                    out["resumed"].append({**item, "hold_id": info.get("hold_id")})
             except ServiceError as exc:
                 out["skipped"].append({**info, "why": str(exc.details.get("reason") or exc.code),
                                        "message": exc.message})
@@ -3257,6 +3490,14 @@ class ExecutorServices:
         if run:
             # MOD-T04: a delegate that could not receive this task is refused before the hand-off is committed.
             self._privacy_precheck(task, executor_id, descriptor, pick.model)
+            declared = (self.registry.config.get("executors", {}) or {}).get(executor_id, {})
+            _unused, waiting = self._turn(task, executor_id, pick.model, adapter, declared, reserve=False)
+            if waiting is not None:
+                # PAR-T03: the delegate has no place now: nothing is committed, the task stays paused with its limit hold
+                # and the next sweep (``decide_holds``) asks again.
+                raise _conflict("waiting_turn", f"{executor_id} has no free place now: {waiting['reason']}; the task "
+                                "stays held and is handed over when one frees", task_id=task_id, reason="waiting_turn",
+                                waiting=waiting)
         folder = self._known_workdir(task_id, executor_id)
         same_folder = bool(settings.get("workdir")) and folder is not None and _workdir_id(folder) == settings["workdir"]
         sid = str(hold["session_id"]).lower() if hold.get("session_id") and is_uuid(str(hold["session_id"])) else ""

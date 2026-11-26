@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Concurrency: with a saved concurrency mode, the queue, the executor apps and agy wait their turn instead of failing. The worker caps work per project and in total; each step waits for a free place per app, agy pool, model and folder; routing follows the mode's model level, and the person's chosen model still wins. A temporary "until these tasks end" mode ends with the batch, and agy can run in separate folders at the same time. Without a saved mode nothing changes.
 - GUI: a read-only route lists the models and apps that «Nueva sesión» can offer. The model picker can show «Automático», the effort and the apps; until «Nueva sesión» passes them in, it stays the same list as today.
 - GUI: a chip in the top bar shows the app closest to its limit and opens a list with each app's quota and a link to «Uso».
 - GUI: «Buscar» groups its results: conversations waiting for you first, then offices and areas, projects, recent conversations by date and actions. Picking an office opens «Oficinas».

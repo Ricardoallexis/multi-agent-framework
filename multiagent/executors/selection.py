@@ -41,8 +41,8 @@ from ..routing.executor_capabilities import ExecutorDescriptor, SupportState
 from ..routing_policy import MODEL_LEVELS
 
 __all__ = [
-    "ExecutorSelection", "HandoffSelection", "model_exclusions", "select_for_executor", "select_for_handoff",
-    "select_for_resume",
+    "ExecutorSelection", "HandoffSelection", "mode_level_notice", "model_exclusions", "select_for_executor",
+    "select_for_handoff", "select_for_resume", "MODE_LEVEL_NOTICE",
     "SOURCE_USER", "SOURCE_PROFILE", "SOURCE_SESSION", "SOURCE_HANDOFF",
     "NOT_DECLARED", "ADAPTER_REFUSES", "EXCLUSION_PREFIX",
 ]
@@ -55,6 +55,8 @@ SOURCE_HANDOFF = "handoff"
 EXCLUSION_PREFIX = "executor_"
 NOT_DECLARED = "executor_model_not_declared"           # the executor lists models and this one is not among them
 ADAPTER_REFUSES = "executor_adapter_refuses_model"     # + ":<adapter code>"
+
+MODE_LEVEL_NOTICE = "user_model_outside_mode_level"     # + ":<mode>"; the model the person named is still the one used
 
 MAX_SKIPPED = 5
 _MAX_NOTE = 80
@@ -108,6 +110,22 @@ def model_exclusions(models: Mapping[str, Any] | Iterable[Any], descriptor: Exec
             if reason:
                 excluded[str(catalog_id)] = f"{ADAPTER_REFUSES}:{reason}"
     return excluded
+
+
+def mode_level_notice(mode: Any, level: Any, *, step_kind: str = "work", allow_t4: bool = False) -> str | None:
+    """A warning for a model the person named whose level the active mode would not have chosen; None when it fits.
+
+    Eco keeps ``work`` at ``T2`` or below and every other step kind at ``T3`` or above; Maximum keeps every step at ``T3``
+    or above and at ``T4`` only with ``allow_t4``. The person's model always wins (``SOURCE_USER``): this only says so.
+    """
+    if mode not in ("eco", "maximum") or level not in MODEL_LEVELS:
+        return None
+    index = MODEL_LEVELS.index(level)
+    if mode == "eco":
+        outside = index > MODEL_LEVELS.index("T2") if step_kind == "work" else index < MODEL_LEVELS.index("T3")
+    else:
+        outside = index < MODEL_LEVELS.index("T3") or (level == "T4" and not allow_t4)
+    return f"{MODE_LEVEL_NOTICE}:{mode}" if outside else None
 
 
 def _price_source(evidence: Any) -> str | None:
@@ -233,16 +251,19 @@ def _profile_effort(route: Mapping[str, Any], descriptor: ExecutorDescriptor, no
 
 def select_for_executor(executor_id: str, descriptor: ExecutorDescriptor, route: Any = None, *,
                         requested_model: str | None = None, requested_effort: str | None = None,
-                        adapter: Any = None) -> ExecutorSelection:
+                        adapter: Any = None, user_model_notices: Iterable[str] = ()) -> ExecutorSelection:
     """The model and effort ``executor_id`` is asked to use for a task, from the caller or the routing decision.
 
     ``route`` is the model routing decision made for this executor (a ``RoutingDecision`` or its dict; None when the
     assignment profile has no routing profile). Explicit ``requested_*`` values win and are returned as given.
+    ``user_model_notices`` (PAR-T03: the active mode's level warning) are added to ``notes`` only when the model is the
+    person's; they change nothing about what is sent.
     """
     data = _mapping(route)
     notes: list[str] = []
     if requested_model:
         model, model_source = requested_model, SOURCE_USER
+        notes.extend(user_model_notices)
     else:
         model = _profile_model(data, descriptor, adapter, notes) if data else None
         model_source = SOURCE_PROFILE if model else None

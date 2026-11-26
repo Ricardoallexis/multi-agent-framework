@@ -10,8 +10,9 @@ import json
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
+from ..catalog import confirmed_level
 from ..executors.registry import ExecutorRegistry
-from ..executors.selection import model_exclusions, select_for_executor
+from ..executors.selection import mode_level_notice, model_exclusions, select_for_executor
 from ..routing.assignment import AssignmentDecision, AssignmentRequest, select_assignment
 from ..routing.executor_capabilities import VerifiedOperatorContext, validate_executor_config
 from ..routing_policy import DEFAULT_STEP_KIND, STEP_KINDS, RoutingRequest
@@ -238,7 +239,34 @@ class AssignmentServices:
             authorization_provenance="assignment_trusted_grants" if grants.get("effective_permissions") is not None else "unknown",
             data_class=request.data_class,
         )
-        return self._services.system.engine.router.select(model_request)
+        return self._services.system.engine.router.select(model_request, **self.mode_options())
+
+    def mode_options(self) -> dict[str, Any]:
+        """The arguments that project the saved Eco or Maximum mode on the router; empty when none applies (PAR-T03).
+
+        Only a mode the person saved counts, and only Eco and Maximum change levels, so without one the router is
+        called exactly as before. The router applies the levels; the person's own model is never replaced by them.
+        """
+        gui, concurrency = getattr(self._services, "gui_settings", None), getattr(self._services, "concurrency", None)
+        if gui is None or concurrency is None or "concurrency" not in gui.read():
+            return {}
+        options = concurrency.routing_options()
+        return options if options.get("concurrency_mode") in ("eco", "maximum") else {}
+
+    def mode_notices(self, model: str | None, step_kind: str | None = None) -> tuple[str, ...]:
+        """The warning when the model the person named is outside the level of the active mode; the model is kept."""
+        options = self.mode_options() if model else {}
+        if not options:
+            return ()
+        models = getattr(self._services.system.catalog, "models", {}) or {}
+        spec = models.get(model) or next((item for item in models.values() if getattr(item, "model", None) == model), None)
+        level = getattr(spec, "level", None)
+        declared = (options.get("confirmed_levels") or {}).get(getattr(spec, "id", None))
+        if declared is not None and confirmed_level(declared) is not None:      # a level the person confirmed counts, as in the router
+            level = confirmed_level(declared)
+        notice = mode_level_notice(options["concurrency_mode"], level,
+                                   step_kind=step_kind or DEFAULT_STEP_KIND, allow_t4=bool(options.get("allow_t4")))
+        return (notice,) if notice else ()
 
     @staticmethod
     def _profile_executor_ids(profile: Mapping[str, Any] | None, request: AssignmentRequest) -> list[str]:
@@ -272,16 +300,18 @@ class AssignmentServices:
 
     def _executor_requests(self, request: AssignmentRequest, profile: Mapping[str, Any] | None,
                            descriptors: Mapping[str, Any], routes: Mapping[str, Any] | None,
-                           selected: str | None) -> dict[str, Any]:
+                           selected: str | None, step_kind: str | None = None) -> dict[str, Any]:
         """Model and effort each executor of the profile would be asked to use, with where each value comes from."""
         requests: dict[str, Any] = {}
+        notices = self.mode_notices(request.requested_model, step_kind)
         for executor_id in self._profile_executor_ids(profile, request):
             descriptor = descriptors.get(executor_id)
             if descriptor is None:
                 continue
             selection = select_for_executor(
                 executor_id, descriptor, (routes or {}).get(executor_id), requested_model=request.requested_model,
-                requested_effort=request.requested_effort, adapter=self._registry.resolve(executor_id))
+                requested_effort=request.requested_effort, adapter=self._registry.resolve(executor_id),
+                user_model_notices=notices)
             entry = selection.to_dict()
             entry.pop("executor_id")
             requests[executor_id] = {**entry, "selected": executor_id == selected}
@@ -424,7 +454,7 @@ class AssignmentServices:
                 decision = replace(decision, status="blocked", selected_executor=None, planned_executor=None,
                                    reason_codes=tuple(dict.fromkeys((*decision.reason_codes, reason))))
         executor_requests = self._executor_requests(request, profile if isinstance(profile, Mapping) else None,
-                                                    descriptors, routes, decision.selected_executor)
+                                                    descriptors, routes, decision.selected_executor, step_kind)
         if executor_requests:
             # What each executor would be asked to run with (ECO-T08): the same function the executor service uses.
             decision = replace(decision, evidence={**dict(decision.evidence), "step_kind": step_kind,

@@ -23,7 +23,7 @@ from .tools.mock import register_mock_tools
 from .tools.registry import ToolRegistry
 from .workflow_engine import WorkflowEngine
 from .workflows import WorkflowCatalog
-from .worker import LocalWorker
+from .worker import LocalWorker, concurrency_limit_source
 
 
 @dataclass
@@ -90,5 +90,30 @@ def build_system(settings: Settings | None = None, *, dry_run: bool = False, ada
         lease_seconds=settings.worker_lease_seconds,
         shutdown_wait_seconds=settings.worker_shutdown_wait_seconds,
     )
-    return System(settings, db, store, catalog, run_service, brand_service, asset_service, engine, backend, worker, adapters,
-                  tool_registry)
+    system = System(settings, db, store, catalog, run_service, brand_service, asset_service, engine, backend, worker,
+                    adapters, tool_registry)
+    # PAR-T03: a worker that runs alone (``multiagent worker``) follows the concurrency mode saved in the GUI settings.
+    # The services that host the GUI replace this source with their own (``RunServices``) before the worker starts.
+    worker.limit_source = _saved_mode_limit_source(system)
+    return system
+
+
+def _saved_mode_limit_source(system: "System"):
+    """The cap of the saved concurrency mode, or None while no mode is saved (the worker then keeps its static limits).
+
+    The services that read the usage and the settings are built only when a mode is saved, and only once.
+    """
+    from .services.gui_settings import load_file
+
+    holder: dict = {}
+
+    def source():
+        if "source" not in holder:
+            if "concurrency" not in load_file(system.settings.local_dir):
+                return None
+            from .services import ApplicationServices
+
+            holder["source"] = concurrency_limit_source(ApplicationServices(system))
+        return holder["source"]()
+
+    return source

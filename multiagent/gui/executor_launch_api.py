@@ -91,6 +91,17 @@ def add_executor_launch_routes(api: APIRouter, services) -> None:
                 raise ServiceError(exc.code, exc.message, status=exc.status,
                                    details={**exc.details, "limit": limit_notice(services, body.executor_id)}) from exc
             raise
+        if isinstance(result, dict) and result.get("outcome") == "waiting_turn":
+            # PAR-T03: no place for this launch now. The single-session task is born here and nothing started, so it is
+            # retired instead of left open; the page is told why and the person launches again when a place frees.
+            try:
+                services.tasks.transition(task_id, "cancel", actor="user:operator", cause="executor launch waiting for a turn")
+            except ServiceError:
+                pass
+            waiting = dict(result.get("waiting") or {})
+            raise ServiceError("waiting_turn", f"No free place now: {waiting.get('reason') or 'concurrency limit reached'}. "
+                               "Nothing was started; launch again when a running session ends.", status=409,
+                               details={"reason": "waiting_turn", "waiting": waiting, "task_id": None})
         if isinstance(result, dict) and str(result.get("reason") or "") in LIMIT_REASONS:
             raise ServiceError("limit_reached", "Executor limit reached.", status=409,
                                details={"limit": limit_notice(services, body.executor_id)})

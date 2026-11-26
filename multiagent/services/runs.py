@@ -46,7 +46,7 @@ from ..tools.approvals import ToolApprovalMismatch
 from ..tools.contracts import PermissionRequest, ToolExecutionError
 from ..tools.files import preview_file_write
 from ..tools.registry import ToolLookupError
-from ..worker import LocalWorker
+from ..worker import LocalWorker, SharedSlots, concurrency_limit_source
 from .plan_autoadvance import notify_run_finished
 from ..workflow_engine import WorkflowEngine
 from .errors import HUMAN_STEP_UNAVAILABLE, HUMAN_SUBMISSION_INVALID, INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError, service_errors
@@ -114,6 +114,33 @@ class RunServices:
         self._bundle_runtimes: dict[str, _Runtime] = {}
         self._closed = False                      # CER-T01: after ``close`` no runtime of a package is built
         self._external_now = time.time
+        self._slots = SharedSlots()               # PAR-T03: the total cap of every worker of this process
+        # PAR-T03: the worker of the system follows the concurrency mode saved in the GUI settings, and the end of a batch
+        # lets a temporary mode that lasts "tasks" end. Both look the services up when they run.
+        self._bind_worker(getattr(getattr(services, "system", None), "worker", None))
+
+    def _bind_worker(self, worker: Any) -> None:
+        if worker is None:
+            return
+        worker.limit_source = concurrency_limit_source(self._services)
+        worker.on_batch_complete = self._complete_temporary_tasks
+        worker.shared_slots = self._slots
+
+    def _complete_temporary_tasks(self) -> bool:
+        """End a temporary mode that lasts "tasks" only when no queue of this process (system or package) has work left.
+
+        Each worker asks when its own queue is empty; the answer is False while another worker's database still has open
+        runs or a run is in progress, so the batch is not consumed and the next worker to finish asks again.
+        """
+        stores = [self._services.system.store]
+        with self._lock:
+            stores += [runtime.store for runtime in self._bundle_runtimes.values() if runtime.worker is not None]
+        if self._slots.count or any(store.run_counts()["open"] for store in stores):
+            return False
+        gui_settings = getattr(self._services, "gui_settings", None)
+        if gui_settings is not None:
+            gui_settings.complete_temporary_tasks()
+        return True
 
     @property
     def _system_runtime(self) -> _Runtime:
@@ -172,15 +199,16 @@ class RunServices:
             if usage is not None:
                 usage.attach(engine)                               # the same budget guard and alerts as the system engine (USO-T04)
             engine.memory_source = self._services.memory.entries_for_project_name
-            runtime = _Runtime(name, store, RunService(settings, store, engine=engine),
-                               LocalWorker(
-                                   store, engine, settings.worker_poll_seconds, concurrency=settings.worker_concurrency,
-                                   max_active_total=settings.worker_max_active_total,
-                                   max_active_per_project=settings.worker_max_active_per_project,
-                                   lease_seconds=settings.worker_lease_seconds,
-                                   shutdown_wait_seconds=settings.worker_shutdown_wait_seconds,
-                                   on_finished=lambda finished_id: notify_run_finished(self._services, finished_id),
-                               ))
+            worker = LocalWorker(
+                store, engine, settings.worker_poll_seconds, concurrency=settings.worker_concurrency,
+                max_active_total=settings.worker_max_active_total,
+                max_active_per_project=settings.worker_max_active_per_project,
+                lease_seconds=settings.worker_lease_seconds,
+                shutdown_wait_seconds=settings.worker_shutdown_wait_seconds,
+                on_finished=lambda finished_id: notify_run_finished(self._services, finished_id),
+            )
+            self._bind_worker(worker)
+            runtime = _Runtime(name, store, RunService(settings, store, engine=engine), worker)
             if settings.worker_enabled:
                 runtime.worker.start()
             self._bundle_runtimes[name] = runtime

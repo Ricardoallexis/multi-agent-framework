@@ -1296,6 +1296,9 @@ def cmd_worker(args) -> None:
     if args.concurrency is not None:
         settings = settings.model_copy(update={"worker_concurrency": args.concurrency})
     system = build_system(settings)
+    if args.concurrency is not None:
+        # PAR-T03: an explicit --concurrency beats a concurrency mode saved in the GUI (and WORKER_CONCURRENCY in .env).
+        system.worker.limit_source = None
     system.worker.start()
     try:
         while True:

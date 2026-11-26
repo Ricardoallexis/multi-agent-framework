@@ -157,6 +157,47 @@ def resolve_limit(*, gui: int | None, environment: int | None, cli: int | None,
     return result, f"{name}_limit"
 
 
+def _plans_of(plans: Mapping[str, Any], target: str, model: str | None = None) -> dict[str, Any]:
+    """The plan windows of one app; for ``antigravity:<bag>`` only the windows of that quota bag.
+
+    A ``model_weekly`` window belongs to one model: it counts only for that model, never for the others of the bag.
+    """
+    name, _, bag = target.partition(":")
+    apps = []
+    for entry in plans.get("apps", []):
+        if not isinstance(entry, Mapping) or entry.get("app") != name:
+            continue
+        if bag:
+            from ..executors.antigravity import _slug, bag_of
+            slug = _slug(model) if model else ""
+
+            def counts(window: Any) -> bool:
+                if not isinstance(window, Mapping) or bag_of(str(window.get("group", "")).lower()) != bag:
+                    return False
+                if window.get("window") != "model_weekly":
+                    return True
+                own = _slug(str(window.get("group", "")))
+                return bool(own) and bool(slug) and (slug == own or slug.startswith(own + "-"))
+
+            entry = {**entry, "windows": [window for window in entry.get("windows", []) if counts(window)]}
+        apps.append(entry)
+    return {**plans, "apps": apps}
+
+
+def _best_app(plans: Mapping[str, Any], options: Mapping[str, Any]) -> dict[str, Any]:
+    """The total cap: each app on its own windows, the largest cap among the apps that still have room.
+
+    0 (``quota_margin_reached``) only when every app that reports its quota is at its margin; no data at all is 1.
+    """
+    results = [calculate_auto({**plans, "apps": [entry]}, **options)
+               for entry in plans.get("apps", []) if isinstance(entry, Mapping)]
+    known = [result for result in results if result["code"] != "no_quota_data"]
+    if not known:
+        return {"limit": 1, "reason": "no_quota_data", "code": "no_quota_data"}
+    room = [result for result in known if result["code"] == "quota_window"]
+    return max(room, key=lambda result: result["limit"]) if room else known[0]
+
+
 class ConcurrencyServices:
     """Effective GUI policy and its explanation, with environment and CLI precedence."""
 
@@ -171,14 +212,15 @@ class ConcurrencyServices:
 
     def effective(self, *, app: str | None = None, model: str | None = None,
                   cli_limit: int | None = None, cost_per_step: Mapping[str, float] | None = None,
-                  now: datetime | None = None) -> dict[str, Any]:
+                  now: datetime | None = None, plans: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """The cap in force. ``plans`` (a reading of ``usage.plans()``) lets a caller that asks several times read once."""
         now = now or datetime.now(timezone.utc)
         config = self.services.gui_settings.concurrency(now=now)
         settings = self.services.settings
         fields = getattr(settings, "model_fields_set", set())
         env_limit = settings.worker_concurrency if "worker_concurrency" in fields else None
         per_app = (settings.worker_max_active_per_app if "worker_max_active_per_app" in fields
-                   else config["per_app"].get(app)) if app else None
+                   else config["per_app"].get(app) or config["per_app"].get(app.partition(":")[0])) if app else None
         per_model = (settings.worker_max_active_per_model if "worker_max_active_per_model" in fields
                      else config["per_model"].get(model)) if model else None
         source_limit, source_reason = resolve_limit(gui=config["manual"], environment=env_limit, cli=cli_limit,
@@ -187,8 +229,12 @@ class ConcurrencyServices:
         if config["selection"] == "manual":
             limit = min(source_limit or machine_limit, machine_limit)
             return {**config, "limit": limit, "reason": source_reason, "mode_reason": config["reason"]}
-        plans = self.services.usage.plans()
-        result = calculate_auto(plans, mode=config["mode"], margin=config["margin"],
-                                cost_per_step=cost_per_step or DEFAULT_STEP_COST,
-                                manual_limit=source_limit or 256, machine_limit=machine_limit, now=now)
+        plans = plans if plans is not None else self.services.usage.plans()
+        options = dict(mode=config["mode"], margin=config["margin"], cost_per_step=cost_per_step or DEFAULT_STEP_COST,
+                       manual_limit=source_limit or 256, machine_limit=machine_limit, now=now)
+        if app:
+            # PAR-T03: an app (or an agy bag, "antigravity:<bag>") is limited by its own windows only.
+            result = calculate_auto(_plans_of(plans, app, model), **options)
+        else:
+            result = _best_app(plans, options)
         return {**config, **result, "limit_source": source_reason, "mode_reason": config["reason"]}

@@ -20,6 +20,11 @@ Command (``build_command``), in this order; ``--model`` and ``--add-dir`` are co
 * **One run at a time** per installation: a lock in this process plus an operating-system lock on the file
   ``lock_path``, shared by every process of the installation. The system frees it when the holding process ends, so
   a run that died never leaves it taken.
+* **Slots (PAR-T03), opt-in.** While ``slot_policy`` says so (the services set it when the person saved a concurrency
+  mode), the one lock becomes one lock per work folder: the same two layers (this process and an operating-system lock
+  on a file named after ``lock_path`` and the folder), taken on the folder of the task. Runs in different folders go on
+  together, a second run in the same folder is refused (``run_in_progress``; the service makes it wait its turn first).
+  Without the policy nothing changes. The quota floors below are checked by each launch, as always.
 * **Quota floors.** Before each launch ``agy -p /usage --output-format text`` (it spends no model) is read with
   ``sessions.usage_sources.parse_agy_usage``. The lines that apply are the model's group (``Gemini Models``, or
   ``Claude and GPT models``) in both windows and the model's own weekly line; with no model, or one this adapter
@@ -58,6 +63,7 @@ The adapter never reads ``~/.gemini`` (credentials, ``settings.json`` or ``brain
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -65,7 +71,7 @@ import os
 import re
 import stat
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -149,6 +155,8 @@ _AUTH = re.compile("|".join((
 )), re.IGNORECASE)
 
 _PROCESS_LOCK = threading.Lock()            # one agy run at a time in this process, whatever the adapter instance
+_FOLDER_LOCKS: dict[str, threading.Lock] = {}   # PAR-T03: with slots on, one lock per folder instead (same process)
+_FOLDER_GUARD = threading.Lock()
 
 
 class AntigravityAdapterError(MultiAgentError):
@@ -497,6 +505,11 @@ def applicable_limits(rows: Sequence[Any], model: str | None) -> list[Any]:
     return chosen
 
 
+def bag_of(model: object) -> str | None:
+    """The quota bag a model draws from: ``gemini`` or ``claude_gpt``; None for no model or one this adapter cannot place."""
+    return _family(model.split("-", 1)[0]) if isinstance(model, str) and model else None
+
+
 _WINDOWS = {"five_hour": LimitWindow.FIVE_HOUR, "weekly": LimitWindow.WEEKLY, "model_weekly": LimitWindow.MODEL_WEEKLY}
 _WINDOW_LABELS = {"five_hour": "five-hour", "weekly": "weekly", "model_weekly": "model weekly"}
 
@@ -584,9 +597,82 @@ class _RunLock:
     name while the first run still holds the old one.
     """
 
-    def __init__(self, path: Path | None):
+    def __init__(self, path: Path | None, slots: Callable[[], bool] | None = None):
         self.path = path
         self._descriptor: int | None = None
+        self.slots = slots                       # PAR-T03: True while the lock is per folder (see ``AntigravityAdapter``)
+
+    def slot_mode(self) -> bool:
+        try:
+            return bool(self.slots()) if self.slots is not None else False
+        except Exception:  # noqa: BLE001 - a policy that cannot be read keeps the one lock
+            return False
+
+    @staticmethod
+    def _folder_key(folder: Path | str) -> str:
+        return os.path.normcase(os.path.abspath(str(folder)))
+
+    def _folder_path(self, key: str) -> Path | None:
+        if self.path is None:
+            return None
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+        return self.path.with_name(f"{self.path.stem}-{digest}{self.path.suffix}")
+
+    def busy_for(self, folder: Path | str) -> bool:
+        """Whether a run holds the lock of ``folder`` (slot mode): in this process or in another one."""
+        key = self._folder_key(folder)
+        with _FOLDER_GUARD:
+            local = _FOLDER_LOCKS.get(key)
+        if local is not None and local.locked():
+            return True
+        path = self._folder_path(key)
+        if path is None or not os.path.lexists(path):
+            return False
+        return self._file_busy(path)
+
+    @staticmethod
+    def _file_busy(path: Path) -> bool:
+        try:
+            descriptor = os.open(path, os.O_RDWR)
+        except OSError:
+            return True                          # cannot be checked: treated as taken, the launch decides
+        try:
+            if not lock_file(descriptor):
+                return True
+            unlock_file(descriptor)
+            return False
+        finally:
+            os.close(descriptor)
+
+    def acquire_slot(self, folder: Path | str) -> "_SlotHandle | None":
+        """Take the lock of ``folder`` without waiting; None when a run holds it. The handle gives it back."""
+        key = self._folder_key(folder)
+        with _FOLDER_GUARD:
+            local = _FOLDER_LOCKS.setdefault(key, threading.Lock())
+        if not local.acquire(blocking=False):
+            return None
+        path = self._folder_path(key)
+        if path is None:
+            return _SlotHandle(local, None)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        except BaseException as exc:
+            local.release()
+            if isinstance(exc, OSError):
+                raise AntigravityAdapterError("lock_error", f"the agy run lock cannot be taken: {exc}") from exc
+            raise
+        try:
+            taken = lock_file(descriptor)
+        except BaseException:
+            os.close(descriptor)
+            local.release()
+            raise
+        if not taken:
+            os.close(descriptor)
+            local.release()
+            return None
+        return _SlotHandle(local, descriptor)
 
     def busy(self) -> bool:
         if _PROCESS_LOCK.locked():
@@ -641,6 +727,23 @@ class _RunLock:
             _PROCESS_LOCK.release()
 
 
+class _SlotHandle:
+    """The lock of one folder while a run holds it (slot mode); ``release`` gives both layers back."""
+
+    def __init__(self, local: threading.Lock, descriptor: int | None):
+        self._local = local
+        self._descriptor = descriptor
+
+    def release(self) -> None:
+        try:
+            if self._descriptor is not None:
+                unlock_file(self._descriptor)
+                os.close(self._descriptor)
+        finally:
+            self._descriptor = None
+            self._local.release()
+
+
 # --------------------------------------------------------------------------- the adapter
 
 class AntigravityAdapter:
@@ -656,6 +759,7 @@ class AntigravityAdapter:
 
     adapter_id = ADAPTER_ID
     version = ADAPTER_VERSION
+    slot_aware = True       # ``launch_blocker`` takes the folder of the launch (PAR-T03)
 
     def __init__(self, executable: str | Sequence[str] = DEFAULT_PROGRAM, *, notice_accepted: bool | str = False,
                  kill_switch: Path | str | None = None, lock_path: Path | str | None = None,
@@ -670,6 +774,10 @@ class AntigravityAdapter:
                                                            and notice_accepted.strip() == NOTICE_ID)
         self.kill_switch = Path(kill_switch) if kill_switch is not None else None
         self._lock = _RunLock(Path(lock_path) if lock_path is not None else None)
+        # PAR-T03: a callable that says whether runs go in slots (one lock per folder). The services set it; without it
+        # (or while it says False) there is one lock for the installation, as in the first version of this adapter.
+        self.slot_policy: Callable[[], bool] | None = None
+        self._lock.slots = lambda: self.slot_policy is not None and bool(self.slot_policy())
         self._add_dirs = [_check_folder(folder, "invalid_add_dir") for folder in add_dirs]
         self._output_cap = output_cap_bytes
         self._poll = kill_poll_seconds
@@ -693,16 +801,21 @@ class AntigravityAdapter:
             "enabled": declaration.get("enabled", False) is True and self.notice_accepted})
         return validate_executor_descriptor(ExecutorDescriptor(**data))
 
-    def launch_blocker(self) -> str | None:
+    def launch_blocker(self, workdir: Path | str | None = None) -> str | None:
         """Why a launch is refused now (``notice_not_accepted``, ``kill_switch_on``, ``run_in_progress``), or None.
 
         Cheap and side-effect free: the service asks it before it changes the task. The quota floor needs ``/usage`` and
-        is checked by ``launch`` itself.
+        is checked by ``launch`` itself. With slots on, only the folder of ``workdir`` can be busy (none when it is not
+        given: another folder may be free).
         """
         if not self.notice_accepted:
             return NOTICE_NOT_ACCEPTED
         if self._kill_switch_on():
             return KILL_SWITCH_ON
+        if self._lock.slot_mode():
+            if workdir is not None and self._lock.busy_for(workdir):
+                return RUN_IN_PROGRESS
+            return None
         if self._lock.busy():
             return RUN_IN_PROGRESS
         return None
@@ -767,12 +880,17 @@ class AntigravityAdapter:
         argv = self.build_command(request)
         prompt = self.render_prompt(request)
         folder = process.validate_cwd(request.workdir)
-        blocker = self.launch_blocker()
+        blocker = self.launch_blocker(folder)
         if blocker == RUN_IN_PROGRESS:
             blocker = None                       # the lock below decides, atomically
         if blocker is not None:
             raise AntigravityAdapterError(blocker, _BLOCKER_TEXT[blocker])
-        if not self._lock.acquire():
+        slot = None
+        if self._lock.slot_mode():
+            slot = self._lock.acquire_slot(folder)         # PAR-T03: the lock of this folder only
+            if slot is None:
+                raise AntigravityAdapterError(RUN_IN_PROGRESS, _BLOCKER_TEXT[RUN_IN_PROGRESS])
+        elif not self._lock.acquire():
             raise AntigravityAdapterError(RUN_IN_PROGRESS, _BLOCKER_TEXT[RUN_IN_PROGRESS])
         try:
             notes = [EFFORT_NOTE] if request.effort is not None else []
@@ -786,7 +904,10 @@ class AntigravityAdapter:
                 raise AntigravityAdapterError(KILL_SWITCH_ON, _BLOCKER_TEXT[KILL_SWITCH_ON])
             return self._execute(request, argv, prompt, folder, notes)
         finally:
-            self._lock.release()
+            if slot is not None:
+                slot.release()
+            else:
+                self._lock.release()
 
     def resume(self, request: ExecutorLaunchRequest, session_id: str) -> ExecutorRunResult:
         """Always refused (``resume_not_supported``): the service relaunches a held task from its checkpoint."""

@@ -469,6 +469,16 @@ class Store:
                     return dict(conn.execute("SELECT * FROM runs WHERE id=?", (row["id"],)).fetchone())
         return None
 
+    def run_counts(self) -> dict[str, int]:
+        """Runs waiting for a worker (``queued``, unclaimed) and runs not finished (``open``: queued or running). Read only."""
+        with self.db.connect() as conn:
+            queued = conn.execute(
+                "SELECT COUNT(*) FROM runs WHERE status=? AND (worker_id IS NULL OR worker_id='')",
+                (RunStatus.QUEUED.value,)).fetchone()[0]
+            open_runs = conn.execute("SELECT COUNT(*) FROM runs WHERE status IN (?,?)",
+                                     (RunStatus.QUEUED.value, RunStatus.RUNNING.value)).fetchone()[0]
+        return {"queued": int(queued), "open": int(open_runs)}
+
     def renew_lease(self, run_id: str, worker_id: str, *, now: str | None = None) -> bool:
         with self.db.connect() as conn:
             changed = conn.execute(
