@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: a read-only route lists the models and apps that «Nueva sesión» can offer. The model picker can show «Automático», the effort and the apps; until «Nueva sesión» passes them in, it stays the same list as today.
 - GUI: a chip in the top bar shows the app closest to its limit and opens a list with each app's quota and a link to «Uso».
 - GUI: «Buscar» groups its results: conversations waiting for you first, then offices and areas, projects, recent conversations by date and actions. Picking an office opens «Oficinas».
 - GUI: «Personalizar» has a switch that turns the «?» help on and off, and «Guía rápida» (in the top bar and the sidebar) opens a short guide with the keyboard shortcuts (F1, Ctrl+B, Ctrl+K, Esc).

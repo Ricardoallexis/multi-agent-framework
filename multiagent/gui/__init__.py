@@ -37,6 +37,7 @@ from .continuity_api import add_continuity_routes, held_children, with_extra_chi
 from .approvals_api import add_approval_routes
 from .bundle_scans_api import add_bundle_scan_routes
 from .connections_api import add_connection_routes
+from .composer_options_api import add_composer_options_routes
 from .document_alerts_api import add_document_alerts_routes
 from .executor_activations_api import add_executor_activation_routes
 from .executor_launch_api import add_executor_launch_routes
@@ -129,6 +130,7 @@ def mount_gui(app: FastAPI) -> None:
     add_session_routes(api, sessions, extra_children=lambda session_id: held_children(services, session_id))  # + held tasks (CNT-T06)
     add_usage_routes(api, usage)  # /gui/api/usage/{plans,tokens,costs} (USO-T02)
     add_connection_routes(api, services)  # SES-T01
+    add_composer_options_routes(api, services)  # GUI4-T05
     add_executor_launch_routes(api, services)  # SES-T04
     add_executor_activation_routes(api, services)  # /gui/api/executors/* "Activate" (EJE-T01)
     add_setup_routes(api, services)  # /gui/api/setup/* (INS-T05)

@@ -224,3 +224,35 @@
 .thread-list > .thread-msg-user .help-toggle { color: var(--on-accent); }
 .thread-list > .thread-msg-user .help-toggle { border-color: var(--on-accent); }
 .thread-list > .thread-msg-user .help-more { color: var(--text); }
+
+/* GUI4-T05 */
+.ns-model-select { position: relative; }
+.ns-auto-trigger { min-height: var(--target); width: 100%; padding: 8px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.ns-auto-popover { position: absolute; top: 100%; left: 0; z-index: 25; width: min(26rem, 88vw); max-height: min(34rem, 75vh);
+  overflow: auto; padding: 12px; color: var(--text); }
+.ns-auto-switch-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.ns-auto-switch-row > div { min-width: 0; }
+.ns-auto-switch-row small { display: block; margin-top: 4px; color: var(--muted); }
+.ns-auto-on p { margin: 12px 0 4px; }
+.ns-auto-efforts { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.ns-auto-efforts button { flex: 1; min-width: 0; min-height: var(--target); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--text); cursor: pointer; }
+.ns-auto-efforts button.active { background: var(--accent-soft); border-color: var(--accent); }
+.ns-auto-on .ns-auto-note { color: var(--muted); }
+.ns-auto-off { display: grid; gap: 10px; margin-top: 12px; }
+.ns-auto-off input { width: 100%; min-height: var(--target); }
+.ns-auto-group h3 { margin: 8px 0 4px; font-size: .8125rem; }
+.ns-auto-option, .ns-auto-connect { display: flex; width: 100%; min-height: var(--target); gap: 8px; align-items: center;
+  justify-content: space-between; padding: 8px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.ns-auto-option:hover:not(:disabled), .ns-auto-connect:hover { background: var(--hover); }
+.ns-auto-option:disabled { opacity: .65; cursor: not-allowed; }
+.ns-auto-option small { display: block; color: var(--muted); overflow-wrap: anywhere; }
+.ns-auto-quota { flex: 0 1 45%; color: var(--muted); text-align: right; overflow-wrap: anywhere; }
+.ns-auto-connect span { color: var(--accent); }
+@media (max-width: 599.98px) {
+  .ns-model-select { position: static; }
+  .ns-auto-popover { top: calc(100% - 4px); left: 8px; right: auto; width: calc(100% - 16px); }
+  .ns-auto-option { align-items: flex-start; }
+}
