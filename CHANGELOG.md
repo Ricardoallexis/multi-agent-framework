@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Concurrency modes (Eco, Normal, Performance and Maximum) with a margin per mode: the automatic worker limit follows the remaining quota and drops to 0 when the margin is reached. Each mode also has its model levels (T4 only with permission), and the local Ollama models are classified by capability. Without a mode, routing stays as it was.
 - GUI: the sidebar has folding Offices, Projects and Recent sections, and the sidebar and context panel can be resized, hidden at the edge (Ctrl+B for the sidebar) and shown again; the shared button, switch and shadow styles for the new screens are in.
 - A function step that fails can now wait for corrected run inputs and be retried once, also when no model step came before it: the person fixes the declared inputs in the run thread, the step runs again, and a second failure ends the run. Runs with sensitive data keep the failure detail out of the message.
 - GUI: new `floor_plan` extension with a floor plan of an office (areas, positions, hand-off/review/question lines, privacy labels), opened fitted with zoom, pinch, drag and keyboard controls, an equivalent list for screen readers, and its own poll of the office scene; read-only.

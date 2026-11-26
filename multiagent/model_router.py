@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from .adapters.base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
 from .call_guards import CallContext
 from .catalog import (
-    MODEL_LEVELS, Catalog, CatalogError, ModelSpec, current_price, validate_routing_profile,
+    MODEL_LEVELS, Catalog, CatalogError, ModelSpec, confirmed_level, current_price, validate_routing_profile,
 )
 from .contracts import TaskRequirements
 from .routing_policy import RoutingCandidate, RoutingDecision, RoutingEvidence, RoutingRequest
@@ -125,7 +125,9 @@ class ModelRouter:
         return evidence
 
     def select(self, request: RoutingRequest, evidence: RoutingEvidence | None = None, *,
-               profile_override: dict[str, Any] | None = None) -> RoutingDecision:
+               profile_override: dict[str, Any] | None = None, concurrency_mode: str | None = None,
+               allow_t4: bool = False, confirmed_levels: Mapping[str, Mapping[str, str]] | None = None,
+               cost_observations: Mapping[str, Any] | None = None) -> RoutingDecision:
         """Resolve an explicitly requested, enabled profile without side effects or provider calls."""
         evidence = evidence or RoutingEvidence()
         profile_id = request.profile_id
@@ -149,6 +151,16 @@ class ModelRouter:
         profile = profile_override if profile_override is not None else getattr(self.catalog, "routing_profiles", {}).get(profile_id)
         if not isinstance(profile, dict):
             return RoutingDecision(status="blocked", reason_codes=("unknown_profile",), **base)
+        # A ``single`` profile names one model; mode levels never apply to it, in Eco or Maximum.
+        active_levels = concurrency_mode in {"eco", "maximum"} and profile.get("mode") != "single"
+        mode_notes: list[str] = []
+        if active_levels:
+            from .services.concurrency import effective_profile
+            profile = effective_profile(profile, concurrency_mode, allow_t4=allow_t4, notes=mode_notes)
+            if mode_notes:
+                base["provenance"] = {**base["provenance"], "mode_adjustments": list(mode_notes)}
+            if "t4_not_allowed" in mode_notes:
+                return RoutingDecision(status="blocked", reason_codes=("t4_not_allowed",), **base)
         base["profile_version"] = profile.get("version")
         strict_budgets = profile.get("strict_budgets", [])
         if not isinstance(strict_budgets, (list, tuple, set, frozenset)):
@@ -280,6 +292,12 @@ class ModelRouter:
                 candidates.append(RoutingCandidate(model_id, None, None, None, eligible=False,
                                                    reason_codes=("unknown_model",)))
                 continue
+            if active_levels and confirmed_levels and spec.id in confirmed_levels:
+                from dataclasses import replace
+                declared = confirmed_levels[spec.id]
+                level = confirmed_level(declared)
+                if level is not None:
+                    spec = replace(spec, level=level, classification="classified")
             reasons: list[str] = []
             capabilities = as_set(getattr(spec, "capabilities", None)) or set()
             if spec.structured_output:
@@ -366,7 +384,7 @@ class ModelRouter:
                         reasons.append("level_below_minimum")
                     if "max" in bounds and position > MODEL_LEVELS.index(bounds["max"]):
                         reasons.append("level_above_maximum")
-                if self._current_price(getattr(spec, "pricing", None), now=now) is None:
+                if not active_levels and self._current_price(getattr(spec, "pricing", None), now=now) is None:
                     reasons.append("price_evidence_missing_or_expired")
             if request.excluded_models and spec.id in request.excluded_models:
                 reasons.append(request.excluded_models[spec.id])
@@ -399,7 +417,36 @@ class ModelRouter:
         ranking = "not_ranked"
         amounts: list[float] | None = None
         prices = []
-        if economic:
+        if active_levels:
+            from .services.concurrency import economic_measure
+            measures = [economic_measure(spec, now=now, observations=cost_observations) for spec in eligible_specs]
+            if concurrency_mode == "eco":
+                # Only Eco compares units, so only Eco leaves out a model whose unit it cannot read.
+                unknown_ids = {spec.id for spec, measure in zip(eligible_specs, measures) if measure is None}
+                if unknown_ids:
+                    from dataclasses import replace
+                    candidates = [replace(candidate, eligible=False,
+                                          reason_codes=(*candidate.reason_codes, "economic_unit_unknown"))
+                                  if candidate.model_id in unknown_ids else candidate for candidate in candidates]
+                    eligible_specs = [spec for spec in eligible_specs if spec.id not in unknown_ids]
+                    measures = [measure for measure in measures if measure is not None]
+                if not eligible_specs:
+                    return RoutingDecision(status="blocked", reason_codes=("economic_unit_unknown",), candidates=tuple(candidates), **base)
+                order = sorted(range(len(eligible_specs)), key=lambda i: (
+                    MODEL_LEVELS.index(eligible_specs[i].level),
+                    0 if measures[i][0] == "local_no_charge" else 1,
+                    measures[i][0], measures[i][1], eligible_specs[i].id))
+                ranking = "level_then_provider_unit_no_conversion"
+            else:
+                # Maximum: highest level first; a known measure only breaks a tie.
+                order = sorted(range(len(eligible_specs)), key=lambda i: (
+                    -MODEL_LEVELS.index(eligible_specs[i].level),
+                    0 if measures[i] is not None else 1,
+                    measures[i][0] if measures[i] else "", measures[i][1] if measures[i] else 0.0,
+                    eligible_specs[i].id))
+                ranking = "highest_level_first"
+            eligible_specs = [eligible_specs[i] for i in order]
+        elif economic:
             prices = [self._current_price(getattr(spec, "pricing", None), now=now) for spec in eligible_specs]
             if any(price is None for price in prices):
                 return RoutingDecision(status="blocked", reason_codes=("comparable_price_unknown",), candidates=tuple(candidates), **base)
@@ -461,10 +508,12 @@ class ModelRouter:
             # A profile that escalates keeps the fallback inside the selected model's own level (a provider
             # error is answered by a peer); going up a level is what escalation does, once and recorded.
             alternatives = [spec for spec in alternatives if spec.level == selected.level]
-        fallback = tuple(spec.id for spec in alternatives[:1])
+        fallback = () if active_levels else tuple(spec.id for spec in alternatives[:1])
         chosen = next(candidate for candidate in candidates if candidate.model_id == selected.id)
         if single:
             reasons = ("single_model_profile",)
+        elif active_levels:
+            reasons = (ranking, *mode_notes)
         elif economic:
             reasons = ("lowest_estimated_cost_for_common_token_quantities_or_dominant_rates",)
         else:
@@ -489,7 +538,8 @@ class ModelRouter:
             applied_permissions=tuple(sorted(required_perms | (chosen.permissions_required or frozenset()))),
             reason_codes=reasons, candidates=tuple(candidates),
             provenance={"profile": "catalog_declared", "permissions": request.authorization_provenance or "unknown",
-                        "evidence": evidence.provenance},
+                        "evidence": evidence.provenance,
+                        **({"mode_adjustments": list(mode_notes)} if mode_notes else {})},
             budget_scope={**budget_scope, "limits": limits},
             manual_required=False,
             step_kind=step_kind, profile_mode=profile_mode, selected_level=selected.level,

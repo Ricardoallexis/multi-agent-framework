@@ -22,6 +22,16 @@ from .routing_policy import EFFORT_LEVELS, MODEL_LEVELS, STEP_KINDS
 _logger = logging.getLogger(__name__)
 
 MODEL_CLASSIFICATIONS = ("classified", "unclassified")
+CONFIRMED_LEVEL_FIELDS = ("level", "source", "confirmed_at", "confirmed_by")
+
+
+def confirmed_level(record: Any) -> str | None:
+    """Return only a human-confirmed local level, never an unverified proposal."""
+    if (isinstance(record, dict) and record.get("level") in MODEL_LEVELS
+            and all(isinstance(record.get(key), str) and record[key].strip()
+                    for key in CONFIRMED_LEVEL_FIELDS[1:])):
+        return record["level"]
+    return None
 # MOD-T04 (contract MOD section 2): what a model entry may declare about where it runs and what it keeps, and the
 # evidence for it. Every one of them is optional; what is missing is ``unknown``, never a guess.
 MODEL_EVIDENCE_FIELDS = ("provider", "host", "retention")

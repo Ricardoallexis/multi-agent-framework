@@ -38,6 +38,7 @@ from .bundle_scans import BundleScanServices
 from .definitions import DefinitionServices
 from .decisions import DecisionServices
 from .connections import ConnectionServices
+from .concurrency import ConcurrencyServices
 from .envelopes import EnvelopeServices
 from .evaluation import EvaluationServices
 from .errors import NOT_FOUND, ServiceError, service_errors, translate
@@ -149,6 +150,7 @@ class ApplicationServices:
         self.user_approvals = UserApprovalServices(self)
         self.bundle_scans = BundleScanServices(self)
         self.gui_settings = GuiSettingsServices(self)
+        self.concurrency = ConcurrencyServices(self)
         self.executor_activations = ExecutorActivationServices(self)
         self.first_run = FirstRunServices(self)
         # The engine of the system reads the availability policy from the inbox, the same place that accepts the messages.

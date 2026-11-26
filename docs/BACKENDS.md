@@ -71,6 +71,8 @@ The worker renews its active leases before recovering expired leases and claimin
 
 `multiagent worker [--concurrency N]` runs a worker against the configured database. The option overrides `WORKER_CONCURRENCY` for that process; `N` must be from 1 to 256.
 
+The concurrency service reports an effective limit and reason for the GUI. Its source order is CLI, then explicit `WORKER_*` settings, then `gui-settings.json`. A per-app or per-model cap can only lower the selected total cap. `WORKER_MAX_ACTIVE_PER_APP` and `WORKER_MAX_ACTIVE_PER_MODEL` are reserved settings for the later worker integration; this service does not apply them to running work yet. Auto uses the tightest quota window reported by `usage.plans()`: it subtracts the selected margin (3, 5, 10, 15, 20, 30 or 40 percent), divides by the declared cost per step, and in Eco or Normal spreads the remaining steps over 15-minute blocks until reset. Performance and Maximum use the available steps immediately. The manual cap and the machine cap bound every mode, Eco and Normal included. When no step is left once the margin is subtracted, the limit is 0 in every mode with the reason `quota_margin_reached`, so the reserve is not spent; a limit of at least 1 is only the floor of the Eco and Normal spreading when steps remain. Missing quota data permits one slot (`no_quota_data`). The default step-cost estimate is 5 percentage points per step until a caller supplies measured costs. Reading quota does not dispatch a model call.
+
 This coordination does not cover workers using different databases, external queues, or resource-aware scheduling (S4.D2).
 
 ## Provider certificates

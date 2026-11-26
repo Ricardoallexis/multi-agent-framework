@@ -152,3 +152,28 @@ class OllamaAdapter(LLMAdapter):
             }
         except Exception as exc:
             return {"provider": self.provider, "available": False, "error": str(exc)}
+
+    def installed_model_details(self) -> list[dict[str, Any]]:
+        """Only capability evidence from /api/tags; no prompt or generation request.
+
+        A network error, a bad JSON body or an unexpected shape gives an empty list, as ``health`` does not raise.
+        """
+        try:
+            payload = self.client.get("/api/tags").json()
+        except Exception:
+            return []
+        tags = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(tags, list):
+            return []
+        result = []
+        for tag in tags:
+            if not isinstance(tag, dict):
+                continue
+            details = tag.get("details")
+            if not isinstance(details, dict):
+                details = {}
+            result.append({"model": tag.get("name") or tag.get("model"),
+                           "parameter_size": details.get("parameter_size"),
+                           "quantization_level": details.get("quantization_level"),
+                           "family": details.get("family")})
+        return result

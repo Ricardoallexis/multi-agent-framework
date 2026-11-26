@@ -331,6 +331,9 @@ class Settings(BaseSettings):
     worker_concurrency: int = Field(default=1, ge=1)
     worker_max_active_total: int | None = Field(default=None, ge=1)
     worker_max_active_per_project: int | None = Field(default=None, ge=1)
+    # PAR-T02: explicit environment limits override persisted GUI limits; CLI can override these per process.
+    worker_max_active_per_app: int | None = Field(default=None, ge=1)
+    worker_max_active_per_model: int | None = Field(default=None, ge=1)
     # A live run renews its lease until it ends or shutdown stops waiting for it.
     worker_lease_seconds: float = Field(default=30, gt=0, allow_inf_nan=False)
     worker_shutdown_wait_seconds: float = Field(default=30, ge=0, allow_inf_nan=False)
