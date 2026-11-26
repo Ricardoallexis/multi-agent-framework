@@ -315,7 +315,7 @@ function LimitBanner({ notice, connections, busy, onSelectSuggestion }) {
 // GUI3-T06: the same task box is used by all three flows; its controls only choose or navigate.
 function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows = 2, mode, onMode,
   modelControl, project, projects, onProject, onExecutor, onForm, error, describedBy = "", onBack, onSkip, inputRef,
-  executorActive = false, maxLength, allowExecutor = true, allowForm = true, showProject = true }) {
+  executorActive = false, maxLength, allowExecutor = true, allowForm = true, showProject = true, showSubmit = true }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef(null);
   return html`<form class="ns-composer" onSubmit=${(event) => { event.preventDefault(); onSubmit(task); }} aria-busy=${disabled ? "true" : "false"}>
@@ -353,8 +353,8 @@ function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows
         <option value="">${executorActive ? t("new_session.not_for_executor") : t("new_session.choose_on_confirm")}</option>
         ${projects.map((name) => html`<option key=${name} value=${name}>${name}</option>`)}</select>
         <${Help} topic="chat.project_select" compact=${true} /></div>`}
-      <button type="submit" class="btn ns-send" disabled=${disabled} ...${helpFor("chat.send")}>${t("new_session.send")}</button>
-      <${Help} topic="chat.send" compact=${true} />
+      ${showSubmit && html`<button type="submit" class="btn ns-send" disabled=${disabled} ...${helpFor("chat.send")}>${t("new_session.send")}</button>
+      <${Help} topic="chat.send" compact=${true} />`}
     </div>
     ${(onBack || onSkip) && html`<div class="ns-composer-row">
       ${onBack && html`<button type="button" class="btn secondary" disabled=${disabled} ...${helpFor("chat.back")} onClick=${onBack}>${t("new_session.previous_question")}</button><${Help} topic="chat.back" compact=${true} />`}
@@ -364,7 +364,7 @@ function SessionBox({ task, onTask, onSubmit, disabled, label, placeholder, rows
 }
 
 // SES-T03: one task, one catalog model, then the same run thread as every workflow.
-function SingleSession({
+export function SingleSession({
   token, mock, connections, task, onTaskChange, project, projects, onProject, onMode, onForm,
   initialProvider = "", onSwitchExecutor = null,
 }) {
@@ -379,9 +379,22 @@ function SingleSession({
   const attempt = useRef({ fingerprint: "", key: "" });
   useEffect(() => {
     let active = true;
-    apiPost(SINGLE_PREVIEW_PATH, token, {
-      workflow_id: "ask_once", bundle: "general", inputs: { task: "Vista previa" }, execution_mode: "auto",
-    }).then((result) => { if (active) setCatalogPreview(result.routing); },
+    Promise.all(["local", "cloud"].map((execution_mode) => apiPost(SINGLE_PREVIEW_PATH, token, {
+      workflow_id: "ask_once", bundle: null, inputs: { task: "Vista previa" }, execution_mode,
+    }))).then(([local, cloud]) => {
+      if (!active) return;
+      const cloudSteps = cloud.routing.steps;
+      setCatalogPreview({
+        ...local.routing,
+        steps: local.routing.steps.map((step) => ({
+          ...step,
+          model_options: [...new Set([
+            ...step.model_options,
+            ...(cloudSteps.find((item) => item.step_id === step.step_id)?.model_options || []),
+          ])],
+        })),
+      });
+    },
       (failure) => { if (active) setError(asError(failure)); });
     return () => { active = false; };
   }, [token]);
@@ -445,18 +458,18 @@ function SingleSession({
     ${choices.map((choice) => choice.models.map((item) => html`<option key=${item.id} value=${item.id}>${connectionLabel(choice.provider)} · ${displayKnownModel(item.id)}</option>`))}
     <option value="connect">${t("model_picker.connect_another", { count: disconnectedCount })}</option></select>
     <${Help} topic="chat.single_model" compact=${true} /></div>`;
-  return html`<div class="ns">
+  return html`<>
     <div class="ns-intro"><h3 class="ns-title">${t("new_session.single_session")}</h3>
-      <p class="ns-lead">${t("new_session.single_session_lead")}</p>
+      <p class="ns-lead">${t("new_session.single_session_system_lead")}</p>
     </div>
     <${SessionBox} task=${task} onTask=${(value) => { updateTask(value); edit(); }} onSubmit=${check}
       disabled=${ready || busy} label=${t("new_session.task")} placeholder=${t("new_session.task_placeholder")} rows=${5} mode="single" onMode=${onMode}
       modelControl=${modelControl} project=${project} projects=${projects} onProject=${onProject}
-      onExecutor=${() => onSwitchExecutor("", task)} onForm=${onForm} />
+      onExecutor=${() => onSwitchExecutor("", task)} onForm=${onForm} showSubmit=${false} />
     <${LimitBanner} notice=${activeLimit} connections=${connections} busy=${busy} onSelectSuggestion=${selectSuggestion} />
     ${mock && html`<p class="muted small ns-mock-note">${t("new_session.mock_note")}</p>`}
     <section class="ns-single-model-details" aria-label=${t("new_session.model_status")}>
-      ${!catalogPreview && !error && html`<p role="status">${t("new_session.loading_catalog_models")}</p>`}
+      ${!catalogPreview && !error && html`<p role="status">${t("new_session.loading_system_models")}</p>`}
       ${choices.map((choice) => html`<p key=${choice.provider} class="muted small">${connectionLabel(choice.provider)}${choice.status ? " · " + choice.status : ""}
         ${choice.quotaNote ? " · " + choice.quotaNote : ""}${choice.reason ? " · " + choice.reason : ""}</p>`)}
       ${catalogPreview && choices.length === 0 && html`<p role="status">${t("new_session.no_connected_providers")}</p>`}
@@ -467,6 +480,7 @@ function SingleSession({
       <p><strong>${t("new_session.model")}:</strong> ${displayKnownModel(model)}</p><p><strong>${t("new_session.project")}:</strong> ${project || t("new_session.single_session")}</p>
       <p><strong>${t("new_session.task")}:</strong> ${task}</p>
       <${PreviewPanel} preview=${preview} error=${null} loading=${false} />
+      <p class="muted small">${t("new_session.launch_ready")}</p>
       ${cloudSelected && html`<label class="check"><input type="checkbox" checked=${confirmCloud}
         ...${helpFor("chat.cloud_confirm")} onChange=${(event) => setConfirmCloud(event.target.checked)} />
         ${t("new_session.confirm_cloud_task")}</label><${Help} topic="chat.cloud_confirm" compact=${true} />`}
@@ -481,7 +495,7 @@ function SingleSession({
     </section>`}
     ${!ready && html`<button type="button" class="btn" disabled=${busy || !task.trim() || !selected}
       ...${helpFor("chat.single_task")} onClick=${check}>${t("new_session.review_and_launch")}</button><${Help} topic="chat.single_task" compact=${true} />`}
-  </div>`;
+  </>`;
 }
 
 // SES-T04: an executor is chosen and reviewed separately from the model-only ask_once flow.
@@ -1506,7 +1520,7 @@ export function NewSession({ token, mock }) {
       return;
     }
     const seed = sessionKind === "orchestrator" ? formSeed(store.current, { mode, sensitive: sensitiveSelection }) : {
-      bundle: "general", workflowId: "ask_once", project: project || "Sesión única",
+      bundle: "", workflowId: "ask_once", project: project || "Sesión única",
       values: { task: draft }, mode: "auto", sensitive: false,
     };
     const formContext = {

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from .base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
 from ..catalog import ModelSpec
 from ..contracts import (
-    BrandField, BrandProfilePayload, ContentOutput, GroundingStatus, NewSessionProposal,
+    BrandField, BrandProfilePayload, ContentOutput, FreeTextAnswer, GroundingStatus, NewSessionProposal,
     ResearchOutput, StrategyOutput, VisualBriefOutput,
 )
 from ..routing_policy import EFFORT_LEVELS
@@ -99,6 +99,8 @@ class FakeAdapter(LLMAdapter):
             raise ValueError(f"Multiple samples identify the same schema {output_schema.__name__}")
         if samples:
             parsed = output_schema.model_validate(deepcopy(samples[0]))
+        elif output_schema is FreeTextAnswer:
+            parsed = FreeTextAnswer(answer="This is a synthetic answer for testing.")
         elif output_schema is ResearchOutput:
             parsed = ResearchOutput(
                 objective="Simulated research",

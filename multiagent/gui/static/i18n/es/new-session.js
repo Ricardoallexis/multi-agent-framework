@@ -262,4 +262,6 @@ export default {
   "new_session.teams_to_propose": "Equipos que se propondrán",
   "new_session.team_proposed_not_approved": "Cada equipo queda propuesto, no aprobado: el plan no se puede aprobar hasta que apruebes el equipo.",
   "new_session.plan_draft": "Borrador del plan",
+  "new_session.single_session_system_lead": "Describe una tarea sencilla y elige un modelo local o de nube conectado.",
+  "new_session.loading_system_models": "Leyendo los modelos disponibles del sistema…",
 };

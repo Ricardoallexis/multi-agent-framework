@@ -77,9 +77,8 @@ export function singleSessionModels(connections, routing) {
 
 export function singleSessionBody(task, model, confirmCloud = false, project = "") {
   return {
-    workflow_id: "ask_once", bundle: "general", project_name: String(project).trim() || "Sesión única",
-    inputs: { task: String(task).trim() }, execution_mode: "auto", sensitive: false,
-    routing_preferences: { answer: { mode: "single", model } },
+    workflow_id: "ask_once", bundle: null, project_name: String(project).trim() || "Sesión única",
+    inputs: { task: String(task).trim() }, execution_mode: model === "cloud_fast" ? "cloud" : "local", sensitive: false,
     ...(confirmCloud ? { confirm_cloud: true } : {}),
   };
 }

@@ -262,4 +262,6 @@ export default {
   "new_session.teams_to_propose": "Teams to propose",
   "new_session.team_proposed_not_approved": "Each team is proposed, not approved. The plan cannot be approved until you approve the team.",
   "new_session.plan_draft": "Plan draft",
+  "new_session.single_session_system_lead": "Describe a simple task and choose a connected local or cloud model.",
+  "new_session.loading_system_models": "Loading available system models…",
 };

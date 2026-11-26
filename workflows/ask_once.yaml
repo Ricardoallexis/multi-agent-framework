@@ -1,0 +1,22 @@
+id: ask_once
+description: Answers one task directly without tools or external resources.
+max_iterations: 1
+inputs:
+  - name: task
+    label: Task
+    description: The task to answer.
+    example: Explain photosynthesis.
+    type: long_text
+steps:
+  - id: answer
+    description: Answers the task directly.
+    agent: creator
+    prompt_id: creator/ask_once
+    prompt_version: 1
+    skills: []
+    contract: FreeTextAnswer
+    preferred_model: local_default
+    fallback_model: null
+    requires_web: false
+    when: null
+    checkpoint_after: false

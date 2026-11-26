@@ -129,7 +129,7 @@ def test_unknown_workflow_or_bundle_is_not_found(env):
 
 
 def test_catalog_routes(env):
-    assert {w["id"] for w in get(env, "/workflows").json()} == {"social_post", "social_post_full"}
+    assert {w["id"] for w in get(env, "/workflows").json()} == {"ask_once", "social_post", "social_post_full"}
     assert get(env, "/bundles").json() == [{"name": "team"}]
     assert [w["id"] for w in get(env, "/workflows", params={"bundle": "team"}).json()] == ["spec_review"]
 

@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- Sessions: a single session no longer needs the general bundle. It runs the built-in "ask once" workflow from the system catalog, also in Mock mode, shows one visible send action per state, and nothing runs until you press Launch.
 - Executors: a single executor session explains a failed, timed-out, cancelled or blocked attempt in plain words above the folded technical details, and errors use stable codes in both languages. The first-run checklist says "Does not apply" when no executor app is detected, and that never blocks connecting one later.
 - GUI: a control's help now shows as a small hint on mouse over, keyboard focus or a long press, with help mode on or off. Esc closes only the hint, a touch outside closes it, and it stays above modal dialogs where the browser supports popovers.
 - Concurrency: with a saved concurrency mode, the queue, the executor apps and agy wait their turn instead of failing. The worker caps work per project and in total; each step waits for a free place per app, agy pool, model and folder; routing follows the mode's model level, and the person's chosen model still wins. A temporary "until these tasks end" mode ends with the batch, and agy can run in separate folders at the same time. Without a saved mode nothing changes.

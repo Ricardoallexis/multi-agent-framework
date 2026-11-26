@@ -267,9 +267,12 @@ def test_pure_model_only_offers_connected_catalog_candidates():
         row.id === 'gemini' ? {{...row, available: false, key_configured: false}} : row)}}, routing);
       if (noGeminiKey[1].models.length) throw Error('cloud model offered without a configured connection');
       const body = singleSessionBody('  hola  ', 'local_default');
-      if (body.inputs.task !== 'hola' || body.routing_preferences.answer.mode !== 'single') throw Error('wrong body');
+      if (body.inputs.task !== 'hola' || body.bundle !== null || body.execution_mode !== 'local' ||
+          'routing_preferences' in body || 'model' in body) throw Error('wrong body');
       if (singleSessionBody('hola', 'local_default', false, 'Proyecto elegido').project_name !== 'Proyecto elegido')
         throw Error('project selector did not reach ask_once');
+      const cloud = singleSessionBody('hola', 'cloud_fast');
+      if (cloud.execution_mode !== 'cloud' || 'confirm_cloud' in cloud) throw Error('unconfirmed cloud body is invalid');
       if (singleSessionBody('hola', 'cloud_fast', true).confirm_cloud !== true) throw Error('cloud confirmation missing');
     """
     result = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True)
