@@ -47,6 +47,8 @@ import panelEn from "../i18n/en/panel.js";
 import panelEs from "../i18n/es/panel.js";
 import subagentsEn from "../i18n/en/subagents.js";
 import subagentsEs from "../i18n/es/subagents.js";
+import limitsChipEn from "../i18n/en/limits-chip.js";
+import limitsChipEs from "../i18n/es/limits-chip.js";
 import openInAppEn from "../i18n/en/open-in-app.js";
 import openInAppEs from "../i18n/es/open-in-app.js";
 import officeLevelQuestionEn from "../i18n/en/office-level-question.js";
@@ -55,8 +57,8 @@ import quickGuideEn from "../i18n/en/quick-guide.js";
 import quickGuideEs from "../i18n/es/quick-guide.js";
 import { readLanguagePreference, writeLanguagePreference } from "./shell-state.js";
 const dictionaries = {
-  en: { ...mainEn, ...customizeEn, ...commandPaletteEn, ...shellEn, ...newSessionEn, ...createRunEn, ...modelPickerEn, ...runsEn, ...threadEn, ...commonEn, ...teamsEn, ...plansEn, ...workMapEn, ...agentTreeEn, ...startEn, ...sessionsEn, ...packagesEn, ...pendingEn, ...taskWaitingEn, ...usageEn, ...evaluationEn, ...panelEn, ...subagentsEn, ...openInAppEn, ...officeLevelQuestionEn, ...quickGuideEn },
-  es: { ...mainEs, ...customizeEs, ...commandPaletteEs, ...shellEs, ...newSessionEs, ...createRunEs, ...modelPickerEs, ...runsEs, ...threadEs, ...commonEs, ...teamsEs, ...plansEs, ...workMapEs, ...agentTreeEs, ...startEs, ...sessionsEs, ...packagesEs, ...pendingEs, ...taskWaitingEs, ...usageEs, ...evaluationEs, ...panelEs, ...subagentsEs, ...openInAppEs, ...officeLevelQuestionEs, ...quickGuideEs },
+  en: { ...mainEn, ...customizeEn, ...commandPaletteEn, ...shellEn, ...newSessionEn, ...createRunEn, ...modelPickerEn, ...runsEn, ...threadEn, ...commonEn, ...teamsEn, ...plansEn, ...workMapEn, ...agentTreeEn, ...startEn, ...sessionsEn, ...packagesEn, ...pendingEn, ...taskWaitingEn, ...usageEn, ...limitsChipEn, ...evaluationEn, ...panelEn, ...subagentsEn, ...openInAppEn, ...officeLevelQuestionEn, ...quickGuideEn },
+  es: { ...mainEs, ...customizeEs, ...commandPaletteEs, ...shellEs, ...newSessionEs, ...createRunEs, ...modelPickerEs, ...runsEs, ...threadEs, ...commonEs, ...teamsEs, ...plansEs, ...workMapEs, ...agentTreeEs, ...startEs, ...sessionsEs, ...packagesEs, ...pendingEs, ...taskWaitingEs, ...usageEs, ...limitsChipEs, ...evaluationEs, ...panelEs, ...subagentsEs, ...openInAppEs, ...officeLevelQuestionEs, ...quickGuideEs },
 };
 const listeners = new Set();
 

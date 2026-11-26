@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: a chip in the top bar shows the app closest to its limit and opens a list with each app's quota and a link to «Uso».
 - GUI: «Buscar» groups its results: conversations waiting for you first, then offices and areas, projects, recent conversations by date and actions. Picking an office opens «Oficinas».
 - GUI: «Personalizar» has a switch that turns the «?» help on and off, and «Guía rápida» (in the top bar and the sidebar) opens a short guide with the keyboard shortcuts (F1, Ctrl+B, Ctrl+K, Esc).
 - GUI: «New session» launches conversationally: the chat shows one visible send, says that nothing runs until «Launch», and then waits for that final step. The privacy of the office area of the selected workflow decides the preview and the run: a restricted or sensitive area keeps the run local and hides cloud models, and a missing local model or an unresolved area is said instead of guessed. The preview and the run send the same privacy and model choices.

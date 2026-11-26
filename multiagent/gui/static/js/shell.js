@@ -13,6 +13,7 @@ import { requestQuickGuide } from "./quick-guide-model.js";
 import { Icon } from "./ui/icon.js";
 import { ResizeHandle } from "./ui/resize-handle.js";
 import { t } from "./i18n.js";
+import { LimitsChip } from "./limits-chip.js";   // GUI4-T10
 import { instanceLabel, onInstanceLabelChange } from "./instance.js";   // PRV-T01
 import { navigate } from "./route.js";
 import { HIDE_BELOW, NARROW_QUERY, PANES, defaultPanelOpen, isHelpKey, isSidebarKey, keyWidth, onChoiceChange, readAccent, readHelpMode, readPaneWidth, readPanelOpen, readSideHidden, resolvePaneWidth, writeHelpMode, writePaneWidth, writePanelOpen, writeSideHidden } from "./shell-state.js";
@@ -152,7 +153,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
   useEffect(() => {
     const onKey = (event) => {
       if (event.key !== "Escape" || event.isComposing || !(state.current.open || state.current.overlay)) return;
-      if (event.target && event.target.closest && event.target.closest(".help-block.open, dialog[open]")) return;   // the Ctrl+K dialog closes itself
+      if (event.target && event.target.closest && event.target.closest(".help-block.open, dialog[open], .limits:has(> .limits-popover:not([hidden]))")) return;   // the Ctrl+K dialog closes itself; GUI4-T10: so does the limits popover
       event.preventDefault();
       if (state.current.open) closeDrawer(true); else closePanelOverlay(true);
     };
@@ -220,7 +221,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
   };
 
   /* GUI4-T10 */
-  const limitsSlot = html`<div class="side-slot" data-slot="limits"></div>`;
+  const limitsSlot = html`<div class="side-slot" data-slot="limits"><${LimitsChip} /></div>`;
 
   return html`<div class="app" data-help=${helpOn ? "on" : "off"} data-accent=${accent} data-drawer=${drawerOpen ? "open" : "closed"} data-panel=${panelShown ? "open" : "closed"} data-side=${sideGone ? "hidden" : "shown"} ref=${appRef}>
     <a class="skip-link" href="#main-content" onClick=${skip}>${t("shell.skip_link")}</a>

@@ -1,0 +1,27 @@
+// Copyright 2026 Ricardoallexis and contributors
+// SPDX-License-Identifier: Apache-2.0
+export default {
+  "limits.title": "Usage limits",
+  "limits.close": "Close limits",
+  "limits.app_claude": "Claude CLI",
+  "limits.app_codex": "Codex CLI",
+  "limits.app_copilot": "Copilot CLI",
+  "limits.app_agy": "Antigravity (agy)",
+  "limits.used_aria": "{app}: {percent} used",
+  "limits.detail_used": "{percent} used",
+  "limits.detail_left": "{percent} left",
+  "limits.limit_reached": "Limit reached",
+  "limits.checked_ago": "checked {age} ago",
+  "limits.checked_now": "checked just now",
+  "limits.age_minutes": "{n} min",
+  "limits.age_hours": "{n} h",
+  "limits.age_days": "{n} d",
+  "limits.loading": "Reading the limits…",
+  "limits.error": "The limits could not be read right now.",
+  "limits.none": "No app reports a usage limit yet.",
+  "limits.view_all": "View all",
+  "limits.help_title": "Usage limits",
+  "limits.help_hint": "Shows how much of its limit the busiest app has used.",
+  "limits.help_more_1": "The bar is the app closest to its limit. Open it to see every app, with what is left and when it resets.",
+  "limits.help_more_2": "It only shows what the apps already reported. It never changes the app or the model by itself.",
+};

@@ -1,0 +1,27 @@
+// Copyright 2026 Ricardoallexis and contributors
+// SPDX-License-Identifier: Apache-2.0
+export default {
+  "limits.title": "Límites de uso",
+  "limits.close": "Cerrar límites",
+  "limits.app_claude": "Claude CLI",
+  "limits.app_codex": "Codex CLI",
+  "limits.app_copilot": "Copilot CLI",
+  "limits.app_agy": "Antigravity (agy)",
+  "limits.used_aria": "{app}: {percent} usado",
+  "limits.detail_used": "{percent} usado",
+  "limits.detail_left": "queda {percent}",
+  "limits.limit_reached": "Límite alcanzado",
+  "limits.checked_ago": "comprobado hace {age}",
+  "limits.checked_now": "comprobado hace un momento",
+  "limits.age_minutes": "{n} min",
+  "limits.age_hours": "{n} h",
+  "limits.age_days": "{n} d",
+  "limits.loading": "Leyendo los límites…",
+  "limits.error": "No se pudieron leer los límites ahora.",
+  "limits.none": "Ninguna app informa todavía un límite de uso.",
+  "limits.view_all": "Ver todo",
+  "limits.help_title": "Límites de uso",
+  "limits.help_hint": "Muestra cuánto de su límite ha usado la app más gastada.",
+  "limits.help_more_1": "La barra es la de la app más cerca de su límite. Ábrela para ver todas las apps, con lo que queda y cuándo se reinicia.",
+  "limits.help_more_2": "Solo muestra lo que las apps ya informaron. Nunca cambia de app ni de modelo por sí sola.",
+};
