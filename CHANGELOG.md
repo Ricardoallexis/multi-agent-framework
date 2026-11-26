@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: The work map opens as a list with a summary line (projects, tasks by state, tokens), filters by project, stage and app kept in the address, and a What is left view ordered by what blocks other tasks; the tree drawing stays one click away and the layout you pick is remembered in this browser.
 - GUI: The agent tree shows how many agents are active out of all of them, the tokens used (marked partial when an app does not report them) and the share of input served from cache, with a bar per level for its share of the agents' tokens; the back link reads Back to orchestrator, and a framework run without listed steps is drawn as a tree of its steps.
 - Projects: The project view now carries a weighted progress in six steps by stored task state (weights in labels.json), what is left (unfinished tasks and the parallel layers they form) and the last change, per project and per stage. The existing percent does not change.
 - GUI: New session shows your recent conversations with their state, starters from the office you are in, and a model picker that keeps to local models when the area's privacy blocks the cloud. With Automatic, the Standard, High or Maximum effort you pick goes to the steps that accept it. A limit notice gives the reset time and a Keep writing button, and the test run without cost shows only in Mock.

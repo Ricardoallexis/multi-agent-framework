@@ -451,6 +451,12 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .wm-layout button { min-width: var(--target); min-height: var(--target); border: 1px solid var(--wm-line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
 .wm-layout button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 -3px var(--accent); font-weight: 600; }
 .wm-count { color: var(--muted); font-size: .875rem; }
+.wm-metrics { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 8px 0; padding: 0; list-style: none; color: var(--muted); font-size: .875rem; }
+.wm-metric strong { color: var(--text); font-size: 1.0625rem; font-variant-numeric: tabular-nums; }
+.wm-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 8px 0; }
+.wm-filters select { min-height: var(--target); max-width: 100%; border: 1px solid var(--wm-line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+.wm-left { min-height: var(--target); padding: 4px 12px; border: 1px solid var(--wm-line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
+.wm-left[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 -3px var(--accent); font-weight: 600; }
 .wm-private { padding: 8px 12px; border-left: 3px solid var(--warn); background: var(--panel); color: var(--text); }
 .wm-private-badge { padding: 2px 8px; border: 0; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font-size: .75rem; font-weight: 600; }
 .wm-tree, .wm-children { margin: 0; padding: 0; list-style: none; }
@@ -462,7 +468,7 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 .wm-fold-space { width: var(--target); flex: none; }
 .wm-kind { flex: none; color: var(--muted); font-size: .75rem; text-transform: capitalize; }
 .wm-title { min-width: 5rem; flex: 1 1 10rem; overflow-wrap: anywhere; }
-.wm-app-tag { padding: 2px 8px; border: 0; border-radius: 999px; background: var(--bg); font-size: .75rem; }
+.wm-app-tag { padding: 1px 8px; border: 1px solid currentColor; border-radius: 999px; background: var(--bg); font-size: .75rem; }
 .wm-app-claude .wm-app-tag, .wm-app-tag.wm-app-claude { color: var(--src-claude); }
 .wm-app-codex .wm-app-tag, .wm-app-tag.wm-app-codex { color: var(--src-codex); }
 .wm-app-copilot .wm-app-tag, .wm-app-tag.wm-app-copilot { color: var(--src-copilot); }
@@ -486,6 +492,8 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 @media (max-width: 599.98px) {
   .wm-toolbar { align-items: stretch; }
   .wm-toolbar > label:first-child { flex-basis: 100%; }
+  .wm-metrics { gap: 4px 14px; }
+  .wm-filters select { flex: 1 1 8rem; min-width: 0; }
   .wm-children { margin-left: 6px; padding-left: 6px; }
   .wm-row { gap: 4px 6px; }
   .wm-tokens { flex-basis: 100%; padding-left: 48px; }
@@ -501,7 +509,7 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
     animation: none !important; scroll-behavior: auto !important; transition: none !important;
   }
 }
-@media (forced-colors: active) { .wm-row, .wm-layout button, .wm-fold { border-color: CanvasText; } }
+@media (forced-colors: active) { .wm-row, .wm-layout button, .wm-fold, .wm-left, .wm-filters select { border-color: CanvasText; } }
 
 /* --- RWD (RWD-T01) --- */
 .runs-page, .create-run, .external-output, .sessions, .session-list, .session-detail, .panel, .usage-comparison { min-width: 0; }

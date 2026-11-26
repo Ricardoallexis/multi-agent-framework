@@ -32,7 +32,7 @@ export const HELP = {
   },
   "work_map.list": {
     "title": "List view",
-    "hint": "Show the same items in rows on narrow screens.",
+    "hint": "Show the same items in rows.",
     "more": ["Search and the active filter are shared with the tree.", "Each row keeps its relationship level."]
   },
   "work_map.fold": {
@@ -54,6 +54,26 @@ export const HELP = {
     "title": "Child session notice",
     "hint": "Open the child session linked to this agent.",
     "more": ["The link uses the session ID allowed by the source.", "The child's private description is not shown."]
+  },
+  "work_map.filter_project": {
+    "title": "Filter by project",
+    "hint": "Show only one project.",
+    "more": ["The figures above and the list change together.", "The choice stays in the address, so you can share it or go back."]
+  },
+  "work_map.filter_stage": {
+    "title": "Filter by stage",
+    "hint": "Show only one stage.",
+    "more": ["If you pick a project, only its stages are listed.", "The choice stays in the page address."]
+  },
+  "work_map.filter_app": {
+    "title": "Filter by app",
+    "hint": "Show only the work of one app.",
+    "more": ["It keeps that app's sessions and the tasks it carries.", "The choice stays in the page address."]
+  },
+  "work_map.filter_left": {
+    "title": "What is left",
+    "hint": "Keep only what is not finished.",
+    "more": ["In the list, the tasks that hold up the most other tasks come first.", "It can be combined with the other filters."]
   },
 
   "teams.section": {

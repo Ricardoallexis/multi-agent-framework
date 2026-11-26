@@ -263,3 +263,16 @@ export function isSidebarKey(event) {
   return Boolean(event) && String(event.key).toLowerCase() === "b" && Boolean(event.ctrlKey || event.metaKey)
     && !event.altKey && !event.shiftKey && !event.isComposing;
 }
+
+/* MAP-T01 */
+// The layout of the work map ("list" | "tree") that the person chose last; the map opens as a list without it.
+const MAP_LAYOUT_KEY = "multiagent.gui.work-map-layout";
+
+export function readMapLayout() {
+  const value = readStored(MAP_LAYOUT_KEY);
+  return value === "tree" || value === "list" ? value : null;
+}
+
+export function writeMapLayout(layout) {
+  writeStored(MAP_LAYOUT_KEY, layout === "tree" ? "tree" : "list");
+}

@@ -13,6 +13,11 @@ import { StatusChip } from "./ui/status-chip.js";
 import { followChildren } from "./subagents-panel.js";
 import { errorText } from "./text.js";
 import { currentLanguage, onLanguageChange, t } from "./i18n.js";
+import {
+  applyMapFilters, initialLayout, mapAddress, mapFilterOptions, mapMetrics, orderRemaining, parseMapAddress,
+  sameFilters, sanitizeFilters,
+} from "./work-map-model.js";
+import { readMapLayout, writeMapLayout } from "./shell-state.js";
 
 const LIMIT = 300;
 const REFRESH_MS = 10000;
@@ -384,6 +389,7 @@ export function ListItem({ node }) {
     ${node.level && html`<${LevelBadge} level=${node.level} />`}
     ${node.status && html`<${StatusChip} status=${node.status} labels=${statusSet(node)} />`}
     ${node.progress && html`<${Progress} className="wm-progress" label=${t(node.kind === "project" ? "work_map.progress.project" : "work_map.progress.stage")} value=${node.progress.percent} valueText=${progressText(node.progress)} tone="info" />`}
+    ${node.blocks > 0 && html`<span class="wm-detail">${t("work_map.blocks_count", { count: node.blocks })}</span>`}
     ${node.phase && html`<span class="wm-detail">${node.phase}</span>`}${node.dueAt && html`<span class="wm-detail">${t("work_map.due_date", { date: node.dueAt })}</span>`}
     ${node.dependsOn?.map((id) => relation(id, t("work_map.relation.depends_on")))}
     ${node.blockers?.map((blocker) => relation(blocker.task_id, t("work_map.relation.blocker"), blocker.state || t("work_map.fallback.status_unavailable")))}
@@ -403,7 +409,15 @@ export function WorkMap({ token }) {
   const [onlyActive, setOnlyActive] = useState(true);
   const [folded, setFolded] = useState(true);
   const [query, setQuery] = useState("");
-  const [layout, setLayout] = useState(() => window.matchMedia?.("(max-width: 640px)").matches ? "list" : "tree");
+  const [layout, setLayoutState] = useState(() => initialLayout(readMapLayout(), Boolean(window.matchMedia?.("(max-width: 640px)").matches)));
+  const [filters, setFilters] = useState(() => parseMapAddress(location.hash));
+  const setLayout = (next) => { setLayoutState(next); writeMapLayout(next); };
+  // The filters live in the address ("#map/project=...&app=..."), so a link shares them and Back undoes them.
+  useEffect(() => {
+    const read = () => setFilters((previous) => { const next = parseMapAddress(location.hash); return sameFilters(previous, next) ? previous : next; });
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, []);
   const [foldedIds, setFoldedIds] = useState(() => new Map());
   const rootRef = useRef(null);
   const focusedNodeRef = useRef(null);
@@ -439,12 +453,21 @@ export function WorkMap({ token }) {
       if (refreshRef.current === coordinator.refresh) refreshRef.current = null;
     };
   }, [token]);
+  const options = useMemo(() => currentData ? mapFilterOptions(currentData) : null, [currentData]);
+  const active = useMemo(() => sanitizeFilters(filters, options), [filters, options]);
+  const scoped = useMemo(() => applyMapFilters(currentData, active), [currentData, active]);
+  const metrics = useMemo(() => mapMetrics(scoped), [scoped]);
+  const changeFilter = (key, value) => {
+    const next = sanitizeFilters({ ...active, [key]: value }, options);   // a stage of another project does not stay in the address
+    setFilters(next);
+    if (location.hash !== mapAddress(next)) location.hash = mapAddress(next);
+  };
   const projected = useMemo(() => {
-    const fresh = projectRows(currentData, onlyActive, query.trim().toLocaleLowerCase(currentLanguage()));
+    const fresh = projectRows(scoped, onlyActive && !active.left, query.trim().toLocaleLowerCase(currentLanguage()));
     const stable = reconcileMapSnapshot(projectionRef.current, fresh);
     projectionRef.current = stable;
     return stable;
-  }, [currentData, onlyActive, query, languageVersion]);
+  }, [scoped, onlyActive, active.left, query, languageVersion]);
   const sessionIds = useMemo(() => {
     const found = [];
     const visit = (nodes) => nodes.forEach((node) => {
@@ -512,14 +535,31 @@ export function WorkMap({ token }) {
     const result = [];
     const flatten = (nodes) => nodes.forEach((node) => { result.push(node); flatten(node.children || []); });
     flatten(listed);
-    return result;
-  }, [listed]);
+    return active.left ? orderRemaining(result) : result;
+  }, [listed, active.left]);
   const visibleCount = layout === "tree" ? countNodes(listed) : flattened.length;
   const countStatus = mapCountAnnouncement(visibleCount, projected.total, projected.remaining);
   return html`<section ref=${rootRef} class="work-map" tabindex="0" aria-labelledby="work-map-title" aria-busy=${loading ? "true" : "false"}
     onFocus=${rememberFocus} onBlur=${leaveFocus}>
     <header class="wm-head"><div><h3 id="work-map-title">${t("work_map.title")}</h3><${Help} topic="work_map.refresh" compact=${true} /><${Help} topic="work_map.open_session" compact=${true} /><p class="muted">${t("work_map.intro")}</p></div>
       <button type="button" class="btn secondary" ...${helpFor("work_map.refresh")} onClick=${load}>${t("work_map.refresh")}</button></header>
+    ${metrics && html`<ul class="wm-metrics" aria-label=${t("work_map.metrics.label")}>
+      <li class="wm-metric"><strong>${metrics.projects}</strong> <span>${t("work_map.metric.projects")}</span></li>
+      <li class="wm-metric"><strong>${metrics.doing}</strong> <span>${t("work_map.metric.doing")}</span></li>
+      <li class="wm-metric"><strong>${metrics.review}</strong> <span>${t("work_map.metric.review")}</span></li>
+      <li class="wm-metric"><strong>${metrics.blocked}</strong> <span>${t("work_map.metric.blocked")}</span></li>
+      <li class="wm-metric"><strong>${t("work_map.metric.done_value", { done: metrics.done, total: metrics.total })}</strong> <span>${t("work_map.metric.done")}</span></li>
+      ${metrics.tokens !== null && html`<li class="wm-metric"><strong>${metrics.tokens.toLocaleString(currentLanguage())}</strong> <span>${t("work_map.metric.tokens")}</span></li>`}
+    </ul>`}
+    ${options && html`<div class="wm-filters" role="group" aria-label=${t("work_map.filters.label")}>
+      <label for="wm-project">${t("work_map.filter.project")}</label><select id="wm-project" ...${helpFor("work_map.filter_project")} value=${active.project} onChange=${(event) => changeFilter("project", event.currentTarget.value)}>
+        <option value="">${t("work_map.filter.all_projects")}</option>${options.projects.map((item) => html`<option key=${item.value} value=${item.value}>${item.label}</option>`)}</select><${Help} topic="work_map.filter_project" compact=${true} />
+      <label for="wm-stage">${t("work_map.filter.stage")}</label><select id="wm-stage" ...${helpFor("work_map.filter_stage")} value=${active.stage} onChange=${(event) => changeFilter("stage", event.currentTarget.value)}>
+        <option value="">${t("work_map.filter.all_stages")}</option>${options.stages.filter((item) => !active.project || item.project === active.project).map((item) => html`<option key=${item.project + item.value} value=${item.value}>${item.label}</option>`)}</select><${Help} topic="work_map.filter_stage" compact=${true} />
+      <label for="wm-app">${t("work_map.filter.app")}</label><select id="wm-app" ...${helpFor("work_map.filter_app")} value=${active.app} onChange=${(event) => changeFilter("app", event.currentTarget.value)}>
+        <option value="">${t("work_map.filter.all_apps")}</option>${options.apps.map((app) => html`<option key=${app} value=${app}>${app}</option>`)}</select><${Help} topic="work_map.filter_app" compact=${true} />
+      <button type="button" class="wm-left" aria-pressed=${active.left} ...${helpFor("work_map.filter_left")} onClick=${() => changeFilter("left", !active.left)}>${t("work_map.filter.left")}</button><${Help} topic="work_map.filter_left" compact=${true} />
+    </div>`}
     <div class="wm-toolbar" role="search" aria-label=${t("work_map.accessibility.filters")}>
       <label for="wm-query">${t("work_map.search.label")}</label><${Help} topic="work_map.search" compact=${true} /><input id="wm-query" type="search" maxlength="120" ...${helpFor("work_map.search")} value=${query} onInput=${(event) => setQuery(event.currentTarget.value)} />
       <label class="wm-check"><input type="checkbox" checked=${onlyActive} ...${helpFor("work_map.active")} onChange=${(event) => setOnlyActive(event.currentTarget.checked)} /> ${t("work_map.filter.active")}</label><${Help} topic="work_map.active" compact=${true} />
@@ -534,6 +574,6 @@ export function WorkMap({ token }) {
     <div class="wm-results" role="region" tabindex="0" aria-label=${t(layout === "tree" ? "work_map.accessibility.results_tree" : "work_map.accessibility.results_list")}>
       ${layout === "tree" ? html`<ul class="wm-tree" aria-label=${t("work_map.accessibility.project_sessions_tree")}>${projected.tree.map((node) => html`<${Node} key=${node.id} node=${node} onlyActive=${onlyActive} folded=${folded} foldedIds=${foldedIds} onToggleFold=${toggleFold} />`)}</ul>` : html`<div class="wm-list" role="list" aria-label=${t("work_map.accessibility.items")}>${flattened.map((node) => html`<${ListItem} key=${node.id} node=${node} />`)}</div>`}
     </div>
-    ${!loading && projected.count === 0 && html`<p class="muted">${t("work_map.empty")}</p>`}
+    ${!loading && (layout === "list" && active.left ? flattened.length === 0 : projected.count === 0) && html`<p class="muted">${t("work_map.empty")}</p>`}
   </section>`;
 }

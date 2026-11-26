@@ -175,7 +175,7 @@ export default {
   },
   "help.work_map.list": {
     "title": "Vista de lista",
-    "hint": "Presenta los mismos elementos en filas para pantallas estrechas.",
+    "hint": "Presenta los mismos elementos en filas.",
     "more": ["La búsqueda y el filtro activo se comparten con el árbol.", "Cada fila conserva su nivel de relación."]
   },
   "help.work_map.fold": {
@@ -197,6 +197,26 @@ export default {
     "title": "Aviso a sesión hija",
     "hint": "Abre la sesión hija enlazada a este agente.",
     "more": ["La relación usa el identificador de sesión permitido por la fuente.", "No se muestra el texto privado de la descripción del hijo."]
+  },
+  "help.work_map.filter_project": {
+    "title": "Filtrar por proyecto",
+    "hint": "Muestra solo un proyecto.",
+    "more": ["Las cifras de arriba y la lista cambian a la vez.", "La elección queda en la dirección: puedes compartirla o volver con atrás."]
+  },
+  "help.work_map.filter_stage": {
+    "title": "Filtrar por etapa",
+    "hint": "Muestra solo una etapa.",
+    "more": ["Si eliges un proyecto, solo salen sus etapas.", "La elección queda en la dirección de la página."]
+  },
+  "help.work_map.filter_app": {
+    "title": "Filtrar por aplicación",
+    "hint": "Muestra solo el trabajo de una aplicación.",
+    "more": ["Se queda con las sesiones de esa aplicación y las tareas que ella lleva.", "La elección queda en la dirección de la página."]
+  },
+  "help.work_map.filter_left": {
+    "title": "Qué falta",
+    "hint": "Deja solo lo que no está terminado.",
+    "more": ["En la lista, primero van las tareas que frenan a más tareas.", "Se puede combinar con los demás filtros."]
   },
   "help.teams.section": {
     "title": "Equipos",

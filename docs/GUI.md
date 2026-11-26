@@ -715,6 +715,16 @@ labels. Nodes and relation chips are keyboard-focusable and have text labels,
 reduced motion is respected, status is not conveyed by color alone, and the
 palette is checked for text contrast of at least 4.5:1 in light and dark themes.
 
+**Work map.** The map opens as a list with a summary line on top: active
+projects, tasks in progress, in review and blocked, tasks done out of the
+total, and tokens (shown only when a session reports them). Filter by
+project, stage or app with the selects above the list; the choice is kept in
+the page address, so you can share the link or go back with the browser's
+Back button. "What is left" keeps only unfinished tasks and, in the list,
+puts first the ones that hold up the most other tasks. The "Tree" button
+draws the map with its relations, with the same filters. The layout you pick
+is remembered in this browser.
+
 The token-protected GUI routes these views use:
 
 | Route | Purpose |
