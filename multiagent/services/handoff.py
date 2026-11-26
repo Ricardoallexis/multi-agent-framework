@@ -6,8 +6,9 @@ A task that hit a usage limit waits (``hold.py``). This module decides what to d
 or hand the task over to another executor. It is pure (no database, no clock of its own, no process): the caller gathers the
 facts (``Candidate`` for each executor, the hold, the counters, the budget) and ``ExecutorServices`` carries out the answer.
 
-Modes (``Policy.mode``; ``auto`` belongs to CNT-T07 and is only ever set per project, so an unknown mode here is treated as
-``manual``, the strictest):
+Modes (``Policy.mode``; ``auto`` (USO-T08) is not a mode a person picks from a list: it is the switch «continue by itself»
+of the GUI, which only ``user:gui`` turns on (``gui_settings``), so an unknown mode here is treated as ``manual``, the
+strictest):
 
 - ``manual``: always asks a person, except for the short backoff retries of a 429 (``rate_limited``), which just wait.
 - ``semi_auto``: waits when the reset is reliable (``high`` or ``medium`` confidence) and not more than
@@ -16,20 +17,31 @@ Modes (``Policy.mode``; ``auto`` belongs to CNT-T07 and is only ever set per pro
   whose model is at the level of the original or cheaper, and only when the project is not private, a patch was saved, the
   budget allows it, the held session is not open in an app (12 hours) and a hand-off is left. Anything else asks, with the
   best candidate as the proposal.
+- ``auto`` (the switch is on; the saved mode, ``manual`` or ``semi_auto``, comes back when it is off): the same as
+  ``semi_auto`` but it does not wait for the threshold. On any limit that is not ``credits_exhausted`` (a reliable reset
+  or not, a known limit or not) it hands the task over at once, with the same conditions and to the best candidate that
+  is marked ``no_ask``. If none qualifies it waits for a reliable reset and asks when there is none; it never picks an app
+  by itself. It asks as ``semi_auto`` does for a private project, no patch, no budget, an open session, a blocked hold, and
+  when the hand-offs are used up (``handoffs_exhausted``). A hold made before the switch was turned on
+  (``Policy.automatic_since``) is decided by the saved mode (``Policy.base_mode``), so only new limits are affected.
 
 The table of the contract, as ``decide`` applies it (A is automatic with a notice, P asks with a card):
 
-=========================================  ======  ===========  =========================================
-situation                                  manual  semi_auto    here
-=========================================  ======  ===========  =========================================
-``rate_limited`` with retries left         wait    wait         ``rate_limited_retry``
-``plan_limit``, reliable, reset <= limit   ask     wait         ``reset_within_threshold``
-same, beyond the limit, a candidate        ask     delegate     ``reset_beyond_threshold``
-same, beyond the limit, no candidate       ask     ask          ``no_candidate_without_asking``
-no reliable time, ``limit_unknown``        ask     ask          ``no_reliable_reset`` / ``limit_unknown``
-``credits_exhausted``                      ask     ask          ``credits_exhausted`` (with a proposal)
-hand-offs used up                          ask     wait if reliable, else ask   ``handoffs_exhausted``
-=========================================  ======  ===========  =========================================
+=========================================  ======  ===========  ===========  ==============================================
+situation                                  manual  semi_auto    auto         here
+=========================================  ======  ===========  ===========  ==============================================
+``rate_limited`` with retries left         wait    wait         wait         ``rate_limited_retry``
+``plan_limit``, reliable, reset <= limit   ask     wait         delegate     ``reset_within_threshold`` / ``auto_limit_reached``
+same, beyond the limit, a candidate        ask     delegate     delegate     ``reset_beyond_threshold`` / ``auto_limit_reached``
+same, beyond the limit, no candidate       ask     ask          wait         ``no_candidate_without_asking``
+no reliable time, ``limit_unknown``        ask     ask          delegate     ``no_reliable_reset`` / ``limit_unknown`` / ``auto_limit_reached``
+``credits_exhausted``                      ask     ask          ask          ``credits_exhausted`` (with a proposal)
+hand-offs used up                          ask     wait or ask  ask          ``handoffs_exhausted``
+=========================================  ======  ===========  ===========  ==============================================
+
+``semi_auto`` waits for a used-up hand-off when the reset is reliable and asks when it is not. ``auto`` with no candidate that
+qualifies waits for a reliable reset and asks when there is none. Every automatic hand-off leaves ``continuity.handoff`` with
+the limit, the origin, the destination and ``by`` ``policy:auto``.
 
 Each level (profile, then task; the project level comes with CNT-T07) only restricts what the one above allows
 (``resolve_policy``): a lower mode, fewer hand-offs, a longer wait threshold (waiting instead of delegating) and a stricter
@@ -63,7 +75,7 @@ MAX_HANDOFFS = 3                                 # contract section 7: up to thr
 # The apps the framework drives through their official CLI with the user's own subscription (ORQ-6). Any other surface is
 # treated as a paid API: it is never handed a task without asking.
 SUBSCRIPTION_SURFACES = ("claude_cli", "codex_cli", "copilot_cli")
-_MODE_RANK = {"manual": 0, "semi_auto": 1}
+_MODE_RANK = {"manual": 0, "semi_auto": 1, "auto": 2}
 _POLICY_RANK = {"never": 0, "ask": 1, "no_ask": 2}
 
 
@@ -74,6 +86,8 @@ class Policy:
     wait_threshold_hours: int = 5
     max_handoffs: int = 1
     candidates: Mapping[str, str] = field(default_factory=lambda: dict(DEFAULT_CONTINUITY_CANDIDATES))
+    automatic_since: str | None = None   # USO-T08: when the person turned the switch on (``auto`` only)
+    base_mode: str = "semi_auto"         # the saved mode that comes back when ``auto`` does not apply
 
     @property
     def threshold(self) -> timedelta:
@@ -87,8 +101,11 @@ class Policy:
         return found if found in CONTINUITY_CANDIDATE_POLICIES else "ask"
 
     def to_dict(self) -> dict[str, Any]:
-        return {"mode": self.mode, "wait_threshold_hours": self.wait_threshold_hours, "max_handoffs": self.max_handoffs,
-                "candidates": dict(self.candidates)}
+        data: dict[str, Any] = {"mode": self.mode, "wait_threshold_hours": self.wait_threshold_hours,
+                                "max_handoffs": self.max_handoffs, "candidates": dict(self.candidates)}
+        if self.mode == "auto":
+            data.update({"automatic": True, "automatic_since": self.automatic_since, "base_mode": self.base_mode})
+        return data
 
 
 def _count(value: Any) -> int | None:
@@ -107,6 +124,8 @@ def resolve_policy(profile: Policy, task: Mapping[str, Any] | None = None) -> Po
     asked = block.get("mode")
     if asked in _MODE_RANK and _MODE_RANK[asked] < _MODE_RANK[mode]:
         mode = asked
+    if profile.mode == "auto" and mode != "auto" and _MODE_RANK[mode] > _MODE_RANK.get(profile.base_mode, 0):
+        mode = profile.base_mode       # a task only restricts: it cannot lift the saved mode that waits behind the switch
     handoffs = profile.max_handoffs
     wanted = _count(block.get("max_handoffs"))
     if wanted is not None:
@@ -122,7 +141,8 @@ def resolve_policy(profile: Policy, task: Mapping[str, Any] | None = None) -> Po
             if value in _POLICY_RANK:
                 current = candidates.get(str(key), "ask")
                 candidates[str(key)] = value if _POLICY_RANK[value] < _POLICY_RANK[current] else current
-    return Policy(mode=mode, wait_threshold_hours=hours, max_handoffs=min(handoffs, MAX_HANDOFFS), candidates=candidates)
+    return Policy(mode=mode, wait_threshold_hours=hours, max_handoffs=min(handoffs, MAX_HANDOFFS), candidates=candidates,
+                  automatic_since=profile.automatic_since, base_mode=profile.base_mode)
 
 
 # --------------------------------------------------------------------------- the candidates
@@ -236,7 +256,14 @@ def decide(policy: Policy, hold: Mapping[str, Any], *, handoffs: int, now: datet
     (``none``), and a hold blocked for another reason (three failed resumes) asks. A person who chose to wait on the card
     (``hold.decision`` ``wait``) is always obeyed: the policy waits too and never hands the task over.
     """
-    by = f"policy:{policy.mode}"
+    mode = policy.mode
+    if mode == "auto":
+        started, since = _hold.parse_utc(policy.automatic_since), _hold.parse_utc(hold.get("since"))
+        if started is None:                          # ``auto`` with no instant for the switch is not the switch: the strictest
+            mode = "manual"
+        elif since is None or since < started:       # a limit from before the switch keeps its card (CNT-T07)
+            mode = policy.base_mode if policy.base_mode in ("manual", "semi_auto") else "manual"
+    by = f"policy:{mode}"
     if not _hold.is_limit_hold(hold) or _hold.is_condition_hold(hold):
         return Decision("none", "not_a_limit_hold", by)
     wait_until = hold.get("resume_after")
@@ -252,11 +279,14 @@ def decide(policy: Policy, hold: Mapping[str, Any], *, handoffs: int, now: datet
     proposed = proposal.executor_id if proposal is not None else None
     reset = _hold.parse_utc(hold.get("reset_at") or hold.get("resume_after"))
     reliable = reason == "plan_limit" and hold.get("outcome") == "wait_until_reset" and reset is not None
-    if policy.mode != "semi_auto":                    # ``manual``, and a mode this module does not know, always ask
+    if mode not in ("semi_auto", "auto"):             # ``manual``, and a mode this module does not know, always ask
         why = "manual_mode" if left else "handoffs_exhausted"
         return Decision("ask", why, by, candidate=proposed, ask=(why,))
     if reason == "credits_exhausted":
         return Decision("ask", "credits_exhausted", by, candidate=proposed, ask=("credits_exhausted",))
+    if mode == "auto":
+        return _decide_auto(by, left, reset if reliable else None, wait_until, candidates, proposed,
+                            private_project=private_project, has_patch=has_patch, budget_ok=budget_ok, session_open=session_open)
     if reason != "plan_limit":
         why = "limit_unknown" if reason == "limit_unknown" else "no_reliable_reset"
         return Decision("ask", why, by, candidate=proposed, ask=(why,))
@@ -282,4 +312,30 @@ def decide(policy: Policy, hold: Mapping[str, Any], *, handoffs: int, now: datet
         if automatic:
             return Decision("delegate", "reset_beyond_threshold", by, candidate=best_candidate(automatic).executor_id)  # type: ignore[union-attr]
         stops = sorted({reason for item in usable for reason in item.ask_reasons()}) or ["no_candidate"]
+    return Decision("ask", "no_candidate_without_asking", by, candidate=proposed, ask=tuple(stops))
+
+
+def _decide_auto(by: str, left: bool, reliable_reset: datetime | None, wait_until: str | None,
+                 candidates: Sequence[Candidate], proposed: str | None, *, private_project: bool, has_patch: bool,
+                 budget_ok: bool, session_open: bool) -> Decision:
+    """The ``auto`` branch of ``decide`` (USO-T08): hand the task over at once, with the conditions of ``semi_auto``."""
+    if not left:
+        return Decision("ask", "handoffs_exhausted", by, candidate=proposed, ask=("handoffs_exhausted",))
+    stops = []
+    if private_project:
+        stops.append("private_project")
+    if not has_patch:
+        stops.append("no_patch")
+    if not budget_ok:
+        stops.append("budget")
+    if session_open:
+        stops.append("session_open_in_app")
+    usable = [item for item in candidates if item.refusal() is None]
+    if not stops:
+        automatic = [item for item in usable if not item.ask_reasons()]
+        if automatic:
+            return Decision("delegate", "auto_limit_reached", by, candidate=best_candidate(automatic).executor_id)  # type: ignore[union-attr]
+        if reliable_reset is not None:
+            return Decision("wait", "no_candidate_without_asking", by, wait_until=wait_until)   # no app qualifies: never pick one
+        stops = sorted({why for item in usable for why in item.ask_reasons()}) or ["no_candidate"]
     return Decision("ask", "no_candidate_without_asking", by, candidate=proposed, ask=tuple(stops))

@@ -153,7 +153,7 @@ def test_budget_form_rules(node_root):
 
 
 @needs_node
-def test_continuity_form_rules_and_no_automatic_switch(node_root):
+def test_continuity_form_rules_and_the_modes_list_has_no_auto(node_root):
     out = run_node(node_root, r"""
       import { CONTINUITY_APPS, CONTINUITY_HOURS, CONTINUITY_MODES, continuityChanged, continuityDraft, continuityPayload } from "./js/usage-model.js";
       const data = { source: "gui", mode: "semi_auto", wait_threshold_hours: 24, automatic: false, max_handoffs: 1,
@@ -175,10 +175,99 @@ def test_continuity_form_rules_and_no_automatic_switch(node_root):
     assert out["payloadKeys"] == ["candidates", "mode", "wait_threshold_hours"]       # nothing else travels
     assert out["same"] is False and out["hours_changed"] and out["app_changed"] and out["mode_changed"]
     assert out["fallback"]["mode"] == "manual" and out["fallback"]["wait_threshold_hours"] == 5      # the safest values
+    assert "auto" not in out["modes"]                    # USO-T08: «auto» is the switch below the list, never a choice in it
+    assert out["payloadKeys"] == ["candidates", "mode", "wait_threshold_hours"]    # the form's own payload never carries the switch
+
+
+@needs_node
+def test_the_automatic_switch_is_off_sends_only_a_change_and_keeps_the_saved_mode(node_root):
+    out = run_node(node_root, r"""
+      import { automaticChanged, automaticOn, automaticPayload, automaticStateText, savedMode } from "./extensions/continuity/model.js";
+      import { continuityDraft, continuityPayload } from "./js/usage-model.js";
+      import { setLanguage } from "./js/i18n.js";
+      const off = { source: "gui", mode: "semi_auto", saved_mode: "semi_auto", automatic: false, automatic_since: null, max_handoffs: 1,
+        wait_threshold_hours: 5, candidates: { claude_cli: "no_ask", codex_cli: "no_ask", copilot_cli: "ask" } };
+      const on = { ...off, mode: "auto", saved_mode: "manual", automatic: true, automatic_since: "2026-11-26T12:40:00Z" };
+      const base = continuityPayload(continuityDraft({ ...off, mode: savedMode(off) }));
+      setLanguage("en");
+      const english = [automaticStateText(off), automaticStateText(on, new Date("2026-11-26T15:00:00Z"))];
+      setLanguage("es");
+      console.log(JSON.stringify({
+        offAnswer: [automaticOn(off), automaticOn({}), automaticOn(null), automaticOn({ automatic: "true" })], onAnswer: automaticOn(on),
+        unchanged: [automaticChanged(false, off), automaticChanged(true, on)], changed: [automaticChanged(true, off), automaticChanged(false, on)],
+        quiet: Object.keys(automaticPayload(base, false, off)).sort(), turnOn: automaticPayload(base, true, off),
+        turnOff: Object.keys(automaticPayload(base, false, on)).sort(), stay: Object.keys(automaticPayload(base, true, on)).sort(),
+        modes: [savedMode(on), savedMode(off), savedMode({ mode: "auto" }), savedMode(null)],
+        draftWithAuto: continuityDraft({ ...on, mode: savedMode(on) }).mode, english, spanish: [automaticStateText(off)],
+      }));
+    """)
+    assert out["offAnswer"] == [False, False, False, False] and out["onAnswer"] is True      # off unless the server says true
+    assert out["unchanged"] == [False, False] and out["changed"] == [True, True]
+    assert out["quiet"] == ["candidates", "mode", "wait_threshold_hours"]                    # nothing about the switch without a change
+    assert out["turnOn"]["automatic"] is True and set(out["turnOn"]) == {"automatic", "candidates", "mode", "wait_threshold_hours"}
+    assert out["turnOff"] == ["automatic", "candidates", "mode", "wait_threshold_hours"] and out["stay"] == ["candidates", "mode", "wait_threshold_hours"]
+    assert out["modes"] == ["manual", "semi_auto", "auto", None]
+    assert out["draftWithAuto"] == "manual"                                                  # the form never takes «auto» as the mode
+    assert out["english"][0] == "Off. Only you can turn it on, here."
+    assert re.fullmatch(r"On since \d\d:\d\d\.", out["english"][1]), out["english"][1]   # no «at» after «since»
+    assert out["spanish"] == ["Apagada. Solo la enciendes tú, aquí."]
+
+
+def test_the_automatic_switch_is_a_switch_with_its_fixed_note_beside_it():
     policy = source(POLICY)
-    # USO-T08 owns the automatic switch: no checkbox, no toggle and no "automatic" value in this section
-    assert "checkbox" not in policy and 'role="switch"' not in policy and "automatic" not in policy.replace("fixed_", "")
-    assert "auto" not in out["modes"]
+    assert 'type="checkbox" role="switch"' in policy and "useState(false)" in policy        # off until the person turns it on
+    block = policy[policy.index('class="continuity-settings-field continuity-automatic"'):policy.index('class="continuity-settings-actions"')]
+    for key in ("automatic_label", "automatic_explanation", "automatic_not_title", "automatic_not_released"):
+        assert f"ext.continuity.settings.{key}" in block, key
+    assert 'helpFor("continuity.usage")' in block and "automaticStateText(data)" in block
+    assert "automaticPayload(continuityPayload(draft), automatic, state.data)" in policy
+    assert "if (!changed || saving) return;" in policy                                       # nothing is sent without a change
+
+
+@needs_node
+def test_the_session_card_shows_the_hand_off_notice_in_both_languages(node_root):
+    out = run_node(node_root, r"""
+      import { handoffNoticeText } from "./extensions/continuity/model.js";
+      import { setLanguage } from "./js/i18n.js";
+      const now = new Date("2026-11-26T15:00:00");
+      const at = new Date("2026-11-26T12:40:00").toISOString();
+      const notice = { at, by: "policy:auto", automatic: true,
+        limit: { reason: "plan_limit", window: "weekly", executor_id: "codex_cli", app: "Codex", model: null, reset_at: null },
+        to: { executor_id: "claude_cli", app: "Claude", model: "Sonnet 5.5" } };
+      const person = { ...notice, by: "user", automatic: false };
+      setLanguage("en");
+      const english = [handoffNoticeText(notice, now), handoffNoticeText(person, now)];
+      setLanguage("es");
+      const spanish = [handoffNoticeText(notice, now), handoffNoticeText(person, now)];
+      console.log(JSON.stringify({ english, spanish, none: [handoffNoticeText(null), handoffNoticeText({}), handoffNoticeText({ limit: {} })] }));
+    """)
+    assert out["english"][0] == ("Codex reached its weekly limit. Claude (Sonnet 5.5) continued without asking, "
+                                 "by automatic continuity, at 12:40.")
+    assert out["english"][1].endswith("Claude (Sonnet 5.5) took the task over, as you decided, at 12:40.")
+    assert out["spanish"][0].startswith("Codex alcanzó") and "Siguió Claude (Sonnet 5.5) sin preguntar, por la continuidad automática" in out["spanish"][0]
+    assert out["spanish"][0].endswith("a las 12:40.") and "como decidiste" in out["spanish"][1]
+    assert out["none"] == ["", "", ""]
+    slot = source(STATIC_DIR / "extensions" / "continuity" / "slot.js")
+    assert "handoffNoticeText(data.last_handoff)" in slot and 'role="status"' in slot
+
+
+@needs_node
+def test_the_new_switch_texts_exist_in_english_and_spanish(node_root):
+    out = run_node(node_root, r"""
+      import "./extensions/continuity/i18n.js";
+      import { setLanguage, t } from "./js/i18n.js";
+      const keys = ["settings.automatic_label", "settings.automatic_off", "settings.automatic_on", "settings.automatic_on_unknown",
+        "settings.automatic_explanation", "settings.automatic_not_title", "settings.automatic_not_released", "handoff_notice.title",
+        "handoff_notice.auto", "handoff_notice.person", "policy.auto_project_only", "mode.semi_auto.explanation"].map((key) => "ext.continuity." + key);
+      const read = (language) => { setLanguage(language); return keys.map((key) => t(key, { when: "w", to: "x" })); };
+      console.log(JSON.stringify({ en: read("en"), es: read("es") }));
+    """)
+    assert all(text and not text.startswith("ext.") for text in out["en"] + out["es"]) and out["en"] != out["es"]
+    assert out["en"][0] == "Keep going by itself with another model or app when a limit is reached"
+    assert out["es"][0] == "Seguir solo con otro modelo o app cuando se llegue a un límite"
+    assert "paid API" in out["en"][6] and "API de pago" in out["es"][6]
+    assert "«No prompt»" in out["en"][11] and "«Sin preguntar»" in out["es"][11]
+    assert "only per project" not in " ".join(out["en"]).lower() and "por proyecto" not in " ".join(out["es"])
 
 
 def test_the_three_fixed_rules_are_a_note_without_a_control():

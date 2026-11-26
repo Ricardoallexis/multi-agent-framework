@@ -83,7 +83,7 @@ both hold). Nothing in the activation uses a model: ``waits.py`` checks structur
 Continuity policy and hand-off (CNT-T05, contract sections 7 to 9, ``handoff.py``, ``selection.select_for_handoff``): what to do
 with a task held by a usage limit is a policy, not a habit. The settings ``continuity_mode`` (``manual`` always asks;
 ``semi_auto``, the default, waits for a reset that is ``continuity_wait_threshold_hours`` away or less and otherwise hands
-the task over without asking), ``continuity_max_handoffs`` (1 to 3) and ``continuity_candidates`` (per executor ``no_ask``,
+the task over without asking; ``auto``, the person's GUI switch (USO-T08), does not wait for the threshold), ``continuity_max_handoffs`` (1 to 3) and ``continuity_candidates`` (per executor ``no_ask``,
 ``ask`` or ``never``) are the profile level; a task's own continuity block can only restrict them (``continuity_policy`` shows
 the result). The hold records the mode and the continuity block the limit of hand-offs (``max_handoffs``) when the limit hits.
 
@@ -3095,9 +3095,11 @@ class ExecutorServices:
     # -------- continuity policy and hand-off (CNT-T05) --------
     def _profile_policy(self) -> _handoff.Policy:
         settings = self._services.gui_settings.resolve("continuity")
+        # USO-T08: with the person's switch on the mode is ``auto`` and the saved one waits in ``base_mode``
         return _handoff.Policy(
             mode=settings["mode"], wait_threshold_hours=settings["wait_threshold_hours"],
-            max_handoffs=settings["max_handoffs"], candidates=dict(settings["candidates"]))
+            max_handoffs=settings["max_handoffs"], candidates=dict(settings["candidates"]),
+            automatic_since=settings.get("automatic_since"), base_mode=settings.get("saved_mode") or "manual")
 
     def _policy_of(self, continuity: Mapping[str, Any] | None) -> _handoff.Policy:
         """The policy in force for a task: the settings, restricted by what the task's continuity block says (it only restricts)."""
@@ -3549,7 +3551,11 @@ class ExecutorServices:
                 "by": by, "reason": hold.get("reason"), "window": hold.get("window"), "mode": hold.get("mode"),
                 "model": pick.model, "level": pick.level, "effort": pick.effort, "within_level": pick.within_level,
                 "patch": hold.get("checkpoint"), "sends": sends, "session_retired": sid or None,
-                "same_folder": same_folder, "attempt": hold.get("attempt")}.items() if value is not None}
+                "same_folder": same_folder, "attempt": hold.get("attempt"),
+                # USO-T08: the notice of an automatic hand-off says which limit, from where (app, model) and to where
+                "from_model": settings.get("model"), "from_adapter": settings.get("adapter"),
+                "to_surface": getattr(descriptor, "surface", None),
+                "reset_at": hold.get("reset_at")}.items() if value is not None}
             self._store.append_event(conn, HANDOFF_EVENT, actor=actor, group_id=group_id, task_id=task_id,
                                      ref=executor_id, cause=f"handed off from {origin}", payload=_fit(payload))
         result: dict[str, Any] = {

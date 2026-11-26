@@ -107,7 +107,8 @@ def _validate_budget(value: Any, known: frozenset[str] | None = None) -> dict[st
 
 
 def _validate_continuity(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != {"mode", "wait_threshold_hours", "candidates"}:
+    base = {"mode", "wait_threshold_hours", "candidates"}
+    if not isinstance(value, dict) or not base <= set(value) or set(value) - base - {"automatic", "automatic_since"}:
         raise _invalid("continuity", "Invalid continuity settings")
     if value["mode"] not in ("manual", "semi_auto"):
         raise _invalid("mode", "Unknown continuity mode")
@@ -117,8 +118,20 @@ def _validate_continuity(value: Any) -> dict[str, Any]:
     if not isinstance(candidates, dict) or set(candidates) != _CONTINUITY_APPS or any(
             policy not in ("no_ask", "ask", "never") for policy in candidates.values()):
         raise _invalid("candidates", "Invalid continuity candidates")
-    return {"mode": value["mode"], "wait_threshold_hours": value["wait_threshold_hours"],
-            "candidates": dict(candidates)}
+    checked = {"mode": value["mode"], "wait_threshold_hours": value["wait_threshold_hours"],
+               "candidates": dict(candidates)}
+    # USO-T08: the switch «continue by itself». It is stored only while on, with the instant the server turned it on.
+    automatic, since = value.get("automatic", False), value.get("automatic_since")
+    if type(automatic) is not bool:
+        raise _invalid("automatic", "Invalid automatic switch")
+    if automatic:
+        parsed = _instant(since) if isinstance(since, str) else None
+        if parsed is None:
+            raise _invalid("automatic_since", "The automatic switch needs the instant it was turned on")
+        checked.update({"automatic": True, "automatic_since": parsed.strftime("%Y-%m-%dT%H:%M:%SZ")})
+    elif since is not None:
+        raise _invalid("automatic_since", "automatic_since belongs to the switch while it is on")
+    return checked
 
 
 def _validate_concurrency(value: Any) -> dict[str, Any]:
@@ -199,15 +212,18 @@ class GuiSettingsServices:
                     "providers": {}, "budgets": list(settings.usage_budgets),
                     "mode": settings.usage_budget_mode, "alerts": settings.usage_budget_alerts}
         if saved is not None:
+            automatic = saved.get("automatic") is True
             return {"source": "gui", **saved, "max_handoffs": settings.continuity_max_handoffs,
                     "candidates": {**DEFAULT_CONTINUITY_CANDIDATES, **saved["candidates"]},
-                    "automatic": False}
+                    # USO-T08: with the switch on the mode in force is ``auto``; ``saved_mode`` comes back when it is off
+                    "mode": "auto" if automatic else saved["mode"], "saved_mode": saved["mode"],
+                    "automatic": automatic, "automatic_since": saved.get("automatic_since") if automatic else None}
         return {"source": "environment" if any(key in settings.model_fields_set for key in
                 ("continuity_mode", "continuity_wait_threshold_hours", "continuity_max_handoffs",
                  "continuity_candidates")) else "default",
                 "mode": settings.continuity_mode, "wait_threshold_hours": settings.continuity_wait_threshold_hours,
                 "candidates": dict(settings.continuity_candidates), "max_handoffs": settings.continuity_max_handoffs,
-                "automatic": False}
+                "saved_mode": settings.continuity_mode, "automatic": False, "automatic_since": None}
 
     def known_providers(self) -> frozenset[str] | None:
         """The providers of the catalog's models: the names ``BudgetGuard`` compares. ``None`` without a catalog."""

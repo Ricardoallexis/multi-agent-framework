@@ -10,7 +10,7 @@ import { t } from "../../js/i18n.js";
 import {
   CONTINUITY_APPS, CONTINUITY_HOURS, CONTINUITY_MODES, CONTINUITY_POLICIES, continuityChanged, continuityDraft, continuityPayload,
 } from "../../js/usage-model.js";
-import { policyCandidates, policyRows } from "./model.js";
+import { automaticChanged, automaticOn, automaticPayload, automaticStateText, policyCandidates, policyRows, savedMode } from "./model.js";
 import { POLICY_POLL_MS, usePolled } from "./poll.js";
 
 export function PolicyView({ policy, now = new Date() }) {
@@ -34,29 +34,32 @@ const SOURCE_KEYS = { gui: "ext.continuity.settings.source.gui", environment: "e
 export function ContinuitySettings({ token, onSaved = () => {} }) {
   const [state, setState] = useState({ loading: true, data: null, error: "" });
   const [draft, setDraft] = useState(null);
+  const [automatic, setAutomatic] = useState(false);     // USO-T08: the switch; off until the person turns it on
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   async function load() {
     try {
       const data = await apiGet("/gui/api/settings/continuity", token);
       setState({ loading: false, data, error: "" });
-      setDraft(continuityDraft(data));
+      setDraft(continuityDraft({ ...data, mode: savedMode(data) }));
+      setAutomatic(automaticOn(data));
     } catch (failure) {
       setState((previous) => ({ ...previous, loading: false, error: failure instanceof ApiError ? failure.message : String(failure) }));
     }
   }
   useEffect(() => { load(); }, [token]);
-  const original = state.data ? continuityDraft(state.data) : null;
-  const changed = Boolean(draft && original && continuityChanged(draft, original));
+  const original = state.data ? continuityDraft({ ...state.data, mode: savedMode(state.data) }) : null;
+  const changed = Boolean(draft && original && (continuityChanged(draft, original) || automaticChanged(automatic, state.data)));
   const change = (part) => { setSaved(false); setDraft({ ...draft, ...part }); };
   async function save(event) {
     event.preventDefault();
     if (!changed || saving) return;
     setSaving(true);
     try {
-      const data = await apiPut("/gui/api/settings/continuity", token, continuityPayload(draft));
+      const data = await apiPut("/gui/api/settings/continuity", token, automaticPayload(continuityPayload(draft), automatic, state.data));
       setState({ loading: false, data, error: "" });
-      setDraft(continuityDraft(data));
+      setDraft(continuityDraft({ ...data, mode: savedMode(data) }));
+      setAutomatic(automaticOn(data));
       setSaved(true);
       onSaved();
     } catch (failure) {
@@ -94,6 +97,16 @@ export function ContinuitySettings({ token, onSaved = () => {} }) {
             ${CONTINUITY_POLICIES.map((policy) => html`<option key=${policy} value=${policy} selected=${draft.candidates[app] === policy}>${t("ext.continuity.policy." + policy)}</option>`)}
           </select></div>`)}
       </fieldset>
+      <div class="continuity-settings-field continuity-automatic">
+        <label for="continuity-setting-automatic" class="continuity-automatic-label">
+          <input id="continuity-setting-automatic" type="checkbox" role="switch" checked=${automatic} ...${helpFor("continuity.usage")}
+            onChange=${(event) => { setSaved(false); setAutomatic(event.currentTarget.checked); }} />
+          <span>${t("ext.continuity.settings.automatic_label")}</span>
+        </label>
+        <p class="muted small continuity-automatic-state" role="status">${automaticStateText(data)}</p>
+        <p class="muted small">${t("ext.continuity.settings.automatic_explanation")}</p>
+        <p class="continuity-automatic-note"><strong>${t("ext.continuity.settings.automatic_not_title")}</strong> ${t("ext.continuity.settings.automatic_not_released")}</p>
+      </div>
       <div class="continuity-settings-actions"><button type="submit" class="btn continuity-btn" disabled=${!changed || saving} ...${helpFor("continuity.usage")}>${saving ? t("ext.continuity.settings.saving") : t("ext.continuity.settings.save")}</button>
         ${!changed && html`<span class="muted small">${t("ext.continuity.settings.no_changes")}</span>`}
         ${saved && html`<span class="muted small" role="status">${t("ext.continuity.settings.saved")}</span>`}</div>

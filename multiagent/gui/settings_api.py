@@ -3,6 +3,7 @@
 """Token protected routes of the server-side GUI settings (SIM-T01)."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter
@@ -44,6 +45,7 @@ class ContinuityBody(BaseModel):
     mode: StrictStr
     wait_threshold_hours: StrictInt
     candidates: dict[str, StrictStr]
+    automatic: StrictBool | None = None      # USO-T08: the switch «continue by itself»; left out, it stays as it is
 
 
 def add_settings_routes(api: APIRouter, services: Any) -> None:
@@ -71,7 +73,14 @@ def add_settings_routes(api: APIRouter, services: Any) -> None:
 
     @api.put("/settings/continuity")
     def set_continuity(body: ContinuityBody):
-        return services.gui_settings.set_usage("continuity", body.model_dump())
+        value = body.model_dump(exclude={"automatic"})
+        current = services.gui_settings.resolve("continuity")
+        automatic = current["automatic"] if body.automatic is None else body.automatic
+        if automatic:      # the server stamps the instant the person turned it on; an automatic one that was on keeps its own
+            value["automatic"] = True
+            value["automatic_since"] = current["automatic_since"] if current["automatic"] else \
+                datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return services.gui_settings.set_usage("continuity", value)
 
     @api.get("/settings/concurrency")
     def read_concurrency():

@@ -17,6 +17,7 @@ export const HELP = {
     "hint": "Shows whether this session's task is waiting because of a usage limit.",
     "more": [
       "If the session is not waiting, there is nothing to decide here.",
+      "If a hand-off left this session, a notice says which limit was reached and where the task went.",
       "If it is waiting, you will see the same decision card as on the decisions screen."
     ]
   },
@@ -26,6 +27,7 @@ export const HELP = {
     "more": [
       "Shows the mode, how long to wait before suggesting another agent, and how many hand-offs are allowed.",
       "Below the values you can change the mode, the wait threshold and the apps that may take over.",
+      "«Keep going by itself» is off until you turn it on; then a limit hands the task at once to an app marked «No prompt».",
       "A task is never handed off during an integration."
     ]
   },

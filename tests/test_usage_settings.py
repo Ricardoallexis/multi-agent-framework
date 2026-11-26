@@ -87,12 +87,13 @@ def test_continuity_route_resolves_saved_policy_and_keeps_hard_limits(env):
     api = "/gui/api/settings/continuity"
     initial = env.client.get(api, headers=env.auth).json()
     assert initial["mode"] == "manual" and initial["source"] == "environment"
-    assert initial["automatic"] is False and not env.file.exists()
+    assert initial["automatic"] is False and initial["automatic_since"] is None and not env.file.exists()   # USO-T08: off, nothing written
     body = {"mode": "semi_auto", "wait_threshold_hours": 24,
             "candidates": {"claude_cli": "never", "codex_cli": "ask", "copilot_cli": "never"}}
     response = env.client.put(api, json=body, headers=env.auth)
     assert response.status_code == 200, response.text
-    assert response.json()["source"] == "gui" and response.json()["automatic"] is False
+    assert response.json()["source"] == "gui" and response.json()["automatic"] is False       # saving the three keys does not turn it on
+    assert response.json()["automatic_since"] is None and response.json()["mode"] == "semi_auto"
     assert env.services.executors.continuity_policy()["mode"] == "semi_auto"
     assert env.services.executors.continuity_policy()["wait_threshold_hours"] == 24
     assert env.services.executors.continuity_policy()["candidates"] == body["candidates"]
@@ -101,12 +102,13 @@ def test_continuity_route_resolves_saved_policy_and_keeps_hard_limits(env):
 
 
 @pytest.mark.parametrize("extra", [
-    {"automatic": True}, {"max_handoffs": 3}, {"overage": True},
+    {"automatic": "yes"}, {"automatic_since": "2026-01-01T00:00:00Z"}, {"max_handoffs": 3}, {"overage": True},
     {"mode": "auto"}, {"wait_threshold_hours": 0},
     {"candidates": {"paid_api": "no_ask"}},
 ])
-def test_continuity_rejects_auto_and_fixed_rule_changes(env, extra):
-    body = {"mode": "manual", "wait_threshold_hours": 5, "candidates": {}}
+def test_continuity_rejects_auto_as_a_mode_and_fixed_rule_changes(env, extra):
+    # USO-T08: ``automatic`` is now a switch (a boolean the server stamps); ``auto`` is still never a mode a body may name
+    body = {"mode": "manual", "wait_threshold_hours": 5, "candidates": {"claude_cli": "ask", "codex_cli": "ask", "copilot_cli": "ask"}}
     body.update(extra)
     assert env.client.put("/gui/api/settings/continuity", json=body, headers=env.auth).status_code == 422
     assert not env.file.exists()

@@ -38,7 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..services import hold as _hold
 from ..services.errors import INVALID_REQUEST, INVALID_STATE, NOT_FOUND, ServiceError
-from ..services.executors import CHECKPOINT_EVENT
+from ..services.executors import CHECKPOINT_EVENT, HANDOFF_EVENT
 
 _logger = logging.getLogger(__name__)
 DECIDED_EVENT = "continuity.decided"
@@ -220,8 +220,38 @@ def policy_view(services: Any) -> dict[str, Any]:
     return {"mode": policy["mode"], "modes": list(MODES), "wait_threshold_hours": policy["wait_threshold_hours"],
             "max_handoffs": policy["max_handoffs"], "max_failed_resumes": _hold.MAX_FAILED_RESUMES,
             "never_during_integration": True, "auto_scope": "project",
+            "automatic": policy["mode"] == "auto", "automatic_since": policy.get("automatic_since"),
             "source": "default" if origin == "default" else "settings", "origin": origin,
             "candidates": candidates}
+
+
+def last_handoff(services: Any, native_id: str) -> dict[str, Any] | None:
+    """The notice of the latest hand-off that retired this session (USO-T08), else ``None``.
+
+    It says which limit was reached, from which app and model the task came, where it went and whether the policy did it by
+    itself (``automatic``: ``by`` is ``policy:auto``). Read from the ``continuity.handoff`` event: no text of the agent."""
+    if not native_id:
+        return None
+    with services.tasks.store.db.connect() as conn:
+        rows = conn.execute("SELECT task_id, ref, payload_json, created_at FROM team_events WHERE type=? "
+                            "ORDER BY seq DESC LIMIT 200", (HANDOFF_EVENT,)).fetchall()
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"])
+        except ValueError:
+            continue
+        if not isinstance(payload, dict) or str(payload.get("session_retired") or "").lower() != native_id.lower():
+            continue
+        origin = str(payload.get("from") or "")
+        statuses = {str(item["executor_id"]): item.get("surface") for item in services.executors.status()["executors"]}
+        return {"task_id": row["task_id"], "at": row["created_at"], "by": payload.get("by"),
+                "automatic": payload.get("by") == "policy:auto",
+                "limit": {"reason": payload.get("reason"), "window": payload.get("window"), "executor_id": origin,
+                          "app": _app_of(statuses.get(origin) or payload.get("from_adapter"), origin)[0],
+                          "model": payload.get("from_model"), "reset_at": payload.get("reset_at")},
+                "to": {"executor_id": row["ref"], "app": _app_of(statuses.get(row["ref"]) or payload.get("to_surface"), row["ref"])[0],
+                       "model": payload.get("model")}}
+    return None
 
 
 def held_children(services: Any, session_id: str) -> list[dict[str, Any]]:
@@ -457,7 +487,11 @@ def add_continuity_routes(api: APIRouter, services: Any) -> None:
             raise ServiceError(INVALID_REQUEST, "session_id is too long", status=422, details={"field": "session_id"})
         native = session_id.partition(":")[2]
         card = next((item for item in build_cards(services) if native and item["session_id"] == native), None)
-        return {"held": card is not None, "session_id": session_id, "card": card}
+        answer: dict[str, Any] = {"held": card is not None, "session_id": session_id, "card": card}
+        notice = None if card is not None else last_handoff(services, native)
+        if notice is not None:       # USO-T08: only present when a hand-off left this session; the shape without it is unchanged
+            answer["last_handoff"] = notice
+        return answer
 
     @api.get("/runs/{run_id}/limit")
     def run_limit(run_id: str):

@@ -509,10 +509,10 @@ def test_the_policy_rows_and_the_error_texts():
         stale: [m.isStale({{ status: 409 }}), m.isStale({{ status: 404 }}), m.isStale({{ status: 500 }}), m.isStale(null)],
       }}));
     """)
-    assert out["rows"][0] == ["Modo", "Semiautomático. Espera solo si el límite se restablece pronto; si no, te propone otro agente y te pregunta."]
+    assert out["rows"][0] == ["Modo", "Semiautomático. Espera si el límite se restablece pronto; si no, pasa la tarea a una app que marcaste «Sin preguntar» y te pregunta en los demás casos."]
     assert out["rows"][1] == ["Umbral de espera", "5 horas: si el límite tarda más en restablecerse, se propone otro agente."]
     assert out["rows"][2] == ["Traspasos máximos", "1 por tarea"] and out["rows"][3][1] == "Nunca se traspasa una tarea mientras se integra."
-    assert out["rows"][4][1].startswith("Solo se activa por proyecto")
+    assert out["rows"][4][1].startswith("Apagada. Solo la enciendes tú")           # USO-T08: it is no longer «only per project»
     assert out["manual"][1].startswith("Manual. Siempre te pregunta")
     assert [(c["app"], c["state"], c["policy"]) for c in out["candidates"]] == [
         ("Claude", "Disponible", "Sin preguntar"), ("Copilot", "En pausa hasta 18:00", "Pregunta antes"),

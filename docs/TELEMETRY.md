@@ -305,10 +305,23 @@ budget does not approve any paused call or allow paid overage.
 `GET` and `PUT /gui/api/settings/continuity` expose `mode` (`manual` or
 `semi_auto`), `wait_threshold_hours` (1, 3, 5, or 24), and candidate policies
 for the three subscription CLIs (`no_ask`, `ask`, or `never`). The response
-includes the effective source, the fixed hand-off limit, and `automatic: false`.
-Task policy can still restrict the GUI policy. Automatic mode is not offered by
-these routes because the server's policy does not implement it yet. Neither
-route changes the integration guard, payment approval, or the hand-off limit.
+includes the effective source, the fixed hand-off limit, `automatic`,
+`automatic_since` and `saved_mode`. Task policy can still restrict the GUI
+policy.
+
+`automatic` is the switch "Keep going by itself with another model or app when
+a limit is reached". It is off until a person turns it on in Usage; only the
+GUI user (`user:gui`) can set it, and no command, MCP tool or environment value
+can. `PUT` accepts an optional `automatic` next to the three keys (left out, the
+switch stays as it is); the server stamps `automatic_since` (UTC) when it is
+turned on. While it is on, `mode` reads `auto` and `saved_mode` keeps the
+`manual` or `semi_auto` choice that returns when it is turned off. With `auto`
+the policy hands a task held by a usage limit to the best app marked `no_ask`
+at once, without waiting for the threshold, under the same conditions as
+`semi_auto`; it never applies to a limit held before `automatic_since`. Each
+automatic hand-off records `continuity.handoff` with `by` `policy:auto`, the
+limit and the origin and destination apps and models. The route does not change
+the integration guard, payment approval, or the hand-off limit.
 
 ## Dashboard guidance
 

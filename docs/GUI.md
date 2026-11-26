@@ -661,14 +661,22 @@ In API and budget you set a monthly amount in USD for each API provider and
 choose Warn or Cut. An empty amount means no budget; 0 means do not spend. Cut
 pauses calls to that provider until a person approves each one. In Continuity
 you choose what happens when a limit is reached (Manual always asks;
-Semi-automatic proposes the hand-off and waits for your yes), how long a wait
+Semi-automatic waits when the limit resets soon and otherwise hands the task to
+an app you marked "No prompt", asking you in every other case), how long a wait
 is acceptable before another agent is suggested, and which apps may take over.
-Each form says where its current values come from (this GUI, the environment,
-or the defaults), and sends nothing until something changes. Three rules are
-fixed and shown as a note, with no control: at most one hand-off per run, a
-running step or an integration is never cut, and it never moves to paid extra
-usage or a paid API without asking. These settings do not enable executors, do
-not allow paid usage, do not raise the budget and do not add destinations.
+Below them, the switch "Keep going by itself with another model or app when a
+limit is reached" is off until you turn it on. With it on, a task stopped by a
+new limit goes at once to the best app you marked "No prompt", without waiting
+for the threshold; each hand-off leaves a notice in the Continuity card of the
+session ("Codex reached its weekly limit. Claude (Sonnet 5.5) continued without
+asking, by automatic continuity, at 12:40."). Turning it off brings back the
+saved mode. Each form says where its current values come from (this GUI, the
+environment, or the defaults), and sends nothing until something changes. Three
+rules are fixed and shown as a note, with no control: at most one hand-off per
+run, a running step or an integration is never cut, and it never moves to paid
+extra usage or a paid API without asking. These settings do not enable
+executors, do not allow paid usage, do not raise the budget and do not add
+destinations.
 
 The **Evaluación** view (`#evaluation`) is read only. It lists the evaluation sets
 that have saved runs, each with its latest score, whether that run was Mock or

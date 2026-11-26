@@ -255,6 +255,30 @@ export function pausedText(candidate, now = new Date()) {
   return candidate.available === false ? t("ext.continuity.state.unavailable") : t("ext.continuity.state.available");
 }
 
+// USO-T08: the switch «continue by itself». It is the person's: the form sends `automatic` only when the switch changed.
+export const automaticOn = (data) => Boolean(data) && data.automatic === true;
+// The saved mode (manual or semi-automatic) behind the switch; with it on, `data.mode` says "auto" and the form must not take that.
+export const savedMode = (data) => (data && ["manual", "semi_auto"].includes(data.saved_mode) ? data.saved_mode : data && data.mode);
+export const automaticChanged = (wanted, data) => Boolean(wanted) !== automaticOn(data);
+export const automaticPayload = (base, wanted, data) => (automaticChanged(wanted, data) ? { ...base, automatic: Boolean(wanted) } : base);
+export function automaticStateText(data, now = new Date()) {
+  if (!automaticOn(data)) return t("ext.continuity.settings.automatic_off");
+  const when = clockText(data.automatic_since, now);
+  return when ? t("ext.continuity.settings.automatic_on", { when }) : t("ext.continuity.settings.automatic_on_unknown");
+}
+
+// «Codex reached its weekly limit. Claude (Sonnet 5.5) continued without asking, by automatic continuity, at 12:40.» The notice of the
+// last hand-off of a session (GET /gui/api/continuity/session/<id>, `last_handoff`); empty text when the answer has none.
+export function handoffNoticeText(notice, now = new Date()) {
+  if (!notice || !notice.limit || !notice.to) return "";
+  const from = notice.limit;
+  const limit = limitText({ app: from.app || from.executor_id || "", model: from.model, reason: from.reason, window: from.window });
+  const name = notice.to.app || notice.to.executor_id || "";
+  const to = notice.to.model ? name + " (" + notice.to.model + ")" : name;
+  const when = whenText(notice.at, now) || t("ext.continuity.unknown_time");
+  return limit + " " + t(notice.automatic ? "ext.continuity.handoff_notice.auto" : "ext.continuity.handoff_notice.person", { to, when });
+}
+
 export function policyRows(policy) {
   const modeKeys = MODE_KEYS[policy.mode];
   const mode = modeKeys
@@ -270,9 +294,11 @@ export function policyRows(policy) {
       ? t("ext.continuity.policy.handoffs_per_task", { count: policy.max_handoffs })
       : t("ext.continuity.no_data")],
     [t("ext.continuity.policy.during_integration"), t("ext.continuity.policy.never_during_integration")],
-    [t("ext.continuity.policy.auto_mode"), policy.auto_scope === "project"
-      ? t("ext.continuity.policy.auto_project_only")
-      : t("ext.continuity.no_data")],
+    [t("ext.continuity.policy.auto_mode"), policy.automatic === true
+      ? automaticStateText({ automatic: true, automatic_since: policy.automatic_since })
+      : policy.auto_scope === "project" || policy.automatic === false
+        ? t("ext.continuity.policy.auto_project_only")
+        : t("ext.continuity.no_data")],
   ];
 }
 

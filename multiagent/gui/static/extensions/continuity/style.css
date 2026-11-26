@@ -46,6 +46,11 @@
   padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow-wrap: anywhere; }
 .continuity-chip { padding: 2px 8px; border: 0; border-radius: 999px; background: var(--bg); font-size: .75rem; color: var(--muted); }
 
+.continuity-automatic-label { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 600; overflow-wrap: anywhere; }
+.continuity-automatic-label input { flex: none; width: 20px; height: 20px; }
+.continuity-automatic-note, .continuity-handoff-notice { margin: 4px 0; overflow-wrap: anywhere; }
+.continuity-handoff-notice { padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+
 @media (max-width: 599.98px) {
   .continuity-actions { flex-direction: column; align-items: stretch; }
   .continuity-card { padding: 12px; }

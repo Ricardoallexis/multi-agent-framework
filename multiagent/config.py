@@ -17,7 +17,7 @@ BUDGET_SCOPES = ("month", "project", "run")   # USO-T03: what a budget limits
 BUDGET_MODES = ("warn", "cut")                # USO-T03: only report (default) or let USO-T04 cut the call
 DEFAULT_BUDGET_ALERTS = (80.0, 95.0)          # percent of a budget that raises an alert
 AVAILABILITY_KINDS = ("cancel", "interrupt", "adjust", "note")   # AVA-T01: what a message of the person asks for
-CONTINUITY_MODES = ("manual", "semi_auto")    # CNT-T05; ``auto`` (CNT-T07) is only ever set per project, never here
+CONTINUITY_MODES = ("manual", "semi_auto")    # CNT-T05; ``auto`` (USO-T08) is the GUI switch, never a setting or an environment value
 CONTINUITY_CANDIDATE_POLICIES = ("no_ask", "ask", "never")   # per executor: delegate without asking / ask first / never
 CONTINUITY_WAIT_THRESHOLDS = (1, 3, 5, 24)    # hours: a reset that far away or less is waited for, not delegated
 DEFAULT_CONTINUITY_CANDIDATES = {"claude_cli": "no_ask", "codex_cli": "no_ask", "copilot_cli": "ask"}
@@ -274,7 +274,8 @@ class Settings(BaseSettings):
     # CNT-T05 continuity policy (contract CNT-T01 section 7), the profile level: what to do with a task held by a usage
     # limit. ``manual`` always asks; ``semi_auto`` waits for a reset that is ``continuity_wait_threshold_hours`` away or
     # less, and otherwise delegates without asking only to an executor marked ``no_ask`` (see ``services/handoff.py``).
-    # ``auto`` is not accepted here: it is opt-in per project (CNT-T07). A task can only restrict these values further.
+    # ``auto`` is not accepted here: only the person's switch in the GUI turns it on (USO-T08, ``gui-settings.json``). A task
+    # can only restrict these values further.
     # ``continuity_candidates`` maps an executor id to ``no_ask``, ``ask`` or ``never`` (an environment value is a JSON
     # object or ``claude_cli=no_ask;copilot_cli=never``); the ones it names replace the defaults, the rest keep them, and
     # an executor it does not know is asked about.
