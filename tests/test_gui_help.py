@@ -60,7 +60,8 @@ ALLOWED_EXEMPT = {
                  "and tests/test_gui2_components.py checks that every use of Tabs does",
 }
 EXPECTED_EXEMPT = Counter({
-    ("sidebar.js", "navigation"): 3,
+    ("sidebar.js", "navigation"): 9,   # GUI4-T03: the 3 of before plus 6 new: section toggle, section «+», «Ver más» of the lists, office «+», area «+» and «Ver más» of Recientes
+    ("shell.js", "navigation"): 3,      # GUI4-T03: hide the sidebar, the two edge tabs
     ("runs.js", "data-row"): 1,
     ("human-actions.js", "confirm"): 2,
     ("open-in-app.js", "confirm"): 2,

@@ -101,7 +101,7 @@ def test_more_disclosure_and_notice_remain_accessible():
     assert 'if (!noticeSeen) dismissNotice()' in sidebar
     assert 'route.section !== "sessions" && navigation.more.some((section) => section.id === route.section)' in sidebar
     assert 'aria-current=${s.id === route.section ? "page" : null}' in sidebar
-    assert sidebar.count('data-help-exempt="navigation"') == 3
+    assert sidebar.count('data-help-exempt="navigation"') == 9   # GUI4-T03: the 3 of before + 6 (section toggle and «+», «Ver más» twice, office and area «+»)
 
 
 def test_sidebar_footer_and_the_pending_row_stay_reachable_on_desktop():

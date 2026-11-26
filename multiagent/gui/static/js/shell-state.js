@@ -181,3 +181,85 @@ export function writeAccent(id) {
   writeStored(ACCENT_KEY, accent);
   announceChoice({ accent });
 }
+
+/* GUI4-T03 */
+// B1: the width of the sidebar and of the «Contexto» panel is the person's. Both are stored as whole pixels (the panel's
+// «hidden» choice is the one it always had, readPanelOpen; the sidebar's is readSideHidden). Without storage the widths
+// come back as the defaults. A width dragged below HIDE_BELOW px hides the pane; shell.js applies the numbers through
+// element.style.setProperty (CSSOM, which `style-src 'self'` does not block), never through a style attribute.
+export const HIDE_BELOW = 18;
+export const PANES = Object.freeze({
+  side: Object.freeze({ min: 220, max: 340, def: 264, steps: Object.freeze([220, 264, 340]), key: "multiagent.gui.side-width" }),
+  panel: Object.freeze({ min: 240, max: 400, def: 300, steps: Object.freeze([240, 300, 400]), key: "multiagent.gui.panel-width" }),
+});
+const SIDE_HIDDEN_KEY = "multiagent.gui.side-hidden";
+export const KEY_STEP = 16;
+
+// px (a drag) -> { hidden } when it is dragged to the edge, otherwise { width } kept inside the pane's range.
+export function resolvePaneWidth(kind, px) {
+  const pane = PANES[kind];
+  const value = Number(px);
+  if (!pane || !Number.isFinite(value)) return { hidden: false, width: pane ? pane.def : 0 };
+  if (value < HIDE_BELOW) return { hidden: true, width: pane.def };
+  return { hidden: false, width: Math.min(pane.max, Math.max(pane.min, Math.round(value))) };
+}
+
+// The arrow keys of the separator: ArrowLeft/ArrowRight move the edge, Home and End go to the ends, nothing else is used.
+// `edge` is "right" for the sidebar (its edge moves with the arrow) and "left" for the panel (opposite direction).
+export function keyWidth(kind, current, key, edge) {
+  const pane = PANES[kind];
+  if (!pane) return current;
+  const grow = (edge === "left" ? key === "ArrowLeft" : key === "ArrowRight");
+  const shrink = (edge === "left" ? key === "ArrowRight" : key === "ArrowLeft");
+  if (key === "Home") return pane.min;
+  if (key === "End") return pane.max;
+  if (grow) return Math.min(pane.max, current + KEY_STEP);
+  if (shrink) return Math.max(pane.min, current - KEY_STEP);
+  return current;
+}
+
+export function readPaneWidth(kind) {
+  const pane = PANES[kind];
+  if (!pane) return null;
+  const value = Number(readStored(pane.key));
+  return Number.isFinite(value) && value >= pane.min && value <= pane.max ? Math.round(value) : null;
+}
+
+export function writePaneWidth(kind, width) {
+  const pane = PANES[kind];
+  if (!pane) return;
+  if (width === null) writeStored(pane.key, "");   // «restablecer»: the default again
+  else writeStored(pane.key, String(resolvePaneWidth(kind, width).width));
+}
+
+export function readSideHidden() {
+  return readStored(SIDE_HIDDEN_KEY) === "hidden";
+}
+
+export function writeSideHidden(hidden) {
+  writeStored(SIDE_HIDDEN_KEY, hidden ? "hidden" : "shown");
+}
+
+// The sections of the sidebar that the person folded ({ id: false }); an id that was never folded is open.
+const SIDE_SECTIONS_KEY = "multiagent.gui.side-sections";
+
+export function readSectionOpen(id) {
+  try {
+    const value = JSON.parse(readStored(SIDE_SECTIONS_KEY) || "{}");
+    return !(value && typeof value === "object" && value[id] === false);
+  } catch (_) { return true; }
+}
+
+export function writeSectionOpen(id, open) {
+  let value = {};
+  try { value = JSON.parse(readStored(SIDE_SECTIONS_KEY) || "{}") || {}; } catch (_) { value = {}; }
+  if (typeof value !== "object" || Array.isArray(value)) value = {};
+  value[String(id)] = Boolean(open);
+  writeStored(SIDE_SECTIONS_KEY, JSON.stringify(value));
+}
+
+// Ctrl+B (⌘B on a Mac) hides and shows the sidebar. A browser may keep that key for itself; the buttons do the same.
+export function isSidebarKey(event) {
+  return Boolean(event) && String(event.key).toLowerCase() === "b" && Boolean(event.ctrlKey || event.metaKey)
+    && !event.altKey && !event.shiftKey && !event.isComposing;
+}

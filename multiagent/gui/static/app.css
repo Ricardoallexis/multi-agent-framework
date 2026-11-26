@@ -10,12 +10,13 @@
   --accent: #1a1a18; --on-accent: #ffffff; --accent-soft: #ebe9e3; --ok: #156f34; --warn: #8a5a00; --warn-soft: #fbf1dc; --bad: #b42318; /* every tone has 4.5:1 on the page, panel, chrome, hover, accent-soft and warn-soft colours (tests/test_gui2_components.py) */
   --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  --side-w: clamp(220px, 22vw, 288px); --panel-w: clamp(240px, 24vw, 320px); --bar-h: 56px; --target: 44px;
+  --side-w: 264px; --panel-w: 300px; --bar-h: 56px; --target: 44px; --shadow: 0 12px 34px rgb(0 0 0 / .10);
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #1a1a19; --panel: #242422; --chrome: #141413; --hover: #2e2e2b; --text: #ecebe6; --muted: #a8a69e; --line: #2e2d2a; --line-strong: #45443f;
     --accent: #ecebe6; --on-accent: #1a1a19; --accent-soft: #2b2b28; --ok: #4cc26b; --warn: #e3b341; --warn-soft: #33290f; --bad: #ff7b72;
+    --shadow: 0 14px 38px rgb(0 0 0 / .35);
   }
 }
 * { box-sizing: border-box; }
@@ -800,4 +801,90 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
 @media (max-width: 599.98px) {
   .ns-office-workflow-list .ns-card { flex-basis: 100%; width: 100%; }
   .offices-session-action .btn { flex-basis: 100%; width: 100%; }
+}
+
+/* GUI4-T03: widths of the bar and the panel (B1), folding sections, and the pieces the rest of the wave shares. The widths come
+   as --side-w and --panel-w (shell.js sets them with the CSSOM, never a style attribute); the defaults are the root values. */
+.app[data-side="hidden"] { grid-template-columns: 0 minmax(0, 1fr) var(--panel-w); }
+.app[data-side="hidden"][data-panel="closed"] { grid-template-columns: 0 minmax(0, 1fr); }
+.app[data-side="hidden"] .sidebar, .app[data-side="hidden"] .topbar { visibility: hidden; overflow: hidden; border: 0; }
+.resize-handle { position: fixed; z-index: 45; top: calc(var(--bar-h) + 16px); bottom: 16px; width: 8px; border-radius: 999px;
+  background: transparent; cursor: col-resize; touch-action: none; }
+.resize-side { left: calc(var(--side-w) - 4px); }
+.resize-panel { right: calc(var(--panel-w) - 4px); }
+.resize-handle::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; right: 3px; border-radius: 999px;
+  background: var(--line-strong); opacity: 0; transition: opacity .15s; }
+.resize-handle:hover::after, .resize-handle:focus-visible::after, .app[data-resizing] .resize-handle::after { opacity: 1; }
+.app[data-resizing="hide"] .resize-handle::after { background: var(--bad); }
+.resize-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (pointer: coarse) { .resize-handle { display: none; } }
+.edge-tab { position: fixed; top: 50%; z-index: 55; width: 28px; min-height: 72px; padding: 0; border: 0; background: var(--line-strong);
+  color: var(--text); font: inherit; cursor: pointer; }
+.edge-tab::before { content: ""; position: absolute; top: -4px; bottom: -4px; }   /* the touch area is 44 px wide (28 visible + 16) */
+.edge-side::before { left: 0; right: -16px; }
+.edge-panel::before { left: -16px; right: 0; }
+.edge-side { left: 0; border-radius: 0 8px 8px 0; }
+.edge-panel { right: 0; border-radius: 8px 0 0 8px; }
+.edge-tab:hover { background: var(--hover); }
+.edge-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.side-hide { margin-left: auto; padding: 0 12px; flex: none; }
+.panel-only { display: none; }   /* the button and its «?» hide together */
+
+/* The sections of the bar: Oficinas, Proyectos, Recientes. */
+.side-scroll { display: flex; flex-direction: column; gap: 8px; }
+.side-section-head { display: flex; align-items: center; gap: 4px; }
+.side-section-toggle { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; min-height: var(--target); padding: 0 8px;
+  border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; font-size: .8125rem; font-weight: 600; text-align: left; cursor: pointer; }
+.side-section-toggle:hover, .side-mini:hover, .show-list-more:hover { background: var(--hover); }
+.section-caret { flex: none; width: 1em; color: var(--muted); }
+.section-count { color: var(--muted); font-weight: 400; }
+.side-mini { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: var(--target); min-height: var(--target);
+  padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 1.125rem; cursor: pointer; }
+.side-section-toggle:focus-visible, .side-mini:focus-visible, .show-list-more:focus-visible, .office-folder:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.side-section-body[hidden] { display: none; }
+.side-list { display: flex; flex-direction: column; gap: 2px; }
+.side-empty { margin: 0; padding: 0 12px; }
+.show-list-more { min-height: var(--target); padding: 0 12px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit;
+  font-size: .8125rem; text-align: left; cursor: pointer; }
+.office-row { position: relative; }
+.office-folder { display: flex; align-items: center; gap: 8px; min-height: var(--target); padding: 4px 48px 4px 12px; border-radius: 8px; cursor: pointer; list-style: none; }
+.office-folder::-webkit-details-marker { display: none; }
+.office-folder::before { content: "\25B8"; flex: none; width: 1em; color: var(--muted); }
+.office-row > details[open] > .office-folder::before { content: "\25BE"; }
+.office-folder:hover { background: var(--hover); }
+.office-plus { position: absolute; top: 0; right: 0; }
+.office-areas { display: flex; flex-direction: column; gap: 2px; padding-left: 16px; }
+.area-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--target); padding: 0 0 0 12px; }
+.area-row .side-title { flex: 1 1 auto; min-width: 0; }
+.office-plan { min-width: 0; }
+.side-slot:empty { display: none; }
+.side-slot { min-width: 0; }
+
+/* «Entendido» of the notice of Más: `.views button` (0,1,1) used to beat `.btn`, so it lost its padding and weight (F3). */
+.side .views .side-more-notice .btn.secondary { display: inline-flex; justify-content: center; width: auto; padding: 8px 16px; background: var(--hover);
+  border-radius: 9px; font-size: .875rem; font-weight: 500; text-align: center; }
+.side .views .side-more-notice .btn.secondary:hover:not(:disabled) { background: var(--line-strong); }
+
+/* Shared by the wave: the shadow token, the quiet and the warning button, the switch and the floating surface. */
+.btn.text { min-height: var(--target); padding: 8px 10px; background: transparent; color: var(--muted); }
+.btn.text:hover:not(:disabled) { background: var(--hover); color: var(--text); opacity: 1; }
+.btn.warn { background: var(--warn-soft); color: var(--warn); }
+.switch { position: relative; flex: none; width: 48px; min-width: 48px; min-height: var(--target); padding: 0; border: 0; background: transparent; cursor: pointer; }
+.switch::before { content: ""; position: absolute; top: 7px; left: 0; width: 48px; height: 30px; border-radius: 999px; background: var(--line-strong); }
+.switch::after { content: ""; position: absolute; top: 11px; left: 4px; width: 22px; height: 22px; border-radius: 50%; background: var(--panel); transition: transform .15s; }
+.switch.on::before, .switch[aria-checked="true"]::before { background: var(--accent); }
+.switch.on::after, .switch[aria-checked="true"]::after { transform: translateX(18px); background: var(--on-accent); }
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch:disabled { opacity: .55; cursor: not-allowed; }
+.popover-surface { padding: 12px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
+@media (prefers-reduced-motion: reduce) { .resize-handle::after, .switch::after { transition: none; } }
+
+/* At 899.98 px or less the bar is the drawer (above) and the panel is laid over the content, with its own button in the top bar. */
+@media (max-width: 899.98px) {
+  .side-hide, .edge-tab { display: none; }
+  .panel-only { display: flex; }
+  .content-toolbar { display: none; }
+  .app .rightpanel { position: fixed; top: var(--bar-h); right: 0; bottom: 0; z-index: 42; width: min(300px, 86vw); height: auto; overflow-y: auto;
+    border-left: 1px solid var(--line-strong); border-top: 0; box-shadow: var(--shadow); }
+  .panel-scrim { display: block; position: fixed; top: var(--bar-h); left: 0; right: 0; bottom: 0; z-index: 41; background: rgba(0, 0, 0, .45); }
 }

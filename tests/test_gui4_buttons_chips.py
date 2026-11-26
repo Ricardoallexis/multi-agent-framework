@@ -49,7 +49,9 @@ def test_buttons_keep_pill_shape_targets_and_visible_keyboard_focus():
     assert "background: var(--line-strong)" in secondary_hover and "opacity: 1" in secondary_hover
     assert ".btn.danger:hover:not(:disabled)" not in selectors(CSS_WITHOUT_COMMENTS)
     assert "outline: 2px solid var(--accent)" in focus and "outline-offset: 2px" in focus
-    assert ".btn.text" not in selectors(CSS_WITHOUT_COMMENTS)
+    # GUI4-T03 adds the quiet button (T01 left it for that wave): no fill, muted text, the usual target
+    text = rule(CSS_WITHOUT_COMMENTS, ".btn.text")
+    assert "background: transparent" in text and "color: var(--muted)" in text and "min-height: var(--target)" in text
 
 
 def test_badges_and_popup_surfaces_use_the_shared_visual_system():

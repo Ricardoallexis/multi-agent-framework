@@ -7,18 +7,18 @@ import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalo
 import { apiGet } from "./api.js";
 import { debounce, subscribe } from "./bus.js";
 import { Help, helpFor } from "./help.js";
-import { navigate, routeHref, NEW_SECTION } from "./route.js";
+import { navigate, officeHref, routeHref, NEW_SECTION } from "./route.js";
 import { CommandPalette } from "./command-palette.js";
 import { helpEntries, isPaletteKey, itemEntries, sectionEntries } from "./command-palette-model.js";
-import { registeredViews } from "./extensions.js";
+import { isRegisteredView, registeredViews } from "./extensions.js";
 import { visibleIn } from "./gui-mode.js";
 import { HELP } from "./help-text.js";
 import { pendingTabs, tabRoute } from "./pending-model.js";
 import { relativeTime } from "./session-text.js";
-import { activityItems, appLabel, buildGroups, countsOf, isCurrent, navigationSections, runItems, sessionItems } from "./sidebar-model.js";
+import { activityItems, appLabel, buildGroups, countsOf, isCurrent, LIST_LIMIT, latestFirst, limitRows, navigationSections, officeRows, projectRows, runItems, sessionItems } from "./sidebar-model.js";
 import { inStartSidebar } from "./start-model.js";   // INI-T03
 import { refreshStart, useStartStatus } from "./start.js";   // INI-T03
-import { onChoiceChange, readMoreNoticeSeen, readPinnedSections, writeHelpMode, writeMoreNoticeSeen } from "./shell-state.js";
+import { onChoiceChange, readMoreNoticeSeen, readPinnedSections, readSectionOpen, writeHelpMode, writeMoreNoticeSeen, writeSectionOpen } from "./shell-state.js";
 import { PendingLink } from "./pending.js";
 import { Icon } from "./ui/icon.js";
 import { StatusChip } from "./ui/status-chip.js";
@@ -62,6 +62,62 @@ function Group({ group, route, now }) {
   </details>`;
 }
 
+/* GUI4-T03 */
+// A folding section of the bar (Oficinas, Proyectos, Recientes): the title is a button that folds it, «| N» is the count, and the
+// «+» (when there is one) is a button beside it. The folded state is remembered in this browser (shell-state.js).
+function SideSection({ id, title, count, addLabel = "", onAdd = null, children }) {
+  const [open, setOpen] = useState(() => readSectionOpen(id));
+  const toggle = () => { const next = !open; setOpen(next); writeSectionOpen(id, next); };
+  const labelId = "side-" + id + "-label";
+  const bodyId = "side-" + id + "-body";
+  return html`<section class="side-section" data-section=${id} aria-labelledby=${labelId}>
+    <div class="side-section-head">
+      <button type="button" class="side-section-toggle" id=${labelId} data-help-exempt="navigation" aria-expanded=${open ? "true" : "false"}
+        aria-controls=${bodyId} onClick=${toggle}><span class="section-caret" aria-hidden="true">${open ? "▾" : "▸"}</span><span>${title}</span><span class="section-count" aria-hidden="true"> | ${count}</span><span class="sr-only">, ${count}</span></button>
+      ${onAdd && html`<button type="button" class="side-mini" data-nav data-help-exempt="navigation" aria-label=${addLabel} title=${addLabel}
+        onClick=${onAdd}><span aria-hidden="true">+</span></button>`}
+    </div>
+    <div class="side-section-body" id=${bodyId} hidden=${!open}>${children}</div>
+  </section>`;
+}
+
+// Five rows and «Ver N más»; a row that waits for the person is always shown (limitRows).
+function LimitedList({ rows, render }) {
+  const [expanded, setExpanded] = useState(false);
+  const { shown, hidden } = limitRows(rows, expanded);
+  return html`<div class="side-list">
+    ${shown.map(render)}
+    ${(hidden > 0 || (expanded && rows.length > LIST_LIMIT)) && html`<button type="button" class="show-list-more" data-help-exempt="navigation"
+      aria-expanded=${expanded ? "true" : "false"} onClick=${() => setExpanded((value) => !value)}>${expanded ? t("shell.show_fewer") : t("shell.show_more", { count: hidden })}</button>`}
+  </div>`;
+}
+
+// One office: a <details> (its areas load when it opens) with the «+» beside the summary, not inside it, so the keyboard and
+// touch reach it. The «Ver plano» row is there only while the floor-plan view is registered.
+function OfficeRow({ office, token, plan }) {
+  const [areas, setAreas] = useState(null);
+  const onToggle = (event) => {
+    if (!event.currentTarget.open || areas !== null) return;
+    apiGet("/gui/api/offices/" + encodeURIComponent(office.id), token).then(
+      (detail) => setAreas(Array.isArray(detail?.areas) ? detail.areas.filter((area) => area && typeof area.id === "string") : []),
+      () => setAreas([]),
+    );
+  };
+  return html`<div class="office-row">
+    <details onToggle=${onToggle}>
+      <summary class="office-folder"><span class="side-text"><span class="side-title">${office.name}</span></span>${office.attention && html`<${StatusChip} status="error" labels="dot" variant="dot" detail=${t("shell.needs_attention")} />`}</summary>
+      <div class="office-areas" role="group" aria-label=${t("shell.office_areas", { name: office.name })}>
+        ${(areas || []).map((area) => html`<div class="area-row" key=${area.id}><span class="side-title">${area.name || area.id}</span>
+          <button type="button" class="side-mini" data-nav data-help-exempt="navigation" aria-label=${t("shell.new_in", { name: area.name || area.id })}
+            title=${t("shell.new_in", { name: area.name || area.id })} onClick=${() => { location.hash = officeHref(office.id, area.id); }}><span aria-hidden="true">+</span></button></div>`)}
+        ${plan && html`<a class="side-item office-plan" href=${routeHref("floor_plan", office.id)}><${Icon} name="building" /><span class="side-title">${t("shell.view_plan")}</span></a>`}
+      </div>
+    </details>
+    <button type="button" class="side-mini office-plus" data-nav data-help-exempt="navigation" aria-label=${t("shell.new_in", { name: office.name })}
+      title=${t("shell.new_in", { name: office.name })} onClick=${() => { location.hash = officeHref(office.id); }}><span aria-hidden="true">+</span></button>
+  </div>`;
+}
+
 export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
   const [data, setData] = useState({ sessions: [], runs: [], hint: null, failed: [], loaded: false });
   const [activityData, setActivityData] = useState({ projects: [], loaded: false, loading: false, failed: false });
@@ -71,6 +127,7 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
   const [noticeSeen, setNoticeSeen] = useState(readMoreNoticeSeen);
   const [moreOpen, setMoreOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [lists, setLists] = useState({ offices: [], projects: [] });   // GUI4-T03: the rows of «Oficinas» and «Proyectos»
   const ticket = useRef(0);
   const activityTicket = useRef(0);
   const start = useStartStatus(token);   // INI-T03: one shared request; «Inicio» leads the list while a step is missing
@@ -90,6 +147,18 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
       runs: ok(runs) ? runs.value : previous.runs,
       failed: [ok(sessions) ? "" : t("shell.sessions"), ok(runs) ? "" : t("shell.runs")].filter(Boolean),
       loaded: true,
+    }));
+  }
+
+  // «Oficinas» and «Proyectos» are read from the same routes as their views; a list that cannot be read stays as it was.
+  async function loadLists() {
+    const [offices, projects] = await Promise.allSettled([
+      apiGet("/gui/api/offices", token),
+      apiGet("/gui/api/projects", token),
+    ]);
+    setLists((previous) => ({
+      offices: offices.status === "fulfilled" ? officeRows(offices.value?.offices) : previous.offices,
+      projects: projects.status === "fulfilled" ? projectRows(projects.value?.projects) : previous.projects,
     }));
   }
 
@@ -119,15 +188,15 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
-  useEffect(() => { load(); }, [token]);
-  useEffect(() => { if (status === "connected") load(); }, [status]);
+  useEffect(() => { load(); loadLists(); }, [token]);
+  useEffect(() => { if (status === "connected") { load(); loadLists(); } }, [status]);
   useEffect(() => {
     const refresh = debounce(load, EVENT_DEBOUNCE_MS);
     const off = subscribe(() => refresh());
     return () => { off(); refresh.cancel(); };
   }, [token]);
   useEffect(() => {
-    const timer = setInterval(() => { setNow(Date.now()); load(); }, REFRESH_MS);
+    const timer = setInterval(() => { setNow(Date.now()); load(); loadLists(); }, REFRESH_MS);
     return () => clearInterval(timer);
   }, [token]);
   useEffect(() => {
@@ -140,6 +209,11 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
     : sessionItems(data.sessions).concat(runItems(data.runs, mode));
   const groups = buildGroups(items);
   const shown = groups.reduce((total, group) => total + group.items.length, 0);
+  const [recentExpanded, setRecentExpanded] = useState(false);
+  const recent = limitRows(latestFirst(groups.flatMap((group) => group.items)), recentExpanded);
+  const recentKeys = new Set(recent.shown.map((item) => item.key));
+  const recentGroups = recentExpanded ? groups : groups.map((group) => ({ ...group, items: group.items.filter((item) => recentKeys.has(item.key)) })).filter((group) => group.items.length > 0);
+  const hasFloorPlan = isRegisteredView("floor_plan");
   const navigation = navigationSections(sections.filter((s) => !s.group), sections.filter((s) => s.group), pinned, mode, inStartSidebar(start.status));
   const dismissNotice = () => { setNoticeSeen(true); writeMoreNoticeSeen(); };
   useEffect(() => {
@@ -164,6 +238,7 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
     projects: groups.length, project_label: groups.length === 1 ? t("shell.project") : t("shell.projects"),
   });
 
+  /* GUI4-T08 */
   const paletteEntries = [
     ...sectionEntries(navigation, pendingTabs(registeredViews().filter((view) => visibleIn(view, mode)), [], false)
       .map((tab) => ({ ...tab, route: tabRoute(tab.id) })), mode),
@@ -206,6 +281,18 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
         </div>
       </div>
     </div>
+    <div class="side-scroll">
+      ${isRegisteredView("offices") && html`<${SideSection} id="offices" title=${t("shell.offices_heading")} count=${lists.offices.length}
+        addLabel=${t("shell.add_office")} onAdd=${() => navigate("offices")}>
+        ${lists.offices.length === 0 ? html`<p class="muted small side-empty">${t("shell.no_offices")}</p>`
+          : html`<${LimitedList} rows=${lists.offices} render=${(office) => html`<${OfficeRow} key=${office.id} office=${office} token=${token} plan=${hasFloorPlan} />`} />`}
+      </${SideSection}>`}
+      ${isRegisteredView("project") && html`<${SideSection} id="projects" title=${t("shell.projects_heading")} count=${lists.projects.length}>
+        ${lists.projects.length === 0 ? html`<p class="muted small side-empty">${t("shell.no_projects")}</p>`
+          : html`<${LimitedList} rows=${lists.projects} render=${(project) => html`<a key=${project.id} class="side-item" href=${routeHref("project", project.id)}
+            aria-current=${route.section === "project" && route.id === project.id ? "page" : null}><span class="side-text"><span class="side-title">${project.name}</span></span></a>`} />`}
+      </${SideSection}>`}
+      <${SideSection} id="recent" title=${t("shell.recent_heading")} count=${shown}>
     <div class="side-sessions-head"><span>${t("shell.sessions_heading")}</span><span class="side-head-actions">
       <button type="button" class="side-activities" aria-pressed=${activitiesMode ? "true" : "false"}
         ...${helpFor("shell.activities")} onClick=${() => setActivitiesMode((enabled) => !enabled)}>${t("shell.activities")}</button>
@@ -218,7 +305,11 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
     ${!activitiesMode && data.failed.length > 0 && html`<p class="message error small" role="alert">${t("shell.list_read_failed", { kinds: data.failed.join(t("shell.or")) })}</p>`}
     ${!activitiesMode && data.loaded && data.hint && data.sessions.length === 0 && html`<p class="muted small">${t("shell.session_roots_hint")}</p>`}
     <div class="side-groups">
-      ${groups.map((group) => html`<${Group} key=${group.key} group=${group} route=${route} now=${now} />`)}
+      ${recentGroups.map((group) => html`<${Group} key=${group.key} group=${group} route=${route} now=${now} />`)}
+    </div>
+        ${(recent.hidden > 0 || (recentExpanded && shown > LIST_LIMIT)) && html`<button type="button" class="show-list-more" data-help-exempt="navigation"
+          aria-expanded=${recentExpanded ? "true" : "false"} onClick=${() => setRecentExpanded((value) => !value)}>${recentExpanded ? t("shell.show_fewer") : t("shell.show_more", { count: recent.hidden })}</button>`}
+      </${SideSection}>
     </div>
     <${CommandPalette} open=${paletteOpen} entries=${paletteEntries} onClose=${() => setPaletteOpen(false)}
       onGo=${(target) => navigate(target[0], target[1])} />

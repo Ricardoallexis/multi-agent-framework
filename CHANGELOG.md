@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: the sidebar has folding Offices, Projects and Recent sections, and the sidebar and context panel can be resized, hidden at the edge (Ctrl+B for the sidebar) and shown again; the shared button, switch and shadow styles for the new screens are in.
 - A function step that fails can now wait for corrected run inputs and be retried once, also when no model step came before it: the person fixes the declared inputs in the run thread, the step runs again, and a second failure ends the run. Runs with sensitive data keep the failure detail out of the message.
 - GUI: new `floor_plan` extension with a floor plan of an office (areas, positions, hand-off/review/question lines, privacy labels), opened fitted with zoom, pinch, drag and keyboard controls, an equivalent list for screen readers, and its own poll of the office scene; read-only.
 - The run thread reads as a conversation: new messages follow the end only if you were already there, earlier reviews fold away, "Ask for changes" is a free text box with a "Quote" button (structured comments only in advanced mode), the model-call counter left the review, the message box hides when the policy is off or shows the read error, and function review and function failure stops appear as messages.

@@ -99,7 +99,7 @@ export function runItems(runs, mode = "advanced") {
       key: "run:" + run.id, kind: "run", app: "workflow", title: run.workflow_id || run.id,
       project: String(run.project_name || "").trim() || noProjectLabel(), folder: "",
       dot, detail: runStatus(run.status).label, updatedAt: run.updated_at || run.created_at || null,
-      route: [section, run.id],
+      route: [section, run.id], attention: run.status === "waiting_human",
     };
   });
 }
@@ -171,4 +171,32 @@ export function countsOf(group) {
   const known = APPS.filter((app) => group.counts[app.id]).map((app) => ({ app: app.id, label: appLabel(app.id), count: group.counts[app.id] }));
   const others = Object.keys(group.counts).filter((id) => !APP_LABEL[id]).map((id) => ({ app: id, label: appLabel(id), count: group.counts[id] }));
   return known.concat(others);
+}
+
+/* GUI4-T03 */
+// The three folding sections of the bar (Oficinas, Proyectos, Recientes) show five rows and «Ver N más»; a row that waits for
+// the person is always shown, so a long list never hides it. `expanded` is the person's «Ver más» for that section.
+export const LIST_LIMIT = 5;
+
+export function limitRows(rows, expanded = false, limit = LIST_LIMIT) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (expanded) return { shown: list, hidden: 0 };
+  const shown = list.filter((row, index) => index < limit || Boolean(row && row.attention));
+  return { shown, hidden: list.length - shown.length };
+}
+
+// Newest first, for the «Recientes» section; the sort is stable for items without a date.
+export const latestFirst = (items) => (items || []).map((item, index) => ({ item, index }))
+  .sort((a, b) => stamp(b.item.updatedAt) - stamp(a.item.updatedAt) || a.index - b.index).map((entry) => entry.item);
+
+// GET /gui/api/offices -> rows of the «Oficinas» section; a degraded office asks for attention. Names are untrusted text.
+export function officeRows(offices) {
+  return (Array.isArray(offices) ? offices : []).filter((office) => office && typeof office.id === "string")
+    .map((office) => ({ id: office.id, name: String(office.name || office.id), attention: office.state === "degraded" }));
+}
+
+// GET /gui/api/projects -> rows of the «Proyectos» section.
+export function projectRows(projects) {
+  return (Array.isArray(projects) ? projects : []).filter((project) => project && project.id !== undefined && project.id !== null)
+    .map((project) => ({ id: String(project.id), name: String(project.title || project.name || project.id), attention: false }));
 }
