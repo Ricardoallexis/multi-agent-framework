@@ -245,5 +245,69 @@ export const HELP = {
       "It stays folded until you open it. A stage with no planned dates shows only what is real.",
       "A stage is marked late only if it closed after its planned end. It promises no end date."
     ]
+  },
+  "project.new": {
+    "title": "New project",
+    "hint": "Open a box where you say what you want to achieve.",
+    "more": [
+      "A model drafts the project in stages and tasks. You read it before anything is created.",
+      "It offers no ready-made project: the draft comes only from what you write."
+    ]
+  },
+  "project.draft_back": {
+    "title": "Back to projects",
+    "hint": "Close the new project box and return to the projects.",
+    "more": [
+      "Nothing is created if you leave without pressing Create project.",
+      "The text you wrote is not kept when you leave."
+    ]
+  },
+  "project.draft_text": {
+    "title": "What you want to achieve",
+    "hint": "Write the goal in your own words.",
+    "more": [
+      "Up to 2000 characters. Say what you want, by when and what matters most.",
+      "The text is sent to the model chosen for new conversations. If it is remote, you are asked first."
+    ]
+  },
+  "project.draft_send": {
+    "title": "Draft the project",
+    "hint": "Ask the model for a project in stages and tasks.",
+    "more": [
+      "The model is called once. Nothing is created yet.",
+      "Every draft is checked by the project rules before you can create it."
+    ]
+  },
+  "project.draft_cloud": {
+    "title": "Remote model",
+    "hint": "Decide whether the text leaves this computer.",
+    "more": [
+      "Send uses the remote model named above. Cancel sends nothing.",
+      "The project will be private. A local model keeps the text on this computer."
+    ]
+  },
+  "project.draft_change": {
+    "title": "Change something",
+    "hint": "Tell the model what to change and get a new draft.",
+    "more": [
+      "You can ask as many times as you want. Each draft is checked again.",
+      "Nothing is created by asking for a change."
+    ]
+  },
+  "project.draft_redraft": {
+    "title": "Draft again",
+    "hint": "Send your correction with the draft you saw.",
+    "more": [
+      "The model returns the whole draft with your correction applied.",
+      "The card is replaced by the new draft."
+    ]
+  },
+  "project.draft_create": {
+    "title": "Create project",
+    "hint": "Create the project exactly as the card shows it.",
+    "more": [
+      "This is the only button that creates anything. It is off while something could not be verified.",
+      "The project is created as private, and its stages wait for you to authorize them."
+    ]
   }
 };

@@ -395,3 +395,25 @@ class NewSessionProposal(StrictModel):
     project_name: str = Field(default="", max_length=120)
     reason: str = Field(default="", max_length=400)
     needs_plan: bool = False
+
+
+class ProjectDraftTask(StrictModel):
+    """One task of a drafted project (PRY-T06): only a title and what it is for. Ids, assignees and dependencies are never the model's."""
+
+    title: str = Field(min_length=1, max_length=160)
+    objective: str = Field(default="", max_length=600)
+
+
+class ProjectDraftStage(StrictModel):
+    """One stage of a drafted project: a title and its tasks."""
+
+    title: str = Field(min_length=1, max_length=120)
+    tasks: list[ProjectDraftTask] = Field(min_length=1, max_length=12)
+
+
+class ProjectDraftProposal(StrictModel):
+    """What a model drafts for a project asked for in a conversation (PRY-T06): a title and stages with tasks. The
+    service turns it into a project plan and ``projects.plan`` checks it; nothing here creates anything."""
+
+    title: str = Field(min_length=1, max_length=120)
+    stages: list[ProjectDraftStage] = Field(min_length=1, max_length=12)

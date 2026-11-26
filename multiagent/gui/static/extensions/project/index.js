@@ -20,6 +20,7 @@ import { Tabs } from "../../js/ui/tabs.js";
 import { HELP } from "./help.js";
 import { labelSummary, list, NO_LIST_FILTER, needsText, pickProject, progressOf } from "./model.js";
 import { ListPanel, Overview, StagesPanel, TaskDetail } from "./parts.js";
+import { NewProject } from "./project-draft.js";
 
 registerHelp(HELP, "project");
 
@@ -169,6 +170,7 @@ export function ProjectView({ token, route }) {
   const [taskError, setTaskError] = useState("");
   const [notice, setNotice] = useState("");
   const [review, setReview] = useState(NO_REVIEW);
+  const [creating, setCreating] = useState(false);      // PRY-T06: «Nuevo proyecto» (project-draft.js) is open
   const calls = useRef({ project: 0, task: 0, costs: 0 });          // an answer that arrives after a newer request is dropped
   const seenProject = useRef({ id: "", seq: 0 });
   const heading = useRef(null);
@@ -342,14 +344,20 @@ export function ProjectView({ token, route }) {
         </div>
         <${Help} topic="project.select" /><${Help} topic="project.refresh" compact=${true} />
       </div>
+      <div class="project-new-entry">
+        <button type="button" class="btn" disabled=${creating} onClick=${() => setCreating(true)} ...${helpFor("project.new")}>${t("ext.project.draft.new")}</button>
+        <${Help} topic="project.new" compact=${true} />
+      </div>
     </div>
 
+    ${creating ? html`<${NewProject} token=${token} onClose=${() => setCreating(false)}
+      onCreated=${(id) => { setCreating(false); selectProject(id); navigate("project", id); loadProjects(); announce(); }} />` : null}
     ${error ? html`<p class="project-error" role="alert">${error}</p>` : null}
     ${projects === null ? html`<p class="project-empty">${t("ext.project.loading.projects")}</p>` : null}
-    ${projects && !projects.length && !error ? html`<p class="project-empty">${t("ext.project.empty.projects")}</p>` : null}
-    ${selected && !project && !error && projects && projects.length ? html`<p class="project-empty">${t("ext.project.loading.project")}</p>` : null}
+    ${projects && !projects.length && !error && !creating ? html`<p class="project-empty">${t("ext.project.empty.projects")}</p>` : null}
+    ${selected && !project && !error && !creating && projects && projects.length ? html`<p class="project-empty">${t("ext.project.loading.project")}</p>` : null}
 
-    ${project ? html`<${Tabs} id="project-tabs" label=${t("ext.project.tabs.aria_label")} tabs=${tabs} selected=${tab} onSelect=${setTab}
+    ${project && !creating ? html`<${Tabs} id="project-tabs" label=${t("ext.project.tabs.aria_label")} tabs=${tabs} selected=${tab} onSelect=${setTab}
         after=${html`<${Help} topic="project.tabs" compact=${true} />`} panelProps=${{ "aria-busy": loading ? "true" : "false" }}
         ...${helpFor("project.tabs")}>
       ${tab === "overview" ? html`<${Overview} project=${project} costs=${costs} onOpen=${openTask} />` : tab === "list" ? listTab : stagesTab}

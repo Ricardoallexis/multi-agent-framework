@@ -178,6 +178,47 @@ const en = {
   "ext.project.stages.show": "Show",
   "ext.project.stages.hide_done": "Hide finished stages",
   "ext.project.stages.all_hidden": "All stages are hidden. Use Show to see them again.",
+  "ext.project.draft.new": "New project",
+  "ext.project.draft.title": "New project",
+  "ext.project.draft.back": "Back to projects",
+  "ext.project.draft.intro": "Say what you want to achieve. A model drafts the project in stages. Nothing is created until you confirm.",
+  "ext.project.draft.text_label": "What do you want to achieve?",
+  "ext.project.draft.model_note": "The text goes to the model chosen for new conversations. If it is a remote model, you are asked before anything is sent. The project will be private.",
+  "ext.project.draft.send": "Draft the project",
+  "ext.project.draft.drafting": "Drafting...",
+  "ext.project.draft.cancel": "Cancel",
+  "ext.project.draft.cloud_title": "Send the text to a remote model",
+  "ext.project.draft.cloud_text": "Your text will be sent to {model}, a remote model.",
+  "ext.project.draft.private_note": "The project will be created as private.",
+  "ext.project.draft.cloud_local": "A local model keeps the text on this computer: {models}. You can choose one in Apps and agents.",
+  "ext.project.draft.cloud_send": "Send to {model}",
+  "ext.project.draft.apps_link": "Apps and agents",
+  "ext.project.draft.approvals_link": "Approvals",
+  "ext.project.draft.reason.disabled": "The model for new conversations is turned off, so no project can be drafted.",
+  "ext.project.draft.reason.secret_review_required": "The text looks like it contains a secret. Approve it in Approvals, then draft again.",
+  "ext.project.draft.reason.budget_cut": "The usage budget is reached, so the model was not called.",
+  "ext.project.draft.reason.refused": "The egress policy did not let the text out, so the model was not called.",
+  "ext.project.draft.reason.limit_reached": "The model reached its usage limit and nothing was drafted. Choose another model or try later.",
+  "ext.project.draft.reason.invalid_output": "The model's answer did not have the shape of a project. Try again or say it in other words.",
+  "ext.project.draft.reason.model_error": "The model could not be reached.",
+  "ext.project.draft.reason.default": "The project could not be drafted.",
+  "ext.project.draft.card_title": "Proposed project",
+  "ext.project.draft.card_counts": "{stages} stages, {tasks} tasks",
+  "ext.project.draft.card_model": "Drafted with {model} ({where})",
+  "ext.project.draft.where_local": "on this computer",
+  "ext.project.draft.where_remote": "remote model",
+  "ext.project.draft.stage_number": "Stage {number}",
+  "ext.project.draft.problems": "What could not be verified",
+  "ext.project.draft.problem.project_exists": "A project with that name already exists. Ask for a different name.",
+  "ext.project.draft.problem.default": "The draft could not be verified.",
+  "ext.project.draft.no_executor": "No app is turned on to do the tasks yet. You can still create the project.",
+  "ext.project.draft.not_created": "Nothing is created until you press Create project.",
+  "ext.project.draft.create": "Create project",
+  "ext.project.draft.change": "Change something",
+  "ext.project.draft.change_label": "What do you want to change?",
+  "ext.project.draft.redraft": "Draft again",
+  "ext.project.draft.error.plan_changed": "The draft changed after you saw it. Nothing was created. Draft it again.",
+  "ext.project.draft.error.create": "Could not create the project.",
 };
 
 const es = {
@@ -355,6 +396,47 @@ const es = {
   "ext.project.stages.show": "Mostrar",
   "ext.project.stages.hide_done": "Ocultar las terminadas",
   "ext.project.stages.all_hidden": "Todas las etapas están ocultas. Pulsa Mostrar para verlas otra vez.",
+  "ext.project.draft.new": "Nuevo proyecto",
+  "ext.project.draft.title": "Nuevo proyecto",
+  "ext.project.draft.back": "Volver a los proyectos",
+  "ext.project.draft.intro": "Cuenta qué quieres lograr. Un modelo redacta el proyecto por etapas. No se crea nada hasta que lo confirmes.",
+  "ext.project.draft.text_label": "¿Qué quieres lograr?",
+  "ext.project.draft.model_note": "El texto va al modelo elegido para las conversaciones nuevas. Si es un modelo remoto, se te pregunta antes de enviar nada. El proyecto será privado.",
+  "ext.project.draft.send": "Redactar el proyecto",
+  "ext.project.draft.drafting": "Redactando...",
+  "ext.project.draft.cancel": "Cancelar",
+  "ext.project.draft.cloud_title": "Enviar el texto a un modelo remoto",
+  "ext.project.draft.cloud_text": "Tu texto se enviará a {model}, un modelo remoto.",
+  "ext.project.draft.private_note": "El proyecto se creará como privado.",
+  "ext.project.draft.cloud_local": "Un modelo local deja el texto en este equipo: {models}. Puedes elegir uno en «Apps y agentes».",
+  "ext.project.draft.cloud_send": "Enviar a {model}",
+  "ext.project.draft.apps_link": "Apps y agentes",
+  "ext.project.draft.approvals_link": "Aprobaciones",
+  "ext.project.draft.reason.disabled": "El modelo de las conversaciones nuevas está apagado, así que no se puede redactar un proyecto.",
+  "ext.project.draft.reason.secret_review_required": "El texto parece llevar un secreto. Apruébalo en «Aprobaciones» y vuelve a redactar.",
+  "ext.project.draft.reason.budget_cut": "Se alcanzó el presupuesto de uso, así que no se llamó al modelo.",
+  "ext.project.draft.reason.refused": "La política de salida no dejó salir el texto, así que no se llamó al modelo.",
+  "ext.project.draft.reason.limit_reached": "El modelo llegó a su límite de uso y no se redactó nada. Elige otro modelo o prueba más tarde.",
+  "ext.project.draft.reason.invalid_output": "La respuesta del modelo no tenía forma de proyecto. Inténtalo otra vez o dilo con otras palabras.",
+  "ext.project.draft.reason.model_error": "No se pudo llegar al modelo.",
+  "ext.project.draft.reason.default": "No se pudo redactar el proyecto.",
+  "ext.project.draft.card_title": "Proyecto propuesto",
+  "ext.project.draft.card_counts": "{stages} etapas, {tasks} tareas",
+  "ext.project.draft.card_model": "Redactado con {model} ({where})",
+  "ext.project.draft.where_local": "en este equipo",
+  "ext.project.draft.where_remote": "modelo remoto",
+  "ext.project.draft.stage_number": "Etapa {number}",
+  "ext.project.draft.problems": "Lo que no se pudo verificar",
+  "ext.project.draft.problem.project_exists": "Ya existe un proyecto con ese nombre. Pide otro nombre.",
+  "ext.project.draft.problem.default": "No se pudo verificar el borrador.",
+  "ext.project.draft.no_executor": "Todavía no hay ninguna app activada para hacer las tareas. Aun así puedes crear el proyecto.",
+  "ext.project.draft.not_created": "No se crea nada hasta que pulses «Crear proyecto».",
+  "ext.project.draft.create": "Crear proyecto",
+  "ext.project.draft.change": "Cambiar algo",
+  "ext.project.draft.change_label": "¿Qué quieres cambiar?",
+  "ext.project.draft.redraft": "Redactar otra vez",
+  "ext.project.draft.error.plan_changed": "El borrador cambió después de que lo vieras. No se creó nada. Redáctalo otra vez.",
+  "ext.project.draft.error.create": "No se pudo crear el proyecto.",
   "help.project.view": {
     "title": "Proyectos",
     "hint": "Sigue el avance de un proyecto por etapas, fases y tareas.",
@@ -596,6 +678,70 @@ const es = {
     "more": [
       "Está plegada hasta que la abres. Si una etapa no tiene fechas previstas, solo se ve lo real.",
       "Una etapa se marca como pasada solo si se cerró después de su fin previsto. No promete una fecha de fin."
+    ]
+  },
+  "help.project.new": {
+    "title": "Nuevo proyecto",
+    "hint": "Abre un cuadro donde dices qué quieres lograr.",
+    "more": [
+      "Un modelo redacta el proyecto en etapas y tareas. Lo lees antes de que se cree nada.",
+      "No ofrece ningún proyecto ya hecho: el borrador sale solo de lo que escribes."
+    ]
+  },
+  "help.project.draft_back": {
+    "title": "Volver a los proyectos",
+    "hint": "Cierra el cuadro de nuevo proyecto y vuelve a los proyectos.",
+    "more": [
+      "Si sales sin pulsar «Crear proyecto», no se crea nada.",
+      "El texto que escribiste no se guarda al salir."
+    ]
+  },
+  "help.project.draft_text": {
+    "title": "Lo que quieres lograr",
+    "hint": "Escribe la meta con tus palabras.",
+    "more": [
+      "Hasta 2000 caracteres. Di qué quieres, para cuándo y qué importa más.",
+      "El texto se envía al modelo elegido para las conversaciones nuevas. Si es remoto, se te pregunta antes."
+    ]
+  },
+  "help.project.draft_send": {
+    "title": "Redactar el proyecto",
+    "hint": "Pide al modelo un proyecto en etapas y tareas.",
+    "more": [
+      "Se llama al modelo una vez. Todavía no se crea nada.",
+      "Cada borrador pasa por las reglas de proyectos antes de que puedas crearlo."
+    ]
+  },
+  "help.project.draft_cloud": {
+    "title": "Modelo remoto",
+    "hint": "Decide si el texto sale de este equipo.",
+    "more": [
+      "«Enviar» usa el modelo remoto que se nombra arriba. «Cancelar» no envía nada.",
+      "El proyecto será privado. Un modelo local deja el texto en este equipo."
+    ]
+  },
+  "help.project.draft_change": {
+    "title": "Cambiar algo",
+    "hint": "Dile al modelo qué cambiar y recibe otro borrador.",
+    "more": [
+      "Puedes pedirlo cuantas veces quieras. Cada borrador se vuelve a verificar.",
+      "Pedir un cambio no crea nada."
+    ]
+  },
+  "help.project.draft_redraft": {
+    "title": "Redactar otra vez",
+    "hint": "Envía tu corrección junto con el borrador que viste.",
+    "more": [
+      "El modelo devuelve el borrador entero con tu corrección aplicada.",
+      "La tarjeta se reemplaza por el borrador nuevo."
+    ]
+  },
+  "help.project.draft_create": {
+    "title": "Crear proyecto",
+    "hint": "Crea el proyecto tal como lo muestra la tarjeta.",
+    "more": [
+      "Es el único botón que crea algo. Está apagado mientras algo no se pudo verificar.",
+      "El proyecto se crea como privado y sus etapas esperan a que las autorices."
     ]
   }
 };

@@ -11,7 +11,7 @@ from .base import EffortTranslation, LLMAdapter, LLMResponse, ignored_effort
 from ..catalog import ModelSpec
 from ..contracts import (
     BrandField, BrandProfilePayload, ContentOutput, FreeTextAnswer, GroundingStatus, NewSessionProposal,
-    ResearchOutput, StrategyOutput, VisualBriefOutput,
+    ProjectDraftProposal, ResearchOutput, StrategyOutput, VisualBriefOutput,
 )
 from ..routing_policy import EFFORT_LEVELS
 
@@ -64,6 +64,51 @@ def _new_session_fixture(prompt: str) -> dict[str, Any]:
     if needs_plan:
         answer["needs_plan"] = True
     return answer
+
+
+_REMOVAL_WORDS = set("quita quitar quitale elimina eliminar borra borrar remove delete drop".split())
+_STRUCTURE_WORDS = set("etapa etapas tarea tareas stage stages task tasks".split())
+
+
+def _project_draft_fixture(prompt: str) -> dict[str, Any]:
+    """Deterministic stand-in for the project drafter (PRY-T06). It reads only the three quoted sections of the prompt
+    (``PROJECT_REQUEST:``, ``PREVIOUS_DRAFT_JSON:`` and ``CORRECTION:``): one stage with one task for each part of the
+    request (``split_request``). With a previous draft, a correction that asks to remove something drops the stages
+    that share words with it (never all of them); any other correction adds one stage with its text. It never reads
+    a ready-made project: the draft comes from the text of the request alone."""
+    from ..planning.chat import split_request     # lazy: the planning package imports the services
+
+    sections: dict[str, list[str]] = {"PROJECT_REQUEST:": [], "PREVIOUS_DRAFT_JSON:": [], "CORRECTION:": []}
+    current = None
+    for line in prompt.splitlines():
+        if line in sections:
+            current = line
+        elif line.startswith("| ") and current is not None:
+            sections[current].append(line[2:])
+    request = " ".join(sections["PROJECT_REQUEST:"]).strip()
+    previous = "".join(sections["PREVIOUS_DRAFT_JSON:"]).strip()
+    correction = " ".join(sections["CORRECTION:"]).strip()
+
+    def stage(text: str) -> dict[str, Any]:
+        return {"title": text[:120], "tasks": [{"title": text[:160], "objective": "Simulated: carry out this part of the request."}]}
+
+    draft = None
+    if previous and correction:
+        try:
+            draft = ProjectDraftProposal.model_validate(json.loads(previous)).model_dump()
+        except ValueError:
+            draft = None
+    if draft is None:
+        parts = split_request(request) or [request or "Project"]
+        return {"title": (request or "Project")[:80], "stages": [stage(part) for part in parts][:12]}
+    tokens = set(re.findall(r"[^\W_]+", correction.lower()))
+    if tokens & _REMOVAL_WORDS:
+        targets = _words(correction) - _REMOVAL_WORDS - _STRUCTURE_WORDS
+        kept = [item for item in draft["stages"] if not targets & _words(item["title"])] if targets else draft["stages"]
+        draft["stages"] = kept or draft["stages"]
+    elif len(draft["stages"]) < 12:
+        draft["stages"].append(stage(correction))
+    return draft
 
 
 class FakeAdapter(LLMAdapter):
@@ -150,6 +195,8 @@ class FakeAdapter(LLMAdapter):
             )
         elif output_schema is NewSessionProposal:
             parsed = NewSessionProposal.model_validate(_new_session_fixture(prompt))
+        elif output_schema is ProjectDraftProposal:
+            parsed = ProjectDraftProposal.model_validate(_project_draft_fixture(prompt))
         else:
             raise ValueError(f"FakeAdapter has no fixture for {output_schema.__name__}")
         return LLMResponse(parsed=parsed, raw_text=parsed.model_dump_json(), provider=self.provider, model="fixture", tokens_in=10, tokens_out=20, latency_ms=1,

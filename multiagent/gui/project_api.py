@@ -22,6 +22,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from ..services.errors import INVALID_REQUEST, NOT_FOUND, ServiceError
+from ..services.project_draft import ProjectDraftServices
 
 if TYPE_CHECKING:
     from ..services import ApplicationServices
@@ -42,6 +43,26 @@ class ReviewBody(_Body):
 class VisibilityBody(_Body):
     visibility: Literal["normal", "private"]
     expected_revision: StrictInt = Field(ge=1)    # the revision of the project that the page showed
+
+
+class DraftBody(_Body):
+    """PRY-T06: the text of the person and, to correct a draft, the previous one with what to change."""
+
+    text: str = Field(min_length=1, max_length=2000)
+    previous: dict[str, Any] | None = None
+    correction: str = Field("", max_length=1000)
+    confirm_cloud: bool = False
+    cloud_model: str | None = Field(None, max_length=120)    # the model the person confirmed; another one asks again
+    approval_id: str | None = None
+
+
+class PlanBody(_Body):
+    draft: dict[str, Any]
+
+
+class CreateBody(_Body):
+    draft: dict[str, Any]
+    plan_sha256: str = Field(min_length=64, max_length=64)    # the huella of the preview the person confirmed
 
 
 def _missing(task_id: str, project_id: str) -> ServiceError:
@@ -78,6 +99,31 @@ def add_project_routes(api: APIRouter, services: ApplicationServices) -> None:
                 projects.append({"project_id": project["id"], "name": project["name"], "title": project.get("title"),
                                  "activities": activities})
         return {"projects": projects}
+
+    drafts = ProjectDraftServices(services)
+
+    @api.post("/projects/draft")
+    def draft_project(body: DraftBody) -> dict[str, Any]:
+        """PRY-T06: a model drafts a project from the text of the person; with ``previous`` and ``correction`` it drafts it again.
+
+        ``{reason, draft, check, model, tier, visibility, executors_active}``: ``draft`` is ``{title, stages: [{title,
+        tasks: [{title, objective}]}]}`` and ``check`` what ``projects.plan`` says about it. Without a draft, ``reason``
+        says why (``disabled``, ``cloud_confirmation_required``, ``secret_review_required``, ``budget_cut``,
+        ``refused``, ``limit_reached``, ``invalid_output``, ``model_error``). Nothing is created."""
+        return drafts.draft(body.text, previous=body.previous, correction=body.correction,
+                            confirm_cloud=body.confirm_cloud, approval_id=body.approval_id,
+                            cloud_model=body.cloud_model)
+
+    @api.post("/projects/plan")
+    def plan_project(body: PlanBody) -> dict[str, Any]:
+        """PRY-T06: what creating this draft would make, with ``plan_sha256``, the key to confirm it. Writes nothing."""
+        return drafts.plan(body.draft)
+
+    @api.post("/projects/create")
+    def create_project(body: CreateBody) -> dict[str, Any]:
+        """PRY-T06: create the project of a draft the person confirmed, with the ``plan_sha256`` of its preview (the person
+        holding the token is the actor, ``user:operator``). Another draft or hash writes nothing (409 ``plan_changed``)."""
+        return drafts.create(body.draft, plan_sha256=body.plan_sha256, actor=REVIEWER)
 
     @api.get("/projects")
     def list_projects(archived: bool = False) -> dict[str, Any]:

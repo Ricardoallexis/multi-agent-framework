@@ -838,6 +838,21 @@ with its planned start and end and its real closing; a stage that closed after
 its planned end says how many days late. Without planned dates only the real
 closings show. It is not a forecast and promises no end date.
 
+**New project.** **Proyectos** has a **Nuevo proyecto** button that opens an
+empty box: it offers no ready-made project. Say what you want to achieve and
+the model chosen for new conversations drafts it once as stages with tasks.
+Before a remote model gets the text, the box names the model, says that the
+text leaves this computer and that the project will be private, and names a
+local model if the catalog has one; nothing changes by itself. The box asks
+once while it stays open, and asks again if the model changes or the box is
+closed. The card shows the stages and tasks, what the project rules could not
+verify, and two buttons. **Crear proyecto** is the only thing that creates
+anything, and only the draft on screen. **Cambiar algo** drafts again with
+your correction, as many times as you want. If no app is turned on to do the
+tasks, the card says so and links to **Apps y agentes**. Adding a stage to an
+open project is not part of this. See
+[Planning](PLANNING.md#create-a-project-by-talking).
+
 The token-protected GUI routes these views use:
 
 | Route | Purpose |
@@ -847,6 +862,7 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/stream?session=<id>&only=children` | Lightweight child-change notices. |
 | `GET /gui/api/stream?project=<id>` | Sequence-only change notices for one active project. |
 | `GET /gui/api/map?project=<id>&only=active\|all` | Project, task and linked-session map. |
+| `POST /gui/api/projects/draft`, `/projects/plan`, `/projects/create` | Draft a project from a request (`gui_new_session_model`, once per draft), preview it with `projects.plan` and its `plan_sha256`, and create it only with that hash; the actor (`user:operator`) is fixed by the server. See [the API](API.md#gui-routes-local-token-protected). |
 | `GET /gui/api/usage/plans`, `/usage/tokens`, `/usage/costs` | Plan measurements, token totals and estimated costs for Uso. |
 | `GET /gui/api/evaluations`, `/evaluations/runs`, `/evaluations/runs/{id}`, `/evaluations/comparison?set_name=` | Evaluation sets, saved runs and the latest run against the baseline (read only). |
 | `GET /gui/api/teams`, `/teams/{bundle}/versions`, `/teams/versions/{id}`, `/teams/{bundle}/org-chart` | Team bundles with their approved and pending versions, versions with their diff, and the org chart with its Mermaid text. |

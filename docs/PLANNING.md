@@ -221,6 +221,29 @@ same `team_not_approved` check that approval makes. Once approved, the thread
 shows one message for each task with its run. Pending proposals in **Pendientes**
 link to this thread.
 
+## Create a project by talking
+
+**Proyectos** has a **Nuevo proyecto** button that opens an empty box. The person says what they
+want to achieve; the model of **Nueva sesión** drafts the project once, and nothing is offered
+ready-made: the draft comes only from the text. The model returns a title, stages with a title and
+tasks with a title and an objective, and nothing else. The service turns that into a project plan
+(`maf.project-template/1`) with no model: the key comes from the title, the stages are `S1`, `S2`, ...,
+the tasks `T01`, `T02`, ..., and the owners, dependencies, context and visibility are never the
+model's (the project is private).
+
+Every draft goes through `projects.plan`, which says what would be created and returns `plan_sha256`.
+The card shows the stages, the tasks and what could not be verified, with two buttons: **Crear proyecto**
+and **Cambiar algo**. Only **Crear proyecto** creates anything, and only with the hash of the preview on
+screen: if the draft changed, or the name is taken, nothing is written. **Cambiar algo** drafts again with
+the previous draft and the correction, as many times as the person wants; each draft is checked again.
+
+The text, the previous draft and the correction enter the prompt as untrusted data, and the model's answer
+is data: it is checked by structure and by `projects.plan`, and it chooses no path, permission or executor.
+Before a remote model gets the text, the person is told which model, that the text leaves the computer and
+that the project is private, and a local model is named if the catalog has one. A model at its usage limit,
+a budget cut, the egress policy and the secret review answer as they do in **Nueva sesión**. Adding a stage to
+an open project is not part of this. See [the routes](API.md#gui-routes-local-token-protected).
+
 ## Current limits
 
 - The plan schema and task lifecycle are partial: it does not yet express all

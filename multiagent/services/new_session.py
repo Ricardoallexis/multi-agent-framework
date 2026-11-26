@@ -24,6 +24,8 @@ import uuid
 from collections.abc import Mapping
 from typing import Any
 
+from pydantic import BaseModel
+
 from ..adapters.fake import best_catalog_match
 from ..budget_cut import policy_from_settings
 from ..call_guards import SCOPE_RUN_STEP, CallContext, GuardEnvironment, Pause, Stop, build_call_guards
@@ -122,7 +124,7 @@ class NewSessionServices:
             return ModelTier.CLOUD
 
     def _ask(self, prompt: str, *, approval_id: str | None = None,
-             data_class: str = "non_sensitive") -> NewSessionProposal:
+             data_class: str = "non_sensitive", output_schema: type[BaseModel] = NewSessionProposal) -> Any:
         settings = self._services.settings
         system = self._services.system
         router = system.engine.router
@@ -174,8 +176,8 @@ class NewSessionServices:
 
         response, _ = router.execute(
             binding=ModelBinding(preferred_model=model_id, fallback_model=None),
-            requirements=TaskRequirements(requires_web=False, output_schema=NewSessionProposal.__name__, tier=tier),
-            prompt=prompt, output_schema=NewSessionProposal, before_call=before_call, on_attempt=record_attempt)
+            requirements=TaskRequirements(requires_web=False, output_schema=output_schema.__name__, tier=tier),
+            prompt=prompt, output_schema=output_schema, before_call=before_call, on_attempt=record_attempt)
         return response.parsed
 
     # --- the public call -------------------------------------------------------------------------------------

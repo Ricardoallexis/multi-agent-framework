@@ -674,3 +674,129 @@
 .project-tl-w18 { width: 90%; }
 .project-tl-w19 { width: 95%; }
 .project-tl-w20 { width: 100%; }
+
+/* PRY-T06: «Nuevo proyecto», the conversation that ends in a project (project-draft.js). */
+.project-new-entry {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.project-new,
+.project-new-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.project-new-card {
+  border-color: var(--line-strong);
+}
+
+.project-new-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-new-head > h3,
+.project-new-card > h4 {
+  min-width: 0;
+  margin: 0;
+}
+
+.project-new-form,
+.project-new-change {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.project-new-form textarea {
+  min-height: 7rem;
+}
+
+.project-new-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-new-notice {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.project-new-notice a,
+.project-new-card a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+}
+
+.project-new-problems {
+  padding: 8px 12px;
+  border: 1px solid var(--bad);
+  border-radius: 8px;
+  color: var(--bad);
+}
+
+.project-new-problems ul {
+  margin: 4px 0 0;
+  padding-left: 1.25rem;
+}
+
+.project-new-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-new-stage {
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.project-new-stage > h5 {
+  margin: 0 0 4px;
+}
+
+.project-new-number {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.project-new-tasks {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+@media (forced-colors: active) {
+  .project-new,
+  .project-new-card,
+  .project-new-stage,
+  .project-new-notice,
+  .project-new-problems {
+    border-color: CanvasText;
+  }
+}
