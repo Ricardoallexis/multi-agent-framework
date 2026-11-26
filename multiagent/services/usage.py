@@ -770,7 +770,7 @@ class UsageServices:
                     rows += conn.execute(
                         "SELECT t.id,t.run_id,t.step_id,t.agent_id,t.provider,t.model,t.tokens_in,t.tokens_out,"
                         "t.cache_read_tokens,t.cache_write_tokens,t.duration_ms,t.estimated_cost_usd,t.cost_basis,t.success,t.created_at,"
-                        "p.name AS project,p.id AS project_id FROM telemetry t "
+                        "p.name AS project,p.id AS project_id,COALESCE(t.task_id, r.task_id) AS task_id FROM telemetry t "
                         "LEFT JOIN runs r ON r.id = t.run_id LEFT JOIN projects p ON p.id = r.project_id"
                         + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY t.id",
                         [*params, *(chunk or ())]).fetchall()
@@ -1066,3 +1066,68 @@ class UsageServices:
         if emitted:
             status["recent_alerts"] = self._recent_budget_alerts()
         return {**status, "emitted": emitted}
+
+    # --- cost of one project (PRY-T07) ----------------------------------------------
+
+    @service_errors
+    def project_costs(self, project_id: Any) -> dict[str, Any]:
+        """What the provider calls of one project add up to, per stage and per task (read-only, nothing is estimated here).
+
+        Every figure is a sum of ``telemetry`` rows the framework already stored; a call that reported no tokens or has no
+        price evidence stays unknown and is counted apart, never added as 0. Money is the API cost of those calls
+        (``estimated_cost_usd`` and ``cost_other_currencies``, never converted or mixed); the tokens are always given apart, so
+        what has no price shows as tokens. The tokens an app's own plan counts (a subscription session) are not in these rows.
+
+        ``{project_id, cost_is_estimate, totals, stages, tasks, activities, unassigned}``. Each group (``totals`` and
+        every row) has the token sums and cost fields of ``costs()`` (``evidence`` included) plus ``tokens_partial`` (some call
+        reported no tokens) and ``cost_state``: ``complete`` (every call has a USD cost), ``partial`` (some do), ``unknown``
+        (calls but no cost at all) or ``none`` (no calls). ``stages`` has one row for each stage of the project, in order
+        (``group_id``, ``code``, ``title``); ``tasks`` one row for each task that has calls (``task_id``, ``group_id``, ``title``);
+        ``activities`` the calls of the project's activities and ``unassigned`` the ones with no task (or one that is not in the
+        project). The stages, ``activities`` and ``unassigned`` always add up to ``totals``.
+        Errors: ``not_found``, ``invalid_input`` (the same as ``projects.get``).
+        """
+        project = self._services.projects.get(project_id)
+        # A bundle's run lives in the bundle's store, whose ``projects`` row has its own id and the project's name (``Store.get_or_create_project``,
+        # from the run request's ``project_name``); a system project has ``id = name`` (``insert_project``), so its name is the key there.
+        records = [r for r in self._telemetry(None, None, project=project["id"])
+                   if r["project_id"] == project["id"] or (r["bundle"] is not None and r["project"] == project["name"])]
+        stage_of = {task["id"]: stage["group_id"] for stage in project["stages"] for task in stage["tasks"]}
+        titles = {task["id"]: task["title"] for stage in project["stages"] for task in stage["tasks"]}
+        activities_group = project["activities"].get("group_id")
+        by_stage: dict[str, list[dict[str, Any]]] = {stage["group_id"]: [] for stage in project["stages"]}
+        by_task: dict[str, list[dict[str, Any]]] = {}
+        activities: list[dict[str, Any]] = []
+        unassigned: list[dict[str, Any]] = []
+        for record in records:
+            task_id = record.get("task_id")
+            if task_id in stage_of:
+                by_stage[stage_of[task_id]].append(record)
+                by_task.setdefault(task_id, []).append(record)
+            elif task_id and activities_group and self._task_group(task_id) == activities_group:
+                activities.append(record)
+            else:
+                unassigned.append(record)
+
+        def group(items: list[dict[str, Any]], **identity: Any) -> dict[str, Any]:
+            found = self._cost_group(items, **identity)
+            known = found["cost_known_records"] or bool(found["cost_other_currencies"])
+            state = ("none" if not items else "complete" if found["cost_complete"] else "partial" if known else "unknown")
+            return {**found, "tokens_partial": found["records_without_usage"] > 0, "cost_state": state}
+
+        return {
+            "project_id": project["id"], "cost_is_estimate": True,
+            "totals": group(records),
+            "stages": [group(by_stage[stage["group_id"]], group_id=stage["group_id"], code=stage["code"], title=stage["title"])
+                       for stage in project["stages"]],
+            "tasks": [group(by_task[task["id"]], task_id=task["id"], group_id=stage["group_id"], title=titles[task["id"]])
+                      for stage in project["stages"] for task in stage["tasks"] if task["id"] in by_task],
+            "activities": group(activities), "unassigned": group(unassigned),
+        }
+
+    def _task_group(self, task_id: str) -> str | None:
+        """The group a task belongs to, ``None`` when there is no such task."""
+        try:
+            return self._services.tasks.get_task(task_id)["group_id"]
+        except ServiceError:
+            return None

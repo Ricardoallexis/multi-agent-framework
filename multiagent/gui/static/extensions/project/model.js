@@ -1,6 +1,6 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
-import { t } from "../../js/i18n.js";
+import { currentLanguage, t } from "../../js/i18n.js";
 // The project view's data rules (PRY-T03) as pure functions: no DOM, no Preact, so Node tests run them. Everything shown
 // comes from the answers of /gui/api/projects (which are the core's own views); a value the core did not give is shown as
 // «sin dato», never invented.
@@ -337,4 +337,90 @@ export function hideFinished(project, hidden) {
 export function hasFinished(project, hidden) {
   const off = new Set(list(hidden));
   return list(project?.stages).some((stage) => stage.label?.key === "closed" && !off.has(stage.group_id));
+}
+
+// PRY-T07: tokens and API cost of the project (the answer of GET /gui/api/projects/<id>/costs). Every figure is a sum of records the
+// server stored: a value it did not give is «sin dato», a call without tokens makes the figure «partial» and a call without a price is
+// «sin precio conocido». Money is the API cost only and each currency is shown on its own, never added to another or to tokens.
+const finite = (value) => typeof value === "number" && Number.isFinite(value);
+const locale = () => (currentLanguage() === "es" ? "es-MX" : "en");
+const moneyIn = (currency, value) => {
+  try {
+    return new Intl.NumberFormat(locale(), { style: "currency", currency, maximumFractionDigits: 4 }).format(value);
+  } catch (_) {
+    return currency + " " + value;
+  }
+};
+
+export function costSummary(group) {
+  const noData = t("ext.project.figures.no_data");
+  const empty = { tokens: noData, money: noData, tokensNote: "", moneyNote: "", state: "none", tokenCount: null };
+  if (!group || typeof group !== "object" || !finite(group.records) || group.records === 0) return empty;
+  const tokens = finite(group.tokens_total) ? new Intl.NumberFormat(locale()).format(group.tokens_total) : noData;
+  const other = group.cost_other_currencies && typeof group.cost_other_currencies === "object" ? group.cost_other_currencies : {};
+  const amounts = [];
+  if (finite(group.estimated_cost_usd)) amounts.push(moneyIn("USD", group.estimated_cost_usd));
+  for (const currency of Object.keys(other).sort()) if (finite(other[currency])) amounts.push(moneyIn(currency, other[currency]));
+  const state = ["complete", "partial", "unknown"].includes(group.cost_state) ? group.cost_state : "unknown";
+  return {
+    tokens,
+    tokenCount: finite(group.tokens_total) ? group.tokens_total : null,
+    money: amounts.length ? amounts.join(" · ") : t("ext.project.cost.no_price"),
+    tokensNote: group.tokens_partial ? t("ext.project.cost.tokens_partial") : "",
+    moneyNote: state === "partial" && amounts.length ? t("ext.project.cost.partial") : "",
+    state,
+  };
+}
+
+// The costs of each stage by the id of the stage (the table of stages looks its row up here).
+export const stageCosts = (costs) => new Map(list(costs?.stages).map((stage) => [stage.group_id, stage]));
+
+// PRY-T07: the timeline, a row per visible stage with its planned start and end and its real closing. Positions are whole steps from
+// 0 to TIMELINE_STEPS (the page turns a step into a class), so no style attribute is needed. It promises no end date: a stage with
+// no plan only shows what is real, and «late» is only said of a stage that closed after its planned end.
+export const TIMELINE_STEPS = 20;
+const DAY_MS = 86400000;
+const dayNumber = (value) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ""));
+  if (!match) return null;
+  const moment = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isFinite(moment) ? Math.round(moment / DAY_MS) : null;
+};
+const isoOf = (day) => new Date(day * DAY_MS).toISOString().slice(0, 10);
+
+export function timelineModel(project, hidden = []) {
+  const found = visibleStages(project, hidden).map((stage) => ({
+    stage, start: dayNumber(stage.planned_start), end: dayNumber(stage.planned_end), closed: dayNumber(stage.closed_at),
+  }));
+  const days = found.flatMap((row) => [row.start, row.end, row.closed]).filter((day) => day !== null);
+  const first = days.length ? Math.min(...days) : null;
+  const last = days.length ? Math.max(...days) : null;
+  const span = days.length ? last - first : 0;
+  const stepOf = (day) => (day === null ? null : span ? Math.round((TIMELINE_STEPS * (day - first)) / span) : 0);
+  const rows = found.map(({ stage, start, end, closed }) => {
+    const planText = start !== null && end !== null ? t("ext.project.timeline.planned", { start: dayText(stage.planned_start), end: dayText(stage.planned_end) })
+      : end !== null ? t("ext.project.timeline.planned_end", { end: dayText(stage.planned_end) })
+      : start !== null ? t("ext.project.timeline.planned_start", { start: dayText(stage.planned_start) })
+      : t("ext.project.timeline.no_plan");
+    const realText = closed !== null ? t("ext.project.timeline.closed", { date: dayText(stage.closed_at) }) : t("ext.project.timeline.not_closed");
+    const late = closed !== null && end !== null && closed > end ? closed - end : 0;
+    const status = closed === null || end === null ? "none" : late > 0 ? "late" : "ontime";
+    const statusText = status === "late" ? t(late === 1 ? "ext.project.timeline.late_one" : "ext.project.timeline.late_other", { count: late })
+      : status === "ontime" ? t("ext.project.timeline.ontime") : "";
+    const startStep = stepOf(start);
+    const endStep = stepOf(end);
+    const mark = startStep !== null && endStep !== null ? { kind: "range", at: startStep, width: Math.max(0, endStep - startStep) }
+      : endStep !== null ? { kind: "tick", at: endStep, width: 0 }
+      : startStep !== null ? { kind: "tick", at: startStep, width: 0 }
+      : null;
+    return {
+      id: stage.group_id, code: stage.code, title: stage.title, label: stage.label, status, mark, closedStep: stepOf(closed),
+      planText, realText, statusText,
+      text: [stage.code + " · " + stage.title, planText, realText, statusText].filter(Boolean).join(". ") + ".",
+    };
+  });
+  return {
+    rows, hasPlan: rows.some((row) => row.mark !== null), hasReal: rows.some((row) => row.closedStep !== null),
+    from: first === null ? "" : dayText(isoOf(first)), to: last === null ? "" : dayText(isoOf(last)),
+  };
 }

@@ -323,6 +323,61 @@ automatic hand-off records `continuity.handoff` with `by` `policy:auto`, the
 limit and the origin and destination apps and models. The route does not change
 the integration guard, payment approval, or the hand-off limit.
 
+## Project cost
+
+The project view shows what one project has cost so far, per stage and per task, with
+`GET /gui/api/projects/{project_id}/costs` (token-protected, read only; Python:
+`services.usage.project_costs(project_id)`). It adds up the `telemetry` rows that
+already exist: a row belongs to a project through its run, and to a task through its own
+`task_id` or, when it has none, the `task_id` of its run. Nothing new is stored, no model is
+called and nothing is estimated here; each call keeps the cost it was given when it was recorded.
+
+```json
+{
+  "project_id": "snt",
+  "cost_is_estimate": true,
+  "totals": {
+    "records": 4, "failed": 0, "records_without_usage": 1,
+    "tokens_in": 3010, "tokens_out": 620, "tokens_total": 3630, "duration_ms": 20,
+    "estimated_cost_usd": 0.0201, "cost_known_records": 3, "cost_unknown_records": 1,
+    "cost_other_currencies": {}, "cost_complete": false,
+    "cost_unknown_reasons": {"no_price_evidence": 1},
+    "evidence": [{"model_id": "m-priced", "currency": "USD",
+                  "input": {"amount": 2.0, "denominator": 1000000, "unit": "token", "source": "...", "valid_from": "...", "valid_until": "...", "provenance": "..."},
+                  "output": {"amount": 6.0, "denominator": 1000000, "unit": "token", "source": "...", "valid_from": "...", "valid_until": "...", "provenance": "..."}}],
+    "tokens_partial": true, "cost_state": "partial"
+  },
+  "stages": [
+    {"group_id": "snt-INV", "code": "INV", "title": "Research", "...": "same fields as totals"},
+    {"group_id": "snt-CON", "code": "CON", "title": "Content", "...": "same fields as totals"}
+  ],
+  "tasks": [
+    {"task_id": "snt-INV-T01", "group_id": "snt-INV", "title": "Audience study", "...": "same fields as totals"}
+  ],
+  "activities": {"...": "calls of the project's activities (a group of its own)"},
+  "unassigned": {"...": "calls with no task, or a task that is not in the project"}
+}
+```
+
+- Every group (`totals`, each row of `stages` and `tasks`, `activities`, `unassigned`) has the
+  fields of a group of `usage-report`: the token sums, `estimated_cost_usd`, `cost_known_records`,
+  `cost_unknown_records` with `cost_unknown_reasons`, `cost_other_currencies` and `evidence`.
+  It adds `tokens_partial` (some call reported no tokens, so the token sums are only the reported
+  part) and `cost_state`: `complete` (every call has a USD cost), `partial` (some do), `unknown`
+  (calls, but no known cost) or `none` (no calls).
+- `stages` always lists every stage of the project, in order, with `null` sums where it has no
+  calls. `tasks` lists only the tasks that have calls. The stages, `activities` and `unassigned`
+  add up to `totals`, so the sum of the stages plus the calls with no task is the project's total.
+- Money is the API cost of the framework's own provider calls. Each currency is kept apart
+  (`estimated_cost_usd` is USD only) and nothing is converted. A call with no price counts as
+  unknown, never as 0, and its tokens still count: that is how a model with no known price shows up.
+  The quota of an app's own plan has no cost per call and is not in these rows: executor attempts
+  are counted by the app's session (see [Estimated cost](#estimated-cost)), never as API money.
+- The summary of the project view shows the totals as two figures (tokens and API cost, with
+  «partial» and «No known price» when they apply). The table of stages adds a tokens and cost column in advanced
+  mode, and a folded timeline lists each stage's planned start and end and its real closing
+  (`planned_start`, `planned_end` and `closed_at` of `GET /gui/api/projects/{id}`). The timeline promises no end date.
+
 ## Dashboard guidance
 
 A future local dashboard can use the usage response without reading the

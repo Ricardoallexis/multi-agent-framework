@@ -12,9 +12,9 @@ import { readHiddenStages, writeHiddenStages } from "../../js/shell-state.js";
 import { Progress } from "../../js/ui/progress.js";
 import { StatusChip } from "../../js/ui/status-chip.js";
 import {
-  attentionRows, canReview, chipOf, dayText, deliverables, detailOf, hasFinished, hiddenIn, hideFinished, hideStage, labelSummary, list, listOwners,
+  attentionRows, canReview, chipOf, costSummary, dayText, deliverables, detailOf, hasFinished, hiddenIn, hideFinished, hideStage, labelSummary, list, listOwners,
   listRows, matchesFilter, matchesList, overviewFigures, phaseGroups, planText, progressOf, projectSegments, requiresText, SEGMENT_LIMIT, shortId, stageRow,
-  taskIndex, taskName, visibleStages, whoText,
+  stageCosts, taskIndex, taskName, timelineModel, visibleStages, whoText,
 } from "./model.js";
 
 // One row of a list of tasks: opens the detail of the task. It is data, not an action, so it has no help of its own.
@@ -95,8 +95,9 @@ function Figure({ value, label, note = "" }) {
 const noData = () => t("ext.project.figures.no_data");
 
 // The strip of figures of the summary: stages, tasks done, weighted progress, in review, blocked and what is left.
-function Figures({ project }) {
+function Figures({ project, costs }) {
   const figures = overviewFigures(project);
+  const cost = costSummary(costs?.totals);      // PRY-T07: null while the costs load or when they could not be read
   return html`<ul class="project-figures" aria-label=${t("ext.project.figures.aria_label")}>
     <${Figure} value=${figures.stages} label=${t("ext.project.figures.stages")} />
     <${Figure} value=${t("ext.project.figures.of", { done: figures.done, total: figures.counted })} label=${t("ext.project.figures.tasks")} />
@@ -106,13 +107,16 @@ function Figures({ project }) {
     <${Figure} value=${figures.blocked} label=${t("ext.project.figures.blocked")} />
     <${Figure} value=${figures.leftTasks === null ? noData() : figures.leftTasks} label=${t("ext.project.figures.left")}
       note=${figures.leftSteps === null || figures.leftTasks === 0 ? "" : t("ext.project.figures.left_steps", { count: figures.leftSteps })} />
+    <${Figure} value=${cost.tokens} label=${t("ext.project.figures.tokens")} note=${cost.tokensNote} />
+    <${Figure} value=${cost.money} label=${t("ext.project.figures.cost")} note=${cost.moneyNote} />
   </ul>`;
 }
 
 // The table of stages: name, state, a small bar and «n of m». The technical columns (plan, last change, weighted progress) are for
 // advanced mode. A hidden stage has no row here; it is still counted in every figure above.
-function StageTable({ project, hidden, advanced, onChange }) {
+function StageTable({ project, costs, hidden, advanced, onChange }) {
   const stages = visibleStages(project, hidden);
+  const spent = stageCosts(costs);
   if (!list(project.stages).length) return html`<p class="project-empty">${t("ext.project.stages.none")}</p>`;
   if (!stages.length) return html`<p class="project-empty">${t("ext.project.stages.all_hidden")}</p>`;
   return html`<div class="usage-table-wrap"><table class="project-table">
@@ -123,25 +127,48 @@ function StageTable({ project, hidden, advanced, onChange }) {
       <th scope="col">${t("ext.project.table.bar")}</th>
       <th scope="col">${t("ext.project.table.done")}</th>
       ${advanced ? html`<th scope="col">${t("ext.project.table.weighted")}</th><th scope="col">${t("ext.project.table.plan")}</th>
-        <th scope="col">${t("ext.project.table.changed")}</th>` : null}
+        <th scope="col">${t("ext.project.table.changed")}</th><th scope="col">${t("ext.project.table.cost")}</th>` : null}
       <th scope="col"><span class="sr-only">${t("ext.project.table.actions")}</span></th>
     </tr></thead>
     <tbody>${stages.map((stage, index) => {
       const row = stageRow(stage);
+      const cost = costSummary(spent.get(stage.group_id));
       return html`<tr key=${stage.group_id}>
         <th scope="row" class="project-cell-name">${row.code} · ${row.title}</th>
         <td><${StatusChip} ...${chipOf(row.label)} /></td>
         <td class="project-cell-bar"><${SegmentBar} segments=${row.segments} summary=${row.summary} className="project-segbar project-segbar-small" /></td>
         <td class="project-cell-done">${t("ext.project.table.n_of_m", { done: row.done, total: row.counted })}</td>
         ${advanced ? html`<td>${row.percent === null ? noData() : t("ext.project.figures.percent", { percent: row.percent })}</td>
-          <td>${row.planned}</td><td>${row.changedAt ? dayText(row.changedAt) : noData()}</td>` : null}
+          <td>${row.planned}</td><td>${row.changedAt ? dayText(row.changedAt) : noData()}</td>
+          <td class="project-cell-cost"><span>${cost.tokenCount === null ? cost.tokens : t("ext.project.cost.tokens_n", { count: cost.tokens })}</span>
+            <span class="project-meta">${cost.money}</span>${cost.tokensNote ? html`<span class="project-meta">${cost.tokensNote}</span>` : null}
+            ${cost.moneyNote ? html`<span class="project-meta">${cost.moneyNote}</span>` : null}</td>` : null}
         <td class="project-cell-hide"><${HideStage} project=${project} hidden=${hidden} stage=${stage} scope=${"table" + index} onChange=${onChange} /></td>
       </tr>`;
     })}</tbody>
   </table></div>`;
 }
 
-export function Overview({ project, onOpen }) {
+// PRY-T07: the timeline, folded away until opened. The track is drawn by classes in steps (project-tl-at<n>, project-tl-w<n>); the
+// sentence of every row is its text for a screen reader, so the track itself says nothing twice.
+function Timeline({ project, hidden }) {
+  const view = timelineModel(project, hidden);
+  return html`<div class="project-disclosure"><details class="project-timeline">
+    <summary ...${helpFor("project.timeline")}>${t("ext.project.timeline.title")}</summary>
+    ${view.rows.length ? html`<p class="project-meta">${view.from ? t("ext.project.timeline.range", { from: view.from, to: view.to }) + " · " : ""}${t("ext.project.timeline.no_forecast")}</p>
+      ${view.hasPlan ? null : html`<p class="project-meta">${t("ext.project.timeline.real_only")}</p>`}
+      <ol class="project-timeline-list" aria-label=${t("ext.project.timeline.aria_label")}>${view.rows.map((row) => html`<li key=${row.id} class="project-tl-row">
+        <span class="project-row-head"><span class="project-title">${row.code} · ${row.title}</span><${StatusChip} ...${chipOf(row.label)} /></span>
+        <div class="project-tl-track" role="img" aria-label=${row.text}>
+          ${row.mark ? html`<span class=${"project-tl-plan project-tl-at" + row.mark.at + (row.mark.kind === "range" ? " project-tl-w" + row.mark.width : " project-tl-tick")}></span>` : null}
+          ${row.closedStep === null ? null : html`<span class=${"project-tl-closed project-tl-at" + row.closedStep + (row.status === "late" ? " project-tl-late" : "")}></span>`}
+        </div>
+        <span class="project-meta" aria-hidden="true">${row.planText} · ${row.realText}${row.statusText ? " · " + row.statusText : ""}</span>
+      </li>`)}</ol>` : html`<p class="project-empty">${t("ext.project.stages.none")}</p>`}
+  </details><${Help} topic="project.timeline" /></div>`;
+}
+
+export function Overview({ project, costs = null, onOpen }) {
   const [hidden, setHidden] = useHiddenStages(project);
   const advanced = useMode() === "advanced";
   const bar = progressOf(project.progress);
@@ -160,7 +187,8 @@ export function Overview({ project, onOpen }) {
   return html`<div class="project-stages">
     <section class="project-section" aria-labelledby="project-progress-title">
       <h4 id="project-progress-title">${t("ext.project.progress.title")}</h4><${Help} topic="project.progress" />
-      <${Figures} project=${project} />
+      <${Figures} project=${project} costs=${costs} />
+      ${costs ? html`<p class="project-meta">${t("ext.project.cost.note")}</p>` : null}
       <${Progress} label=${t("ext.project.progress.aria_label")} value=${bar.value} max=${bar.max} valueText=${bar.valueText} />
       ${pieces.segments.length ? html`<${SegmentBar} segments=${pieces.segments} summary=${pieces.summary} className="project-segbar" />` : null}
       ${pieces.unit === "stages" ? html`<p class="project-meta">${t("ext.project.segments.by_stage_note", { limit: SEGMENT_LIMIT })}</p>` : null}
@@ -199,7 +227,8 @@ export function Overview({ project, onOpen }) {
     <section class="project-section" aria-labelledby="project-stage-table-title">
       <h4 id="project-stage-table-title">${t("ext.project.table.title")}</h4><${Help} topic="project.stage_table" />
       <${HiddenBar} project=${project} hidden=${hidden} onChange=${setHidden} />
-      <${StageTable} project=${project} hidden=${hidden} advanced=${advanced} onChange=${setHidden} />
+      <${StageTable} project=${project} costs=${costs} hidden=${hidden} advanced=${advanced} onChange=${setHidden} />
+      <${Timeline} project=${project} hidden=${hidden} />
     </section>
 
     <section class="project-section" aria-labelledby="project-working-title">

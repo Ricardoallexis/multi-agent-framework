@@ -795,6 +795,16 @@ attention".
 image with a spoken summary, equal pieces, and the state also given in
 words.
 
+**Cost and timeline.** The project Summary adds two figures, Tokens and API
+cost, summed from the calls the framework recorded for the project. A call
+that reported no tokens makes the figure "Partial", and a call with no price
+evidence is "No known price"; each currency is shown on its own and the quota
+of an app's plan is never added. In advanced mode the table of stages adds a
+tokens and cost column. "Timeline" is folded by default: one row per stage
+with its planned start and end and its real closing; a stage that closed after
+its planned end says how many days late. Without planned dates only the real
+closings show. It is not a forecast and promises no end date.
+
 The token-protected GUI routes these views use:
 
 | Route | Purpose |

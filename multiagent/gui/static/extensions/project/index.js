@@ -156,6 +156,7 @@ export function ProjectView({ token, route }) {
   const [projects, setProjects] = useState(null);       // null while the list loads
   const [selected, setSelected] = useState(route?.id || "");
   const [project, setProject] = useState(null);
+  const [costs, setCosts] = useState(null);             // PRY-T07: tokens and API cost; null until read or when they cannot be
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [tab, setTab] = useState("overview");
@@ -168,7 +169,7 @@ export function ProjectView({ token, route }) {
   const [taskError, setTaskError] = useState("");
   const [notice, setNotice] = useState("");
   const [review, setReview] = useState(NO_REVIEW);
-  const calls = useRef({ project: 0, task: 0 });          // an answer that arrives after a newer request is dropped
+  const calls = useRef({ project: 0, task: 0, costs: 0 });          // an answer that arrives after a newer request is dropped
   const seenProject = useRef({ id: "", seq: 0 });
   const heading = useRef(null);
   const focusTask = useRef(false);
@@ -183,7 +184,8 @@ export function ProjectView({ token, route }) {
   const selectProject = (id) => {
     calls.current.project += 1;
     seenProject.current = { id, seq: 0 };
-    setSelected(id); setProject(null); setError(""); setFilter(NO_FILTER); setListFilter(NO_LIST_FILTER); setCollapsed(new Set()); closeTask();
+    calls.current.costs += 1;
+    setSelected(id); setProject(null); setCosts(null); setError(""); setFilter(NO_FILTER); setListFilter(NO_LIST_FILTER); setCollapsed(new Set()); closeTask();
   };
 
   const loadProjects = async () => {
@@ -208,11 +210,23 @@ export function ProjectView({ token, route }) {
         const seq = data?.last_change?.seq || 0;
         seenProject.current = { id, seq: Math.max(seenProject.current.id === id ? seenProject.current.seq : 0, seq) };
         setProject(data);
+        loadCosts(id);
       }
     } catch (err) {
       if (call === calls.current.project) setError(failure(err, "ext.project.error.load_project"));
     } finally {
       if (call === calls.current.project) setLoading(false);
+    }
+  };
+
+  // The costs come apart from the project: if they cannot be read the summary shows «sin dato» and nothing else changes.
+  const loadCosts = async (id) => {
+    const call = ++calls.current.costs;
+    try {
+      const data = await apiGet("/gui/api/projects/" + enc(id) + "/costs", token);
+      if (call === calls.current.costs) setCosts(data);
+    } catch (_) {
+      if (call === calls.current.costs) setCosts(null);
     }
   };
 
@@ -338,7 +352,7 @@ export function ProjectView({ token, route }) {
     ${project ? html`<${Tabs} id="project-tabs" label=${t("ext.project.tabs.aria_label")} tabs=${tabs} selected=${tab} onSelect=${setTab}
         after=${html`<${Help} topic="project.tabs" compact=${true} />`} panelProps=${{ "aria-busy": loading ? "true" : "false" }}
         ...${helpFor("project.tabs")}>
-      ${tab === "overview" ? html`<${Overview} project=${project} onOpen=${openTask} />` : tab === "list" ? listTab : stagesTab}
+      ${tab === "overview" ? html`<${Overview} project=${project} costs=${costs} onOpen=${openTask} />` : tab === "list" ? listTab : stagesTab}
     <//>` : null}
   </section>`;
 }

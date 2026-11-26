@@ -89,6 +89,14 @@ def add_project_routes(api: APIRouter, services: ApplicationServices) -> None:
         """The aggregated view: progress, counts, stages with phases and tasks, attention, working now and milestones."""
         return services.projects.get(project_id)
 
+    @api.get("/projects/{project_id}/costs")
+    def get_project_costs(project_id: str) -> dict[str, Any]:
+        """What the project's recorded provider calls add up to, per stage and per task (PRY-T07): tokens and API cost, read-only.
+
+        The answer of ``services.usage.project_costs``: a sum of stored records, never an estimate made here; a call without
+        tokens or a price is counted apart (``tokens_partial``, ``cost_state``). A missing project answers 404."""
+        return services.usage.project_costs(project_id)
+
     @api.get("/projects/{project_id}/tasks/{task_id}")
     def get_task(project_id: str, task_id: str) -> dict[str, Any]:
         """One task with its dependencies (``satisfied``) and, when it has one, the latest result envelope as ``result``."""

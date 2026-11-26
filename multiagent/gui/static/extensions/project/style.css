@@ -526,3 +526,151 @@
     width: auto;
   }
 }
+
+/* PRY-T07: tokens and cost in the table, and the folded timeline. A position is a whole step of 5 % (project-tl-at<n>, project-tl-w<n>), so
+   the page needs no style attribute. The late closing is also written in words (the sentence of the row), never only a colour. */
+
+.project-cell-cost {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-disclosure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 12px;
+  min-width: 0;
+  margin: 12px 0 0;
+}
+
+.project-disclosure > details {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.project-disclosure > summary,
+.project-timeline > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.project-timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-tl-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.project-tl-track {
+  position: relative;
+  height: 14px;
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.project-tl-plan,
+.project-tl-closed {
+  position: absolute;
+  top: 3px;
+  height: 8px;
+  box-sizing: border-box;
+}
+
+.project-tl-plan {
+  min-width: 4px;
+  border: 1px solid var(--muted);
+  border-radius: 2px;
+  background: var(--hover);
+}
+
+.project-tl-tick {
+  width: 4px;
+}
+
+.project-tl-closed {
+  width: 10px;
+  margin-left: -5px;
+  border: 2px solid var(--ok);
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.project-tl-closed.project-tl-late {
+  border-radius: 0;
+  border-color: var(--bad);
+  background: var(--bad);
+  transform: rotate(45deg);
+}
+
+@media (forced-colors: active) {
+  .project-tl-plan {
+    border-color: CanvasText;
+    background: Canvas;
+  }
+
+  .project-tl-closed {
+    border-color: Highlight;
+    background: Highlight;
+  }
+
+  .project-tl-closed.project-tl-late {
+    border-color: CanvasText;
+    background: CanvasText;
+  }
+}
+
+.project-tl-at0 { left: 0%; }
+.project-tl-at1 { left: 5%; }
+.project-tl-at2 { left: 10%; }
+.project-tl-at3 { left: 15%; }
+.project-tl-at4 { left: 20%; }
+.project-tl-at5 { left: 25%; }
+.project-tl-at6 { left: 30%; }
+.project-tl-at7 { left: 35%; }
+.project-tl-at8 { left: 40%; }
+.project-tl-at9 { left: 45%; }
+.project-tl-at10 { left: 50%; }
+.project-tl-at11 { left: 55%; }
+.project-tl-at12 { left: 60%; }
+.project-tl-at13 { left: 65%; }
+.project-tl-at14 { left: 70%; }
+.project-tl-at15 { left: 75%; }
+.project-tl-at16 { left: 80%; }
+.project-tl-at17 { left: 85%; }
+.project-tl-at18 { left: 90%; }
+.project-tl-at19 { left: 95%; }
+.project-tl-at20 { left: 100%; }
+
+.project-tl-w0 { width: 0%; }
+.project-tl-w1 { width: 5%; }
+.project-tl-w2 { width: 10%; }
+.project-tl-w3 { width: 15%; }
+.project-tl-w4 { width: 20%; }
+.project-tl-w5 { width: 25%; }
+.project-tl-w6 { width: 30%; }
+.project-tl-w7 { width: 35%; }
+.project-tl-w8 { width: 40%; }
+.project-tl-w9 { width: 45%; }
+.project-tl-w10 { width: 50%; }
+.project-tl-w11 { width: 55%; }
+.project-tl-w12 { width: 60%; }
+.project-tl-w13 { width: 65%; }
+.project-tl-w14 { width: 70%; }
+.project-tl-w15 { width: 75%; }
+.project-tl-w16 { width: 80%; }
+.project-tl-w17 { width: 85%; }
+.project-tl-w18 { width: 90%; }
+.project-tl-w19 { width: 95%; }
+.project-tl-w20 { width: 100%; }

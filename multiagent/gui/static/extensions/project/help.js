@@ -237,5 +237,13 @@ export const HELP = {
       "Only closed stages are hidden. Stages still in progress stay.",
       "Use Show to bring them back."
     ]
+  },
+  "project.timeline": {
+    "title": "Timeline",
+    "hint": "Each stage with its planned start and end and its real closing.",
+    "more": [
+      "It stays folded until you open it. A stage with no planned dates shows only what is real.",
+      "A stage is marked late only if it closed after its planned end. It promises no end date."
+    ]
   }
 };
