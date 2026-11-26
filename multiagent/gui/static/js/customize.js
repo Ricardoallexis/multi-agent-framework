@@ -11,6 +11,7 @@ import { Help, helpFor } from "./help.js";
 import { registeredSlots } from "./extensions.js";
 import { saveMode } from "./gui-mode.js";   // SIM-T02
 import { onChoiceChange, readAccent, readCardModes, readHelpMode, readPinnedSections, resetChoices, storageRemembers, writeAccent, writeCardModes, writeHelpMode, writePinnedSections } from "./shell-state.js";
+import { requestQuickGuide } from "./quick-guide-model.js";   // GUI4-T06
 import { languageChoice, setLanguage, t } from "./i18n.js";
 
 export function Customize({ token, sections, mode = "advanced" }) {
@@ -99,10 +100,17 @@ export function Customize({ token, sections, mode = "advanced" }) {
     </section>
     <section class="customize-block" aria-label=${t("customize.help")}>
       <h3 class="customize-title">${t("customize.help")}</h3>
-      <label class="check-inline">
-        <input type="checkbox" checked=${helpOn} ...${helpFor("customize.help")} onChange=${(event) => writeHelpMode(event.target.checked)} />
-        ${t("customize.show_help")}</label>
+      <div class="customize-switch-row">
+        <button type="button" class="switch" role="switch" aria-checked=${helpOn ? "true" : "false"} aria-labelledby="customize-help-label"
+          ...${helpFor("customize.help")} onClick=${() => writeHelpMode(!helpOn)}></button>
+        <span id="customize-help-label" class="customize-switch-label">${t("customize.show_help")}</span>
+        <span class="switch-state" aria-hidden="true">${helpOn ? t("customize.help_on") : t("customize.help_off")}</span>
+      </div>
       <${Help} topic="customize.help" compact=${true} />
+      <div class="customize-actions">
+        <button type="button" class="btn secondary" aria-haspopup="dialog" ...${helpFor("shell.quick_guide", { scope: "customize" })} onClick=${() => requestQuickGuide()}>${t("quick_guide.title")}</button>
+        <${Help} topic="shell.quick_guide" scope="customize" compact=${true} />
+      </div>
     </section>
     <div class="customize-actions">
       <button type="button" class="btn secondary" ...${helpFor("customize.reset")} onClick=${resetChoices}>${t("customize.reset")}</button>

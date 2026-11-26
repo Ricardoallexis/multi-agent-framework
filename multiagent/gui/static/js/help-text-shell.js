@@ -169,6 +169,14 @@ export const HELP = {
       "This browser remembers your choice."
     ]
   },
+  "shell.quick_guide": {
+    "title": "Quick guide and shortcuts",
+    "hint": "Open a short guide to the help and the keyboard shortcuts.",
+    "more": [
+      "The guide explains how the “?” help works and lists the shortcuts that exist.",
+      "It also says how to turn the help back on."
+    ]
+  },
   "shell.panel": {
     "title": "Context",
     "hint": "Show or hide context for the open session or run.",

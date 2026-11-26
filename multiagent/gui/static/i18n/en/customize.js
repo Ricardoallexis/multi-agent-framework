@@ -28,6 +28,8 @@ export default {
   "customize.accent_violeta": "Violet",
   "customize.help": "Help",
   "customize.show_help": "Always show the “?” help buttons",
+  "customize.help_on": "On",
+  "customize.help_off": "Off",
   "customize.reset": "Reset",
   "customize.language": "Language",
   "customize.language_auto": "Automatic",

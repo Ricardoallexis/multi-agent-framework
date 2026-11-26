@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: «Personalizar» has a switch that turns the «?» help on and off, and «Guía rápida» (in the top bar and the sidebar) opens a short guide with the keyboard shortcuts (F1, Ctrl+B, Ctrl+K, Esc).
 - GUI: «New session» launches conversationally: the chat shows one visible send, says that nothing runs until «Launch», and then waits for that final step. The privacy of the office area of the selected workflow decides the preview and the run: a restricted or sensitive area keeps the run local and hides cloud models, and a missing local model or an unresolved area is said instead of guessed. The preview and the run send the same privacy and model choices.
 - Concurrency modes (Eco, Normal, Performance and Maximum) with a margin per mode: the automatic worker limit follows the remaining quota and drops to 0 when the margin is reached. Each mode also has its model levels (T4 only with permission), and the local Ollama models are classified by capability. Without a mode, routing stays as it was.
 - GUI: the sidebar has folding Offices, Projects and Recent sections, and the sidebar and context panel can be resized, hidden at the edge (Ctrl+B for the sidebar) and shown again; the shared button, switch and shadow styles for the new screens are in.

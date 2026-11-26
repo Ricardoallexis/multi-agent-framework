@@ -119,7 +119,7 @@ def test_the_screen_has_its_three_blocks_and_every_control_is_labelled():
     # The row shows the name once and a short «Fijar» beside it; the button's name still says which section it pins.
     assert 't("customize.pin_label", { name: row.label })' in source and ">Fijar</button>" in source and "Fijar ${row.label}" not in source
     assert "<fieldset" in source and "<legend>" in source and 'type="radio"' in source and "CARD_MODES.map" in source
-    assert "Mostrar siempre los «?»" in source and "writeHelpMode(event.target.checked)" in source     # the state of T02, not a copy
+    assert "Mostrar siempre los «?»" in source and "writeHelpMode(!helpOn)" in source     # the state of T02, not a copy (GUI4-T06: a switch, not a checkbox)
     assert "Restablecer" in source and "resetChoices" in source and "no guarda las preferencias" in source
     assert "localStorage" not in source and "innerHTML" not in source
     assert source.count("helpFor(") >= 4

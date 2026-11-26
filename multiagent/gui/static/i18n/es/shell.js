@@ -236,6 +236,14 @@ export default {
       "Este navegador recuerda el modo que dejaste."
     ]
   },
+  "help.shell.quick_guide": {
+    "title": "Guía rápida y atajos",
+    "hint": "Abre una guía breve de la ayuda y de los atajos de teclado.",
+    "more": [
+      "La guía explica cómo funcionan los «?» de la ayuda y lista los atajos que existen.",
+      "También dice cómo volver a activar la ayuda."
+    ]
+  },
   "help.shell.panel": {
     "title": "Contexto",
     "hint": "Muestra u oculta el panel de contexto de la sesión o la ejecución abierta.",

@@ -8,6 +8,8 @@
 // The sidebar and the panel content come in as props (sidebar.js, right-panel.js); this file only lays them out.
 import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalone.module.js";
 import { Help, helpFor } from "./help.js";
+import { QuickGuide } from "./quick-guide.js";   // GUI4-T06
+import { requestQuickGuide } from "./quick-guide-model.js";
 import { Icon } from "./ui/icon.js";
 import { ResizeHandle } from "./ui/resize-handle.js";
 import { t } from "./i18n.js";
@@ -124,6 +126,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
   useEffect(() => {
     const onSideKey = (event) => {
       if (!isSidebarKey(event) || state.current.narrow) return;
+      if (document.querySelector("dialog[open]")) return;   // GUI4-T06: with a dialog open the bar stays as it is
       event.preventDefault();
       toggleSide(!state.current.sideHidden);
     };
@@ -257,6 +260,12 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
             ...${helpFor("shell.help_mode")} onClick=${toggleHelp}><${Icon} name="help" />${t("shell.help")}</button>
           <${Help} topic="shell.help_mode" compact=${true} />
         </div>
+        <!-- GUI4-T06: «Guía rápida» row; the dialog itself is mounted at the end of the app, outside the sidebar -->
+        <div class="panel-tool guide-tool">
+          <button type="button" class="tool-btn" aria-haspopup="dialog"
+            ...${helpFor("shell.quick_guide")} onClick=${() => requestQuickGuide()}><${Icon} name="help" />${t("quick_guide.open")}</button>
+          <${Help} topic="shell.quick_guide" compact=${true} />
+        </div>
         </div>
       </div>
     </nav>
@@ -273,5 +282,7 @@ export function Shell({ status, statusText, mock, sidebar, panel, hasSubject = f
       measure=${measureWidth("side")} keyWidth=${sideKeyWidth} onPreview=${previewWidth("side")} onCommit=${(px) => commitWidth("side", px)} onReset=${() => resetWidth("side")} />`}
     ${!narrow && panelShown && html`<${ResizeHandle} kind="panel" width=${panelWidth} min=${PANES.panel.min} max=${PANES.panel.max} edge="left"
       measure=${measureWidth("panel")} keyWidth=${panelKeyWidth} onPreview=${previewWidth("panel")} onCommit=${(px) => commitWidth("panel", px)} onReset=${() => resetWidth("panel")} />`}
+    <!-- GUI4-T06 -->
+    <${QuickGuide} />
   </div>`;
 }

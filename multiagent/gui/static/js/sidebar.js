@@ -7,6 +7,7 @@ import { html, useState, useEffect, useRef } from "../vendor/htm-preact-standalo
 import { apiGet } from "./api.js";
 import { debounce, subscribe } from "./bus.js";
 import { Help, helpFor } from "./help.js";
+import { requestQuickGuide } from "./quick-guide-model.js";   // GUI4-T06
 import { navigate, officeHref, routeHref, NEW_SECTION } from "./route.js";
 import { CommandPalette } from "./command-palette.js";
 import { helpEntries, isPaletteKey, itemEntries, sectionEntries } from "./command-palette-model.js";
@@ -277,7 +278,10 @@ export function Sidebar({ token, status, route, sections, mode = "advanced" }) {
             <${Icon} name=${s.icon} />${s.label}</button>`)}
           ${navigation.more.some((s) => s.action === "help") && html`<button type="button" class="side-help-row" data-nav
             ...${helpFor("shell.help_mode", { scope: "more" })} onClick=${() => writeHelpMode(true)}><${Icon} name="help" />${t("shell.help")}</button>
-          <${Help} topic="shell.help_mode" scope="more" compact=${true} />`}
+          <${Help} topic="shell.help_mode" scope="more" compact=${true} />
+          <button type="button" class="side-help-row" aria-haspopup="dialog"
+            ...${helpFor("shell.quick_guide", { scope: "more" })} onClick=${() => requestQuickGuide()}><${Icon} name="help" />${t("quick_guide.open")}</button>
+          <${Help} topic="shell.quick_guide" scope="more" compact=${true} />`}
         </div>
       </div>
     </div>

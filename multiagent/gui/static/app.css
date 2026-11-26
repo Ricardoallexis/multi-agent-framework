@@ -888,3 +888,28 @@ code.command { font: .875rem var(--mono); overflow-wrap: anywhere; }
     border-left: 1px solid var(--line-strong); border-top: 0; box-shadow: var(--shadow); }
   .panel-scrim { display: block; position: fixed; top: var(--bar-h); left: 0; right: 0; bottom: 0; z-index: 41; background: rgba(0, 0, 0, .45); }
 }
+
+/* GUI4-T06 */
+.customize-switch-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: var(--target); }
+.customize-switch-label { min-width: 0; overflow-wrap: anywhere; }
+.switch-state { min-width: 6.5em; font-size: .875rem; font-weight: 500; color: var(--muted); }
+.switch[aria-checked="true"] + .customize-switch-label + .switch-state { color: var(--text); }
+
+.quick-guide { box-sizing: border-box; width: min(34rem, calc(100vw - 24px)); max-height: min(36rem, calc(100vh - 48px)); margin: 12vh auto auto;
+  padding: 0; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); color: var(--text); box-shadow: var(--shadow); overflow: hidden; }
+.quick-guide::backdrop { background: rgba(0, 0, 0, .45); }
+.quick-guide-box { display: flex; flex-direction: column; gap: 16px; box-sizing: border-box; max-height: inherit; padding: 16px; overflow-y: auto; }
+.quick-guide-title { margin: 0; font-size: 1.125rem; }
+.quick-guide-heading { margin: 0 0 4px; font-size: .9375rem; }
+.quick-guide p { margin: 0 0 6px; overflow-wrap: anywhere; }
+.quick-guide-keys { display: flex; flex-direction: column; gap: 4px; margin: 0; }
+.quick-guide-row { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); align-items: center; gap: 4px 12px; min-height: var(--target); }
+.quick-guide-row dt { margin: 0; white-space: nowrap; }
+.quick-guide-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.quick-guide kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--bg); font: inherit; font-size: .8125rem; }
+.quick-guide-actions { display: flex; justify-content: flex-end; }
+.quick-guide :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 599.98px) {
+  .quick-guide { margin-top: 8px; max-height: calc(100vh - 16px); }
+  .quick-guide-row { grid-template-columns: minmax(0, 1fr); }
+}
