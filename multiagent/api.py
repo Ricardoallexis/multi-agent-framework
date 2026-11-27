@@ -636,6 +636,9 @@ def create_app(system=None, *, services: ApplicationServices | None = None,
         if background is not None:
             background.reopen()
         services.runs.reopen()   # CER-T01: services that outlive one app build package runtimes again
+        acp = getattr(services.runs, "acp", None)
+        if acp is not None:      # ACP-T05: saved conversations past their retention go at every start
+            await anyio.to_thread.run_sync(acp.purge_history)
         if system_obj.settings.worker_enabled:
             system_obj.worker.start()
         yield

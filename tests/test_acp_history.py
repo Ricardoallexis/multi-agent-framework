@@ -155,6 +155,26 @@ def test_retention_count_age_size_and_deletion(tmp_path, monkeypatch):
     assert history.list() == []
 
 
+def test_building_the_history_deletes_nothing_and_reads_hide_what_is_past_retention(tmp_path):
+    old, fresh = "e" * 32, "d" * 32
+    first = AcpHistory(tmp_path)
+    for identifier in (old, fresh):
+        first.create(identifier, "sample-area", "office/area")
+        first.append_turn(identifier, [event("prompt", "question"), event("end_turn")])
+    past = (datetime.now(timezone.utc) - timedelta(days=31)).timestamp()
+    os.utime(first.folder / f"{old}.jsonl", (past, past))
+    history = AcpHistory(tmp_path)
+    assert (history.folder / f"{old}.jsonl").is_file()
+    assert history.page(old) is None
+    assert history.page(fresh)["saved"] is True
+    assert [row["id"] for row in history.list()] == [fresh]
+    assert {row["id"] for row in history.list({old})} == {old, fresh}
+    assert (history.folder / f"{old}.jsonl").is_file()
+    history.purge()
+    assert not (history.folder / f"{old}.jsonl").exists()
+    assert (history.folder / f"{fresh}.jsonl").is_file()
+
+
 def test_oversized_file_is_purged(tmp_path, monkeypatch):
     history = AcpHistory(tmp_path)
     identifier = "8" * 32

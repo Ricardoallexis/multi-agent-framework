@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import os
 import re
 import threading
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,15 @@ _LOG = logging.getLogger(__name__)
 
 def valid_id(identifier: str) -> bool:
     return isinstance(identifier, str) and _ID.fullmatch(identifier) is not None
+
+
+def _cutoff() -> float:
+    return (datetime.now(timezone.utc) - AGE).timestamp()
+
+
+def _past_retention(info: os.stat_result, cutoff: float) -> bool:
+    """Older than the retention or over the size limit: never shown, and deleted by the next purge."""
+    return info.st_mtime < cutoff or info.st_size > MAX_BYTES
 
 
 def should_keep_history(offices: Any, bundle: str, setting: dict[str, Any] | None) -> bool:
@@ -154,10 +164,11 @@ def _turn(events: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
 
 
 class AcpHistory:
+    """Retention: the API purges at startup and ``create`` purges around each new file; reads hide what is past it."""
+
     def __init__(self, data_dir: Path):
-        self.folder = Path(data_dir) / "acp-history"
+        self.folder = Path(data_dir) / "acp-history"   # building it touches no disk
         self._lock = threading.RLock()
-        self.purge()
 
     def _path(self, identifier: str) -> Path | None:
         return self.folder / f"{identifier}.jsonl" if valid_id(identifier) else None
@@ -231,6 +242,8 @@ class AcpHistory:
         if path is None or not path.is_file():
             return None
         try:
+            if _past_retention(path.stat(), _cutoff()):
+                return None
             header, events, partial = self._read(path)
             if header["id"] != identifier:
                 return None
@@ -248,17 +261,21 @@ class AcpHistory:
         if not self.folder.is_dir():
             return []
         rows = []
+        cutoff = _cutoff()
         for path in self.folder.glob("*.jsonl"):
             if not valid_id(path.stem):
                 continue
             try:
+                info = path.stat()
+                if path.stem not in active and _past_retention(info, cutoff):
+                    continue
                 header, events, partial = self._read(path)
                 if header["id"] != path.stem:
                     raise ValueError("History id mismatch")
                 rows.append({"id": path.stem, "bundle": header["bundle"], "scope": header["scope"],
                              "office": header["office"], "area": header["area"],
                              "started_at": header["started_at"],
-                             "last_message_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
+                             "last_message_at": datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat(),
                              "message_count": sum(event["kind"] in ("prompt", "message") for event in events),
                              "active": path.stem in active, "unreadable": partial,
                              "redacted": any(event.get("redacted") for event in events)})
@@ -295,10 +312,10 @@ class AcpHistory:
                 except OSError:
                     _LOG.warning("Could not inspect ACP history")
             files.sort(key=lambda item: item[1].st_mtime, reverse=True)
-            cutoff = (datetime.now(timezone.utc) - AGE).timestamp()
+            cutoff = _cutoff()
             for index, (path, info) in enumerate(files):
                 try:
-                    if index >= MAX_FILES or info.st_mtime < cutoff or info.st_size > MAX_BYTES:
+                    if index >= MAX_FILES or _past_retention(info, cutoff):
                         path.unlink()
                 except OSError:
                     _LOG.warning("Could not purge ACP history")

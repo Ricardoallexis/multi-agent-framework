@@ -1012,12 +1012,18 @@ class AcpInteractiveSessions:
 
     @property
     def history(self) -> AcpHistory:
-        """Built on first use, so building the services reads no settings and touches no disk.
-        Its constructor purges expired conversations before the first list, read or new one."""
+        """Built on first use, so building the services reads no settings; building it touches no disk either."""
         with self._lock:
             if self._history is None:
                 self._history = AcpHistory(self.services.settings.data_dir)
             return self._history
+
+    def purge_history(self) -> None:
+        """Called by the API at startup: saved conversations past their retention go even if no ACP view opens."""
+        try:
+            self.history.purge()
+        except Exception:
+            _ACP_LOG.warning("Could not purge ACP history at startup", exc_info=True)
 
     def _get(self, identifier: str) -> dict[str, Any]:
         with self._lock:

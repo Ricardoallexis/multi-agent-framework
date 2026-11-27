@@ -199,7 +199,9 @@ Each conversation has one JSONL file (`maf.acp-history/1`), including the person
 the thread. Consecutive message or thought chunks are joined before pattern-based secret screening and clipping to
 8,000 characters per text field. A pattern match is redacted in the saved copy; the live thread is unchanged. This
 screening cannot guarantee that every secret is recognized. Files expire 30 days after the last saved turn; at most
-200 conversations and 2 MiB per conversation are retained. A saved conversation is readable after a restart but
+200 conversations and 2 MiB per conversation are retained. Expired files are deleted every time the API or the GUI
+starts, even if no ACP view opens, and around each new saved conversation; in between, lists and reads skip them.
+Building the services touches none of these files. A saved conversation is readable after a restart but
 cannot resume the agent session. An incomplete final turn can be missing after an abrupt shutdown.
 
 History is on by default only when `offices.area_class(bundle)` returns `"non_sensitive"`. Sensitive, restricted,

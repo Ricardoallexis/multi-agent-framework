@@ -3,6 +3,7 @@
 """Interactive ACP API with a synthetic transport; no executable or network."""
 from __future__ import annotations
 
+import os
 import time
 from threading import Event
 
@@ -274,6 +275,34 @@ from multiagent.gui import events
 from multiagent.services.errors import NOT_FOUND, ServiceError
 from multiagent.services.executors import ExecutorServices
 from multiagent.services.runs import _AcpSink
+
+
+def test_the_api_purges_saved_conversations_past_retention_at_startup(tmp_path):
+    services, _ = build(tmp_path)
+    history = services.runs.acp.history
+    old, fresh = "e" * 32, "d" * 32
+    for identifier in (old, fresh):
+        history.create(identifier, "office-area", "office/area")
+    past = time.time() - 31 * 24 * 3600
+    os.utime(history.folder / f"{old}.jsonl", (past, past))
+    assert (history.folder / f"{old}.jsonl").is_file()
+    with TestClient(create_app(services=services), base_url="http://localhost"):
+        assert not (history.folder / f"{old}.jsonl").exists()
+        assert (history.folder / f"{fresh}.jsonl").is_file()
+    services.runs.close()
+
+
+def test_a_failed_startup_purge_does_not_stop_the_api(tmp_path, monkeypatch):
+    services, _ = build(tmp_path)
+
+    def broken():
+        raise OSError("synthetic disk failure")
+
+    monkeypatch.setattr(services.runs.acp.history, "purge", broken)
+    headers = {"Authorization": f"Bearer {ensure_token(services.settings.gui_token_file)}"}
+    with TestClient(create_app(services=services), base_url="http://localhost") as client:
+        assert client.get("/gui/api/threads/acp", headers=headers).status_code == 200
+    services.runs.close()
 
 
 def build(tmp_path, *, installed=True, probed=True, activated=True, area=True):
