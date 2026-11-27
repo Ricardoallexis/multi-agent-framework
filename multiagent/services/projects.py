@@ -864,6 +864,96 @@ class ProjectServices:
                         payload={"group_id": group_id, "position": position})
             return self._project_view_in(conn, project["id"])
 
+    def _stage_plan_in(self, conn: sqlite3.Connection, project_id: str, stage: Any,
+                       expected_revision: int) -> tuple[dict[str, Any], dict[str, Any]]:
+        project = self._project_or_missing(conn, project_id)
+        self._stale(project, expected_revision)
+        self._active(project)
+        raw = _object("stage", stage, required=("title", "tasks"))
+        tasks = _list("stage.tasks", raw["tasks"], maximum=12)
+        if not tasks:
+            raise _invalid("stage.tasks", "A stage needs at least one task")
+        groups = self._tasks.store.list_groups(project_id=project["id"], kind="stage", conn=conn)
+        if len(groups) >= MAX_STAGES:
+            raise _invalid("stage", f"A project admits up to {MAX_STAGES} stages")
+        used = {match.group(1) for group in groups
+                if (match := re.search(r"-S([1-9][0-9]*)$", group["id"]))}
+        number = next(n for n in range(1, 1000000000) if str(n) not in used)
+        code = f"S{number}"
+        # Run-created project ids can be long or start with a digit. Their title supplies a valid prefix.
+        from .project_draft import project_key
+        prefix = project["id"] if _KEY.fullmatch(project["id"]) else project_key(project["title"] or project["name"])
+        document = {"schema": PLAN_SCHEMA, "id": "conversation-stage", "title": project["title"] or project["name"],
+                    "stages": [{"code": code, "title": raw["title"], "tasks": [
+                        {"id": f"T{index:02d}", **_object(f"stage.tasks[{index - 1}]", task,
+                                                    required=("title",), optional=("objective",))}
+                        for index, task in enumerate(tasks, 1)]}]}
+        normalized, warnings = self._normalize(document, key=prefix)
+        item = normalized["stages"][0]
+        item["position"] = max((group["position"] for group in groups), default=0) + 1
+        if not _GROUP_ID.fullmatch(item["group_id"]):
+            raise _invalid("stage", "The stage id is not valid")
+        for task in item["tasks"]:
+            if not _TASK_ID.fullmatch(task["task_id"]):
+                raise _invalid("stage.tasks", "A task id is not valid")
+        ids = [item["group_id"], *(task["task_id"] for task in item["tasks"])]
+        for table, candidates in (("task_groups", ids[:1]), ("tasks", ids[1:])):
+            if conn.execute(f"SELECT id FROM {table} WHERE id IN ({','.join('?' * len(candidates))}) LIMIT 1",
+                            candidates).fetchone():
+                raise _conflict("A stage or task id already exists", reason="id_collision", group_id=item["group_id"])
+        write_set = {"project_id": project["id"], "revision": project["revision"], "stage": item}
+        digest = self._plan_digest(write_set)
+        summary = {**self._plan_summary(normalized, digest, warnings), "project_id": project["id"],
+                   "expected_revision": project["revision"]}
+        summary["project"] = {"id": project["id"], "title": project["title"],
+                              "visibility": project["visibility"], "revision": project["revision"]}
+        return write_set, summary
+
+    @service_errors
+    def plan_stage(self, project_id: str, stage: Any, *, expected_revision: int) -> dict[str, Any]:
+        """Preview one new, unauthorized stage without writing. Its hash includes the project revision and ids."""
+        revision = _revision(expected_revision)
+        with self.store.db.connect() as conn:
+            return self._stage_plan_in(conn, project_id, stage, revision)[1]
+
+    @service_errors
+    def add_stage(self, project_id: str, stage: Any, *, plan_sha256: str, actor: str,
+                  expected_revision: int) -> dict[str, Any]:
+        """Create the confirmed stage, tasks and events in one transaction, then bump the project revision."""
+        actor = _user_actor(actor)
+        revision = _revision(expected_revision)
+        confirmed = _sha(plan_sha256, "plan_sha256")
+        with self._tasks.store.transaction() as conn:
+            write_set, summary = self._stage_plan_in(conn, project_id, stage, revision)
+            if summary["plan_sha256"] != confirmed:
+                raise _conflict("The stage plan is not the one that was confirmed", reason="plan_changed",
+                                expected_plan_sha256=confirmed, plan_sha256=summary["plan_sha256"])
+            item = write_set["stage"]
+            pid = write_set["project_id"]
+            store = self._tasks.store
+            cause = f"project:{pid}"
+            store.insert_group(conn, item["group_id"], item["title"], actor=actor, authorized=False,
+                               project_id=pid, position=item["position"], phases=item["phases"],
+                               planned_start=item["planned_start"], planned_end=item["planned_end"])
+            for task in item["tasks"]:
+                store.insert_task(conn, task["task_id"], item["group_id"], task["title"], actor=actor,
+                                  objective=task["objective"], preferred=task["preferred"],
+                                  context_refs=task["context_refs"], constraints=task["constraints"],
+                                  phase=task["phase"], due_at=task["due_at"])
+            self.store.update_project(conn, pid, expected_revision=revision)
+            self._event(conn, "project.stage_attached", pid, actor=actor, group_id=item["group_id"],
+                        payload={"group_id": item["group_id"], "position": item["position"],
+                                 "plan_sha256": confirmed})
+            tasks, deps = self._tasks._snapshot(conn)
+            statuses = self._tasks._status_map(tasks, deps)
+            store.append_event(conn, "group.created", actor=actor, group_id=item["group_id"], cause=cause,
+                               payload={"authorized": False, "default_requires": "accepted"})
+            for task in item["tasks"]:
+                store.append_event(conn, "task.created", actor=actor, group_id=item["group_id"],
+                                   task_id=task["task_id"], cause=cause,
+                                   payload={"status": statuses[task["task_id"]]})
+            return self._project_view_in(conn, pid)
+
     @service_errors
     def reorder(self, project_id: str, group_ids: Iterable[str], *, actor: str, expected_revision: int
                 ) -> dict[str, Any]:

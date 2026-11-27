@@ -877,9 +877,24 @@ closed. The card shows the stages and tasks, what the project rules could not
 verify, and two buttons. **Crear proyecto** is the only thing that creates
 anything, and only the draft on screen. **Cambiar algo** drafts again with
 your correction, as many times as you want. If no app is turned on to do the
-tasks, the card says so and links to **Apps y agentes**. Adding a stage to an
-open project is not part of this. See
+tasks, the card says so and links to **Apps y agentes**. To add a stage to an
+open project, see **Add a stage** below. See
 [Planning](PLANNING.md#create-a-project-by-talking).
+
+**Add a stage.** An open project shows **Add a stage**. It opens the same
+conversation box as **New project**, empty and with nothing to choose: the
+stage always goes to the project on screen, whose id travels only in the route.
+Say what the new stage should cover; the request, the project title and the
+titles of its stages go to the model chosen for new conversations, which drafts
+one stage with its tasks, and a remote model asks first, as in **New project**.
+The card shows the stage and its tasks, what could not be verified, and two
+buttons. **Add this stage** is the only thing that writes, with the preview's
+fingerprint and the project revision; **Change something** drafts again with
+your correction, as many times as you want. The new stage goes at the end of
+the project and starts unauthorized: its tasks stay pending until you authorize
+it. If the project changed meanwhile, or a stage or task with the same id
+already exists, nothing is added and you draft again. A run thread has no **Add
+a stage** of its own; its **Project** link leads to the project view.
 
 The token-protected GUI routes these views use:
 

@@ -219,6 +219,27 @@ const en = {
   "ext.project.draft.redraft": "Draft again",
   "ext.project.draft.error.plan_changed": "The draft changed after you saw it. Nothing was created. Draft it again.",
   "ext.project.draft.error.create": "Could not create the project.",
+  "ext.project.stage.add": "Add a stage",
+  "ext.project.stage.back": "Back to the project",
+  "ext.project.stage.intro": "Say what the new stage should cover. A model drafts one stage with its tasks. Nothing is added until you confirm.",
+  "ext.project.stage.text_label": "What should the new stage cover?",
+  "ext.project.stage.model_note": "The request, the project title and the titles of its stages go to the model chosen for new conversations. If it is a remote model, you are asked before anything is sent. A local model sends nothing outside this computer.",
+  "ext.project.stage.send": "Draft the stage",
+  "ext.project.stage.card_title": "Proposed stage",
+  "ext.project.stage.card_counts": "Tasks: {tasks}",
+  "ext.project.stage.unauthorized": "This stage will start unauthorized. Its tasks remain pending until you authorize it.",
+  "ext.project.stage.not_created": "Nothing is added until you press Add this stage.",
+  "ext.project.stage.create": "Add this stage",
+  "ext.project.stage.cloud_context": "Before sending, confirm that the request, project title, and existing stage titles may go to the selected cloud model.",
+  "ext.project.stage.no_executor": "No app or agent is active to do these tasks.",
+  "ext.project.stage.reason.disabled": "The model for new conversations is turned off, so no stage can be drafted.",
+  "ext.project.stage.reason.invalid_output": "The model's answer did not have the shape of one stage with tasks. Try again or say it in other words.",
+  "ext.project.stage.reason.default": "The stage could not be drafted.",
+  "ext.project.stage.error.changed": "Recheck this stage: the project changed since the preview. Nothing was added. Draft it again.",
+  "ext.project.stage.error.id_collision": "A stage or task with the same id already exists, so nothing was added. Draft it again.",
+  "ext.project.stage.error.create": "Could not add the stage.",
+  "ext.project.stage.added_title": "Stage added",
+  "ext.project.stage.added": "{title} is now at the end of the project. It starts unauthorized: its tasks remain pending until you authorize it.",
 };
 
 const es = {
@@ -437,6 +458,27 @@ const es = {
   "ext.project.draft.redraft": "Redactar otra vez",
   "ext.project.draft.error.plan_changed": "El borrador cambió después de que lo vieras. No se creó nada. Redáctalo otra vez.",
   "ext.project.draft.error.create": "No se pudo crear el proyecto.",
+  "ext.project.stage.add": "Añadir una etapa",
+  "ext.project.stage.back": "Volver al proyecto",
+  "ext.project.stage.intro": "Cuenta qué debe cubrir la etapa nueva. Un modelo redacta una etapa con sus tareas. No se añade nada hasta que lo confirmes.",
+  "ext.project.stage.text_label": "¿Qué debe cubrir la etapa nueva?",
+  "ext.project.stage.model_note": "La petición, el título del proyecto y los títulos de sus etapas van al modelo elegido para las conversaciones nuevas. Si es un modelo remoto, se te pregunta antes de enviar nada. Un modelo local no envía nada fuera de este equipo.",
+  "ext.project.stage.send": "Redactar la etapa",
+  "ext.project.stage.card_title": "Etapa propuesta",
+  "ext.project.stage.card_counts": "Tareas: {tasks}",
+  "ext.project.stage.unauthorized": "Esta etapa empezará sin autorizar. Sus tareas quedarán pendientes hasta que la autorices.",
+  "ext.project.stage.not_created": "No se añade nada hasta que pulses «Añadir esta etapa».",
+  "ext.project.stage.create": "Añadir esta etapa",
+  "ext.project.stage.cloud_context": "Antes de enviar, confirma que la petición, el título del proyecto y los títulos de sus etapas actuales pueden ir al modelo de nube seleccionado.",
+  "ext.project.stage.no_executor": "No hay ninguna app ni agente activo para hacer estas tareas.",
+  "ext.project.stage.reason.disabled": "El modelo de las conversaciones nuevas está apagado, así que no se puede redactar una etapa.",
+  "ext.project.stage.reason.invalid_output": "La respuesta del modelo no tenía forma de una etapa con tareas. Inténtalo otra vez o dilo con otras palabras.",
+  "ext.project.stage.reason.default": "No se pudo redactar la etapa.",
+  "ext.project.stage.error.changed": "Vuelve a comprobar esta etapa: el proyecto cambió desde la vista previa. No se añadió nada. Redáctala otra vez.",
+  "ext.project.stage.error.id_collision": "Ya existe una etapa o tarea con el mismo identificador, así que no se añadió nada. Redáctala otra vez.",
+  "ext.project.stage.error.create": "No se pudo añadir la etapa.",
+  "ext.project.stage.added_title": "Etapa añadida",
+  "ext.project.stage.added": "«{title}» ya está al final del proyecto. Empieza sin autorizar: sus tareas quedan pendientes hasta que la autorices.",
   "help.project.view": {
     "title": "Proyectos",
     "hint": "Sigue el avance de un proyecto por etapas, fases y tareas.",
@@ -742,6 +784,38 @@ const es = {
     "more": [
       "Es el único botón que crea algo. Está apagado mientras algo no se pudo verificar.",
       "El proyecto se crea como privado y sus etapas esperan a que las autorices."
+    ]
+  },
+  "help.project.stage_add": {
+    "title": "Añadir una etapa",
+    "hint": "Abre un cuadro donde dices qué debe cubrir la etapa nueva.",
+    "more": [
+      "Un modelo redacta una etapa con sus tareas y las reglas del proyecto la comprueban. Solo «Añadir esta etapa» escribe.",
+      "La etapa va al final del proyecto que tienes abierto y empieza sin autorizar."
+    ]
+  },
+  "help.project.stage_back": {
+    "title": "Volver al proyecto",
+    "hint": "Cierra el cuadro y vuelve al proyecto.",
+    "more": [
+      "No se añade nada si sales sin pulsar «Añadir esta etapa».",
+      "El texto que escribiste no se guarda al salir."
+    ]
+  },
+  "help.project.stage_send": {
+    "title": "Redactar la etapa",
+    "hint": "Pide al modelo una etapa con sus tareas.",
+    "more": [
+      "Se llama al modelo una vez. Todavía no se añade nada.",
+      "El título del proyecto y los de sus etapas viajan con tu petición, para que la etapa nueva no repita una que ya está."
+    ]
+  },
+  "help.project.stage_create": {
+    "title": "Añadir esta etapa",
+    "hint": "Añade la etapa tal como la muestra la tarjeta.",
+    "more": [
+      "Es el único botón que añade algo. Está apagado mientras algo no se pudo verificar.",
+      "La etapa va al final y empieza sin autorizar: sus tareas esperan a que la autorices. Si el proyecto cambió, no se añade nada."
     ]
   }
 };

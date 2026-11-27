@@ -116,13 +116,14 @@ def test_the_box_offers_nothing_ready_made_and_only_the_button_creates():
     assert "<select" not in box and "<option" not in box and "type=\"radio\"" not in box
     assert not re.search(r"template|preset|example", box + model, re.I)
     assert not re.search(r"innerHTML|dangerouslySetInnerHTML|insertAdjacentHTML", box + model)
-    # CREATE_PATH is posted from one place, the function that the «Crear proyecto» button runs, and from nowhere else
-    assert box.count("apiPost(CREATE_PATH") == 1 and box.count("onClick=${create}") == 1
+    # The create path is posted from one place, the function that the «Crear proyecto» button runs, and from nowhere else.
+    # PRY-T12: the box has a second create button, «Add this stage», for the stage mode: one button per mode, one function.
+    assert box.count("apiPost(createPath") == 1 and box.count("onClick=${create}") == 2
     assert box.count("async function create()") == 1 and "create()" not in box.replace("async function create()", "")
     assert "disabled=${busy || !view.canCreate}" in box
-    assert "apiPost(DRAFT_PATH" in box and box.count("apiPost(") == 2
+    assert "apiPost(draftPath" in box and box.count("apiPost(") == 2
     index = source("index.js")
-    assert index.count("<${NewProject}") == 1 and "project-draft.js" in index
+    assert index.count("<${NewProject}") == 2 and "project-draft.js" in index      # «Nuevo proyecto» and PRY-T12's «Add a stage»
     assert re.search(r'helpFor\("project\.new"\)', index)
 
 

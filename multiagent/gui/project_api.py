@@ -65,6 +65,19 @@ class CreateBody(_Body):
     plan_sha256: str = Field(min_length=64, max_length=64)    # the huella of the preview the person confirmed
 
 
+class StageDraftBody(DraftBody):
+    expected_revision: StrictInt = Field(ge=1)
+
+
+class StagePlanBody(_Body):
+    stage: dict[str, Any]
+    expected_revision: StrictInt = Field(ge=1)
+
+
+class StageCreateBody(StagePlanBody):
+    plan_sha256: str = Field(min_length=64, max_length=64)
+
+
 def _missing(task_id: str, project_id: str) -> ServiceError:
     return ServiceError(NOT_FOUND, f"Task {task_id} not found in project {project_id}", status=404,
                         details={"task_id": task_id, "project_id": project_id})
@@ -124,6 +137,25 @@ def add_project_routes(api: APIRouter, services: ApplicationServices) -> None:
         """PRY-T06: create the project of a draft the person confirmed, with the ``plan_sha256`` of its preview (the person
         holding the token is the actor, ``user:operator``). Another draft or hash writes nothing (409 ``plan_changed``)."""
         return drafts.create(body.draft, plan_sha256=body.plan_sha256, actor=REVIEWER)
+
+    @api.post("/projects/{project_id}/stages/draft")
+    def draft_stage(project_id: str, body: StageDraftBody) -> dict[str, Any]:
+        """Draft one stage for this project; no write occurs."""
+        return drafts.draft_stage(project_id, body.text, expected_revision=body.expected_revision,
+                                  previous=body.previous, correction=body.correction,
+                                  confirm_cloud=body.confirm_cloud, approval_id=body.approval_id,
+                                  cloud_model=body.cloud_model)
+
+    @api.post("/projects/{project_id}/stages/plan")
+    def plan_stage(project_id: str, body: StagePlanBody) -> dict[str, Any]:
+        """Verify the stage and return its revision-bound confirmation hash without writing."""
+        return drafts.plan_stage(project_id, body.stage, expected_revision=body.expected_revision)
+
+    @api.post("/projects/{project_id}/stages/create")
+    def create_stage(project_id: str, body: StageCreateBody) -> dict[str, Any]:
+        """Create the stage only when its draft, revision and confirmation hash still match."""
+        return drafts.create_stage(project_id, body.stage, plan_sha256=body.plan_sha256, actor=REVIEWER,
+                                   expected_revision=body.expected_revision)
 
     @api.get("/projects")
     def list_projects(archived: bool = False) -> dict[str, Any]:

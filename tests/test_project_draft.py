@@ -9,7 +9,10 @@ from __future__ import annotations
 import json
 
 import pytest
+from fastapi.testclient import TestClient
 
+from multiagent.api import create_app
+from multiagent.gui.token import ensure_token
 from multiagent.adapters.fake import FakeAdapter
 from multiagent.config import Settings
 from multiagent.contracts import ProjectDraftProposal
@@ -17,7 +20,8 @@ from multiagent.errors import ProviderUnavailable, QuotaExceeded
 from multiagent.observability.usage import read_usage
 from multiagent.services import ApplicationServices
 from multiagent.services.errors import ServiceError
-from multiagent.services.project_draft import clean_draft, project_key, to_document
+from multiagent.services.project_draft import clean_draft, clean_stage, project_key, to_document
+from multiagent.services.new_session import _BudgetCut, _Refused, _SecretReview
 from multiagent.services.usage import NEW_SESSION_USAGE_ID
 
 REQUEST = "preparar el lanzamiento de un producto y luego la campana de anuncios"
@@ -41,10 +45,12 @@ class Scripted(FakeAdapter):
 
 
 def make(tmp_path, adapter=None, **options):
-    settings = Settings(_env_file=None, local_dir=tmp_path / "local", worker_enabled=False, mock_mode=True, gemini_api_key="",
+    mock_mode = options.pop("mock_mode", True)
+    dry_run = options.pop("dry_run", True)
+    settings = Settings(_env_file=None, local_dir=tmp_path / "local", worker_enabled=False, mock_mode=mock_mode, gemini_api_key="",
                         openai_api_key="", openai_enabled=False, gui_token_file=tmp_path / "gui-token", **options)
-    overrides = {"fake": adapter} if adapter is not None else None
-    return ApplicationServices.create(settings, dry_run=True, adapter_overrides=overrides)
+    overrides = {"fake" if mock_mode else "ollama": adapter} if adapter is not None else None
+    return ApplicationServices.create(settings, dry_run=dry_run, adapter_overrides=overrides)
 
 
 @pytest.fixture
@@ -63,6 +69,231 @@ GOOD = {"title": "Launch plan", "stages": [
     {"title": "Prepare", "tasks": [{"title": "List the audiences", "objective": "Know who the launch is for."},
                                    {"title": "Write the message", "objective": ""}]},
     {"title": "Announce", "tasks": [{"title": "Publish the news", "objective": "Tell the audiences."}]}]}
+
+STAGE_ANSWER = {"title": "Launch plan", "stages": [
+    {"title": "User testing", "tasks": [{"title": "Invite participants", "objective": "Recruit volunteers."}]}]}
+
+
+def existing_project(made):
+    service = drafter(made)
+    return service.create(GOOD, plan_sha256=service.plan(GOOD)["plan_sha256"], actor="user:operator")
+
+
+def test_stage_draft_uses_real_ask_with_fake_adapter_and_untrusted_project_context(tmp_path):
+    adapter = Scripted(answer=STAGE_ANSWER)
+    made = make(tmp_path, adapter)
+    try:
+        project = existing_project(made)
+        answer = drafter(made).draft_stage(project["id"], "add user testing", expected_revision=project["revision"])
+        assert answer["reason"] == "" and answer["draft"]["title"] == "User testing"
+        assert answer["check"]["ok"] and answer["check"]["plan"]["stages"][0]["group_id"] == "launchplan-S3"
+        assert made.projects.get(project["id"])["revision"] == project["revision"]
+        prompt = adapter.prompts[0]
+        assert "PROJECT_CONTEXT_JSON:" in prompt
+        assert '"Prepare", "Announce"' in prompt
+        assert sum(line.startswith("<<<UNTRUSTED_DATA ") for line in prompt.splitlines()) == 2
+        assert made.projects.list()[0]["stages"] == 2
+    finally:
+        made.runs.close()
+
+
+def test_stage_draft_uses_local_model_router_and_records_usage(tmp_path):
+    adapter = Scripted(answer=STAGE_ANSWER)
+    made = make(tmp_path, adapter, mock_mode=False, dry_run=False)
+    try:
+        project = existing_project(made)
+        answer = drafter(made).draft_stage(project["id"], "add user testing", expected_revision=project["revision"])
+        assert answer["reason"] == "" and answer["draft"]["title"] == "User testing"
+        assert answer["check"]["ok"] and answer["check"]["plan"]["counts"]["stages"] == 1
+        assert len(adapter.prompts) == 1
+        prompt = adapter.prompts[0]
+        assert "STAGE_DRAFT:" in prompt and "PROJECT_CONTEXT_JSON:" in prompt
+        assert '"Prepare", "Announce"' in prompt
+        assert sum(line.startswith("<<<UNTRUSTED_DATA ") for line in prompt.splitlines()) == 2
+        rows = read_usage(made.system.engine.store, NEW_SESSION_USAGE_ID)
+        assert len(rows) == 1 and rows[0]["success"] is True
+    finally:
+        made.runs.close()
+
+
+@pytest.mark.parametrize("answer", [
+    {"title": "Launch plan", "stages": []},
+    {"title": "Launch plan", "stages": [{"title": "No tasks", "tasks": []}]},
+    {"title": "Launch plan", "stages": [{"title": "Bad", "tasks": [{"title": "T", "owner": "agent:x"}]}]},
+    {"title": "Launch plan", "stages": [STAGE_ANSWER["stages"][0],
+                                           {"title": "Another", "tasks": [{"title": "T"}]}]},
+])
+def test_invalid_stage_model_output_is_held(tmp_path, answer):
+    made = make(tmp_path, Scripted(answer=answer))
+    try:
+        project = existing_project(made)
+        held = drafter(made).draft_stage(project["id"], "add testing", expected_revision=project["revision"])
+        assert held["reason"] == "invalid_output" and held["draft"] is None
+    finally:
+        made.runs.close()
+
+
+def test_stage_draft_remote_confirmation_covers_project_context(tmp_path):
+    adapter = Scripted(answer=STAGE_ANSWER)
+    made = make(tmp_path, adapter, gui_new_session_model="cloud_fast", egress_default="off")
+    try:
+        project = existing_project(made)
+        held = drafter(made).draft_stage(project["id"], "add testing", expected_revision=project["revision"])
+        assert held["reason"] == "cloud_confirmation_required" and not adapter.prompts
+        sent = drafter(made).draft_stage(project["id"], "add testing", expected_revision=project["revision"],
+                                         confirm_cloud=True, cloud_model="cloud_fast")
+        assert sent["reason"] == "" and len(adapter.prompts) == 1
+    finally:
+        made.runs.close()
+
+
+def test_stage_routes_keep_project_id_in_path_and_server_actor(tmp_path):
+    made = make(tmp_path, Scripted(answer=STAGE_ANSWER))
+    try:
+        project = existing_project(made)
+        root = f"/gui/api/projects/{project['id']}/stages"
+        with TestClient(create_app(services=made), base_url="http://127.0.0.1") as client:
+            token = ensure_token(made.settings.gui_token_file)
+            headers = {"Authorization": f"Bearer {token}"}
+            drafted = client.post(root + "/draft", headers=headers,
+                                  json={"text": "add testing", "expected_revision": project["revision"]})
+            assert drafted.status_code == 200, drafted.text
+            stage = drafted.json()["draft"]
+            assert stage["title"] == "User testing"
+            planned = client.post(root + "/plan", headers=headers,
+                                  json={"stage": stage, "expected_revision": project["revision"]})
+            assert planned.status_code == 200, planned.text
+            digest = planned.json()["plan_sha256"]
+            wrong = client.post(root + "/create", headers=headers,
+                                json={"stage": stage, "expected_revision": project["revision"],
+                                      "plan_sha256": "0" * 64, "actor": "agent:untrusted"})
+            assert wrong.status_code == 422  # extra actor is never accepted
+            changed = client.post(root + "/create", headers=headers,
+                                  json={"stage": stage, "expected_revision": project["revision"],
+                                        "plan_sha256": "0" * 64})
+            assert changed.status_code == 409 and changed.json()["detail"]["details"]["reason"] == "plan_changed"
+            created = client.post(root + "/create", headers=headers,
+                                  json={"stage": stage, "expected_revision": project["revision"], "plan_sha256": digest})
+            assert created.status_code == 200, created.text
+            assert made.tasks.get_group("launchplan-S3")["created_by"] == "user:operator"
+            stale = client.post(root + "/create", headers=headers,
+                                json={"stage": stage, "expected_revision": project["revision"], "plan_sha256": digest})
+            assert stale.status_code == 409
+    finally:
+        made.runs.close()
+
+
+def test_stage_correction_is_wrapped_and_requires_previous(tmp_path):
+    adapter = Scripted(answer=STAGE_ANSWER)
+    made = make(tmp_path, adapter)
+    try:
+        project = existing_project(made)
+        answer = drafter(made).draft_stage(project["id"], "add testing", expected_revision=project["revision"],
+                                           previous=STAGE_ANSWER["stages"][0], correction="add interviews")
+        assert answer["reason"] == ""
+        prompt = adapter.prompts[0]
+        assert "PREVIOUS_DRAFT_JSON:" in prompt and "CORRECTION:" in prompt
+        assert sum(line.startswith("<<<UNTRUSTED_DATA ") for line in prompt.splitlines()) == 4
+        assert sum(line.startswith("<<<END_UNTRUSTED_DATA") for line in prompt.splitlines()) == 4
+        assert '| add interviews' in prompt
+        previous_line = next(line for line in prompt.splitlines()
+                             if line.startswith('| {"title": "Launch plan"') and '"User testing"' in line)
+        assert json.loads(previous_line[2:])["stages"] == [STAGE_ANSWER["stages"][0]]
+        with TestClient(create_app(services=made), base_url="http://127.0.0.1") as client:
+            token = ensure_token(made.settings.gui_token_file)
+            response = client.post(f"/gui/api/projects/{project['id']}/stages/draft",
+                                   headers={"Authorization": f"Bearer {token}"},
+                                   json={"text": "add testing", "correction": "add interviews",
+                                         "expected_revision": project["revision"]})
+            assert response.status_code == 422
+        assert len(adapter.prompts) == 1
+    finally:
+        made.runs.close()
+
+
+def test_stage_rejects_invalid_revision_before_model_call(tmp_path):
+    adapter = Scripted(answer=STAGE_ANSWER)
+    made = make(tmp_path, adapter)
+    try:
+        project = existing_project(made)
+        for revision in (0, -1, True, "1"):
+            with pytest.raises(ServiceError) as caught:
+                drafter(made).draft_stage(project["id"], "add testing", expected_revision=revision)
+            assert caught.value.status == 422
+        assert adapter.prompts == []
+    finally:
+        made.runs.close()
+
+
+@pytest.mark.parametrize("reason,error", [
+    ("secret_review_required", _SecretReview("review-1")),
+    ("budget_cut", _BudgetCut("budget")),
+    ("refused", _Refused("policy")),
+    ("limit_reached", QuotaExceeded("quota")),
+    ("model_error", ProviderUnavailable("no model")),
+])
+def test_stage_no_draft_reasons_match_project_draft(tmp_path, monkeypatch, reason, error):
+    made = make(tmp_path)
+    try:
+        project = existing_project(made)
+        def fail(*args, **kwargs):
+            raise error
+        monkeypatch.setattr(made.new_session, "_ask", fail)
+        held = drafter(made).draft_stage(project["id"], "add testing", expected_revision=project["revision"])
+        assert held["reason"] == reason and held["draft"] is None and held["check"] is None
+        assert held["expected_revision"] == project["revision"] and held["tier"] == "local"
+        if reason == "secret_review_required":
+            assert held["approval_id"] == "review-1"
+        if reason == "limit_reached":
+            assert held["limit"]["code"] == "limit_reached"
+    finally:
+        made.runs.close()
+
+
+def test_stage_disabled_has_no_draft_and_no_model_call(tmp_path):
+    adapter = Scripted(answer=STAGE_ANSWER)
+    made = make(tmp_path, adapter, gui_new_session_interpret=False)
+    try:
+        project = existing_project(made)
+        held = drafter(made).draft_stage(project["id"], "add testing", expected_revision=project["revision"])
+        assert held["reason"] == "disabled" and held["draft"] is None and held["check"] is None
+        assert held["expected_revision"] == project["revision"] and adapter.prompts == []
+    finally:
+        made.runs.close()
+
+
+@pytest.mark.parametrize("route,body", [
+    ("draft", {"text": "add testing", "expected_revision": 1}),
+    ("plan", {"stage": STAGE_ANSWER["stages"][0], "expected_revision": 1}),
+    ("create", {"stage": STAGE_ANSWER["stages"][0], "expected_revision": 1, "plan_sha256": "0" * 64}),
+])
+def test_stage_routes_return_404_for_missing_project(tmp_path, route, body):
+    made = make(tmp_path)
+    try:
+        with TestClient(create_app(services=made), base_url="http://127.0.0.1") as client:
+            token = ensure_token(made.settings.gui_token_file)
+            response = client.post(f"/gui/api/projects/missing/stages/{route}",
+                                   headers={"Authorization": f"Bearer {token}"}, json=body)
+            assert response.status_code == 404, response.text
+    finally:
+        made.runs.close()
+
+
+def test_mock_stage_draft_keeps_one_stage_through_task_corrections(services):
+    project = existing_project(services)
+    service = drafter(services)
+    request = "write surveys and schedule interviews"
+    first = service.draft_stage(project["id"], request, expected_revision=project["revision"])
+    assert first["reason"] == "" and len(first["draft"]["tasks"]) == 2
+    assert first["check"]["ok"]
+    removed = service.draft_stage(project["id"], request, expected_revision=project["revision"],
+                                  previous=first["draft"], correction="remove surveys task")
+    assert removed["reason"] == "" and [task["title"] for task in removed["draft"]["tasks"]] == ["schedule interviews"]
+    added = service.draft_stage(project["id"], request, expected_revision=project["revision"],
+                                previous=removed["draft"], correction="add usability notes")
+    assert added["reason"] == "" and [task["title"] for task in added["draft"]["tasks"]] == [
+        "schedule interviews", "add usability notes"]
+    assert added["check"]["ok"]
 
 
 # --- a valid draft from Mock ---------------------------------------------------------------------------------------------

@@ -1294,7 +1294,114 @@ def test_facade_http_and_cli_give_the_same_results(monkeypatch, capsys, tmp_path
 def test_the_parity_script_covers_every_public_operation():
     operations = {op for op, _ in SCRIPT}
     public = {name for name, member in vars(ProjectServices).items() if callable(member) and not name.startswith("_")}
-    assert operations - {"events"} == public   # "events" is the team event log read with the project filter
+    assert operations - {"events"} == public - {"plan_stage", "add_stage"}  # stage drafting is GUI-only in this round
+
+
+STAGE_DRAFT = {"title": "User testing", "tasks": [{"title": "Invite participants", "objective": "Recruit volunteers."},
+                                                    {"title": "Observe sessions", "objective": "Record findings."}]}
+
+
+def test_stage_plan_is_read_only_and_confirmed_add_is_atomic(services):
+    project = make_project(services)
+    before = services.tasks.events(project_id="mkt")
+    preview = services.projects.plan_stage("mkt", STAGE_DRAFT, expected_revision=project["revision"])
+    assert preview["stages"][0]["group_id"] == "mkt-S1"
+    assert [task["id"] for task in preview["tasks"]] == ["mkt-S1-T01", "mkt-S1-T02"]
+    assert services.projects.get("mkt")["revision"] == project["revision"]
+    assert services.tasks.events(project_id="mkt") == before
+    assert error_of(services.tasks.get_group, "mkt-S1").status == 404
+    made = services.projects.add_stage("mkt", STAGE_DRAFT, plan_sha256=preview["plan_sha256"], actor=OWNER,
+                                       expected_revision=project["revision"])
+    assert made["revision"] == project["revision"] + 1
+    assert made["stages"][-1]["group_id"] == "mkt-S1"
+    assert services.tasks.get_group("mkt-S1")["authorized"] is False
+    assert [services.tasks.get_task(task_id)["group_id"] for task_id in ("mkt-S1-T01", "mkt-S1-T02")] == ["mkt-S1"] * 2
+    events = services.tasks.events(project_id="mkt")
+    assert [event["type"] for event in events[len(before):]] == ["project.stage_attached", "group.created",
+                                                                 "task.created", "task.created"]
+
+
+def test_stage_add_uses_normalized_project_id(services):
+    project = make_project(services)
+    preview = services.projects.plan_stage(" mkt ", STAGE_DRAFT, expected_revision=project["revision"])
+    made = services.projects.add_stage(" mkt ", STAGE_DRAFT, plan_sha256=preview["plan_sha256"], actor=OWNER,
+                                       expected_revision=project["revision"])
+    assert made["id"] == "mkt" and made["stages"][-1]["group_id"] == "mkt-S1"
+    assert services.tasks.get_group("mkt-S1")["project_id"] == "mkt"
+    assert all(event["cause"] == "project:mkt" for event in services.tasks.events(project_id="mkt")
+               if event["type"] in {"group.created", "task.created"})
+
+
+def test_stage_confirmation_guards_revision_actor_archive_and_changed_draft(services):
+    project = make_project(services)
+    revision = project["revision"]
+    preview = services.projects.plan_stage("mkt", STAGE_DRAFT, expected_revision=revision)
+    for stage, digest, actor in ((STAGE_DRAFT, "0" * 64, OWNER),
+                                 ({**STAGE_DRAFT, "title": "Changed"}, preview["plan_sha256"], OWNER),
+                                 (STAGE_DRAFT, preview["plan_sha256"], AGENT)):
+        error = error_of(services.projects.add_stage, "mkt", stage, plan_sha256=digest, actor=actor,
+                         expected_revision=revision)
+        assert error.status == 409
+    assert error_of(services.tasks.get_group, "mkt-S1").status == 404
+    services.projects.update("mkt", title="New title", actor=OWNER, expected_revision=revision)
+    assert error_of(services.projects.add_stage, "mkt", STAGE_DRAFT, plan_sha256=preview["plan_sha256"],
+                    actor=OWNER, expected_revision=revision).status == 409
+    current = services.projects.get("mkt")["revision"]
+    services.projects.archive("mkt", actor=OWNER, expected_revision=current)
+    assert error_of(services.projects.plan_stage, "mkt", STAGE_DRAFT, expected_revision=current + 1).status == 409
+    assert error_of(services.tasks.get_group, "mkt-S1").status == 404
+
+
+def test_stage_creation_rolls_back_after_a_partial_insert(services, monkeypatch):
+    project = make_project(services)
+    preview = services.projects.plan_stage("mkt", STAGE_DRAFT, expected_revision=project["revision"])
+    before = len(services.tasks.events(project_id="mkt"))
+    original = services.tasks.store.insert_task
+    calls = 0
+
+    def fail_on_second(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("synthetic write failure")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(services.tasks.store, "insert_task", fail_on_second)
+    with pytest.raises(RuntimeError):
+        services.projects.add_stage("mkt", STAGE_DRAFT, plan_sha256=preview["plan_sha256"], actor=OWNER,
+                                    expected_revision=project["revision"])
+    assert services.projects.get("mkt")["revision"] == project["revision"]
+    assert error_of(services.tasks.get_group, "mkt-S1").status == 404
+    assert error_of(services.tasks.get_task, "mkt-S1-T01").status == 404
+    assert len(services.tasks.events(project_id="mkt")) == before
+
+
+def test_later_stage_uses_next_free_code_and_run_project_uses_title_prefix(services):
+    project = make_project(services)
+    first = services.projects.plan_stage("mkt", STAGE_DRAFT, expected_revision=project["revision"])
+    made = services.projects.add_stage("mkt", STAGE_DRAFT, plan_sha256=first["plan_sha256"], actor=OWNER,
+                                       expected_revision=project["revision"])
+    second = services.projects.plan_stage("mkt", STAGE_DRAFT, expected_revision=made["revision"])
+    assert second["stages"][0]["code"] == "S2"
+    with services.tasks.store.transaction() as conn:
+        services.projects.store.insert_project(conn, "1" + "a" * 31, "Run project", visibility="private", created_by=OWNER)
+    run_id = "1" + "a" * 31
+    run_preview = services.projects.plan_stage(run_id, STAGE_DRAFT, expected_revision=1)
+    assert run_preview["stages"][0]["group_id"] == "runproject-S1"
+    services.projects.add_stage(run_id, STAGE_DRAFT, plan_sha256=run_preview["plan_sha256"], actor=OWNER,
+                                expected_revision=1)
+    assert services.tasks.get_group("runproject-S1")["project_id"] == run_id
+
+
+def test_run_project_title_prefix_collision_is_reported_without_a_write(services):
+    run_id = "2" + "b" * 31
+    with services.tasks.store.transaction() as conn:
+        services.projects.store.insert_project(conn, run_id, "Run project", visibility="private", created_by=OWNER)
+    services.tasks.create_group("runproject-S1", "Unrelated", actor=OWNER)
+    error = error_of(services.projects.plan_stage, run_id, STAGE_DRAFT, expected_revision=1)
+    assert error.status == 409 and error.details["reason"] == "id_collision"
+    assert services.projects.get(run_id)["revision"] == 1
+    assert services.tasks.get_group("runproject-S1")["project_id"] is None
 
 
 def test_the_cli_reads_json_or_yaml_plan_files_and_creates_with_its_own_hash(monkeypatch, capsys, tmp_path):

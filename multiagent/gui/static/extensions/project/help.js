@@ -309,5 +309,37 @@ export const HELP = {
       "This is the only button that creates anything. It is off while something could not be verified.",
       "The project is created as private, and its stages wait for you to authorize them."
     ]
+  },
+  "project.stage_add": {
+    "title": "Add a stage",
+    "hint": "Open a box where you say what the new stage should cover.",
+    "more": [
+      "A model drafts one stage with its tasks and the project rules check it. Only Add this stage writes.",
+      "The stage goes at the end of the project you have open and starts unauthorized."
+    ]
+  },
+  "project.stage_back": {
+    "title": "Back to the project",
+    "hint": "Close the box and return to the project.",
+    "more": [
+      "Nothing is added if you leave without pressing Add this stage.",
+      "The text you wrote is not kept when you leave."
+    ]
+  },
+  "project.stage_send": {
+    "title": "Draft the stage",
+    "hint": "Ask the model for one stage with its tasks.",
+    "more": [
+      "The model is called once. Nothing is added yet.",
+      "The project title and its stage titles go with your request, so the new stage does not repeat one that is already there."
+    ]
+  },
+  "project.stage_create": {
+    "title": "Add this stage",
+    "hint": "Add the stage exactly as the card shows it.",
+    "more": [
+      "This is the only button that adds anything. It is off while something could not be verified.",
+      "The stage goes at the end and starts unauthorized: its tasks wait until you authorize it. If the project changed, nothing is added."
+    ]
   }
 };

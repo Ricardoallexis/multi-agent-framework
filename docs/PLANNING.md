@@ -241,8 +241,9 @@ The text, the previous draft and the correction enter the prompt as untrusted da
 is data: it is checked by structure and by `projects.plan`, and it chooses no path, permission or executor.
 Before a remote model gets the text, the person is told which model, that the text leaves the computer and
 that the project is private, and a local model is named if the catalog has one. A model at its usage limit,
-a budget cut, the egress policy and the secret review answer as they do in **Nueva sesión**. Adding a stage to
-an open project is not part of this. See [the routes](API.md#gui-routes-local-token-protected).
+a budget cut, the egress policy and the secret review answer as they do in **Nueva sesión**. An open project
+can gain a stage the same way: the stage draft checks one proposed stage against the current project revision
+and adds it, unauthorized, only after confirmation. See [the routes](API.md#gui-routes-local-token-protected).
 
 ## Current limits
 

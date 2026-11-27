@@ -800,3 +800,22 @@
     border-color: CanvasText;
   }
 }
+
+/* PRY-T12: «Add a stage», the entry in the project head; the box itself is the one of «Nuevo proyecto». */
+.project-stage-entry {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+@media (max-width: 599.98px) {
+  .project-stage-entry {
+    flex: 1 1 100%;
+  }
+
+  .project-stage-entry > .btn {
+    flex: 1 1 auto;
+  }
+}

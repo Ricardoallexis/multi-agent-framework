@@ -71,11 +71,7 @@ _STRUCTURE_WORDS = set("etapa etapas tarea tareas stage stages task tasks".split
 
 
 def _project_draft_fixture(prompt: str) -> dict[str, Any]:
-    """Deterministic stand-in for the project drafter (PRY-T06). It reads only the three quoted sections of the prompt
-    (``PROJECT_REQUEST:``, ``PREVIOUS_DRAFT_JSON:`` and ``CORRECTION:``): one stage with one task for each part of the
-    request (``split_request``). With a previous draft, a correction that asks to remove something drops the stages
-    that share words with it (never all of them); any other correction adds one stage with its text. It never reads
-    a ready-made project: the draft comes from the text of the request alone."""
+    """Deterministic project or single-stage drafter using only quoted request and correction data."""
     from ..planning.chat import split_request     # lazy: the planning package imports the services
 
     sections: dict[str, list[str]] = {"PROJECT_REQUEST:": [], "PREVIOUS_DRAFT_JSON:": [], "CORRECTION:": []}
@@ -98,6 +94,24 @@ def _project_draft_fixture(prompt: str) -> dict[str, Any]:
             draft = ProjectDraftProposal.model_validate(json.loads(previous)).model_dump()
         except ValueError:
             draft = None
+    if "STAGE_DRAFT:" in prompt.splitlines():
+        if draft is None:
+            parts = [part.strip(" \t\r\n,;") for segment in split_request(request)
+                     for part in re.split(r"\b(?:and|y)\b", segment, flags=re.IGNORECASE)]
+            parts = [part for part in parts if part] or [request or "Stage"]
+            draft = {"title": (request or "Project")[:80],
+                     "stages": [{"title": (request or "Stage")[:120],
+                                 "tasks": [stage(part)["tasks"][0] for part in parts[:12]]}]}
+        if correction:
+            tasks = draft["stages"][0]["tasks"]
+            tokens = set(re.findall(r"[^\W_]+", correction.lower()))
+            if tokens & _REMOVAL_WORDS:
+                targets = _words(correction) - _REMOVAL_WORDS - _STRUCTURE_WORDS
+                kept = [task for task in tasks if not targets & _words(task["title"])] if targets else tasks
+                draft["stages"][0]["tasks"] = kept or tasks
+            elif len(tasks) < 12:
+                tasks.append(stage(correction)["tasks"][0])
+        return draft
     if draft is None:
         parts = split_request(request) or [request or "Project"]
         return {"title": (request or "Project")[:80], "stages": [stage(part) for part in parts][:12]}

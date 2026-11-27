@@ -173,6 +173,7 @@ export function ProjectView({ token, route }) {
   const [notice, setNotice] = useState("");
   const [review, setReview] = useState(NO_REVIEW);
   const [creating, setCreating] = useState(false);      // PRY-T06: «Nuevo proyecto» (project-draft.js) is open
+  const [stageFor, setStageFor] = useState("");          // PRY-T12: the id of the open project whose «Add a stage» box is open
   const calls = useRef({ project: 0, task: 0, costs: 0 });          // an answer that arrives after a newer request is dropped
   const seenProject = useRef({ id: "", seq: 0 });
   const heading = useRef(null);
@@ -350,10 +351,17 @@ export function ProjectView({ token, route }) {
         <button type="button" class="btn" disabled=${creating} onClick=${() => setCreating(true)} ...${helpFor("project.new")}>${t("ext.project.draft.new")}</button>
         <${Help} topic="project.new" compact=${true} />
       </div>
+      ${project && !project.archived ? html`<div class="project-stage-entry">
+        <button type="button" class="btn" disabled=${creating || stageFor === project.id} onClick=${() => setStageFor(project.id)} ...${helpFor("project.stage_add")}>${t("ext.project.stage.add")}</button>
+        <${Help} topic="project.stage_add" compact=${true} />
+      </div>` : null}
     </div>
 
     ${creating ? html`<${NewProject} token=${token} onClose=${() => setCreating(false)}
       onCreated=${(id) => { setCreating(false); selectProject(id); navigate("project", id); loadProjects(); announce(); }} />` : null}
+    ${project && stageFor === project.id && !project.archived && !creating ? html`<${NewProject} key=${project.id} token=${token}
+      stage=${{ projectId: project.id, revision: project.revision }} onClose=${() => setStageFor("")}
+      onCreated=${() => { loadProject(project.id).then(announce); }} onStale=${() => { loadProject(project.id).then(announce); }} />` : null}
     ${error ? html`<p class="project-error" role="alert">${error}</p>` : null}
     ${projects === null ? html`<p class="project-empty">${t("ext.project.loading.projects")}</p>` : null}
     ${projects && !projects.length && !error && !creating ? html`<p class="project-empty">${t("ext.project.empty.projects")}</p>` : null}
