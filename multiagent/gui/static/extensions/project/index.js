@@ -20,7 +20,7 @@ import { countPieces } from "../../js/thread-model.js";
 import { Progress } from "../../js/ui/progress.js";
 import { Tabs } from "../../js/ui/tabs.js";
 import { HELP } from "./help.js";
-import { labelSummary, list, NO_LIST_FILTER, needsText, pickProject, progressOf } from "./model.js";
+import { labelSummary, list, NO_LIST_FILTER, needsText, overviewFigures, pickProject, progressOf } from "./model.js";
 import { ListPanel, Overview, StagesPanel, TaskDetail } from "./parts.js";
 import { NewProject } from "./project-draft.js";
 
@@ -386,11 +386,13 @@ export function ProjectSlot({ token, route, onContent }) {
   const chosen = projects.find((p) => p.id === pickProject(projects, route?.section === "project" ? route.id : ""));
   if (!chosen) return html`<p class="project-empty">${t("ext.project.empty.projects_short")}</p>`;
   const bar = progressOf(chosen.progress);
+  const weighted = overviewFigures(chosen).percent;   // AVZ-T05: the same figure as the summary strip; none, no line
   const pieces = countPieces(chosen.counts);   // AVZ-T04: the list already carries the counts per label; none, or fewer than two tasks, no bar
   return html`<div class="project-slot">
     <span class="project-title">${chosen.title || chosen.name || chosen.id}</span>
     <${Progress} label=${t("ext.project.progress.title")} value=${bar.value} max=${bar.max} valueText=${bar.valueText} />
     ${pieces && html`<${SegmentBar} segments=${pieces.segments} summary=${pieces.summary} className="project-segbar project-segbar-small" />`}
+    ${weighted !== null && html`<p class="project-meta">${t("ext.project.figures.weighted")}: ${t("ext.project.figures.percent", { percent: weighted })}</p>`}
     <p class="project-meta">${needsText(chosen.needs_you)}</p>
     <a class="btn secondary small" href=${routeHref("project", chosen.id)} ...${helpFor("project.open")}>${t("ext.project.open")}</a>
     <${Help} topic="project.open" compact=${true} />

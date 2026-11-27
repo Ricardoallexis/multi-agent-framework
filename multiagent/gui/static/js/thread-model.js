@@ -329,13 +329,18 @@ export function liveSteps(steps, entries = [], status = "", decisions = {}) {
   const lastWait = new Map();
   const completedAt = new Map();
   const anonymous = [];
+  const waitReason = new Map();   // AVZ-T05: the reason of the last wait of each step
+  const moves = [];               // AVZ-T05: every wait or completed message of a named step: { id, seq }
   for (const entry of Array.isArray(entries) ? entries : []) {
     if (!entry) continue;
     const seq = Number(entry.seq) || 0;
     if (entry.kind === "waiting" && !entry.step_id) anonymous.push(seq);
     if (!entry.step_id) continue;
-    if (entry.kind === "waiting") lastWait.set(entry.step_id, Math.max(lastWait.get(entry.step_id) ?? -1, seq));
-    else if (entry.kind === "step" && entry.status === "completed") completedAt.set(entry.step_id, Math.max(completedAt.get(entry.step_id) ?? -1, seq));
+    if (entry.kind === "waiting" || (entry.kind === "step" && entry.status === "completed")) moves.push({ id: entry.step_id, seq });
+    if (entry.kind === "waiting") {
+      if (seq >= (lastWait.get(entry.step_id) ?? -1)) waitReason.set(entry.step_id, entry.reason);
+      lastWait.set(entry.step_id, Math.max(lastWait.get(entry.step_id) ?? -1, seq));
+    } else if (entry.kind === "step" && entry.status === "completed") completedAt.set(entry.step_id, Math.max(completedAt.get(entry.step_id) ?? -1, seq));
   }
   const listed = steps.filter((step) => step && typeof step.id === "string" && step.id);
   const waitingIds = listed.filter((step) => step.state === "waiting_review" || step.state === "waiting_human").map((step) => step.id);
@@ -349,6 +354,10 @@ export function liveSteps(steps, entries = [], status = "", decisions = {}) {
   const proven = (id) => completedAt.has(id) && completedAt.get(id) > waitOf(id);
   const choice = decisions && typeof decisions === "object" ? decisions : {};
   const ended = ["cancelled", "rejected"].includes(status);
+  // AVZ-T05: the earlier wait of a step holds only while nothing later goes past it: the run stopped again (another wait, a failure), or the
+  // thread heard a wait or a completed message of ANOTHER step after it. Then the fresh list says it all for that step.
+  const outrun = (id) => !["running", "queued"].includes(status) || moves.some((move) => move.id !== id && move.seq > lastWait.get(id));
+  const REVIEW_STOPS = ["review", "approval_pending", "budget_exhausted"];
   const live = listed.map((step) => {
     let state = Object.prototype.hasOwnProperty.call(STEP_TONE, step.state) ? step.state : "pending";
     const waiting = state === "waiting_review" || state === "waiting_human";
@@ -362,6 +371,15 @@ export function liveSteps(steps, entries = [], status = "", decisions = {}) {
       else if (ended) state = "not_run";
       else if (valid && decision.choice === "approve" && state === "waiting_review") state = "done";
       else if (valid && decision.choice === "approve") state = status === "queued" ? "queued" : "running";   // approved to run: not finished
+      else if (valid && decision.choice === "changes") state = "running";
+      else unknown = true;
+    } else if (!waiting && !ended && status !== "completed" && ["done", "running", "queued"].includes(state) && lastWait.has(step.id) && !proven(step.id) && !outrun(step.id)) {
+      // AVZ-T05: the list is fresh on every page, so it can say done, running or queued for a step that had a wait in this thread. The same
+      // rule holds: only this person's decision about that very wait says what happened; a decision taken elsewhere hides the bar.
+      const decision = choice[step.id];
+      const valid = Boolean(decision) && decision.wait_seq === lastWait.get(step.id);
+      const before = waitReason.get(step.id) && !REVIEW_STOPS.includes(waitReason.get(step.id));   // a wait before the step runs: the list's done is an older attempt
+      if (valid && decision.choice === "approve") state = before ? (status === "queued" ? "queued" : "running") : state;   // approved here
       else if (valid && decision.choice === "changes") state = "running";
       else unknown = true;
     } else if (!waiting && !STEP_PASSIVE.includes(state) && state !== "failed" && proven(step.id)) {

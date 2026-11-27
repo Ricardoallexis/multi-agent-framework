@@ -208,7 +208,7 @@ def build_thread(services: Any, run: dict[str, Any], *, after: int = 0) -> dict[
                         "output": _clean(artifact.get("data")) if run["status"] == "completed" and artifact else None,
                         "error": _clean(run.get("error") or "") if run["status"] == "failed" else ""})
     return {"run_id": run["id"], "status": run["status"], "cursor": events[-1]["seq"] if events else 0,
-            "entries": [entry for entry in entries if entry["seq"] > after]}
+            "entries": [entry for entry in entries if entry["seq"] > after], "steps": view["steps"]}
 
 
 def build_team_thread(services: Any, version_id: str) -> dict[str, Any]:

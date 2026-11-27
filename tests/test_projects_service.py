@@ -1339,3 +1339,15 @@ def test_the_http_labels_route_serves_the_same_map(tmp_path):
             assert bad_body.status_code == 422 and bad_body.json()["detail"]["code"] == "invalid_request"
     finally:
         svc.runs.close()
+
+
+def test_list_items_carry_the_same_weighted_progress_as_get(services):
+    make_project(services, "one")
+    make_project(services, "two")
+    services.system.store.get_or_create_project("from-a-run")
+    authorize(services, "one-INV")
+    deliver(services, "one-INV-T01")
+    rows = services.projects.list()
+    assert len(rows) == 3
+    for row in rows:
+        assert "progress_weighted" in row and row["progress_weighted"] == services.projects.get(row["id"])["progress_weighted"]

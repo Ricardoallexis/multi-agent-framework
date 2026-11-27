@@ -178,3 +178,20 @@ def test_pry_t11_the_run_view_and_the_launched_entry_carry_the_project(tmp_path)
         assert next(e for e in build_thread(svc, bundled)["entries"] if e["kind"] == "launched")["project_id"] is None
     finally:
         svc.runs.close()
+
+
+# --- AVZ-T05: every page carries the whole list of steps ----------------------------------------------------------
+
+def test_every_thread_page_carries_the_steps_even_with_a_cursor(env):
+    run_id = create(env)
+    first = get(env, run_id).json()
+    assert isinstance(first["steps"], list) and first["steps"]
+    assert all({"id", "state"} <= set(step) for step in first["steps"])
+    assert env.services.system.worker.process_once()
+    full = get(env, run_id).json()
+    assert len(full["entries"]) > 1 and full["steps"] != first["steps"]   # the steps follow the run
+    partial = get(env, run_id, after=first["cursor"]).json()
+    assert partial["steps"] == full["steps"]                              # the whole list, not a slice
+    assert [entry["seq"] for entry in partial["entries"]] == [e["seq"] for e in full["entries"] if e["seq"] > first["cursor"]]
+    later = get(env, run_id, after=full["cursor"]).json()
+    assert later["steps"] == full["steps"] and later["entries"] == []     # `after` filters only the entries

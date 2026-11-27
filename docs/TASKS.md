@@ -58,7 +58,9 @@ legacy release readiness remain separate values.
 A project view carries `progress` (`done` of the tasks that count) and, next to it,
 `progress_weighted`, which moves before a task finishes. The weight comes from the
 stored `state`, not from the label, and lives in the `weights` key of
-`multiagent/tasks/labels.json`, the same file as the labels.
+`multiagent/tasks/labels.json`, the same file as the labels. Each item of the GUI
+project list (`GET /gui/api/projects`) carries the same `progress_weighted` as its
+view.
 
 | Step | Stored state | Weight |
 | --- | --- | --- |

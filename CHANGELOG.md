@@ -5,6 +5,7 @@ Notable changes to the public project are documented here. The project uses `M-B
 ## [Unreleased]
 
 ### Added
+- GUI: A run thread now has its progress bar even when the run never stops, because every thread page carries the run's steps, and the project card in Context also shows the weighted progress, the same figure as the Summary; no new requests.
 - GUI: The thread header's Project link now appears: session summaries, the run view and the run thread's launched entry carry `project_id` and `project_title` (summaries also `project_name`), taken from the linked task's project; a run inside an office package gets a project only through its task.
 - GUI: The run thread, the plan thread, the "In progress" group of Context and the project card show the same segmented progress bar, built only from data each view already loads (no new requests or polling); a step that failed or waits for you is named in text, and a step that stopped counts as done only once it finished after that stop or you approved it in that thread.
 - GUI: A project can be created by talking: **Nuevo proyecto** in **Proyectos** opens an empty box, a model drafts the stages and tasks once (a remote model is asked about once per box and again if the model changes, and the project is private), `projects.plan` verifies the draft, and **Crear proyecto** creates it only with the hash of the preview shown; **Cambiar algo** drafts again with no limit. New routes `POST /gui/api/projects/draft`, `/plan` and `/create`.

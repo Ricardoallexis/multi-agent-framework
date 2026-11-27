@@ -835,12 +835,13 @@ pieces; nothing is requested for it and no percentage is invented. Finished
 pieces are filled, pieces not started are outlined, and the line under the
 bar names the current step and its state ("Step 3 of 7 · Failed"). A plan
 thread has its bar once the plan is approved, one piece per task. A run
-thread reads its steps only when the run stops or fails, so a run that never
-stops has no bar in the thread, though Context still shows one. A step that
-had a stop counts as done only once it has finished after that stop, or when
-you approved its result in that thread; after a decision taken elsewhere the
-bar hides until the next stop. The project card counts tasks by state,
-finished ones first.
+thread gets the run's list of steps with every page it reads, so a run that
+never stops has its bar too. A step that had a stop counts as done only once
+it has finished after that stop, or when you approved its result in that
+thread; after a decision taken elsewhere the bar hides until the next stop.
+The project card counts tasks by state, finished ones first, and also shows
+the weighted progress, the same figure as the Summary, when the project has
+one.
 
 **Cost and timeline.** The project Summary adds two figures, Tokens and API
 cost, summed from the calls the framework recorded for the project. A call

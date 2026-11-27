@@ -98,6 +98,7 @@ export function RunThread({ token, runId }) {
       setReviewView(page.status === "waiting_human" ? view : null);
       setRunLimit(view ? view.limit || null : null);
       if (view && Array.isArray(view.steps)) setRunSteps(view.steps);
+      if (Array.isArray(page.steps)) setRunSteps(page.steps);   // AVZ-T05: the page's own list wins; it comes from the same read as the messages
       setError(reviewFailure);
     } catch (failure) {
       if (request === ticket.current) setError(failure);

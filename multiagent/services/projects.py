@@ -725,7 +725,8 @@ class ProjectServices:
             for project in self.store.list_projects(archived=bool(archived), conn=conn):
                 view = self._view(conn, project, ctx)
                 items.append({**{k: view[k] for k in ("id", "name", "title", "visibility", "archived", "archived_at",
-                                                      "created_by", "created_at", "revision", "progress", "counts")},
+                                                      "created_by", "created_at", "revision", "progress", "progress_weighted",
+                                                      "counts")},
                               "stages": len(view["stages"]),
                               "activities": {k: view["activities"][k] for k in ("total", "doing", "done")},
                               "needs_you": {"reviews": len(view["attention"]["reviews"]),
