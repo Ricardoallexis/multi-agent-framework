@@ -121,9 +121,9 @@ def test_run_detail_uses_tabs_without_new_routes_or_conversation_tab():
     assert 'helpFor("run.tabs")' in detail
     assert 'topic="run.tabs"' in detail
     assert "DEFAULT_RUN_TAB" in detail
-    # The Spanish runs dictionary also holds the help of the Codex ACP thread (ACP-T04), titled «Conversación con
-    # Codex ACP»; run detail never shows it. Any other «Conversación» is still a conversation tab coming back.
-    assert "Conversación" not in detail.replace("Conversación con Codex ACP", "")
+    # The Spanish runs dictionary also holds the help of the ACP thread (ACP-T04), titled «Conversación con el agente
+    # ACP» since EXA-T06; run detail never shows it. Any other «Conversación» is still a conversation tab coming back.
+    assert "Conversación" not in detail.replace("Conversación con el agente ACP", "")
     assert 'threadHref(view.id)' in detail and "Abrir en el chat" in detail
     # Limit notice and HumanActions when waiting sit above Tabs; non-waiting HumanActions sit below Tabs.
     assert detail.index("Límite alcanzado") < detail.index("<${Tabs}")

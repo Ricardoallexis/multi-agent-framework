@@ -402,9 +402,17 @@ def test_apps_pure_model_handles_agy_uninstalled_and_ollama_tls():
 
 def test_apps_extension_has_no_key_input_and_meets_rwd_rules():
     # «Conectar otro» lives in the core picker (new-session.js): shared code may not import an extension.
+    # The extension's only form is «Add an agent» (EXA-T06): a name, a program path and its arguments, all plain text.
+    # It never asks for a key, and no other file of the extension renders a field.
     for js_file in EXT_APPS.glob("*.js"):
         src = js_file.read_text(encoding="utf-8")
-        assert not re.search(r"<(?:input|textarea)\b", src), f"{js_file.name} must never render an input/textarea for keys"
+        fields = re.findall(r"<(?:input|textarea)\b[^>]*", src)
+        if js_file.name == "add-agent.js":
+            assert [re.search(r'id=\$\{id \+ "-(\w+)"\}', field).group(1) for field in fields] == ["name", "program", "args"]
+            assert not any('type="password"' in field for field in fields)
+            assert not re.search(r"(?i)api[ _-]?key|token|secret|password", " ".join(fields))
+        else:
+            assert not fields, f"{js_file.name} must never render an input/textarea for keys"
     css = (EXT_APPS / "style.css").read_text(encoding="utf-8")
     assert ".apps-view" in css and "min-width: 0" in css
     assert "@media (max-width: 899.98px)" in css
