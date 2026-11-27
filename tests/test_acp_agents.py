@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """EXA-T06: the person's own ACP agents, on the server. A fake ACP peer stands in for the program; nothing real runs.
 
-The fake peer is a small Python script launched by ``sys.executable`` with two literal arguments. It records its own
+The fake peer is a small Python script launched by ``PYTHON`` with two literal arguments. It records its own
 command line and every line it receives, so a test can prove that the task text only travels over the standard input.
 No network, no ``npx``, no ``codex-acp``, and nobody clicks «Activar»: the approval is decided with the service double.
 """
@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+import multiagent
 from multiagent.api import create_app
 from multiagent.config import Settings
 from multiagent.executors import acp, acp_probe, process
@@ -53,6 +54,22 @@ while True:
 TASK_TEXT = "SYNTHETIC-TASK-TEXT-7731"
 
 
+def python_outside_the_framework() -> str:
+    """The interpreter that runs the fake peer, outside the framework's copy, which the rules forbid to an agent.
+
+    A virtual environment inside the checkout (such as ``.venv``) puts ``sys.executable`` in that copy, so it would be
+    refused. The fake peer only needs the standard library, so the environment's base interpreter runs it as well.
+    """
+    framework = os.path.dirname(os.path.dirname(os.path.abspath(multiagent.__file__)))
+    for candidate in (sys.executable, getattr(sys, "_base_executable", None)):
+        if candidate and os.path.isfile(candidate) and not process.is_within(candidate, framework):
+            return candidate
+    return sys.executable
+
+
+PYTHON = python_outside_the_framework()
+
+
 def make_settings(tmp_path):
     return Settings(_env_file=None, local_dir=tmp_path / "local", worker_enabled=False, mock_mode=True,
                     gemini_api_key="", openai_api_key="", openai_enabled=False,
@@ -86,7 +103,7 @@ def detail(response):
 
 
 def declare(world, **changes):
-    body = {"name": "My agent", "executable": sys.executable, "args": [str(world.script), "--acp"]}
+    body = {"name": "My agent", "executable": PYTHON, "args": [str(world.script), "--acp"]}
     body.update(changes)
     return body
 
@@ -227,7 +244,7 @@ def test_duplicate_id_and_the_limit_are_conflicts(world):
 def test_only_the_person_adds_edits_probes_or_removes(world):
     add(world)
     for actor in ("agent:claude", "system:x", "user:cli", ""):
-        for call in (lambda a=actor: world.agents.add("Other", sys.executable, [], actor=a),
+        for call in (lambda a=actor: world.agents.add("Other", PYTHON, [], actor=a),
                      lambda a=actor: world.agents.edit("my-agent", name="Renamed", actor=a),
                      lambda a=actor: world.agents.remove("my-agent", actor=a),
                      lambda a=actor: world.services.connections.probe_acp_agent("my-agent", actor=a)):
@@ -356,7 +373,7 @@ def test_the_launch_uses_the_clean_environment_and_the_declared_program(world, m
     finally:
         del os.environ["SYNTHETIC_SECRET_NAME"]
     wait_turn(world, started["id"])
-    assert seen["argv"] == [os.path.abspath(sys.executable), str(world.script), "--acp"]
+    assert seen["argv"] == [os.path.abspath(PYTHON), str(world.script), "--acp"]
     assert seen["env"].get("SYNTHETIC_SECRET_NAME") == ""         # inherited names are cleared, as for Codex ACP
     assert not [item for item in seen["argv"] if TASK_TEXT in item]
 
@@ -626,7 +643,7 @@ def write_file(world, agents, raw=None):
 
 
 def entry(world, **changes):
-    value = {"name": "By hand", "executable": sys.executable, "args": [str(world.script)],
+    value = {"name": "By hand", "executable": PYTHON, "args": [str(world.script)],
              "created_at": "2026-01-01T00:00:00+00:00", "created_by": "user:gui"}
     value.update(changes)
     return value
