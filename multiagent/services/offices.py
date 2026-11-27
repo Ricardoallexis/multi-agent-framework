@@ -34,7 +34,7 @@ from ..contracts_data import ContractsFileError, load_contracts_file
 from ..db.database import utcnow
 from ..external_output import canonical_json, sha256
 from ..offices.export import build_export, check_manifest
-from ..offices.package_checks import check_files, in_file_tools_root
+from ..offices.package_checks import check_files, in_file_tools_root, read_package_files
 from ..secret_gate import SECRET_TYPES
 from ..offices.plan import is_office_group, office_group_id
 from ..offices.requirements import (executor_capabilities, mock_capabilities, model_capabilities,
@@ -1992,6 +1992,10 @@ class OfficeServices:
 
     @service_errors
     def card(self, stage_id: str) -> dict[str, Any]:
+        return self._card(stage_id)
+
+    def _card(self, stage_id: str, *, import_checks: bool = True) -> dict[str, Any]:
+        """The card; ``import_checks=False`` leaves out the package screening for a caller that already did it."""
         root, metadata = self._stage_record(stage_id)
         self._verify_stage_source(stage_id, metadata)
         definition = self._definition_for_stage(root)
@@ -2084,7 +2088,24 @@ class OfficeServices:
                 "code": code, "scan": scan, "approval_id": approval_id,
                 "file_changes": file_changes,
                 "file_tools_configured": self._services.settings.file_tools_root is not None,
+                **({"import_checks": self._services.office_package_chat.import_checks(stage_id, root, definition)}
+                   if import_checks else {}),
                 "risk_ack_required": risk_ack_required}
+
+    def stage_material(self, stage_id: str) -> dict[str, Any]:
+        """The staged package for the import conversation and the Mock rehearsal (OFA-T06): its definition and files.
+
+        Same checks as the card (unchanged source, unchanged fingerprint, advanced mode for code). For service
+        implementations only: the folder never leaves the services."""
+        root, metadata = self._stage_record(stage_id)
+        self._verify_stage_source(stage_id, metadata)
+        definition = self._definition_for_stage(root)
+        if BundleScanServices.fingerprint(root) != metadata.get("fingerprint"):
+            raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",
+                                      stage_id=stage_id)
+        level, _ = self._require_stage_mode(root, definition)
+        return {"root": root, "definition": definition, "metadata": metadata, "level": level,
+                "files": read_package_files(root)}
 
     def _approve_stage_teams(self, office_id: str, area_ids: list[str], infos: dict[str, dict[str, Any]], *,
                              actor: str, channel: str, fingerprint: str, approval_id: str,
@@ -2431,6 +2452,7 @@ class OfficeServices:
             raise self._install_error("office_changed_since_card", "The office changed after its card was prepared",
                                       stage_id=stage_id)
         self._verify_stage_source(stage_id, metadata)
+        self._services.office_rehearsal.require_done(stage_id, root, definition, metadata["fingerprint"])
         if location.get("risk_ack_required") is True and existing.get("risk_ack") is not True:
             raise ServiceError("risk_ack_required", "Acknowledge the office install risk", status=422)
         if not self._services.user_approvals.consume(approval_id, sha256=metadata["fingerprint"],

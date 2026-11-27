@@ -342,6 +342,129 @@
   padding-left: 20px;
 }
 
+/* OFA-T06: «Explain this office to me» and «Try in Mock», beside the import review card. */
+.offices-ia {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  margin-top: 12px;
+}
+
+.offices-ia-panel,
+.offices-ia-trial,
+.offices-ia-report,
+.offices-ia-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.offices-ia-panel {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.offices-ia-head,
+.offices-ia-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.offices-ia-head {
+  justify-content: space-between;
+}
+
+.offices-ia-title {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.offices-ia p,
+.offices-ia li {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.offices-ia-form,
+.offices-ia-block {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.offices-ia-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 4rem;
+}
+
+.offices-ia-note,
+.offices-ia-notice,
+.offices-ia-gate {
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.offices-ia-gate.is-done,
+.offices-ia-gate.is-recommended {
+  border-color: var(--line);
+}
+
+.offices-ia-notice a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+}
+
+.offices-ia-summary {
+  font-weight: 600;
+}
+
+.offices-ia-list {
+  min-width: 0;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.offices-ia-result {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 599.98px) {
+  .offices-ia-panel {
+    padding: 10px;
+  }
+
+  .offices-ia-actions .btn {
+    flex: 1 1 100%;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (forced-colors: active) {
+  .offices-ia-panel,
+  .offices-ia-note,
+  .offices-ia-notice,
+  .offices-ia-gate {
+    border-color: CanvasText;
+  }
+}
+
 /* OFA-T05: the export assistant. */
 .offices-xa {
   display: grid;

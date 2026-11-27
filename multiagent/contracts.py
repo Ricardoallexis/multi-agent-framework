@@ -426,3 +426,26 @@ class OfficeExportProposal(StrictModel):
     keep: list[str] = Field(default_factory=list, max_length=100)
     omit: list[str] = Field(default_factory=list, max_length=100)
     questions: list[str] = Field(default_factory=list, max_length=20)
+
+
+class OfficeImportAreaNote(StrictModel):
+    """What a model says one area of a package does, in plain words (OFA-T06)."""
+
+    area: str = Field(min_length=1, max_length=120)
+    text: str = Field(min_length=1, max_length=600)
+
+
+class OfficeImportToolNote(StrictModel):
+    """A model's plain rewording of what one declared tool does; the server decides what the tool reads and writes."""
+
+    tool: str = Field(min_length=1, max_length=120)
+    text: str = Field(min_length=1, max_length=400)
+
+
+class OfficeImportExplanation(StrictModel):
+    """A model's advisory explanation of a staged office package. It checks, approves and trusts nothing."""
+
+    summary: str = Field(min_length=1, max_length=1200)
+    areas: list[OfficeImportAreaNote] = Field(default_factory=list, max_length=20)
+    tools: list[OfficeImportToolNote] = Field(default_factory=list, max_length=40)
+    answer: str = Field(default="", max_length=1200)

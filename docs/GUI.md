@@ -921,6 +921,7 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/map?project=<id>&only=active\|all` | Project, task and linked-session map. |
 | `POST /gui/api/projects/draft`, `/projects/plan`, `/projects/create` | Draft a project from a request (`gui_new_session_model`, once per draft), preview it with `projects.plan` and its `plan_sha256`, and create it only with that hash; the actor (`user:operator`) is fixed by the server. See [the API](API.md#gui-routes-local-token-protected). |
 | `POST /gui/api/offices/{office_id}/export/draft`, `/export/preview`, `/export/download` | Draft a screened export of an office from a request, check the chosen package, and build the `.zip` only on download. See [the API](API.md#gui-routes-local-token-protected). |
+| `GET /gui/api/offices/stage/{stage_id}/checks`, `POST /gui/api/offices/stage/{stage_id}/explain`, `/rehearse` | Read the fixed report of a staged package, ask a model to explain it from screened text, and rehearse its flows once in Mock in a disposable folder. While a package whose tools write files has not been rehearsed, `POST …/install` answers `409 rehearsal_required`. See [the API](API.md#gui-routes-local-token-protected). |
 | `GET /gui/api/usage/plans`, `/usage/tokens`, `/usage/costs` | Plan measurements, token totals and estimated costs for Uso. |
 | `GET /gui/api/evaluations`, `/evaluations/runs`, `/evaluations/runs/{id}`, `/evaluations/comparison?set_name=` | Evaluation sets, saved runs and the latest run against the baseline (read only). |
 | `GET /gui/api/teams`, `/teams/{bundle}/versions`, `/teams/versions/{id}`, `/teams/{bundle}/org-chart` | Team bundles with their approved and pending versions, versions with their diff, and the org chart with its Mermaid text. |
@@ -1113,6 +1114,21 @@ names it, says that it receives screened text and may cost money, and asks; no m
 held for a secret review is kept in memory while the person decides it in «Pendientes», and the next attempt sends the
 same approval. A fixed note says that pattern checks cannot guarantee that no sensitive data remains. The direct
 export still downloads, and warns when the file may contain personal data.
+
+**Explain this office to me** sits under the card of a staged package. The conversation says what each area does, what
+each tool reads, writes and asks permission for, which inputs nobody asks for, which data is missing and what could not
+be verified; the person can ask as often as they like. A model only describes: it reads screened text with secrets and
+personal data masked, never code, and it never changes a finding, the risk checkbox or the one approval per version.
+Before a remote model is used, the box names it and lists the files it would receive, and asks; protected offices and
+offices that do not allow remote models get a fixed summary with no model. **Try in Mock** runs the flows once in a
+temporary folder with made-up data and deletes it when it ends; it shows which steps ran, which were not tried (code the
+person has not accepted, steps that need a person), which inputs were missing and which files it would have written. One
+trial runs at a time. If the office's tools write files, Install asks for a trial first; a trial that fails does not
+block, and its result stays on the card. In simple mode the conversation shows counts; advanced mode adds tool
+identifiers, code files, finding paths and the folder. The open card, its assistant and a question held for a secret
+review are kept in memory while the person decides it in «Pendientes»: back in «Oficinas», **Import an office** shows
+the same card again, with the assistant open and the question waiting, and the next attempt sends the same approval.
+Reloading the page starts clean.
 
 Each office card links to «Nueva sesión» with «Pídele algo a la oficina». Each area also has «Pedir a esta área»,
 which opens that office's area-scoped, single-session workflow list.

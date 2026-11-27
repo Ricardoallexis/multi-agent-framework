@@ -59,6 +59,17 @@ class _ExportChoiceBody(_Body):
     accept_code_risk: bool = Field(default=False, strict=True)
 
 
+class _ImportExplainBody(_Body):
+    question: str | None = Field(default=None, min_length=1, max_length=2000)
+    confirm_cloud: bool = Field(default=False, strict=True)
+    approval_id: str | None = None
+
+
+class _RehearseBody(_Body):
+    area: str | None = Field(default=None, min_length=1, max_length=120)
+    workflow: str | None = Field(default=None, min_length=1, max_length=120)
+
+
 class _PrivacyLevelBody(_Body):
     area: str | None = None
     sensitivity: Literal["normal", "sensitive"] | None = None
@@ -190,6 +201,20 @@ def add_office_routes(api: APIRouter, services: Any) -> None:
     @api.get("/offices/stage/{stage_id}")
     def office_stage(stage_id: str) -> dict[str, Any]:
         return services.offices.card(stage_id)
+
+    # OFA-T06: import by talking. Explaining and checking are advisory; trying in Mock installs nothing.
+    @api.get("/offices/stage/{stage_id}/checks")
+    def office_stage_checks(stage_id: str) -> dict[str, Any]:
+        return services.office_package_chat.checks(stage_id)
+
+    @api.post("/offices/stage/{stage_id}/explain")
+    def explain_office_stage(stage_id: str, body: _ImportExplainBody) -> dict[str, Any]:
+        return services.office_package_chat.explain(
+            stage_id, body.question, confirm_cloud=body.confirm_cloud, approval_id=body.approval_id)
+
+    @api.post("/offices/stage/{stage_id}/rehearse")
+    def rehearse_office_stage(stage_id: str, body: _RehearseBody) -> dict[str, Any]:
+        return services.office_rehearsal.run(stage_id, area=body.area, workflow=body.workflow, actor=ACTOR)
 
     @api.post("/offices/stage/{stage_id}/install")
     def install_office_stage(stage_id: str, body: _StageInstallBody) -> dict[str, Any]:

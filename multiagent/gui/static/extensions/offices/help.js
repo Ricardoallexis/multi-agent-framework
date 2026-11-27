@@ -193,5 +193,40 @@ export const HELP = {
       "The chosen setting is saved, and the request is tried again once.",
       "If it fails again, you see the error and are not asked again."
     ]
+  },
+  "offices.import_assistant": {
+    "title": "Explain this office",
+    "hint": "Ask what the package does before you install it.",
+    "more": [
+      "The assistant describes each area, what each tool reads and writes, which inputs nobody asks for and what could not be verified.",
+      "A model reads only files that passed the fixed checks, with secrets and personal data masked. Code files are never sent.",
+      "It only explains: it does not change a finding, the risk box or the approval. You approve once, when you install."
+    ]
+  },
+  "offices.import_assistant_question": {
+    "title": "Your question",
+    "hint": "Write what you want to know about the package, or leave it empty for a general summary.",
+    "more": [
+      "You can ask as many times as you like.",
+      "The answer is shown here only. A model that says the office is safe changes nothing."
+    ]
+  },
+  "offices.import_assistant_cloud": {
+    "title": "Remote model",
+    "hint": "A remote model receives the screened package text and may cost money.",
+    "more": [
+      "Sending asks the named model once. Cancel keeps the text on this computer.",
+      "An office with sensitive or local-only areas never goes to a remote model."
+    ]
+  },
+  "offices.rehearse": {
+    "title": "Try in Mock",
+    "hint": "Run the office once in a disposable copy with made-up data.",
+    "more": [
+      "It runs in a temporary folder that is deleted when it ends. Nothing is installed and your folder is not touched.",
+      "Code you have not accepted is not run: those steps show as not tried.",
+      "If the office writes files, you must try it before installing. A trial that fails does not block the install: read its result and decide.",
+      "One trial runs at a time."
+    ]
   }
 };

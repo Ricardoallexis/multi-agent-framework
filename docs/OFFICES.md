@@ -323,6 +323,8 @@ The export never includes databases, runs, `data_dir`, `.env`, `.local`, logs, i
 
 An exported office can be imported with `multiagent office import FILE.zip` or `POST /api/v1/offices` using `zip_base64`. An area-only archive has one area and can be added to another installed office with `--into ID` or the API's `into` field. When an archive contains `manifest.json`, import requires its schema, file list, sizes, and hashes to match the extracted files exactly. A mismatch fails with `422 office_manifest_mismatch` and the affected path. Archives without a manifest remain supported for hand-authored imports. Safe extraction rejects unsafe paths and symbolic links before import.
 
+Before an imported package is installed, the GUI can explain it and rehearse it (see [the API](API.md#gui-routes-local-token-protected)). The explanation reads only screened text, never code. The rehearsal runs the flows once in Mock, in a disposable copy with its own database and work folder, and never runs code the person has not accepted. Neither of them approves, trusts code or lowers a privacy level: the install card keeps its one approval per version. When the package's tools write files, install waits until a rehearsal has finished for the same staged package; a failed rehearsal also unblocks it, and its result stays on the card.
+
 ## Scene
 
 `GET /api/v1/offices/{id}/scene` and `multiagent office scene ID` return a read-only `maf.office-scene/1` snapshot. The

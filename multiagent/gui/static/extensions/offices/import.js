@@ -1,7 +1,7 @@
 // Copyright 2026 Ricardoallexis and contributors
 // SPDX-License-Identifier: Apache-2.0
 // Import, export, reimport and remove actions for the Offices view (VOF-T02).
-import { html, useCallback, useEffect, useState } from "../../vendor/htm-preact-standalone.module.js";
+import { html, useCallback, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { ApiError, apiGet, apiPost } from "../../js/api.js";
 import { currentMode, onModeChange } from "../../js/gui-mode.js";
 import { Help, helpFor } from "../../js/help.js";
@@ -19,8 +19,14 @@ import {
   ZIP_UPLOAD_MAX_BYTES,
   zipBody,
 } from "./import-model.js";
+import { ImportAssistant, forgetAssistant } from "./import-assistant.js";
+import { rehearsalGate, rehearsalRequiredText } from "./import-assistant-model.js";
 
 const BASE = "/gui/api/offices";
+// The card of a plain import survives a visit to #approvals, which unmounts this view (SEC-T04 pattern of the export assistant):
+// the staged package id lives in module memory only, so a reload starts clean.
+let rememberedStage = null;
+const forgetStage = () => { if (rememberedStage) forgetAssistant(rememberedStage); rememberedStage = null; };
 const stagePath = (stageId) => BASE + "/stage/" + encodeURIComponent(stageId);
 const challengePath = (approvalId) => "/gui/api/approvals/" + encodeURIComponent(approvalId) + "/challenge";
 const decisionPath = (approvalId) => "/gui/api/approvals/" + encodeURIComponent(approvalId) + "/decision";
@@ -93,9 +99,22 @@ export function ImportOffice({
   const [riskAck, setRiskAck] = useState(false);
   const [message, setMessage] = useState(null);
   const [error, setError] = useState("");
+  const [trial, setTrial] = useState(null);       // the last answer of «Try in Mock» for this card (OFA-T06)
+  const [forced, setForced] = useState(false);    // the install answered 409 rehearsal_required: the card's record is not enough
+  const approvedForTrial = useRef("");            // the approval already decided before that 409, so a second install does not decide again
   const helpScope = reimport ? "reimport-" + reimport : into ? "area-" + into : "new-office";
 
   useEffect(() => onModeChange(setMode), []);
+  const plainImport = !into && !reimport && !initialCard;
+  useEffect(() => { if (plainImport && card?.stage_id) rememberedStage = card.stage_id; }, [card, plainImport]);
+  useEffect(() => {
+    // coming back from #approvals: ask again for the card of the package that was open
+    if (!plainImport || card || !rememberedStage) return;
+    const stageId = rememberedStage;
+    apiGet(stagePath(stageId), token).then(setCard).catch((failure) => {
+      if (failure?.status >= 400 && failure?.status < 500) { if (plainImport) forgetStage(); setError(failureText(failure)); }
+    });
+  }, []);
 
   const refreshCard = useCallback(async (stageId) => {
     try {
@@ -106,6 +125,7 @@ export function ImportOffice({
     } catch (failure) {
       const reason = failure?.details?.reason;
       setError(failureText(failure));
+      if (plainImport && failure?.status >= 400 && failure?.status < 500) forgetStage();
       if (reason === "office_stage_expired" || reason === "office_changed_since_card"
           || reason === "office_source_changed" || reason === "office_source_unavailable") setCard(null);
       return null;
@@ -139,6 +159,8 @@ export function ImportOffice({
       const body = zipBody(upload.filename, upload.zipBase64, { into, reimport });
       setCard(await apiPost(BASE + "/stage-zip", token, body));
       setRiskAck(false);
+      setTrial(null);
+      setForced(false);
     } catch (failure) {
       if (failure?.details?.reason === "office_source_changed"
           || failure?.details?.reason === "office_source_unavailable") setCard(null);
@@ -159,6 +181,8 @@ export function ImportOffice({
       });
       setCard(staged);
       setRiskAck(false);
+      setTrial(null);
+      setForced(false);
     } catch (failure) {
       setError(failureText(failure));
     } finally {
@@ -174,6 +198,7 @@ export function ImportOffice({
       await decideApproval(token, card.scan.approval_id, { decision });
       if (decision === "reject") {
         await apiPost(stagePath(card.stage_id) + "/discard", token, {});
+        if (plainImport) forgetStage();
         setCard(null);
         setUpload(null);
         setMessage(t("ext.offices.scan.denied"));
@@ -190,18 +215,33 @@ export function ImportOffice({
 
   const install = async () => {
     if (!card || busy || (card.risk_ack_required && !riskAck)) return;
+    if (gate && gate.blocksInstall) {
+      setError(gate.text);
+      return;
+    }
     setBusy(true);
     setError("");
     setMessage(null);
     try {
-      await decideApproval(token, card.approval_id, {
-        fingerprint: card.fingerprint,
-        riskAck: card.risk_ack_required === true && riskAck === true,
-      });
+      if (approvedForTrial.current !== card.approval_id) {
+        await decideApproval(token, card.approval_id, {
+          fingerprint: card.fingerprint,
+          riskAck: card.risk_ack_required === true && riskAck === true,
+        });
+      }
       await apiPost(stagePath(card.stage_id) + "/install", token, { approval_id: card.approval_id });
+      if (plainImport) forgetStage();
       onDone();
     } catch (failure) {
-      setError(failureText(failure));
+      const needsTrial = rehearsalRequiredText(failure);
+      if (needsTrial) {
+        approvedForTrial.current = card.approval_id;
+        setTrial(null);
+        setForced(true);
+        setError(needsTrial);
+      } else {
+        setError(failureText(failure));
+      }
     } finally {
       setBusy(false);
     }
@@ -213,6 +253,7 @@ export function ImportOffice({
     setError("");
     try {
       if (card?.stage_id) await apiPost(stagePath(card.stage_id) + "/discard", token, {});
+      if (plainImport) forgetStage();
       onDone();
     } catch (failure) {
       setError(failureText(failure));
@@ -222,6 +263,7 @@ export function ImportOffice({
   };
 
   const view = card ? cardView(card) : null;
+  const gate = card ? rehearsalGate(card.import_checks, trial, { forced }) : null;
   const scanRunning = card?.scan?.state === "running";
   const advanced = mode === "advanced";
   const showIncludeCode = includeCodeVisible(mode);
@@ -299,6 +341,8 @@ export function ImportOffice({
         ${view.code.verdict && html`<p>${t("ext.offices.import.scan_result")}: ${view.code.verdict}</p>`}
         ${view.code.areas.map((item) => html`<p key=${item.id}>${item.name}: ${item.verdict}</p>`)}
       </div>
+      <${ImportAssistant} key=${card.stage_id} token=${token} stageId=${card.stage_id} checks=${card.import_checks} trial=${trial}
+        forced=${forced} onTrial=${(result) => { setTrial(result); setForced(false); }} disabled=${busy} scope=${helpScope} />
       ${view.needsScanDecision && html`<div class="offices-import-actions" role="group" aria-label=${t("ext.offices.import.allow_scan")}>
         <button type="button" class="btn" disabled=${busy} ...${helpFor("offices.install", { scope: helpScope + "-scan" })}
           onClick=${() => scanDecision("approve")}>${t("ext.offices.import.allow_scan")}</button>
