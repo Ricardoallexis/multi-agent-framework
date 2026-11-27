@@ -485,3 +485,151 @@
     border: 1px solid CanvasText;
   }
 }
+
+/* EXA-T06: «Add an agent» and the list of the person's own agents. Every rule starts with .apps-agent; the phone cut is the shared one. */
+.apps-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 6px;
+}
+
+.apps-agents-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+
+.apps-agents-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.apps-agents-simple {
+  overflow-wrap: anywhere;
+}
+
+.apps-agents-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+  overflow-wrap: anywhere;
+}
+
+.apps-agent-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.apps-agent-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.apps-agent-field label {
+  flex: 1 0 100%;
+  font-weight: 600;
+}
+
+.apps-agent-field input,
+.apps-agent-field textarea {
+  flex: 1 1 12rem;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.apps-agent-note,
+.apps-agent-edit-notice {
+  overflow-wrap: anywhere;
+}
+
+.apps-agent-list {
+  min-width: 0;
+}
+
+.apps-agent-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.apps-agent-card .apps-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.apps-agent-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  min-width: 0;
+  margin: 0;
+}
+
+.apps-agent-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.apps-agent-program code,
+.apps-agent-args code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.apps-agent-args {
+  margin: 0;
+  padding-left: 1.5em;
+}
+
+.apps-agent-scope,
+.apps-agent-line {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.apps-agent-actions {
+  min-width: 0;
+}
+
+.apps-agent-start select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 599.98px) {
+  .apps-agent-field input,
+  .apps-agent-field textarea {
+    flex-basis: 100%;
+  }
+
+  .apps-agent-actions .btn,
+  .apps-agent-start .btn {
+    width: 100%;
+  }
+}
+
+@media (forced-colors: active) {
+  .apps-agent-card,
+  .apps-agent-note {
+    border: 1px solid CanvasText;
+  }
+}

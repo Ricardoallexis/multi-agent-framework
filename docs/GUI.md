@@ -601,6 +601,22 @@ device for 30 days and the app neither shares nor encrypts it. Recognized secret
 detection uses patterns and cannot guarantee that every secret is found. The thread says when secrets were redacted,
 when the last turn did not finish, and when a turn was not saved or the 2 MB limit was reached.
 
+*Your own ACP agents.* In advanced mode, «Apps y agentes» has **Add an agent**: a name, the full path of the program
+and its arguments, one per line. In simple mode a line says it is an advanced option and links to «Personalizar». A
+fixed note under the form says that adding an agent does not turn it on, that whoever wrote the program decides what
+it does, that ACP is a protocol and not isolation, and that the framework only lets it read and write what the area
+allows. Arguments are literal and the text of your tasks is never one of them; when the server refuses a field, the
+form says why and names the argument by its position. A new agent is listed as “Disabled” with “Check”, “Edit” and
+“Remove”. “Activate” appears after a compatible check and uses the same fixed notice and one-use approval as every
+executor; nothing presses it for you. Changing the program or an argument pauses the activation and clears the check,
+and the form says so before saving; changing only the name does not. If the program file is replaced or modified, the
+activation pauses and the card says what changed. “Remove” asks first, closes the agent's open conversations and
+deletes its activation; its saved conversations stay. An entry that no longer passes the rules is shown as not valid,
+with its reason, and can only be edited or removed. “Start a conversation” appears on an active, valid and checked
+agent and opens the same ACP thread, titled and labelled with the agent's name. The agent serves conversations in the
+app only, never workflow steps. A saved conversation of your own agent is still listed on the Codex ACP card and opens
+as a Codex ACP conversation, because the saved history does not record the agent.
+
 *Probar conexión and the provider certificates.* A model card has **Probar conexión**
 (`POST /gui/api/connections/{id}/probe`). It makes one request that generates no text:
 the model list of Gemini or OpenAI, or Ollama's health. It runs only when the person

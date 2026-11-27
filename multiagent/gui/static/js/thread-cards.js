@@ -339,9 +339,9 @@ function AcpDiff({ diff }) {
   </div>`;
 }
 
-export function AcpCard({ item }) {
+export function AcpCard({ item, agentLabel = "" }) {   // EXA-T06: agentLabel names an own agent; empty keeps Codex
   const view = item.view;
-  const label = t("thread.acp.kind." + view.kind);
+  const label = agentLabel && view.kind === "message" ? agentLabel : t("thread.acp.kind." + view.kind);
   const paths = view.paths.map((path) => html`<li key=${path}><code>${path}</code></li>`);
   if (view.kind === "thought") {
     return html`<li class="thread-card acp-card acp-thought"><details>

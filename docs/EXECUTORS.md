@@ -209,6 +209,29 @@ deletion. The GUI can list saved conversations, delete one, or delete all. These
 not transmit or encrypt history. The operating system account protects the files. A failed history write does not
 stop the ACP turn and is reported in the thread.
 
+### Own ACP agents
+
+In advanced mode a person can add their own agent that speaks ACP: a display name, the absolute path of its program
+and up to 16 literal arguments, kept with date and actor in `<local_dir>/acp-agents.json`. Only the person adds,
+edits, checks, activates and removes an agent, through token-protected GUI routes; no `/api/v1` route, CLI command,
+MCP tool or agent can. The framework launches `[program, *arguments]` with no shell and a clean environment, and the
+task text travels only in `session/prompt`, never on the command line. A declaration is refused when the program is
+not an absolute path, has wildcards or shell characters, is a script that needs a shell (`.cmd`, `.bat`, `.ps1`,
+`.vbs`, `.sh`), is a command interpreter such as cmd, PowerShell, bash or sh, or lies inside a folder the framework or
+an agent may write (the working folder, the framework's copy, `local_dir`, `data_dir`, the file tools root, the
+executors' work folder, the runs and assets folders, and the areas). An argument is refused when it has a placeholder
+or shell syntax, or when it is a relative path or a path inside one of those folders. The same rules run again when
+the file is read and before each launch: an entry that no longer passes is listed as invalid with its reason and
+cannot be checked, activated or opened. A new agent starts disabled. Its check sends one `initialize`, as for Codex
+ACP, and its activation uses the same one-use approval and note in a record of its own. The fingerprint covers the
+resolved program, the arguments, the program file's size and modification time and, after a check, the protocol and
+announced versions; if any of them changes, the activation pauses until the person reviews it. Editing the program or
+an argument also clears the check and closes the agent's open conversations. Removing an agent closes its
+conversations and deletes its activation; its saved history stays until the person deletes it. Area consent
+(`acp_consents`) is the same for every ACP agent, and the session has no terminal. An own agent serves GUI
+conversations only, never workflow steps, batches or scheduled resumes. ACP is a protocol, not isolation: whoever
+wrote the program decides what it does.
+
 ### Turning an executor on by hand
 
 The manual way stays in the advanced mode, for another system or when the GUI is not at hand. It is the person's step,

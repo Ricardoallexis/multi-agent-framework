@@ -8,7 +8,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from . import process
 
@@ -105,14 +105,17 @@ def _reject_json_constant(value: str) -> None:
 
 
 def probe_codex_acp(executable: str | None, *, cwd: Path | str,
-                    run: Callable[..., Any] | None = None) -> dict[str, Any]:
-    """Send exactly one fixed ACP initialize request and return bounded, parsed facts."""
+                    run: Callable[..., Any] | None = None, args: Sequence[str] = ()) -> dict[str, Any]:
+    """Send exactly one fixed ACP initialize request and return bounded, parsed facts.
+
+    ``args`` (EXA-T06) are the fixed, literal arguments of an executable the person declared; the default keeps Codex ACP as it was.
+    """
     if executable is None:
         return {"status": "not_installed"}
     runner = run or process.run
     try:
         folder = process.validate_cwd(cwd)
-        outcome = runner([executable], cwd=folder, stdin_text=_REQUEST,
+        outcome = runner([executable, *args], cwd=folder, stdin_text=_REQUEST,
                          timeout_seconds=PROBE_TIMEOUT_SECONDS, output_cap_bytes=PROBE_OUTPUT_CAP_BYTES,
                          env_extra=_clean_env_extra(folder))
     except (process.ProcessLaunchError, OSError, ValueError):

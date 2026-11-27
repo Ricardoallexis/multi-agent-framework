@@ -251,5 +251,104 @@ export const HELP = {
       "It asks you to confirm first, and it cannot be undone.",
       "Conversations that are open now are closed too."
     ]
+  },
+  "apps.agents": {
+    "title": "Your own agents",
+    "hint": "Declare a program that speaks ACP and use it for conversations.",
+    "more": [
+      "This is an advanced option. An agent you add starts disabled.",
+      "You check it, activate it and remove it yourself. Nothing here runs by itself.",
+      "It serves conversations in the app, not workflow steps."
+    ]
+  },
+  "apps.agent_name": {
+    "title": "Agent name",
+    "hint": "The name you will see in the list and in the conversation.",
+    "more": [
+      "Use 1 to 60 characters on one line.",
+      "The name also gives the agent its internal id, so a name already used is refused."
+    ]
+  },
+  "apps.agent_program": {
+    "title": "Program (full path)",
+    "hint": "The full path of the program that speaks ACP.",
+    "more": [
+      "Use the program itself, not a script that needs a shell and not a folder where an area can write.",
+      "If it runs on Node or Python, choose node or python and put the script's full path in the arguments."
+    ]
+  },
+  "apps.agent_args": {
+    "title": "Arguments",
+    "hint": "Fixed arguments for the program, one per line.",
+    "more": [
+      "Arguments are literal: they cannot contain placeholders or shell syntax.",
+      "The text of your tasks never goes here. It travels only inside the conversation.",
+      "Empty lines at the end are ignored."
+    ]
+  },
+  "apps.agent_add": {
+    "title": "Add the agent",
+    "hint": "Save the program as an agent. It starts disabled.",
+    "more": [
+      "Adding does not start the program or activate it.",
+      "After adding, use Check and then Activate."
+    ]
+  },
+  "apps.agent_save": {
+    "title": "Save the changes",
+    "hint": "Save the new name, program or arguments.",
+    "more": [
+      "Changing the program or its arguments pauses the activation and clears the check.",
+      "Changing only the name keeps both."
+    ]
+  },
+  "apps.agent_check": {
+    "title": "Check the agent",
+    "hint": "Start the program once so it introduces itself over ACP.",
+    "more": [
+      "This runs the program you declared, and it only sends the greeting. No conversation or task is opened.",
+      "Check again after you change the program or its arguments."
+    ]
+  },
+  "apps.agent_edit": {
+    "title": "Edit the agent",
+    "hint": "Change its name, program or arguments.",
+    "more": [
+      "Changing the program or its arguments pauses the activation and clears the check.",
+      "You review it and activate it again yourself."
+    ]
+  },
+  "apps.agent_remove": {
+    "title": "Remove the agent",
+    "hint": "Delete this agent after you confirm.",
+    "more": [
+      "It closes its open conversations and deletes its activation.",
+      "Saved conversations stay until you delete them."
+    ]
+  },
+  "apps.agent_note": {
+    "title": "Activation notice",
+    "hint": "It says what activating this agent means.",
+    "more": [
+      "The program is yours: whoever wrote it decides what it does. ACP is a protocol, not isolation.",
+      "The notice button is your approval, and its one-time code lasts two minutes.",
+      "“Cancel” closes the notice without activating anything."
+    ]
+  },
+  "apps.agent_start": {
+    "title": "Start a conversation",
+    "hint": "Choose an area and open a live conversation with this agent.",
+    "more": [
+      "It needs the agent active and checked.",
+      "Without the consent of the area, every permission the agent asks for is denied."
+    ]
+  },
+  "apps.agent_area": {
+    "title": "Office and area",
+    "hint": "Choose the area whose folder this agent may work in.",
+    "more": [
+      "The consent and the conversation belong to this area.",
+      "This page only opens the conversation: you write the first message there."
+    ]
   }
 };

@@ -32,6 +32,7 @@ from pathlib import Path
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Mapping
 
+from .acp_agents import AcpAgentServices
 from .activities import ActivityServices
 from .assignment import AssignmentServices
 from .bundle_scans import BundleScanServices
@@ -155,6 +156,7 @@ class ApplicationServices:
         self.bundle_scans = BundleScanServices(self)
         self.gui_settings = GuiSettingsServices(self)
         self.concurrency = ConcurrencyServices(self)
+        self.acp_agents = AcpAgentServices(self)
         self.executor_activations = ExecutorActivationServices(self)
         self.first_run = FirstRunServices(self)
         # The engine of the system reads the availability policy from the inbox, the same place that accepts the messages.

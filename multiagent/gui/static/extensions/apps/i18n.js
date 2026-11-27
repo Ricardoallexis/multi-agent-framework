@@ -319,7 +319,82 @@ const en = {
   "ext.apps.acp.history.removed": "The saved conversations of this area were deleted.",
   "ext.apps.acp.history.note": "History stays on this device for 30 days. It does not resume the agent, share data, or encrypt the file; your operating system account protects it.",
   "ext.apps.acp.history.redaction": "Recognized secrets are redacted before saving. Detection uses patterns and cannot guarantee that every secret is found.",
-  "ext.apps.reason.acp_probe_required": "The adapter has not been checked yet."
+  "ext.apps.reason.acp_probe_required": "The adapter has not been checked yet.",
+  "ext.apps.agents.title": "Add an agent",
+  "ext.apps.agents.advanced_only": "Advanced option. Turn on advanced mode in Customize to add your own agent.",
+  "ext.apps.agents.customize_link": "Open Customize",
+  "ext.apps.agents.field.name": "Name",
+  "ext.apps.agents.field.program": "Program (full path)",
+  "ext.apps.agents.field.args": "Arguments (one per line)",
+  "ext.apps.agents.note": "Adding an agent does not turn it on. Whoever wrote the program decides what it does. ACP is a protocol, not isolation. The framework only lets it read and write what the area allows.",
+  "ext.apps.agents.add": "Add",
+  "ext.apps.agents.adding": "Adding…",
+  "ext.apps.agents.added": "Agent added. It is disabled until you activate it.",
+  "ext.apps.agents.loading": "Loading agents…",
+  "ext.apps.agents.list_failed": "Could not read your agents: {message}",
+  "ext.apps.agents.list_label": "Your agents",
+  "ext.apps.agents.none": "You have not added an agent yet.",
+  "ext.apps.agents.state.disabled": "Disabled",
+  "ext.apps.agents.state.active": "Active",
+  "ext.apps.agents.state.paused": "Paused: review it again",
+  "ext.apps.agents.state.invalid": "Not valid",
+  "ext.apps.agents.chip.disabled": "Added, but not turned on.",
+  "ext.apps.agents.chip.active": "Active: it can serve conversations.",
+  "ext.apps.agents.chip.paused": "Paused: something changed, so it needs your review.",
+  "ext.apps.agents.chip.invalid": "Its declaration is not valid.",
+  "ext.apps.agents.fact.program": "Program",
+  "ext.apps.agents.fact.args": "Arguments",
+  "ext.apps.agents.fact.args_none": "None",
+  "ext.apps.agents.fact.check": "Last check",
+  "ext.apps.agents.fact.protocol": "Protocol",
+  "ext.apps.agents.fact.announces": "Announces",
+  "ext.apps.agents.check.none": "Not checked yet",
+  "ext.apps.agents.check.compatible": "Compatible",
+  "ext.apps.agents.check.incompatible": "Not compatible",
+  "ext.apps.agents.check.not_installed": "Program not found",
+  "ext.apps.agents.check.no_response": "No response",
+  "ext.apps.agents.check.invalid_response": "Invalid response",
+  "ext.apps.agents.scope": "This agent serves conversations in the app only, not workflow steps.",
+  "ext.apps.agents.check_first": "Check this agent before activating it.",
+  "ext.apps.agents.missing": "The program is no longer at that path. Edit or remove this agent.",
+  "ext.apps.agents.invalid": "This agent's declaration is not valid: {reason}. Edit or remove it.",
+  "ext.apps.agents.changed": "Changed: {changes}. Review it again.",
+  "ext.apps.agents.changed_file": "Changed: the program file was replaced or modified. Review it again.",
+  "ext.apps.agents.change.args": "the arguments",
+  "ext.apps.agents.change.version": "the version it announces, from {from} to {to}",
+  "ext.apps.agents.edit": "Edit",
+  "ext.apps.agents.edit.pauses": "Changing the program or its arguments pauses the activation and clears the check.",
+  "ext.apps.agents.edit.name_only": "Changing only the name keeps the activation and the check.",
+  "ext.apps.agents.save": "Save",
+  "ext.apps.agents.saving": "Saving…",
+  "ext.apps.agents.saved": "Agent saved.",
+  "ext.apps.agents.remove": "Remove",
+  "ext.apps.agents.remove.confirm": "Remove this agent? Its open conversations will close and its activation will be deleted. Saved history stays until you delete it.",
+  "ext.apps.agents.remove.yes": "Yes, remove it",
+  "ext.apps.agents.remove.keep": "Keep it",
+  "ext.apps.agents.removing": "Removing…",
+  "ext.apps.agents.start.button": "Start a conversation",
+  "ext.apps.agents.start.go": "Write the first message",
+  "ext.apps.agents.argument_n": "Argument {position}: {text}",
+  "ext.apps.agents.gone": "That agent no longer exists.",
+  "ext.apps.agents.failed": "The request failed.",
+  "ext.apps.agents.reason.unknown": "The server refused this (code: {code}).",
+  "ext.apps.agents.reason.executable_not_absolute": "Use the full path of the program, for example C:\\tools\\agent.exe.",
+  "ext.apps.agents.reason.executable_has_wildcard": "The path cannot contain wildcards.",
+  "ext.apps.agents.reason.executable_has_shell_characters": "The path cannot contain shell characters.",
+  "ext.apps.agents.reason.executable_is_shell_script": "Scripts that need a shell cannot be launched: choose the program itself.",
+  "ext.apps.agents.reason.executable_is_shell": "A command interpreter (such as cmd, PowerShell, bash or sh) cannot be an agent: choose the agent program itself. If it runs on Node or Python, choose node or python and put the script's full path in the arguments.",
+  "ext.apps.agents.reason.executable_not_found": "The program does not exist or cannot be run.",
+  "ext.apps.agents.reason.executable_in_writable_folder": "The program cannot be inside an area, the working folder or the framework's folders.",
+  "ext.apps.agents.reason.argument_has_placeholder": "Arguments are literal: they cannot contain { } % $ ` < >. The task text is never an argument.",
+  "ext.apps.agents.reason.argument_has_shell_syntax": "An argument has shell syntax (; & |).",
+  "ext.apps.agents.reason.argument_invalid": "An argument is empty, too long or has spaces around it.",
+  "ext.apps.agents.reason.argument_in_writable_folder": "An argument is a path inside a folder the agent may write.",
+  "ext.apps.agents.reason.argument_relative_path": "An argument is a relative path: use an absolute path.",
+  "ext.apps.agents.reason.too_many_arguments": "At most 16 arguments.",
+  "ext.apps.agents.reason.name_invalid": "The name is 1 to 60 characters on one line.",
+  "ext.apps.agents.reason.agent_id": "That name gives an id that is invalid, reserved or already used. Choose another name.",
+  "ext.apps.agents.reason.too_many_agents": "At most 16 agents.",
 };
 const es = {
   "ext.apps.discovery.title": "Buscar apps en este equipo",
@@ -885,6 +960,180 @@ const es = {
     "more": [
       "Antes pide confirmación, y no se puede deshacer.",
       "Las conversaciones abiertas ahora también se cierran."
+    ]
+  },
+  "ext.apps.agents.title": "Añadir un agente",
+  "ext.apps.agents.advanced_only": "Opción avanzada. Activa el modo avanzado en Personalizar para añadir tu propio agente.",
+  "ext.apps.agents.customize_link": "Abrir Personalizar",
+  "ext.apps.agents.field.name": "Nombre",
+  "ext.apps.agents.field.program": "Programa (ruta completa)",
+  "ext.apps.agents.field.args": "Argumentos (uno por línea)",
+  "ext.apps.agents.note": "Añadir un agente no lo activa. Quien escribió el programa decide lo que hace. ACP no es un aislamiento. El framework solo le deja leer y escribir lo que el área permite.",
+  "ext.apps.agents.add": "Añadir",
+  "ext.apps.agents.adding": "Añadiendo…",
+  "ext.apps.agents.added": "Agente añadido. Queda deshabilitado hasta que lo actives.",
+  "ext.apps.agents.loading": "Cargando agentes…",
+  "ext.apps.agents.list_failed": "No se pudieron leer tus agentes: {message}",
+  "ext.apps.agents.list_label": "Tus agentes",
+  "ext.apps.agents.none": "Aún no has añadido ningún agente.",
+  "ext.apps.agents.state.disabled": "Deshabilitado",
+  "ext.apps.agents.state.active": "Activo",
+  "ext.apps.agents.state.paused": "En pausa: revísalo de nuevo",
+  "ext.apps.agents.state.invalid": "No válido",
+  "ext.apps.agents.chip.disabled": "Añadido, pero sin activar.",
+  "ext.apps.agents.chip.active": "Activo: puede atender conversaciones.",
+  "ext.apps.agents.chip.paused": "En pausa: algo cambió y necesita tu revisión.",
+  "ext.apps.agents.chip.invalid": "Su declaración no es válida.",
+  "ext.apps.agents.fact.program": "Programa",
+  "ext.apps.agents.fact.args": "Argumentos",
+  "ext.apps.agents.fact.args_none": "Ninguno",
+  "ext.apps.agents.fact.check": "Última comprobación",
+  "ext.apps.agents.fact.protocol": "Protocolo",
+  "ext.apps.agents.fact.announces": "Se presenta como",
+  "ext.apps.agents.check.none": "Aún sin comprobar",
+  "ext.apps.agents.check.compatible": "Compatible",
+  "ext.apps.agents.check.incompatible": "No compatible",
+  "ext.apps.agents.check.not_installed": "Programa no encontrado",
+  "ext.apps.agents.check.no_response": "Sin respuesta",
+  "ext.apps.agents.check.invalid_response": "Respuesta no válida",
+  "ext.apps.agents.scope": "Este agente sirve para conversaciones en la app, no para pasos de flujos.",
+  "ext.apps.agents.check_first": "Comprueba este agente antes de activarlo.",
+  "ext.apps.agents.missing": "El programa ya no está en esa ruta. Edita o quita este agente.",
+  "ext.apps.agents.invalid": "La declaración de este agente no es válida: {reason}. Edítala o quítala.",
+  "ext.apps.agents.changed": "Cambió: {changes}. Revísalo de nuevo.",
+  "ext.apps.agents.changed_file": "Cambió: el archivo del programa se reemplazó o se modificó. Revísalo de nuevo.",
+  "ext.apps.agents.change.args": "los argumentos",
+  "ext.apps.agents.change.version": "la versión que anuncia, de {from} a {to}",
+  "ext.apps.agents.edit": "Editar",
+  "ext.apps.agents.edit.pauses": "Cambiar el programa o sus argumentos pausa la activación y borra la comprobación.",
+  "ext.apps.agents.edit.name_only": "Cambiar solo el nombre conserva la activación y la comprobación.",
+  "ext.apps.agents.save": "Guardar",
+  "ext.apps.agents.saving": "Guardando…",
+  "ext.apps.agents.saved": "Agente guardado.",
+  "ext.apps.agents.remove": "Quitar",
+  "ext.apps.agents.remove.confirm": "¿Quitar este agente? Se cerrarán sus conversaciones abiertas y se borrará su activación. El historial guardado se queda hasta que lo borres.",
+  "ext.apps.agents.remove.yes": "Sí, quitarlo",
+  "ext.apps.agents.remove.keep": "Conservarlo",
+  "ext.apps.agents.removing": "Quitando…",
+  "ext.apps.agents.start.button": "Empezar una conversación",
+  "ext.apps.agents.start.go": "Escribir el primer mensaje",
+  "ext.apps.agents.argument_n": "Argumento {position}: {text}",
+  "ext.apps.agents.gone": "Ese agente ya no existe.",
+  "ext.apps.agents.failed": "La petición falló.",
+  "ext.apps.agents.reason.unknown": "El servidor lo rechazó (código: {code}).",
+  "ext.apps.agents.reason.executable_not_absolute": "Usa la ruta completa del programa, por ejemplo C:\\tools\\agent.exe.",
+  "ext.apps.agents.reason.executable_has_wildcard": "La ruta no puede llevar comodines.",
+  "ext.apps.agents.reason.executable_has_shell_characters": "La ruta no puede llevar caracteres de shell.",
+  "ext.apps.agents.reason.executable_is_shell_script": "Un script que necesita shell no se puede lanzar: elige el programa mismo.",
+  "ext.apps.agents.reason.executable_is_shell": "Un intérprete de órdenes (como cmd, PowerShell, bash o sh) no puede ser un agente: elige el programa del agente. Si funciona con Node o Python, elige node o python y pon la ruta completa del script en los argumentos.",
+  "ext.apps.agents.reason.executable_not_found": "El programa no existe o no se puede ejecutar.",
+  "ext.apps.agents.reason.executable_in_writable_folder": "El programa no puede estar dentro de un área, de la carpeta de trabajo ni de las carpetas del framework.",
+  "ext.apps.agents.reason.argument_has_placeholder": "Los argumentos son literales: no pueden llevar { } % $ ` < >. El texto de la tarea nunca es un argumento.",
+  "ext.apps.agents.reason.argument_has_shell_syntax": "Un argumento tiene sintaxis de shell (; & |).",
+  "ext.apps.agents.reason.argument_invalid": "Un argumento está vacío, es demasiado largo o tiene espacios en los extremos.",
+  "ext.apps.agents.reason.argument_in_writable_folder": "Un argumento es una ruta dentro de una carpeta donde el agente puede escribir.",
+  "ext.apps.agents.reason.argument_relative_path": "Un argumento es una ruta relativa: usa una ruta absoluta.",
+  "ext.apps.agents.reason.too_many_arguments": "Máximo 16 argumentos.",
+  "ext.apps.agents.reason.name_invalid": "El nombre tiene de 1 a 60 caracteres, en una línea.",
+  "ext.apps.agents.reason.agent_id": "Ese nombre da un id no válido, reservado o ya usado. Elige otro nombre.",
+  "ext.apps.agents.reason.too_many_agents": "Máximo 16 agentes.",
+  "help.apps.agents": {
+    "title": "Tus propios agentes",
+    "hint": "Declara un programa que habla ACP y úsalo en conversaciones.",
+    "more": [
+      "Es una opción avanzada. Un agente que añades empieza deshabilitado.",
+      "Tú lo compruebas, lo activas y lo quitas. Nada de esto se ejecuta solo.",
+      "Sirve para conversaciones en la app, no para pasos de flujos."
+    ]
+  },
+  "help.apps.agent_name": {
+    "title": "Nombre del agente",
+    "hint": "El nombre que verás en la lista y en la conversación.",
+    "more": [
+      "Usa de 1 a 60 caracteres en una línea.",
+      "El nombre también da al agente su id interno, así que un nombre ya usado se rechaza."
+    ]
+  },
+  "help.apps.agent_program": {
+    "title": "Programa (ruta completa)",
+    "hint": "La ruta completa del programa que habla ACP.",
+    "more": [
+      "Usa el programa mismo, no un script que necesite shell ni una carpeta donde un área pueda escribir.",
+      "Si funciona con Node o Python, elige node o python y pon la ruta completa del script en los argumentos."
+    ]
+  },
+  "help.apps.agent_args": {
+    "title": "Argumentos",
+    "hint": "Argumentos fijos del programa, uno por línea.",
+    "more": [
+      "Los argumentos son literales: no pueden llevar marcadores ni sintaxis de shell.",
+      "El texto de tus tareas nunca va aquí. Viaja solo dentro de la conversación.",
+      "Las líneas vacías del final se ignoran."
+    ]
+  },
+  "help.apps.agent_add": {
+    "title": "Añadir el agente",
+    "hint": "Guarda el programa como agente. Empieza deshabilitado.",
+    "more": [
+      "Añadir no inicia el programa ni lo activa.",
+      "Después de añadirlo, usa Comprobar y luego Activar."
+    ]
+  },
+  "help.apps.agent_save": {
+    "title": "Guardar los cambios",
+    "hint": "Guarda el nuevo nombre, programa o argumentos.",
+    "more": [
+      "Cambiar el programa o sus argumentos pausa la activación y borra la comprobación.",
+      "Cambiar solo el nombre conserva ambas cosas."
+    ]
+  },
+  "help.apps.agent_check": {
+    "title": "Comprobar el agente",
+    "hint": "Inicia el programa una vez para que se presente por ACP.",
+    "more": [
+      "Esto ejecuta el programa que declaraste, y solo envía el saludo. No se abre ninguna conversación ni tarea.",
+      "Vuelve a comprobarlo después de cambiar el programa o sus argumentos."
+    ]
+  },
+  "help.apps.agent_edit": {
+    "title": "Editar el agente",
+    "hint": "Cambia su nombre, programa o argumentos.",
+    "more": [
+      "Cambiar el programa o sus argumentos pausa la activación y borra la comprobación.",
+      "Tú lo revisas y lo activas de nuevo."
+    ]
+  },
+  "help.apps.agent_remove": {
+    "title": "Quitar el agente",
+    "hint": "Borra este agente después de que confirmes.",
+    "more": [
+      "Cierra sus conversaciones abiertas y borra su activación.",
+      "Las conversaciones guardadas se quedan hasta que las borres."
+    ]
+  },
+  "help.apps.agent_note": {
+    "title": "Nota de activación",
+    "hint": "Dice qué significa activar este agente.",
+    "more": [
+      "El programa es tuyo: quien lo escribió decide lo que hace. ACP no es un aislamiento.",
+      "El botón de la nota es tu aprobación, y su código de un solo uso dura dos minutos.",
+      "«Cancelar» cierra la nota sin activar nada."
+    ]
+  },
+  "help.apps.agent_start": {
+    "title": "Empezar una conversación",
+    "hint": "Elige un área y abre una conversación en vivo con este agente.",
+    "more": [
+      "Necesita el agente activo y comprobado.",
+      "Sin el consentimiento del área, se niega todo permiso que el agente pida."
+    ]
+  },
+  "help.apps.agent_area": {
+    "title": "Oficina y área",
+    "hint": "Elige el área en cuya carpeta puede trabajar este agente.",
+    "more": [
+      "El consentimiento y la conversación pertenecen a esta área.",
+      "Esta página solo abre la conversación: el primer mensaje lo escribes allí."
     ]
   }
 };

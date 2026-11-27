@@ -248,10 +248,10 @@ def test_the_acp_route_is_a_thread_of_new_and_leaves_the_others_alone():
       console.log(JSON.stringify([route.parseRoute("#new/acp/abc%20d"), route.acpThreadHref("abc d"), route.parseRoute("#new/run/r1"),
         route.parseRoute("#new/team/t1").kind, route.parseRoute("#new/plan/p1").kind, route.parseRoute("#new")]));
     """)
-    assert result[0] == {"section": "new", "id": "abc d", "kind": "acp"} and result[1] == "#new/acp/abc%20d"
+    assert result[0] == {"section": "new", "id": "abc d", "kind": "acp", "agent": None} and result[1] == "#new/acp/abc%20d"
     assert result[2] == {"section": "new", "id": "r1"} and result[3:5] == ["team", "plan"] and result[5] == {"section": "new", "id": None}
     session = raw("new-session.js")
-    assert 'if (runId && route.kind === "acp") return html`<${AcpThread} key=${runId} token=${token} threadId=${runId} />`;' in session
+    assert 'if (runId && route.kind === "acp") return html`<${AcpThread} key=${runId} token=${token} threadId=${runId} agent=${route.agent || ""} />`;' in session
     assert session.index('route.kind === "acp"') < session.index("if (runId) return html`<${RunThread}")
 
 
@@ -298,14 +298,14 @@ def test_the_start_route_carries_the_encoded_package_and_does_not_collide_with_a
         route.parseRoute("#new/acp/acp-new"), route.parseRoute("#new/acp-new/a%2Fb"), route.parseRoute("#new/acp/abc")]));
     """)
     assert result[0] == "#new/acp-new/office__area%20one"
-    assert result[1] == {"section": "new", "id": "office__area one", "kind": "acp-new"}
-    assert result[2] == {"section": "new", "id": "acp-new", "kind": "acp"}             # a session literally named acp-new stays a session
+    assert result[1] == {"section": "new", "id": "office__area one", "kind": "acp-new", "agent": None}
+    assert result[2] == {"section": "new", "id": "acp-new", "kind": "acp", "agent": None}             # a session literally named acp-new stays a session
     assert result[3]["id"] == "a/b" and result[4]["kind"] == "acp"
 
 
 def test_new_session_draws_the_start_before_the_thread_and_both_before_the_run():
     session = raw("new-session.js")
-    start = 'if (runId && route.kind === "acp-new") return html`<${AcpStart} key=${runId} token=${token} bundle=${runId} />`;'
+    start = 'if (runId && route.kind === "acp-new") return html`<${AcpStart} key=${runId} token=${token} bundle=${runId} agent=${route.agent || ""} />`;'
     assert start in session and 'route.kind === "acp") return html`<${AcpThread}' in session
     assert session.index(start) < session.index('route.kind === "acp")') < session.index("if (runId) return html`<${RunThread}")
 
@@ -345,8 +345,8 @@ def test_the_start_component_posts_once_replaces_the_entry_and_never_switches_tr
     start = thread[thread.index("export function AcpStart"):]
     assert start.count("apiPost(") == 1 and "apiPost(ACP_START_PATH, token, body)" in start
     assert "/gui/api/runs" not in start and "threads/runs" not in start and "/setup/console" not in start
-    assert start.count("location.replace(acpThreadHref(id))") == 1 and "location.hash" not in start      # no extra history entry
-    assert start.index("location.replace(acpThreadHref(id))") < start.index("setFailure(acpStartFailure(error")
+    assert start.count("location.replace(acpThreadHref(id, agent))") == 1 and "location.hash" not in start      # no extra history entry
+    assert start.index("location.replace(acpThreadHref(id, agent))") < start.index("setFailure(acpStartFailure(error")
     assert 'href="#new"' in start and "thread.acp.choose_cli" in start and "failure.unavailable" in start
     assert "<textarea" in start and "acp_thread.start_text" in start and "acp_thread.start" in start
     # the permissions notice is read once for the package, not on every keystroke or message

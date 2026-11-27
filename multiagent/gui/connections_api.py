@@ -30,6 +30,27 @@ class DiscoveryBody(BaseModel):
     answer: Literal["accepted", "declined"]
 
 
+class AcpAgentBody(BaseModel):
+    """EXA-T06: the declaration of one of the person's own ACP agents. Every rule is checked on the server."""
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(max_length=200)
+    executable: str = Field(max_length=2000)
+    args: list[str] = Field(default_factory=list, max_length=64)
+    id: str | None = Field(default=None, max_length=64)
+
+
+class AcpAgentEditBody(BaseModel):
+    """Only what changes. A new ``executable`` or ``args`` pauses the activation and clears the probe."""
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, max_length=200)
+    executable: str | None = Field(default=None, max_length=2000)
+    args: list[str] | None = Field(default=None, max_length=64)
+
+
+class EmptyAgentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
 def add_connection_routes(api: APIRouter, services) -> None:
     connections = getattr(services, "connections", None) or ConnectionServices(services)
     @api.get("/connections")
@@ -63,6 +84,28 @@ def add_connection_routes(api: APIRouter, services) -> None:
     @api.put("/connections/codex_acp/consent")
     def set_acp_consent(body: AcpConsentBody):
         return connections.set_acp_consent(body.bundle, body.allow_write, body.keep_history)
+
+    # EXA-T06: the person's own ACP agents. Browser only, and the actor is always the person: no /api/v1, CLI or MCP route.
+    @api.get("/acp-agents")
+    def list_acp_agents():
+        return services.acp_agents.list()
+
+    @api.post("/acp-agents")
+    def add_acp_agent(body: AcpAgentBody):
+        return services.acp_agents.add(body.name, body.executable, body.args, agent_id=body.id, actor="user:gui")
+
+    @api.put("/acp-agents/{agent_id}")
+    def edit_acp_agent(agent_id: str, body: AcpAgentEditBody):
+        return services.acp_agents.edit(agent_id, name=body.name, executable=body.executable, args=body.args,
+                                        actor="user:gui")
+
+    @api.post("/acp-agents/{agent_id}/remove")
+    def remove_acp_agent(agent_id: str, body: EmptyAgentBody):
+        return services.acp_agents.remove(agent_id, actor="user:gui")
+
+    @api.post("/acp-agents/{agent_id}/probe")
+    def probe_acp_agent(agent_id: str, body: EmptyAgentBody):    # the person's click; never on its own
+        return connections.probe_acp_agent(agent_id, actor="user:gui")
 
     @api.post("/connections/{connection_id}/tls-trust")
     def set_tls_trust(connection_id: str, body: TlsTrustBody):

@@ -1701,8 +1701,8 @@ export function NewSession({ token, mock }) {
     if (entry) pick(entry);
   }
 
-  if (runId && route.kind === "acp-new") return html`<${AcpStart} key=${runId} token=${token} bundle=${runId} />`;
-  if (runId && route.kind === "acp") return html`<${AcpThread} key=${runId} token=${token} threadId=${runId} />`;
+  if (runId && route.kind === "acp-new") return html`<${AcpStart} key=${runId} token=${token} bundle=${runId} agent=${route.agent || ""} />`;
+  if (runId && route.kind === "acp") return html`<${AcpThread} key=${runId} token=${token} threadId=${runId} agent=${route.agent || ""} />`;
   if (runId) return html`<${RunThread} key=${runId} token=${token} runId=${runId} />`;
 
   if (view === "form") {

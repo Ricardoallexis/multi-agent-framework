@@ -8,7 +8,7 @@ import math
 import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from . import process
 from .acp_probe import CODEX_ACP_EXECUTABLE, PROTOCOL_VERSION, _clean_env_extra
@@ -42,8 +42,10 @@ class AcpConsent:
 class AcpTransport:
     kind = TransportKind.ACP
 
-    def __init__(self, executable: str = CODEX_ACP_EXECUTABLE):
+    def __init__(self, executable: str = CODEX_ACP_EXECUTABLE, args: Sequence[str] = ()):
         self.executable = executable
+        # EXA-T06: the fixed, literal arguments of an agent the person declared. Never the task text: that travels in session/prompt.
+        self.args = tuple(args)
 
     def capabilities(self) -> TransportCapabilities:
         return TransportCapabilities(multi_turn=True, cancel=True, live_events=True, permission_requests=True)
@@ -51,7 +53,7 @@ class AcpTransport:
     def open_session(self, request: ExecutorLaunchRequest, sink: EventSink) -> AcpSession:
         try:
             folder = process.validate_cwd(request.workdir).resolve(strict=True)
-            handle = process.start([self.executable], cwd=folder, stdin_text=None,
+            handle = process.start([self.executable, *self.args], cwd=folder, stdin_text=None,
                                    timeout_seconds=request.timeout_seconds, output_cap_bytes=LINE_CAP,
                                    env_extra=_clean_env_extra(folder), duplex=True)
         except (process.ProcessLaunchError, OSError, ValueError) as exc:

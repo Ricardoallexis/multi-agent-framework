@@ -33,8 +33,14 @@ const stopAllPausedText = () => t("ext.apps.activation.stop_all.paused");
 const foreignKillSwitchText = () => t("ext.apps.activation.foreign_switch");
 export const manualEnableText = () => t("ext.apps.activation.manual_enable");
 
+// EXA-T06: the names of the person's own agents, which the add-agent list remembers so the notice and the answers say the name.
+const OWN_NAMES = new Map();
+export function rememberExecutorName(executorId, name) {
+  if (typeof executorId === "string" && executorId && typeof name === "string" && name.trim()) OWN_NAMES.set(executorId, name.trim());
+}
+
 export function executorName(executorId) {
-  return EXECUTOR_NAMES[executorId] || String(executorId || t("ext.apps.activation.executor"));
+  return EXECUTOR_NAMES[executorId] || OWN_NAMES.get(executorId) || String(executorId || t("ext.apps.activation.executor"));
 }
 
 const FIELD_TEXT = {

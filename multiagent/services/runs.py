@@ -1017,7 +1017,8 @@ class AcpInteractiveSessions:
             raise ServiceError(NOT_FOUND, "ACP session not found", status=404)
         return item
 
-    def start(self, bundle: str, text: str) -> dict[str, Any]:
+    def start(self, bundle: str, text: str, agent: str | None = None) -> dict[str, Any]:
+        """Open a GUI conversation. ``agent`` (EXA-T06) is the id of one of the person's own ACP agents; none means Codex ACP."""
         if not isinstance(text, str) or not text.strip() or len(text) > 20000:
             raise ServiceError(INVALID_REQUEST, "Invalid ACP prompt", status=422)
         try:
@@ -1031,15 +1032,27 @@ class AcpInteractiveSessions:
                                details={"reason": "acp_area_required"})
         scope = "/".join(located)
         connections = self.services.connections
-        executable = connections._acp_resolver(Path.cwd())
+        agent_id = None if agent in (None, "codex_acp") else agent
+        fixed_args: tuple[str, ...] = ()
+        if agent_id is None:
+            executable = connections._acp_resolver(Path.cwd())
+        else:       # one of the person's own agents: its declaration, checked again now (acp_agent_not_found, acp_unavailable)
+            executable, listed = self.services.acp_agents.launch_target(agent_id)
+            fixed_args = tuple(listed)
         if executable is None:
             raise ServiceError(INVALID_STATE, "ACP unavailable", status=409,
                                details={"reason": "acp_unavailable"})
-        activation = self.services.executor_activations._read().get("codex_acp")
+        activation_id = agent_id or "codex_acp"
+        activation = self.services.executor_activations._read().get(activation_id)
         if activation is not None:     # its own reason first: acp_probe_required or the pause
-            self.services.executor_activations.check_launch("codex_acp")
-        if executable != connections._acp_probe_path or (
-                connections._acp_probe_result or {}).get("status") != "compatible":
+            self.services.executor_activations.check_launch(activation_id)
+        if agent_id is None:
+            probed = executable == connections._acp_probe_path and (
+                connections._acp_probe_result or {}).get("status") == "compatible"
+        else:
+            _path, fresh, evidence = connections.acp_agent_probe_state(agent_id)
+            probed = bool(fresh and evidence.get("status") == "compatible")
+        if not probed:
             raise ServiceError(INVALID_STATE, "ACP unavailable", status=409,
                                details={"reason": "acp_unavailable"})
         if activation is None:
@@ -1054,19 +1067,35 @@ class AcpInteractiveSessions:
                                    details={"reason": "acp_session_limit"})
             self._opening += 1
         identifier = uuid.uuid4().hex
+        epoch = self._agent_epoch(agent_id) if agent_id is not None else 0
         keep_history = should_keep_history(self.services.offices, bundle, setting)
         sink = _AcpSink(consent, folder, history=self.history if keep_history else None, identifier=identifier)
         request = ExecutorLaunchRequest(task_id=uuid.uuid4().hex, task_envelope={}, workdir=folder,
                                         permission=Permission.WRITE if consent.allow_write else Permission.READ)
         try:
-            session = self.transport_factory(executable).open_session(request, sink)
+            transport = (self.transport_factory(executable) if agent_id is None
+                         else self.transport_factory(executable, fixed_args))
+            session = transport.open_session(request, sink)
         except Exception as exc:
             with self._lock:
                 self._opening -= 1
-            connections._acp_authenticated = None
+            if agent_id is None:
+                connections._acp_authenticated = None
             raise ServiceError(INVALID_STATE, "ACP unavailable", status=409,
                                details={"reason": "acp_unavailable"}) from exc
-        connections._acp_authenticated = True  # session/new succeeded; the probe alone never sets this
+        if agent_id is not None:
+            with self._lock:
+                retired = self._agent_epoch(agent_id) != epoch      # close_agent ran while this one was opening
+                if retired:
+                    self._opening -= 1
+            if retired:
+                try:
+                    session.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                raise ServiceError(INVALID_STATE, "ACP unavailable", status=409, details={"reason": "acp_unavailable"})
+        else:
+            connections._acp_authenticated = True  # session/new succeeded; the probe alone never sets this
         if keep_history:
             try:
                 self.history.create(identifier, bundle, scope)
@@ -1076,13 +1105,29 @@ class AcpInteractiveSessions:
                 sink.history_warning = "history_not_saved"
         item = {"session": session, "sink": sink, "bundle": bundle, "scope": scope,
                 "consent_configured": setting is not None, "active": False,
-                "cancel_early": False}
+                "cancel_early": False, "agent": agent_id}
         with self._lock:
             self._opening -= 1
             self._sessions[identifier] = item
         self.prompt(identifier, text)
-        return {"id": identifier, "transport": "acp", "bundle": bundle, "scope": scope,
-                "consent_configured": setting is not None, "selected": True}
+        started = {"id": identifier, "transport": "acp", "bundle": bundle, "scope": scope,
+                   "consent_configured": setting is not None, "selected": True}
+        if agent_id is not None:
+            started["agent"] = {"id": agent_id, "name": self.services.acp_agents.name_of(agent_id)}
+        return started
+
+    def _agent_epoch(self, agent_id: str) -> int:
+        with self._lock:
+            return self.__dict__.setdefault("_agent_epochs", {}).get(agent_id, 0)
+
+    def close_agent(self, agent_id: str) -> None:
+        """EXA-T06: close the conversations of one own ACP agent, the live ones and the ones still opening (they close on arrival)."""
+        with self._lock:
+            epochs = self.__dict__.setdefault("_agent_epochs", {})
+            epochs[agent_id] = epochs.get(agent_id, 0) + 1
+            sessions = [item for item in self._sessions.values() if item.get("agent") == agent_id]
+            self._sessions = {key: item for key, item in self._sessions.items() if item.get("agent") != agent_id}
+        self._close_sessions(sessions)
 
     def prompt(self, identifier: str, text: str) -> dict[str, Any]:
         if not isinstance(text, str) or not text.strip() or len(text) > 20000:

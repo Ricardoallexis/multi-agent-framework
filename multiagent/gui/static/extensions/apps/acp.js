@@ -15,7 +15,8 @@ import { ACP_DELETE_ALL_PATH, ACP_ID, ACP_LIST_PATH, ACP_PROBE_PATH, ACP_CONSENT
 const asError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
 
 // «Comprobar» and «Comprobar otra vez» are the same probe: initialize only, never activation. It answers with the updated row.
-function useProbe({ token, onRowUpdated, onChanged }) {
+// EXA-T06: an agent of the person probes the same way, through its own path and id.
+export function useProbe({ token, onRowUpdated, onChanged, path = ACP_PROBE_PATH, id = ACP_ID }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   async function probe() {
@@ -23,8 +24,8 @@ function useProbe({ token, onRowUpdated, onChanged }) {
     setBusy(true);
     setError(null);
     try {
-      onRowUpdated(await apiPost(ACP_PROBE_PATH, token, {}));
-      onChanged(ACP_ID);
+      onRowUpdated(await apiPost(path, token, {}));
+      onChanged(id);
     } catch (failure) {
       setError(asError(failure));
     } finally {
@@ -91,7 +92,7 @@ function ProbeStep({ probe }) {
 }
 
 // The offices and areas the GUI already knows (the same two routes the sidebar reads), as one list of packages.
-function useAreas(token, enabled) {
+export function useAreas(token, enabled) {
   const [state, setState] = useState({ groups: [], loading: false, error: null });
   useEffect(() => {
     if (!enabled) return undefined;

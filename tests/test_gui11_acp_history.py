@@ -77,7 +77,7 @@ def test_a_saved_thread_has_the_banner_the_link_and_no_text_box_or_cancel_button
     saved = saved[:saved.index("</div>`}") + 8]
     assert 't("thread.acp.saved")' in saved and "thread.acp.saved.redacted" in saved and "thread.acp.saved.incomplete" in saved
     assert "thread.redacted &&" in saved and "thread.incomplete &&" in saved
-    assert "acpStartHref(bundle)" in saved and '"#apps"' in saved            # the same area, or Apps when the list did not name it
+    assert "acpStartHref(bundle, agent)" in saved and '"#apps"' in saved            # the same area, or Apps when the list did not name it
     assert "<textarea" not in saved
     # the text box exists only for an idle conversation and the cancel button only for a live one
     assert source.count("<textarea") == 1 and source.index("<textarea") > source.index('state === "idle" && html`')
@@ -437,7 +437,7 @@ def test_every_new_control_has_its_help_in_both_languages():
 
 def test_the_css_of_the_card_uses_variables_and_targets_and_the_narrow_screens_fit():
     css = apps("style.css")
-    block = css[css.index("/* ACP-T05:"):]
+    block = css[css.index("/* ACP-T05:"):css.index("/* EXA-T06")]
     assert "var(--target)" in block and "min-width: 0" in block and "overflow-wrap: anywhere" in block
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgb\(|hsl\(", block) and "style=" not in block
     assert "width:" not in block.replace("min-width", "")                              # no fixed width that could overflow at 375 or 390 px

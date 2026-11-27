@@ -43,6 +43,7 @@ class AcpStartBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bundle: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=20000)
+    agent: str | None = Field(default=None, min_length=1, max_length=32)    # EXA-T06: one of the person's own ACP agents
 
 
 class AcpPromptBody(BaseModel):
@@ -328,6 +329,8 @@ def add_thread_routes(api: APIRouter, services: Any) -> None:
 
     @api.post("/threads/acp")
     async def start_acp(body: AcpStartBody):
+        if body.agent is not None:
+            return await anyio.to_thread.run_sync(services.runs.acp.start, body.bundle, body.text, body.agent)
         return await anyio.to_thread.run_sync(services.runs.acp.start, body.bundle, body.text)
 
     @api.post("/threads/acp/{session_id}/prompts")

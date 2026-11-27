@@ -17,6 +17,7 @@ import { activationNote, stopAllConfirmText } from "./activation-model.js";   //
 import { activateExecutor, deactivateExecutor, requestActivation, stopAllExecutors } from "./activation.js";
 import { AcpPanel } from "./acp.js";   // ACP-T04
 import { DiscoveryCard } from "./discovery.js";   // EXA-T05
+import { AgentsSection } from "./add-agent.js";   // EXA-T06
 import { DISCOVERY_PATH } from "./discovery-model.js";
 
 registerHelp(HELP, "apps");
@@ -585,6 +586,7 @@ export function AppsView({ token }) {
               allowLaunch=${view.allowLaunch} consoleSupported=${view.consoleSupported} token=${token}
               onRowUpdated=${handleRowUpdated} onActivationChanged=${handleActivationChanged} busyAny=${consoleBusy} onBusyChange=${setConsoleBusy} />`)}
           </ul>` : html`<p class="muted">${t("ext.apps.empty_group")}</p>`}
+          ${tab === "apps" && html`<${AgentsSection} mode=${mode} token=${token} />`}
         </section>
       <//>`}
   </section>`;

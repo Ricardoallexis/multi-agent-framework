@@ -145,7 +145,7 @@ def test_install_panel_never_runs_the_command_and_checks_with_the_probe_route():
     model = (APPS / "acp-model.js").read_text(encoding="utf-8")
     for text in (source, model):
         assert not re.search(r"child_process|\bexec\(|spawn\(|\beval\(|new Function|innerHTML|dangerouslySetInnerHTML", text)
-    assert "/setup/console" not in source and "apiPost(ACP_PROBE_PATH, token, {})" in source          # «Comprobar otra vez» is the probe, with {}
+    assert "/setup/console" not in source and "apiPost(path, token, {})" in source and "path = ACP_PROBE_PATH" in source          # «Comprobar otra vez» is the probe, with {}
     assert 'ACP_PROBE_PATH = `/gui/api/connections/${ACP_ID}/acp-probe`' in model
     assert "navigator.clipboard.writeText(install.command)" in source                                 # copying is the person's act
     assert "ext.apps.acp.install.you_run_it" in source
@@ -262,7 +262,8 @@ def test_apps_only_navigates_to_the_start_and_never_posts_or_switches_transport(
 def test_the_apps_extension_has_no_input_or_textarea_at_all():
     for path in APPS.glob("*.js"):
         text = path.read_text(encoding="utf-8")
-        assert "<input" not in text and "<textarea" not in text, path.name
+        if path.name != "add-agent.js":   # EXA-T06: the form of «Add an agent» is the one place that asks for text
+            assert "<input" not in text and "<textarea" not in text, path.name
 
 
 def test_the_consent_is_a_switch_button_with_its_visible_text():

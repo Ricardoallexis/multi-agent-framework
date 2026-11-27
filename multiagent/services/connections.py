@@ -3,6 +3,7 @@
 """Read-only, cached connection facts for model providers and executor apps."""
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from ..routing.executor_capabilities import CapabilityEvidence, SupportState, va
 from ..setup import guided
 from ..setup.detect import COMMANDS, CONTRACT_DATE, detect
 from .errors import NOT_FOUND, ServiceError
+from .acp_agents import USER_ACTOR
 from .acp_history import should_keep_history
 from .limits import LIMIT_REASONS, limit_notice
 
@@ -81,6 +83,8 @@ class ConnectionServices:
         self._probed: dict[str, str] = {}      # the outcome of the last "Test connection" of each provider
         self._acp_probe_result: dict[str, Any] | None = None
         self._acp_probe_path: str | None = None
+        self._agent_probe: Callable[..., dict[str, Any]] = probe_codex_acp    # EXA-T06: the probe of an own agent (doubles replace it)
+        self._agent_probes: dict[str, dict[str, Any]] = {}
 
     # -------- EXA-T05: the consent to search for apps --------
     def discovery_guarded(self, detector: Callable[..., dict] | None = None) -> bool:
@@ -199,6 +203,52 @@ class ConnectionServices:
         current = self._acp_resolver(Path.cwd())
         fresh = self._acp_probe_path == current
         return current, fresh, (dict(self._acp_probe_result or {}) if fresh else {})
+
+    # -------- EXA-T06: the probe of each own ACP agent --------
+    def _agent_key(self, agent_id: str) -> tuple[str | None, tuple[str, ...]]:
+        """``(resolved executable or None, arguments)`` of the declaration today: what a probe belongs to."""
+        agents = getattr(self._services, "acp_agents", None)
+        try:
+            record = agents.get(agent_id)
+        except (ServiceError, AttributeError):
+            return None, ()
+        if not record.get("valid", True):      # a declaration the rules refuse today has no executable to probe
+            return None, ()
+        resolved = os.path.realpath(record["executable"])
+        return (os.path.normcase(resolved) if os.path.isfile(resolved) else None), tuple(record["args"])
+
+    def acp_agent_probe_state(self, agent_id: str) -> tuple[str | None, bool, dict[str, Any]]:
+        """``(resolved executable, probe is of this executable and these arguments, the evidence that still applies)``.
+
+        The same judgement as ``acp_probe_state``: evidence belongs to the declaration that was probed, and a restart
+        of the server forgets it, so the person probes again.
+        """
+        path, args = self._agent_key(agent_id)
+        saved = self._agent_probes.get(agent_id)
+        fresh = bool(path and saved and saved["key"] == (path, args))
+        return path, fresh, (dict(saved["result"]) if fresh else {})
+
+    def clear_acp_agent_probe(self, agent_id: str) -> None:
+        self._agent_probes.pop(agent_id, None)
+
+    def probe_acp_agent(self, agent_id: str, *, actor: str = USER_ACTOR) -> dict[str, Any]:
+        """Probe a declared agent with ``initialize`` only (no session, no request). Only the person's click; never on its own."""
+        agents = self._services.acp_agents
+        if actor != USER_ACTOR:
+            raise ServiceError("invalid_state", "Probing an ACP agent needs a person: use the GUI", status=409,
+                               details={"reason": "person_required"})
+        record = agents.get(agent_id)
+        if not record["valid"] and record["reason"] != "executable_not_found":
+            agents.require_valid(agent_id)       # visible failure, with the reason the add would have given
+        try:
+            executable, args = agents.launch_target(agent_id)
+        except ServiceError:
+            result: dict[str, Any] = {"status": "not_installed"}
+        else:
+            result = self._agent_probe(executable, cwd=Path.cwd(), args=args)
+        self._agent_probes[agent_id] = {"result": dict(result), "key": self._agent_key(agent_id),
+                                        "at": self.clock().astimezone(timezone.utc).isoformat()}
+        return agents.row(record)
 
     def _executor(self, row: dict[str, Any]) -> None:
         identifier = row["id"]

@@ -63,6 +63,7 @@ const Tabs = () => null;
 const HELP = {{}};
 const activationNote = () => ({{}});
 const stopAllConfirmText = () => "";
+const AgentsSection = () => null;
 const activateExecutor = async () => globalThis.__activationOutcome;
 const deactivateExecutor = async () => ({{}});
 const requestActivation = async () => globalThis.__requestActivationOutcome || ({{}});

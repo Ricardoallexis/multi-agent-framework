@@ -15,8 +15,8 @@ import { acpStartHref, acpThreadHref } from "./route.js";
 import { currentMode } from "./gui-mode.js";   // SIM-T03
 import { POLL_MS, composerState, createThread, entryKey, groupThread, isNearEnd, isTerminal, mergeThread, pollAfter,
   nextFollowing, shouldFollow, SMOOTH_MS, tailKey, projectOf, shortcutsFor,
-  ACP_LIST_PATH, ACP_START_PATH, acpBundleOf, acpConsentReadPath, acpDeletePath, acpHistoryWarningKey, acpStartBody, acpStartFailure,
-  acpStartedId, acpComposerState, acpNeedsConsentNotice, acpPath, acpStreamPath, applyAcpStreamBlock, createAcpThread, groupAcpEvents,
+  ACP_AGENTS_PATH, ACP_LIST_PATH, ACP_START_PATH, acpBundleOf, acpConsentReadPath, acpDeletePath, acpHistoryWarningKey, acpStartBody, acpStartFailure,
+  acpStartedId, acpText, acpWho, acpComposerState, acpNeedsConsentNotice, acpPath, acpStreamPath, applyAcpStreamBlock, createAcpThread, groupAcpEvents,
   isAcpLost, mergeAcpPage, stepBar, waitSeqOf } from "./thread-model.js";
 import { MESSAGE_KINDS, NEEDS_CONFIRMATION, messageError, messageId, messagePath } from "./inbox-model.js";
 import { t } from "./i18n.js";
@@ -284,7 +284,7 @@ function RunInbox({ runId, token, status, onSent }) {
 // `error` block of the stream, ends the conversation here (deleted, expired, or never saved) and nothing is retried.
 const ACP_RECONNECT_MS = 1000;
 
-export function AcpThread({ token, threadId }) {
+export function AcpThread({ token, threadId, agent = "" }) {
   const [thread, setThread] = useState(createAcpThread);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -293,6 +293,7 @@ export function AcpThread({ token, threadId }) {
   const [bundle, setBundle] = useState("");   // the package of a saved conversation, for the link that starts another one
   const [confirming, setConfirming] = useState(false);   // «Borrar esta conversación» asks once before it deletes
   const [deleted, setDeleted] = useState(false);
+  const [agents, setAgents] = useState(null);   // EXA-T06: the person's own agents, read once when the route names one
   const current = useRef(createAcpThread());
   const endRef = useRef(null);
   const commit = (next) => { current.current = next; setThread(next); };
@@ -319,6 +320,13 @@ export function AcpThread({ token, threadId }) {
     apiGet(ACP_LIST_PATH, token).then((answer) => { if (active) setBundle(acpBundleOf(answer, threadId)); }, () => {});
     return () => { active = false; };
   }, [thread.saved, threadId, token]);
+  useEffect(() => {   // the route carries only an agent id: the name comes from the server, and a failed read leaves a generic title
+    setAgents(null);
+    if (!agent) return undefined;
+    let active = true;
+    apiGet(ACP_AGENTS_PATH, token).then((answer) => { if (active) setAgents(answer); }, () => {});
+    return () => { active = false; };
+  }, [agent, token]);
   useEffect(() => {
     let stopped = false;
     let controller = null;
@@ -392,15 +400,18 @@ export function AcpThread({ token, threadId }) {
 
   const state = acpComposerState(thread);
   const groups = groupAcpEvents(thread.events);
+  const who = acpWho(agent, agents);   // EXA-T06: Codex ACP when the route names no agent
+  const agentLabel = who.mode === "named" ? who.name : who.mode === "generic" ? t("thread.acp.kind.message_generic") : "";
+  const title = acpText("thread.acp.title", who);
   if (deleted) {   // the conversation is gone: nothing is left to read, follow or send
-    return html`<section class="ns thread-view acp-thread" aria-label=${t("thread.acp.title")}>
-      <div class="thread-head"><h3>${t("thread.acp.title")}</h3></div>
+    return html`<section class="ns thread-view acp-thread" aria-label=${title}>
+      <div class="thread-head"><h3>${title}</h3></div>
       <p class="message ok" role="status">${t("thread.acp.deleted")}</p>
       <p><a class="acp-consent-link" href="#apps">${t("thread.acp.consent_link")}</a></p>
     </section>`;
   }
-  return html`<section class="ns thread-view acp-thread" aria-label=${t("thread.acp.title")}>
-    <div class="thread-head"><h3>${t("thread.acp.title")}</h3><span class="muted">${threadId}</span>
+  return html`<section class="ns thread-view acp-thread" aria-label=${title}>
+    <div class="thread-head"><h3>${title}</h3><span class="muted">${threadId}</span>
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("thread.refresh")}
         onClick=${() => setEpoch((value) => value + 1)}>${t("thread.refresh")}</button><${Help} topic="thread.refresh" compact=${true} />
       <${Shortcuts} mode=${currentMode()} sessionId="" project=${null} scope="acp" /></div>
@@ -410,19 +421,19 @@ export function AcpThread({ token, threadId }) {
       <p class="message acp-saved-note" role="status">${t("thread.acp.saved")}</p>
       ${thread.redacted && html`<p class="message acp-saved-note" role="status">${t("thread.acp.saved.redacted")}</p>`}
       ${thread.incomplete && html`<p class="message acp-saved-note" role="status">${t("thread.acp.saved.incomplete")}</p>`}
-      <p><a class="acp-consent-link" href=${bundle ? acpStartHref(bundle) : "#apps"}>${bundle ? t("thread.acp.saved.new") : t("thread.acp.consent_link")}</a></p>
+      <p><a class="acp-consent-link" href=${bundle ? acpStartHref(bundle, agent) : "#apps"}>${bundle ? t("thread.acp.saved.new") : t("thread.acp.consent_link")}</a></p>
     </div>`}
     ${acpHistoryWarningKey(thread) && state !== "lost" && html`<p class="message acp-history-note" role="status">${t(acpHistoryWarningKey(thread))}</p>`}
     ${error && html`<p class="message error" role="alert">${t("thread.refresh.error", { message: errorText(error) })}</p>`}
     ${acpNeedsConsentNotice(thread) && state !== "lost" && html`<p class="message acp-consent-note" role="status">${t("thread.acp.consent_missing")}
       <a class="acp-consent-link" href="#apps">${t("thread.acp.consent_link")}</a></p>`}
     ${state === "loading" && !error && html`<p class="muted" aria-busy="true">${t("thread.loading")}</p>`}
-    <ol class="thread-list" role="log" aria-label=${t("thread.acp.messages.aria")}>
-      ${groups.map((item) => html`<${AcpCard} key=${item.key} item=${item} />`)}
+    <ol class="thread-list" role="log" aria-label=${acpText("thread.acp.messages.aria", who)}>
+      ${groups.map((item) => html`<${AcpCard} key=${item.key} item=${item} agentLabel=${agentLabel} />`)}
     </ol>
     <div ref=${endRef} class="thread-end" aria-hidden="true"></div>
     ${state === "active" && html`<div class="acp-controls">
-      <p class="muted" role="status" aria-live="polite">${t("thread.acp.running")}</p>
+      <p class="muted" role="status" aria-live="polite">${acpText("thread.acp.running", who)}</p>
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("acp_thread.cancel")}
         onClick=${cancel}>${t("thread.acp.cancel")}</button><${Help} topic="acp_thread.cancel" compact=${true} />
     </div>`}
@@ -447,14 +458,22 @@ export function AcpThread({ token, threadId }) {
 }
 
 // ACP-T04: the first message of a Codex ACP conversation. The route carries the package; Apps only navigated here. Sending opens the
-// live thread in place of this entry, so Back does not return to an empty form.
-export function AcpStart({ token, bundle }) {
+// live thread in place of this entry, so Back does not return to an empty form. EXA-T06: `agent` is the id of an own agent of the person.
+export function AcpStart({ token, bundle, agent = "" }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState(null);
   const [consent, setConsent] = useState(null);   // null while it loads, else the answer of the server
-  const body = acpStartBody(bundle, text);
+  const [agents, setAgents] = useState(null);   // EXA-T06: for the title, read once when the route names an agent
+  const body = acpStartBody(bundle, text, agent);
 
+  useEffect(() => {
+    setAgents(null);
+    if (!agent) return undefined;
+    let active = true;
+    apiGet(ACP_AGENTS_PATH, token).then((answer) => { if (active) setAgents(answer); }, () => {});
+    return () => { active = false; };
+  }, [agent, token]);
   useEffect(() => {
     let active = true;
     setConsent(null);
@@ -467,16 +486,17 @@ export function AcpStart({ token, bundle }) {
     setBusy(true); setFailure(null);
     try {
       const id = acpStartedId(await apiPost(ACP_START_PATH, token, body));
-      if (id) { location.replace(acpThreadHref(id)); return; }
-      setFailure(acpStartFailure(null));
+      if (id) { location.replace(acpThreadHref(id, agent)); return; }
+      setFailure(acpStartFailure(null, Boolean(agent)));
     } catch (error) {
-      setFailure(acpStartFailure(error instanceof ApiError ? error : new ApiError({ message: String(error) })));
+      setFailure(acpStartFailure(error instanceof ApiError ? error : new ApiError({ message: String(error) }), Boolean(agent)));
     }
     setBusy(false);
   }
 
-  return html`<section class="ns thread-view acp-thread acp-start" aria-label=${t("thread.acp.start.title")}>
-    <div class="thread-head"><h3>${t("thread.acp.start.title")}</h3></div>
+  const startTitle = acpText("thread.acp.start.title", acpWho(agent, agents));
+  return html`<section class="ns thread-view acp-thread acp-start" aria-label=${startTitle}>
+    <div class="thread-head"><h3>${startTitle}</h3></div>
     <p class="acp-start-area">${t("thread.acp.start.area")} <code>${bundle}</code></p>
     ${consent && consent.configured !== true && html`<p class="message acp-consent-note" role="status">${t("thread.acp.consent_missing")}
       <a class="acp-consent-link" href="#apps">${t("thread.acp.consent_link")}</a></p>`}

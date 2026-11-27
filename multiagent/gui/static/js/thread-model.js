@@ -306,18 +306,40 @@ export function acpBundleOf(answer, id) {
 export const ACP_START_PATH = "/gui/api/threads/acp";
 export const ACP_CONSENT_PATH = "/gui/api/connections/codex_acp/consent";
 export const acpConsentReadPath = (bundle) => ACP_CONSENT_PATH + "?bundle=" + encodeURIComponent(bundle);
-export const acpStartBody = (bundle, message) => {
+// EXA-T06: `agent` is the id of one of the person's own agents; without it the conversation is with Codex ACP, as before.
+export const acpStartBody = (bundle, message, agent = "") => {
   const body = typeof message === "string" ? message.trim() : "";
-  return bundle && body ? { bundle, text: body } : null;
+  if (!bundle || !body) return null;
+  return agent ? { bundle, text: body, agent } : { bundle, text: body };
 };
 export const acpStartedId = (answer) => (answer && typeof answer.id === "string" && answer.id ? answer.id : "");
+
+// EXA-T06: who the conversation is with. The route carries only the id of an own agent; the name is read from GET /acp-agents and
+// never taken from the route. `agents` is that answer, or null while it loads or when it failed. An id that is not in the list
+// (the agent was removed) reads as a generic agent, never as Codex.
+export const ACP_AGENTS_PATH = "/gui/api/acp-agents";
+export function acpWho(agentId, agents) {
+  if (!agentId) return { mode: "codex", name: "" };
+  const found = (agents && Array.isArray(agents.agents) ? agents.agents : []).find((item) => item && item.id === agentId);
+  const name = found && typeof found.name === "string" ? found.name.trim() : "";
+  return name ? { mode: "named", name } : { mode: "generic", name: "" };
+}
+// The text of a thread line that names the agent: the key of today for Codex ACP, `<key>_named` ({name}) or `<key>_generic` for another.
+export const acpText = (key, who) => (who.mode === "codex" ? t(key) : who.mode === "named" ? t(key + "_named", { name: who.name }) : t(key + "_generic"));
+
 const ACP_UNAVAILABLE = ["acp_unavailable", "acp_activation_required", "acp_probe_required", "acp_area_required", "acp_session_limit",
   "executor_paused_changed", "executor_stopped_by_person"];
+const ACP_REASONS_THAT_NAME_CODEX = ["acp_activation_required", "executor_paused_changed", "executor_stopped_by_person"];
 // A 409 reads «ACP no disponible» with its reason and keeps CLI as an option. Nothing starts CLI by itself. Keys, not texts.
-export function acpStartFailure(failure) {
+// EXA-T06: for an own agent (`ownAgent`) the three reasons that name Codex ACP have their own keys, which name nobody.
+export function acpStartFailure(failure, ownAgent = false) {
   const reason = failure && failure.details && typeof failure.details === "object" ? failure.details.reason : "";
   if (failure && failure.status === 409 && ACP_UNAVAILABLE.includes(reason)) {
-    return { unavailable: true, reason, titleKey: "thread.acp.unavailable", textKey: "thread.acp.reason." + reason, message: "" };
+    const own = ownAgent && ACP_REASONS_THAT_NAME_CODEX.includes(reason);
+    return { unavailable: true, reason, titleKey: "thread.acp.unavailable", textKey: (own ? "thread.acp.reason_agent." : "thread.acp.reason.") + reason, message: "" };
+  }
+  if (failure && failure.status === 404 && reason === "acp_agent_not_found") {
+    return { unavailable: false, reason: "agent_not_found", titleKey: "", textKey: "thread.acp.start.agent_not_found", message: "" };
   }
   if (failure && failure.status === 404) return { unavailable: false, reason: "not_found", titleKey: "", textKey: "thread.acp.start.not_found", message: "" };
   return { unavailable: false, reason: "failed", titleKey: "", textKey: "thread.acp.start.failed", message: (failure && failure.message) || "" };

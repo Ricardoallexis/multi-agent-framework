@@ -33,10 +33,11 @@ export function parseRoute(hash) {
   if (newPlan) return { section: NEW_SECTION, id: safeDecode(newPlan[1]), kind: "plan" };
   // ACP-T04: "#new/acp/<session id>" is the live conversation with Codex ACP; new-session.js draws it.
   // "#new/acp-new/<package>" is the first message of a conversation in that package; it cannot collide with "acp/<id>".
-  const newAcpStart = /^new\/acp-new\/(.+)$/.exec(text);
-  if (newAcpStart) return { section: NEW_SECTION, id: safeDecode(newAcpStart[1]), kind: "acp-new" };
-  const newAcp = /^new\/acp\/(.+)$/.exec(text);
-  if (newAcp) return { section: NEW_SECTION, id: safeDecode(newAcp[1]), kind: "acp" };
+  // EXA-T06: an own agent adds "/agent/<agent id>" at the end; it is only an id, the thread reads the name from the server.
+  const newAcpStart = /^new\/acp-new\/(.+?)(?:\/agent\/(.*))?$/.exec(text);
+  if (newAcpStart) return { section: NEW_SECTION, id: safeDecode(newAcpStart[1]), kind: "acp-new", agent: newAcpStart[2] ? safeDecode(newAcpStart[2]) : null };
+  const newAcp = /^new\/acp\/(.+?)(?:\/agent\/(.*))?$/.exec(text);
+  if (newAcp) return { section: NEW_SECTION, id: safeDecode(newAcp[1]), kind: "acp", agent: newAcp[2] ? safeDecode(newAcp[2]) : null };
   const newRun = /^new\/run\/(.+)$/.exec(text);
   if (newRun) return { section: NEW_SECTION, id: safeDecode(newRun[1]) };
   const legacy = /^run=(.+)$/.exec(text);
@@ -57,8 +58,9 @@ export function routeHref(section, id) {
 }
 
 export const threadHref = (runId) => "#new/run/" + encodeURIComponent(runId);
-export const acpStartHref = (bundle) => "#new/acp-new/" + encodeURIComponent(bundle);   // ACP-T04
-export const acpThreadHref = (sessionId) => "#new/acp/" + encodeURIComponent(sessionId);   // ACP-T04
+const agentSuffix = (agent) => (agent ? "/agent/" + encodeURIComponent(agent) : "");   // EXA-T06
+export const acpStartHref = (bundle, agent = "") => "#new/acp-new/" + encodeURIComponent(bundle) + agentSuffix(agent);   // ACP-T04
+export const acpThreadHref = (sessionId, agent = "") => "#new/acp/" + encodeURIComponent(sessionId) + agentSuffix(agent);   // ACP-T04
 export const teamThreadHref = (versionId) => "#new/team/" + encodeURIComponent(versionId);   // CHT-T05
 export const planThreadHref = (proposalId) => "#new/plan/" + encodeURIComponent(proposalId);   // CHT-T06
 export const officeHref = (officeId, area = null) =>

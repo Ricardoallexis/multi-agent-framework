@@ -503,7 +503,7 @@ export const HELP = {
     ]
   },
   "acp_thread.section": {
-    "title": "Codex ACP conversation",
+    "title": "ACP agent conversation",
     "hint": "The agent's messages appear here in the order they arrive.",
     "more": [
       "Everything the agent writes is shown as text: nothing opens and nothing runs.",
@@ -519,7 +519,7 @@ export const HELP = {
     ]
   },
   "acp_thread.text": {
-    "title": "Message for Codex ACP",
+    "title": "Message for the ACP agent",
     "hint": "Write what you want to ask in the next turn.",
     "more": [
       "You can send it only when no turn is running.",
@@ -536,7 +536,7 @@ export const HELP = {
   },
   "acp_thread.start_text": {
     "title": "First message",
-    "hint": "Write what you want to ask Codex ACP.",
+    "hint": "Write what you want to ask the ACP agent.",
     "more": [
       "It is the first turn of the conversation, in the area package shown above.",
       "You can keep writing in the conversation that opens."
@@ -544,7 +544,7 @@ export const HELP = {
   },
   "acp_thread.start": {
     "title": "Start conversation",
-    "hint": "Open a live conversation with Codex ACP and send this message.",
+    "hint": "Open a live conversation with the ACP agent and send this message.",
     "more": [
       "Needs the adapter checked and activated.",
       "If ACP is not available, nothing switches to CLI by itself: you choose."

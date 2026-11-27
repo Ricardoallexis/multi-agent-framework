@@ -73,6 +73,14 @@ def _digest(path: str | None, major: str | None, account: str | None) -> str:
                                      ensure_ascii=True).encode("utf-8")).hexdigest()
 
 
+def _agent_digest(path: str | None, args: list[str], major: str | None, version: str | None,
+                  size: int | None = None, mtime_ns: int | None = None) -> str:
+    """EXA-T06: the fingerprint of an own ACP agent covers its executable (and its size and date), its arguments and what it announces."""
+    return hashlib.sha256(json.dumps({"path": path, "args": args, "major": major, "version": version,
+                                      "size": size, "mtime_ns": mtime_ns}, sort_keys=True,
+                                     ensure_ascii=True).encode("utf-8")).hexdigest()
+
+
 def compare(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, Any]]:
     """What changed from the activated fingerprint to the current one (rule 5), as ``[{"field", "from", "to"}]``.
 
@@ -82,15 +90,34 @@ def compare(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, An
     changes: list[dict[str, Any]] = []
     if old.get("path") != new.get("path"):
         changes.append({"field": "path", "from": old.get("path"), "to": new.get("path")})
-    for field in ("major", "account"):
+    if old.get("args") != new.get("args"):       # own ACP agents only (EXA-T06): the other fingerprints have none
+        changes.append({"field": "args", "from": old.get("args"), "to": new.get("args")})
+    old_file, new_file = (old.get("size"), old.get("mtime_ns")), (new.get("size"), new.get("mtime_ns"))
+    if None not in (*old_file, *new_file) and old_file != new_file:     # own ACP agents only: the file itself was replaced
+        changes.append({"field": "file", "from": {"size": old_file[0], "mtime_ns": old_file[1]},
+                        "to": {"size": new_file[0], "mtime_ns": new_file[1]}})
+    for field in ("major", "account", "version"):
         before, after = old.get(field), new.get(field)
         if before is not None and after is not None and before != after:
             changes.append({"field": field, "from": before, "to": after})
     return changes
 
 
-def note_text(executor_id: str, fingerprint: Mapping[str, Any]) -> str:
+def note_text(executor_id: str, fingerprint: Mapping[str, Any], name: str | None = None) -> str:
     """The fixed note the person reads before "Activate" (rule 3). Only the application and the account vary."""
+    if name is not None:      # EXA-T06: an ACP agent the person declared
+        arguments = " ".join(fingerprint.get("args") or []) or "none"
+        return (f"You are about to activate the ACP agent {name} at {fingerprint.get('path') or 'your computer'} "
+                f"with arguments: {arguments}. Protocol version {fingerprint.get('major')}.\n"
+                "You chose this program: the framework did not write it and cannot vouch for what it does. "
+                "ACP is a protocol, not isolation: the program runs with your user permissions.\n"
+                "The framework gives it a clean environment and no terminal. It may read and write only inside "
+                "an area's working folder, and only what the area's consent allows; without that consent every "
+                "permission is denied.\n"
+                "It serves conversations in the GUI only, never workflow steps. Activation does not allow paid usage "
+                "or expand the working directory. Provider terms and quota still apply.\n"
+                "If the executable, its arguments or the version it announces change, activation is paused and "
+                "you will be asked again. You can deactivate it at any time.")
     if executor_id == "codex_acp":
         return (f"You are about to activate Codex ACP at {fingerprint.get('path') or 'your computer'} "
                 f"with protocol version {fingerprint.get('major')}.\n"
@@ -155,15 +182,42 @@ class ExecutorActivationServices:
     def _store(self):
         return self._services.tasks.store
 
-    @staticmethod
-    def _check(executor_id: str) -> str:
-        if executor_id not in EXECUTOR_IDS:
+    # -------- EXA-T06: own ACP agents are executors of this service too --------
+    def _agent_ids(self) -> list[str]:
+        agents = getattr(self._services, "acp_agents", None)
+        try:
+            return agents.ids() if agents is not None else []
+        except Exception:  # noqa: BLE001 - an unreadable declaration reads as no agents
+            return []
+
+    def _ids(self) -> list[str]:
+        return [*EXECUTOR_IDS, *self._agent_ids()]
+
+    def _is_agent(self, executor_id: str) -> bool:
+        return executor_id not in EXECUTOR_IDS and executor_id in self._agent_ids()
+
+    def _is_acp(self, executor_id: str) -> bool:
+        """Codex ACP or an own ACP agent: both are probed by the person and open GUI conversations only."""
+        return executor_id == "codex_acp" or self._is_agent(executor_id)
+
+    def _label(self, executor_id: str) -> str:
+        if executor_id in _LABELS:
+            return _LABELS[executor_id]
+        agents = getattr(self._services, "acp_agents", None)
+        return agents.name_of(executor_id) if agents is not None else executor_id
+
+    def _check(self, executor_id: str) -> str:
+        if executor_id not in EXECUTOR_IDS and not self._is_agent(executor_id):
             raise _unknown(executor_id)
         return executor_id
 
     # -------- the local file --------
-    def _read(self) -> dict[str, dict[str, Any]]:
-        """The valid entries of the file; a missing or broken file reads as nothing activated."""
+    def _read(self, ids: list[str] | None = None) -> dict[str, dict[str, Any]]:
+        """The valid entries of the file; a missing or broken file reads as nothing activated.
+
+        ``ids`` defaults to the executors of the catalog plus the own agents declared now: the entry of an agent that
+        was removed is ignored.
+        """
         try:
             raw = json.loads(self._file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -172,7 +226,7 @@ class ExecutorActivationServices:
         if not isinstance(entries, dict):
             return {}
         result: dict[str, dict[str, Any]] = {}
-        for executor_id in EXECUTOR_IDS:
+        for executor_id in (self._ids() if ids is None else ids):
             entry = entries.get(executor_id)
             if isinstance(entry, dict) and isinstance(entry.get("fingerprint"), dict):
                 paused = entry.get("paused")
@@ -210,6 +264,26 @@ class ExecutorActivationServices:
     # -------- the fingerprint --------
     def _observe(self, executor_id: str, report: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """``{fingerprint, installed, session}`` from the detector. A detector that fails reads as not installed."""
+        if self._is_agent(executor_id):
+            # The path and the arguments are the person's declaration, read without a process. Only a fresh compatible
+            # probe adds the protocol version and the version the agent announced (both ignored by ``compare`` without them).
+            path, fresh, probe = self._services.connections.acp_agent_probe_state(executor_id)
+            compatible = bool(path and fresh and probe.get("status") == "compatible")
+            major = str(probe.get("protocol_version")) if compatible else None
+            info = probe.get("agent_info") if compatible else None
+            version = info.get("version") if isinstance(info, dict) and isinstance(info.get("version"), str) else None
+            args = list(self._services.acp_agents.get(executor_id)["args"])
+            size = mtime_ns = None
+            if path:        # the file itself, read with os.stat and no process: a binary replaced in place changes these
+                try:
+                    stat = os.stat(path)
+                    size, mtime_ns = stat.st_size, stat.st_mtime_ns
+                except OSError:
+                    pass
+            return {"fingerprint": {"path": path, "major": major, "account": None, "args": args, "version": version,
+                                    "size": size, "mtime_ns": mtime_ns,
+                                    "sha256": _agent_digest(path, args, major, version, size, mtime_ns)},
+                    "installed": bool(path), "probed": compatible, "session": "unknown"}
         if executor_id == "codex_acp":
             connections = self._services.connections
             path, fresh, probe = connections.acp_probe_state()
@@ -263,12 +337,16 @@ class ExecutorActivationServices:
             return "foreign"
         return "marked" if first == KILL_MARKER else "foreign"
 
-    def _acp_probe_required(self) -> bool:
+    def _acp_probe_required(self, executor_id: str = "codex_acp") -> bool:
         """True when the probe in memory is missing or is of another executable than the one resolved now.
 
         A resolved executable that is gone is not this case: that stays a change in the fingerprint.
+        For an own agent the probe also belongs to its arguments.
         """
         connections = self._services.connections
+        if executor_id != "codex_acp":
+            path, fresh, probe = connections.acp_agent_probe_state(executor_id)
+            return path is not None and not (fresh and probe.get("status") == "compatible")
         current, fresh, _ = connections.acp_probe_state()
         if current is None:
             return False
@@ -279,12 +357,13 @@ class ExecutorActivationServices:
         # A status refresh must expose drift even when no new launch was attempted.
         for executor_id, entry in entries.items():
             if entry["paused"] is None:
-                if executor_id == "codex_acp" and self._acp_probe_required():
+                if executor_id == "codex_acp" and self._acp_probe_required(executor_id):
                     continue  # evidence is process-local; a restart requires a new probe, not a new activation
                 try:
                     self.check_launch(executor_id)
                 except ServiceError as exc:
-                    if exc.details.get("reason") not in {"executor_paused_changed", "executor_stopped_by_person"}:
+                    if exc.details.get("reason") not in {"executor_paused_changed", "executor_stopped_by_person",
+                                                         "acp_probe_required"}:
                         raise
         entries = self._read()
         report: Mapping[str, Any] | None = None
@@ -322,9 +401,19 @@ class ExecutorActivationServices:
         return rows
 
     def active_ids(self) -> list[str]:
-        """The executors turned on and not paused, in the fixed order."""
+        """The executors of the house (and ``codex_acp``) turned on and not paused, in the fixed order.
+
+        Own ACP agents are not here, so no caller changes behavior: they come out of ``active_agent_ids``.
+        """
         entries = self._read()
         return [executor_id for executor_id in EXECUTOR_IDS if executor_id in entries and not entries[executor_id]["paused"]]
+
+    def active_agent_ids(self) -> list[str]:
+        """EXA-T06: the person's own ACP agents turned on, valid and not paused."""
+        entries = self._read()
+        agents = getattr(self._services, "acp_agents", None)
+        return [agent_id for agent_id in self._agent_ids() if agent_id in entries and not entries[agent_id]["paused"]
+                and agents is not None and agents.is_valid(agent_id)]
 
     def notice_accepted(self, executor_id: str) -> str | None:
         """The notice the person accepted in "Activate" (agy), only while the executor is active."""
@@ -348,13 +437,16 @@ class ExecutorActivationServices:
     def request(self, executor_id: str) -> dict[str, Any]:
         """Create, or reuse when one is pending for the same fingerprint, the ``executor_activate`` approval."""
         self._check(executor_id)
+        if self._is_agent(executor_id):
+            self._services.acp_agents.require_valid(executor_id)      # a declaration the rules refuse today is not activated
         seen = self._observe(executor_id)
         if not seen["installed"]:
-            raise _conflict("not_installed", f"{_LABELS[executor_id]} is not installed", executor_id=executor_id)
+            raise _conflict("not_installed", f"{self._label(executor_id)} is not installed", executor_id=executor_id)
         if seen.get("probed") is False:     # the executable exists, but no compatible probe has run in this process
-            raise _conflict("acp_probe_required", "Probe Codex ACP before activating it", executor_id=executor_id)
+            raise _conflict("acp_probe_required", f"Probe {self._label(executor_id)} before activating it",
+                            executor_id=executor_id)
         if seen["session"] == "signed_out":
-            raise _conflict("no_session", f"{_LABELS[executor_id]} has no open session", executor_id=executor_id)
+            raise _conflict("no_session", f"{self._label(executor_id)} has no open session", executor_id=executor_id)
         fingerprint = seen["fingerprint"]
         destination = {"executor": executor_id}
         approvals = self._services.user_approvals
@@ -365,12 +457,15 @@ class ExecutorActivationServices:
                                           location={"source": "executor_activation", "executor": executor_id},
                                           sha256=fingerprint["sha256"])
         return {"approval_id": found["id"], "sha256": fingerprint["sha256"], "note_id": NOTE_ID,
-                "note": note_text(executor_id, fingerprint),
-                "fingerprint": {key: fingerprint[key] for key in ("path", "major", "account")}}
+                "note": note_text(executor_id, fingerprint, self._label(executor_id) if self._is_agent(executor_id) else None),
+                "fingerprint": {key: fingerprint[key] for key in ("path", "major", "account", "args", "version")
+                                if key in fingerprint}}
 
     def activate(self, executor_id: str, approval_id: str) -> dict[str, Any]:
         """Turn the executor on. Without an approved, unspent approval of this note it is ``person_required``."""
         self._check(executor_id)
+        if self._is_agent(executor_id):
+            self._services.acp_agents.require_valid(executor_id)
         approvals = self._services.user_approvals
         destination = {"executor": executor_id}
         item = approvals.peek(approval_id) if isinstance(approval_id, str) and approval_id else None
@@ -380,7 +475,7 @@ class ExecutorActivationServices:
                             executor_id=executor_id)
         fingerprint = self.fingerprint(executor_id)
         if fingerprint["sha256"] != item["sha256"]:      # the application changed between the note and the click
-            raise _conflict("executor_paused_changed", f"{_LABELS[executor_id]} changed after the note was shown",
+            raise _conflict("executor_paused_changed", f"{self._label(executor_id)} changed after the note was shown",
                             executor_id=executor_id)
         with self._lock:
             entries = self._read()
@@ -403,13 +498,46 @@ class ExecutorActivationServices:
             entries = self._read()
             entry = entries.pop(executor_id, None)
             if entry is None:
-                raise _conflict("not_active", f"{_LABELS[executor_id]} is not activated", executor_id=executor_id)
+                raise _conflict("not_active", f"{self._label(executor_id)} is not activated", executor_id=executor_id)
             self._write(entries)
         self._changed()
         if executor_id == "codex_acp":
             self._close_acp_sessions()
+        elif self._is_agent(executor_id):
+            self._services.acp_agents.close_sessions(executor_id)
         self._event(DEACTIVATED_EVENT, executor_id, entry["fingerprint"], actor=USER_ACTOR, reason="by_person")
         return self._row(executor_id)
+
+    def pause_agent(self, executor_id: str, changes: list[dict[str, Any]]) -> None:
+        """EXA-T06: editing an own agent starts over. Its activation, if any, pauses until the person reviews it again."""
+        with self._lock:
+            entries = self._read()
+            entry = entries.get(executor_id)
+            if entry is None:
+                return
+            before = entry["paused"]
+            entry["paused"] = {"reason": "changed", "changes": changes, "at": _now()}    # a paused one gets the new change too
+            self._write(entries)
+            same = bool(before and before.get("reason") == "changed" and before.get("changes") == changes)
+        self._changed()
+        if not same:
+            self._event(DEACTIVATED_EVENT, executor_id, entry["fingerprint"], actor=USER_ACTOR, reason="edited")
+
+    def forget_agent(self, executor_id: str) -> None:
+        """EXA-T06: removing an own agent deletes its activation, so a later agent with the same id starts disabled."""
+        with self._lock:
+            try:
+                raw = json.loads(self._file.read_text(encoding="utf-8"))
+                kept = raw["executors"]
+            except (OSError, ValueError, KeyError, TypeError):
+                return
+            if not isinstance(kept, dict) or executor_id not in kept:
+                return
+            entry = kept.pop(executor_id)
+            self._write({key: value for key, value in kept.items() if isinstance(value, dict)})
+        self._changed()
+        if isinstance(entry, dict) and isinstance(entry.get("fingerprint"), dict):
+            self._event(DEACTIVATED_EVENT, executor_id, entry["fingerprint"], actor=USER_ACTOR, reason="removed")
 
     def _close_acp_sessions(self) -> None:
         """Interactive ACP sessions never outlive the activation or "Turn all off"."""
@@ -465,8 +593,8 @@ class ExecutorActivationServices:
                 **self._probe_flag(executor_id)}
 
     def _probe_flag(self, executor_id: str) -> dict[str, bool]:
-        """``probe_required`` (codex_acp only): installed, but no compatible probe of the executable resolved now."""
-        if executor_id != "codex_acp":
+        """``probe_required`` (an ACP executor only): installed, but no compatible probe of the executable resolved now."""
+        if not self._is_acp(executor_id):
             return {}
         seen = self._observe(executor_id)
         return {"probe_required": bool(seen["installed"] and seen.get("probed") is False)}
@@ -478,16 +606,24 @@ class ExecutorActivationServices:
             entry = self._read().get(executor_id)
         if entry is None:
             return
-        if executor_id == "codex_acp" and self._acp_probe_required():
-            raise _conflict("acp_probe_required", "Probe Codex ACP before opening a session", executor_id=executor_id)
+        if self._is_agent(executor_id) and entry["paused"] is None:
+            # what the person declared and the file itself are read without a process: drift shows even with no probe
+            self._pause_if_changed(executor_id, entry)
+        if self._is_acp(executor_id) and self._acp_probe_required(executor_id):
+            raise _conflict("acp_probe_required", f"Probe {self._label(executor_id)} before opening a session",
+                            executor_id=executor_id)
         paused = entry["paused"]
         if paused is not None:
             reason = "executor_paused_changed" if paused.get("reason") == "changed" else "executor_stopped_by_person"
-            raise _conflict(reason, f"{_LABELS[executor_id]} is paused: activate it again in the GUI",
+            raise _conflict(reason, f"{self._label(executor_id)} is paused: activate it again in the GUI",
                             executor_id=executor_id, changes=paused.get("changes", []))
         if executor_id in _APPS and not self._discovery_allowed():
             # EXA-T05: without the person's answer nothing is measured, so no change can be seen: the activation stays as it is.
             return
+        self._pause_if_changed(executor_id, entry)
+
+    def _pause_if_changed(self, executor_id: str, entry: Mapping[str, Any]) -> None:
+        """Compare the activated fingerprint with today's; a change pauses the activation and raises."""
         current = self.fingerprint(executor_id)
         changes = compare(entry["fingerprint"], current)
         if not changes:
@@ -499,5 +635,5 @@ class ExecutorActivationServices:
                 self._write(entries)
         self._changed()
         self._event(DEACTIVATED_EVENT, executor_id, current, actor=SYSTEM_ACTOR, reason="changed")
-        raise _conflict("executor_paused_changed", f"{_LABELS[executor_id]} changed: activate it again in the GUI",
+        raise _conflict("executor_paused_changed", f"{self._label(executor_id)} changed: activate it again in the GUI",
                         executor_id=executor_id, changes=changes)

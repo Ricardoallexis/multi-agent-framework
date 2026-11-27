@@ -746,7 +746,7 @@ export default {
     ]
   },
   "help.acp_thread.section": {
-    "title": "Conversación con Codex ACP",
+    "title": "Conversación con el agente ACP",
     "hint": "Los mensajes del agente aparecen aquí en el orden en que llegan.",
     "more": [
       "Todo lo que escribe el agente se muestra como texto: nada se abre ni se ejecuta.",
@@ -762,7 +762,7 @@ export default {
     ]
   },
   "help.acp_thread.text": {
-    "title": "Mensaje para Codex ACP",
+    "title": "Mensaje para el agente ACP",
     "hint": "Escribe lo que quieres pedir en el siguiente turno.",
     "more": [
       "Solo se puede enviar cuando no hay un turno en marcha.",
@@ -779,7 +779,7 @@ export default {
   },
   "help.acp_thread.start_text": {
     "title": "Primer mensaje",
-    "hint": "Escribe lo que quieres pedirle a Codex ACP.",
+    "hint": "Escribe lo que quieres pedirle al agente ACP.",
     "more": [
       "Es el primer turno de la conversación, en el paquete del área que ves arriba.",
       "Podrás seguir escribiendo en la conversación que se abre."
@@ -787,7 +787,7 @@ export default {
   },
   "help.acp_thread.start": {
     "title": "Empezar conversación",
-    "hint": "Abre una conversación en vivo con Codex ACP y envía este mensaje.",
+    "hint": "Abre una conversación en vivo con el agente ACP y envía este mensaje.",
     "more": [
       "Necesita el adaptador comprobado y activado.",
       "Si ACP no está disponible, nada pasa a CLI por su cuenta: tú eliges."
