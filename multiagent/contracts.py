@@ -417,3 +417,12 @@ class ProjectDraftProposal(StrictModel):
 
     title: str = Field(min_length=1, max_length=120)
     stages: list[ProjectDraftStage] = Field(min_length=1, max_length=12)
+
+
+class OfficeExportProposal(StrictModel):
+    """A model's advisory export summary; the server chooses package contents."""
+
+    summary: str = Field(min_length=1, max_length=1200)
+    keep: list[str] = Field(default_factory=list, max_length=100)
+    omit: list[str] = Field(default_factory=list, max_length=100)
+    questions: list[str] = Field(default_factory=list, max_length=20)

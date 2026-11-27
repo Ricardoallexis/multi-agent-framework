@@ -11,6 +11,7 @@ import { Help, helpFor } from "../../js/help.js";
 import { officeHref, planThreadHref, teamThreadHref } from "../../js/route.js";
 import { HELP } from "./help.js";
 import { ImportOffice, exportOffice } from "./import.js";
+import { ExportAssistant, assistantHeld } from "./export-assistant.js";
 import { errorText, exportDownloadedText, exportFileName, exportWarningText, includeCodeVisible } from "./import-model.js";
 import { PrivacyPanel } from "./privacy.js";
 import {
@@ -66,6 +67,7 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
   const [message, setMessage] = useState(null);
   const [removing, setRemoving] = useState(null);
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(() => assistantHeld(office.id));
   const showIncludeCode = includeCodeVisible(mode);
   const officeScope = office.id;
 
@@ -176,6 +178,9 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.export", { scope: officeScope })}
         onClick=${() => doExport()}>${t("ext.offices.export.office")}</button>
       <${Help} topic="offices.export" compact=${true} scope=${officeScope} />
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.export_assistant", { scope: officeScope })}
+        onClick=${() => setAssistantOpen((open) => !open)}>${t("ext.offices.xa.entry")}</button>
+      <${Help} topic="offices.export_assistant" compact=${true} scope=${officeScope} />
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("offices.import_office", { scope: officeScope + "-reimport" })}
         onClick=${() => onImport({ reimport: office.id })}>${t("ext.offices.reimport")}</button>
       <${Help} topic="offices.import_office" compact=${true} scope=${officeScope + "-reimport"} />
@@ -191,6 +196,8 @@ function OfficeCard({ office, detail, detailError, scene, offline, token, onImpo
     </div>
     ${privacyOpen && html`<${PrivacyPanel} token=${token} officeId=${office.id} areas=${detail?.areas || []}
       onClose=${() => setPrivacyOpen(false)} />`}
+    ${assistantOpen && html`<${ExportAssistant} token=${token} officeId=${office.id}
+      onClose=${() => setAssistantOpen(false)} />`}
     ${showIncludeCode && html`<label class="check-inline offices-include-code">
       <input type="checkbox" checked=${includeCode} disabled=${busy} ...${helpFor("offices.include_code", { scope: officeScope })}
         onChange=${(event) => setIncludeCode(event.target.checked)} />

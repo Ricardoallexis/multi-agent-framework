@@ -878,6 +878,7 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/stream?project=<id>` | Sequence-only change notices for one active project. |
 | `GET /gui/api/map?project=<id>&only=active\|all` | Project, task and linked-session map. |
 | `POST /gui/api/projects/draft`, `/projects/plan`, `/projects/create` | Draft a project from a request (`gui_new_session_model`, once per draft), preview it with `projects.plan` and its `plan_sha256`, and create it only with that hash; the actor (`user:operator`) is fixed by the server. See [the API](API.md#gui-routes-local-token-protected). |
+| `POST /gui/api/offices/{office_id}/export/draft`, `/export/preview`, `/export/download` | Draft a screened export of an office from a request, check the chosen package, and build the `.zip` only on download. See [the API](API.md#gui-routes-local-token-protected). |
 | `GET /gui/api/usage/plans`, `/usage/tokens`, `/usage/costs` | Plan measurements, token totals and estimated costs for Uso. |
 | `GET /gui/api/evaluations`, `/evaluations/runs`, `/evaluations/runs/{id}`, `/evaluations/comparison?set_name=` | Evaluation sets, saved runs and the latest run against the baseline (read only). |
 | `GET /gui/api/teams`, `/teams/{bundle}/versions`, `/teams/versions/{id}`, `/teams/{bundle}/org-chart` | Team bundles with their approved and pending versions, versions with their diff, and the org chart with its Mermaid text. |
@@ -1059,6 +1060,16 @@ the person can allow one OSV query and then install the office; installation app
 Reimport shows only added, changed or removed areas, and an individual area can be added to an installed office. Offices
 and individual areas can be exported as `.zip` files or removed from the list; removal keeps their data. Code export is
 available only in advanced mode.
+
+**Prepare the export with the assistant** on an office card opens a box where the person says what to do with the
+office. The assistant drafts a card with a summary, the files that will be included, the files left out and why, what
+could not be checked, and its questions. **Download the package** is the only button that creates the file; **Change
+something** drafts again with a correction. Simple mode shows data and instructions only; advanced mode adds **Include
+code**, which needs the risk checkbox before download, and the detailed lists. Before a remote model is used, the box
+names it, says that it receives screened text and may cost money, and asks; no model is switched by itself. A request
+held for a secret review is kept in memory while the person decides it in «Pendientes», and the next attempt sends the
+same approval. A fixed note says that pattern checks cannot guarantee that no sensitive data remains. The direct
+export still downloads, and warns when the file may contain personal data.
 
 Each office card links to «Nueva sesión» with «Pídele algo a la oficina». Each area also has «Pedir a esta área»,
 which opens that office's area-scoped, single-session workflow list.

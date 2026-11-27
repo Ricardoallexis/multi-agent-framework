@@ -341,3 +341,120 @@
 .offices-privacy-note ul {
   padding-left: 20px;
 }
+
+/* OFA-T05: the export assistant. */
+.offices-xa {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.offices-xa-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.offices-xa-title,
+.offices-xa-card > h4 {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.offices-xa p,
+.offices-xa-card p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.offices-xa-form,
+.offices-xa-change,
+.offices-xa-card,
+.offices-xa-block {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.offices-xa-form textarea,
+.offices-xa-change textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 6rem;
+}
+
+.offices-xa-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.offices-xa-note,
+.offices-xa-notice {
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.offices-xa-notice a,
+.offices-xa-card a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+}
+
+.offices-xa-card {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.offices-xa-summary {
+  font-weight: 600;
+}
+
+.offices-xa-list {
+  min-width: 0;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.offices-xa-list li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 599.98px) {
+  .offices-xa {
+    padding: 10px;
+  }
+
+  .offices-xa-actions .btn {
+    flex: 1 1 100%;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (forced-colors: active) {
+  .offices-xa,
+  .offices-xa-note,
+  .offices-xa-notice {
+    border-color: CanvasText;
+  }
+}

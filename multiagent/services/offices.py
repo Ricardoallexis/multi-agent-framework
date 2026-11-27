@@ -34,6 +34,8 @@ from ..contracts_data import ContractsFileError, load_contracts_file
 from ..db.database import utcnow
 from ..external_output import canonical_json, sha256
 from ..offices.export import build_export, check_manifest
+from ..offices.package_checks import check_files, in_file_tools_root
+from ..secret_gate import SECRET_TYPES
 from ..offices.plan import is_office_group, office_group_id
 from ..offices.requirements import (executor_capabilities, mock_capabilities, model_capabilities,
                                     office_requirements)
@@ -1347,7 +1349,8 @@ class OfficeServices:
     # --- allow-listed export (OFI-T05) -----------------------------------------
 
     @service_errors
-    def export(self, office_id: str, *, area: str | None = None, include_code: bool = False) -> dict[str, Any]:
+    def export(self, office_id: str, *, area: str | None = None, include_code: bool = False,
+               omit_paths: frozenset[str] = frozenset(), _source: bool = False) -> dict[str, Any]:
         """Export the installed copies of an office, or one of its areas, as a checked .zip."""
         office_id = self._check_id(office_id, "office_id")
         area = self._check_id(area, "area") if area is not None else None
@@ -1403,7 +1406,8 @@ class OfficeServices:
                 try:
                     for current, directories, names in os.walk(folder, followlinks=False, onerror=walk_error):
                         here = Path(current)
-                        directories[:] = [name for name in directories if name != "__pycache__"]
+                        directories[:] = [name for name in directories if name != "__pycache__" and not
+                                         in_file_tools_root(here / name, self._services.settings.file_tools_root)]
                         for name in directories:
                             directory = here / name
                             try:
@@ -1415,6 +1419,8 @@ class OfficeServices:
                                                    status=409, details={"reason": "office_area_unsafe", "area": item.id})
                         for name in names:
                             path = here / name
+                            if in_file_tools_root(path, self._services.settings.file_tools_root):
+                                continue
                             try:
                                 unsafe = path.is_symlink() or not path.resolve().is_relative_to(folder)
                             except (OSError, RuntimeError):
@@ -1428,12 +1434,23 @@ class OfficeServices:
                     raise ServiceError(INVALID_REQUEST, f"The installed area {item.id} cannot be read", status=409,
                                        details={"reason": "office_area_unavailable", "area": item.id}) from None
 
-            archive, manifest = build_export(files, definition, include_code=include_code, area=area)
+            if _source:
+                return {"files": files, "definition": definition, "version": version}
+            archive, manifest = build_export(files, definition, include_code=include_code, area=area,
+                                             omit_paths=omit_paths)
             if len(archive) > ZIP_UPLOAD_MAX_BYTES:
                 raise _too_large(f"The office export is larger than {ZIP_UPLOAD_MAX_BYTES} bytes",
                                  field="zip", limit=ZIP_UPLOAD_MAX_BYTES)
         filename = f"{office_id}{'-' + area if area is not None else ''}.zip"
-        return {"filename": filename, "data": archive, "manifest": manifest, "warnings": manifest["warnings"]}
+        import io
+        import zipfile
+        with zipfile.ZipFile(io.BytesIO(archive)) as package:
+            personal = [item for item in check_files({path: package.read(path) for path in package.namelist()}).found
+                        if item["type"] not in SECRET_TYPES]
+        warnings = list(manifest["warnings"])
+        if personal:
+            warnings.append({"code": "export_personal_data_found", "found": personal})
+        return {"filename": filename, "data": archive, "manifest": manifest, "warnings": warnings}
 
     # --- office orchestrator (ESC-T02) ---------------------------------------
 

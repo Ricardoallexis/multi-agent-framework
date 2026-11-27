@@ -51,6 +51,7 @@ from .inbox import InboxServices
 from .memory import MemoryServices
 from .new_session import NewSessionServices
 from .offices import OfficeServices
+from .office_package_chat import OfficePackageChatServices
 from .plans import PlanServices
 from .installed import InstalledServices
 from .plan_autoadvance import PlanAutoAdvance
@@ -147,6 +148,7 @@ class ApplicationServices:
         self.decisions = DecisionServices(self)
         self.teams = TeamServices(self)
         self.new_session = NewSessionServices(self)
+        self.office_package_chat = OfficePackageChatServices(self)
         self.user_approvals = UserApprovalServices(self)
         self.bundle_scans = BundleScanServices(self)
         self.gui_settings = GuiSettingsServices(self)

@@ -95,6 +95,55 @@ export const HELP = {
       "Review the code before sharing the file."
     ]
   },
+  "offices.export_assistant": {
+    "title": "Export with the assistant",
+    "hint": "Say what to do with the office and review the package before you download it.",
+    "more": [
+      "A model drafts a summary from files that passed the fixed checks, with secrets and personal data masked.",
+      "The checks look for known patterns and cannot promise that nothing sensitive remains. Review the package before sharing it.",
+      "Nothing is downloaded until you press Download the package."
+    ]
+  },
+  "offices.export_assistant_text": {
+    "title": "Your request",
+    "hint": "Write what you want to do with the office, for example who it is for or what to leave out.",
+    "more": [
+      "The model reads only the allowed office files, never runs, conversations, inputs, logs or databases.",
+      "Drafting does not create a file."
+    ]
+  },
+  "offices.export_assistant_cloud": {
+    "title": "Remote model",
+    "hint": "A remote model receives the screened office text and may cost money.",
+    "more": [
+      "Sending it asks the named model once. Cancel keeps the text on this computer.",
+      "An office with sensitive or local-only areas never goes to a remote model."
+    ]
+  },
+  "offices.export_assistant_change": {
+    "title": "Change something",
+    "hint": "Say what should change and the model drafts the package again.",
+    "more": [
+      "Your correction is added to the request. You can change as many times as you need.",
+      "The model only suggests what to leave out; the fixed checks decide what can be packaged."
+    ]
+  },
+  "offices.export_assistant_download": {
+    "title": "Download the package",
+    "hint": "This is the only button that creates the file.",
+    "more": [
+      "The file is rebuilt on this computer from the office as installed and checked again before it is offered.",
+      "If the checks find a secret or personal data, no file is created and you see where it is."
+    ]
+  },
+  "offices.export_assistant_code": {
+    "title": "Include code in the package",
+    "hint": "Custom code is included only in advanced mode and only if you accept the risks.",
+    "more": [
+      "The file may contain instructions that an active agent can run.",
+      "Draft again after changing this option so the card matches it."
+    ]
+  },
   "offices.remove": {
     "title": "Remove office or area",
     "hint": "Removing it only takes it off the office list.",

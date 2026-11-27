@@ -20,6 +20,7 @@ from ..services.installed import CODE_FREE_SUFFIXES
 from ..teams.digest import team_sha256
 from ..teams.schema import Team
 from .schema import OfficeDefinition
+from .package_checks import excluded_path
 
 EXPORT_SCHEMA = "maf.office-export/1"
 MANIFEST_FILE = "manifest.json"
@@ -30,6 +31,8 @@ _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def _area_file_allowed(path: str) -> bool:
+    if excluded_path(path):
+        return False
     if path.startswith("workflows/"):
         return path.count("/") == 1 and path.endswith(".yaml")
     if path.startswith("prompts/") or path.startswith("samples/"):
@@ -72,8 +75,28 @@ def _text_findings(files: dict[str, bytes]) -> list[dict[str, Any]]:
     return found
 
 
+def portable_files(files: dict[str, bytes], definition: OfficeDefinition, *, include_code: bool = False,
+                   area: str | None = None) -> dict[str, bytes]:
+    """Select only portable files from the installed-copy snapshot."""
+    selected = {}
+    for item in definition.areas:
+        if area is not None and item.id != area:
+            continue
+        prefix = item.path.rstrip("/") + "/"
+        for source_path, content in files.items():
+            if not source_path.startswith(prefix):
+                continue
+            relative = source_path[len(prefix):]
+            if excluded_path(relative):
+                continue
+            suffix_allowed = Path(relative).suffix.lower() in CODE_FREE_SUFFIXES
+            if (_area_file_allowed(relative) and suffix_allowed) or (include_code and relative in CODE_FILES):
+                selected[f"areas/{item.id}/{relative}"] = content
+    return selected
+
+
 def build_export(files: dict[str, bytes], definition: OfficeDefinition, *, include_code: bool = False,
-                 area: str | None = None) -> tuple[bytes, dict[str, Any]]:
+                 area: str | None = None, omit_paths: frozenset[str] = frozenset()) -> tuple[bytes, dict[str, Any]]:
     """Build an office or area archive from supplied file bytes; this function never reads from disk."""
     exported_areas = [item for item in definition.areas if area is None or item.id == area]
     if not exported_areas:
@@ -98,7 +121,9 @@ def build_export(files: dict[str, bytes], definition: OfficeDefinition, *, inclu
             allowed = _area_file_allowed(relative)
             code_file = relative in CODE_FILES
             suffix_allowed = Path(relative).suffix.lower() in CODE_FREE_SUFFIXES
-            if (allowed and suffix_allowed) or (include_code and code_file):
+            if destination in omit_paths:
+                omitted.append({"code": "export_user_omitted", "path": destination, "workflow": "", "step": ""})
+            elif not excluded_path(relative) and ((allowed and suffix_allowed) or (include_code and code_file)):
                 selected[destination] = content
             else:
                 omitted.append({"code": "export_file_not_portable", "path": destination, "workflow": "", "step": ""})

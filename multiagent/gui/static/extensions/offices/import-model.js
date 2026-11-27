@@ -219,5 +219,8 @@ export function exportWarningText(warning) {
   if (warning?.code === "export_model_not_portable") {
     return t("ext.offices.export.model_not_portable");
   }
+  if (warning?.code === "export_personal_data_found") {
+    return t("ext.offices.export.personal_data");
+  }
   return t("ext.offices.export.warning");
 }

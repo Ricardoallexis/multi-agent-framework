@@ -45,6 +45,20 @@ class _ExportBody(_Body):
     include_code: bool = Field(default=False, strict=True)
 
 
+class _ExportDraftBody(_Body):
+    text: str = Field(min_length=1, max_length=2000)
+    confirm_cloud: bool = Field(default=False, strict=True)
+    include_code: bool = Field(default=False, strict=True)
+    approval_id: str | None = None
+
+
+class _ExportChoiceBody(_Body):
+    version: int = Field(ge=1, strict=True)
+    include_code: bool = Field(default=False, strict=True)
+    omit: list[str] = Field(default_factory=list)
+    accept_code_risk: bool = Field(default=False, strict=True)
+
+
 class _PrivacyLevelBody(_Body):
     area: str | None = None
     sensitivity: Literal["normal", "sensitive"] | None = None
@@ -192,6 +206,32 @@ def add_office_routes(api: APIRouter, services: Any) -> None:
         result = _read_office(
             office_id, lambda target: services.offices.export(
                 target, area=body.area, include_code=body.include_code))
+        return {"filename": result["filename"], "zip_base64": base64.b64encode(result["data"]).decode("ascii"),
+                "manifest": result["manifest"], "warnings": result["warnings"]}
+
+    # OFA-T05: the draft is advisory; only download builds a fresh checked archive.
+    @api.post("/offices/{office_id}/export/draft")
+    def draft_office_export(office_id: str, body: _ExportDraftBody) -> dict[str, Any]:
+        if body.include_code:
+            services.gui_settings.require_advanced_mode("office_export_code")
+        return _read_office(office_id, lambda target: services.office_package_chat.draft(
+            target, body.text, confirm_cloud=body.confirm_cloud, include_code=body.include_code,
+            approval_id=body.approval_id))
+
+    @api.post("/offices/{office_id}/export/preview")
+    def preview_office_export(office_id: str, body: _ExportChoiceBody) -> dict[str, Any]:
+        if body.include_code:
+            services.gui_settings.require_advanced_mode("office_export_code")
+        return _read_office(office_id, lambda target: services.office_package_chat.preview(
+            target, version=body.version, include_code=body.include_code, omit=body.omit))
+
+    @api.post("/offices/{office_id}/export/download")
+    def download_office_export(office_id: str, body: _ExportChoiceBody) -> dict[str, Any]:
+        if body.include_code:
+            services.gui_settings.require_advanced_mode("office_export_code")
+        result = _read_office(office_id, lambda target: services.office_package_chat.download(
+            target, version=body.version, include_code=body.include_code, omit=body.omit,
+            accept_code_risk=body.accept_code_risk))
         return {"filename": result["filename"], "zip_base64": base64.b64encode(result["data"]).decode("ascii"),
                 "manifest": result["manifest"], "warnings": result["warnings"]}
 
