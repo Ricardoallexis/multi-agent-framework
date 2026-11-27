@@ -573,8 +573,21 @@ reason and keeps “Choose CLI” visible; it never changes transport by itself.
 status, changes, plans, session usage, the end of each turn and errors appear in order and continue from the last one
 received after a reconnection. Everything the agent writes is plain text: paths are shown whole and nothing is opened
 or run. “Cancel turn” appears while a turn runs; otherwise a box and “Send” start another turn. If the area has no
-consent, the thread says once that permissions are denied and links to the card. The session lives in memory: a
-restart loses it and the thread says so, without retrying.
+consent, the thread says once that permissions are denied and links to the card. The agent session lives in memory: a
+restart ends it, and the thread says so without retrying.
+
+*Saved ACP conversations.* The Codex ACP card lists the conversations saved on this device, with their area, date and
+number of messages, and marks a file that cannot be read. It also holds the switch “Keep the history of this area”,
+which shows what the server reports: areas classified non-sensitive save by default, and every other area saves only
+after you turn the switch on. The switch is saved together with the area consent, so it waits until that consent is
+set up; until then, a non-sensitive area keeps saving, and its conversations can still be deleted. Changing the switch
+closes the area's open conversations. Turning it off stops saving and offers to delete what the area already saved;
+nothing is deleted unless you press the button. “Delete all conversations” on the card and “Delete this conversation”
+in the thread ask first, and cannot be undone. A saved conversation opens read only: you can read it and delete it,
+but not continue the agent session, and a link starts a new conversation in the same area. History stays on this
+device for 30 days and the app neither shares nor encrypts it. Recognized secrets are redacted before saving, but
+detection uses patterns and cannot guarantee that every secret is found. The thread says when secrets were redacted,
+when the last turn did not finish, and when a turn was not saved or the 2 MB limit was reached.
 
 *Probar conexión and the provider certificates.* A model card has **Probar conexión**
 (`POST /gui/api/connections/{id}/probe`). It makes one request that generates no text:

@@ -800,5 +800,13 @@ export default {
       "CLI es el transporte por defecto.",
       "Este enlace solo abre la pantalla de sesión nueva."
     ]
+  },
+  "help.acp_thread.delete": {
+    "title": "Borrar esta conversación",
+    "hint": "Quita esta conversación y su copia guardada de este equipo.",
+    "more": [
+      "Antes pide confirmación, y no se puede deshacer.",
+      "Si la conversación sigue en vivo, también se cierra."
+    ]
   }
 };

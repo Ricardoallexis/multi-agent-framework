@@ -65,6 +65,7 @@ EXPECTED_EXEMPT = Counter({
     ("runs.js", "data-row"): 1,
     ("human-actions.js", "confirm"): 2,
     ("open-in-app.js", "confirm"): 2,
+    ("thread.js", "confirm"): 2,   # ACP-T05: «Sí, borrarla» and «Conservarla», the two buttons of the confirmation to delete a conversation
     ("ui/tabs.js", "component"): 1,
 })
 

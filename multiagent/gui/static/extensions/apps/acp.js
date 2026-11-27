@@ -8,8 +8,9 @@ import { ApiError, apiGet, apiPost, apiPut } from "../../js/api.js";
 import { Help, helpFor } from "../../js/help.js";
 import { acpStartHref } from "../../js/route.js";
 import { t } from "../../js/i18n.js";
-import { ACP_ID, ACP_PROBE_PATH, ACP_CONSENT_PATH, NEW_SESSION_HREF, consentBody, consentFailureText, consentNote,
-  consentReadPath, consentStateText, consentView, notReadyFailure, officeChoices } from "./acp-model.js";
+import { ACP_DELETE_ALL_PATH, ACP_ID, ACP_LIST_PATH, ACP_PROBE_PATH, ACP_CONSENT_PATH, NEW_SESSION_HREF, acpDeletePath, consentBody,
+  consentFailureText, consentNote, consentReadPath, consentStateText, consentView, historyBody, historyRetentionText, historyRows,
+  historyStateText, notReadyFailure, officeChoices, rowsOfBundle } from "./acp-model.js";
 
 const asError = (failure) => (failure instanceof ApiError ? failure : new ApiError({ message: String(failure) }));
 
@@ -112,17 +113,44 @@ function useAreas(token, enabled) {
   return state;
 }
 
-function ConsentBox({ token, bundle }) {
+// The saved conversations: read when the card opens and again after each deletion, never on a timer.
+function useHistory(token) {
+  const [state, setState] = useState({ rows: [], loading: true, error: null });
+  const [round, setRound] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setState((current) => ({ ...current, loading: true, error: null }));
+    apiGet(ACP_LIST_PATH, token).then(
+      (payload) => { if (active) setState({ rows: historyRows(payload), loading: false, error: null }); },
+      (failure) => { if (active) setState({ rows: [], loading: false, error: asError(failure) }); },
+    );
+    return () => { active = false; };
+  }, [token, round]);
+  return { ...state, reload: () => setRound((value) => value + 1) };
+}
+
+// A conversation that is already gone (404) is a deletion that happened: only another failure stops the loop.
+async function deleteConversations(token, ids) {
+  for (const id of ids) {
+    try { await apiPost(acpDeletePath(id), token, {}); } catch (failure) {
+      if (!(failure instanceof ApiError && failure.status === 404)) throw failure;
+    }
+  }
+}
+
+function ConsentBox({ token, bundle, history }) {
   const [consent, setConsent] = useState(null);       // null while it loads
   const [problem, setProblem] = useState("");
   const [editing, setEditing] = useState(false);
   const [allowWrite, setAllowWrite] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [offer, setOffer] = useState(false);          // after the history switch was turned off: offer to delete what was saved
+  const [removed, setRemoved] = useState(false);
 
   useEffect(() => {
     let active = true;
-    setConsent(null); setProblem(""); setEditing(false); setSaved(false);
+    setConsent(null); setProblem(""); setEditing(false); setSaved(false); setOffer(false); setRemoved(false);
     if (!bundle) return undefined;
     apiGet(consentReadPath(bundle), token).then(
       (payload) => { if (active) { const view = consentView(payload); setConsent(view); setAllowWrite(view.allowWrite); } },
@@ -141,6 +169,36 @@ function ConsentBox({ token, bundle }) {
       setProblem(consentFailureText(asError(failure)));
     } finally {
       setBusy(false);
+    }
+  }
+
+  // The switch only changes `keep_history`; the write permission goes along as it is. It needs a saved consent: a PUT of an area that
+  // never had one would create it, and a consent grants reading, so the switch waits for the person to set it up first.
+  async function saveHistory(next) {
+    if (busy || !consent || !consent.configured) return;
+    setBusy(true); setProblem(""); setSaved(false); setRemoved(false);
+    try {
+      const view = consentView(await apiPut(ACP_CONSENT_PATH, token, historyBody(bundle, consent.allowWrite, next)));
+      setConsent(view); setAllowWrite(view.allowWrite); setOffer(!view.keepHistory);
+      history.reload();
+    } catch (failure) {
+      setProblem(consentFailureText(asError(failure)));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const ofArea = rowsOfBundle(history.rows, bundle);
+  async function deleteArea() {   // only the person presses it: one deletion by id for each saved conversation of this area
+    if (busy) return;
+    setBusy(true); setProblem("");
+    try {
+      await deleteConversations(token, ofArea.map((row) => row.id));
+      setOffer(false); setRemoved(true);
+    } catch (failure) {
+      setProblem(t("ext.apps.acp.history.delete_failed", { message: asError(failure).message }));
+    } finally {
+      setBusy(false);
+      history.reload();
     }
   }
 
@@ -169,8 +227,85 @@ function ConsentBox({ token, bundle }) {
           onClick=${() => setEditing(false)}>${t("ext.apps.cancel")}</button>
       </div>
     </div>`}
+    ${consent && html`<div class="apps-acp-history-setting">
+      <div class="apps-acp-check">
+        <button type="button" class="apps-acp-switch" role="switch" aria-checked=${consent.keepHistory ? "true" : "false"}
+          disabled=${busy || !consent.configured} ...${helpFor("apps.acp_keep_history")} onClick=${() => saveHistory(!consent.keepHistory)}>
+          <span class="apps-acp-switch-track" aria-hidden="true"><span class="apps-acp-switch-thumb"></span></span>
+          <span>${t("ext.apps.acp.history.switch")}</span>
+        </button>
+        <${Help} topic="apps.acp_keep_history" compact=${true} />
+      </div>
+      <p class="apps-step-text apps-acp-history-state" role="status">${historyStateText(consent)} ${historyRetentionText(consent)}</p>
+      ${!consent.configured && html`<p class="muted">${t("ext.apps.acp.history.needs_consent")}</p>`}
+    </div>`}
+    ${offer && ofArea.length > 0 && html`<div class="apps-confirm" role="group" aria-label=${t("ext.apps.acp.history.title")}>
+      <p class="apps-step-text">${t("ext.apps.acp.history.offer", { count: String(ofArea.length) })}</p>
+      <div class="apps-actions">
+        <button type="button" class="btn" disabled=${busy} ...${helpFor("apps.acp_offer_delete")}
+          onClick=${deleteArea}>${busy ? t("ext.apps.acp.history.deleting") : t("ext.apps.acp.history.offer_delete")}</button>
+        <${Help} topic="apps.acp_offer_delete" compact=${true} />
+        <button type="button" class="btn secondary" disabled=${busy} data-help-exempt="confirm"
+          onClick=${() => setOffer(false)}>${t("ext.apps.acp.history.offer_keep")}</button>
+      </div>
+    </div>`}
+    ${removed && html`<p class="message ok apps-status-line" role="status">${t("ext.apps.acp.history.removed")}</p>`}
     ${saved && html`<p class="message ok apps-status-line" role="status">${t("ext.apps.acp.consent.saved")}</p>`}
     ${problem && html`<p class="message error apps-status-line" role="alert">${problem}</p>`}
+  </div>`;
+}
+
+// The conversations this device saved (ACP-T05): open one to read it, or delete them all. Nothing here resumes the agent.
+function HistorySection({ token, history }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  const [removed, setRemoved] = useState(null);   // how many the last «delete all» removed
+  async function deleteAll() {   // only the person presses it
+    if (busy) return;
+    setBusy(true); setProblem(""); setRemoved(null);
+    try {
+      const answer = await apiPost(ACP_DELETE_ALL_PATH, token, {});
+      setRemoved(answer && Number.isInteger(answer.deleted) ? answer.deleted : 0);
+      setConfirming(false);
+    } catch (failure) {
+      setProblem(t("ext.apps.acp.history.delete_failed", { message: asError(failure).message }));
+    } finally {
+      setBusy(false);
+      history.reload();
+    }
+  }
+  return html`<div class="apps-step apps-acp-history">
+    <p class="apps-step-title">${t("ext.apps.acp.history.title")}<${Help} topic="apps.acp_history" compact=${true} /></p>
+    ${history.loading && html`<p class="muted" role="status" aria-busy="true">${t("ext.apps.acp.history.loading")}</p>`}
+    ${history.error && html`<p class="message error apps-status-line" role="alert">${t("ext.apps.acp.history.failed", { message: history.error.message })}</p>`}
+    ${!history.loading && !history.error && history.rows.length === 0 && html`<p class="muted">${t("ext.apps.acp.history.none")}</p>`}
+    ${history.rows.length > 0 && html`<ul class="apps-acp-history-list">
+      ${history.rows.map((row) => html`<li key=${row.id} class="apps-acp-history-row">
+        ${row.readable ? html`<a href=${row.href}>${row.label}${row.when ? " · " + row.when : ""}</a>` : html`<span>${t("ext.apps.acp.history.unreadable_file")}</span>`}
+        <span class="muted apps-acp-history-meta">${row.readable ? t("ext.apps.acp.history.count", { count: String(row.count) }) : ""}${row.unreadable && row.readable
+          ? " · " + t("ext.apps.acp.history.unreadable") : ""}${row.active ? " · " + t("ext.apps.acp.history.live") : ""}${row.redacted
+          ? " · " + t("ext.apps.acp.history.redacted") : ""}</span>
+      </li>`)}
+    </ul>`}
+    ${history.rows.length > 0 && !confirming && html`<div class="apps-actions">
+      <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("apps.acp_delete_all")}
+        onClick=${() => { setRemoved(null); setConfirming(true); }}>${t("ext.apps.acp.history.delete_all")}</button>
+      <${Help} topic="apps.acp_delete_all" compact=${true} />
+    </div>`}
+    ${confirming && html`<div class="apps-confirm" role="group" aria-label=${t("ext.apps.acp.history.delete_all")}>
+      <p class="message error apps-status-line" role="alert">${t("ext.apps.acp.history.delete_all.confirm")}</p>
+      <div class="apps-actions">
+        <button type="button" class="btn" disabled=${busy} data-help-exempt="confirm"
+          onClick=${deleteAll}>${busy ? t("ext.apps.acp.history.deleting") : t("ext.apps.acp.history.delete_all.yes")}</button>
+        <button type="button" class="btn secondary" disabled=${busy} data-help-exempt="confirm"
+          onClick=${() => setConfirming(false)}>${t("ext.apps.cancel")}</button>
+      </div>
+    </div>`}
+    ${removed !== null && html`<p class="message ok apps-status-line" role="status">${t("ext.apps.acp.history.deleted", { count: String(removed) })}</p>`}
+    ${problem && html`<p class="message error apps-status-line" role="alert">${problem}</p>`}
+    <p class="apps-notice">${t("ext.apps.acp.history.note")}</p>
+    <p class="apps-notice">${t("ext.apps.acp.history.redaction")}</p>
   </div>`;
 }
 
@@ -194,7 +329,7 @@ function StartLink({ bundle, ready, probeNeeded }) {
 }
 
 // The area is chosen once for the consent and the conversation. Only an activated adapter shows them.
-function AreaSection({ token, canStart, probeNeeded }) {
+function AreaSection({ token, canStart, probeNeeded, history }) {
   const areas = useAreas(token, true);
   const [bundle, setBundle] = useState("");
   return html`<div class="apps-step apps-acp-area">
@@ -209,7 +344,7 @@ function AreaSection({ token, canStart, probeNeeded }) {
     <${Help} topic="apps.acp_area" compact=${true} />
     ${areas.error && html`<p class="message error apps-status-line" role="alert">${t("ext.apps.acp.area.failed", { message: areas.error.message })}</p>`}
     ${!areas.loading && !areas.error && areas.groups.length === 0 && html`<p class="muted">${t("ext.apps.acp.area.none")}</p>`}
-    ${bundle && html`<${ConsentBox} token=${token} bundle=${bundle} />`}
+    ${bundle && html`<${ConsentBox} token=${token} bundle=${bundle} history=${history} />`}
     ${bundle && html`<${StartLink} bundle=${bundle} ready=${canStart} probeNeeded=${probeNeeded} />`}
   </div>`;
 }
@@ -218,11 +353,13 @@ function AreaSection({ token, canStart, probeNeeded }) {
 export function AcpPanel({ item, token, onRowUpdated, onChanged }) {
   const acp = item.acp;
   const probe = useProbe({ token, onRowUpdated, onChanged });
+  const history = useHistory(token);
   const installable = acp.step === "install" && item.action && item.action.kind === "acp_install" && acp.install;
   return html`<div class="apps-acp-panel">
     ${installable && html`<${InstallPanel} install=${acp.install} probe=${probe} />`}
     ${acp.step === "probe" && html`<${ProbeStep} probe=${probe} />`}
     ${probe.error && html`<p class="message error apps-status-line" role="alert">${probe.error.message}</p>`}
-    ${acp.activated && html`<${AreaSection} token=${token} canStart=${acp.canStart} probeNeeded=${acp.step === "probe"} />`}
+    ${acp.activated && html`<${AreaSection} token=${token} canStart=${acp.canStart} probeNeeded=${acp.step === "probe"} history=${history} />`}
+    <${HistorySection} token=${token} history=${history} />
   </div>`;
 }

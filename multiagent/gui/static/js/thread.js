@@ -11,13 +11,13 @@ import { authHeaders } from "./auth.js";
 import { parseBlock } from "./stream.js";
 import { DocumentCard } from "./document-card.js";
 import { SegmentBar } from "./segment-bar.js";   // AVZ-T04
-import { acpThreadHref } from "./route.js";
+import { acpStartHref, acpThreadHref } from "./route.js";
 import { currentMode } from "./gui-mode.js";   // SIM-T03
 import { POLL_MS, composerState, createThread, entryKey, groupThread, isNearEnd, isTerminal, mergeThread, pollAfter,
   nextFollowing, shouldFollow, SMOOTH_MS, tailKey, projectOf, shortcutsFor,
-  ACP_START_PATH, acpConsentReadPath, acpStartBody, acpStartFailure, acpStartedId,
-  acpComposerState, acpNeedsConsentNotice, acpPath, acpStreamPath, applyAcpStreamBlock, createAcpThread, groupAcpEvents, isAcpLost,
-  mergeAcpPage, stepBar, waitSeqOf } from "./thread-model.js";
+  ACP_LIST_PATH, ACP_START_PATH, acpBundleOf, acpConsentReadPath, acpDeletePath, acpHistoryWarningKey, acpStartBody, acpStartFailure,
+  acpStartedId, acpComposerState, acpNeedsConsentNotice, acpPath, acpStreamPath, applyAcpStreamBlock, createAcpThread, groupAcpEvents,
+  isAcpLost, mergeAcpPage, stepBar, waitSeqOf } from "./thread-model.js";
 import { MESSAGE_KINDS, NEEDS_CONFIRMATION, messageError, messageId, messagePath } from "./inbox-model.js";
 import { t } from "./i18n.js";
 
@@ -279,8 +279,9 @@ function RunInbox({ runId, token, status, onSent }) {
 }
 
 // ACP-T04: the live conversation with Codex ACP (#new/acp/<id>). It reads the events from the first one, follows the stream from
-// the last cursor it holds and, when the stream ends, reads the page again (that is where `active` comes from). The session lives
-// in the memory of the app: a 404, or an `error` block of the stream, ends the conversation here and nothing is retried.
+// the last cursor it holds and, when the stream ends, reads the page again (that is where `active` comes from). A live session
+// lives in the memory of the app; a conversation that is not live is read from its saved file, read only (ACP-T05). A 404, or an
+// `error` block of the stream, ends the conversation here (deleted, expired, or never saved) and nothing is retried.
 const ACP_RECONNECT_MS = 1000;
 
 export function AcpThread({ token, threadId }) {
@@ -289,6 +290,9 @@ export function AcpThread({ token, threadId }) {
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
   const [epoch, setEpoch] = useState(0);   // another turn started: follow again
+  const [bundle, setBundle] = useState("");   // the package of a saved conversation, for the link that starts another one
+  const [confirming, setConfirming] = useState(false);   // «Borrar esta conversación» asks once before it deletes
+  const [deleted, setDeleted] = useState(false);
   const current = useRef(createAcpThread());
   const endRef = useRef(null);
   const commit = (next) => { current.current = next; setThread(next); };
@@ -296,6 +300,7 @@ export function AcpThread({ token, threadId }) {
   async function readPage() {
     try {
       commit(mergeAcpPage(current.current, await apiGet(acpPath(threadId, "?after=" + current.current.cursor), token)));
+      if (current.current.reload) return readPage();   // a live conversation turned out to be a saved file: read it from its first event
       return true;
     } catch (failure) {
       if (isAcpLost(failure)) commit({ ...current.current, lost: true, active: false, loaded: true });
@@ -306,7 +311,14 @@ export function AcpThread({ token, threadId }) {
 
   useEffect(() => {   // a new conversation starts from nothing, before it reads
     current.current = createAcpThread(); setThread(current.current); setError(null); setText("");
+    setBundle(""); setConfirming(false); setDeleted(false);
   }, [threadId]);
+  useEffect(() => {   // a saved conversation names its package only in the list; read it once
+    if (!thread.saved) return undefined;
+    let active = true;
+    apiGet(ACP_LIST_PATH, token).then((answer) => { if (active) setBundle(acpBundleOf(answer, threadId)); }, () => {});
+    return () => { active = false; };
+  }, [thread.saved, threadId, token]);
   useEffect(() => {
     let stopped = false;
     let controller = null;
@@ -364,9 +376,29 @@ export function AcpThread({ token, threadId }) {
   }
   const send = () => { if (text.trim()) act("/prompts", { text: text.trim() }, () => setText("")); };
   const cancel = () => act("/cancel", {}, () => {});
+  async function remove() {   // only the person presses it: it deletes the file, and closes the session when it is live
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      await apiPost(acpDeletePath(threadId), token, {});
+      setDeleted(true); setConfirming(false);
+      commit({ ...createAcpThread(), loaded: true, lost: true });   // nothing is left to follow
+    } catch (failure) {
+      if (isAcpLost(failure)) commit({ ...current.current, lost: true, active: false });
+      else setError(failure);
+      setConfirming(false);
+    } finally { setBusy(false); }
+  }
 
   const state = acpComposerState(thread);
   const groups = groupAcpEvents(thread.events);
+  if (deleted) {   // the conversation is gone: nothing is left to read, follow or send
+    return html`<section class="ns thread-view acp-thread" aria-label=${t("thread.acp.title")}>
+      <div class="thread-head"><h3>${t("thread.acp.title")}</h3></div>
+      <p class="message ok" role="status">${t("thread.acp.deleted")}</p>
+      <p><a class="acp-consent-link" href="#apps">${t("thread.acp.consent_link")}</a></p>
+    </section>`;
+  }
   return html`<section class="ns thread-view acp-thread" aria-label=${t("thread.acp.title")}>
     <div class="thread-head"><h3>${t("thread.acp.title")}</h3><span class="muted">${threadId}</span>
       <button type="button" class="btn secondary" disabled=${busy} ...${helpFor("thread.refresh")}
@@ -374,6 +406,13 @@ export function AcpThread({ token, threadId }) {
       <${Shortcuts} mode=${currentMode()} sessionId="" project=${null} scope="acp" /></div>
     <${Help} topic="acp_thread.section" />
     ${state === "lost" && html`<p class="message error" role="alert">${t("thread.acp.lost")}</p>`}
+    ${state === "saved" && html`<div class="acp-saved">
+      <p class="message acp-saved-note" role="status">${t("thread.acp.saved")}</p>
+      ${thread.redacted && html`<p class="message acp-saved-note" role="status">${t("thread.acp.saved.redacted")}</p>`}
+      ${thread.incomplete && html`<p class="message acp-saved-note" role="status">${t("thread.acp.saved.incomplete")}</p>`}
+      <p><a class="acp-consent-link" href=${bundle ? acpStartHref(bundle) : "#apps"}>${bundle ? t("thread.acp.saved.new") : t("thread.acp.consent_link")}</a></p>
+    </div>`}
+    ${acpHistoryWarningKey(thread) && state !== "lost" && html`<p class="message acp-history-note" role="status">${t(acpHistoryWarningKey(thread))}</p>`}
     ${error && html`<p class="message error" role="alert">${t("thread.refresh.error", { message: errorText(error) })}</p>`}
     ${acpNeedsConsentNotice(thread) && state !== "lost" && html`<p class="message acp-consent-note" role="status">${t("thread.acp.consent_missing")}
       <a class="acp-consent-link" href="#apps">${t("thread.acp.consent_link")}</a></p>`}
@@ -394,6 +433,15 @@ export function AcpThread({ token, threadId }) {
       <${Help} topic="acp_thread.text" compact=${true} />
       <button type="button" class="btn" disabled=${busy || !text.trim()} ...${helpFor("acp_thread.send")}
         onClick=${send}>${t("thread.acp.send")}</button><${Help} topic="acp_thread.send" compact=${true} />
+    </div>`}
+    ${(state === "saved" || state === "active" || state === "idle") && html`<div class="acp-controls acp-delete">
+      ${!confirming && html`<button type="button" class="btn secondary" disabled=${busy} ...${helpFor("acp_thread.delete")}
+        onClick=${() => setConfirming(true)}>${t("thread.acp.delete")}</button><${Help} topic="acp_thread.delete" compact=${true} />`}
+      ${confirming && html`<div class="acp-confirm" role="group" aria-label=${t("thread.acp.delete")}>
+        <p class="message error" role="alert">${t("thread.acp.delete.confirm")}</p>
+        <button type="button" class="btn" disabled=${busy} data-help-exempt="confirm" onClick=${remove}>${busy ? t("thread.acp.deleting") : t("thread.acp.delete.yes")}</button>
+        <button type="button" class="btn secondary" disabled=${busy} data-help-exempt="confirm" onClick=${() => setConfirming(false)}>${t("thread.acp.delete.keep")}</button>
+      </div>`}
     </div>`}
   </section>`;
 }

@@ -427,6 +427,42 @@
   font-weight: 600;
 }
 
+/* ACP-T05: the saved conversations and the history switch of an area. */
+.apps-acp-history, .apps-acp-history-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.apps-acp-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apps-acp-history-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.apps-acp-history-row a {
+  display: flex;
+  align-items: center;
+  min-height: var(--target);
+  overflow-wrap: anywhere;
+}
+
+.apps-acp-history-state {
+  overflow-wrap: anywhere;
+}
+
 @media (forced-colors: active) {
   .apps-acp-install-panel, .apps-acp-unavailable, .apps-acp-consent .apps-confirm {
     border: 1px solid CanvasText;

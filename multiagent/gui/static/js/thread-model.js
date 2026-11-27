@@ -160,10 +160,13 @@ export function shortcutsFor({ mode = "advanced", workers = null, project = null
 // ACP-T04: the live thread of a Codex ACP conversation (#new/acp/<id>). Pure state; everything the agent sends is untrusted text.
 // The server numbers every event (`cursor`, 1, 2, 3...). A page (GET ?after=) and the stream (item events) bring the same events:
 // they merge by cursor, so a reconnect from the last cursor never repeats or loses one.
-export const ACP_KINDS = ["message", "thought", "tool", "diff", "plan", "usage", "end_turn", "error"];
+export const ACP_KINDS = ["prompt", "message", "thought", "tool", "diff", "plan", "usage", "end_turn", "error"];
 export const ACP_TOOL_STATUSES = ["pending", "in_progress", "completed", "failed"];
 export const ACP_TEXT_LIMIT = 8000;
-export const createAcpThread = () => ({ events: [], cursor: 0, active: false, consentConfigured: null, loaded: false, lost: false });
+// ACP-T05: a conversation is `saved` when the server read it from its file (read only, no agent session behind it). `reload` is
+// set for one read, when a conversation that was followed live turned out to be a saved file whose events number from 1 again.
+export const createAcpThread = () => ({ events: [], cursor: 0, active: false, consentConfigured: null, loaded: false, lost: false,
+  saved: false, redacted: false, incomplete: false, historyWarning: null, reload: false });
 export const acpPath = (id, rest = "") => "/gui/api/threads/acp/" + encodeURIComponent(id) + rest;
 export const acpStreamPath = (id, cursor) => acpPath(id, "/stream?after=" + Math.max(0, Number(cursor) || 0));
 
@@ -178,13 +181,23 @@ export function mergeAcpEvents(state, incoming) {
   return { ...state, events, cursor: Math.max(state.cursor, events.length ? events[events.length - 1].cursor : 0) };
 }
 
-// A page of GET /threads/acp/{id}?after=: events, next_cursor, active and consent_configured.
+export const ACP_HISTORY_WARNINGS = ["history_not_saved", "history_size_limit"];
+
+// A page of GET /threads/acp/{id}?after=: events, next_cursor, active, consent_configured, and for ACP-T05 `saved`,
+// `history_warning`, `redacted` and `incomplete`. A conversation followed live that now comes back `saved` has the cursors of the
+// file, not the ones it holds: it starts again from nothing and asks for one more read from the first event (`reload`).
 export function mergeAcpPage(state, page) {
+  if (page && page.saved === true && !state.saved && state.cursor > 0) {
+    return { ...createAcpThread(), saved: true, reload: true, consentConfigured: state.consentConfigured };
+  }
   const merged = mergeAcpEvents(state, page && page.events);
   const next = Number.isInteger(page && page.next_cursor) ? Math.max(merged.cursor, page.next_cursor) : merged.cursor;
-  return { ...merged, cursor: next, loaded: true,
+  const saved = Boolean(page) && page.saved === true;
+  return { ...merged, cursor: next, loaded: true, reload: false, saved,
     active: typeof (page && page.active) === "boolean" ? page.active : merged.active,
-    consentConfigured: typeof (page && page.consent_configured) === "boolean" ? page.consent_configured : merged.consentConfigured };
+    consentConfigured: typeof (page && page.consent_configured) === "boolean" ? page.consent_configured : merged.consentConfigured,
+    redacted: saved && page.redacted === true, incomplete: saved && page.incomplete === true,
+    historyWarning: !saved && page && ACP_HISTORY_WARNINGS.includes(page.history_warning) ? page.history_warning : null };
 }
 
 // One block of the stream, already parsed ({ type, data }): an `item` is an event, an `error` says the session is gone for good.
@@ -197,27 +210,27 @@ export function applyAcpStreamBlock(state, block) {
   return mergeAcpEvents(state, [event]);
 }
 
-// A session that no longer exists: a 404 of any call. It lives in memory, so a restart of the app loses it.
+// A conversation that no longer exists: a 404 of any call (it was deleted, expired, or was never saved).
 export const isAcpLost = (failure) => Boolean(failure) && failure.status === 404;
 
-const clip = (text) => (text.length > ACP_TEXT_LIMIT ? text.slice(0, ACP_TEXT_LIMIT) + "…" : text);
+const clip = (text, limit = ACP_TEXT_LIMIT) => (text.length > limit ? text.slice(0, limit) + "…" : text);
 const asText = (value) => (typeof value === "string" ? clip(value) : "");
 const plain = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
 
 // The text blocks and the diffs of a `content` field, which is an object, a list of blocks or a plain `text` of the event.
-function readContent(data) {
+function readContent(data, limit = ACP_TEXT_LIMIT) {
   const texts = [];
   const diffs = [];
   const visit = (block, depth) => {
     if (depth > 3 || !block) return;
     if (Array.isArray(block)) { block.forEach((item) => visit(item, depth + 1)); return; }
-    if (typeof block === "string") { texts.push(clip(block)); return; }
+    if (typeof block === "string") { texts.push(clip(block, limit)); return; }
     if (typeof block !== "object") return;
     if (block.type === "diff" || (typeof block.path === "string" && (block.newText !== undefined || block.oldText !== undefined))) {
       diffs.push({ path: asText(block.path), oldText: asText(block.oldText), newText: asText(block.newText) });
       return;
     }
-    if (typeof block.text === "string") texts.push(clip(block.text));
+    if (typeof block.text === "string") texts.push(clip(block.text, limit));
     else if (block.content) visit(block.content, depth + 1);
   };
   visit(data.text, 0);
@@ -227,20 +240,21 @@ function readContent(data) {
 
 const pathsOf = (data) => (Array.isArray(data.locations) ? data.locations : [])
   .map((location) => (typeof location === "string" ? location : plain(location).path))
-  .filter((path) => typeof path === "string" && path).map(clip);
+  .filter((path) => typeof path === "string" && path).map((path) => clip(path));
 
 const planRows = (data) => (Array.isArray(data.entries) ? data.entries : []).map((entry) => {
   const row = plain(entry);
   return { text: asText(row.content), status: asText(row.status), priority: asText(row.priority) };
 }).filter((row) => row.text);
 
-// The shape a card draws. Nothing here is HTML: every field is a string the view puts in as text.
-export function acpEventView(event) {
+// The shape a card draws. Nothing here is HTML: every field is a string the view puts in as text. `limit` is the clip of one text:
+// a group of chunks reads each chunk whole and clips the joined text once, the way the server does before it saves a turn.
+export function acpEventView(event, limit = ACP_TEXT_LIMIT) {
   const data = plain(event && event.data);
   const base = { kind: event.kind, cursor: event.cursor, status: ACP_TOOL_STATUSES.includes(event.tool_status) ? event.tool_status : null,
     text: "", title: "", paths: [], diffs: [], rows: [], used: null, size: null, cost: null, stop: "" };
-  const { texts, diffs } = readContent(data);
-  if (event.kind === "message" || event.kind === "thought") return { ...base, text: texts.join("\n") };
+  const { texts, diffs } = readContent(data, limit);
+  if (event.kind === "prompt" || event.kind === "message" || event.kind === "thought") return { ...base, text: texts.join("\n") };
   if (event.kind === "tool") return { ...base, title: asText(data.title) || asText(data.kind), text: texts.join("\n"), paths: pathsOf(data), diffs };
   if (event.kind === "diff") return { ...base, title: asText(data.title), paths: pathsOf(data), diffs: diffs.length ? diffs
     : [{ path: asText(data.path), oldText: asText(data.oldText), newText: asText(data.newText) }].filter((item) => item.path), text: texts.join("\n") };
@@ -254,22 +268,39 @@ export function acpEventView(event) {
   return { ...base, text: asText(data.message) || asText(data.status) || asText(data.code) || texts.join("\n") };   // error
 }
 
-// Consecutive message chunks (and thought chunks) read as one block; every other event keeps its own place.
+// A warning of the history (a turn that was not saved, the size limit) is one line for the whole thread, not a card in the list.
+const isHistoryWarning = (event) => event.kind === "error" && ACP_HISTORY_WARNINGS.includes(plain(event.data).status);
+
+// Consecutive message chunks (and thought chunks) read as one block; every other event keeps its own place. The joined text of a
+// block is clipped to ACP_TEXT_LIMIT with the same mark as the server, so the screen shows what the saved file holds.
 export function groupAcpEvents(events) {
   const groups = [];
   for (const event of events) {
+    if (isHistoryWarning(event)) continue;
     const last = groups[groups.length - 1];
     if ((event.kind === "message" || event.kind === "thought") && last && last.kind === event.kind) last.events.push(event);
     else groups.push({ kind: event.kind, events: [event], key: "acp-" + event.cursor });
   }
   return groups.map((group) => ({ kind: group.kind, key: group.key, cursor: group.events[group.events.length - 1].cursor,
     view: group.events.length === 1 ? acpEventView(group.events[0])
-      : { ...acpEventView(group.events[0]), text: group.events.map((event) => acpEventView(event).text).join("") } }));
+      : { ...acpEventView(group.events[0]), text: clip(group.events.map((event) => acpEventView(event, Infinity).text).join("")) } }));
 }
 
 // The notice about permissions is one line for the whole thread, only while the area has no consent configured.
 export const acpNeedsConsentNotice = (state) => state.consentConfigured === false;
-export const acpComposerState = (state) => (state.lost ? "lost" : !state.loaded ? "loading" : state.active ? "active" : "idle");
+export const acpComposerState = (state) => (state.lost ? "lost" : !state.loaded ? "loading" : state.saved ? "saved" : state.active ? "active" : "idle");
+
+// ACP-T05: the saved conversations, their deletion and the line that says a turn was not saved. The server numbers the file by itself.
+export const ACP_LIST_PATH = "/gui/api/threads/acp";
+export const ACP_DELETE_ALL_PATH = "/gui/api/threads/acp/delete-all";
+export const acpDeletePath = (id) => acpPath(id, "/delete");
+export const acpHistoryWarningKey = (state) => (state.historyWarning === "history_size_limit" ? "thread.acp.history.size_limit"
+  : state.historyWarning === "history_not_saved" ? "thread.acp.history.not_saved" : "");
+// The package of a conversation, read from the list (a page does not carry it): the link to start another one in the same area.
+export function acpBundleOf(answer, id) {
+  const found = (answer && Array.isArray(answer.conversations) ? answer.conversations : []).find((item) => item && item.id === id);
+  return found && typeof found.bundle === "string" ? found.bundle : "";
+}
 
 // ACP-T04: the first message of a conversation is written in the thread view, in the package the route carries.
 export const ACP_START_PATH = "/gui/api/threads/acp";

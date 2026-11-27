@@ -6,6 +6,7 @@ from __future__ import annotations
 import time
 from threading import Event
 
+import pytest
 from fastapi.testclient import TestClient
 
 from multiagent.api import create_app
@@ -56,6 +57,7 @@ def test_acp_consent_session_routes_and_replay(tmp_path):
     folder.mkdir()
     services.register_bundle("office-area", folder)
     services.offices.office_of = lambda bundle: ("office", "area") if bundle == "office-area" else None
+    services.offices.area_class = lambda bundle: "non_sensitive"
     connections = services.connections
     connections._acp_resolver = lambda cwd: "synthetic-acp"
     connections._acp_probe_result = {"status": "compatible", "protocol_version": 1}
@@ -90,12 +92,13 @@ def test_acp_consent_session_routes_and_replay(tmp_path):
                 if not page["active"]:
                     break
                 time.sleep(0.01)
-            assert [event["kind"] for event in page["events"]] == ["message", "end_turn"]
+            assert [event["kind"] for event in page["events"]] == ["prompt", "message", "end_turn"]
             assert page["events"][0]["data"]["text"] == "<untrusted>"
             assert client.get(f"/gui/api/threads/acp/{identifier}?after=1", headers=headers).json()["events"][0]["cursor"] == 2
             stream = client.get(f"/gui/api/threads/acp/{identifier}/stream", headers=headers)
             assert "id: 1\nevent: item" in stream.text
             assert "id: 2\nevent: item" in stream.text
+            assert "id: 3\nevent: item" in stream.text
             changed = client.put("/gui/api/connections/codex_acp/consent", headers=headers,
                                  json={"bundle": "office-area", "allow_write": True})
             assert changed.status_code == 200, changed.text
@@ -111,7 +114,8 @@ def test_acp_consent_session_routes_and_replay(tmp_path):
             assert configured_sink.on_permission(PermissionAsk("write", str(tmp_path / "outside.txt"),
                                                              ("allow_once",), (str(tmp_path / "outside.txt"),))) == "reject_once"
             assert configured_sink.on_permission(PermissionAsk("execute", None, ("allow_once",))) == "reject_once"
-            assert client.get(f"/gui/api/threads/acp/{identifier}", headers=headers).status_code == 404
+            old = client.get(f"/gui/api/threads/acp/{identifier}", headers=headers)
+            assert old.status_code == 200 and old.json()["saved"] is True
             for _ in range(100):
                 if not client.get(f"/gui/api/threads/acp/{new_session['id']}", headers=headers).json()["active"]:
                     break
@@ -130,6 +134,111 @@ def test_acp_consent_session_routes_and_replay(tmp_path):
             assert sink.on_permission(PermissionAsk("write", None, ("allow_once",))) == "reject_once"
     finally:
         services.runs.close()
+
+
+def test_saved_history_survives_new_session_service_and_routes_delete_it(env):
+    from multiagent.services.runs import AcpInteractiveSessions
+
+    services, _, client, headers = env
+    identifier = client.post("/gui/api/threads/acp", headers=headers,
+                             json={"bundle": "office-area", "text": "hello"}).json()["id"]
+    for _ in range(100):
+        if not services.runs.acp.page(identifier)["active"]:
+            break
+        time.sleep(0.01)
+    assert services.runs.acp.page(identifier)["events"][0]["kind"] == "prompt"
+    services.runs.acp.close_all()
+    services.runs.acp = AcpInteractiveSessions(services)
+    saved = client.get(f"/gui/api/threads/acp/{identifier}", headers=headers)
+    assert saved.status_code == 200 and saved.json()["saved"] is True
+    assert [item["kind"] for item in saved.json()["events"]] == ["prompt", "message", "end_turn"]
+    rows = client.get("/gui/api/threads/acp", headers=headers).json()["conversations"]
+    assert rows[0]["id"] == identifier and rows[0]["active"] is False
+    assert "id: 1\nevent: item" in client.get(f"/gui/api/threads/acp/{identifier}/stream?after=3",
+                                               headers=headers).text
+    assert client.post(f"/gui/api/threads/acp/{identifier}/delete", headers=headers, json={}).json()["deleted"] is True
+    assert client.get(f"/gui/api/threads/acp/{identifier}", headers=headers).status_code == 404
+    assert client.get("/gui/api/threads/acp", headers=headers).json()["conversations"] == []
+
+
+def test_sensitive_area_requires_explicit_history_switch(env):
+    services, _, client, headers = env
+    services.offices.area_class = lambda bundle: "sensitive"
+    consent = client.get("/gui/api/connections/codex_acp/consent?bundle=office-area", headers=headers).json()
+    assert consent["keep_history"] is False
+    first = client.post("/gui/api/threads/acp", headers=headers,
+                        json={"bundle": "office-area", "text": "private"}).json()["id"]
+    for _ in range(100):
+        if not services.runs.acp.page(first)["active"]:
+            break
+        time.sleep(0.01)
+    assert services.runs.acp.history.page(first) is None
+    changed = client.put("/gui/api/connections/codex_acp/consent", headers=headers,
+                         json={"bundle": "office-area", "allow_write": False, "keep_history": True})
+    assert changed.status_code == 200 and changed.json()["keep_history"] is True
+    second = client.post("/gui/api/threads/acp", headers=headers,
+                         json={"bundle": "office-area", "text": "private"}).json()["id"]
+    for _ in range(100):
+        if not services.runs.acp.page(second)["active"]:
+            break
+        time.sleep(0.01)
+    assert services.runs.acp.history.page(second)["saved"] is True
+    assert client.post("/gui/api/threads/acp/delete-all", headers=headers, json={}).json()["deleted"] == 1
+    assert services.runs.acp.history.page(second) is None
+
+
+@pytest.mark.parametrize("classification", ["sensitive", "restricted", "undeclared", "missing_office", "read_error"])
+def test_history_defaults_off_when_area_class_is_not_known_normal(env, classification):
+    services, _, client, headers = env
+    if classification == "read_error":
+        def area_class(bundle):
+            raise OSError("synthetic classification read error")
+    else:
+        area_class = lambda bundle: (None if classification in ("undeclared", "missing_office")
+                                     else classification)
+    services.offices.area_class = area_class
+    response = client.get("/gui/api/connections/codex_acp/consent?bundle=office-area", headers=headers)
+    assert response.status_code == 200 and response.json()["keep_history"] is False
+    identifier = start(client, headers)
+    settled(client, headers, identifier)
+    assert services.runs.acp.history.page(identifier) is None
+
+
+@pytest.mark.parametrize("classification", [None, "sensitive"])
+def test_explicit_history_true_overrides_area_class(env, classification):
+    services, _, client, headers = env
+    services.offices.area_class = lambda bundle: classification
+    response = client.put("/gui/api/connections/codex_acp/consent", headers=headers,
+                          json={"bundle": "office-area", "allow_write": False, "keep_history": True})
+    assert response.status_code == 200 and response.json()["keep_history"] is True
+    identifier = start(client, headers)
+    settled(client, headers, identifier)
+    assert services.runs.acp.history.page(identifier)["saved"] is True
+
+
+def test_put_consent_without_history_field_preserves_explicit_value(env):
+    services, _, client, headers = env
+    services.offices.area_class = lambda bundle: "sensitive"
+    first = client.put("/gui/api/connections/codex_acp/consent", headers=headers,
+                       json={"bundle": "office-area", "allow_write": False, "keep_history": True})
+    assert first.status_code == 200
+    second = client.put("/gui/api/connections/codex_acp/consent", headers=headers,
+                        json={"bundle": "office-area", "allow_write": True})
+    assert second.status_code == 200 and second.json()["keep_history"] is True
+    assert services.gui_settings.acp_consent("office/area")["keep_history"] is True
+
+
+def test_deleting_a_live_conversation_closes_it(env):
+    services, _, client, headers = env
+    identifier = client.post("/gui/api/threads/acp", headers=headers,
+                             json={"bundle": "office-area", "text": "hello"}).json()["id"]
+    item = services.runs.acp._get(identifier)
+    closed = []
+    item["session"].close = lambda: closed.append(True)
+    response = client.post(f"/gui/api/threads/acp/{identifier}/delete", headers=headers, json={})
+    assert response.status_code == 200 and closed == [True]
+    assert services.runs.acp.history.page(identifier) is None
+    assert client.get(f"/gui/api/threads/acp/{identifier}", headers=headers).status_code == 404
 
 
 def test_acp_rejects_unverified_area_and_has_no_cli_fallback(tmp_path):
@@ -159,8 +268,6 @@ import asyncio
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from multiagent.executors.acp import AcpConsent
 from multiagent.executors.transport import CliTransport
 from multiagent.gui import events
@@ -178,6 +285,7 @@ def build(tmp_path, *, installed=True, probed=True, activated=True, area=True):
     folder.mkdir()
     services.register_bundle("office-area", folder)
     services.offices.office_of = lambda bundle: ("office", "area") if area and bundle == "office-area" else None
+    services.offices.area_class = lambda bundle: "non_sensitive"
     connections = services.connections
     connections._acp_resolver = lambda cwd: "synthetic-acp" if installed else None
     if probed:
@@ -287,7 +395,7 @@ def test_stream_uses_the_larger_of_cursor_and_last_event_id(env):
     services, _, client, headers = env
     identifier = start(client, headers, "one")
     settled(client, headers, identifier)
-    text = client.get(f"/gui/api/threads/acp/{identifier}/stream?after=2",
+    text = client.get(f"/gui/api/threads/acp/{identifier}/stream?after=3",
                       headers={**headers, "Last-Event-ID": "1"}).text
     assert "event: item" not in text
 
@@ -312,6 +420,28 @@ def test_active_session_delivers_new_events_after_the_cursor():
     assert [chunk for chunk in chunks if chunk.startswith("id:")] == [
         'id: 2\nevent: item\ndata: {"cursor":2,"kind":"message","tool_status":null,"data":{}}\n\n',
         'id: 3\nevent: item\ndata: {"cursor":3,"kind":"end_turn","tool_status":null,"data":{}}\n\n']
+
+
+def test_stream_restarts_once_when_live_session_becomes_saved():
+    seen = []
+    live = {"events": [{"cursor": 5, "kind": "message", "data": {"text": "live"}}],
+            "active": True, "saved": False}
+    saved = [{"cursor": index, "kind": "message", "data": {"text": str(index)}}
+             for index in range(1, 4)]
+
+    def read(cursor):
+        seen.append(cursor)
+        if len(seen) == 1:
+            return live
+        return {"events": saved[cursor:], "active": False, "saved": True}
+
+    async def collect():
+        return [chunk async for chunk in events.stream_acp(read, after=4, heartbeat=60,
+                                                            poll=0.001, max_seconds=5)]
+
+    chunks = asyncio.run(collect())
+    assert seen == [4, 5, 0]
+    assert [int(chunk.split("\n", 1)[0][4:]) for chunk in chunks if chunk.startswith("id:")] == [5, 1, 2, 3]
 
 
 # ---- point 6: a stream outlives its session ----

@@ -15,6 +15,7 @@ from ..executors.acp_probe import probe_codex_acp, resolve_codex_acp
 from ..routing.executor_capabilities import CapabilityEvidence, SupportState, validate_executor_descriptor
 from ..setup.detect import detect
 from .errors import NOT_FOUND, ServiceError
+from .acp_history import should_keep_history
 from .limits import LIMIT_REASONS, limit_notice
 
 IDS = ("gemini", "openai", "ollama", "claude_cli", "codex_cli", "codex_acp", "copilot_cli", "antigravity_cli")
@@ -380,12 +381,16 @@ class ConnectionServices:
                                details={"reason": "acp_area_required"})
         scope = "/".join(located)
         setting = self._services.gui_settings.acp_consent(scope)
+        keep_history = should_keep_history(self._services.offices, bundle, setting)
         return {"bundle": bundle, "scope": scope, "configured": setting is not None,
-                "allow_write": bool(setting and setting["allow_write"]), "allow_always": False}
+                "allow_write": bool(setting and setting["allow_write"]), "allow_always": False,
+                "keep_history": keep_history, "history_retention_days": 30}
 
-    def set_acp_consent(self, bundle: str, allow_write: bool) -> dict[str, Any]:
+    def set_acp_consent(self, bundle: str, allow_write: bool,
+                        keep_history: bool | None = None) -> dict[str, Any]:
         current = self.acp_consent(bundle)
-        self._services.gui_settings.set_acp_consent(current["scope"], allow_write=allow_write)
+        self._services.gui_settings.set_acp_consent(current["scope"], allow_write=allow_write,
+                                                    keep_history=keep_history)
         self._services.runs.acp.close_scope(current["scope"])
         return self.acp_consent(bundle)
 

@@ -18,6 +18,7 @@ per-id methods find the run in whichever store holds it.
 """
 from __future__ import annotations
 
+import logging
 import threading
 import json
 import base64
@@ -54,6 +55,9 @@ from .errors import HUMAN_STEP_UNAVAILABLE, HUMAN_SUBMISSION_INVALID, INVALID_RE
 from ..executors.acp import AcpConsent, AcpTransport
 from ..executors.contract import ExecutorLaunchRequest, Permission
 from ..executors.transport import AgentEvent, PermissionAsk
+from .acp_history import AcpHistory, should_keep_history, valid_id
+
+_ACP_LOG = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from . import ApplicationServices
@@ -932,16 +936,40 @@ class RunServices:
 class _AcpSink:
     """Trusted policy and ordered, in-memory events for one interactive session."""
 
-    def __init__(self, consent: AcpConsent, folder: Path):
+    def __init__(self, consent: AcpConsent, folder: Path, *, history: AcpHistory | None = None,
+                 identifier: str | None = None):
         self.acp_consent = consent
         self.folder = folder
         self.events: list[dict[str, Any]] = []
         self.lock = threading.Lock()
+        self.history = history
+        self.identifier = identifier
+        self.turn: list[dict[str, Any]] = []
+        self.history_warning: str | None = None
 
     def on_event(self, event: AgentEvent) -> None:
         with self.lock:
-            self.events.append({"cursor": len(self.events) + 1, "kind": event.kind,
-                                "tool_status": event.tool_status, "data": dict(event.data)})
+            entry = {"cursor": len(self.events) + 1, "kind": event.kind,
+                     "tool_status": event.tool_status, "data": dict(event.data)}
+            self.events.append(entry)
+            self.turn.append(entry)
+            if event.kind in ("end_turn", "error"):
+                if self.history is not None and self.identifier is not None:
+                    try:
+                        self.history.append_turn(self.identifier, self.turn)
+                    except OverflowError:
+                        self.history = None
+                        self.history_warning = "history_size_limit"
+                        self.events.append({"cursor": len(self.events) + 1, "kind": "error",
+                                            "tool_status": None, "data": {"status": "history_size_limit"}})
+                    except Exception:  # noqa: BLE001 - persistence must never interrupt a live ACP turn
+                        _ACP_LOG.warning("ACP history turn was not saved")
+                        self.history_warning = "history_not_saved"
+                        self.events.append({"cursor": len(self.events) + 1, "kind": "error",
+                                            "tool_status": None, "data": {"status": "history_not_saved"}})
+                    else:
+                        self.history_warning = None
+                self.turn = []
 
     def _inside(self, target: str) -> bool:
         """Only an absolute target whose resolved path stays in the folder; a path that cannot be resolved is outside."""
@@ -980,6 +1008,7 @@ class AcpInteractiveSessions:
         self._lock = threading.RLock()
         self._sessions: dict[str, dict[str, Any]] = {}
         self._opening = 0       # sessions whose process is being opened; they count against the limit
+        self.history = AcpHistory(services.settings.data_dir)
 
     def _get(self, identifier: str) -> dict[str, Any]:
         with self._lock:
@@ -1024,7 +1053,9 @@ class AcpInteractiveSessions:
                 raise ServiceError(INVALID_STATE, "Too many ACP sessions", status=409,
                                    details={"reason": "acp_session_limit"})
             self._opening += 1
-        sink = _AcpSink(consent, folder)
+        identifier = uuid.uuid4().hex
+        keep_history = should_keep_history(self.services.offices, bundle, setting)
+        sink = _AcpSink(consent, folder, history=self.history if keep_history else None, identifier=identifier)
         request = ExecutorLaunchRequest(task_id=uuid.uuid4().hex, task_envelope={}, workdir=folder,
                                         permission=Permission.WRITE if consent.allow_write else Permission.READ)
         try:
@@ -1036,7 +1067,13 @@ class AcpInteractiveSessions:
             raise ServiceError(INVALID_STATE, "ACP unavailable", status=409,
                                details={"reason": "acp_unavailable"}) from exc
         connections._acp_authenticated = True  # session/new succeeded; the probe alone never sets this
-        identifier = uuid.uuid4().hex
+        if keep_history:
+            try:
+                self.history.create(identifier, bundle, scope)
+            except Exception:  # noqa: BLE001 - ACP remains usable if local history cannot be initialized
+                _ACP_LOG.warning("ACP history could not be created")
+                sink.history = None
+                sink.history_warning = "history_not_saved"
         item = {"session": session, "sink": sink, "bundle": bundle, "scope": scope,
                 "consent_configured": setting is not None, "active": False,
                 "cancel_early": False}
@@ -1056,6 +1093,7 @@ class AcpInteractiveSessions:
                 raise ServiceError(INVALID_STATE, "ACP turn is already active", status=409)
             item["active"] = True
             item["cancel_early"] = False
+            item["sink"].on_event(AgentEvent("prompt", data={"text": text}))
 
         def run_turn() -> None:
             try:
@@ -1076,10 +1114,47 @@ class AcpInteractiveSessions:
         return {"id": identifier, "active": True}
 
     def page(self, identifier: str, after: int = 0) -> dict[str, Any]:
-        item = self._get(identifier)
+        if not valid_id(identifier):
+            raise ServiceError(NOT_FOUND, "ACP session not found", status=404)
+        with self._lock:
+            item = self._sessions.get(identifier)
+        if item is None:
+            saved = self.history.page(identifier, after)
+            if saved is None:
+                raise ServiceError(NOT_FOUND, "ACP session not found", status=404)
+            return saved
         entries = item["sink"].page(after)
         return {"id": identifier, "events": entries, "next_cursor": entries[-1]["cursor"] if entries else after,
-                "active": item["active"], "consent_configured": item["consent_configured"]}
+                "active": item["active"], "saved": False,
+                "history_warning": item["sink"].history_warning,
+                "consent_configured": item["consent_configured"]}
+
+    def list_history(self) -> list[dict[str, Any]]:
+        with self._lock:
+            active = set(self._sessions)
+        return self.history.list(active)
+
+    def delete_history(self, identifier: str) -> dict[str, Any]:
+        if not valid_id(identifier):
+            raise ServiceError(NOT_FOUND, "ACP session not found", status=404)
+        with self._lock:
+            item = self._sessions.pop(identifier, None)
+        if item is not None:
+            item["sink"].history = None
+            self._close_sessions([item])
+        deleted = self.history.delete(identifier)
+        if not deleted and item is None:
+            raise ServiceError(NOT_FOUND, "ACP session not found", status=404)
+        return {"id": identifier, "deleted": True}
+
+    def delete_all_history(self) -> dict[str, Any]:
+        with self._lock:
+            sessions = list(self._sessions.values())
+            self._sessions.clear()
+        for item in sessions:
+            item["sink"].history = None
+        self._close_sessions(sessions)
+        return {"deleted": self.history.delete_all()}
 
     def cancel(self, identifier: str) -> dict[str, Any]:
         item = self._get(identifier)

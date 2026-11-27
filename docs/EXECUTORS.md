@@ -183,6 +183,27 @@ after a cursor. `/prompts` sends another turn; `/cancel` cancels the active turn
 the GUI shows that ACP is unavailable and leaves CLI available for a separate human selection. Workflows, batches and
 scheduled resumes continue through CLI.
 
+`GET /gui/api/threads/acp` lists the saved conversations. `POST /gui/api/threads/acp/{id}/delete` deletes one and
+`POST /gui/api/threads/acp/delete-all` deletes them all, closing a live session first. The page of a saved
+conversation has `saved: true`, and it does not accept `/prompts`. Area consent (`GET` and `PUT
+/gui/api/connections/codex_acp/consent`) also carries `keep_history` and `history_retention_days`; a `PUT` without
+`keep_history` keeps the previous choice.
+
+Completed interactive ACP turns are also saved locally under `<data_dir>/acp-history/`, outside the area's workdir.
+Each conversation has one JSONL file (`maf.acp-history/1`), including the person's prompts and the events visible in
+the thread. Consecutive message or thought chunks are joined before pattern-based secret screening and clipping to
+8,000 characters per text field. A pattern match is redacted in the saved copy; the live thread is unchanged. This
+screening cannot guarantee that every secret is recognized. Files expire 30 days after the last saved turn; at most
+200 conversations and 2 MiB per conversation are retained. A saved conversation is readable after a restart but
+cannot resume the agent session. An incomplete final turn can be missing after an abrupt shutdown.
+
+History is on by default only when `offices.area_class(bundle)` returns `"non_sensitive"`. Sensitive, restricted,
+unclassified, missing or unreadable areas require the person's explicit `keep_history: true` switch in area consent.
+Turning it off stops future saving and leaves existing files available for
+deletion. The GUI can list saved conversations, delete one, or delete all. These actions remove local files; they do
+not transmit or encrypt history. The operating system account protects the files. A failed history write does not
+stop the ACP turn and is reported in the thread.
+
 ### Turning an executor on by hand
 
 The manual way stays in the advanced mode, for another system or when the GUI is not at hand. It is the person's step,

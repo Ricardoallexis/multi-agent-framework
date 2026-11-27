@@ -113,9 +113,10 @@ async def stream(store, *, after: int, heartbeat: float, poll: float, max_second
 
 async def stream_acp(read: Callable[[int], dict[str, Any]], *, after: int, heartbeat: float,
                      poll: float, max_seconds: float) -> AsyncIterator[str]:
-    """Replay and follow one in-memory ACP session with ordered, resumable cursors."""
+    """Replay a live or saved ACP session with ordered cursors."""
     started = last_beat = time.monotonic()
     cursor = after
+    was_live = False
     yield ": connected\n\n"
     while not is_shutting_down():
         try:
@@ -126,6 +127,12 @@ async def stream_acp(read: Callable[[int], dict[str, Any]], *, after: int, heart
                                           "message": message if isinstance(message, str)
                                           else "The session can no longer be read"})
             return
+        if page.get("saved") and was_live:
+            cursor = 0
+            page = await anyio.to_thread.run_sync(read, cursor)
+            was_live = False
+        elif not page.get("saved"):
+            was_live = True
         for event in page["events"]:
             cursor = event["cursor"]
             yield format_item(event)

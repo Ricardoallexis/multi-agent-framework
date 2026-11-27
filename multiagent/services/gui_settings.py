@@ -74,7 +74,9 @@ def _written(local_dir: Path) -> dict[str, Any]:
                                 and value.get("level") in ("T1", "T2", "T3", "T4")
                                 and all(isinstance(value.get(key), str) for key in ("source", "confirmed_at", "confirmed_by"))}
     if isinstance(raw.get("acp_consents"), dict):
-        kept["acp_consents"] = {scope: {"allow_write": entry["allow_write"]}
+        kept["acp_consents"] = {scope: {"allow_write": entry["allow_write"],
+                                        **({"keep_history": entry["keep_history"]}
+                                           if type(entry.get("keep_history")) is bool else {})}
                                 for scope, entry in raw["acp_consents"].items()
                                 if isinstance(scope, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}/[a-z0-9][a-z0-9-]{0,39}", scope)
                                 and isinstance(entry, dict) and type(entry.get("allow_write")) is bool}
@@ -198,17 +200,25 @@ class GuiSettingsServices:
         """Return only an explicitly configured office/area policy."""
         return self.read().get("acp_consents", {}).get(scope)
 
-    def set_acp_consent(self, scope: str, *, allow_write: bool, actor: str = "user:gui") -> dict[str, Any]:
-        if actor != "user:gui" or not isinstance(scope, str) or not re.fullmatch(
-                r"[a-z0-9][a-z0-9-]{0,39}/[a-z0-9][a-z0-9-]{0,39}", scope) or type(allow_write) is not bool:
+    def set_acp_consent(self, scope: str, *, allow_write: bool,
+                        keep_history: bool | None = None, actor: str = "user:gui") -> dict[str, Any]:
+        if (actor != "user:gui" or not isinstance(scope, str) or not re.fullmatch(
+                r"[a-z0-9][a-z0-9-]{0,39}/[a-z0-9][a-z0-9-]{0,39}", scope) or type(allow_write) is not bool
+                or (keep_history is not None and type(keep_history) is not bool)):
             raise _invalid("acp_consent", "Invalid ACP consent")
         with self._lock:
             content = {"schema": GUI_SETTINGS_SCHEMA, **_written(self._dir)}
-            content.setdefault("acp_consents", {})[scope] = {"allow_write": allow_write}
+            previous = content.setdefault("acp_consents", {}).get(scope, {})
+            entry = {"allow_write": allow_write}
+            if keep_history is not None:
+                entry["keep_history"] = keep_history
+            elif "keep_history" in previous:
+                entry["keep_history"] = previous["keep_history"]
+            content["acp_consents"][scope] = entry
             content["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
             content["updated_by"] = "user:gui@gui"
             self._write(content)
-        return {"scope": scope, "allow_write": allow_write}
+        return {"scope": scope, **entry}
 
     def concurrency(self, *, now: datetime | None = None) -> dict[str, Any]:
         now = now or datetime.now(timezone.utc)

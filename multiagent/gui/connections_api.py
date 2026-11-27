@@ -19,6 +19,7 @@ class AcpConsentBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bundle: str = Field(min_length=1, max_length=128)
     allow_write: bool = False
+    keep_history: bool | None = None
 
 
 def add_connection_routes(api: APIRouter, services) -> None:
@@ -45,7 +46,7 @@ def add_connection_routes(api: APIRouter, services) -> None:
 
     @api.put("/connections/codex_acp/consent")
     def set_acp_consent(body: AcpConsentBody):
-        return connections.set_acp_consent(body.bundle, body.allow_write)
+        return connections.set_acp_consent(body.bundle, body.allow_write, body.keep_history)
 
     @api.post("/connections/{connection_id}/tls-trust")
     def set_tls_trust(connection_id: str, body: TlsTrustBody):

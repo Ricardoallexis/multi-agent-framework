@@ -314,6 +314,18 @@ def _plan_events(services: Any, group_id: str, proposal_id: str) -> list[dict[st
 
 
 def add_thread_routes(api: APIRouter, services: Any) -> None:
+    @api.get("/threads/acp")
+    def list_acp_history():
+        return {"conversations": services.runs.acp.list_history()}
+
+    @api.post("/threads/acp/delete-all")
+    def delete_all_acp_history():
+        return services.runs.acp.delete_all_history()
+
+    @api.post("/threads/acp/{session_id}/delete")
+    def delete_acp_history(session_id: str):
+        return services.runs.acp.delete_history(session_id)
+
     @api.post("/threads/acp")
     async def start_acp(body: AcpStartBody):
         return await anyio.to_thread.run_sync(services.runs.acp.start, body.bundle, body.text)
@@ -333,8 +345,10 @@ def add_thread_routes(api: APIRouter, services: Any) -> None:
     @api.get("/threads/acp/{session_id}/stream")
     def acp_stream(session_id: str, after: int = Query(0, ge=0),
                    last_event_id: str | None = Header(None, alias="Last-Event-ID")):
-        services.runs.acp.page(session_id, after)  # validate before opening the stream
+        page = services.runs.acp.page(session_id, after)  # validate before opening the stream
         cursor = max(after, int(last_event_id)) if last_event_id and last_event_id.isdecimal() else after
+        if page.get("saved"):
+            cursor = 0
         settings = services.settings
         body = events.stream_acp(lambda position: services.runs.acp.page(session_id, position), after=cursor,
                                  heartbeat=settings.gui_heartbeat_seconds, poll=settings.gui_poll_seconds,

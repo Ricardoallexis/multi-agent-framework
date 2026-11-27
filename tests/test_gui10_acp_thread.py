@@ -227,14 +227,17 @@ def test_an_error_block_or_a_404_ends_the_conversation_without_retrying():
     assert result == {"lost": True, "active": False, "lost404": True, "other": False, "none": False, "composer": "lost"}
 
 
-def test_a_lost_session_stops_the_loop_and_says_that_it_lived_in_memory():
+def test_a_lost_session_stops_the_loop_and_says_it_was_deleted_expired_or_never_saved():
     thread = raw("thread.js")
     follow = thread[thread.index("async function follow()"):thread.index("follow();")]
     assert 'if (response.status === 404) { commit({ ...current.current, lost: true, active: false }); return; }' in follow
     assert "if (current.current.lost) return;" in follow and "while (!stopped && !current.current.lost && current.current.active)" in follow
     assert 'state === "lost" && html`<p class="message error" role="alert">${t("thread.acp.lost")}' in thread
     en = (STATIC_DIR / "i18n" / "en" / "thread.js").read_text(encoding="utf-8")
-    assert "lives in memory" in en
+    # ACP-T05: the history is saved to disk, so the old phrase («lives in memory») is false; this is what the notice says now
+    es = (STATIC_DIR / "i18n" / "es" / "thread.js").read_text(encoding="utf-8")
+    assert '"thread.acp.lost": "This conversation was deleted, expired, or was never saved."' in en and "lives in memory" not in en
+    assert '"thread.acp.lost": "Esta conversación se borró, caducó o nunca se guardó."' in es and "vive en memoria" not in es
 
 
 # --- the route and the screen that draws it ----------------------------------------------------------------------------

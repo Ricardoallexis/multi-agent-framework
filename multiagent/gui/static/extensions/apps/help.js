@@ -184,5 +184,39 @@ export const HELP = {
       "CLI is the default transport and handles work without a live conversation.",
       "This link only opens the new session screen."
     ]
+  },
+  "apps.acp_history": {
+    "title": "Saved conversations",
+    "hint": "The Codex ACP conversations this device kept, newest first.",
+    "more": [
+      "Open one to read it. A saved conversation cannot be continued.",
+      "They live in the data folder of this device, not in the area folder, and an office export does not carry them.",
+      "Recognized secrets are redacted before saving, using patterns."
+    ]
+  },
+  "apps.acp_keep_history": {
+    "title": "Keep the history",
+    "hint": "Choose whether the conversations of this area are saved.",
+    "more": [
+      "Areas marked as ordinary save by default; sensitive, local-only and unmarked areas do not until you turn it on.",
+      "Changing it closes the open conversations of this area; what was saved stays.",
+      "Turning it off stops saving and offers to delete what was already saved."
+    ]
+  },
+  "apps.acp_offer_delete": {
+    "title": "Delete this area's conversations",
+    "hint": "Remove the conversations already saved for this area.",
+    "more": [
+      "Nothing is deleted unless you press this.",
+      "It deletes each saved conversation of the area, one by one, and it cannot be undone."
+    ]
+  },
+  "apps.acp_delete_all": {
+    "title": "Delete all conversations",
+    "hint": "Remove every saved conversation from this device.",
+    "more": [
+      "It asks you to confirm first, and it cannot be undone.",
+      "Conversations that are open now are closed too."
+    ]
   }
 };

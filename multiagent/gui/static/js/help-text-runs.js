@@ -557,5 +557,13 @@ export const HELP = {
       "CLI is the default transport.",
       "This link only opens the new-session screen."
     ]
+  },
+  "acp_thread.delete": {
+    "title": "Delete this conversation",
+    "hint": "Remove this conversation and its saved copy from this device.",
+    "more": [
+      "It asks you to confirm first, and it cannot be undone.",
+      "If the conversation is still live, it is closed too."
+    ]
   }
 };

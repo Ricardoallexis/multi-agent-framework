@@ -5,10 +5,15 @@
 // command is shown to be copied and run by the person: nothing here (or anywhere in the product) runs it.
 import "./i18n.js";
 import { t } from "../../js/i18n.js";
+import { acpThreadHref } from "../../js/route.js";
 
 export const ACP_ID = "codex_acp";
 export const ACP_PROBE_PATH = `/gui/api/connections/${ACP_ID}/acp-probe`;
 export const ACP_CONSENT_PATH = `/gui/api/connections/${ACP_ID}/consent`;
+export const ACP_LIST_PATH = "/gui/api/threads/acp";   // ACP-T05: the saved conversations
+export const ACP_DELETE_ALL_PATH = "/gui/api/threads/acp/delete-all";
+export const acpDeletePath = (id) => `${ACP_LIST_PATH}/${encodeURIComponent(id)}/delete`;
+export const HISTORY_DEFAULT_DAYS = 30;
 export const NEW_SESSION_HREF = "#new";   // «Elegir CLI» leads to «Nueva sesión»; nothing switches transport by itself
 
 export const consentReadPath = (bundle) => `${ACP_CONSENT_PATH}?bundle=${encodeURIComponent(bundle)}`;
@@ -77,15 +82,45 @@ export function officeChoices(offices) {
 }
 
 // --- the consent of an area ---------------------------------------------------------------------------------------------
+// `keepHistory` is what the server says (its default for an area that never chose); the card shows that value and promises no other.
 export function consentView(payload) {
   const configured = Boolean(payload && payload.configured === true);
-  return { configured, allowWrite: configured && payload.allow_write === true };
+  const days = payload && Number.isInteger(payload.history_retention_days) && payload.history_retention_days > 0
+    ? payload.history_retention_days : HISTORY_DEFAULT_DAYS;
+  return { configured, allowWrite: configured && payload.allow_write === true,
+    keepHistory: Boolean(payload) && payload.keep_history === true, retentionDays: days };
 }
 export const consentStateText = (view) => (!view.configured ? t("ext.apps.acp.consent.not_configured")
   : view.allowWrite ? t("ext.apps.acp.consent.write") : t("ext.apps.acp.consent.read"));
 // The client never sends a scope: the server finds the office and the area from the package.
 export const consentBody = (bundle, allowWrite) => ({ bundle, allow_write: allowWrite === true });
 export const consentNote = () => t("ext.apps.acp.consent.note");
+
+// --- the history of an area (ACP-T05) ----------------------------------------------------------------------------------
+// The switch sends the consent as it is (write permission included) and only changes `keep_history`.
+export const historyBody = (bundle, allowWrite, keepHistory) => ({ bundle, allow_write: allowWrite === true, keep_history: keepHistory === true });
+export const historyStateText = (view) => t(view.keepHistory ? "ext.apps.acp.history.state_on" : "ext.apps.acp.history.state_off");
+export const historyRetentionText = (view) => t("ext.apps.acp.history.retention", { days: String(view.retentionDays) });
+
+export function historyWhen(iso) {
+  const date = new Date(iso);
+  if (typeof iso !== "string" || Number.isNaN(date.getTime())) return text(iso);
+  try { return date.toLocaleString(); } catch (_) { return iso; }
+}
+
+// GET /gui/api/threads/acp: one row per saved conversation. A file that cannot be read at all carries only its id and `unreadable`.
+export function historyRows(payload) {
+  const list = payload && Array.isArray(payload.conversations) ? payload.conversations : [];
+  return list.filter((item) => item && typeof item.id === "string" && item.id).map((item) => {
+    const readable = typeof item.bundle === "string" && item.bundle !== "" && typeof item.started_at === "string";
+    const where = [text(item.office), text(item.area)].filter(Boolean).join(" / ");
+    return { id: item.id, href: acpThreadHref(item.id), readable, bundle: readable ? item.bundle : "",
+      label: readable ? where || item.bundle : "", when: readable ? historyWhen(item.last_message_at || item.started_at) : "",
+      count: Number.isInteger(item.message_count) ? item.message_count : 0, unreadable: item.unreadable === true,
+      active: item.active === true, redacted: item.redacted === true };
+  });
+}
+export const rowsOfBundle = (rows, bundle) => rows.filter((row) => bundle && row.bundle === bundle);
 
 const details = (failure) => (failure && typeof failure.details === "object" && failure.details ? failure.details : {});
 

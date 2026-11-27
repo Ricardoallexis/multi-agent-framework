@@ -347,7 +347,8 @@ export function AcpCard({ item }) {
     return html`<li class="thread-card acp-card acp-thought"><details>
       <summary>${label}</summary><p class="acp-text">${view.text}</p></details></li>`;
   }
-  return html`<li class=${"thread-card acp-card acp-" + view.kind}>
+  // ACP-T05: what the person wrote (`prompt`) is drawn like their message in the run thread, once, whether the conversation is live or saved.
+  return html`<li class=${"thread-card acp-card acp-" + view.kind + (view.kind === "prompt" ? " thread-msg-user" : "")}>
     <p class="acp-head"><strong>${label}</strong>${view.status ? html` <span class=${"acp-status acp-status-" + view.status}>${t("thread.acp.tool_status." + view.status)}</span>` : ""}</p>
     ${view.title && html`<p class="acp-text">${view.title}</p>`}
     ${view.kind === "end_turn" && html`<p class="acp-text">${view.stop ? t("thread.acp.end_turn", { reason: view.stop }) : t("thread.acp.end_turn_plain")}</p>`}

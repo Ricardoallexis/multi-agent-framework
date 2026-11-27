@@ -268,6 +268,32 @@ const en = {
   "ext.apps.acp.reason.acp_session_limit": "Too many ACP conversations are open.",
   "ext.apps.acp.reason.executor_paused_changed": "Codex ACP changed and is paused: activate it again.",
   "ext.apps.acp.reason.executor_stopped_by_person": "Codex ACP is paused because you turned all executors off.",
+  "ext.apps.acp.history.title": "Saved conversations",
+  "ext.apps.acp.history.loading": "Reading the saved conversations…",
+  "ext.apps.acp.history.failed": "Could not read the saved conversations: {message}",
+  "ext.apps.acp.history.none": "There are no saved conversations.",
+  "ext.apps.acp.history.count": "{count} messages",
+  "ext.apps.acp.history.unreadable": "could not be read completely",
+  "ext.apps.acp.history.unreadable_file": "Unreadable file",
+  "ext.apps.acp.history.live": "open now",
+  "ext.apps.acp.history.redacted": "secrets redacted",
+  "ext.apps.acp.history.delete_all": "Delete all conversations",
+  "ext.apps.acp.history.delete_all.confirm": "This cannot be undone. Every saved conversation is removed from this device.",
+  "ext.apps.acp.history.delete_all.yes": "Yes, delete all",
+  "ext.apps.acp.history.deleting": "Deleting…",
+  "ext.apps.acp.history.deleted": "Conversations deleted: {count}.",
+  "ext.apps.acp.history.delete_failed": "Could not delete the conversations: {message}",
+  "ext.apps.acp.history.switch": "Keep the history of this area",
+  "ext.apps.acp.history.state_on": "The history of this area is saved.",
+  "ext.apps.acp.history.state_off": "The history of this area is not saved.",
+  "ext.apps.acp.history.retention": "A saved conversation is deleted {days} days after its last message.",
+  "ext.apps.acp.history.needs_consent": "Set up the area consent first: this switch is saved together with it.",
+  "ext.apps.acp.history.offer": "The history of this area is off. Delete the conversations already saved for it ({count})?",
+  "ext.apps.acp.history.offer_delete": "Delete this area's saved conversations",
+  "ext.apps.acp.history.offer_keep": "Keep them",
+  "ext.apps.acp.history.removed": "The saved conversations of this area were deleted.",
+  "ext.apps.acp.history.note": "History stays on this device for 30 days. It does not resume the agent, share data, or encrypt the file; your operating system account protects it.",
+  "ext.apps.acp.history.redaction": "Recognized secrets are redacted before saving. Detection uses patterns and cannot guarantee that every secret is found.",
   "ext.apps.reason.acp_probe_required": "The adapter has not been checked yet."
 };
 const es = {
@@ -661,6 +687,32 @@ const es = {
   "ext.apps.acp.reason.acp_session_limit": "Hay demasiadas conversaciones ACP abiertas.",
   "ext.apps.acp.reason.executor_paused_changed": "Codex ACP cambió y está en pausa: actívalo otra vez.",
   "ext.apps.acp.reason.executor_stopped_by_person": "Codex ACP está en pausa porque apagaste todos los ejecutores.",
+  "ext.apps.acp.history.title": "Conversaciones guardadas",
+  "ext.apps.acp.history.loading": "Leyendo las conversaciones guardadas…",
+  "ext.apps.acp.history.failed": "No se pudieron leer las conversaciones guardadas: {message}",
+  "ext.apps.acp.history.none": "No hay conversaciones guardadas.",
+  "ext.apps.acp.history.count": "{count} mensajes",
+  "ext.apps.acp.history.unreadable": "no se pudo leer completa",
+  "ext.apps.acp.history.unreadable_file": "Archivo ilegible",
+  "ext.apps.acp.history.live": "abierta ahora",
+  "ext.apps.acp.history.redacted": "secretos tachados",
+  "ext.apps.acp.history.delete_all": "Borrar todas las conversaciones",
+  "ext.apps.acp.history.delete_all.confirm": "Esto no se puede deshacer. Se quitan de este equipo todas las conversaciones guardadas.",
+  "ext.apps.acp.history.delete_all.yes": "Sí, borrar todas",
+  "ext.apps.acp.history.deleting": "Borrando…",
+  "ext.apps.acp.history.deleted": "Conversaciones borradas: {count}.",
+  "ext.apps.acp.history.delete_failed": "No se pudieron borrar las conversaciones: {message}",
+  "ext.apps.acp.history.switch": "Guardar el historial de esta área",
+  "ext.apps.acp.history.state_on": "El historial de esta área se guarda.",
+  "ext.apps.acp.history.state_off": "El historial de esta área no se guarda.",
+  "ext.apps.acp.history.retention": "Una conversación guardada se borra {days} días después de su último mensaje.",
+  "ext.apps.acp.history.needs_consent": "Configura primero el consentimiento del área: este interruptor se guarda junto con él.",
+  "ext.apps.acp.history.offer": "El historial de esta área está apagado. ¿Borrar las conversaciones que ya se guardaron para ella ({count})?",
+  "ext.apps.acp.history.offer_delete": "Borrar las conversaciones guardadas de esta área",
+  "ext.apps.acp.history.offer_keep": "Conservarlas",
+  "ext.apps.acp.history.removed": "Se borraron las conversaciones guardadas de esta área.",
+  "ext.apps.acp.history.note": "El historial queda en este equipo durante 30 días. No reanuda al agente, comparte datos ni cifra el archivo; lo protege tu cuenta del sistema operativo.",
+  "ext.apps.acp.history.redaction": "Los secretos reconocidos se tachan antes de guardar. La detección usa patrones y no garantiza encontrar todos los secretos.",
   "ext.apps.reason.acp_probe_required": "El adaptador aún no se ha comprobado.",
   "help.apps.acp_install": {
     "title": "Instalar el adaptador",
@@ -716,6 +768,40 @@ const es = {
     "more": [
       "CLI es el transporte por defecto y atiende el trabajo sin conversación en vivo.",
       "Este enlace solo abre la pantalla de sesión nueva."
+    ]
+  },
+  "help.apps.acp_history": {
+    "title": "Conversaciones guardadas",
+    "hint": "Las conversaciones con Codex ACP que este equipo guardó, las más recientes primero.",
+    "more": [
+      "Abre una para leerla. Una conversación guardada no se puede continuar.",
+      "Viven en la carpeta de datos de este equipo, no en la carpeta del área, y una exportación de oficina no las lleva.",
+      "Los secretos reconocidos se tachan antes de guardar, con patrones."
+    ]
+  },
+  "help.apps.acp_keep_history": {
+    "title": "Guardar el historial",
+    "hint": "Elige si se guardan las conversaciones de esta área.",
+    "more": [
+      "Las áreas marcadas como normales guardan por defecto; las sensibles, las de solo local y las sin marca no, hasta que lo enciendas.",
+      "Cambiarlo cierra las conversaciones abiertas de esta área; lo ya guardado se queda.",
+      "Apagarlo deja de guardar y ofrece borrar lo que ya estaba guardado."
+    ]
+  },
+  "help.apps.acp_offer_delete": {
+    "title": "Borrar las conversaciones de esta área",
+    "hint": "Quita las conversaciones que ya estaban guardadas para esta área.",
+    "more": [
+      "No se borra nada si no pulsas este botón.",
+      "Borra una por una cada conversación guardada del área y no se puede deshacer."
+    ]
+  },
+  "help.apps.acp_delete_all": {
+    "title": "Borrar todas las conversaciones",
+    "hint": "Quita del equipo todas las conversaciones guardadas.",
+    "more": [
+      "Antes pide confirmación, y no se puede deshacer.",
+      "Las conversaciones abiertas ahora también se cierran."
     ]
   }
 };
