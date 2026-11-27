@@ -1008,7 +1008,16 @@ class AcpInteractiveSessions:
         self._lock = threading.RLock()
         self._sessions: dict[str, dict[str, Any]] = {}
         self._opening = 0       # sessions whose process is being opened; they count against the limit
-        self.history = AcpHistory(services.settings.data_dir)
+        self._history: AcpHistory | None = None
+
+    @property
+    def history(self) -> AcpHistory:
+        """Built on first use, so building the services reads no settings and touches no disk.
+        Its constructor purges expired conversations before the first list, read or new one."""
+        with self._lock:
+            if self._history is None:
+                self._history = AcpHistory(self.services.settings.data_dir)
+            return self._history
 
     def _get(self, identifier: str) -> dict[str, Any]:
         with self._lock:
