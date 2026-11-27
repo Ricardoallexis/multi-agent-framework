@@ -129,6 +129,39 @@ export const HELP = {
       "“Review and activate” shows the notice again. A new minor version does not pause it."
     ]
   },
+  "apps.discovery": {
+    "title": "Search for apps on this computer",
+    "hint": "Allow one look for the apps you have, their version and whether they have a session.",
+    "more": [
+      "Until you answer, this screen measures nothing and every app says “Not searched yet”.",
+      "It only runs the read-only commands for the version and the session. It never installs, signs in, activates an executor, reads credentials or spends quota.",
+      "Your answer is saved on this computer. You can withdraw it here at any time and the searching stops."
+    ]
+  },
+  "apps.discovery_accept": {
+    "title": "Search once",
+    "hint": "Allow the search and look for the apps now.",
+    "more": [
+      "After this, “Refresh” and “Check again” measure again without asking.",
+      "Installing an app is a separate step with its own confirmation."
+    ]
+  },
+  "apps.discovery_decline": {
+    "title": "Not now",
+    "hint": "Keep the search off. Nothing is measured.",
+    "more": [
+      "Every app keeps saying “Not searched yet”.",
+      "You can choose “Search once” later from this same card."
+    ]
+  },
+  "apps.discovery_withdraw": {
+    "title": "Withdraw consent",
+    "hint": "Stop searching for apps from now on.",
+    "more": [
+      "Executors you already activated stay activated.",
+      "The rows go back to “Not searched yet” until you allow the search again."
+    ]
+  },
   "apps.acp_install": {
     "title": "Install the adapter",
     "hint": "See the exact command, its version and its license.",

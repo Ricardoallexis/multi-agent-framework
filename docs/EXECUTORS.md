@@ -92,6 +92,11 @@ Turning an executor on is the person's decision, made in the GUI, one executor a
   every activation and, for agy, writes its kill switch file. A kill switch file that a person made by hand is never
   touched: the card says agy is off because of a file the app did not write, and the person removes it.
 - **The limits do not change.** The quotas, the permissions, the privacy classes and the secret gate apply as before.
+- **Detection waits for the person.** Executor detection runs only after the person accepts **Search for apps on this
+  computer** in «Apps y agentes». A saved activation does not depend on it and stays active. Without that consent,
+  launching an already activated executor does not compare its fingerprint, because comparing requires probing the
+  app, so a change of path, major version or account is noticed only once the answer is **Search once**. A previous
+  pause and **Apagar todos** still apply.
 
 The routes are `GET /gui/api/executors/activations`, `POST /gui/api/executors/{id}/activation`, `.../activate`,
 `.../deactivate` and `POST /gui/api/executors/stop-all` (see [Operator GUI](GUI.md#views)).

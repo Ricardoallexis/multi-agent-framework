@@ -38,6 +38,9 @@ _DEFAULTS = {"mode": DEFAULT_MODE}
 _META_KEYS = ("schema", "updated_at", "updated_by")
 _PROVIDER = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _CONTINUITY_APPS = frozenset(("claude_cli", "codex_cli", "copilot_cli"))
+# EXA-T05: the person's answer to "Search for apps on this computer". It is a key of its own, not one of ``ALLOWED_VALUES``,
+# so the generic ``set_value`` can never write it; only ``set_app_discovery`` does, and only for the GUI person.
+DISCOVERY_ANSWERS = ("accepted", "declined")
 
 
 def load_file(local_dir: Path) -> dict[str, Any]:
@@ -73,6 +76,10 @@ def _written(local_dir: Path) -> dict[str, Any]:
                                 if isinstance(model, str) and isinstance(value, dict)
                                 and value.get("level") in ("T1", "T2", "T3", "T4")
                                 and all(isinstance(value.get(key), str) for key in ("source", "confirmed_at", "confirmed_by"))}
+    discovery = raw.get("app_discovery")
+    if (isinstance(discovery, dict) and discovery.get("answer") in DISCOVERY_ANSWERS
+            and all(isinstance(discovery.get(key), str) for key in ("at", "by"))):
+        kept["app_discovery"] = {key: discovery[key] for key in ("answer", "at", "by")}
     if isinstance(raw.get("acp_consents"), dict):
         kept["acp_consents"] = {scope: {"allow_write": entry["allow_write"],
                                         **({"keep_history": entry["keep_history"]}
@@ -195,6 +202,23 @@ class GuiSettingsServices:
             if key in written:
                 result[key] = written[key]
         return result
+
+    def app_discovery(self) -> dict[str, Any] | None:
+        """``{answer, at, by}`` of the search consent, or ``None`` while the person has not answered."""
+        return self.read().get("app_discovery")
+
+    def set_app_discovery(self, answer: str, *, actor: str = "user:gui", channel: str = "gui") -> dict[str, Any]:
+        """Write the search consent (``accepted`` or ``declined``) with its own hour and actor. Only the GUI person."""
+        if actor != "user:gui" or channel != "gui":
+            raise _invalid("actor", "Only a GUI user may answer the app search question")
+        if not isinstance(answer, str) or answer not in DISCOVERY_ANSWERS:
+            raise _invalid("answer", f"answer must be one of: {', '.join(DISCOVERY_ANSWERS)}")
+        with self._lock:
+            content = {"schema": GUI_SETTINGS_SCHEMA, **_written(self._dir)}
+            content["app_discovery"] = {"answer": answer, "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                        "by": f"{actor}@{channel}"}
+            self._write(content)
+        return dict(content["app_discovery"])
 
     def acp_consent(self, scope: str) -> dict[str, Any] | None:
         """Return only an explicitly configured office/area policy."""

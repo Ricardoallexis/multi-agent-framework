@@ -7,6 +7,7 @@ import { formatQuotaLines } from "../../js/quota-text.js";
 import { limitReachedText, quotaWarningText } from "../../js/new-session-model.js";
 import { activationView, manualEnableText } from "./activation-model.js";   // EJE-T02
 import { ACP_ID, acpView } from "./acp-model.js";   // ACP-T04
+import { isUnsearched, wasNotMeasured } from "./discovery-model.js";   // EXA-T05
 
 export const EXECUTOR_IDS = ["claude_cli", "codex_cli", "codex_acp", "copilot_cli", "antigravity_cli"];
 export const MODEL_IDS = ["gemini", "openai", "ollama"];
@@ -42,6 +43,7 @@ const REASONS = {
   quota_below_launch_floor: "ext.apps.reason.quota_below_launch_floor",
   usage_unavailable: "ext.apps.reason.usage_unavailable",
   acp_probe_required: "ext.apps.reason.acp_probe_required",
+  consent_required: "ext.apps.reason.consent_required",   // EXA-T05: nobody searched for the app yet
 };
 const reasonText = (reason) => REASONS[reason] ? t(REASONS[reason]) : t("ext.apps.reason.unavailable");
 
@@ -300,6 +302,7 @@ const ACTIVATION_CHIPS = {
 };
 
 function statusChipFor(row, view = null) {
+  if (isUnsearched(row)) return { status: "unsearched", label: t("ext.apps.discovery.chip") };   // EXA-T05
   if (row.id === "gemini") {
     if (row.available === true) {
       return row.verification === "verified"
@@ -338,6 +341,13 @@ export function missingSummaryLine(row, action, chip, reasonText) {
   return null;
 }
 
+// EXA-T05: the «sign in yourself» line depends on the step that was launched, not on the step the row shows now:
+// a good install makes the row say «login» and a failed one leaves it on «install».
+export function showSignInAfterConsole(ranStep, result) {
+  if (ranStep !== "install" || !result) return false;
+  return (result.console_exit_code ?? 0) === 0;
+}
+
 export function canShowAllReady(item) {
   return item.available === true && !item.action && (!item.activation || item.activation.state === "active");
 }
@@ -366,7 +376,9 @@ function tlsButton(button) {
 function buildEntry(row, kind, setupStatus, mode, activation = null) {
   const perm = setupStatus?.permissions?.[row.id] || null;
   const activationRow = kind === "executor" ? activation : null;
-  const activationViewModel = kind === "executor" ? activationView(row, activationRow) : null;
+  const unsearched = isUnsearched(row);   // EXA-T05: «Not searched yet» says nothing about the app: no activation state is drawn
+  const notMeasured = wasNotMeasured(row) && kind === "executor";
+  const activationViewModel = kind === "executor" && !unsearched ? activationView(row, activationRow) : null;
   const conflict = activationViewModel?.state === "ready" &&
     (row.installed === false || ["probe_failed", "timed_out", "uninterpretable"].includes(row.version_result));
   const view = conflict
@@ -377,13 +389,14 @@ function buildEntry(row, kind, setupStatus, mode, activation = null) {
   const acpProbing = row.id === ACP_ID && view?.state === "ready" && (row.missing_step === "probe" || activationRow?.probe_required === true);
   const chip = statusChipFor(row, activationRow && !acpProbing ? view : null);
   const limited = row.available !== true && (Boolean(row.limit) || row.reason === "limit_reached" || row.reason === "quota_paused");
-  const reasonText = row.available
+  const reasonText = row.available || unsearched
     ? null
     : limited
       ? limitReachedText(row.limit || row.resets_at || row.paused_until)
       : (REASONS[row.reason] ? t(REASONS[row.reason]) : row.reason || t("ext.apps.reason.unavailable") + ".");
-  const action = missingAction(row, kind, setupStatus, mode);
+  const action = unsearched ? null : missingAction(row, kind, setupStatus, mode);
   return {
+    unsearched,
     id: row.id,
     kind,
     label: LABELS[row.id] || row.id,
@@ -391,13 +404,13 @@ function buildEntry(row, kind, setupStatus, mode, activation = null) {
     defaultOpen: isPendingStep(row),
     missingLine: missingSummaryLine(row, action, chip, reasonText),
     chip,
-    installed: installedLabel(row, kind),
-    version: row.version || (kind === "model" && row.id !== "ollama"
+    installed: notMeasured ? t("ext.apps.discovery.unsearched") : installedLabel(row, kind),
+    version: notMeasured ? t("ext.apps.discovery.unsearched") : row.version || (kind === "model" && row.id !== "ollama"
       ? t("ext.apps.not_applicable")
       : ["probe_failed", "timed_out", "uninterpretable"].includes(row.version_result)
         ? t("ext.apps.version_unchecked", { reason: t(VERSION_FAILURES[row.version_result]) })
         : t("ext.apps.version.no_data")),
-    session: sessionLabel(row, kind),
+    session: notMeasured ? t("ext.apps.discovery.unsearched") : sessionLabel(row, kind),
     enabled: enabledLabel(row),
     permissions: permissionSummary(row.id, perm, kind),
     quota: row.id === "gemini" ? [t("ext.apps.gemini.no_quota")] : quotaLines(row.quota),

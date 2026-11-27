@@ -139,6 +139,10 @@ class ExecutorActivationServices:
     def detector(self, value: Callable[..., dict] | None) -> None:
         self._detector = value
 
+    def _discovery_allowed(self) -> bool:
+        """EXA-T05: the one guard of this service. The detector runs only when the person accepted "Search for apps"."""
+        return self._services.connections.discovery_allowed(self.detector)
+
     @property
     def _dir(self) -> Path:
         return Path(self._services.settings.local_dir)
@@ -216,6 +220,8 @@ class ExecutorActivationServices:
                                     "sha256": _digest(normalized, major, None)},
                     "installed": bool(path), "probed": compatible, "session": "unknown"}
         app = _APPS[executor_id]
+        if not self._discovery_allowed():     # before any read: nothing is measured without the person's answer
+            raise _conflict("consent_required", "Search for apps on this computer first", executor_id=executor_id)
         try:
             observed = report if report is not None else self.detector(
                 cwd=Path.cwd(), context="packaged_process", include_antigravity=True)
@@ -282,7 +288,8 @@ class ExecutorActivationServices:
                         raise
         entries = self._read()
         report: Mapping[str, Any] | None = None
-        if any(executor_id not in entries for executor_id in _APPS):
+        searched = self._discovery_allowed()
+        if searched and any(executor_id not in entries for executor_id in _APPS):
             try:
                 report = self.detector(cwd=Path.cwd(), context="packaged_process", include_antigravity=True)
             except Exception:  # noqa: BLE001
@@ -294,6 +301,8 @@ class ExecutorActivationServices:
             session = "unknown"
             if entry is not None:
                 state = "paused" if entry["paused"] else "active"
+            elif executor_id in _APPS and not searched:
+                state = "not_installed"       # one of the five states; ``consent_required`` says nothing was measured
             else:
                 seen = self._observe(executor_id, report)
                 session = seen["session"]
@@ -305,6 +314,8 @@ class ExecutorActivationServices:
                          "activated_by": entry.get("by") if entry else None,
                          "paused": paused, "changes": list(paused.get("changes", [])) if paused else [],
                          "kill_switch_foreign": foreign and executor_id == "antigravity_cli"})
+            if entry is None and executor_id in _APPS and not searched:
+                rows[-1]["consent_required"] = True
             if executor_id == "codex_acp":
                 # the state stays one of the five of the contract; this flag says the next step is to probe
                 rows[-1].update(self._probe_flag(executor_id))
@@ -474,6 +485,9 @@ class ExecutorActivationServices:
             reason = "executor_paused_changed" if paused.get("reason") == "changed" else "executor_stopped_by_person"
             raise _conflict(reason, f"{_LABELS[executor_id]} is paused: activate it again in the GUI",
                             executor_id=executor_id, changes=paused.get("changes", []))
+        if executor_id in _APPS and not self._discovery_allowed():
+            # EXA-T05: without the person's answer nothing is measured, so no change can be seen: the activation stays as it is.
+            return
         current = self.fingerprint(executor_id)
         changes = compare(entry["fingerprint"], current)
         if not changes:

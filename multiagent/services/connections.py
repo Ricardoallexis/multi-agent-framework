@@ -13,7 +13,8 @@ from ..adapters.tls import effective_tls_trust, is_tls_failure, provider_ssl_con
 from ..executors.antigravity import LAUNCH_FLOOR_PERCENT, NOTICE_ID, PAUSE_FLOOR_PERCENT
 from ..executors.acp_probe import probe_codex_acp, resolve_codex_acp
 from ..routing.executor_capabilities import CapabilityEvidence, SupportState, validate_executor_descriptor
-from ..setup.detect import detect
+from ..setup import guided
+from ..setup.detect import COMMANDS, CONTRACT_DATE, detect
 from .errors import NOT_FOUND, ServiceError
 from .acp_history import should_keep_history
 from .limits import LIMIT_REASONS, limit_notice
@@ -39,6 +40,16 @@ TLS_EVENT = "provider.tls_trust_changed"
 TLS_SETTING = "provider_tls_trust"
 TLS_FIX_LABELS = {"windows": "Usar los certificados de Windows", "other": "Usar los certificados del sistema"}
 TLS_REVERT_LABEL = "Volver a los certificados de siempre"
+# EXA-T05: until the person answers "Search for apps on this computer" with ``accepted``, no app is measured.
+CONSENT_REQUIRED = "consent_required"
+# What the consent releases, and what it does not (the GUI draws the fixed note from these ids).
+DISCOVERY_RELEASES = ("version", "session_state")
+DISCOVERY_NOT_RELEASED = ("install", "sign_in", "activate", "credentials", "quota")
+DISCOVERY_PRESETS = ("claude", "codex", "copilot")
+
+
+def settings_notice(settings: Any) -> bool:
+    return getattr(settings, "antigravity_notice_accepted", None) == NOTICE_ID
 
 
 def _is_windows() -> bool:
@@ -55,9 +66,13 @@ class ConnectionServices:
     def __init__(self, services, *, detector: Callable[..., dict] = detect,
                  clock: Callable[[], datetime] | None = None,
                  acp_resolver: Callable[[Path], str | None] = resolve_codex_acp,
-                 acp_probe: Callable[..., dict[str, Any]] = probe_codex_acp):
+                 acp_probe: Callable[..., dict[str, Any]] = probe_codex_acp,
+                 require_discovery_consent: bool | None = None):
         self._services = services
         self.detector = detector
+        # ``None``: the consent guards the real detector (``setup.detect.detect``) and not a replaced one. A test that checks the
+        # guard itself sets ``True``, which guards any detector.
+        self.require_discovery_consent = require_discovery_consent
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self._acp_resolver = acp_resolver
         self._acp_probe = acp_probe
@@ -67,8 +82,60 @@ class ConnectionServices:
         self._acp_probe_result: dict[str, Any] | None = None
         self._acp_probe_path: str | None = None
 
+    # -------- EXA-T05: the consent to search for apps --------
+    def discovery_guarded(self, detector: Callable[..., dict] | None = None) -> bool:
+        """True when ``detector`` (this service's own by default) may run only after the person said yes."""
+        if self.require_discovery_consent is not None:
+            return bool(self.require_discovery_consent)
+        return (detector or self.detector) is detect
+
+    def discovery_answer(self) -> dict[str, Any] | None:
+        gui_settings = getattr(self._services, "gui_settings", None)
+        try:
+            return gui_settings.app_discovery() if gui_settings is not None else None
+        except Exception:  # noqa: BLE001 - an unreadable setting reads as "not answered"
+            return None
+
+    def discovery_allowed(self, detector: Callable[..., dict] | None = None) -> bool:
+        """The one guard of the apps: ``False`` while the setting is not ``accepted`` (and the detector is guarded)."""
+        if not self.discovery_guarded(detector):
+            return True
+        answer = self.discovery_answer()
+        return bool(answer and answer.get("answer") == "accepted")
+
+    def discovery(self) -> dict[str, Any]:
+        """What the card needs before and after the answer: the saved answer, what is read and the fixed presets."""
+        answer = self.discovery_answer()
+        reads = {app: [list(step) for step in steps if step] for app, steps in COMMANDS.items()}
+        presets = []
+        for app in (*DISCOVERY_PRESETS, "agy"):
+            plan = guided.step_plan(app, "install") if app in DISCOVERY_PRESETS else None
+            presets.append({"app": app, "id": next(key for key, value in APPS.items() if value == app),
+                            "install": ({"command": plan["command"], "source": plan["source"],
+                                         "source_date": plan["source_date"]} if plan else None)})
+        return {"answer": answer["answer"] if answer else None, "at": answer["at"] if answer else None,
+                "by": answer["by"] if answer else None, "allowed": self.discovery_allowed(),
+                "releases": list(DISCOVERY_RELEASES), "not_released": list(DISCOVERY_NOT_RELEASED),
+                "reads": reads, "reads_source_date": CONTRACT_DATE, "stored_in": "gui-settings.json",
+                "presets": presets}
+
+    def set_discovery(self, answer: str, *, actor: str = "user:gui", channel: str = "gui") -> dict[str, Any]:
+        """Save the person's answer. ``accepted`` makes the first measurement now; ``declined`` (also a withdrawal) stops them."""
+        self._services.gui_settings.set_app_discovery(answer, actor=actor, channel=channel)
+        for identifier in APPS:
+            self._last.pop(identifier, None)       # the next list() measures again, or says "not searched yet"
+        self._batch_detection = None
+        return {"discovery": self.discovery(), **self.list()}
+
+    def _app_unmeasured(self, identifier: str) -> bool:
+        row = self._last.get(identifier)
+        if row is None:
+            return True
+        return (row.get("discovery") == CONSENT_REQUIRED) == self.discovery_allowed()
+
     def list(self) -> dict[str, Any]:
-        if any(identifier not in self._last for identifier in APPS):
+        allowed = self.discovery_allowed()
+        if allowed and any(self._app_unmeasured(identifier) for identifier in APPS):
             try:
                 self._batch_detection = self.detector(cwd=Path.cwd(), context="packaged_process",
                                                       include_antigravity=True, parallel_apps=True,
@@ -77,7 +144,8 @@ class ConnectionServices:
                 self._batch_detection = {}
         try:
             for identifier in IDS:
-                if identifier in {"gemini", ACP_CONNECTION_ID} or identifier not in self._last:
+                if identifier in {"gemini", ACP_CONNECTION_ID} or identifier not in self._last or (
+                        identifier in APPS and self._app_unmeasured(identifier)):
                     self.check(identifier)
         finally:
             self._batch_detection = None
@@ -157,6 +225,9 @@ class ConnectionServices:
             return
         app = APPS[identifier]
         settings = self._services.settings
+        if not self.discovery_allowed():
+            self._unsearched(row, app)
+            return
         try:
             observed = self._batch_detection if self._batch_detection is not None else self.detector(
                 cwd=Path.cwd(), context="packaged_process", include_antigravity=True, app=app)
@@ -207,6 +278,26 @@ class ConnectionServices:
         if row["reason"] is None and row["version_result"] in {"probe_failed", "timed_out", "uninterpretable"}:
             row["reason"] = "version_check_failed"
         self._quota(row, app)
+
+    def _unsearched(self, row: dict[str, Any], app: str) -> None:
+        """The row of an app nobody looked for yet: nothing was measured, and nothing is claimed.
+
+        An executor the person activated stays available as before (the saved activation does not depend on a measurement).
+        The only reads here are settings and files: no process starts and no quota is asked.
+        """
+        row.update(executable_found=None, installed=None, version=None, version_result=None, detection_context=None,
+                   windows_package_path=False, detection_observed_at=None, session="unknown", discovery=CONSENT_REQUIRED)
+        activations = getattr(self._services, "executor_activations", None)
+        try:
+            activated = row["id"] in activations.active_ids() if activations is not None else False
+        except Exception:  # noqa: BLE001
+            activated = False
+        row["enabled"] = activated
+        if app == "agy":
+            row["notice_id"] = NOTICE_ID
+            row["notice_accepted"] = settings_notice(self._services.settings)
+        if not activated:
+            row["reason"] = CONSENT_REQUIRED
 
     def _quota(self, row: dict[str, Any], app: str) -> None:
         try:

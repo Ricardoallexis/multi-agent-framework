@@ -52,12 +52,15 @@ function actionsFor(id, status) {
 export function startRows(status) {
   if (!status || !Array.isArray(status.steps)) return [];
   const pending = Array.isArray(status.pending) ? new Set(status.pending) : null;
+  // EXA-T05: «Inicio» measures nothing. While the person has not allowed «Search for apps», the steps that need the apps say so.
+  const unsearched = status.discovery === null || status.discovery === "declined";
   return status.steps
     .filter((step) => step && !step.done && (step.applicable === false || !pending || pending.has(step.id)))
     .map((step) => {
       const row = { id: step.id, title: String(step.title || ""), actions: actionsFor(step.id, status) };
       if (step.id === "try_mock") row.note = TRY_MOCK_NOTE;
-      if (step.id === "activate" && step.applicable === false) row.note = t("start.not_applicable");
+      if (step.id === "connect" && unsearched) row.note = t("start.discovery_note");
+      if (step.id === "activate" && step.applicable === false) row.note = unsearched ? t("start.discovery_note") : t("start.not_applicable");
       return row;
     });
 }

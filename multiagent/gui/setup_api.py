@@ -143,6 +143,15 @@ def add_setup_routes(api: APIRouter, services: Any) -> None:
         evidence = confirmed_setup_approval(app, body.step)
         guide_fn = getattr(services, "setup_guide", None) or guided.guide_step
         extra: dict[str, Any] = {}
+        connections = getattr(services, "connections", None)
+        if connections is not None and getattr(services, "setup_detector", None) is None:
+            # EXA-T05: the measurement after the console closes is a search too: without the person's answer it does not run.
+            def guarded_detector(**kwargs: Any) -> dict[str, Any]:
+                if not connections.discovery_allowed(guided.detect):
+                    return {"skipped": "consent_required"}
+                return guided.detect(**kwargs)
+
+            extra["detector"] = guarded_detector
         for attr, key in (("setup_launcher", "launcher"), ("setup_detector", "detector"), ("setup_system", "system")):
             value = getattr(services, attr, None)
             if value is not None:

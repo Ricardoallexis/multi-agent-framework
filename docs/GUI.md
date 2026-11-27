@@ -503,6 +503,18 @@ first and the models (Gemini, OpenAI, Ollama) after them. **Actualizar** reads t
 again from `GET /gui/api/connections` and `GET /gui/api/setup/status`; it spends no model
 and opens nothing.
 
+**Search for apps on this computer.** Until the person answers **Search once** in the card
+at the top, the screen starts nothing when it opens: every app row says "Not searched yet"
+and no process runs; **Not now** keeps it that way. The answer (`accepted` or `declined`,
+with its hour and who gave it) is saved in `gui-settings.json`; the result of a search is
+not, so the next start measures again without asking, and **Withdraw consent** stops it.
+The consent lets the product run only fixed read-only commands (the version and the
+session status of each app) and releases nothing else: no install, no sign-in, no
+activation, no credentials, no quota. Once the answer is **Search once**, **Actualizar**
+and **Volver a comprobar** measure again without asking, and each install keeps its own
+confirmation. The card is the only place that writes the answer. An executor that is
+already activated stays activated and available without it.
+
 Each tool in the list is a fold: its 44 px summary shows the name, the state in words and,
 while folded, the missing step in one line. A tool with a pending step starts open; the
 others start folded. The console steps are unchanged; the lines to copy for an executor are gone, see **Activar** below.
@@ -640,8 +652,10 @@ Gemini, OpenAI and Ollama, not the executors; see
 **Volver a comprobar** measures that one tool again through
 `POST /gui/api/connections/{id}/check`, without generating with any model, and is the
 step to use after installing, signing in or restarting. When a console closes, the
-card rechecks that tool by itself; a path added to `PATH` by an install can show only in
-consoles opened afterwards.
+card rechecks that tool by itself; a path added to `PATH` by an install can show only in consoles
+opened afterwards. That recheck also waits for the consent: until the answer is **Search
+once**, the console closes without measuring the tool again and the row keeps saying
+"Not searched yet".
 
 *Limits.* The GUI installs nothing by itself and signs in to nothing: it opens a console
 for the person, who presses Enter. The consoles enable no executor; only the person turns
@@ -923,6 +937,7 @@ The token-protected GUI routes these views use:
 | `GET /gui/api/pending/background` | Runs that are `running` or `queued`, for «En fondo» in «Pendientes» (read only). |
 | `GET /gui/api/runs/{id}/tool-approval/preview?permission_request_id=` | Content and diff of a pending `file.write` approval, only when the rebuilt arguments match its fingerprint; writes nothing. |
 | `GET /gui/api/connections`, `POST /gui/api/connections/{id}/check` | Cached connection facts for the seven model providers and executor apps, or a fresh check of one; no model is called and no key value is returned. |
+| `GET /gui/api/connections/discovery`, `PUT /gui/api/connections/discovery` | The person's answer to **Search for apps on this computer** (`{answer, at, by}`, read only), or saving it (`{"answer"}`, `accepted` or `declined`, GUI token only); saving `accepted` makes the first measurement and answers it with the connections. No `/api/v1` route or CLI command writes it. |
 | `GET /gui/api/setup/status` | For «Apps y agentes»: whether launching is allowed (`gui_allow_launch`) and the console is supported, the read-only presence of each permission template, and the fixed, dated install and sign-in plans (read only; no template file is read, only checked for presence). |
 | `POST /gui/api/setup/console` | Open the visible Windows console for a fixed `install` or `login` step of a tool; the body is only `{"id", "step"}` (any other field is 422, an unsupported step 400). It answers `202` with a `console_id` as soon as the console starts, without waiting for it to close (`200` when the step has nothing to open). It answers `403 launch_disabled` when `gui_allow_launch` is off, `409 console_already_open` while another console is open and `409 launch_unsupported` outside Windows. |
 | `GET /gui/api/setup/console` | State of the latest console: `none`, `open`, `closed` (with the exit code and the new measurement) or `failed` (read only). |
@@ -1325,7 +1340,9 @@ The built-in screens still list their stylesheets in `index.html`; new views do 
 ## Start screen steps (server)
 
 The **Inicio** screen follows five steps. The server computes each one from the real state of the installation, never
-from a click: `GET /gui/api/start` returns them, and the screen only draws them.
+from a click: `GET /gui/api/start` returns them, and the screen only draws them. Its answer also carries `discovery`,
+the person's answer to **Search for apps on this computer**: until it is `accepted`, the `connect` step measures
+nothing and says so, with a link to «Apps y agentes».
 
 | Step | Done when |
 | --- | --- |

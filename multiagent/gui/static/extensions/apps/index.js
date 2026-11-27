@@ -12,10 +12,12 @@ import { t } from "../../js/i18n.js";
 import { StatusChip } from "../../js/ui/status-chip.js";
 import { Tabs } from "../../js/ui/tabs.js";
 import { HELP } from "./help.js";
-import { buildAppsView, canShowAllReady, groupModelsByType } from "./model.js";
+import { buildAppsView, canShowAllReady, groupModelsByType, showSignInAfterConsole } from "./model.js";
 import { activationNote, stopAllConfirmText } from "./activation-model.js";   // EJE-T02
 import { activateExecutor, deactivateExecutor, requestActivation, stopAllExecutors } from "./activation.js";
 import { AcpPanel } from "./acp.js";   // ACP-T04
+import { DiscoveryCard } from "./discovery.js";   // EXA-T05
+import { DISCOVERY_PATH } from "./discovery-model.js";
 
 registerHelp(HELP, "apps");
 
@@ -27,6 +29,7 @@ const chipLabels = () => ({
   conflict: { text: t("ext.apps.status.conflict"), tone: "danger", shape: "square",
     explanation: t("ext.apps.chip.conflict") },
   unverified: { text: t("ext.apps.status.unverified"), tone: "neutral", shape: "ring", explanation: t("ext.apps.chip.unverified") },
+  unsearched: { text: t("ext.apps.discovery.chip"), tone: "neutral", shape: "ring", explanation: t("ext.apps.chip.unsearched") },   // EXA-T05
   connected: { text: t("ext.apps.status.connected"), tone: "success", shape: "disc", explanation: t("ext.apps.chip.connected") },
   key_invalid: { text: t("ext.apps.status.key_invalid"), tone: "danger", shape: "square", explanation: t("ext.apps.chip.key_invalid") },
   no_access: { text: t("ext.apps.status.no_access"), tone: "danger", shape: "square", explanation: t("ext.apps.chip.no_access") },
@@ -86,6 +89,7 @@ function CopyBlock({ label, text, scope, statusText }) {
 function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDone, busyAny, onBusyChange }) {
   const [phase, setPhase] = useState("idle"); // idle | confirm | running
   const [result, setResult] = useState(null);
+  const [ranStep, setRanStep] = useState(null);   // EXA-T05: the step that was launched, whatever the row says afterwards
   const [error, setError] = useState(null);
   const confirmRef = useRef(null);
 
@@ -127,6 +131,7 @@ function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDon
   }, [consoleId, token]);
 
   async function launch() {
+    setRanStep(action.step);
     setPhase("running");
     onBusyChange(true);
     setError(null);
@@ -158,7 +163,7 @@ function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDon
     `}
     ${canOpen && phase === "idle" && html`<div class="apps-actions">
       <button type="button" class="btn" disabled=${busyAny} ...${helpFor("apps.open_console", { scope: item.id })}
-        onClick=${() => { setError(null); setResult(null); setPhase("confirm"); }}>${t("ext.apps.console.open")}</button>
+        onClick=${() => { setError(null); setResult(null); setPhase("confirm"); }}>${action.step === "install" ? t("ext.apps.install.button", { name: item.label }) : t("ext.apps.console.open")}</button>
       <${Help} topic="apps.open_console" compact=${true} scope=${item.id} />
     </div>`}
     ${canOpen && phase !== "idle" && html`<div class="apps-confirm" role="group" aria-label=${t("ext.apps.console.confirm_label", { name: item.label })}>
@@ -176,6 +181,7 @@ function ConsoleStep({ item, action, allowLaunch, consoleSupported, token, onDon
     ${result && html`<p class="message ok apps-status-line" role="status">
       ${t("ext.apps.console.closed", { code: result.console_exit_code ?? 0 })}
     </p>`}
+    ${showSignInAfterConsole(ranStep, result) && html`<p class="apps-step-text">${t("ext.apps.install.sign_in_yourself")}</p>`}
     ${error && html`<div role="alert">
       <p class="message error apps-status-line">${consoleErrorText(error)}</p>
       ${action.commandText && html`      <${CopyBlock} label=${t("ext.apps.console.official_command")} text=${action.commandText} scope=${item.id + "-errcmd"} />`}
@@ -458,18 +464,21 @@ export function AppsView({ token }) {
   const [composerOptions, setComposerOptions] = useState(null);
   const [optionsWarning, setOptionsWarning] = useState(null);
   const [tab, setTab] = useState("apps");
+  const [discovery, setDiscovery] = useState(null);   // EXA-T05
 
   async function loadAll() {
     setLoading(true);
     setError(null);
     setSetupWarning(null);
     setOptionsWarning(null);
-    const [connRes, setupRes, activationRes, optionsRes] = await Promise.allSettled([
+    const [connRes, setupRes, activationRes, optionsRes, discoveryRes] = await Promise.allSettled([
       apiGet("/gui/api/connections", token),
       apiGet("/gui/api/setup/status", token),
       apiGet("/gui/api/executors/activations", token),   // EJE-T02
       apiGet("/gui/api/composer/options", token),
+      apiGet(DISCOVERY_PATH, token),   // EXA-T05: reading the answer measures nothing
     ]);
+    setDiscovery(discoveryRes.status === "fulfilled" ? discoveryRes.value : null);
     setActivations(activationRes.status === "fulfilled" ? activationRes.value : null);
     setComposerOptions(optionsRes.status === "fulfilled" ? optionsRes.value : null);
     if (connRes.status === "fulfilled") {
@@ -489,6 +498,20 @@ export function AppsView({ token }) {
   }
 
   useEffect(() => { loadAll(); }, [token]);
+
+  // EXA-T05: the PUT already brings the answer and the measured rows, so only what depends on them is read again.
+  async function handleAnswered(saved) {
+    if (saved && saved.discovery) setDiscovery(saved.discovery);
+    if (saved && Array.isArray(saved.connections)) setConnections({ connections: saved.connections });
+    const [activationRes, setupRes, optionsRes] = await Promise.allSettled([
+      apiGet("/gui/api/executors/activations", token),
+      apiGet("/gui/api/setup/status", token),
+      apiGet("/gui/api/composer/options", token),
+    ]);
+    if (activationRes.status === "fulfilled") setActivations(activationRes.value);
+    if (setupRes.status === "fulfilled") setSetupStatus(setupRes.value);
+    if (optionsRes.status === "fulfilled") setComposerOptions(optionsRes.value);
+  }
 
   function handleRowUpdated(updated) {
     if (!updated || !updated.id) return;
@@ -548,6 +571,7 @@ export function AppsView({ token }) {
     ${optionsWarning && html`<p class="message" role="status">${t("ext.apps.read_options_failed")}: ${errorText(optionsWarning)}</p>`}
     ${loading && !connections && html`<p class="muted" role="status">${t("ext.apps.loading")}</p>`}
     ${!loading && !error && view.empty && html`<p class="muted">${t("ext.apps.empty")}</p>`}
+    ${discovery && html`<${DiscoveryCard} discovery=${discovery} mode=${mode} token=${token} onAnswered=${handleAnswered} />`}
     ${!view.empty && html`
       ${view.executors.length > 0 && view.canStopAll && html`<${StopAll} token=${token} onChanged=${() => handleActivationChanged(null)} />`}
       <${Tabs} id="apps-tabs" label=${t("ext.apps.tabs.label")} className="apps-tabs" selected=${tab} tabs=${tabs} onSelect=${setTab}

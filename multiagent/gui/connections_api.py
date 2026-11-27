@@ -3,6 +3,8 @@
 """Token-protected, read-only connection checks."""
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,11 +24,25 @@ class AcpConsentBody(BaseModel):
     keep_history: bool | None = None
 
 
+class DiscoveryBody(BaseModel):
+    """EXA-T05: the person's answer. ``declined`` is also how the consent is withdrawn."""
+    model_config = ConfigDict(extra="forbid")
+    answer: Literal["accepted", "declined"]
+
+
 def add_connection_routes(api: APIRouter, services) -> None:
     connections = getattr(services, "connections", None) or ConnectionServices(services)
     @api.get("/connections")
     def list_connections():
         return connections.list()
+
+    @api.get("/connections/discovery")
+    def get_discovery():
+        return connections.discovery()
+
+    @api.put("/connections/discovery")
+    def set_discovery(body: DiscoveryBody):    # only this GUI route writes the answer; no /api/v1 or CLI route does
+        return connections.set_discovery(body.answer)
 
     @api.post("/connections/{connection_id}/check")
     def check_connection(connection_id: str):

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -48,6 +49,43 @@ STEPS = {
 }
 
 
+# EXA-T05: only four npm failures are explained, each by stable markers of npm itself. Any other text is shown as a technical
+# detail and never interpreted. The order matters: a missing package is told apart before the network families.
+NPM_FAILURES: tuple[tuple[str, str, re.Pattern], ...] = (
+    ("npm_missing", "npm is not installed or not on PATH. Install Node.js, which includes npm, and try again.",
+     re.compile(r"npm['\"]? is not recognized|npm: (?:command )?not found|spawn npm ENOENT", re.I)),
+    ("permissions", "npm was not allowed to write where it installs global packages. Check the folder permissions.",
+     re.compile(r"\bEACCES\b|\bEPERM\b|permission denied|operation not permitted", re.I)),
+    ("package_not_found", "npm could not find the package. Check the package name in the source shown above.",
+     re.compile(r"\bE404\b|404 Not Found|No match found for version", re.I)),
+    ("network", "npm could not reach the registry. Check the network, the proxy and the certificates.",
+     re.compile(r"\bENOTFOUND\b|\bECONNREFUSED\b|\bECONNRESET\b|\bETIMEDOUT\b|\bEAI_AGAIN\b|getaddrinfo|"
+                r"\bproxy\b|SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|CERT_[A-Z_]+|ERR_SOCKET_TIMEOUT", re.I)),
+)
+NPM_DETAIL_LIMIT = 1000
+
+
+def explain_npm_failure(text: str | None) -> dict:
+    """``{family, message, detail}`` for the output of a failed npm command.
+
+    ``family`` is one of ``npm_missing``, ``permissions``, ``package_not_found`` and ``network``; any other text is
+    ``technical_detail`` with no message: it is shown as it is, never interpreted.
+    """
+    detail = (text or "").strip()[-NPM_DETAIL_LIMIT:]
+    for family, message, pattern in NPM_FAILURES:
+        if pattern.search(detail):
+            return {"family": family, "message": message, "detail": detail}
+    return {"family": "technical_detail", "message": None, "detail": detail}
+
+
+def _print_npm_failure(text: str | None) -> None:
+    explained = explain_npm_failure(text)
+    if explained["message"]:
+        print(explained["message"], flush=True)
+    if explained["detail"]:
+        print("Technical detail:\n" + explained["detail"], flush=True)
+
+
 def step_plan(app: str, step: str) -> dict:
     """Return only dated, fixed commands; there is no caller supplied command."""
     if app == "agy" and step == "login":
@@ -73,13 +111,24 @@ def console_step(app: str, step: str, *, wait=input, run=subprocess.run,
     wait("Press Enter to run this command here, or close this window to cancel... ")
     executable = find(command[0])
     if not executable:
-        print(f"{command[0]} is not on PATH. Install the prerequisite and try again.", flush=True)
+        if command[0] == "npm":
+            print(NPM_FAILURES[0][1], flush=True)
+        else:
+            print(f"{command[0]} is not on PATH. Install the prerequisite and try again.", flush=True)
         return 1
     # These sources are winget/npm packages and official CLI commands, never
     # remote scripts. A script source would require a pinned SHA-256 first.
+    # npm keeps its errors on stderr: they are read here so a failure can be explained, then printed as they were.
+    captured = {"stderr": subprocess.PIPE, "text": True, "errors": "replace"} if command[0] == "npm" else {}
     result = run([executable, *command[1:]], cwd=str(Path.home()),
-                 env=launch_safety.launch_environment(), shell=False, check=False)
+                 env=launch_safety.launch_environment(), shell=False, check=False, **captured)
     exit_code = result.returncode
+    if captured:
+        errors = getattr(result, "stderr", None)
+        if exit_code != 0:
+            _print_npm_failure(errors)
+        elif errors:
+            print(errors, flush=True)
     if app == "claude" and step == "install" and exit_code == 0:
         claude = find("claude")
         powershell = find("powershell")

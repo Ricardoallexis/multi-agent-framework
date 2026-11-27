@@ -29,4 +29,5 @@ export default {
   "start.cancel": "Cancelar",
   "start.times": "Tiempos",
   "start.copy": "Copiar",
+  "start.discovery_note": "Aún no se han buscado las apps. Abre «Apps y agentes» y elige «Buscar una vez».",
 };

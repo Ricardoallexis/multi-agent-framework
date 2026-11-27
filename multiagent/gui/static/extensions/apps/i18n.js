@@ -4,6 +4,31 @@
 import { registerTranslations } from "../../js/i18n.js";
 
 const en = {
+  "ext.apps.discovery.title": "Search for apps on this computer",
+  "ext.apps.discovery.summary": "To show which apps you have, this app can look once on this computer: only which apps are installed, their version and whether they are signed in.",
+  "ext.apps.discovery.summary_declined": "Nothing is searched. Search once to see which apps are installed.",
+  "ext.apps.discovery.summary_accepted": "Searching is on. “Refresh” and “Check again” measure again without asking.",
+  "ext.apps.discovery.reads_intro": "Read-only commands that will run:",
+  "ext.apps.discovery.stored": "Your answer is saved in {file} on this computer. The result of the search stays in memory and is measured again after a restart.",
+  "ext.apps.discovery.note": "This does not install apps, sign in, activate any executor, read credentials or spend quota.",
+  "ext.apps.discovery.accept": "Search once",
+  "ext.apps.discovery.decline": "Not now",
+  "ext.apps.discovery.withdraw": "Withdraw consent",
+  "ext.apps.discovery.accepted_at": "You allowed the search on {when}.",
+  "ext.apps.discovery.declined_at": "You answered “Not now” on {when}.",
+  "ext.apps.discovery.working": "Searching…",
+  "ext.apps.discovery.saving": "Saving…",
+  "ext.apps.discovery.chip": "Not searched yet",
+  "ext.apps.discovery.unsearched": "Not searched yet",
+  "ext.apps.discovery.presets_title": "Official install commands:",
+  "ext.apps.discovery.presets_note": "An Install button appears on the card of each app that was not found. Each install asks for its own confirmation.",
+  "ext.apps.discovery.preset_command": "{name}: {command}",
+  "ext.apps.discovery.preset_none": "{name}: no install command; install it yourself.",
+  "ext.apps.discovery.preset_source": "(Source: {source}, {date})",
+  "ext.apps.chip.unsearched": "Nothing was measured. Choose “Search once” to look for apps on this computer.",
+  "ext.apps.reason.consent_required": "Not searched yet",
+  "ext.apps.install.button": "Install {name}",
+  "ext.apps.install.sign_in_yourself": "Sign in yourself in the app or its official terminal.",
   "ext.apps.activation.state.not_installed": "Not installed",
   "ext.apps.activation.state.no_session": "Installed, not signed in",
   "ext.apps.activation.state.ready": "Ready to activate",
@@ -297,6 +322,64 @@ const en = {
   "ext.apps.reason.acp_probe_required": "The adapter has not been checked yet."
 };
 const es = {
+  "ext.apps.discovery.title": "Buscar apps en este equipo",
+  "ext.apps.discovery.summary": "Para mostrar qué apps tienes, esta aplicación puede mirar una vez en este equipo: solo qué apps están instaladas, su versión y si tienen sesión.",
+  "ext.apps.discovery.summary_declined": "No se busca nada. Busca una vez para ver qué apps están instaladas.",
+  "ext.apps.discovery.summary_accepted": "La búsqueda está activada. «Actualizar» y «Volver a comprobar» vuelven a medir sin preguntar.",
+  "ext.apps.discovery.reads_intro": "Comandos de solo lectura que se ejecutarán:",
+  "ext.apps.discovery.stored": "Tu respuesta se guarda en {file} en este equipo. El resultado de la búsqueda queda en memoria y se vuelve a medir tras reiniciar.",
+  "ext.apps.discovery.note": "Esto no instala apps, no inicia sesión, no activa ningún ejecutor, no lee credenciales y no gasta cuota.",
+  "ext.apps.discovery.accept": "Buscar una vez",
+  "ext.apps.discovery.decline": "Ahora no",
+  "ext.apps.discovery.withdraw": "Retirar el permiso",
+  "ext.apps.discovery.accepted_at": "Permitiste la búsqueda el {when}.",
+  "ext.apps.discovery.declined_at": "Respondiste «Ahora no» el {when}.",
+  "ext.apps.discovery.working": "Buscando…",
+  "ext.apps.discovery.saving": "Guardando…",
+  "ext.apps.discovery.chip": "Sin buscar aún",
+  "ext.apps.discovery.unsearched": "Sin buscar aún",
+  "ext.apps.discovery.presets_title": "Comandos oficiales de instalación:",
+  "ext.apps.discovery.presets_note": "Un botón Instalar aparece en la tarjeta de cada app que no se encontró. Cada instalación pide su propia confirmación.",
+  "ext.apps.discovery.preset_command": "{name}: {command}",
+  "ext.apps.discovery.preset_none": "{name}: sin comando de instalación; instálalo tú.",
+  "ext.apps.discovery.preset_source": "(Fuente: {source}, {date})",
+  "ext.apps.chip.unsearched": "No se midió nada. Elige «Buscar una vez» para buscar apps en este equipo.",
+  "ext.apps.reason.consent_required": "Sin buscar aún",
+  "ext.apps.install.button": "Instalar {name}",
+  "ext.apps.install.sign_in_yourself": "Inicia sesión tú mismo en la app o en su terminal oficial.",
+  "help.apps.discovery": {
+    "title": "Buscar apps en este equipo",
+    "hint": "Permite una mirada a las apps que tienes, su versión y si tienen sesión.",
+    "more": [
+      "Mientras no respondas, esta pantalla no mide nada y cada app dice «Sin buscar aún».",
+      "Solo ejecuta los comandos de solo lectura de la versión y la sesión. Nunca instala, inicia sesión, activa un ejecutor, lee credenciales ni gasta cuota.",
+      "Tu respuesta se guarda en este equipo. Puedes retirarla aquí cuando quieras y la búsqueda se detiene."
+    ]
+  },
+  "help.apps.discovery_accept": {
+    "title": "Buscar una vez",
+    "hint": "Permite la búsqueda y busca las apps ahora.",
+    "more": [
+      "Después, «Actualizar» y «Volver a comprobar» miden de nuevo sin preguntar.",
+      "Instalar una app es otro paso, con su propia confirmación."
+    ]
+  },
+  "help.apps.discovery_decline": {
+    "title": "Ahora no",
+    "hint": "Deja la búsqueda apagada. No se mide nada.",
+    "more": [
+      "Cada app sigue diciendo «Sin buscar aún».",
+      "Puedes elegir «Buscar una vez» más tarde en esta misma tarjeta."
+    ]
+  },
+  "help.apps.discovery_withdraw": {
+    "title": "Retirar el permiso",
+    "hint": "Deja de buscar apps a partir de ahora.",
+    "more": [
+      "Los ejecutores que ya activaste siguen activados.",
+      "Las filas vuelven a «Sin buscar aún» hasta que permitas la búsqueda otra vez."
+    ]
+  },
   "ext.apps.activation.state.not_installed": "No instalado",
   "ext.apps.activation.state.no_session": "Instalado, sin sesión",
   "ext.apps.activation.state.ready": "Listo para activar",

@@ -331,6 +331,23 @@
   padding-top: 4px;
 }
 
+/* EXA-T05: the card «Search for apps on this computer». Variables of app.css only. */
+.apps-discovery {
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.apps-discovery-commands {
+  margin: 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.apps-discovery-commands code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 /* ACP-T04: the Codex ACP card (install panel, probe, area consent, start of a conversation). Variables of app.css only. */
 .apps-acp-panel, .apps-acp-area, .apps-acp-consent, .apps-acp-start, .apps-acp-unavailable {
   display: flex;

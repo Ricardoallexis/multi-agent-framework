@@ -23,4 +23,5 @@ export default {
   "start.cancel": "Cancel",
   "start.times": "Times",
   "start.copy": "Copy",
+  "start.discovery_note": "Apps have not been searched for yet. Open Apps & agents and choose “Search once”.",
 };

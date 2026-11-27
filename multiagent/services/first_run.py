@@ -6,7 +6,8 @@ Every step is computed from the real state, never from a click:
 
 * ``install``: ``installed.list()`` has an entry with ``state: "ok"`` (the ``shipped`` example too);
 * ``try_mock``: a ``completed`` run created by this process, in Mock, whose document can be rendered;
-* ``connect``: ``connections.list()`` has an available row that is not a stand-in (rows only; no token is read);
+* ``connect``: ``connections.list()`` has an available row that is not a stand-in (rows only; no token is read; the
+  list measures no app until the person answers "Search for apps on this computer", EXA-T05);
 * ``activate``: ``executor_activations.active_ids()`` is not empty;
 * ``real_run``: a ``completed`` run created by this process with real models, with its document.
 
@@ -224,7 +225,10 @@ class FirstRunServices:
             minutes = max(0.0, round((moment - begun).total_seconds() / 60, 1)) if moment and begun else None
             times.append({"id": step, "done_at": steps[step], "minutes": minutes})
         mock = self._process_is_mock()
+        # EXA-T05: "Home" never measures an app; it only says whether the person answered "Search for apps" (and how).
+        answer = self._services.connections.discovery_answer()
         return {"schema": FIRST_RUN_SCHEMA, "steps": listing,
+                "discovery": answer["answer"] if answer else None,
                 "pending": [item["id"] for item in listing if not item["done"] and item["applicable"]],
                 "all_done": all(item["done"] or not item["applicable"] for item in listing),
                 "mock": mock, "models": "mock" if mock else "real",
