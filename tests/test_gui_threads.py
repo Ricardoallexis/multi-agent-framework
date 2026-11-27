@@ -148,3 +148,33 @@ def test_bundle_run_is_read_from_its_own_store(env):
     run_id = response.json()["id"]
     launch = entries(env, run_id)[0]
     assert launch["workflow_id"] == "spec_review" and launch["project_name"] == "Bundle thread"
+
+
+# -------- PRY-T11: the project of a run reaches the view and the launched entry --------
+def test_pry_t11_the_run_view_and_the_launched_entry_carry_the_project(tmp_path):
+    from multiagent.gui.runs import run_view
+    from multiagent.gui.threads_api import build_thread
+    from multiagent.run_request import RunRequest
+    from test_projects_service import make_project, make_services as make_project_services, plan_doc
+
+    svc = make_project_services(tmp_path / "local")
+    try:
+        project = make_project(svc, "mkt", plan_doc())
+        store = svc.system.store
+        on_task = store.create_run(RunRequest(workflow_id="w", project_name="own-name", task_id="mkt-INV-T01"), 4, 300)["id"]
+        own = store.create_run(RunRequest(workflow_id="w", project_name="own-name"), 4, 300)["id"]
+        for run_id, expected in ((on_task, (project["id"], project["title"])), (own, None)):
+            run = svc.runs.get(run_id)
+            view = run_view(svc, run)
+            launched = next(e for e in build_thread(svc, run)["entries"] if e["kind"] == "launched")
+            if expected is None:    # the run's own project: its id and title (the name given at creation)
+                expected = (run["project_id"], "own-name")
+            assert (view["project_id"], view["project_title"]) == expected
+            assert (launched["project_id"], launched["project_title"]) == expected
+            assert launched["project_name"] == view["project_name"] == "own-name"
+        # a package run without a task gives no id: it would be a link to "not found"
+        bundled = {**svc.runs.get(own), "bundle": "pkg"}
+        assert run_view(svc, bundled)["project_id"] is None
+        assert next(e for e in build_thread(svc, bundled)["entries"] if e["kind"] == "launched")["project_id"] is None
+    finally:
+        svc.runs.close()

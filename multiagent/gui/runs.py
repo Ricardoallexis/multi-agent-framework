@@ -276,6 +276,29 @@ def _awaits_human_step(run: dict[str, Any], pending: dict[str, Any] | None) -> b
     return bool(pending) and run["status"] == "waiting_human" and (run.get("waiting_reason") or "") in HUMAN_STEP_REASONS
 
 
+def _project_of_run(services, run: dict[str, Any]) -> tuple[str | None, str | None]:
+    """``(project_id, project_title)`` of a run, or ``(None, None)`` (PRY-T11).
+
+    The project of the run's task if that task belongs to one; otherwise the run's own project, only when the run
+    lives in the system store (a bundle's projects live in its own database, and the Projects view reads the system
+    one, so its id would be a link to "not found"). Both are read from the system database.
+    """
+    task_id = run.get("task_id") or (run.get("request") or {}).get("task_id")
+    own = None if run.get("bundle") else run.get("project_id")
+    if not task_id and not own:
+        return None, None
+    try:
+        with services.projects.store.db.connect() as conn:
+            row = conn.execute(
+                "SELECT p.id,p.title FROM tasks t JOIN task_groups g ON g.id=t.group_id "
+                "JOIN projects p ON p.id=g.project_id WHERE t.id=?", (str(task_id),)).fetchone() if task_id else None
+            if row is None and own:
+                row = conn.execute("SELECT id,title FROM projects WHERE id=?", (own,)).fetchone()
+    except Exception:  # a view must not fail because the project lookup could not run
+        return None, None
+    return (row["id"], row["title"]) if row else (None, None)
+
+
 def run_view(services, run: dict[str, Any]) -> dict[str, Any]:
     """The run as the screen needs it (see module docstring)."""
     events = run["events"]
@@ -296,11 +319,14 @@ def run_view(services, run: dict[str, Any]) -> dict[str, Any]:
     limit = (limit_notice(services, str(limit_attempt.get("model") or limit_attempt.get("provider") or ""),
                           retry_at=limit_attempt.get("retry_at"), provider=limit_attempt.get("provider"))
              if limit_attempt else None)
+    project_id, project_title = _project_of_run(services, run)
     return {
         "id": run["id"],
         "workflow_id": run["workflow_id"],
         "bundle": run.get("bundle"),
         "project_name": request.get("project_name") or "",
+        "project_id": project_id,
+        "project_title": project_title,
         "status": run["status"],
         "terminal": run["status"] in TERMINAL,
         "execution_mode": run.get("execution_mode") or "auto",

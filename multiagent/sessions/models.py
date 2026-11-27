@@ -105,6 +105,9 @@ class SessionSummary:
     reader: str = ""
     warnings: list[str] = field(default_factory=list)
     task_ids: list[str] = field(default_factory=list)   # tasks this session works on (PRY); filled by the services
+    project_id: str | None = None      # project of the session: its task's, or a system run's own (PRY-T11)
+    project_name: str | None = None
+    project_title: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {"id": self.id, "source": self.source.value, "surface": self.surface.value,
@@ -113,7 +116,9 @@ class SessionSummary:
                 "status": self.status.value, "parent_id": self.parent_id, "child_count": self.child_count,
                 "tokens": self.tokens.to_dict() if self.tokens else None,
                 "open_in_app": self.open_in_app.to_dict() if self.open_in_app else None,
-                "reader": self.reader, "warnings": list(self.warnings), "task_ids": list(self.task_ids)}
+                "reader": self.reader, "warnings": list(self.warnings), "task_ids": list(self.task_ids),
+                "project_id": self.project_id, "project_name": self.project_name,
+                "project_title": self.project_title}
 
 
 @dataclass

@@ -146,3 +146,16 @@ def test_each_header_gives_its_list_its_own_id():
     thread, session = ui_text(JS / "thread.js"), ui_text(JS / "session-detail.js")
     assert 'const listId = "shortcuts-list-" + scope' in thread and "aria-controls=${listId}" in thread and "id=${listId}" in thread
     assert 'scope="run"' in thread and 'scope="session"' in session
+
+
+@needs_node
+def test_pry_t11_the_real_shape_of_the_data_shows_the_project_shortcut():
+    # the keys the server now gives in a session summary, a run view and the launched entry
+    result = node("""
+      const real = {project_id: "9f2c", project_name: "atlas-run", project_title: "Atlas"};
+      const project = model.projectOf(real);
+      const items = model.shortcutsFor({mode: "simple", sessionId: "framework:r1", workers: null, project});
+      const none = model.shortcutsFor({mode: "simple", sessionId: "framework:r1", project: model.projectOf({project_id: null, project_name: null, project_title: null})});
+      console.log(JSON.stringify([items.map((item) => [item.id, item.href]), none.map((item) => item.id)]));
+    """)
+    assert result == [[["project", "#project/9f2c"], ["usage", "#usage"]], ["usage"]]

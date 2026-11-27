@@ -329,3 +329,74 @@ def test_stream_session_ends_with_an_error_event_when_the_session_vanishes(world
     got = collect(asyncio.run(asyncio.wait_for(scenario(), 20)))
     assert got[-1].event == "error" and got[-1].data["code"] == "not_found"
     assert [e.event for e in got].count("item") == 3
+
+
+# -------- PRY-T11: the project of a session --------
+def _project_world(world):
+    """Two synthetic projects, a run with its own project, one run on a task and a chat linked to a task."""
+    from multiagent.run_request import RunRequest
+    from test_projects_service import make_project, plan_doc
+
+    first = make_project(world.services, "mkt", plan_doc())
+    second = make_project(world.services, "alt", plan_doc(id="synthetic-other", title="Other campaign"))
+    store = world.services.system.store
+    own = add_framework_run(world.services, name="own-project-run")
+    on_task = store.create_run(RunRequest(workflow_id="w", project_name="another-name", task_id="alt-INV-T01"), 4, 300)["id"]
+    world.services.projects.link_session("mkt-INV-T01", SID, actor="user:ana")
+    return first, second, own, on_task
+
+
+def _by_id(world):
+    page = world.client.get("/gui/api/sessions", headers=world.auth).json()
+    return {s["id"]: s for s in page["sessions"]}
+
+
+def test_a_system_run_gives_its_own_project_and_a_run_on_a_task_the_one_of_the_task(world):
+    first, second, own, on_task = _project_world(world)
+    rows = _by_id(world)
+    mine = rows[f"framework:{own}"]
+    assert mine["project_name"] == "own-project-run" and mine["project_title"] == "own-project-run" and mine["project_id"]
+    # the task's project wins over the project the run was created under
+    task_run = rows[f"framework:{on_task}"]
+    assert (task_run["project_id"], task_run["project_title"]) == (second["id"], second["title"])
+    one = world.client.get(f"/gui/api/sessions/framework:{on_task}", headers=world.auth).json()
+    assert (one["project_id"], one["project_name"]) == (second["id"], second["name"])
+    assert world.client.get(f"/gui/api/sessions/framework:{own}", headers=world.auth).json()["project_id"] == mine["project_id"]
+
+
+def test_a_chat_of_another_app_gives_the_project_of_its_first_linked_task(world):
+    first, *_ = _project_world(world)
+    rows = _by_id(world)
+    assert (rows[SID]["project_id"], rows[SID]["project_title"]) == (first["id"], first["title"])
+    assert world.client.get(f"/gui/api/sessions/{SID}", headers=world.auth).json()["project_id"] == first["id"]
+    # an unlinked chat has none, and the three keys are always there
+    free = rows[f"codex:{CODEX_ID}"]
+    assert (free["project_id"], free["project_name"], free["project_title"]) == (None, None, None)
+
+
+def test_a_package_run_without_a_task_has_no_project_and_with_a_task_has_the_task_one(world, monkeypatch):
+    from multiagent.run_request import RunRequest
+    from test_projects_service import make_project, plan_doc
+
+    project = make_project(world.services, "mkt", plan_doc())
+    store = world.services.system.store
+    plain = store.create_run(RunRequest(workflow_id="w", project_name="package-own"), 4, 300)["id"]
+    tasked = store.create_run(RunRequest(workflow_id="w", project_name="package-own", task_id="mkt-INV-T01"), 4, 300)["id"]
+    # pretend both live in a package store: the same rows, tagged with a bundle
+    monkeypatch.setattr(world.services.runs, "_runtimes", lambda: [SimpleNamespace(bundle="pkg", store=world.services.system)])
+    rows = _by_id(world)
+    assert rows[f"framework:{plain}"]["project_id"] is None and rows[f"framework:{plain}"]["project_title"] is None
+    assert rows[f"framework:{tasked}"]["project_id"] == project["id"]
+    assert world.client.get(f"/gui/api/sessions/framework:{plain}", headers=world.auth).json()["project_id"] is None
+    assert world.client.get(f"/gui/api/sessions/framework:{tasked}", headers=world.auth).json()["project_id"] == project["id"]
+
+
+def test_the_list_resolves_the_projects_of_a_page_in_one_query(world, monkeypatch):
+    _project_world(world)
+    sessions = world.services.sessions
+    calls = []
+    original = sessions._project_metadata_by_task
+    monkeypatch.setattr(sessions, "_project_metadata_by_task", lambda ids: calls.append(list(ids)) or original(ids))
+    page = world.client.get("/gui/api/sessions", headers=world.auth).json()
+    assert len(page["sessions"]) >= 5 and len(calls) == 1
+    assert {"alt-INV-T01", "mkt-INV-T01"} <= set(calls[0])

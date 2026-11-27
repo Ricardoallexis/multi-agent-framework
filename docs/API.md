@@ -507,6 +507,17 @@ or `python -m multiagent.gui`. The read-only session service is also available
 through `multiagent sessions list`, `multiagent sessions show`, and
 `multiagent sessions items`.
 
+Session summaries (`multiagent sessions list` and `show`,
+`GET /gui/api/sessions` and `GET /gui/api/sessions/{id}`), the GUI run view
+(`GET /gui/api/runs/{id}` and the run actions) and the `launched` entry of a
+run thread carry `project_id` and `project_title`, and summaries also
+`project_name`; each is `null` without a project. The project is the one of
+the first linked task that belongs to a project; a framework run in the system
+store without such a task gives its own project; a run inside an office
+package gives none unless its task belongs to one. In the run view and the
+thread, `project_name` stays the name the run was created with, so it can
+differ from `project_title`.
+
 Team events (`GET /api/v1/team-events`) use one sequence for the whole team
 rather than one per run: an unfiltered read has no gaps, and a read filtered by
 group or task skips the events of other groups or tasks. See [`TASKS.md`](TASKS.md#team-events).

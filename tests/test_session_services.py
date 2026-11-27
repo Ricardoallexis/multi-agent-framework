@@ -226,7 +226,7 @@ def test_text_search_matches_project_metadata_on_runs_and_linked_sessions(servic
     assert ids(services.sessions.list_sessions(text="linked project title")) == [f"claude:{CLAUDE_ID}"]
     assert ids(services.sessions.list_sessions(text="linked-task-search")) == [f"claude:{CLAUDE_ID}"]
     summary = services.sessions.list_sessions(text="linked project title")["sessions"][0]
-    assert not {"project_id", "project_name", "project_title"} & summary.keys()
+    assert (summary["project_id"], summary["project_title"]) == ("linked-project-search", "Linked project title")  # PRY-T11
 
 
 @pytest.mark.parametrize("filters", [

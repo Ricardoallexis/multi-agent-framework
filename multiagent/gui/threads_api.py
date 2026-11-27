@@ -117,6 +117,7 @@ def build_thread(services: Any, run: dict[str, Any], *, after: int = 0) -> dict[
             request = run.get("request") or {}
             entry = {"kind": "launched", "text": f"Started {run['workflow_id']}",
                      "workflow_id": run["workflow_id"], "project_name": view["project_name"],
+                     "project_id": view["project_id"], "project_title": view["project_title"],
                      "execution_mode": view["execution_mode"], "operating_mode": run.get("operating_mode"),
                      "task_id": run.get("task_id") or request.get("task_id"),
                      "task_href": "#plans" if run.get("task_id") or request.get("task_id") else None,

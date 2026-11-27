@@ -219,12 +219,14 @@ class SessionServices:
         return rows
 
     def _find_run(self, run_id: str) -> tuple[Any, dict[str, Any]]:
-        for _, store in self._stores():
+        for bundle, store in self._stores():
             with store.db.connect() as conn:
-                row = conn.execute("SELECT id,workflow_id,status,created_at,updated_at,task_id FROM runs WHERE id=?",
-                                   (run_id,)).fetchone()
+                row = conn.execute(
+                    "SELECT r.id,r.workflow_id,r.status,r.created_at,r.updated_at,r.task_id,r.project_id,"
+                    "p.name AS project_name,p.title AS project_title FROM runs r "
+                    "LEFT JOIN projects p ON p.id=r.project_id WHERE r.id=?", (run_id,)).fetchone()
             if row is not None:
-                return store, dict(row)
+                return store, dict(row) | {"_bundle": bundle}
         raise ServiceError(NOT_FOUND, f"Session not found: framework:{run_id}", status=404)
 
     @staticmethod
@@ -257,7 +259,11 @@ class SessionServices:
             updated_at=normalize_ts(row["updated_at"]), models=list(models),
             status=_RUN_STATUS.get(row["status"], Status.UNKNOWN), tokens=tokens,
             open_in_app=OpenInApp("url", f"/gui/#run={row['id']}", False), reader=FRAMEWORK_READER,
-            task_ids=[row["task_id"]] if row.get("task_id") else [])
+            task_ids=[row["task_id"]] if row.get("task_id") else [],
+            # A run's own project counts only in the system store: a bundle's projects live in its own database,
+            # and the Projects view reads the system one (a link would end in "not found").
+            **({"project_id": row.get("project_id"), "project_name": row.get("project_name"),
+                "project_title": row.get("project_title")} if row.get("_bundle") is None else {}))
 
     @staticmethod
     def _text_matches(summary: SessionSummary, text: str, metadata: tuple[Any, ...] = ()) -> bool:
@@ -326,6 +332,21 @@ class SessionServices:
         linked = self._services.projects.store.task_ids_by_session([s.id for s in external])
         for summary in external:
             summary.task_ids = list(linked.get(summary.id, []))
+
+    def _with_projects(self, summaries: list[SessionSummary]) -> None:
+        """Project of each summary from its first linked task that belongs to one (one query for the page).
+
+        Without such a task a summary keeps what it has: a system run's own project, otherwise ``None``.
+        """
+        task_ids = [task_id for summary in summaries for task_id in summary.task_ids]
+        if not task_ids:
+            return
+        found = self._project_metadata_by_task(task_ids)
+        for summary in summaries:
+            for task_id in summary.task_ids:
+                if task_id in found:
+                    summary.project_id, summary.project_name, summary.project_title = found[task_id]
+                    break
 
     def _project_metadata_by_task(self, task_ids: list[str]) -> dict[str, tuple[Any, ...]]:
         wanted = list(dict.fromkeys(task_ids))
@@ -412,6 +433,7 @@ class SessionServices:
         page_rows = [replace(s) for s in rows[start:start + limit]]
         self._with_usage(page_rows, run_stores)
         self._with_task_ids(page_rows)
+        self._with_projects(page_rows)
         nxt = f"0:{start + limit}" if start + limit < len(rows) else None
         return {"sessions": [s.to_dict() for s in page_rows], "next_cursor": nxt, "warnings": warnings, "hint": None}
 
@@ -446,10 +468,13 @@ class SessionServices:
             if "framework" not in self._sources():
                 raise ServiceError(NOT_FOUND, f"Session not found: {session_id}", status=404)
             store, row = self._find_run(native)
-            return self._framework_summary(row, self._usage_by_run(store, [native]).get(native))
+            summary = self._framework_summary(row, self._usage_by_run(store, [native]).get(native))
+            self._with_projects([summary])
+            return summary
         with _session_errors():
             summary = replace(self._get_registry().get_session(session_id))
         self._with_task_ids([summary])
+        self._with_projects([summary])
         return summary
 
     def activity(self, session_id: str) -> dict[str, Any]:
