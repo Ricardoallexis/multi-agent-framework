@@ -575,15 +575,17 @@ def test_cwd_and_the_framework_root_are_forbidden(world, monkeypatch):
 
 @pytest.mark.parametrize("name", ["cmd.exe", "CMD.EXE", "PowerShell.exe", "pwsh", "wscript.exe", "cscript", "mshta.exe",
                                   "bash", "Bash.EXE", "sh", "zsh", "ksh", "fish", "csh", "tcsh", "dash", "wsl.exe",
-                                  "busybox"])
+                                   "busybox", "env", "env.exe", "ENV.EXE", "ash", "ASH.EXE", "mksh", "MKSH.EXE",
+                                   "rbash", "RBASH.EXE"])
 def test_command_interpreters_are_refused_by_base_name(world, name):
     program = make_file(world.tools, name)
     refused = api(world, "POST", "/acp-agents", declare(world, executable=str(program), args=["-c", "x"]))
     assert refused.status_code == 422 and reason_of(refused) == "executable_is_shell", name
 
 
-def test_an_interpreter_behind_a_link_is_refused_by_its_resolved_name(world):
-    target = make_file(world.tools, "bash")
+@pytest.mark.parametrize("name", ["bash", "env", "ash", "mksh", "rbash"])
+def test_an_interpreter_behind_a_link_is_refused_by_its_resolved_name(world, name):
+    target = make_file(world.tools, name)
     link = world.tools / "harmless-agent"
     try:
         link.symlink_to(target)
@@ -591,6 +593,41 @@ def test_an_interpreter_behind_a_link_is_refused_by_its_resolved_name(world):
         pytest.skip("symbolic links are not available here")
     refused = api(world, "POST", "/acp-agents", declare(world, executable=str(link), args=[]))
     assert refused.status_code == 422 and reason_of(refused) == "executable_is_shell"
+
+
+@pytest.mark.parametrize("form", ["plain", "uppercase", "flag"])
+def test_file_urls_inside_a_writable_folder_are_refused(world, form):
+    inside = make_file(world.area, "index.js")
+    url = inside.as_uri()
+    if form == "uppercase":
+        url = "FILE:" + url[5:]
+    elif form == "flag":
+        url = "--config=" + url
+    refused = api(world, "POST", "/acp-agents", declare(world, args=[url]))
+    assert refused.status_code == 422 and reason_of(refused) == "argument_in_writable_folder"
+
+
+def test_percent_encoded_file_urls_are_checked_after_decoding(world):
+    inside = make_file(world.area, "index.js")
+    url = inside.as_uri().replace("/index.js", "%2Findex.js")
+    with pytest.raises(ServiceError) as caught:
+        world.agents._check_argument_paths([url])
+    assert caught.value.details["reason"] == "argument_in_writable_folder"
+    refused = api(world, "POST", "/acp-agents", declare(world, args=[url]))
+    assert refused.status_code == 422 and reason_of(refused) == "argument_has_placeholder"
+
+
+def test_file_url_outside_writable_folders_and_https_url_stay_allowed(world):
+    script = make_file(world.tools, "index.js")
+    for name, url in (("Local URL", script.as_uri()), ("Web URL", "https://example.test/x")):
+        added = api(world, "POST", "/acp-agents", declare(world, name=name, args=[url]))
+        assert added.status_code == 200, added.text
+
+
+@pytest.mark.parametrize("url", ["file://remote.example/x", "file://", "file:relative/path", "file:///x?part=1"])
+def test_nonlocal_or_malformed_file_urls_are_refused(world, url):
+    refused = api(world, "POST", "/acp-agents", declare(world, args=[url]))
+    assert refused.status_code == 422 and reason_of(refused) == "argument_in_writable_folder"
 
 
 def test_program_interpreters_stay_allowed_with_a_script_outside_the_forbidden_folders(world):

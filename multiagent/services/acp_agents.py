@@ -48,7 +48,7 @@ _SHELL_SCRIPTS = (".cmd", ".bat", ".ps1", ".vbs", ".sh")
 # command interpreters (round 2): refused by base name, with and without ".exe", for the declared and the resolved path.
 # Program interpreters (node, python, deno, bun) stay allowed: their script argument obeys the same folder rules.
 _SHELLS = frozenset({"cmd", "powershell", "pwsh", "wscript", "cscript", "mshta", "bash", "sh", "zsh", "ksh", "fish",
-                     "csh", "tcsh", "dash", "wsl", "busybox"})
+                     "csh", "tcsh", "dash", "wsl", "busybox", "env", "ash", "mksh", "rbash"})
 _SCRIPT_EXTENSIONS = (".js", ".mjs", ".cjs", ".ts", ".py", ".pyw", ".rb", ".pl", ".php", ".ps1", ".bat", ".cmd", ".sh")
 _PLACEHOLDER_CHARS = frozenset("{}%$`<>")
 _ARG_SHELL_CHARS = frozenset(";&|\n\r\0")
@@ -276,13 +276,35 @@ class AcpAgentServices:
         return result
 
     def _check_argument_paths(self, args: list[str]) -> None:
+        from urllib.parse import unquote, urlsplit
+
         folders = self._forbidden_folders()
         for index, item in enumerate(args, start=1):
             candidates = [item] if not item.startswith("-") else []
             if "=" in item:
                 candidates.append(item.split("=", 1)[1])
             for candidate in candidates:
-                if not candidate or "://" in candidate:
+                if not candidate:
+                    continue
+                if candidate[:5].lower() == "file:":
+                    try:
+                        url = urlsplit(candidate)
+                    except ValueError:
+                        url = None
+                    if (url is None or url.netloc or url.query or url.fragment or not url.path
+                            or re.search(r"%(?![0-9a-fA-F]{2})", url.path)):
+                        raise _reject("argument_in_writable_folder",
+                                      f"Argument {index} is not a local absolute file path", argument=index)
+                    candidate = unquote(url.path)
+                    if candidate.startswith("//"):
+                        raise _reject("argument_in_writable_folder",
+                                      f"Argument {index} is not a local absolute file path", argument=index)
+                    if os.name == "nt" and re.match(r"^/[A-Za-z]:[/\\]", candidate):
+                        candidate = candidate[1:]
+                    if not Path(candidate).is_absolute() or (os.name == "nt" and not os.path.splitdrive(candidate)[0]):
+                        raise _reject("argument_in_writable_folder",
+                                      f"Argument {index} is not a local absolute file path", argument=index)
+                elif "://" in candidate:
                     continue
                 absolute = Path(candidate).is_absolute() and (os.name != "nt" or bool(os.path.splitdrive(candidate)[0])
                                                               or candidate.startswith("\\\\"))
