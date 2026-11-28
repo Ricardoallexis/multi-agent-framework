@@ -78,6 +78,7 @@ class LocalWorker:
                                              "active": 0, "waiting": False}
         self.worker_id = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
         self._stop = threading.Event()
+        self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._active: dict[str, threading.Thread] = {}
         self._deadline: float | None = None
@@ -93,6 +94,7 @@ class LocalWorker:
 
     def stop(self) -> None:
         self._stop.set()
+        self._wake.set()
         self._deadline = time.monotonic() + self.shutdown_wait_seconds
         if self._thread:
             self._thread.join(timeout=self.shutdown_wait_seconds + min(self.poll_seconds, 1) + 1)
@@ -182,55 +184,82 @@ class LocalWorker:
 
     def _loop(self) -> None:
         interval = min(self.poll_seconds, self.lease_seconds / 3)
-        while True:
-            # One clock reading per pass: recovery must judge leases against the time they were
-            # renewed at, or a late reading would requeue this worker's own live runs.
-            now = self.clock()
-            for run_id, thread in tuple(self._active.items()):
-                if not thread.is_alive():
-                    del self._active[run_id]
-                else:
-                    self.store.renew_lease(run_id, self.worker_id, now=now)
-            if self._stop.is_set():
-                if not self._active or (self._deadline is not None and time.monotonic() >= self._deadline):
-                    return
-            else:
-                try:
-                    self.engine.check_approval_deadlines()
-                except Exception:
-                    logger.exception("Could not inspect approval deadlines")
-                self.store.recover_running_runs(self.worker_id, lease_seconds=self.lease_seconds, now=now)
-                policy = self._policy()
-                slots, total, per_project = self._caps(policy)
-                self._batch_done()
-                while len(self._active) < slots and not self._stop.is_set():
-                    held = self._take_shared(policy)
-                    if held is False:
-                        break
-                    try:
-                        run = self.store.claim_queued_run(
-                            self.worker_id, lease_seconds=self.lease_seconds,
-                            max_active_total=total,
-                            max_active_per_project=per_project, now=now,
-                        )
-                    except BaseException:
-                        if held:
-                            self.shared_slots.release()     # a claim that raises never keeps the shared place
-                        raise
-                    if not run:
-                        if held:
-                            self.shared_slots.release()
-                        break
-                    thread = threading.Thread(target=self._process, args=(run, held),
-                                              name=f"multiagent-run-{run['id'][:8]}", daemon=True)
-                    self._active[run["id"]] = thread
-                    thread.start()
-                self._note_queue(policy, slots)
-            if self._stop.is_set():
-                remaining = max(0, (self._deadline or time.monotonic()) - time.monotonic())
-                threading.Event().wait(min(interval, remaining))
-            else:
-                self._stop.wait(interval)
+        next_periodic = time.monotonic()
+        next_notice = next_periodic
+        pending = False
+        try:
+            cancel = self.store.db.subscribe(self._wake.set)
+        except Exception:
+            cancel = lambda: None  # polling still works if notification is unavailable
+        try:
+            while True:
+                current = time.monotonic()
+                periodic = current >= next_periodic
+                noticed = pending and current >= next_notice
+                if not periodic and not noticed and not self._stop.is_set():
+                    deadline = min(next_periodic, next_notice if pending else next_periodic)
+                    if self._wake.wait(max(0, deadline - current)):
+                        self._wake.clear()
+                        pending = True
+                    continue
+                if periodic:
+                    next_periodic = current + interval
+                if noticed:
+                    pending = False
+                next_notice = current + 0.04
+                # One clock reading per pass keeps recovery aligned with lease renewal.
+                now = self.clock()
+                for run_id, thread in tuple(self._active.items()):
+                    if not thread.is_alive():
+                        del self._active[run_id]
+                    elif periodic:
+                        self.store.renew_lease(run_id, self.worker_id, now=now)
+                if not self._stop.is_set():
+                    if periodic:
+                        try:
+                            self.engine.check_approval_deadlines()
+                        except Exception:
+                            logger.exception("Could not inspect approval deadlines")
+                        self.store.recover_running_runs(self.worker_id, lease_seconds=self.lease_seconds, now=now)
+                    policy = self._policy()
+                    slots, total, per_project = self._caps(policy)
+                    if periodic:
+                        self._batch_done()
+                    while len(self._active) < slots and not self._stop.is_set():
+                        held = self._take_shared(policy)
+                        if held is False:
+                            break
+                        try:
+                            run = self.store.claim_queued_run(
+                                self.worker_id, lease_seconds=self.lease_seconds,
+                                max_active_total=total, max_active_per_project=per_project, now=now,
+                            )
+                        except BaseException:
+                            if held:
+                                self.shared_slots.release()
+                            raise
+                        if not run:
+                            if held:
+                                self.shared_slots.release()
+                            break
+                        thread = threading.Thread(target=self._process, args=(run, held),
+                                                  name=f"multiagent-run-{run['id'][:8]}", daemon=True)
+                        self._active[run["id"]] = thread
+                        thread.start()
+                    if periodic or len(self._active) < slots:
+                        self._note_queue(policy, slots)
+                if self._stop.is_set():
+                    if not self._active or (self._deadline is not None and time.monotonic() >= self._deadline):
+                        return
+                    self._wake.clear()
+                    remaining = max(0, (self._deadline or time.monotonic()) - time.monotonic())
+                    self._wake.wait(min(interval, remaining))
+                    self._wake.clear()
+                elif self._wake.is_set():
+                    self._wake.clear()
+                    pending = True
+        finally:
+            cancel()
 
     def process_once(self) -> bool:
         self.engine.check_approval_deadlines()

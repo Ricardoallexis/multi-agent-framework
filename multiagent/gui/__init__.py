@@ -110,7 +110,8 @@ def mount_gui(app: FastAPI) -> None:
                 body = iter(())  # unavailable projects end without revealing why
             else:
                 body = events.stream_project(latest, after=cursor, interval=max(timing["poll"], 0.05),
-                                             heartbeat=timing["heartbeat"], max_seconds=timing["max_seconds"])
+                                             heartbeat=timing["heartbeat"], max_seconds=timing["max_seconds"],
+                                             database=services.tasks.store.db)
         elif session is None:  # every run event of the system store
             if after is not None and _INT_CURSOR.fullmatch(after) is None:
                 raise ServiceError(INVALID_REQUEST, "after must be an integer >= 0", status=422,

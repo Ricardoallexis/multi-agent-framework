@@ -109,6 +109,14 @@ and retires active ones when returned; a later call can reopen the database.
 `RunServices.close()` and `release_bundle()` close their respective databases.
 Set `DB_REUSE_CONNECTIONS=false` to use a fresh handle per call.
 
+Committed row changes on a `Database` connection notify its in-process
+subscribers without event contents. The local worker uses this notice to check
+for queued runs, and database-backed SSE streams use it to reread their own
+filtered cursors. Both keep their existing polling intervals as maximum waits,
+so writes from another process and unavailable notifications are still picked
+up. The worker limits notice-driven claim attempts and runs lease renewal,
+recovery, and approval checks on the periodic clock.
+
 ## Local persistence
 
 Runtime data is not part of the versioned source tree. Editable checkouts use

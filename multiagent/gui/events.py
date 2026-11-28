@@ -56,7 +56,7 @@ def reset_shutdown() -> None:
     _stopping.clear()
 
 
-async def _pause(seconds: float) -> None:
+async def _pause(seconds: float, wake: asyncio.Event | None = None) -> None:
     """Sleep up to ``seconds``, returning at once when the flag is set.
 
     Not ``threading.Event.wait`` in a worker thread: each open stream would hold one of AnyIO's threads
@@ -67,7 +67,15 @@ async def _pause(seconds: float) -> None:
         left = deadline - time.monotonic()
         if left <= 0:
             return
-        await asyncio.sleep(min(left, _SLICE))
+        delay = min(left, _SLICE)
+        if wake is None:
+            await asyncio.sleep(delay)
+        else:
+            try:
+                await asyncio.wait_for(wake.wait(), delay)
+                return
+            except asyncio.TimeoutError:
+                pass
 
 
 def read_after(store, after: int, limit: int = BATCH, run_id: str | None = None) -> list[dict[str, Any]]:
@@ -89,26 +97,38 @@ def format_event(event: dict[str, Any]) -> str:
 async def stream(store, *, after: int, heartbeat: float, poll: float, max_seconds: float,
                  run_id: str | None = None) -> AsyncIterator[str]:
     started = last_beat = time.monotonic()
-    yield ": connected\n\n"
-    cursor = after
-    while True:
-        if is_shutting_down():
-            return
-        events = await anyio.to_thread.run_sync(read_after, store, cursor, BATCH, run_id)
-        for event in events:
-            cursor = event["id"]
-            yield format_event(event)
-        now = time.monotonic()
-        if events:
-            last_beat = now
-            if len(events) == BATCH:
-                continue
-        elif now - last_beat >= heartbeat:
-            last_beat = now
-            yield ": heartbeat\n\n"
-        if max_seconds and now - started >= max_seconds:
-            return
-        await _pause(poll)
+    wake = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    def notify() -> None:
+        loop.call_soon_threadsafe(wake.set)
+    try:
+        cancel = store.db.subscribe(notify)
+    except Exception:
+        cancel = lambda: None
+    try:
+        yield ": connected\n\n"
+        cursor = after
+        while True:
+            if is_shutting_down():
+                return
+            wake.clear()
+            events = await anyio.to_thread.run_sync(read_after, store, cursor, BATCH, run_id)
+            for event in events:
+                cursor = event["id"]
+                yield format_event(event)
+            now = time.monotonic()
+            if events:
+                last_beat = now
+                if len(events) == BATCH:
+                    continue
+            elif now - last_beat >= heartbeat:
+                last_beat = now
+                yield ": heartbeat\n\n"
+            if max_seconds and now - started >= max_seconds:
+                return
+            await _pause(poll, wake)
+    finally:
+        cancel()
 
 
 async def stream_acp(read: Callable[[int], dict[str, Any]], *, after: int, heartbeat: float,
@@ -240,28 +260,40 @@ async def stream_children(read: Callable[[], dict[str, Any]], *, interval: float
 
 
 async def stream_project(read: Callable[[], int | None], *, after: int, interval: float, heartbeat: float,
-                         max_seconds: float) -> AsyncIterator[str]:
+                         max_seconds: float, database: Any = None) -> AsyncIterator[str]:
     """Send only a project's newest team-event sequence when it moves beyond ``after``.
 
     The reader returns ``None`` when the project is no longer available; the stream then ends quietly.
     """
     started = last_beat = time.monotonic()
     cursor = after
-    yield ": connected\n\n"
-    while True:
-        if is_shutting_down():
-            return
-        seq = await anyio.to_thread.run_sync(read)
-        if seq is None:
-            return
-        now = time.monotonic()
-        if seq > cursor:
-            cursor = seq
-            last_beat = now
-            yield format_notice("project", {"seq": seq})
-        elif now - last_beat >= heartbeat:
-            last_beat = now
-            yield ": heartbeat\n\n"
-        if max_seconds and now - started >= max_seconds:
-            return
-        await _pause(interval)
+    wake = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    def notify() -> None:
+        loop.call_soon_threadsafe(wake.set)
+    try:
+        cancel = database.subscribe(notify)
+    except Exception:
+        cancel = lambda: None
+    try:
+        yield ": connected\n\n"
+        while True:
+            if is_shutting_down():
+                return
+            wake.clear()
+            seq = await anyio.to_thread.run_sync(read)
+            if seq is None:
+                return
+            now = time.monotonic()
+            if seq > cursor:
+                cursor = seq
+                last_beat = now
+                yield format_notice("project", {"seq": seq})
+            elif now - last_beat >= heartbeat:
+                last_beat = now
+                yield ": heartbeat\n\n"
+            if max_seconds and now - started >= max_seconds:
+                return
+            await _pause(interval, wake)
+    finally:
+        cancel()

@@ -43,7 +43,24 @@ def _write_lock(path: Path) -> Any:
         return lock
 
 
-class _PooledConnection(sqlite3.Connection):
+class _NotifyingConnection(sqlite3.Connection):
+    """Signal committed row changes, including writes made through a direct lease."""
+
+    def commit(self) -> None:
+        changed = self.total_changes != self._reported_changes
+        super().commit()
+        self._reported_changes = self.total_changes
+        if changed:
+            database = self._database_ref()
+            if database is not None:
+                database._notify()
+
+    def rollback(self) -> None:
+        super().rollback()
+        self._reported_changes = self.total_changes
+
+
+class _PooledConnection(_NotifyingConnection):
     """Remember cursors so a returned handle cannot keep a WAL read snapshot."""
 
     def cursor(self, *args: Any, **kwargs: Any) -> sqlite3.Cursor:
@@ -102,11 +119,39 @@ class Database:
         self.path = settings.db_path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._pool = _Pool()
+        self._subscribers: dict[int, Callable[[], None]] | None = None
+        self._next_subscription = 0
         self._finalizer = weakref.finalize(self, self._pool.close_all)
         _DATABASES.add(self)
         # Called with (run_id, event_type, payload, event_id) after a run event is stored (CAP-T21: the OpenTelemetry
         # spans follow the domain events). Best effort: whatever a listener raises never reaches the writer.
         self.event_listeners: list[Callable[[str, str, dict[str, Any], int | None], None]] = []
+
+    def subscribe(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Call back after this database commits row changes; return an unsubscribe function."""
+        with self._pool.lock:
+            if self._subscribers is None:
+                self._subscribers = {}
+            self._next_subscription += 1
+            key = self._next_subscription
+            self._subscribers[key] = callback
+
+        def cancel() -> None:
+            with self._pool.lock:
+                self._subscribers.pop(key, None)
+
+        return cancel
+
+    def _notify(self) -> None:
+        if not self._subscribers:
+            return
+        with self._pool.lock:
+            callbacks = tuple(self._subscribers.values())
+        for callback in callbacks:
+            try:
+                callback()
+            except Exception:
+                pass
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -131,7 +176,9 @@ class Database:
                 generation = self._pool.generation
         if entry is None:
             conn = sqlite3.connect(self.path, timeout=30, check_same_thread=False,
-                                   factory=_PooledConnection if pooled else sqlite3.Connection)
+                                   factory=_PooledConnection if pooled else _NotifyingConnection)
+            conn._database_ref = weakref.ref(self)
+            conn._reported_changes = conn.total_changes
             if pooled:
                 conn._cursors = weakref.WeakSet()
             conn.row_factory = sqlite3.Row
