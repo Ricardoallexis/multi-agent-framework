@@ -100,6 +100,15 @@ Defines the Pydantic input and output contracts exchanged between workflow steps
 
 Provides SQLite persistence, migrations, and access to run state, artifacts, projects, brand profiles, assets, publications, telemetry, and tasks (`task_store.py`: task groups, tasks, dependencies, and the team event log, where a state change and its event are committed together).
 
+`Database.connect()` reuses SQLite handles by database and thread. A nested lease
+gets a separate handle, so reads inside a write transaction see only committed
+data. Returning a handle closes its cursors and rolls back uncommitted work.
+`Database.tx()` serializes in-process writers by database file while SQLite's
+timeout still handles other processes. `Database.close()` releases idle handles
+and retires active ones when returned; a later call can reopen the database.
+`RunServices.close()` and `release_bundle()` close their respective databases.
+Set `DB_REUSE_CONNECTIONS=false` to use a fresh handle per call.
+
 ## Local persistence
 
 Runtime data is not part of the versioned source tree. Editable checkouts use

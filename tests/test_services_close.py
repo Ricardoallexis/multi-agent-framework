@@ -106,3 +106,28 @@ def test_close_does_not_wait_for_a_run_thread_that_needs_the_service(tmp_path, m
     services.runs.close()
     assert time.monotonic() - started < 10     # the worker waits up to 30 s for a run thread that never ends
     assert [name for name in framework_threads() if name not in before] == []
+
+
+def test_close_releases_system_and_bundle_database_handles(closed):
+    services, _tmp_path, _before = closed
+    assert services.system.store.db._pool.entries == []
+    assert services.runs._bundle_runtimes["general"].store.db._pool.entries == []
+
+
+def test_reopen_can_read_with_new_database_handles(closed):
+    services, _tmp_path, _before = closed
+    services.runs.reopen()
+    run = services.runs.create(RunRequest(**REQUEST), bundle="general")
+    assert services.runs.get(run["id"])["id"] == run["id"]
+    services.runs.close()
+
+
+def test_release_bundle_closes_only_its_database(tmp_path):
+    services = make_services(tmp_path)
+    complete_one_run(services)
+    bundle_db = services.runs._bundle_runtimes["general"].store.db
+    system_db = services.system.store.db
+    services.runs.release_bundle("general")
+    assert bundle_db._pool.entries == []
+    assert system_db._pool.entries
+    services.runs.close()

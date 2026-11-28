@@ -183,6 +183,7 @@ class Settings(BaseSettings):
     local_dir: Path = LOCAL_ROOT
     data_dir: Optional[Path] = None
     db_path: Optional[Path] = None
+    db_reuse_connections: bool = True
     runs_dir: Optional[Path] = None
     external_preview_ttl_seconds: int = Field(default=900, ge=1)
     external_evidence_max_file_bytes: int = Field(default=10_000_000, ge=1)

@@ -42,13 +42,24 @@ def test_migrations_and_wal(tmp_path):
 
 
 def test_database_connect_closes_handle(tmp_path):
-    """Regression test for WinError 32 while cleaning temporary databases on Windows."""
+    """Regression test for WinError 32 while cleaning temporary databases on Windows.
+
+    A reused handle stays open for the next lease and is released by ``Database.close()``; with
+    ``db_reuse_connections`` off, every lease closes its own handle as before.
+    """
     import sqlite3
 
     s = settings_for(tmp_path); system = build_system(s, dry_run=True)
     with system.db.connect() as conn:
         assert conn.execute("SELECT 1").fetchone()[0] == 1
+    system.db.close()
+    with pytest.raises(sqlite3.ProgrammingError):
+        conn.execute("SELECT 1")
 
+    off = settings_for(tmp_path / "off").model_copy(update={"db_reuse_connections": False})
+    legacy = build_system(off, dry_run=True)
+    with legacy.db.connect() as conn:
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
     with pytest.raises(sqlite3.ProgrammingError):
         conn.execute("SELECT 1")
 

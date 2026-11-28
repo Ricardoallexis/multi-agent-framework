@@ -1228,7 +1228,11 @@ def cmd_brand_generate(args) -> None:
         pretty(build_system(get_settings()).brand_service.generate_from_answers(answers, model_id=args.model)); return
     with tempfile.TemporaryDirectory(prefix="multiagent-brand-dryrun-") as tmp:
         settings = Settings(data_dir=Path(tmp), db_path=None, runs_dir=None, assets_dir=None, worker_enabled=False)
-        pretty(build_system(settings, dry_run=True).brand_service.generate_from_answers(answers, model_id=args.model))
+        system = build_system(settings, dry_run=True)
+        try:
+            pretty(system.brand_service.generate_from_answers(answers, model_id=args.model))
+        finally:
+            system.store.db.close()
 
 
 def cmd_brand_activate(args) -> None:
@@ -1258,18 +1262,21 @@ def cmd_brand_list(args) -> None:
 
 def _run_dry_run(args, settings: Settings) -> dict:
     system = build_system(settings, dry_run=True)
-    request = SocialPostRequest(
-        project_name=args.project, objective=args.objective, topic=args.topic, platform=args.platform,
-        audience=args.audience, instructions=args.instructions, requires_web=args.web,
-        research_mode=ResearchMode.GEMINI_GROUNDED if args.web else ResearchMode.NONE,
-        pipeline_mode=PipelineMode(args.pipeline), execution_mode=ExecutionMode.AUTO,
-    )
-    run = system.run_service.create_social_post(request)
-    while system.worker.process_once():
-        state = system.run_service.get(run["id"])
-        if state["status"] != "queued":
-            break
-    return system.run_service.get(run["id"])
+    try:
+        request = SocialPostRequest(
+            project_name=args.project, objective=args.objective, topic=args.topic, platform=args.platform,
+            audience=args.audience, instructions=args.instructions, requires_web=args.web,
+            research_mode=ResearchMode.GEMINI_GROUNDED if args.web else ResearchMode.NONE,
+            pipeline_mode=PipelineMode(args.pipeline), execution_mode=ExecutionMode.AUTO,
+        )
+        run = system.run_service.create_social_post(request)
+        while system.worker.process_once():
+            state = system.run_service.get(run["id"])
+            if state["status"] != "queued":
+                break
+        return system.run_service.get(run["id"])
+    finally:
+        system.store.db.close()
 
 
 def cmd_dry_run(args) -> None:

@@ -9,6 +9,15 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _close_database_handles():
+    """Release cached SQLite handles before pytest removes temporary folders on Windows."""
+    yield
+    from multiagent.db.database import Database
+
+    Database.close_all()
+
+
+@pytest.fixture(autouse=True)
 def _fresh_gemini_verification(monkeypatch):
     """CUO-T02: the Gemini check lives in process memory; every test starts «Sin comprobar»."""
     from multiagent import model_checks

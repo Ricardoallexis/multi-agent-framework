@@ -6,7 +6,6 @@ from __future__ import annotations
 import hashlib
 import json
 import random
-import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -14,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from multiagent.config import Settings
+from multiagent.db.database import Database
 from multiagent.db.task_store import TaskStore
 from multiagent.services import ApplicationServices, ServiceError
 from multiagent.services.tasks import TaskServices
@@ -33,21 +33,24 @@ def tasks(tmp_path: Path):
 
 @contextmanager
 def counted():
-    """Count SQLite connections opened and reads of the whole task table during one operation."""
+    """Count connection leases (``Database.connect``, ``tx`` included) and reads of the whole task table.
+
+    A lease is the unit that matters: with reused connections a warm operation opens no new SQLite handle at all.
+    """
     opened = [0]
     reads = [0]
-    original_connect = sqlite3.connect
+    original_connect = Database.connect
     original_list = TaskStore.list_tasks
 
-    def connect(*args, **kwargs):
+    def connect(self, *args, **kwargs):
         opened[0] += 1
-        return original_connect(*args, **kwargs)
+        return original_connect(self, *args, **kwargs)
 
     def list_tasks(self, *args, **kwargs):
         reads[0] += 1
         return original_list(self, *args, **kwargs)
 
-    with patch.object(sqlite3, "connect", connect), patch.object(TaskStore, "list_tasks", list_tasks):
+    with patch.object(Database, "connect", connect), patch.object(TaskStore, "list_tasks", list_tasks):
         yield opened, reads
 
 

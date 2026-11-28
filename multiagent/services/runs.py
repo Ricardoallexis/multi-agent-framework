@@ -241,6 +241,8 @@ class RunServices:
             runtime = self._bundle_runtimes.pop(name, None)
         if runtime is not None and runtime.worker is not None:
             runtime.worker.stop()
+        if runtime is not None:
+            runtime.store.db.close()
 
     def has_runs_in(self, name: str, statuses: tuple[str, ...]) -> bool:
         """Whether the bundle has a stored run in one of ``statuses``. Read only: it opens no runtime and gates nothing."""
@@ -320,6 +322,9 @@ class RunServices:
         for runtime in runtimes:
             if runtime.worker is not None:
                 runtime.worker.stop()
+        for runtime in runtimes:
+            runtime.store.db.close()
+        self._services.system.store.db.close()
 
     def reopen(self) -> None:
         """Allow runtimes of packages again, for services that outlive one API app."""
