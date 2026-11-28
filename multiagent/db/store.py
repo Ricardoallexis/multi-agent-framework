@@ -311,23 +311,35 @@ class Store:
             rows = conn.execute(
                 f"""SELECT r.id,r.workflow_id,r.status,r.current_step,r.brand_version,r.llm_calls,
                            r.max_llm_calls,r.waiting_reason,r.waiting_step,r.created_at,r.updated_at,
-                           r.error,p.id AS project_id,p.name AS project_name
+                           r.error,p.id AS project_id,p.name AS project_name,r.waiting_attempt
                     FROM runs r JOIN projects p ON p.id=r.project_id
                     {where}
                     ORDER BY r.created_at DESC LIMIT ?""",
                 params,
             ).fetchall()
             results = [dict(row) for row in rows]
+            # The durable wait (with its attempt, for stale-wait protection) comes from the main query.
+            # Approval events are read once, only for runs waiting on an approval, in fixed-size batches.
+            waiting = [item["id"] for item in results
+                       if item["status"] == RunStatus.WAITING_HUMAN.value
+                       and item.get("waiting_reason") == WaitingReason.APPROVAL_PENDING.value]
+            events_by_run: dict[str, list[dict[str, Any]]] = {}
+            for start in range(0, len(waiting), 500):
+                batch = waiting[start:start + 500]
+                marks = ",".join("?" for _ in batch)
+                for row in conn.execute(
+                        f"SELECT run_id,id,event_type,payload_json FROM run_events WHERE run_id IN ({marks}) "
+                        "AND event_type IN ('run.approval_pending','run.approval_overdue') ORDER BY id", batch):
+                    events_by_run.setdefault(row["run_id"], []).append(
+                        {"id": row["id"], "event_type": row["event_type"], "payload": json.loads(row["payload_json"])})
             for item in results:
-                # Read the durable wait, not an in-memory timer. Include the attempt for stale-wait protection.
-                saved = conn.execute("SELECT waiting_attempt FROM runs WHERE id=?", (item["id"],)).fetchone()
-                item["waiting_attempt"] = saved["waiting_attempt"]
-                events = [{"id": row["id"], "event_type": row["event_type"],
-                           "payload": json.loads(row["payload_json"])} for row in conn.execute(
-                    "SELECT id,event_type,payload_json FROM run_events WHERE run_id=? "
-                    "AND event_type IN ('run.approval_pending','run.approval_overdue') ORDER BY id", (item["id"],))]
-                item["attention"] = self._approval_attention(item, events)
+                item["attention"] = self._approval_attention(item, events_by_run.get(item["id"], []))
             return results
+
+    def has_run(self, run_id: str) -> bool:
+        """Whether the run exists in this store; one primary-key lookup, no run data is loaded."""
+        with self.db.connect() as conn:
+            return conn.execute("SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone() is not None
 
     def scene_runs(self, *, since: str, limit: int = 500) -> list[dict[str, Any]]:
         """Read the scene-safe fields of active runs and runs updated since ``since`` in one query."""

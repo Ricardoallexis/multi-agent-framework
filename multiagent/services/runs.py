@@ -266,11 +266,8 @@ class RunServices:
 
     def _find(self, run_id: str) -> _Runtime:
         for runtime in self._runtimes():
-            try:
-                runtime.store.get_run(run_id)
-            except KeyError:
-                continue
-            return runtime
+            if runtime.store.has_run(run_id):
+                return runtime
         raise ServiceError(NOT_FOUND, f"Run not found: {run_id}", status=404)
 
     def _tag(self, runtime: _Runtime, run: dict[str, Any]) -> dict[str, Any]:

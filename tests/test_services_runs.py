@@ -127,3 +127,28 @@ def test_unknown_workflow_is_not_found(services):
     assert error.code == "not_found"
     error = service_error(services.runs.create, request(workflow_id="missing"), bundle="team")
     assert error.code == "not_found"
+
+
+def test_get_loads_the_run_once_and_finds_bundle_runs(services):
+    run = services.runs.create(request(), bundle="team")
+    store = services.runs._bundle_runtime("team").store
+    calls = []
+    real = type(store).get_run
+
+    def counting(self, run_id):
+        calls.append(run_id)
+        return real(self, run_id)
+
+    type(store).get_run = counting
+    try:
+        found = services.runs.get(run["id"])
+        assert services.runs._find(run["id"]).bundle == "team"
+    finally:
+        type(store).get_run = real
+    assert found["bundle"] == "team" and found["id"] == run["id"]
+    assert calls == [run["id"]]          # the facade's lookup asks has_run; one full load remains
+
+
+def test_find_reports_a_missing_run_with_the_same_not_found(services):
+    error = service_error(services.runs.get, "missing-run")
+    assert (error.code, error.status, str(error)) == ("not_found", 404, "Run not found: missing-run")
