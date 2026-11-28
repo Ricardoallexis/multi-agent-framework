@@ -7,6 +7,8 @@ import { t } from "./i18n.js";
 import { TASK_STATE_TEXT } from "./plan-card-model.js";
 
 export const POLL_MS = 4000;
+export const THREAD_WAKE_MS = 2000;
+export const threadWakeDelay = (lastReadAt, now) => lastReadAt === null ? 0 : Math.max(0, THREAD_WAKE_MS - (now - lastReadAt));
 export const createThread = () => ({ entries: [], cursor: 0, status: "", loaded: false });
 export const pollAfter = (state) => Math.max(0, state.cursor - 1);
 

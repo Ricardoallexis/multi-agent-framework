@@ -8,12 +8,12 @@ import { Help, helpFor } from "./help.js";
 import { errorText } from "./text.js";
 import { AcpCard, ThreadCard } from "./thread-cards.js";
 import { authHeaders } from "./auth.js";
-import { parseBlock } from "./stream.js";
+import { parseBlock, startStream } from "./stream.js";
 import { DocumentCard } from "./document-card.js";
 import { SegmentBar } from "./segment-bar.js";   // AVZ-T04
 import { acpStartHref, acpThreadHref } from "./route.js";
 import { currentMode } from "./gui-mode.js";   // SIM-T03
-import { POLL_MS, composerState, createThread, entryKey, groupThread, isNearEnd, isTerminal, mergeThread, pollAfter,
+import { POLL_MS, THREAD_WAKE_MS, threadWakeDelay, composerState, createThread, entryKey, groupThread, isNearEnd, isTerminal, mergeThread, pollAfter,
   nextFollowing, shouldFollow, SMOOTH_MS, tailKey, projectOf, shortcutsFor,
   ACP_AGENTS_PATH, ACP_LIST_PATH, ACP_START_PATH, acpBundleOf, acpConsentReadPath, acpDeletePath, acpHistoryWarningKey, acpStartBody, acpStartFailure,
   acpStartedId, acpText, acpWho, acpComposerState, acpNeedsConsentNotice, acpPath, acpStreamPath, applyAcpStreamBlock, createAcpThread, groupAcpEvents,
@@ -77,11 +77,13 @@ export function RunThread({ token, runId }) {
   const current = useRef(createThread());
   const ticket = useRef(0);
   const inFlight = useRef(false);
+  const wakeControl = useRef(null);
 
   async function load(full = false) {
     if (document.hidden) return;
     if (inFlight.current && !full) return;
     inFlight.current = true;
+    wakeControl.current?.markRead(Date.now());
     const request = ++ticket.current;
     try {
       const after = full ? 0 : pollAfter(current.current);
@@ -94,6 +96,7 @@ export function RunThread({ token, runId }) {
       }
       if (request !== ticket.current) return;
       current.current = mergeThread(full ? createThread() : current.current, page);
+      if (isTerminal(current.current.status)) wakeControl.current?.stop();
       setThread(current.current);
       setReviewView(page.status === "waiting_human" ? view : null);
       setRunLimit(view ? view.limit || null : null);
@@ -108,12 +111,44 @@ export function RunThread({ token, runId }) {
   }
 
   useEffect(() => {
+    let stopped = false;
+    let wakeTimer = null;
+    let quietTimer = null;
+    let lastReadAt = null;
+    let stopStream = () => {};
+    const stop = () => {
+      stopped = true;
+      clearTimeout(wakeTimer);
+      clearTimeout(quietTimer);
+      stopStream();
+    };
+    const wake = () => {
+      if (stopped || document.hidden || isTerminal(current.current.status)) return;
+      const delay = threadWakeDelay(lastReadAt, Date.now());
+      if (delay || inFlight.current) {
+        clearTimeout(wakeTimer);
+        wakeTimer = setTimeout(wake, delay || 100);
+      } else load();
+    };
+    wakeControl.current = { markRead: (now) => { lastReadAt = now; }, stop };
     current.current = createThread(); setThread(current.current); setReviewView(null); setRunLimit(null); setRunSteps(null); setDecisions({}); setError(null);
-    load(true);
-    const timer = setInterval(() => { if (!isTerminal(current.current.status)) load(); }, POLL_MS);
+    load(true).then(() => {
+      if (stopped || isTerminal(current.current.status)) return;
+      // The thread cursor is per-run; it is only a lower bound for the store-wide SSE id.
+      stopStream = startStream({
+        token, session: "framework:" + runId, after: String(current.current.cursor), onStatus: () => {},
+        onEvent: () => {
+          if (stopped || document.hidden || isTerminal(current.current.status)) return;
+          wake();
+          clearTimeout(quietTimer);
+          quietTimer = setTimeout(wake, THREAD_WAKE_MS);
+        },
+      });
+    });
+    const timer = setInterval(() => { if (!isTerminal(current.current.status)) wake(); }, POLL_MS);
     const visible = () => { if (!document.hidden && !isTerminal(current.current.status)) load(); };
     document.addEventListener("visibilitychange", visible);
-    return () => { ticket.current += 1; inFlight.current = false; clearInterval(timer); document.removeEventListener("visibilitychange", visible); };
+    return () => { stop(); wakeControl.current = null; ticket.current += 1; inFlight.current = false; clearInterval(timer); document.removeEventListener("visibilitychange", visible); };
   }, [runId, token]);
 
   // Remember whether the person is reading the end; a scroll anywhere in the page updates it.

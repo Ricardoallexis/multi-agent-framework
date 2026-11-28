@@ -492,7 +492,7 @@ fingerprint (`arguments_sha256`) as the pending request; otherwise the card says
 why it cannot show them (the approval changed, file tools are not configured, the
 step no longer declares the call, or the arguments depend on an earlier step's
 output) and the call can still be approved or rejected without it. The thread of
-a run is read by polling every 4 s, not pushed; the team and plan threads are
+a run reads on stream events, with polling every 4 s as a fallback; the team and plan threads are
 read once and reload after a decision. The chat answers nothing by itself: every
 approval is a person's click.
 
