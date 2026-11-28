@@ -451,6 +451,8 @@ advanced visualization items below remain planned.
 
 **Parallel:** S15.C, S15.D, and S15.E after S15.B2.
 
+**Note (S15.A1, input only):** reproducible local benchmarks for runs, task graphs and concurrency live in `scripts/bench/`, and the first structural fixes they measured are done in Python: reused SQLite connections with serialized writers, a task graph read once per operation, run listing without per-run queries, and in-process commit notices that wake the local worker, the SSE streams and the run thread, with polling kept as the fallback. The architecture decision and the targets of S15.A1 remain open.
+
 ## S16 · Presets, examples, and catalog ◐
 
 - **Class:** Extension (package format, catalog) + Example (presets).
