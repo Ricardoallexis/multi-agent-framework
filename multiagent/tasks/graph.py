@@ -142,6 +142,26 @@ def validate_union(task_ids: Iterable[str], native: Iterable[Dependency],
     validate(task_ids, native_rows + normalized_legacy)
 
 
+def validate_new_task(task_id: str, native: Iterable[Dependency], legacy_release: Iterable[Dependency]) -> None:
+    """Validate the edges of a task that does not exist yet, without reading the rest of the graph.
+
+    Nobody depends on a new task, so its edges cannot close a cycle; what ``validate_union`` can still reject is a
+    task naming itself, a pair with two kinds and an unknown ``requires``. The messages are the same ones.
+    """
+    native_rows, legacy_rows = list(native), list(legacy_release)
+    pairs: set[tuple[str, str]] = set()
+    for edge in native_rows + legacy_rows:
+        pair = (str(edge["task_id"]), str(edge["depends_on_id"]))
+        if pair in pairs:
+            raise GraphError(f"Dependency pair has multiple kinds: {pair[0]} -> {pair[1]}")
+        pairs.add(pair)
+    for edge in native_rows + legacy_rows:
+        if edge["task_id"] == edge["depends_on_id"]:
+            raise GraphError(f"Task depends on itself: {edge['task_id']}")
+        if edge.get("requires", "accepted") not in _SATISFYING:
+            raise GraphError(f"Unknown requires: {edge.get('requires')!r}")
+
+
 def blockers(task_id: str, states: Mapping[str, str], dependencies: Iterable[Dependency]) -> list[dict[str, Any]]:
     """Unsatisfied dependencies of ``task_id``: ``{task_id, state, requires}`` in dependency order."""
     found = []
@@ -216,3 +236,76 @@ def parallel_layers(task_ids: Iterable[str], dependencies: Iterable[Dependency])
             layers.append([])
         layers[index].append(node)
     return layers
+
+
+class EdgeIndex:
+    """Dependency edges indexed by the task that waits and by the task waited for, in dependency order.
+
+    Built once per operation. ``visited`` counts the edges the questions looked at, so a test can tell that a
+    question costs what its own task has of edges and not the size of the graph.
+    """
+
+    def __init__(self, dependencies: Iterable[Dependency]):
+        self.edges: list[Dependency] = list(dependencies)
+        self.by_task: dict[str, list[Dependency]] = {}
+        self.by_prerequisite: dict[str, list[str]] = {}
+        for dep in self.edges:
+            self.by_task.setdefault(dep["task_id"], []).append(dep)
+            self.by_prerequisite.setdefault(dep["depends_on_id"], []).append(dep["task_id"])
+        self.visited = 0
+
+    def own(self, task_id: str) -> list[Dependency]:
+        """The edges ``task_id`` waits through, in dependency order."""
+        found = self.by_task.get(task_id, [])
+        self.visited += len(found)
+        return found
+
+    def dependents(self, task_id: str) -> list[str]:
+        """Tasks that wait directly for ``task_id``, in dependency order."""
+        found = self.by_prerequisite.get(task_id, [])
+        self.visited += len(found)
+        return list(found)
+
+    def blockers(self, task_id: str, states: Mapping[str, str]) -> list[dict[str, Any]]:
+        """Same result as :func:`blockers`, looking only at the edges of ``task_id``."""
+        found = []
+        for dep in self.own(task_id):
+            requires = dep.get("requires", "accepted")
+            state = states.get(dep["depends_on_id"])
+            if not is_satisfied(requires, state):
+                found.append({"task_id": dep["depends_on_id"], "state": state, "requires": requires})
+        return found
+
+    def effective_status(self, task_id: str, states: Mapping[str, str]) -> str:
+        """Same result as :func:`effective_status`."""
+        state = states[task_id]
+        if state != "open":
+            return state
+        return "blocked" if self.blockers(task_id, states) else "ready"
+
+    def statuses(self, states: Mapping[str, str]) -> dict[str, str]:
+        """Same result as :func:`statuses`."""
+        return {task_id: self.effective_status(task_id, states) for task_id in states}
+
+
+class IndexedEdges(list):
+    """A list of dependency edges that builds its :class:`EdgeIndex` the first time it is asked for it."""
+
+    _index: EdgeIndex | None = None
+    _indexed_length = -1
+
+    @property
+    def index(self) -> EdgeIndex:
+        if self._index is None or self._indexed_length != len(self):
+            self._index = EdgeIndex(self)
+            self._indexed_length = len(self)
+        return self._index
+
+
+def index_of(dependencies: Iterable[Dependency]) -> EdgeIndex:
+    """The index of ``dependencies``: the one an :class:`IndexedEdges` already has, or a new one."""
+    if isinstance(dependencies, EdgeIndex):
+        return dependencies
+    if isinstance(dependencies, IndexedEdges):
+        return dependencies.index
+    return EdgeIndex(dependencies)

@@ -217,6 +217,33 @@ def _overlaps(one: str, other: str) -> bool:
     return one == other or other.startswith(one + "/") or one.startswith(other + "/")
 
 
+class _Read:
+    """One read of the task graph for one operation: tasks, native edges (indexed) and the release context."""
+
+    def __init__(self, tasks: dict[str, dict[str, Any]], deps: graph.IndexedEdges, context: dict[str, Any]):
+        self.tasks = tasks
+        self.deps = deps
+        self.context = context
+        self.states = {task_id: task["state"] for task_id, task in tasks.items()}
+        self._statuses: dict[str, str] | None = None
+        self._by_group: dict[str, list[str]] | None = None
+
+    @property
+    def statuses(self) -> dict[str, str]:
+        """The effective status of every task, computed on first use."""
+        if self._statuses is None:
+            self._statuses = TaskServices._status_map(self.tasks, self.deps, self.context)
+        return self._statuses
+
+    def task_ids_of(self, group_id: str) -> list[str]:
+        """Ids of the tasks of one group, in creation order."""
+        if self._by_group is None:
+            self._by_group = {}
+            for task_id, task in self.tasks.items():
+                self._by_group.setdefault(task["group_id"], []).append(task_id)
+        return self._by_group.get(group_id, [])
+
+
 class TaskServices:
     def __init__(self, services: ApplicationServices):
         self._services = services
@@ -233,13 +260,74 @@ class TaskServices:
     # -------- helpers --------
     def _snapshot(self, conn: sqlite3.Connection) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
         tasks = {task["id"]: task for task in self.store.list_tasks(conn=conn)}
-        return tasks, self.store.dependencies(conn=conn)
+        return tasks, graph.IndexedEdges(self.store.dependencies(conn=conn))
 
     def _release_context(self, conn: sqlite3.Connection) -> dict[str, Any]:
         groups = {group["id"]: group for group in self.store.list_groups(conn=conn)}
-        return {"groups": groups,
-                "dependencies": self.store.legacy_release_dependencies(conn=conn),
+        legacy = self.store.legacy_release_dependencies(conn=conn)
+        by_task: dict[str, list[dict[str, Any]]] = {}
+        by_prerequisite: dict[str, list[str]] = {}
+        for edge in legacy:
+            by_task.setdefault(edge["task_id"], []).append(edge)
+            by_prerequisite.setdefault(edge["depends_on_id"], []).append(edge["task_id"])
+        return {"groups": groups, "dependencies": legacy, "by_task": by_task, "by_prerequisite": by_prerequisite,
                 "facts": self.store.release_facts(conn=conn)}
+
+    def _read(self, conn: sqlite3.Connection) -> _Read:
+        """The tasks, the edges and the release context, read once: what one operation asks its questions of."""
+        tasks, deps = self._snapshot(conn)
+        return _Read(tasks, deps, self._release_context(conn))
+
+    def _local_read(self, conn: sqlite3.Connection, task_id: str) -> _Read | None:
+        """What the view of one task needs and nothing more: the task, the tasks it waits for, its edges in both
+        directions, its group and the release facts of the tasks involved. ``None`` when the task does not exist.
+
+        The view of a task never looks at tasks that are not its neighbours, so this reads the same answers as
+        :meth:`_read` without reading the whole table.
+        """
+        task = self.store.get_task(task_id, conn=conn)
+        if task is None:
+            return None
+        deps = graph.IndexedEdges(self.store.dependencies(task_id=task_id, conn=conn)
+                                  + self.store.dependencies(depends_on_id=task_id, conn=conn))
+        legacy_own = self.store.legacy_release_dependencies(task_id=task_id, conn=conn)
+        legacy_dependents = self.store.legacy_release_dependencies(depends_on_id=task_id, conn=conn)
+        tasks = {task_id: task}
+        facts: dict[str, dict[str, Any]] = {}
+        for prerequisite in dict.fromkeys([dep["depends_on_id"] for dep in deps if dep["task_id"] == task_id] +
+                                          [edge["depends_on_id"] for edge in legacy_own] + [task_id]):
+            if prerequisite not in tasks:
+                found = self.store.get_task(prerequisite, conn=conn)
+                if found is not None:
+                    tasks[prerequisite] = found
+            fact = self.store.release_fact(prerequisite, conn=conn)
+            if fact is not None:
+                facts[prerequisite] = fact
+        group = self.store.get_group(task["group_id"], conn=conn)
+        legacy = legacy_own + legacy_dependents
+        by_task: dict[str, list[dict[str, Any]]] = {}
+        by_prerequisite: dict[str, list[str]] = {}
+        for edge in legacy:
+            by_task.setdefault(edge["task_id"], []).append(edge)
+            by_prerequisite.setdefault(edge["depends_on_id"], []).append(edge["task_id"])
+        context = {"groups": {task["group_id"]: group} if group is not None else {}, "dependencies": legacy,
+                   "by_task": by_task, "by_prerequisite": by_prerequisite, "facts": facts}
+        return _Read(tasks, deps, context)
+
+    @staticmethod
+    def _legacy_of(context: Mapping[str, Any], task_id: str) -> list[dict[str, Any]]:
+        """The release edges ``task_id`` waits through, in stored order."""
+        by_task = context.get("by_task")
+        if by_task is not None:
+            return by_task.get(task_id, [])
+        return [edge for edge in context["dependencies"] if edge["task_id"] == task_id]
+
+    @staticmethod
+    def _legacy_dependents(context: Mapping[str, Any], task_id: str) -> list[str]:
+        by_prerequisite = context.get("by_prerequisite")
+        if by_prerequisite is not None:
+            return by_prerequisite.get(task_id, [])
+        return [edge["task_id"] for edge in context["dependencies"] if edge["depends_on_id"] == task_id]
 
     @staticmethod
     def _release_edge_view(edge: Mapping[str, Any], tasks: Mapping[str, Mapping[str, Any]],
@@ -261,31 +349,31 @@ class TaskServices:
         state = states[task_id]
         if state != "open":
             return state
-        if graph.blockers(task_id, states, native):
+        if graph.index_of(native).blockers(task_id, states):
             return "blocked"
         if context is not None:
-            if any(edge["task_id"] == task_id and not cls._release_edge_view(edge, tasks, states, context)["satisfied"]
-                   for edge in context["dependencies"]):
+            if any(not cls._release_edge_view(edge, tasks, states, context)["satisfied"]
+                   for edge in cls._legacy_of(context, task_id)):
                 return "blocked"
         return "ready"
 
     @classmethod
     def _blockers(cls, task_id: str, states: Mapping[str, str], native: list[dict[str, Any]],
                   tasks: Mapping[str, Mapping[str, Any]], context: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
-        found = graph.blockers(task_id, states, native)
+        found = graph.index_of(native).blockers(task_id, states)
         if context is not None:
-            for edge in context["dependencies"]:
-                if edge["task_id"] == task_id:
-                    item = cls._release_edge_view(edge, tasks, states, context)
-                    if not item["satisfied"]:
-                        found.append(item)
+            for edge in cls._legacy_of(context, task_id):
+                item = cls._release_edge_view(edge, tasks, states, context)
+                if not item["satisfied"]:
+                    found.append(item)
         return found
 
     @classmethod
     def _status_map(cls, tasks: Mapping[str, Mapping[str, Any]], native: list[dict[str, Any]],
                     context: Mapping[str, Any] | None = None) -> dict[str, str]:
         states = cls._states(tasks)
-        return {task_id: cls._effective_status(task_id, states, native, tasks, context) for task_id in tasks}
+        index = graph.index_of(native)
+        return {task_id: cls._effective_status(task_id, states, index, tasks, context) for task_id in tasks}
 
     def _emit_newly_ready(self, conn: sqlite3.Connection, before: Mapping[str, str], after: Mapping[str, str],
                           tasks: Mapping[str, Mapping[str, Any]], actor: str, cause: str) -> None:
@@ -314,14 +402,20 @@ class TaskServices:
 
     def _view(self, task: Mapping[str, Any], states: Mapping[str, str], deps: list[dict[str, Any]],
               context: Mapping[str, Any] | None = None,
-              tasks: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+              tasks: Mapping[str, Mapping[str, Any]] | None = None, *,
+              conn: sqlite3.Connection | None = None,
+              provenance: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+        """The view of one task. ``provenance`` is the provenance of every task, when the caller already has it."""
         tasks = tasks or {str(task["id"]): task}
-        status = self._effective_status(task["id"], states, deps, tasks, context)
-        group = (context["groups"].get(task["group_id"]) if context is not None else None)             or self.store.get_group(task["group_id"]) or {}
+        index = graph.index_of(deps)
+        blockers = self._blockers(task["id"], states, index, tasks, context)
+        status = states[task["id"]]
+        if status == "open":
+            status = "blocked" if blockers else "ready"
+        group = (context["groups"].get(task["group_id"]) if context is not None else None)             or self.store.get_group(task["group_id"], conn=conn) or {}
         label_context = context if context is not None else {"facts": {}}
-        own = [dep for dep in deps if dep["task_id"] == task["id"]]
-        legacy = ([edge for edge in context["dependencies"] if edge["task_id"] == task["id"]]
-                  if context is not None else [])
+        own = index.own(task["id"])
+        legacy = self._legacy_of(context, task["id"]) if context is not None else []
         view = {
             "id": task["id"],
             "group_id": task["group_id"],
@@ -332,13 +426,12 @@ class TaskServices:
             "status": status,
             "label": labels.task_label(task["state"], status, authorized=bool(group.get("authorized")),
                                        released=self._released(task, group, label_context)),
-            "blockers": self._blockers(task["id"], states, deps, tasks, context),
+            "blockers": blockers,
             "depends_on": [{"task_id": dep["depends_on_id"], "requires": dep["requires"],
                             "satisfied": graph.is_satisfied(dep["requires"], states.get(dep["depends_on_id"]))}
                            for dep in own],
-            "dependents": list(dict.fromkeys(graph.dependents(task["id"], deps) +
-                                               ([edge["task_id"] for edge in context["dependencies"]
-                                                 if edge["depends_on_id"] == task["id"]]
+            "dependents": list(dict.fromkeys(index.dependents(task["id"]) +
+                                               (self._legacy_dependents(context, task["id"])
                                                 if context is not None else []))),
             "release_dependencies": [self._release_edge_view(edge, tasks, states, context)
                                      for edge in legacy],
@@ -359,27 +452,33 @@ class TaskServices:
         if continuity:
             # The wait of a task that hit a limit (CNT-T04): the hold and the counters of the continuity block.
             view["continuity"] = continuity
-        provenance = self.store.snapshot_provenance("task", str(task["id"]))
-        if provenance:
-            view["provenance"] = provenance
+        found = (provenance.get(str(task["id"])) if provenance is not None
+                 else self.store.snapshot_provenance("task", str(task["id"]), conn=conn))
+        if found:
+            view["provenance"] = found
             view["attempt_history"] = "unknown"
         return view
 
-    def _task_view(self, task_id: str, conn: sqlite3.Connection) -> dict[str, Any]:
-        tasks, deps = self._snapshot(conn)
-        return self._view(tasks[task_id], self._states(tasks), deps, self._release_context(conn), tasks)
+    def _task_view(self, task_id: str, conn: sqlite3.Connection, read: _Read | None = None) -> dict[str, Any]:
+        """The view of one task. ``read`` is a read of the graph the caller already made after its last write."""
+        if read is None:
+            read = self._local_read(conn, task_id)
+            if read is None:
+                raise KeyError(task_id)
+        return self._view(read.tasks[task_id], read.states, read.deps, read.context, read.tasks, conn=conn)
 
-    def _group_view(self, group: Mapping[str, Any], conn: sqlite3.Connection) -> dict[str, Any]:
-        tasks, deps = self._snapshot(conn)
-        context = self._release_context(conn)
-        states = self._states(tasks)
+    def _group_view(self, group: Mapping[str, Any], conn: sqlite3.Connection,
+                    read: _Read | None = None) -> dict[str, Any]:
+        read = read if read is not None else self._read(conn)
+        tasks, context = read.tasks, read.context
+        statuses = read.statuses
         counts: dict[str, int] = {}
         keys: list[str] = []
-        for task_id, task in tasks.items():
-            if task["group_id"] == group["id"]:
-                status = self._effective_status(task_id, states, deps, tasks, context)
-                counts[status] = counts.get(status, 0) + 1
-                keys.append(self._label_key(task, status, group, context))
+        for task_id in read.task_ids_of(group["id"]):
+            task = tasks[task_id]
+            status = statuses[task_id]
+            counts[status] = counts.get(status, 0) + 1
+            keys.append(self._label_key(task, status, group, context))
         if group.get("kind") == "activities":
             # The activities group is never verified or closed: only the unfinished ones decide its label.
             keys = [key for key in keys if key not in ("done", "cancelled", "failed")]
@@ -1042,7 +1141,8 @@ class TaskServices:
     def list_groups(self) -> list[dict[str, Any]]:
         """Every group, oldest first, with ``counts``."""
         with self.store.db.connect() as conn:
-            return [self._group_view(group, conn) for group in self.store.list_groups(conn=conn)]
+            read = self._read(conn)
+            return [self._group_view(group, conn, read) for group in self.store.list_groups(conn=conn)]
 
     # -------- tasks and dependencies --------
     @service_errors
@@ -1144,16 +1244,14 @@ class TaskServices:
                     if target is None:
                         raise _missing("Task", dep_id)
                     self._reject_activity_edge(target)
-                current_tasks, current_native = self._snapshot(conn)
-                current_legacy = self.store.legacy_release_dependencies(conn=conn)
-                planned_native = current_native + [{"task_id": task_id, "depends_on_id": dep_id,
-                                                    "requires": req or group["default_requires"]}
-                                                   for dep_id, req in wanted]
-                planned_legacy = current_legacy + [{"task_id": task_id, "depends_on_id": dep_id,
-                                                    "source_ref": ref}
-                                                   for dep_id, ref in wanted_release]
+                # A new task has only edges that leave it: nobody waits for it yet, so it cannot close a cycle.
+                planned_native = [{"task_id": task_id, "depends_on_id": dep_id,
+                                   "requires": req or group["default_requires"]}
+                                  for dep_id, req in wanted]
+                planned_legacy = [{"task_id": task_id, "depends_on_id": dep_id, "source_ref": ref}
+                                  for dep_id, ref in wanted_release]
                 try:
-                    graph.validate_union([*current_tasks, task_id], planned_native, planned_legacy)
+                    graph.validate_new_task(task_id, planned_native, planned_legacy)
                 except graph.GraphError as error:
                     raise _invalid("depends_on", str(error), cycle=getattr(error, "cycle", None)) from None
                 if group["lifecycle_state"] == "closed":
@@ -1380,10 +1478,10 @@ class TaskServices:
         Errors: ``not_found``.
         """
         with self.store.db.connect() as conn:
-            tasks, deps = self._snapshot(conn)
-            if task_id not in tasks:
+            read = self._local_read(conn, task_id)
+            if read is None:
                 raise _missing("Task", task_id)
-            return self._view(tasks[task_id], self._states(tasks), deps, self._release_context(conn), tasks)
+            return self._view(read.tasks[task_id], read.states, read.deps, read.context, read.tasks, conn=conn)
 
     @service_errors
     def list_tasks(self, *, group_id: str | None = None, status: str | None = None,
@@ -1395,14 +1493,22 @@ class TaskServices:
         if status is not None and status not in STATUSES:
             raise _invalid("status", f"status must be one of {', '.join(STATUSES)}")
         with self.store.db.connect() as conn:
-            tasks, deps = self._snapshot(conn)
-            states = self._states(tasks)
-            release_context = self._release_context(conn)
-            views = [self._view(task, states, deps, release_context, tasks) for task in tasks.values()]
-        return [view for view in views
-                if (group_id is None or view["group_id"] == group_id)
-                and (status is None or view["status"] == status)
-                and (assignee is None or view["assignee"] == assignee)]
+            return self._list_views(conn, group_id=group_id, status=status, assignee=assignee)
+
+    def _list_views(self, conn: sqlite3.Connection, *, group_id: str | None = None, status: str | None = None,
+                    assignee: str | None = None, authorized_only: bool = False) -> list[dict[str, Any]]:
+        """Views of the tasks that pass the filters, in creation order: one read, one query for the provenance."""
+        read = self._read(conn)
+        statuses = read.statuses
+        provenance = self.store.snapshot_provenance_of_type("task", conn=conn)
+        authorized = ({group["id"] for group in read.context["groups"].values() if group["authorized"]}
+                      if authorized_only else None)
+        return [self._view(task, read.states, read.deps, read.context, read.tasks, conn=conn, provenance=provenance)
+                for task_id, task in read.tasks.items()
+                if (group_id is None or task["group_id"] == group_id)
+                and (status is None or statuses[task_id] == status)
+                and (assignee is None or task["assignee"] == assignee)
+                and (authorized is None or (task["group_id"] in authorized and task.get("kind", "task") != "activity"))]
 
     @service_errors
     def ready_tasks(self, *, group_id: str | None = None) -> list[dict[str, Any]]:
@@ -1412,9 +1518,7 @@ class TaskServices:
         this queue (amendment 1 of PRY-T01).
         """
         with self.store.db.connect() as conn:
-            authorized = {group["id"] for group in self.store.list_groups(conn=conn) if group["authorized"]}
-        return [task for task in self.list_tasks(group_id=group_id, status="ready")
-                if task["group_id"] in authorized and task["kind"] != "activity"]
+            return self._list_views(conn, group_id=group_id, status="ready", authorized_only=True)
 
     @service_errors
     def add_dependency(self, task_id: str, depends_on_id: str, *, actor: str,
@@ -1464,24 +1568,22 @@ class TaskServices:
         """
         actor = _text("actor", actor, maximum=100)
         with self.store.transaction() as conn:
-            tasks, deps = self._snapshot(conn)
-            context = self._release_context(conn)
-            if task_id not in tasks:
+            read = self._read(conn)
+            if task_id not in read.tasks:
                 raise _missing("Task", task_id)
-            task = tasks[task_id]
+            task = read.tasks[task_id]
             self._assert_project_active(conn, self._group_or_missing(task["group_id"], conn))
-            states = self._states(tasks)
-            before = self._status_map(tasks, deps, context)
+            before = read.statuses
             if not self.store.delete_dependency(conn, task_id, depends_on_id):
                 raise ServiceError(NOT_FOUND, f"{task_id} does not depend on {depends_on_id}", status=404,
                                    details={"task_id": task_id, "depends_on_id": depends_on_id})
             self._bump(conn, task)
             self.store.append_event(conn, "dependency.removed", actor=actor, group_id=task["group_id"],
                                     task_id=task_id, payload={"depends_on_id": depends_on_id})
-            updated_tasks, updated_native = self._snapshot(conn)
-            after = self._status_map(updated_tasks, updated_native, self._release_context(conn))
-            self._emit_newly_ready(conn, before, after, updated_tasks, actor, f"dependency {depends_on_id} removed")
-            return self._task_view(task_id, conn)
+            updated = self._read(conn)
+            self._emit_newly_ready(conn, before, updated.statuses, updated.tasks, actor,
+                                   f"dependency {depends_on_id} removed")
+            return self._task_view(task_id, conn, updated)
 
     def _release_facts_view(self, task_id: str, conn: sqlite3.Connection) -> dict[str, Any]:
         task = self.store.get_task(task_id, conn=conn)
@@ -1840,16 +1942,16 @@ class TaskServices:
         if action not in table:
             raise _invalid("action", f"action must be one of {', '.join(table)}")
         allowed, target = table[action]
-        tasks, deps = self._snapshot(conn)
+        read = self._read(conn)
+        tasks = read.tasks
         if task_id not in tasks:
             raise _missing("Task", task_id)
         task = tasks[task_id]
-        before = self._states(tasks)
-        before_statuses = self._status_map(tasks, deps, self._release_context(conn))
+        before_statuses = read.statuses
         if gate and action == "gate_start" and task["attempt"] < 1:
             raise _conflict("A task imported as submitted has no current execution epoch; start it before running a gate",
                             task_id=task_id, attempt=task["attempt"], historical_attempts="unknown")
-        status = self._effective_status(task_id, before, deps, tasks, self._release_context(conn))
+        status = before_statuses[task_id]
         if expected_revision is not None and expected_revision != task["revision"]:
             raise _conflict(f"Task {task_id} is at revision {task['revision']}", task_id=task_id,
                             expected_revision=expected_revision, revision=task["revision"])
@@ -1906,9 +2008,8 @@ class TaskServices:
                 lock_policy_update = {"shared_scope": task["file_scope"], "workspace_scope": []}
                 epoch_pending_update = False
         if action in ("start", "resume"):
-            fresh_tasks, fresh_native = self._snapshot(conn)
-            fresh_context = self._release_context(conn)
-            blockers = self._blockers(task_id, self._states(fresh_tasks), fresh_native, fresh_tasks, fresh_context)
+            # Nothing was written since the read above: the same read answers.
+            blockers = self._blockers(task_id, read.states, read.deps, tasks, read.context)
             if blockers:
                 raise _conflict(f"Cannot {action}; task has unresolved blockers", task_id=task_id, blockers=blockers)
         cleared_wait = task.get("waiting") if (target in TERMINAL_STATES or
@@ -1929,10 +2030,9 @@ class TaskServices:
         reset_release = action in ("claim", "unclaim", "request_changes", "gate_fail", "reopen") or (
             action == "start" and task["state"] == "needs_changes")
         release_facts_reset = self.store.reset_release_fact(conn, task_id) if reset_release else False
-        updated_tasks, updated_native = self._snapshot(conn)
-        after_context = self._release_context(conn)
-        after_statuses = self._status_map(updated_tasks, updated_native, after_context)
-        after_state = self._states(updated_tasks)
+        updated = self._read(conn)
+        updated_tasks = updated.tasks
+        after_statuses = updated.statuses
         self.store.append_event(conn, event or _EVENT_OF_ACTION[action], actor=actor, group_id=task["group_id"],
                                 task_id=task_id, cause=cause,
                                 payload={"from": status, "to": after_statuses[task_id],
@@ -1942,7 +2042,7 @@ class TaskServices:
                                f"dependency {task_id} {target}")
         if action == "submit" and auto_accept and task.get("kind") == "activity":
             return self._accept_activity(conn, task_id, actor)
-        return self._task_view(task_id, conn)
+        return self._task_view(task_id, conn, updated)
 
     def _accept_activity(self, conn: sqlite3.Connection, task_id: str, actor: str) -> dict[str, Any]:
         """Accept a submitted activity in the caller's transaction: nobody reviews it (amendment 1 of PRY-T01)."""

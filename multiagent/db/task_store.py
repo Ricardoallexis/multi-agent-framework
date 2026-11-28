@@ -341,6 +341,22 @@ class TaskStore:
             ).fetchone()
         return dict(row) if row else None
 
+    def snapshot_provenance_of_type(self, object_type: str, *,
+                                    conn: sqlite3.Connection | None = None) -> dict[str, dict[str, Any]]:
+        """The provenance of every imported object of ``object_type``, by object id, in one query."""
+        with self._reader(conn) as c:
+            rows = c.execute(
+                "SELECT o.object_id,o.source_id,o.source_state,s.source_key,s.source_ref,s.snapshot_sha256,s.actor,"
+                "s.imported_at FROM task_snapshot_objects o JOIN task_snapshots s USING(source_key) "
+                "WHERE o.object_type=? AND s.state='applied'",
+                (object_type,),
+            ).fetchall()
+        found: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            item = dict(row)
+            found.setdefault(item.pop("object_id"), item)
+        return found
+
     # -------- dependencies --------
     def insert_dependency(self, conn: sqlite3.Connection, task_id: str, depends_on_id: str,
                           requires: str = "accepted") -> None:

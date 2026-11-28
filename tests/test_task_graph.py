@@ -23,6 +23,7 @@ from multiagent.tasks import (
     validate,
     would_create_cycle,
 )
+from multiagent.tasks.graph import EdgeIndex, IndexedEdges, index_of, validate_new_task, validate_union
 
 
 def dep(task: str, on: str, requires: str = "accepted") -> dict[str, str]:
@@ -162,3 +163,49 @@ def test_the_graph_module_imports_no_database_or_services():
                 names = [("." * node.level) + (node.module or "")]
             for name in names:
                 assert not any(part in name for part in ("db", "services", "sqlite3")), f"{path.name} imports {name}"
+
+
+# ------------------------------------------------------------------ indexed questions (RND-T04)
+
+
+def test_the_index_answers_like_the_functions_over_the_list():
+    edges = DIAMOND + [dep("E", "A", "submitted")]
+    index = EdgeIndex(edges)
+    for states in (all_open(), {**all_open(), "A": "accepted"}, {**all_open(), "A": "submitted", "B": "validating"},
+                   {**all_open(), "A": "accepted", "B": "accepted", "C": "accepted", "D": "claimed"}):
+        assert index.statuses(states) == statuses(states, edges)
+        for task in TASKS:
+            assert index.blockers(task, states) == blockers(task, states, edges)
+            assert index.effective_status(task, states) == effective_status(task, states, edges)
+    for task in TASKS:
+        assert index.dependents(task) == dependents(task, edges)
+
+
+def test_the_index_keeps_the_order_of_the_edges_and_counts_what_it_looks_at():
+    edges = [dep("D", "C"), dep("D", "B"), dep("X", "B")]
+    index = EdgeIndex(edges)
+    assert [d["depends_on_id"] for d in index.own("D")] == ["C", "B"]
+    assert index.dependents("B") == ["D", "X"]
+    assert index.visited == 4
+    assert index.own("nobody") == [] and index.visited == 4
+
+
+def test_indexed_edges_build_their_index_once_and_notice_a_longer_list():
+    edges = IndexedEdges(DIAMOND)
+    first = edges.index
+    assert edges.index is first and index_of(edges) is first
+    edges.append(dep("F", "E"))
+    assert edges.index is not first and edges.index.dependents("E") == ["F"]
+    assert index_of(first) is first
+    assert index_of(DIAMOND).by_task["D"] == [dep("D", "B"), dep("D", "C")]
+
+
+def test_a_new_task_is_validated_with_the_messages_of_the_whole_graph():
+    legacy = {"task_id": "N", "depends_on_id": "A", "source_ref": "doc://x"}
+    validate_new_task("N", [dep("N", "A")], [])
+    for native, release in (([dep("N", "N")], []), ([dep("N", "A", "done")], []), ([dep("N", "A")], [legacy])):
+        with pytest.raises(GraphError) as new:
+            validate_new_task("N", native, release)
+        with pytest.raises(GraphError) as whole:
+            validate_union(["A", "N"], native, release)
+        assert str(new.value) == str(whole.value)

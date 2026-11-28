@@ -252,3 +252,28 @@ def test_tasks_survive_a_restart(tmp_path):
     second = ApplicationServices.create(settings, dry_run=True).tasks
     assert second.get_task("A")["status"] == "claimed"
     assert second.events()[-1]["type"] == "task.claimed"
+
+
+def test_create_task_refuses_a_bad_dependency_with_the_same_codes_and_messages(tasks):
+    diamond(tasks)
+    missing = error(lambda: tasks.create_task("G", "N1", "N", actor="user", depends_on=["NOPE"]))
+    assert (missing.code, str(missing)) == ("not_found", "Task not found: NOPE")
+    itself = error(lambda: tasks.create_task("G", "N2", "N", actor="user", depends_on=["N2"]))
+    assert (itself.code, str(itself)) == ("invalid_request", "A task cannot depend on itself")
+    assert itself.details["cycle"] == ["N2", "N2"]
+    both = error(lambda: tasks.create_task("G", "N3", "N", actor="user", depends_on=["A"],
+                                           release_dependencies=[{"depends_on_id": "A", "source_ref": "doc://x"}]))
+    assert (both.code, str(both)) == ("invalid_request", "Dependency pair has multiple kinds: N3 -> A")
+    twice = error(lambda: tasks.create_task("G", "N4", "N", actor="user", depends_on=["A", "A"]))
+    assert (twice.code, str(twice)) == ("invalid_request", "Repeated dependency: A")
+    assert [t["id"] for t in tasks.list_tasks()] == list("ABCDE")
+
+
+def test_create_task_still_closes_no_cycle_and_add_dependency_still_finds_one(tasks):
+    diamond(tasks)
+    created = tasks.create_task("G", "F", "F", actor="user", depends_on=["E", {"task_id": "A", "requires": "submitted"}])
+    assert created["status"] == "blocked"
+    assert [d["task_id"] for d in created["depends_on"]] == ["E", "A"]
+    assert tasks.get_task("A")["dependents"] == ["B", "C", "F"]
+    cycle = error(lambda: tasks.add_dependency("A", "F", actor="user"))
+    assert cycle.code == "invalid_request" and cycle.details["cycle"][0] == cycle.details["cycle"][-1]
